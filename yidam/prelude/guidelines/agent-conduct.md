@@ -2,6 +2,13 @@
 
 Guidelines for agents operating in yidam-derived repositories.
 
+**How to read this file.** Every rule below is a sentence you can act on. The incident that
+produced a rule, the measurement that set its threshold, and the failure it was built against
+are in [agent-conduct.evidence.md](agent-conduct.evidence.md) — one section per rule, reached
+by the `[why]` link beside it. Read a rule's evidence when you are deciding a hard case,
+arguing that a rule is wrong, or changing one. You do not need it in order to comply, and it
+is not part of the recurring read.
+
 ## Commit deliberately
 
 Every commit is a permanent node in the knowledge graph. Before committing:
@@ -43,6 +50,7 @@ readers and agents can assess the node's reliability without reading sources:
 - `[open]` — a live question; the answer is unknown, contested, or under investigation
 
 **Rules:**
+
 - Untagged claims are only implicitly verified if the node is a direct transcription of a
   primary source. In all other cases, tag every non-obvious claim.
 - `[inference]` is not a weakness — it is honest. Untagged inference is the problem.
@@ -50,24 +58,16 @@ readers and agents can assess the node's reliability without reading sources:
   and permanent knowledge contribution.
 - A synthesis node will typically contain all three: verified facts it draws on, inferences
   it makes, and open questions it generates. This is expected and good.
-- **Write the tag exactly, and put anything else beside it.** `[verified — Pearl 2009]` is
-  not a tag: the counters match the three tokens exactly, so a bracketed form that folds a
-  citation inside matches nothing and the claim is counted as untagged. It looks tagged to a
-  reader and reads as bare assertion to every tool. Write `[verified]` and then the citation.
-  `yidam lint` reports the near miss as `claim-tag-malformed`.
+- **Write the tag exactly, and put anything else beside it.** `[verified — Pearl 2009]` is not
+  a tag. Write `[verified]` and then the citation. `yidam lint` reports the near miss as
+  `claim-tag-malformed`. [why](agent-conduct.evidence.md#claim-tag-malformed)
 - **A `[verified]` claim in a node that links no catalog entry is reported**, as
-  `verified-unsourced`. This rule is the first line of this section and, until that check
-  existed, nothing echoed it back: `catalog/` recorded provenance and three checks verified
-  the catalog's own bookkeeping, while no check asked whether a claim rested on anything.
-  Over-counting evidence is the flattering error and it is the one this vocabulary exists to
-  prevent — a mature corpus measured eight miscounts and every one of them promoted. The fix
-  is a citation or a demotion, and which is yours to decide: nothing proposes a promotion.
-  A `cites:` into a dependency does not discharge it, because a foreign tag is the
-  producer's and does not transfer.
-- **To name a tag rather than make one, say that you are naming it.** A node whose subject
-  touches the evidence vocabulary has to write the tokens to talk about them, and a scanner
-  reading bytes cannot tell that from an assertion. The signal is **grammar, not
-  typography** — a tag is read as named on four shapes and no others:
+  `verified-unsourced`. The fix is a citation or a demotion, and which it is belongs to you:
+  nothing proposes a promotion. A `cites:` into a dependency does not discharge it, because a
+  foreign tag is the producer's and does not transfer.
+  [why](agent-conduct.evidence.md#verified-unsourced)
+- **To name a tag rather than make one, say that you are naming it.** The signal is **grammar,
+  not typography** — a tag is read as named on four shapes and no others:
 
   | Shape | Example |
   |---|---|
@@ -76,49 +76,24 @@ readers and agents can assess the node's reliability without reading sources:
   | Object of a past-tense reporting verb | *An earlier version said they were `[open]`.* |
   | Negated | *This claim is not `[verified]`.* |
 
-  Anything inside a fenced block is shown rather than said, and is never counted.
-
-  **Backticks decide nothing**, and this bullet used to say the opposite. A derived corpus
-  writes 80% of its `[open]` claims in inline code — an open question is written mid-sentence
-  with the token set off from the prose around it, *"whether the two are connected is
-  `[open]`"*, while `[verified]` ends a sentence of fact and reads fine bare. Honouring the
-  backtick made that repository understate its open questions **fivefold** on its own front
-  page, with no diagnostic. The tags exist so a corpus cannot overstate what it knows, and
-  that is the one direction the rule must never fail in.
-
-  The present tense is not narration — *"this node now carries `[open]`"* applies a tag —
-  and neither is a copula: *"why the appointment was made is `[open]`"* is a live claim.
-  Both were cut from the rule by measurement, at eight false positives between them.
-
-  The rule is frozen alongside the `open_questions` arms in
-  [`sdks/parity/mcp/tools.json`](../sdks/parity/mcp/tools.json). A contract that says which
-  arms exist and leaves *what counts as a claim* unsaid lets two conforming implementations
-  disagree fivefold, which is exactly what happened.
+  Anything inside a fenced block is shown rather than said, and is never counted. Backticks
+  decide nothing. The present tense is not narration — *"this node now carries `[open]`"*
+  applies a tag — and neither is a copula: *"why the appointment was made is `[open]`"* is a
+  live claim. The rule is frozen alongside the `open_questions` arms in
+  [`sdks/parity/mcp/tools.json`](../sdks/parity/mcp/tools.json).
+  [why](agent-conduct.evidence.md#naming-a-tag)
 
 ### An edge is a claim
 
-Everything above is written for claims in prose, and an edge is a claim written as structure.
-`a →[requires]→ b` asserts that a requires b, as flatly as a sentence would, and it asserts it
-in the form a reader is least likely to check: the target exists, the relationship is in the
-class's declared vocabulary, and the graph gate passes. Nothing about a well-formed edge
-indicates whether it is true.
+An edge is a claim written as structure, so the rule about untagged inference applies to it and
+the honest options are the same three. State the relationship if you can defend it. Say what it
+rests on in the node body, and tag it there, if it is an inference. **Leave it out if you cannot
+do either.** Prefer a weaker relationship you can defend to a stronger one you cannot.
+[why](agent-conduct.evidence.md#edge-is-a-claim)
 
-So the rule about untagged inference applies here too, and the honest options are the same
-three. State the relationship if you can defend it. Say what it rests on in the node body, and
-tag it there, if it is an inference. **Leave it out if you cannot do either** — a missing edge
-is a gap someone can find and fill, while a wrong edge is knowledge the corpus now asserts, and
-every correct edge around it lends it credibility.
-
-Prefer a weaker relationship you can defend to a stronger one you cannot. `relates-to` between
-two things that genuinely relate is worth more than `causes` between two things that might not,
-because the first is honest about how much it knows.
-
-**The tag belongs on the edge, and the link carries two keys for it.** Saying what an edge rests
-on *in the node body* was the only remedy this section could offer for as long as a link had
-nowhere to put one, and it puts the tag where nothing associates it with the edge it is about — a
-node whose description says in so many words that a `resided-in` edge is a legal inference, with
-the edge two lines below saying nothing at all. So a link may declare `claim_tag:`, read by the
-same rule a `type: claim` property is read by, and `source:` where the standing is `verified`:
+**The tag belongs on the edge, and the link carries two keys for it.** A link may declare
+`claim_tag:`, read by the same rule a `type: claim` property is read by, and `source:` where
+the standing is `verified`:
 
 ```yaml
 # person/aldermanic-clerk.yml
@@ -132,45 +107,41 @@ links:
     source: 1889-municipal-register
 ```
 
-Three checks read them, and all three are named in `GRAPH.md`. `edge-verified-unsourced` reports an
-edge asserting `verified` with no `source:` — the edge half of `verified-unsourced`, and it needs
-no declaration, because writing the tag is what opts an edge in. `edge-untagged` reports an
-empirical edge that declares no standing, or one whose `claim_tag` spells none, and it runs only
-where the corpus asked for it:
+[why](agent-conduct.evidence.md#edge-claim-keys)
 
-```yaml
-# .yidam/corpus/universal.yml
-edge_claims:
-  required: true
-  structural:              # bookkeeping — these assert nothing, so nothing is asked of them
-    - instance-of
-    - concerns
-    - subject-of
-```
+Three checks read them, and all three are named in `GRAPH.md`:
 
-Unconditionally that check would open with one finding per edge in the graph, which is a gate
-arriving in a corpus that never agreed to it. The two keys are separate on purpose: naming the
-verbs that are bookkeeping is a fact about a vocabulary, and recording it must not switch a gate
-on as a side effect.
+- `edge-verified-unsourced` reports an edge asserting `verified` with no `source:` — the edge
+  half of `verified-unsourced`. It needs no declaration, because writing the tag is what opts
+  an edge in.
+- `edge-untagged` reports an empirical edge that declares no standing, or one whose `claim_tag`
+  spells none, and it runs only where the corpus asked for it:
 
-**And an edge cannot outrank what it relates.** `edge-standing-unheld` reports an edge asserting a
-standing stronger than one its own endpoints declare — `verified` across a relation between two
-nodes this corpus grades `[open]` claims more about the relationship than the corpus claims about
-either end of it. A node's standing there is the field the section below documents, not the weakest
-marker in its prose: a synthesis node carries all three tags by design, and a node that declares
-no claim-typed field has no standing and is compared to nothing. The check is one-directional, so
-an `open` edge between two `verified` nodes is not a defect — it says the corpus knows both things
-and not that they are related, which is what the vocabulary is for. Prefer the demotion to the
-promotion, for the reason the whole section gives.
+  ```yaml
+  # .yidam/corpus/universal.yml
+  edge_claims:
+    required: true
+    structural:              # bookkeeping — these assert nothing, so nothing is asked of them
+      - instance-of
+      - concerns
+      - subject-of
+  ```
 
-**And the tag is read, not only graded.** `open-questions`, `status`, `corpus-index` and the MCP
-`claims` and `open_questions` tools all see a tagged edge, exactly as the section below promises
-for a node's declared field. An edge tagged `open` is an open question in its own right, listed
-beside the node ones and addressed by its triple, because the triple is what it asserted. The
-counts are reported **beside** the node ones rather than added to them: a node's claims are
-measured over its text, an edge is in no node's text, and one figure over two denominators
-answers a question nobody asked. The structural exemption above is an exemption from being
-*asked* for a standing — an edge that writes one is read on it either way.
+  The two keys are separate on purpose: naming the verbs that are bookkeeping is a fact about a
+  vocabulary, and recording it must not switch a gate on as a side effect.
+  [why](agent-conduct.evidence.md#edge-claims-opt-in)
+- `edge-standing-unheld` reports an edge asserting a standing stronger than one its own
+  endpoints declare. A node's standing there is the declared claim-typed field below, not the
+  weakest marker in its prose; a node that declares no claim-typed field has no standing and is
+  compared to nothing. The check is one-directional, so an `open` edge between two `verified`
+  nodes is not a defect. Prefer the demotion to the promotion.
+  [why](agent-conduct.evidence.md#edge-standing-unheld)
+
+**And the tag is read, not only graded.** `open-questions`, `status`, `corpus-index` and the
+MCP `claims` and `open_questions` tools all see a tagged edge. An edge tagged `open` is an open
+question in its own right, listed beside the node ones and addressed by its triple. The counts
+are reported **beside** the node ones rather than added to them.
+[why](agent-conduct.evidence.md#edge-tags-reported-beside)
 
 ### A tag may be a field rather than a sentence
 
@@ -194,156 +165,104 @@ properties:
   claim_tag: open        # `[open]` is read the same way
 ```
 
-Then `open-questions`, `status`, `corpus-index` and the MCP server all see it.
-
-**Why the class has to declare it.** Without a declaration the only thing readable is the
-bracketed token in a file's bytes — which makes "is this node open?" a property of the node's
-*serialization* rather than of the node. A consumer with a typed vocabulary found this by
-running the binary over its own mirror: **2 open questions reported against its own count of
-26**. The other 24 said they were open, in a machine-readable field, and were counted as
-nothing.
-
-It could not be fixed by matching a bare `open` under any key, either: a node with
-`status: open` would become an open claim, and no corpus could opt out of that. So the corpus
-names the field, and only that field is read.
+Then `open-questions`, `status`, `corpus-index` and the MCP server all see it. The class has to
+declare the field, and only the declared field is read.
+[why](agent-conduct.evidence.md#claim-typed-field)
 
 ### `[verified]` is a claim about provenance, not about confidence
 
-The distinction decides the hard cases. A figure can be almost certainly correct and still
-not be `[verified]`, because the tag says *a committed source supports this*, not *I am
-sure*.
+A figure can be almost certainly correct and still not be `[verified]`, because the tag says *a
+committed source supports this*, not *I am sure*.
 
-The case that forces it: the source of record is unreachable — the filing authority blocks
-automated clients, the publisher is offline — and an aggregator or republisher carries the
-same figures. Those figures may be retrieved, computed on, and published. They support
-`[inference]`, and they never support `[verified]`, however good they are. A republished
-bulk file is closer to the source than a derived presentation is, and it is still not the
-source.
-
-Where a connector reaches such a source, make the distinction **unrepresentable rather than
-advisory**. A provenance type whose aggregator variants cannot produce the stronger tag, and
-a test asserting it, is worth more than a paragraph telling agents to be careful:
-
-```rust
-impl Provenance {
-    /// False for every aggregator kind. `[verified]` is about provenance, and an
-    /// aggregator is not the source of record however accurate its figures are.
-    pub fn supports_verified(&self) -> bool { ... }
-}
-```
-
-Name the substitution wherever the figures appear, not only at the connector.
+Where the source of record is unreachable and an aggregator or republisher carries the same
+figures, those figures may be retrieved, computed on, and published. They support `[inference]`,
+and they never support `[verified]`, however good they are. Where a connector reaches such a
+source, make the distinction **unrepresentable rather than advisory**, and name the substitution
+wherever the figures appear rather than only at the connector.
+[why](agent-conduct.evidence.md#provenance-not-confidence)
 
 ### A claim tag cannot reach a class definition
 
-Every rule above runs on tags, and a tag attaches to a claim somebody makes on a node. A
-class definition in `<class>.ont.yml` is not that. It is the meaning every instance takes
-on by being filed under the class — asserted identically, silently, untagged, and for each.
-
-So a class whose definition *states a proposition* puts that proposition beyond the reach of
-the entire apparatus. The worked case: a class defined at genesis as "a procedural mechanism
-**deployed to obtain** an outcome the ordinary path would not yield," in a corpus whose
-first evidentiary rule was *attribute intent, never assert it*. Every instance asserted a
-purpose by existing. It survived five resolutions and three arguments about its instances,
-because every safeguard was pointed at instances.
+Every rule above runs on tags, and a tag attaches to a claim somebody makes on a node. A class
+definition in `<class>.ont.yml` is not that, so a class whose definition *states a proposition*
+puts that proposition beyond the reach of the entire apparatus.
 
 **Read `.ont.yml` files against your evidentiary rules directly, and on a schedule** — no
-instance-level check will do it for you. A class definition describes a *kind*; the moment
-it starts describing a *reason*, it is making a claim no reader will see it make.
-`yidam lint` reports the shape of this as `class-asserts-purpose`, but a lint over wording
-is a prompt to look, not a proof of absence.
-
-Two checks do read a class file's prose, and neither replaces that reading. Every field of it
-is scanned for the near miss above, so `[verified — a source]` in a class is reported exactly
-as it is in a node. And `class-claim-uncounted` reports, at `Info`, how many well-formed tags
-a class asserts — reported because nothing *counts* them. `yidam status` counts claims in
-nodes. A class that has an argument worth counting should be putting it in one.
+instance-level check will do it for you. A class definition describes a *kind*; the moment it
+starts describing a *reason*, it is making a claim no reader will see it make. `yidam lint`
+reports the shape of this as `class-asserts-purpose`, but a lint over wording is a prompt to look,
+not a proof of absence. Two checks read a class file's prose and neither replaces that reading:
+every field is scanned for the near miss above, and `class-claim-uncounted` reports, at `Info`,
+how many well-formed tags a class asserts. A class with an argument worth counting should be
+putting it in a node. [why](agent-conduct.evidence.md#class-asserts-purpose)
 
 ## Prefer a base rate to a refusal
 
-Where a documentary sequence invites a causal reading the record cannot support, saying *do
-not infer that* is weaker than saying *here is how ordinary that outcome is*. A refusal asks
-a reader not to draw the inference. A base rate removes the reason to. Where the corpus can
-compute one it should — in the same passage as the sequence, not below it.
+Where a documentary sequence invites a causal reading the record cannot support, saying *do not
+infer that* is weaker than saying *here is how ordinary that outcome is*: a refusal asks a reader
+not to draw the inference, and a base rate removes the reason to. Where the corpus can compute
+one it should — in the same passage as the sequence, not below it.
 
 ### But a reference class defined by the outcome it is meant to place is not a base rate
 
-This corollary is the one that costs something, and it was learned by audit: of six nodes
-written under the rule above, **five had no computable denominator, and four of those failed
-the same way.**
+A denominator earns the name only if it was drawn without reference to how this case turned out,
+and if the population could have contained cases that came out otherwise. Check the shape too: a
+count of who *is* something does not place a claim about who *became* it. Two shapes to
+recognize:
 
-The failure is seductive because it feels like diligence. You gather the cases resembling
-the one at hand until a fraction appears — but the filters get chosen *after* the outcome is
-known, so the class ends up holding only cases that could have come out the way this one
-did. Two shapes to recognize:
+- **The sequence restated as a fraction.** "Six of eight plans were four-year plans," where all
+  eight are already on the thread under discussion.
+- **One act counted twice.** "Two of two officers removed themselves," where being an officer
+  *is* the precondition for the act.
 
-- **The sequence restated as a fraction.** "Six of eight plans were four-year plans," where
-  all eight are already on the thread under discussion.
-- **One act counted twice.** "Two of two officers removed themselves," where being an
-  officer *is* the precondition for the act.
-
-A denominator earns the name only if it was drawn without reference to how this case turned
-out, and if the population could have contained cases that came out otherwise. Check the
-shape too: a count of who *is* something does not place a claim about who *became* it.
-
-**Where no base rate is computable, say so and say why.** That sentence is worth as much as
-a rate and is not a failure to have looked. A fabricated denominator is worse than none,
-because it launders the sequence into arithmetic.
+**Where no base rate is computable, say so and say why.** That sentence is worth as much as a
+rate and is not a failure to have looked. A fabricated denominator is worse than none, because
+it launders the sequence into arithmetic. [why](agent-conduct.evidence.md#reference-class)
 
 ## When claims leave the repository
 
-A repository whose output is internal is checked by the gate. A repository that publishes —
-a site, a report, a brief, anything read by someone who will not read the corpus — needs the
-derivation checked too, and three rules generalize from the case that built them.
+A repository that publishes — a site, a report, a brief, anything read by someone who will not
+read the corpus — needs the derivation checked too, and three rules govern it.
 
 **A derived assertion travels only as far as the weakest claim beneath it.** Its tier is the
 **minimum tag across the whole supporting chain**, computed rather than declared. `[verified]`
-may reach public material; `[inference]` reaches attributed memos and backgrounders;
-`[open]` does not leave the repository. Declared tiers drift the moment a supporting node is
-revised — computing it means a downgrade upstream propagates on the next build.
+may reach public material; `[inference]` reaches attributed memos and backgrounders; `[open]`
+does not leave the repository.
 
-**Cite a span, not a node.** An external assertion names a **verbatim span** of the corpus
-node it rests on, and the gate asserts that span appears there character-for-character. This
-does not verify the inference; nothing can. It forces the actual sentence to sit beside the
-assertion, where the gap between them is visible to a reader.
+**Cite a span, not a node.** An external assertion names a **verbatim span** of the corpus node
+it rests on, and the gate asserts that span appears there character-for-character. This does not
+verify the inference; nothing can. It forces the actual sentence to sit beside the assertion,
+where the gap between them is visible to a reader.
 
-**A refusal in the cited block fails the build.** Where a corpus node carries a refusal
-beside the claim — a sentence of the form *this corpus does not infer X from this* — an
-assertion citing across it is refused, and the author must answer it rather than route
-around it. This one is invisible to the tag apparatus: the case that produced it was a node
-stating a fact at `[verified]` and refusing the inference from it one sentence later. A
-tag-only gate passes that. **Those refusal sentences are among the most valuable text a
-corpus holds, and until something reads them, nothing does.**
+**A refusal in the cited block fails the build.** Where a corpus node carries a refusal beside
+the claim — a sentence of the form *this corpus does not infer X from this* — an assertion
+citing across it is refused, and the author must answer it rather than route around it.
+[why](agent-conduct.evidence.md#outbound-claims)
 
 ## When claims arrive from another repository
 
-The mirror of the section above. A repository can declare a dependency on another corpus —
-a `.yiz` bundle, fetched and pinned — and from then on `retrieve` returns nodes this sangha
-never settled, beside nodes it did.
+The mirror of the section above. A repository can declare a dependency on another corpus — a
+`.yiz` bundle, fetched and pinned — and `retrieve` then returns nodes this sangha never settled,
+beside nodes it did.
 
-**Check `origin` on every result.** It is the package name for a foreign node and `null` for
-a local one, and it is always present. A foreign node's id is qualified — `pkg::class/name` —
-and its path points into `.yidam/tonpa/<pkg>/`, not into this corpus.
+**Check `origin` on every result.** It is the package name for a foreign node and `null` for a
+local one, and it is always present. A foreign node's id is qualified — `pkg::class/name` — and
+its path points into `.yidam/tonpa/<pkg>/`, not into this corpus.
 
-**A foreign node may be read. It may not be an edge target.** An edge is a claim and the
-constitution governs who may assert one; a citation into a corpus with a different ontology,
-its own electors, and its own revision history is a different object. The tooling enforces
-this — no local edge resolves across the boundary, and traversal does not cross it — so the
-part that needs you is what you do instead: **put what you took into a local node, in this
-corpus's terms, tagged at this corpus's standard, saying in prose where it came from.** That
-local node is the thing this sangha becomes accountable for.
+**A foreign node may be read. It may not be an edge target.** The tooling enforces this — no
+local edge resolves across the boundary, and traversal does not cross it — so the part that
+needs you is what you do instead: **put what you took into a local node, in this corpus's terms,
+tagged at this corpus's standard, saying in prose where it came from.** That local node is the
+thing this sangha becomes accountable for. [why](agent-conduct.evidence.md#foreign-nodes)
 
 **A foreign tag is the producer's tag.** `[verified]` in a dependency means *that* corpus's
-electors accepted *that* provenance. It does not transfer, and you cannot check it: a bundle
-carries `corpus/`, `skills/` and `decisions/` — no sangha, no elector register, no resolution
-history. You receive conclusions without the apparatus that made them accountable. The rule
-that a derived assertion travels only as far as the weakest claim beneath it still holds, and
-across this boundary "weakest" is genuinely unknown.
+electors accepted *that* provenance. It does not transfer, and you cannot check it. The rule that
+a derived assertion travels only as far as the weakest claim beneath it still holds, and across
+this boundary "weakest" is genuinely unknown. [why](agent-conduct.evidence.md#foreign-tags)
 
-**The prose form has a structured form, and the gate reads it.** *"Saying where it came
-from"* leaves no trace a tool can check, so a local node may carry a `cites:` block beside its
-`links:` — never inside it, because a citation is not a relationship and must never enter a
-traversal:
+**The prose form has a structured form, and the gate reads it.** A local node may carry a
+`cites:` block beside its `links:` — never inside it, because a citation is not a relationship
+and must never enter a traversal:
 
 ```yaml
 cites:
@@ -355,19 +274,15 @@ cites:
       the slowly varying component sustained by groundwater discharge
 ```
 
-**`span` is the load-bearing field, for the reason the outbound rule gives.** Cite a span, not
-a node: a node reference alone rots invisibly, because the node keeps its name while its
-content is rewritten and the citation still resolves. The gate asserts the span still appears
-there. It is the only check that survives this boundary, because it needs nothing from the
-producer — and the producer's apparatus is exactly what a bundle does not carry.
+**`span` is the load-bearing field, for the reason the outbound rule gives**, and the gate
+asserts it still appears there. When it fails, **the repair is never to re-quote** — the far side
+changed its mind, and the question is whether your claim survives it. `commit` is recorded rather
+than enforced: a moved pin reports, never fails.
+[why](agent-conduct.evidence.md#span-is-load-bearing)
 
-When it fails, **the repair is never to re-quote.** The far side changed its mind; the question
-is whether your claim survives it. And `commit` is recorded rather than enforced: a moved pin
-reports, because a producer cutting a release must not be able to turn your build red.
-
-**A shared class name is not agreement.** Classes are named per-corpus. A `concept/risk`
-there and a `concept/risk` here are two nodes sharing a string. That is a question worth
-investigating, not an identity.
+**A shared class name is not agreement.** Classes are named per-corpus. A `concept/risk` there
+and a `concept/risk` here are two nodes sharing a string. That is a question worth investigating,
+not an identity.
 
 **A stale dependency is a normal state, not a finding.** It is pinned deliberately. Where its
 currency bears on a conclusion, say which pin you read.
@@ -375,10 +290,7 @@ currency bears on a conclusion, say which pin you read.
 ## When a claim rests on a node beside it
 
 The same grammar, with `package` left off. **A `cites:` entry with no `package` names a node in
-this corpus**, and it is the form most claims actually need. Measured across seventeen derived
-corpora, 86% of the markdown links that reach a corpus node are written from one node to
-another — and until this shape was given a meaning, none of that could be said in a form a
-gate could read.
+this corpus**, and it is the form most claims actually need.
 
 ```yaml
 cites:
@@ -389,26 +301,22 @@ cites:
 ```
 
 `commit` has no meaning here and is not read: the node is in this tree, so git already records
-which state it was in. What is different is `tag`. Across a boundary a foreign tag is the
-producer's, recorded and never transferred, and no gate can check it. **Inside one corpus the
-producer is you.** A citation declaring `[verified]` over a paragraph this corpus tags
-`[inference]` says something its own corpus denies, and `local-citation-tag-drift` refuses it.
-Citing an `[open]` span is legal and declaring it as anything else is not — the corpus said it
-does not know, and a citation may rest on that as long as it says so.
+which state it was in. What is different is `tag`. **Inside one corpus the producer is you.** A
+citation declaring `[verified]` over a paragraph this corpus tags `[inference]` says something
+its own corpus denies, and `local-citation-tag-drift` refuses it. Citing an `[open]` span is
+legal and declaring it as anything else is not — the corpus said it does not know, and a
+citation may rest on that as long as it says so. [why](agent-conduct.evidence.md#local-citation)
 
-**Writing one is opt-in and writing none is a normal state.** Four checks read these and every
-one of them has an empty population in a corpus that writes no `cites:` at all, which is the
-whole of why they can be errors. Prose already links nodes to each other constantly; a link is
-not a citation, and nothing turns one into a finding.
+**Writing one is opt-in and writing none is a normal state.** Prose already links nodes to each
+other constantly; a link is not a citation, and nothing turns one into a finding.
 
 **A citation is still not an edge.** It sits beside `links:` and never inside it, for the same
-reason the external form does: a citation is not a relationship and must never enter a
-traversal.
+reason the external form does.
 
 ## When your corpus disagrees with the one it cites
 
 Every example above is a node leaning on a foreign span. The other case is a node that has read
-one and thinks it is wrong, and until this section existed nothing said where it goes.
+one and thinks it is wrong.
 
 **It goes in the same place, in the same form.** A disagreement is a taking like any other — you
 cannot contradict a sentence you have not read — so it is a local node, in this corpus's terms,
@@ -417,58 +325,27 @@ it contradicts, at the pin it was read at, with `tag` recording the standing the
 at. No new field and no new object: quoting what you disagree with is the whole of the form.
 
 **Nothing resolves it, and that is the answer rather than a gap.** Two corpora may contradict
-each other permanently, and both records stand. There is no forum between them and one would be
-wrong to build: a settlement reaching the other corpus would bind a sangha that never seated it —
-its electors did not register here, filed no positions, and read no tips — which is what Article I
-forbids, pointed sideways. `CONSTITUTION.md` Article V says a resolution may synthesize only what
-a participating `ma/*` position held, and across this boundary there are no participating
-positions at all. A corpus is accountable for its own nodes to its own electors. Two honest
-records that disagree are two independent inquiries, which is the normal condition and not a
-defect in the model.
+each other permanently, and both records stand; there is no forum between them and one would be
+wrong to build. A disagreement with the **prelude** that constitutes you is the other case and
+does have a forum — an issue upstream, decided there, arriving by re-vendor; see
+[upstream.md](upstream.md). [why](agent-conduct.evidence.md#no-forum)
 
-This is the peer case, and it is worth reading against the other one. A disagreement with the
-**prelude** that constitutes you does have a forum — an issue upstream, decided there, arriving by
-re-vendor; see [upstream.md](upstream.md). That works because the relation is constitutive, there
-is a delivery channel, and one party has standing over both ends. A peer corpus gives you none of
-the three, and no mechanism manufactures the third.
-
-**What the record buys is that the contradiction cannot go silent.** That is the failure worth
-fearing here — your corpus going on denying a sentence the other side has since rewritten,
-withdrawn or demoted — and every form of it is already reported. `external-citation-span-drift`
-fires when the sentence is no longer there. `external-citation-pin-moved` reports when the bundle
-moved. `tag` records what they held, so a demotion is visible. And the repair is the one the
-agreement case already states: never re-quote. The far side changed its mind, and the question is
-whether your claim survives it — which for a disagreement may be that they conceded.
+**What the record buys is that the contradiction cannot go silent.**
+`external-citation-span-drift` fires when the sentence is no longer there,
+`external-citation-pin-moved` when the bundle moved, and `tag` records what they held so a
+demotion is visible. The repair is the one the agreement case states: never re-quote — which for
+a disagreement may be that they conceded. [why](agent-conduct.evidence.md#cannot-go-silent)
 
 **Nothing marks a citation as a contradiction**, and a reader cannot tell one from the other by
-looking at the block. That is deliberate for now rather than overlooked. The field that would say
-so — `rests-on` against `contradicts` — is worth having only because span drift reads in opposite
-directions for the two, and across every derived corpus measured on 2026-09-22 there are **2,770
-instance nodes and not one `cites:` block**. Adding a field to a family with no subjects is how
-this layer has shipped surfaces nobody uses. Build it the day a real citation disagrees, for that
-reason.
-
-> **Settled 2026-09-22.** *No forum* is the answer and not a reading of the current count: what is
-> missing across this boundary is a party with standing over both corpora, and scale does not
-> produce one. The occasion that would re-open it is a concrete one — **the first corpus that
-> cites another, disagrees with it, and finds that both sides want it settled and cannot.**
+looking at the block. That is deliberate for now rather than overlooked.
+[why](agent-conduct.evidence.md#contradiction-unmarked)
 
 ## The safeguards were built against carelessness, not against interest
 
-Worth stating plainly, because it is the finding that generalizes furthest and the one
-easiest to feel exempt from.
+Every mechanism above catches an agent that was sloppy. None of them catches an agent that wants
+a particular answer, because selection is invisible to a check that reads what is there.
 
-Every mechanism above — claim tags, catalog anchors, the graph gate, the lint — catches an
-agent that was sloppy. None of them catches an agent that wants a particular answer.
-Motivated reasoning does not produce untagged inference. It produces a claim that is true,
-correctly sourced, correctly tagged, and standing in front of the twenty that went
-unmentioned. Every check passes. The corpus is wrong anyway.
-
-The repository that found this had caught eight errors from the inside and **not one of them
-was a selection error** — all eight were caught by an elector who wanted nothing. Selection
-is invisible to a gate because a gate reads what is there.
-
-The partial defense is to write down the search rather than only the finding: **what was
-examined and not used**, kept beside the claim it supports. It is a weak instrument and it
-is the only auditable trace of selection that exists. If you are working somewhere with an
-interest in the answer, behave accordingly, and write the ledger.
+The partial defense is to write down the search rather than only the finding: **what was examined
+and not used**, kept beside the claim it supports. It is a weak instrument and it is the only
+auditable trace of selection that exists. If you are working somewhere with an interest in the
+answer, behave accordingly, and write the ledger. [why](agent-conduct.evidence.md#selection)

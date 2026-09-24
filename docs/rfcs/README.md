@@ -68,6 +68,7 @@ re-deriving it.
 | [0035](0035-class-extent.md) | I30 | What a class is meant to span, and what a hole in it is worth (`coverage:`) | Draft |
 | [0036](0036-yidam-level-change.md) | G6 | An yidam-level change, and the two shapes a derivation's report takes | Accepted |
 | [0037](0037-open-question-marker.md) | G7 | An open question is a node; `[open]` is a claim's standing | Accepted |
+| [0038](0038-rules-and-evidence.md) | G8 | A rule is separable from the essay that justifies it | Draft |
 
 ## Reading order
 
