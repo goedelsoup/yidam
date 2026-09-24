@@ -246,7 +246,8 @@ yidam export --format …   bundle · web · rdf · graphml · sqlite · llms
 yidam tonpa add …         manage bundle dependencies on other derived repos
 ```
 
-That is a sample. `yidam --help` lists every command under these same groups, and marks with
+That is a sample. `yidam --help` is a shorter one — the thirteen commands a session usually
+needs — and `yidam --help-all` lists all fifty-eight under these same groups. Both mark with
 `*` the ones that rewrite files in the repository they are run against — twenty-three do, and
 that was previously visible only in each command's long help, where you had to already
 suspect it to go looking.

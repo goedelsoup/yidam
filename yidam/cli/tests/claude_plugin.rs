@@ -429,15 +429,18 @@ fn the_mcp_manifest_names_an_executable_launcher() {
 ///
 /// It names an install line and two subcommands. An install line that has moved on is worse
 /// than no message — the person follows it and it fails — and a subcommand that was renamed
-/// sends them to a `yidam --help` that does not list it.
+/// sends them to a `yidam --help-all` that does not list it.
+///
+/// `--help-all` is the whole surface; `--help` has been the short listing since #921, and
+/// `overlay` — one of the three names checked below — is not on it.
 #[test]
 fn the_launcher_prescribes_commands_that_exist() {
     let installation = read("docs/installation.md");
     let help = {
         let out = std::process::Command::new(env!("CARGO_BIN_EXE_yidam"))
-            .arg("--help")
+            .arg("--help-all")
             .output()
-            .expect("running yidam --help");
+            .expect("running yidam --help-all");
         format!(
             "{}{}",
             String::from_utf8_lossy(&out.stdout),

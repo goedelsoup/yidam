@@ -25,7 +25,7 @@ fn reference() -> String {
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{} is unreadable ({e})", p.display()))
 }
 
-/// Every subcommand this binary offers, read out of its own `--help`.
+/// Every subcommand this binary offers, read out of its own `--help-all`.
 ///
 /// Asking the built binary rather than the source is deliberate: it is the same question a
 /// reader asks, answered the same way, and it stays correct through a refactor of how the
@@ -34,22 +34,26 @@ fn reference() -> String {
 /// A command line in that output is indented, starts with the name, and is followed by either
 /// the `*` write-marker or two spaces before its description. The group headings are flush
 /// left and the option block is filtered out by requiring a lowercase-and-hyphens name.
+///
+/// `--help-all` and not `--help` since #921: `--help` is now the thirteen commands a session
+/// usually needs, and this page documents the whole surface. Reading the short one here would
+/// have left forty-five commands undocumented with this test green about it.
 fn commands_from_help() -> BTreeSet<String> {
     writers_from_help().into_keys().collect()
 }
 
-/// Every subcommand, and whether `--help` marks it as writing.
+/// Every subcommand, and whether `--help-all` marks it as writing.
 ///
 /// The marker is the `*` [`yidam::help`] puts between the name and the description. Parsed
 /// positionally — the column after the name — rather than searched for, because a description
 /// that happened to begin with a star would otherwise read as a writer.
 fn writers_from_help() -> std::collections::BTreeMap<String, bool> {
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_yidam"))
-        .arg("--help")
+        .arg("--help-all")
         .output()
-        .expect("running `yidam --help`");
-    assert!(out.status.success(), "`yidam --help` exited nonzero");
-    let help = String::from_utf8(out.stdout).expect("--help is utf-8");
+        .expect("running `yidam --help-all`");
+    assert!(out.status.success(), "`yidam --help-all` exited nonzero");
+    let help = String::from_utf8(out.stdout).expect("--help-all is utf-8");
 
     let mut found = std::collections::BTreeMap::new();
     for line in help.lines() {
@@ -73,7 +77,7 @@ fn writers_from_help() -> std::collections::BTreeMap<String, bool> {
 
     assert!(
         found.len() > 20,
-        "parsed only {} command(s) from --help — the output shape changed and this test is \
+        "parsed only {} command(s) from --help-all — the output shape changed and this test is \
          no longer reading it: {found:?}",
         found.len()
     );
@@ -98,9 +102,9 @@ fn commands_from_reference() -> BTreeSet<String> {
 /// Every command the page names, and whether any of its rows carries the `*` marker.
 ///
 /// *Any* row, because a parent command gets a row per subcommand: `vault push` writes and
-/// `vault status` does not, and `--help` has one entry for `vault` carrying the marker. So the
+/// `vault status` does not, and `--help-all` has one entry for `vault` carrying the marker. So the
 /// page marks a command as writing when one of the things it can do writes, which is what the
-/// single entry in `--help` means too.
+/// single entry in `--help-all` means too.
 fn writers_from_reference() -> std::collections::BTreeMap<String, bool> {
     let text = reference();
     let mut found = std::collections::BTreeMap::new();
@@ -165,10 +169,10 @@ fn writers_from_reference() -> std::collections::BTreeMap<String, bool> {
 /// The third place #831's defect turned up. `yidam vault-status` writes a tracked file with a
 /// name one character from a read-only command; `decisions-log` writes one and was documented
 /// *"Read-only."*. Each surface that could have said so had its own copy of the answer — the
-/// command's `about`, the `*` in `--help`, this page's marker — and nothing held them to each
+/// command's `about`, the `*` in `--help-all`, this page's marker — and nothing held them to each
 /// other, so all three could disagree and two of them did.
 ///
-/// Both sides are rendered output, not source: `--help` as a reader sees it, the page as a
+/// Both sides are rendered output, not source: `--help-all` as a reader sees it, the page as a
 /// reader reads it.
 #[test]
 fn the_page_marks_the_writers_the_binary_marks() {
@@ -191,7 +195,7 @@ fn the_page_marks_the_writers_the_binary_marks() {
     }
     assert!(
         wrong.is_empty(),
-        "docs/cli-reference.md disagrees with `yidam --help` about which commands write:\n  \
+        "docs/cli-reference.md disagrees with `yidam --help-all` about which commands write:\n  \
          {}\nOne of the two is wrong about a command that modifies the repository.",
         wrong.join("\n  ")
     );

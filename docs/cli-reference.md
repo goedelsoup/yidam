@@ -1,10 +1,15 @@
 # CLI reference
 
-Every command `yidam` carries, grouped as `yidam --help` groups them. This page is the map;
+Every command `yidam` carries, grouped as `yidam --help-all` groups them. This page is the map;
 `yidam <command> --help` is the detail. A gate holds the two *surfaces* equal: a command the
-binary offers and this page omits fails `cli_reference.rs`. So the roster below is the roster
-you have. It says nothing about the prose. A description here, or in a long help, is written
-by hand. It can fall behind the behaviour it describes, which is what #873 was.
+binary offers and this page omits fails `cli_reference.rs`.
+
+`yidam --help` is a shorter listing: the thirteen commands a session usually needs. Everything
+on this page is on `--help-all`.
+
+So the roster below is the roster you have. It says nothing about the prose. A description
+here, or in a long help, is written by hand. It can fall behind the behaviour it describes,
+which is what #873 was.
 
 Two conventions run through the whole surface.
 

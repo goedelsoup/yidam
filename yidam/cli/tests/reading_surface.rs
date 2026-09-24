@@ -122,17 +122,20 @@ fn the_guidance_names_what_it_is_displacing() {
     }
 }
 
-/// Every subcommand this binary offers, from its own `--help`.
+/// Every subcommand this binary offers, from its own `--help-all`.
 ///
 /// Discovered rather than listed, for `cli_reference.rs`'s reason: a roster written here
 /// stops covering a rename without ever going red.
+///
+/// `--help-all` because `--help` is the short listing since #921, and every command this
+/// asks about — `pack`, `estimate`, `neighbors` — is on the long one only.
 fn commands_from_help() -> BTreeSet<String> {
     let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
-        .arg("--help")
+        .arg("--help-all")
         .output()
-        .expect("running `yidam --help`");
-    assert!(out.status.success(), "`yidam --help` exited nonzero");
-    let help = String::from_utf8(out.stdout).expect("--help is utf-8");
+        .expect("running `yidam --help-all`");
+    assert!(out.status.success(), "`yidam --help-all` exited nonzero");
+    let help = String::from_utf8(out.stdout).expect("--help-all is utf-8");
     let mut found = BTreeSet::new();
     for line in help.lines() {
         let Some(rest) = line.strip_prefix("  ") else {

@@ -26,6 +26,24 @@
 //! [`GROUPS`] now fails [`tests::every_subcommand_is_grouped`], so adding one means
 //! deciding where it goes and whether it writes. That is the maintainable part — not the
 //! rendering.
+//!
+//! # Two renderings, one list
+//!
+//! Grouping the fifty-eight did not make them fifty-eight fewer. `--help` ran to ninety
+//! lines, and the eleven `<!-- REGEN -->` generators — commands a first reader will never
+//! type — printed above `graph`, `retrieve` and `query`, which are the product (#921). A
+//! reader opening `--help` to find out what this tool does read a maintenance surface
+//! first.
+//!
+//! So [`render_short`] prints the commands a session usually needs, flat and in reading
+//! order, and [`render`] — the grouped ninety lines, unchanged — moves to `--help-all`.
+//! The short list is **not a second roster**: it is the [`Entry::short`] flag on entries
+//! already in [`GROUPS`], so a command can be on it without existing twice, and the
+//! existence and no-duplicate gates already cover it. Its order is [`GROUPS`]' own, which
+//! is why that order is by what a reader wants first.
+//!
+//! A short list is only worth having while it is short, and nothing about printing thirteen
+//! rows resists a fourteenth. [`tests::the_short_help_stays_short`] is the resistance.
 
 use std::fmt::Write as _;
 
@@ -40,17 +58,45 @@ pub struct Entry {
     /// rather than in a marker on every invocation. Marking every command that *could*
     /// write would mark nearly all of them and tell a reader nothing.
     pub writes: bool,
+    /// Whether it prints on the short `--help`, rather than only on `--help-all`.
+    ///
+    /// The test is **what a reader needs before they know the tool**, which is not the same
+    /// as what anyone uses most. `regen` is on it and the eleven generators it runs are not:
+    /// one row saying the blocks can be refreshed is the whole of what a first reader needs
+    /// to know about that family, and eleven rows above `query` is what #921 measured.
+    pub short: bool,
 }
 
 const fn r(name: &'static str) -> Entry {
     Entry {
         name,
         writes: false,
+        short: false,
     }
 }
 
 const fn w(name: &'static str) -> Entry {
-    Entry { name, writes: true }
+    Entry {
+        name,
+        writes: true,
+        short: false,
+    }
+}
+
+impl Entry {
+    /// Put this command on the short `--help`.
+    ///
+    /// A method rather than a third and fourth constructor, so the two facts stay separable
+    /// at the call site: `w("regen").short()` says it writes *and* that it leads, and
+    /// neither reading depends on remembering which of four one-letter names means which
+    /// pair.
+    const fn short(self) -> Self {
+        Self {
+            name: self.name,
+            writes: self.writes,
+            short: true,
+        }
+    }
 }
 
 pub struct Group {
@@ -68,9 +114,9 @@ pub const GROUPS: &[Group] = &[
     Group {
         title: "Checks and gates — read-only, and exit nonzero on a problem",
         commands: &[
-            r("doctor"),
-            r("graph-check"),
-            r("lint"),
+            r("doctor").short(),
+            r("graph-check").short(),
+            r("lint").short(),
             r("index-verify"),
             r("samudaya-audit"),
         ],
@@ -99,13 +145,19 @@ pub const GROUPS: &[Group] = &[
         // `practice` writes a REGEN block and still belongs here, beside `kuten`, for the
         // same reason: what it writes is a reading of how the practice has gone, in `kuten
         // check`'s verdict vocabulary, and divergence in it is a question and not a defect.
-        commands: &[r("due"), r("cycle"), w("kuten"), w("practice"), r("score")],
+        commands: &[
+            r("due").short(),
+            r("cycle"),
+            w("kuten"),
+            w("practice"),
+            r("score"),
+        ],
     },
     Group {
         title: "README blocks — each rewrites its <!-- REGEN --> block where it is run",
         commands: &[
-            w("regen"),
-            w("status"),
+            w("regen").short(),
+            w("status").short(),
             w("open-questions"),
             w("corpus-index"),
             w("catalog-audit"),
@@ -121,14 +173,14 @@ pub const GROUPS: &[Group] = &[
     Group {
         title: "The corpus and its history",
         commands: &[
-            r("graph"),
+            r("graph").short(),
             r("neighbors"),
             // Before `query` because it is the one a reader reaches for first: `retrieve`
             // finds where a subject is written about, and `query` walks from there. It had
             // no terminal route at all until #835 — the tool an agent uses before it knows
             // enough to write a query was the one surface a person could not try.
-            r("retrieve"),
-            r("query"),
+            r("retrieve").short(),
+            r("query").short(),
             r("pack"),
             r("estimate"),
             r("diff"),
@@ -137,7 +189,7 @@ pub const GROUPS: &[Group] = &[
             // a problem" would be read as one more thing that can break the build, and every
             // finding it has is a question somebody has to answer rather than a defect.
             r("check-diff"),
-            w("rename"),
+            w("rename").short(),
             // Beside `rename` and not with the gates: both move something and rewrite every
             // reference to it. `rename` moves one node; this moves a class, a property, or
             // the target of a relationship, which is the same operation one level up.
@@ -146,7 +198,7 @@ pub const GROUPS: &[Group] = &[
             // findings and answers none of them. A command filed under "exit nonzero on a
             // problem" would be read as one more thing that can fail the build, and this
             // one cannot — it drafts commits and leaves.
-            w("propose"),
+            w("propose").short(),
             // Beside `propose` rather than under the README generators, though both write.
             // What the generators rewrite is a block; what these two write is history, and
             // they are the only two commands here that do. The `*` says so for the same
@@ -219,7 +271,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         title: "Serving the domain computer",
-        commands: &[r("serve")],
+        commands: &[r("serve").short()],
     },
     Group {
         // Its own group rather than beside the gates: `bench` measures and does not gate,
@@ -229,7 +281,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         title: "Deriving and maintaining a repository",
-        commands: &[w("clone"), w("overlay"), w("backfill"), w("tonpa")],
+        commands: &[w("clone").short(), w("overlay"), w("backfill"), w("tonpa")],
     },
 ];
 
@@ -303,12 +355,60 @@ pub fn render(available: &[(String, String)]) -> String {
         out.push('\n');
     }
 
-    let _ = write!(
+    out.push_str(&legend());
+    out
+}
+
+/// Render the short listing: the commands a session usually needs, flat and in order.
+///
+/// Flat on purpose. The grouping in [`render`] earns its headings over fifty-eight rows and
+/// would cost more than it buys over thirteen — four of the groups would print a single row
+/// under a heading longer than the row. What the order carries instead is the sequence: ask
+/// whether something is wrong, then what is owed, then read the corpus, then write to it,
+/// then serve or derive. That is [`GROUPS`]' own order, so there is nothing here to keep in
+/// step with it.
+///
+/// The count in the heading is `available.len()`, not a number written down. A listing that
+/// advertises how much it is hiding has to be right about it, and the only way to stay right
+/// is to ask.
+pub fn render_short(available: &[(String, String)]) -> String {
+    let about = |name: &str| {
+        available
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, about)| about.as_str())
+    };
+    let rows: Vec<&Entry> = GROUPS
+        .iter()
+        .flat_map(|g| g.commands)
+        .filter(|e| e.short && about(e.name).is_some())
+        .collect();
+    let width = rows.iter().map(|e| e.name.len()).max().unwrap_or(0);
+
+    let mut out = String::new();
+    let _ = writeln!(
         out,
+        "Commands — what a session usually needs. `yidam --help-all` lists all {}, grouped:",
+        available.len()
+    );
+    for entry in rows {
+        out.push_str(&row(entry.name, entry.writes, about(entry.name), width));
+    }
+    out.push('\n');
+    out.push_str(&legend());
+    out
+}
+
+/// What the `*` column means, printed under both listings.
+///
+/// A function and not a `const`, so the marker in the prose is the same [`WRITES`] the
+/// column is drawn with. Two listings spelling the legend out twice is two places for it to
+/// stop matching the thing it explains.
+fn legend() -> String {
+    format!(
         "  {WRITES} rewrites files in the repository it is run against. Everything else\n\
          \x20   only reads — `yidam <command> --help` says exactly what.\n"
-    );
-    out
+    )
 }
 
 fn row(name: &str, writes: bool, about: Option<&str>, width: usize) -> String {
@@ -462,6 +562,99 @@ mod tests {
         }
     }
 
+    // ── the short list ───────────────────────────────────────────────────────
+
+    fn short() -> Vec<&'static str> {
+        GROUPS
+            .iter()
+            .flat_map(|g| g.commands)
+            .filter(|e| e.short)
+            .map(|e| e.name)
+            .collect()
+    }
+
+    /// The point of the short listing. Nothing about printing thirteen rows resists a
+    /// fourteenth, and a short list that grows is the long one arriving by instalments —
+    /// which is how `--help` reached ninety lines the first time (#921).
+    ///
+    /// A ceiling and not an exact count, so a command can leave the list without a test
+    /// edit. It is also the shape that survives a merge: two branches each adding one entry
+    /// both pass alone and the merge does not, which an `assert_eq!` on a number both
+    /// branches moved would not catch.
+    #[test]
+    fn the_short_help_stays_short() {
+        let short = short();
+        assert!(
+            short.len() <= 14,
+            "{} commands on the short `--help`: {short:?}\nIf one of them belongs there more \
+             than one already on it, say which comes off.",
+            short.len()
+        );
+    }
+
+    /// A reader who wants a command that is not on the short list has to be told where it is.
+    #[test]
+    fn the_short_help_says_where_the_rest_are() {
+        let available: Vec<(String, String)> = GROUPS
+            .iter()
+            .flat_map(|g| g.commands)
+            .map(|e| (e.name.to_string(), "a description".to_string()))
+            .collect();
+        let text = render_short(&available);
+        assert!(text.contains("--help-all"), "{text}");
+        assert!(
+            text.contains(&available.len().to_string()),
+            "the short listing does not say how many commands it is not showing:\n{text}"
+        );
+    }
+
+    /// The short list is the same in every build, or it is not a promise about the tool.
+    ///
+    /// A `.short()` on a feature-gated command would render on a `--features full` build and
+    /// vanish from the light one, and the vanishing is silent: the listing just has twelve
+    /// rows. `--help-all` may legitimately differ between builds; the first screen may not.
+    #[test]
+    fn no_short_command_is_feature_gated() {
+        let gated: Vec<&str> = short()
+            .into_iter()
+            .filter(|n| FEATURE_GATED.contains(n))
+            .collect();
+        assert!(
+            gated.is_empty(),
+            "on the short `--help` and absent from some builds: {gated:?}"
+        );
+    }
+
+    /// #921's measurement, as a gate.
+    ///
+    /// Eleven `<!-- REGEN -->` generators printed above `graph`, `retrieve` and `query` —
+    /// eleven rows of maintenance surface ahead of the commands a reader opened `--help` to
+    /// find. What a first reader needs to know about that family is that it can be
+    /// refreshed, which is one row: `regen`, which is not itself a generator and runs all
+    /// eleven.
+    ///
+    /// `status` is the one generator on the list, and is there for what it reports rather
+    /// than for what it writes — it is how a person sees the repository at all. It is a
+    /// generator incidentally, which is why the ceiling is one and not zero.
+    #[test]
+    fn the_generators_do_not_lead_the_short_help() {
+        let short = short();
+        assert!(
+            short.contains(&"regen"),
+            "`regen` is the one row that stands for the eleven generators, and it is not on \
+             the short `--help`: {short:?}"
+        );
+        let generators: Vec<&str> = yidam::regen_generator_names()
+            .into_iter()
+            .filter(|n| short.contains(n))
+            .collect();
+        assert!(
+            generators.len() <= 1,
+            "the REGEN generators on the short `--help` are {generators:?}\n`regen` already \
+             stands for the family; the rest belong in `--help-all`."
+        );
+    }
+
     // ── rendering ────────────────────────────────────────────────────────────
 
     #[test]
@@ -514,6 +707,47 @@ mod tests {
         assert!(line("status").contains(WRITES), "{text}");
         assert!(!line("doctor").contains(WRITES), "{text}");
         assert!(text.contains("rewrites files in the repository"), "{text}");
+    }
+
+    /// The short rendering carries exactly the marked commands, and nothing else.
+    ///
+    /// Both directions, because each fails invisibly on its own: a marked command the
+    /// renderer drops leaves a reader without it, and an unmarked one it keeps is how a
+    /// thirteen-row listing becomes a fifty-eight-row one nobody decided on.
+    #[test]
+    fn the_short_rendering_carries_the_marked_commands_and_only_them() {
+        let available = compiled();
+        let text = render_short(&available);
+        let rows: Vec<&str> = text
+            .lines()
+            .skip(1)
+            .filter_map(|l| l.strip_prefix("  "))
+            .filter(|l| !l.starts_with(' ') && !l.starts_with(WRITES))
+            .filter_map(|l| l.split_whitespace().next())
+            .collect();
+        assert_eq!(rows, short(), "rendered short listing:\n{text}");
+    }
+
+    /// The short listing is a view of the long one, not a second listing beside it. A
+    /// description reaching a reader through `--help` and a different one through
+    /// `--help-all` would be the drift this module exists to prevent, one level up.
+    #[test]
+    fn the_short_rendering_is_a_subset_of_the_grouped_one() {
+        let available = compiled();
+        let all = render(&available);
+        for line in render_short(&available)
+            .lines()
+            .filter_map(|l| l.strip_prefix("  "))
+            .filter(|l| !l.starts_with(' ') && !l.starts_with(WRITES))
+        {
+            let name = line.split_whitespace().next().unwrap_or_default();
+            let about = line.split_once(name).map(|(_, r)| r.trim()).unwrap_or("");
+            let about = about.strip_prefix(WRITES).unwrap_or(about).trim();
+            assert!(
+                all.lines().any(|l| l.contains(name) && l.contains(about)),
+                "`{name}` reads differently on `--help` than on `--help-all`"
+            );
+        }
     }
 
     /// The fallback exists so a missed command is ugly rather than invisible. The coverage

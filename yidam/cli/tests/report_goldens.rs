@@ -509,10 +509,19 @@ const NO_REPORT: &[(&str, &str)] = &[
     ("estimate", "requires a query expression"),
 ];
 
+/// `--help` for a command or group, and `--help-all` for the binary itself.
+///
+/// Since #921 the top-level `--help` is the thirteen commands a session usually needs. The
+/// population below is *every* command that emits the report contract, which is a question
+/// about the whole surface, so the top level is asked with `--help-all`.
 fn help(args: &[&str]) -> String {
     let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
         .args(args)
-        .arg("--help")
+        .arg(if args.is_empty() {
+            "--help-all"
+        } else {
+            "--help"
+        })
         .output()
         .expect("running --help");
     String::from_utf8_lossy(&out.stdout).to_string()
@@ -532,9 +541,9 @@ fn advertises_format(args: &[&str]) -> bool {
 /// Subcommand names under `args`, or none where it is not a group.
 ///
 /// Two parsers rather than one, because the two help screens are not the same document.
-/// `yidam --help` is [`yidam::help`]'s own template — grouped, with the `{subcommands}` slot
-/// replaced — and has no `Commands:` heading at all; a group's help is clap's, and does. A
-/// single parser would have to be loose enough to match both, and loose is how this scan
+/// `yidam --help-all` is [`yidam::help`]'s own template — grouped, with the `{subcommands}`
+/// slot replaced — and has no `Commands:` heading at all; a group's help is clap's, and does.
+/// A single parser would have to be loose enough to match both, and loose is how this scan
 /// ends up returning the empty set that satisfies every question asked of it.
 fn children(group: &[&str]) -> Vec<String> {
     let text = help(group);
@@ -600,7 +609,7 @@ fn reporting_commands() -> BTreeSet<String> {
     let tops = children(&[]);
     assert!(
         tops.len() > 20,
-        "parsed only {} command(s) from --help — the output shape changed and this is no \
+        "parsed only {} command(s) from --help-all — the output shape changed and this is no \
          longer reading it: {tops:?}",
         tops.len()
     );

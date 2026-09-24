@@ -152,7 +152,13 @@ fn an_unrecognized_subcommand_names_the_binary_that_refused_it() {
     );
 }
 
-/// `--help` and `--version` are not errors and must keep clap's exit code of 0.
+/// `--help`, `--help-all` and `--version` are not errors and must keep clap's exit code of 0.
+///
+/// Both renderings since #921. `--help` is clap's own exit-during-parse, which is why it was
+/// never at risk of being read as a refusal; `--help-all` is answered *after* the parse
+/// succeeds, on the same side of `main` as the shadow note. So it is the one that could start
+/// exiting 2, or start printing a note about a repository it was never asked about, with
+/// nothing else in the suite noticing.
 #[test]
 fn help_is_not_treated_as_a_refusal() {
     let tmp = tempfile::tempdir().unwrap();
@@ -160,10 +166,24 @@ fn help_is_not_treated_as_a_refusal() {
 
     let (stdout, _, code) = run(tmp.path(), &["--help"]);
     assert_eq!(code, Some(0), "help exits 0");
-    // The subcommand listing is `help::render`'s, not clap's flat `Commands:` block, so
-    // this asserts on a group heading and a command under it.
+    // The listing is `help::render_short`'s, not clap's flat `Commands:` block, so this
+    // asserts on its header line and a command under it.
+    assert!(
+        stdout.contains("what a session usually needs") && stdout.contains("graph-check"),
+        "help still prints the short command listing:\n{stdout}"
+    );
+
+    let (stdout, stderr, code) = run(tmp.path(), &["--help-all"]);
+    assert_eq!(code, Some(0), "`--help-all` exits 0");
+    // A group heading and a command under it: the grouped rendering `--help` sends a reader
+    // to, and the thing `--help` no longer prints.
     assert!(
         stdout.contains("Checks and gates") && stdout.contains("graph-check"),
-        "help still prints the grouped command listing:\n{stdout}"
+        "`--help-all` still prints the grouped command listing:\n{stdout}"
+    );
+    assert!(
+        !stderr.contains("the binary that answered is"),
+        "asking what commands exist is not a question about this repository, so the pin is \
+         not reported:\n{stderr}"
     );
 }

@@ -31,21 +31,40 @@ static VERSION: LazyLock<String> = LazyLock::new(|| {
 #[command(
     name = "yidam",
     about = "Corpus analysis and index CLI for yidam-derived repositories",
-    version = VERSION.as_str()
+    version = VERSION.as_str(),
+    // `yidam` alone asks what this tool is, and the answer is the short listing. Without
+    // this the same invocation is an error about a missing subcommand — which it is, but
+    // that is not what the person wanted to know.
+    arg_required_else_help = true,
+    // `command` became an `Option` so `--help-all` could be an invocation of its own, and
+    // clap reads that as `[COMMAND]` — a subcommand you may omit. You may not: omitting it
+    // prints help and exits 2. The usage line said `<COMMAND>` before and was already
+    // silent about `-h` and `-V`, which are the same kind of exception `--help-all` is.
+    override_usage = "yidam [OPTIONS] <COMMAND>"
 )]
 struct Cli {
+    /// List every command, grouped — not just the ones a session usually needs
+    #[arg(long = "help-all")]
+    help_all: bool,
+    /// `Option` only because `--help-all` is an invocation with no subcommand in it.
+    /// `arg_required_else_help` is what keeps `None` from meaning "nothing was asked for".
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
-/// The parser, with the flat subcommand list replaced by `help`'s grouping.
+/// The parser, with the flat subcommand list replaced by one of `help`'s renderings.
 ///
 /// Built in two passes because the listing is rendered from the names and `about` strings
 /// of the subcommands this binary compiled — which are only knowable from a built
 /// [`clap::Command`]. The first pass is read; the second carries the result as
 /// `after_help`. clap is asked for the descriptions rather than told them, so no
 /// description exists twice.
-fn command() -> clap::Command {
+///
+/// `listing` is [`help::render_short`] for `--help` and [`help::render`] for `--help-all`.
+/// The parser is the same either way — only what its help prints differs — so there is one
+/// place where the subcommand set is read and no way for the two answers to be taken from
+/// different builds.
+fn command_with(listing: fn(&[(String, String)]) -> String) -> clap::Command {
     let base = Cli::command();
     let subcommands: Vec<(String, String)> = base
         .get_subcommands()
@@ -58,7 +77,12 @@ fn command() -> clap::Command {
         })
         .collect();
     base.help_template(help::TEMPLATE)
-        .after_help(help::render(&subcommands))
+        .after_help(listing(&subcommands))
+}
+
+/// The parser as every invocation but `--help-all` sees it.
+fn command() -> clap::Command {
+    command_with(help::render_short)
 }
 
 /// `--format`, declared once for the thirty-two commands that take it (#927).
@@ -1064,15 +1088,39 @@ fn run() -> Result<()> {
             ) =>
         {
             let _ = e.print();
+            // clap's own last line is "For more information, try '--help'", and since #921
+            // `--help` is thirteen of fifty-eight. A reader sent there after mistyping
+            // `vault-status` would not find it, and would read the short listing as the
+            // whole tool. This is the one place the short listing can mislead, so it is the
+            // one place that says where the rest are.
+            if e.kind() == ErrorKind::InvalidSubcommand {
+                eprintln!(
+                    "note: `yidam --help-all` lists every command, not just the common ones."
+                );
+            }
             eprintln!("\n{}", yidam::running_binary_note());
             std::process::exit(2);
         }
         Err(e) => e.exit(),
     };
+    // `--help-all` is answered before anything else, including the shadow check below: it is
+    // a question about this binary's surface and not about any repository, and it is the
+    // answer `--help` now points a reader at.
+    if cli.help_all {
+        command_with(help::render).print_help()?;
+        return Ok(());
+    }
+    let Some(command) = cli.command else {
+        // `arg_required_else_help` above means clap has already answered a bare `yidam`, so
+        // reaching here would be a parser that stopped requiring what this match needs.
+        // Printing the listing is the same thing the reader wanted either way.
+        command().print_help()?;
+        std::process::exit(2);
+    };
     // Before doing any work, and for every subcommand: a `yidam` from elsewhere answering
     // for a repository that pins its own is the failure that reads as success.
     yidam::warn_if_shadowed();
-    match cli.command {
+    match command {
         Command::Status { format } => yidam::status(format.value),
         Command::OpenQuestions { format } => yidam::open_questions(format.value),
         Command::CorpusIndex { format } => yidam::corpus_index(format.value),
