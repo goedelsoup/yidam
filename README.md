@@ -198,7 +198,6 @@ which is the loop for working *on* it. See
 | [`yidam/web/docs/`](yidam/web/docs/) | Astro/Starlight docs site, rendering `docs/` — published at [goedelsoup.github.io/yidam](https://goedelsoup.github.io/yidam/) |
 | [`sadhana/`](sadhana/) | The scaffold copied into derived repos — directory shape, README stubs, root files, CI |
 | [`samudaya/`](samudaya/) | Seed layer — axioms, hints, constraints, augmentations; consumed at genesis |
-| [`packages/web/`](packages/web/) | Browser shell over an exported bundle — embeddings and vector search in WASM |
 | [`docs/`](docs/README.md) | Documentation for yidam itself: design docs, RFCs, vocabulary — [read it as a site](https://goedelsoup.github.io/yidam/) |
 | [`examples/`](examples/README.md) | Worked corpora for reading — not copied into a derived repository |
 | [`BOOTSTRAP.md`](BOOTSTRAP.md) | The agent entry prompt a derived repo is bootstrapped from |

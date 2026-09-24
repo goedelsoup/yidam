@@ -20,7 +20,7 @@ protoc = "31"
 python = "3.12"
 # uv — fast Python package/venv manager; used in packages/.
 uv = "latest"
-# Node.js — docs site (yidam/web/docs/), packages/web/.
+# Node.js — docs site (yidam/web/docs/), the VS Code extension, the editor web surface.
 node = "lts"
 # cargo-nextest — the runner every Rust gate below uses. `cargo test` prints a result and
 # emits nothing any consumer can read: no summary, no artifact, no input for RFC-0025's

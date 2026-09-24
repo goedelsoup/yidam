@@ -831,21 +831,6 @@ description = "Build LanceDB vector index from embeddings and export Arrow IPC. 
 depends = ["embed"]
 run = "yidam index-build"
 
-# ── web shell ─────────────────────────────────────────────────────────
-
-[web-install]
-description = "Install packages/web/ npm dependencies."
-run = "cd packages/web && npm install"
-
-[web-dev]
-description = "Start corpus search dev server at localhost:5173."
-run = "cd packages/web && npm run dev"
-
-[web-build]
-description = "Build corpus search web shell to packages/web/dist/."
-depends = ["bundle"]
-run = "cd packages/web && npm run build"
-
 [regen-check]
 description = "Report which REGEN blocks are stale, writing nothing — safe to run with work in flight."
 run = "yidam regen --check"
