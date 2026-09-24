@@ -23,6 +23,7 @@ Each file in `samudaya/` is a markdown document with YAML frontmatter declaring 
 ```yaml
 ---
 kind: axiom | hint | constraint | augmentation
+constitutional: true | false   # augmentations only
 ---
 ```
 
@@ -37,10 +38,15 @@ surface it during discovery but may discard it if the user's answers do not supp
 
 **`augmentation`** — Additional prelude content: guidelines, conduct norms, or constitutional
 extensions that apply to this derived repo. Treated as if part of the prelude during the
-bootstrap run. Constitutional augmentations (extensions to [CONSTITUTION.md](../yidam/prelude/CONSTITUTION.md))
-are committed into the derived repo permanently — they become domain-specific articles that
-govern that repo's sangha resolutions for its lifetime. Non-constitutional augmentations
-(guidelines, conduct norms) do not persist once samudaya is consumed.
+bootstrap run. Constitutional augmentations (`constitutional: true`; extensions to
+[CONSTITUTION.md](../yidam/prelude/CONSTITUTION.md)) are committed into the derived repo
+permanently — they become domain-specific articles that govern that repo's sangha resolutions
+for its lifetime. Non-constitutional augmentations (`constitutional: false`; guidelines,
+conduct norms) do not persist once samudaya is consumed.
+
+`yidam samudaya-audit` validates all of this — unknown kinds, missing titles, augmentations
+without the `constitutional:` flag — and prints a `[review]` line for each constitutional
+augmentation so it can be checked against the constitution before genesis.
 
 ## Examples
 
@@ -51,7 +57,9 @@ skip `examples/`, so the sets are inert here and a derived repository inherits n
 
 ## Lifecycle
 
-1. Author places `samudaya/` files in the repository before invoking the bootstrap agent.
+1. Author places `samudaya/` files in the repository and runs `yidam samudaya-audit` to
+   validate them, before invoking the bootstrap agent. (The bootstrap also runs the audit
+   itself when a binary is present, but the author's machine is where one usually is.)
 2. Bootstrap reads samudaya/ before beginning the ontology-discovery dialogue.
 3. Bootstrap folds axioms and hints into the discovery loop; enforces constraints during
    scaffolding; treats augmentations as additional prelude.
@@ -63,5 +71,7 @@ skip `examples/`, so the sets are inert here and a derived repository inherits n
 ## What samudaya is not
 
 - A replacement for dialogue: the bootstrap must still ask and confirm with the user
-- A schema or config file: it is read by an agent, not a parser
+- A schema or config file: it is consumed by an agent, not a program — `yidam samudaya-audit`
+  parses the frontmatter to validate it, but the bodies are prose for the bootstrap dialogue,
+  not fields
 - A persistent part of the repo: presence after genesis is an error state
