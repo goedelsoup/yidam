@@ -140,7 +140,14 @@ fn the_two_house_label_forms_are_both_still_read() {
 /// to move (#899).
 ///
 /// Lower it when a repair earns it. Never raise it.
-const UNANCHORED: usize = 109;
+///
+/// 109 → 108 (#954): splitting `agent-conduct.md` into rules and evidence slid the line two
+/// RFCs cite for the canonical `[inference]` spelling from L42 onto a blank line, and
+/// `dead-line-citation` caught both. `0013-node-model-close.md` was repaired by quoting the
+/// passage rather than only re-pointing the fragment, which is what moves it out of this
+/// population — a citation re-pointed and left unquoted would have slid again on the next edit
+/// to that file and this number would not have noticed.
+const UNANCHORED: usize = 108;
 
 /// The residue, counted — and the count held to a number somebody has to edit.
 ///

@@ -279,6 +279,25 @@ until it moves the pin.
 
 No CLI surface changes and no version pin moves. The gate is a test, not a command.
 
+### A split is a line-sliding edit, and `docs/` cites these files by line
+
+The one cost that showed up only on contact. Splitting a prelude file moves every line in it, and
+`docs/rfcs/` cites prelude files by line number: `agent-conduct.md` had two inbound `#L`
+citations, both naming **L42** for the canonical `[inference]` spelling, and the split landed L42
+on a blank line. `dead-line-citation` caught both, which is the gate from #899 doing exactly what
+it was built for — nothing here had to be discovered by hand.
+
+Two things that generalize to `GRAPH.md` and `directories.md`:
+
+- **Re-pointing the fragment is half a repair.** `0013-node-model-close.md` cited the line with a
+  label that only restated the coordinate, so it sat in the `unverified-line-citation` residue —
+  checked for existence and nothing else. Re-pointing it to L49 would have made it green and left
+  it able to slide again silently. It was repaired by *quoting the passage* instead, which is what
+  moved it out of that population and dropped the ratchet from 109 to 108.
+- **The next step is twelve times this.** `GRAPH.md` carries 10 inbound line citations and
+  `directories.md` 2, across seven RFCs. Whoever splits them should expect to repair all twelve
+  and should quote each passage while doing it, for the reason above.
+
 ## Alternatives considered
 
 - **A word-count ceiling alone.** Rejected: it is satisfied by deleting the reasoning, which is the

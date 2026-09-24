@@ -108,7 +108,7 @@ direction, unratified" becomes ratified: surface and deny-unknown.
 ### Tag spelling pinned *(ratifies the standing call)*
 
 Pin **`[inference]`** as the canonical on-disk spelling — it is the conduct-norm and CLI spelling
-already ([`agent-conduct.md:42`](../../yidam/prelude/guidelines/agent-conduct.md#L42), `diff.rs:209`).
+already ([`agent-conduct.md:49`](../../yidam/prelude/guidelines/agent-conduct.md#L49): *"`[inference]` — a reasonable conclusion drawn from verified facts; not directly witnessed"*, `diff.rs:209`).
 `project_markdown` maps the SDK's legacy `[inferred]` → `[inference]` on ingest; the SDK's
 `EvidenceTag::Inference` reads the canonical spelling. The broader marker reconciliation stays in
 RFC-0006, per RFC-0002's recommendation ([`0002:179-181`](0002-node-model-unification.md#L179-L181)).

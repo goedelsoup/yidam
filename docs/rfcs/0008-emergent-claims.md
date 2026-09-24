@@ -80,7 +80,7 @@ This is deliberately the more constraining reading, and the constraint is the po
 - **Attribution survives.** The round-trip forces the derivation to be authored, tagged, and
   traceable. `[inference]` is exactly the marker the conduct norms already reserve for "a reasonable
   conclusion drawn from verified facts; not directly witnessed"
-  ([`agent-conduct.md:42`](../../yidam/prelude/guidelines/agent-conduct.md#L42)). An entailed claim
+  ([`agent-conduct.md:49`](../../yidam/prelude/guidelines/agent-conduct.md#L49)). An entailed claim
   is an inference; it should wear the inference tag and carry an author.
 - **No new generation surface at the one privileged moment.** The synthesizer's added power stays
   minimal (Article VI), and a contested entailment becomes an open-question node
