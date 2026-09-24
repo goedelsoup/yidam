@@ -8,30 +8,11 @@
 
 use super::*;
 use std::path::Path;
-use std::process::Command;
 
-fn git(dir: &Path, args: &[&str]) {
-    let ok = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok, "git {args:?} failed");
-}
+use crate::git::fixture::{git, init};
 
 fn commit(dir: &Path, day: &str, msg: &str) {
-    git(dir, &["add", "-A"]);
-    let stamp = format!("{day}T00:00:00Z");
-    let ok = Command::new("git")
-        .current_dir(dir)
-        .args(["commit", "-q", "-m", msg])
-        .env("GIT_AUTHOR_DATE", &stamp)
-        .env("GIT_COMMITTER_DATE", &stamp)
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok, "commit failed");
+    crate::git::fixture::commit_at(dir, msg, &format!("{day}T00:00:00Z"));
 }
 
 fn node(dir: &Path, rel: &str, body: &str) {
@@ -50,9 +31,7 @@ fn node(dir: &Path, rel: &str, body: &str) {
 fn repo() -> tempfile::TempDir {
     let tmp = tempfile::TempDir::new().unwrap();
     let root = tmp.path();
-    git(root, &["init", "-q", "-b", "main"]);
-    git(root, &["config", "user.email", "t@t.com"]);
-    git(root, &["config", "user.name", "T"]);
+    init(root);
     node(
         root,
         "concept/a.yml",
@@ -416,22 +395,14 @@ fn it_writes_nothing() {
     commit(root, "2026-02-01", "establish: an orphan");
 
     let before = tree(root);
-    let head = std::process::Command::new("git")
-        .current_dir(root)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .unwrap();
+    let head = crate::git::fixture::git_out(root, &["rev-parse", "HEAD"]);
 
     let r = read(root);
     let _ = render(&r, root);
 
     assert_eq!(tree(root), before, "cycle wrote to the working tree");
-    let after = std::process::Command::new("git")
-        .current_dir(root)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .unwrap();
-    assert_eq!(after.stdout, head.stdout, "cycle moved HEAD");
+    let after = crate::git::fixture::git_out(root, &["rev-parse", "HEAD"]);
+    assert_eq!(after, head, "cycle moved HEAD");
 }
 
 /// Every file under the repository, with its bytes — so a rewrite in place is caught as well

@@ -10,7 +10,6 @@
 //! first — it is the corpus people copy.
 
 use std::path::Path;
-use std::process::Command;
 
 mod common;
 
@@ -41,12 +40,7 @@ fn example(name: &str) -> tempfile::TempDir {
         vec!["add", "-A"],
         vec!["commit", "-q", "-m", "genesis: the example corpus"],
     ] {
-        assert!(Command::new("git")
-            .current_dir(dir.path())
-            .args(&args)
-            .status()
-            .unwrap()
-            .success());
+        common::git::git(dir.path(), &args);
     }
     dir
 }

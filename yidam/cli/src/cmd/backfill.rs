@@ -38,23 +38,16 @@ pub fn backfill_history(target: &Path, since_ref: Option<&str>) -> Result<()> {
         None => "HEAD".to_string(),
     };
 
-    let output = std::process::Command::new("git")
+    // `since_ref` is a command-line argument interpolated into the leading token, so the
+    // range goes behind `--end-of-options`.
+    let log = crate::git::Git::new(target)
         .args([
             "log",
             "--reverse",
             "--format=%H\x1f%s\x1f%b\x1f%an\x1f%aI\x1e",
-            &range,
         ])
-        .current_dir(target)
-        .output()
-        .context("running git log")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("git log failed: {stderr}");
-    }
-
-    let log = String::from_utf8(output.stdout).context("git log output utf8")?;
+        .rev(&range)
+        .run()?;
 
     let commits: Vec<CommitRecord> = log
         .split('\x1e')
@@ -197,27 +190,17 @@ mod tests {
     use std::path::PathBuf;
     use tempfile::TempDir;
 
-    fn git(dir: &Path, args: &[&str]) {
-        let status = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?} failed");
-    }
+    use crate::git::fixture::git;
 
     fn commit(dir: &Path, file: &str, message: &str) {
-        std::fs::write(dir.join(file), message).unwrap();
-        git(dir, &["add", "."]);
-        git(dir, &["commit", "-q", "-m", message]);
+        crate::git::fixture::write(dir, file, message);
+        crate::git::fixture::commit(dir, message);
     }
 
     fn init_repo() -> (TempDir, PathBuf) {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path().to_path_buf();
-        git(&root, &["init", "-q", "-b", "main"]);
-        git(&root, &["config", "user.email", "test@test.com"]);
-        git(&root, &["config", "user.name", "Tester"]);
+        crate::git::fixture::init(&root);
         (tmp, root)
     }
 

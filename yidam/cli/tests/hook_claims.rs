@@ -22,19 +22,15 @@
 //! written, three times.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+mod common;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
 fn tracked(root: &Path) -> Vec<String> {
-    let out = Command::new("git")
-        .current_dir(root)
-        .args(["ls-files"])
-        .output()
-        .expect("git ls-files runs");
-    String::from_utf8_lossy(&out.stdout)
+    common::git::out(root, &["ls-files"])
         .lines()
         .map(str::to_string)
         .collect()

@@ -621,19 +621,7 @@ mod tests {
         );
     }
 
-    fn init_git_repo(dir: &Path) {
-        for args in [
-            vec!["init", "-q"],
-            vec!["config", "user.email", "test@test.com"],
-            vec!["config", "user.name", "Test"],
-        ] {
-            std::process::Command::new("git")
-                .args(&args)
-                .current_dir(dir)
-                .status()
-                .unwrap();
-        }
-    }
+    use crate::git::fixture::init as init_git_repo;
 
     #[test]
     fn load_domain_model_round_trip() {

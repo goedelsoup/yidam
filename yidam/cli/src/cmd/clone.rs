@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use std::path::Path;
 
 use crate::paths::repo_root;
@@ -84,12 +84,10 @@ pub fn clone(target: &Path) -> Result<()> {
         provenance.template
     );
 
-    let init = std::process::Command::new("git")
+    if !crate::git::Git::new(target)
         .args(["init", "-q"])
-        .current_dir(target)
-        .status()
-        .context("running git init")?;
-    if !init.success() {
+        .succeeded()
+    {
         bail!("git init failed in {}", target.display());
     }
 

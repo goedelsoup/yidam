@@ -16,6 +16,8 @@
 use std::path::Path;
 use std::process::Command;
 
+mod common;
+
 struct Run {
     stdout: String,
     stderr: String,
@@ -43,13 +45,7 @@ fn bare() -> tempfile::TempDir {
 /// A git repository that yidam never bootstrapped: no `.yidam/`.
 fn plain_git() -> tempfile::TempDir {
     let tmp = tempfile::tempdir().unwrap();
-    let ok = Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(tmp.path())
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok, "git init failed");
+    common::git::git(tmp.path(), &["init", "-q"]);
     tmp
 }
 

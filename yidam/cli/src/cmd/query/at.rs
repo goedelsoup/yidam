@@ -50,7 +50,9 @@
 //!
 //! - A revision reached the git argv unseparated, so `--at=--output=<path>` was an *option* by
 //!   the time git read it and the read-only query truncated the named file. [`resolve`] has
-//!   the reproduction; [`END_OF_OPTIONS`] is the fix, on all three invocations.
+//!   the reproduction. The fix was `--end-of-options` on all three invocations here; since
+//!   #929 it is [`crate::git::Git::rev`], which places the separator for every caller, so
+//!   `log` and `diff` — which had the same hole and no separator — cannot have it again.
 //! - The divergence note compared against `Graph::load` — a walk of `.yidam/corpus` on disk —
 //!   while telling the reader it had compared against HEAD. `run_at` reconstructs HEAD through
 //!   this module instead, so an uncommitted edit can neither create the note nor suppress it.
@@ -60,16 +62,12 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::Command;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 
 use super::Graph;
 use crate::cmd::lint::history::{is_class, is_instance, read_blobs};
 use crate::corpus::{Class, Node};
-
-/// The separator after which git reads no more options. See [`resolve`] for what it prevents.
-const END_OF_OPTIONS: &str = "--end-of-options";
 
 /// A commit, resolved.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -91,7 +89,7 @@ pub struct Revision {
 /// # Why every git call here ends its options
 ///
 /// A revision is caller input, and git parses a leading `-` as an option wherever the
-/// argument lands. Without [`END_OF_OPTIONS`], `--at=--output=<path>` reached `git rev-list`
+/// argument lands. Without the separator, `--at=--output=<path>` reached `git rev-list`
 /// as `--output`, and a command whose headline property is that it *neither reads nor writes
 /// the working tree* truncated the named file to zero bytes before printing an error about
 /// the revision. `--between='--output=<path>..'` did the same past the `..` guard, then
@@ -99,22 +97,20 @@ pub struct Revision {
 /// are one argument away from being impossible — so all three invocations in this module pass
 /// it, and none of them may stop.
 pub fn resolve(root: &Path, rev: &str) -> Result<Revision> {
-    let out = Command::new("git")
-        .current_dir(root)
+    let out = crate::git::Git::new(root)
         .args([
             "rev-list",
             "-n",
             "1",
             // A signature-verifying configuration prepends lines to the output of anything
             // that prints a commit. `commits_in` explains what that cost; this is cheaper
-            // than finding out whether `rev-list` is one of them.
+            // than finding out whether `rev-list` is one of them. Belt and braces since #929:
+            // the runner also pins `log.showSignature=false` on every invocation.
             "--no-show-signature",
             "--format=R %H %cI",
-            END_OF_OPTIONS,
-            rev,
         ])
-        .output()
-        .context("running git rev-list")?;
+        .rev(rev)
+        .output()?;
     if !out.status.success() {
         bail!(
             "`{rev}` is not a revision in this repository: {}",
@@ -153,8 +149,7 @@ pub fn commits_in(root: &Path, range: &str) -> Result<Vec<Revision>> {
              `--at`"
         );
     }
-    let out = Command::new("git")
-        .current_dir(root)
+    let out = crate::git::Git::new(root)
         .args([
             "log",
             "--reverse",
@@ -172,13 +167,10 @@ pub fn commits_in(root: &Path, range: &str) -> Result<Vec<Revision>> {
             // never printed, the sentinel so a line nobody anticipated cannot be read as one.
             "--no-show-signature",
             "--format=C %H %cI",
-            END_OF_OPTIONS,
-            range,
-            "--",
-            ".yidam/corpus",
         ])
-        .output()
-        .context("running git log")?;
+        .rev(range)
+        .paths([".yidam/corpus"])
+        .output()?;
     if !out.status.success() {
         bail!(
             "`{range}` is not a range in this repository: {}",
@@ -215,20 +207,11 @@ struct Entry {
 ///
 /// [`is_instance`]: crate::cmd::lint::history::is_instance
 fn tree(root: &Path, commit: &str) -> Result<Vec<Entry>> {
-    let out = Command::new("git")
-        .current_dir(root)
-        .args([
-            "ls-tree",
-            "-r",
-            "--full-tree",
-            "-z",
-            END_OF_OPTIONS,
-            commit,
-            "--",
-            ".yidam/corpus",
-        ])
-        .output()
-        .context("running git ls-tree")?;
+    let out = crate::git::Git::new(root)
+        .args(["ls-tree", "-r", "--full-tree", "-z"])
+        .rev(commit)
+        .paths([".yidam/corpus"])
+        .output()?;
     if !out.status.success() {
         bail!(
             "reading the corpus tree at {commit}: {}",

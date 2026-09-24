@@ -199,9 +199,9 @@ impl Record {
 /// twenty-six refs must not be wedged by one bad file. So the distinction is made here once
 /// and [`read_at`] is the arm that discards it.
 pub fn read(root: &Path, git_ref: &str, slug: &str) -> Result<Option<Record>> {
-    let out = std::process::Command::new("git")
-        .current_dir(root)
-        .args(["show", &format!("{git_ref}:{}", path(slug))])
+    let out = crate::git::Git::new(root)
+        .arg("show")
+        .rev(format!("{git_ref}:{}", path(slug)))
         .output()
         .context("reading the phase record out of git")?;
     if !out.status.success() {

@@ -206,9 +206,10 @@ fn declared_evolution(message: &str) -> Option<String> {
     })
 }
 
+/// Stdout, or `""` for any failure at all — see [`super::scope::git`] for why that is held
+/// rather than improved here.
 pub(crate) fn git(root: &Path, args: &[&str]) -> String {
-    std::process::Command::new("git")
-        .current_dir(root)
+    crate::git::Git::new(root)
         .args(args)
         .output()
         .ok()
@@ -483,28 +484,7 @@ mod tests {
 
     // ── against a repository ──────────────────────────────────────────────────
 
-    fn git(dir: &Path, args: &[&str]) {
-        let ok = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
-
-    fn commit(dir: &Path, msg: &str) {
-        git(dir, &["add", "-A"]);
-        let ok = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(["commit", "-q", "--allow-empty", "--no-gpg-sign", "-m", msg])
-            .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
-            .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "commit failed");
-    }
+    use crate::git::fixture::{commit, git};
 
     fn record(dir: &Path, evolution: &str) {
         let p = dir

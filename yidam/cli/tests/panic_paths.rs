@@ -27,13 +27,13 @@ fn repo_root() -> PathBuf {
 ///
 /// Lowering it when you remove a panic path is the intended edit and needs no ceremony.
 /// Raising it is a decision: say in the commit message why the new one cannot be a `?`.
-const BUDGET: usize = 23;
+const BUDGET: usize = 21;
 
 /// Source with `#[cfg(test)]` items removed, by brace matching.
 ///
 /// Unit tests live inside the files they test and unwrap constantly; counting them would
-/// measure the test suite and call it production risk. Separate `tests.rs` modules are
-/// excluded by name at the call site for the same reason.
+/// measure the test suite and call it production risk. Whole files that are test modules are
+/// excluded by [`test_only_files`] at the call site for the same reason.
 fn without_test_items(src: &str) -> String {
     let bytes: Vec<char> = src.chars().collect();
     let mut out = String::new();
@@ -73,17 +73,68 @@ fn without_test_items(src: &str) -> String {
     out
 }
 
+/// Every file that is wholly a test module, found by reading the declarations.
+///
+/// A `#[cfg(test)] mod <name>;` compiles `<name>.rs` (or `<name>/mod.rs`) only under `cfg(test)`,
+/// so nothing in it is production however it is spelled. This used to match the *name* `tests.rs`
+/// instead, which is a list that rots into a hole: `git/fixture.rs` arrived in #929 as a
+/// `#[cfg(test)] pub(crate) mod fixture;`, is test code by construction, and was counted as
+/// production risk purely for not being called `tests`.
+fn test_only_files(src: &std::path::Path) -> std::collections::BTreeSet<PathBuf> {
+    let mut out = std::collections::BTreeSet::new();
+    for entry in common::repo_walk(src) {
+        let path = entry.path();
+        if !entry.file_type().is_file() || path.extension() != Some("rs".as_ref()) {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        // `foo/mod.rs` declares `foo/<name>.rs`; `foo.rs` declares `foo/<name>.rs` too.
+        let dir = match path.file_stem() {
+            Some(s) if s == "mod" || s == "lib" || s == "main" => match path.parent() {
+                Some(p) => p.to_path_buf(),
+                None => continue,
+            },
+            _ => path.with_extension(""),
+        };
+        let lines: Vec<&str> = text.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            if line.trim() != "#[cfg(test)]" {
+                continue;
+            }
+            let Some(next) = lines.get(i + 1) else {
+                continue;
+            };
+            // `mod x;`, `pub mod x;`, `pub(crate) mod x;` — the semicolon form only. An
+            // inline `mod x { … }` is already skipped by [`without_test_items`].
+            let Some(name) = next
+                .trim()
+                .strip_suffix(';')
+                .and_then(|d| d.rsplit_once("mod "))
+                .map(|(_, n)| n.trim())
+            else {
+                continue;
+            };
+            out.insert(dir.join(format!("{name}.rs")));
+            out.insert(dir.join(name).join("mod.rs"));
+        }
+    }
+    out
+}
+
 /// Panic paths per file: `.unwrap()` and `.expect(` outside test code and outside comments.
 fn census() -> Vec<(String, usize)> {
     let src = repo_root().join("yidam/cli/src");
+    let test_only = test_only_files(&src);
     let mut out = Vec::new();
     for entry in common::repo_walk(&src) {
         let path = entry.path();
         if !entry.file_type().is_file() || path.extension() != Some("rs".as_ref()) {
             continue;
         }
-        // Files that are wholly test modules, declared `#[cfg(test)] mod tests;` elsewhere.
-        if path.file_stem() == Some("tests".as_ref()) {
+        // Files that are wholly test modules, declared `#[cfg(test)] mod …;` elsewhere.
+        if test_only.contains(path) {
             continue;
         }
         let text = std::fs::read_to_string(path).expect("source is readable");
@@ -163,5 +214,43 @@ fn the_census_reads_production_code_and_not_the_tests() {
         files.len() >= 5,
         "only {} files have any panic path; the census is reading the wrong tree",
         files.len()
+    );
+}
+
+/// Test-only module files are found by their declaration, not by being called `tests.rs`.
+///
+/// This is the half that rots. `src/git/fixture.rs` arrived in #929 declared
+/// `#[cfg(test)] pub(crate) mod fixture;` — test code by construction, counted as production
+/// risk by a census that matched the *name* `tests`. Both halves are asserted per file:
+/// every `tests.rs` under `src/` must still be discovered (so a broken path derivation goes
+/// red rather than quietly widening the census), and `fixture.rs` must be discovered too (so
+/// the name-matching answer cannot come back).
+#[test]
+fn every_test_only_module_is_found_by_its_declaration() {
+    let src = repo_root().join("yidam/cli/src");
+    let found = test_only_files(&src);
+
+    for entry in common::repo_walk(&src) {
+        let path = entry.path();
+        if entry.file_type().is_file() && path.file_name() == Some("tests.rs".as_ref()) {
+            assert!(
+                found.contains(path),
+                "{} is a test module and the census would count it as production",
+                path.display()
+            );
+        }
+    }
+
+    let fixture = src.join("git/fixture.rs");
+    assert!(
+        fixture.is_file(),
+        "{} moved; repoint this assertion at whatever now declares a `#[cfg(test)]` module \
+         under a name other than `tests`",
+        fixture.display()
+    );
+    assert!(
+        found.contains(&fixture),
+        "a `#[cfg(test)]` module not named `tests` was missed — the census is matching names \
+         again"
     );
 }

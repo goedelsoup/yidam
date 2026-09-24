@@ -30,7 +30,6 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::Command;
 
 /// Where an entry's age came from.
 ///
@@ -103,26 +102,18 @@ fn days_between(from: &str, to: &str) -> Option<i64> {
 /// sources would otherwise be thirty subprocesses on a path `doctor` runs every time.
 pub fn committed_dates(root: &Path, dir: &Path) -> HashMap<String, String> {
     let rel = dir.strip_prefix(root).unwrap_or(dir);
-    let Ok(out) = Command::new("git")
-        .current_dir(root)
-        .args([
-            "log",
-            "--date=short",
-            "--format=%x00%ad",
-            "--name-only",
-            "--",
-            &rel.to_string_lossy(),
-        ])
-        .output()
+    // `core.quotepath=false` from the runner: `--name-only` escapes a non-ASCII path, and
+    // the names below are matched against the directory listing.
+    let Some(text) = crate::git::Git::new(root)
+        .args(["log", "--date=short", "--format=%x00%ad", "--name-only"])
+        .paths([rel])
+        .try_run()
     else {
         return HashMap::new();
     };
-    if !out.status.success() {
-        return HashMap::new();
-    }
     let mut dates: HashMap<String, String> = HashMap::new();
     let mut current = String::new();
-    for line in String::from_utf8_lossy(&out.stdout).lines() {
+    for line in text.lines() {
         if let Some(date) = line.strip_prefix('\0') {
             current = date.to_string();
             continue;

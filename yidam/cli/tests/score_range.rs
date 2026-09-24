@@ -23,6 +23,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
+mod common;
+
 fn repo_root() -> std::path::PathBuf {
     // CARGO_MANIFEST_DIR = yidam/cli/
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -47,14 +49,7 @@ fn criteria() -> Vec<String> {
     ids
 }
 
-fn git(dir: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .status()
-        .unwrap();
-    assert!(status.success(), "git {args:?} failed");
-}
+use common::git::git;
 
 fn repo() -> tempfile::TempDir {
     let tmp = tempfile::tempdir().unwrap();

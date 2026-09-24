@@ -260,7 +260,7 @@ takes no paths; its totality — Epistemic is the default — is proved in
 [`graph.dfy:5`](../../yidam/prelude/sdks/spec/graph.dfy#L5); `yidam log` consumes it verbatim at
 [`log.rs:119`](../../yidam/cli/src/cmd/log.rs#L119); and `lint --commits` reads
 `--format=%H%x00%P%x00%s` — hash, parents, subject, **no paths** —
-([`commits.rs:31`](../../yidam/cli/src/cmd/lint/commits.rs#L31)).
+([`commits.rs:52`](../../yidam/cli/src/cmd/lint/commits.rs#L52)).
 
 Run the classifier over an artifact-register commit stream (the Python SDK, same fixtures):
 
@@ -512,7 +512,7 @@ makes the architectural call it deferred. The argument for feeding rather than r
 3. **The two sources answer different questions, and the shipped code says so.**
    `ref_state` is documented as *"the single classifier. `yidam status` counts these and
    `yidam phases` prints them, and they must not be able to disagree"*
-   ([`git.rs:480-481`](../../yidam/cli/src/git.rs#L480-L481)). `RefKind` answers *what is
+   ([`git/mod.rs:450-451`](../../yidam/cli/src/git/mod.rs#L450-L451)). `RefKind` answers *what is
    this ref*; the run record answers *what happened in this run*. Collapsing them recreates
    #272's actual defect — two surfaces free to disagree — one level up.
 

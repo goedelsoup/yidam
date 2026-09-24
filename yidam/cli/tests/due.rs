@@ -18,6 +18,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod common;
+
 fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/sdks/parity/fixtures/reports/basic")
 }
@@ -44,15 +46,7 @@ fn stage() -> tempfile::TempDir {
         }
     }
     let root = tmp.path();
-    let git = |args: &[&str]| {
-        Command::new("git")
-            .current_dir(root)
-            .args(args)
-            .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
-            .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
-            .status()
-            .unwrap();
-    };
+    let git = |args: &[&str]| common::git::git_at(root, args, common::git::FIXTURE_DATE);
 
     std::fs::create_dir_all(root.join(".yidam/catalog")).unwrap();
     std::fs::write(
@@ -241,11 +235,7 @@ fn the_questions_clock_counts_what_open_questions_lists() {
 #[test]
 fn outside_a_derived_repository_it_refuses_rather_than_reporting_zero() {
     let tmp = tempfile::tempdir().unwrap();
-    Command::new("git")
-        .current_dir(tmp.path())
-        .args(["init", "-q", "-b", "main"])
-        .status()
-        .unwrap();
+    common::git::git(tmp.path(), &["init", "-q", "-b", "main"]);
     let r = run(tmp.path(), &["due"]);
     assert_ne!(r.code, 0, "{}", r.stdout);
     assert!(

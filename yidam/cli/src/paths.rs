@@ -3,15 +3,14 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 pub fn repo_root() -> Result<PathBuf> {
-    let out = std::process::Command::new("git")
+    // `Git::here()`, not `Git::new(dir)`: this *is* the question "which repository is this
+    // process standing in", so it is the one caller with no directory to name.
+    match crate::git::Git::here()
         .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .context("running git rev-parse")?;
-    if out.status.success() {
-        let s = String::from_utf8(out.stdout).context("git output utf8")?;
-        Ok(PathBuf::from(s.trim()))
-    } else {
-        std::env::current_dir().context("current dir fallback")
+        .try_run()
+    {
+        Some(top) if !top.is_empty() => Ok(PathBuf::from(top)),
+        _ => std::env::current_dir().context("current dir fallback"),
     }
 }
 
@@ -69,13 +68,9 @@ pub fn require_yidam_repo(root: &Path) -> Result<()> {
     // the moment `--root` let them differ: a corpus-less directory named on the command line
     // was described as "not inside a git repository" on the strength of where the client
     // happened to start the server.
-    let in_git = std::process::Command::new("git")
-        .arg("-C")
-        .arg(root)
+    let in_git = crate::git::Git::new(root)
         .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+        .succeeded();
 
     if in_git {
         anyhow::bail!(
@@ -506,14 +501,7 @@ mod resolve_root_tests {
     fn a_corpus_nested_inside_another_repository_resolves_to_itself() {
         let tmp = TempDir::new().unwrap();
         let outer = tmp.path();
-        let ok = std::process::Command::new("git")
-            .arg("-C")
-            .arg(outer)
-            .arg("init")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        assert!(ok, "git init failed; this test proves nothing without it");
+        crate::git::fixture::git(outer, &["init", "-q"]);
         let inner = corpus(&outer.join("examples/streamflow")).to_path_buf();
         assert_eq!(resolve_root(Some(&inner)).unwrap(), inner);
     }

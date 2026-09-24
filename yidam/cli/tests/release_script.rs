@@ -12,17 +12,17 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+mod common;
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
 /// A tracked file as HEAD carries it, which is what the tag will carry.
 fn at_head(rel: &str) -> String {
-    let out = std::process::Command::new("git")
-        .current_dir(repo_root())
-        .args(["show", &format!("HEAD:{rel}")])
-        .output()
-        .unwrap_or_else(|e| panic!("git show HEAD:{rel} did not run ({e})"));
+    // `raw`, not `out`: a tracked file's trailing newline is part of what the tag carries,
+    // and the section parsers below split on it.
+    let out = common::git::raw(&repo_root(), &["show", &format!("HEAD:{rel}")]);
     assert!(
         out.status.success(),
         "git show HEAD:{rel} failed: {}",
@@ -342,15 +342,7 @@ fn the_tag_exists_check_does_not_match_another_layers_tag() {
 
     let work = dir.path().join("work");
     std::fs::create_dir_all(&work).unwrap();
-    let git = |cwd: &std::path::Path, args: &[&str]| {
-        let ok = Command::new("git")
-            .current_dir(cwd)
-            .args(args)
-            .status()
-            .expect("git")
-            .success();
-        assert!(ok, "git {args:?} failed");
-    };
+    let git = common::git::git;
     git(
         dir.path(),
         &["init", "-q", "--bare", origin.to_str().unwrap()],
@@ -370,12 +362,7 @@ fn the_tag_exists_check_does_not_match_another_layers_tag() {
     git(&work, &["push", "-q", "origin", "main", "--tags"]);
 
     let matches = |pattern: &str| -> Vec<String> {
-        let out = Command::new("git")
-            .current_dir(&work)
-            .args(["ls-remote", "--tags", "origin", pattern])
-            .output()
-            .expect("git ls-remote");
-        String::from_utf8_lossy(&out.stdout)
+        common::git::out(&work, &["ls-remote", "--tags", "origin", pattern])
             .lines()
             .filter_map(|l| l.split("refs/tags/").nth(1).map(str::to_string))
             .collect()
@@ -545,11 +532,7 @@ fn the_release_publishes_the_upgrade_note_for_the_tag_it_cuts() {
 
 /// Every `git` invocation this section makes, from the repository root.
 fn git_out(args: &[&str]) -> std::process::Output {
-    std::process::Command::new("git")
-        .current_dir(repo_root())
-        .args(args)
-        .output()
-        .expect("git is on PATH")
+    common::git::raw(&repo_root(), args)
 }
 
 /// The `## ` sections of `docs/upgrading.md` at HEAD, each with its `### ` note headings.

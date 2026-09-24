@@ -81,17 +81,7 @@ fn state_of(
 }
 
 fn git_stdout(root: &Path, args: &[&str]) -> Option<String> {
-    let out = std::process::Command::new("git")
-        .current_dir(root)
-        .args(args)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    String::from_utf8(out.stdout)
-        .ok()
-        .map(|s| s.trim().to_string())
+    crate::git::Git::new(root).args(args).try_run()
 }
 
 /// "substrate-survey" → "Substrate survey"
@@ -274,24 +264,13 @@ mod tests {
     use std::path::PathBuf;
     use tempfile::TempDir;
 
-    fn git(dir: &Path, args: &[&str]) {
-        let status = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?} failed");
-    }
+    use crate::git::fixture::git;
 
     fn init_repo() -> (TempDir, PathBuf) {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path().to_path_buf();
-        git(&root, &["init", "-q", "-b", "main"]);
-        git(&root, &["config", "user.email", "test@test.com"]);
-        git(&root, &["config", "user.name", "Tester"]);
-        std::fs::write(root.join("a.txt"), "a").unwrap();
-        git(&root, &["add", "."]);
-        git(&root, &["commit", "-q", "-m", "chore: genesis — test"]);
+        crate::git::fixture::write(&root, "a.txt", "a");
+        crate::git::fixture::repo(&root, "chore: genesis — test");
         (tmp, root)
     }
 
@@ -329,7 +308,7 @@ mod tests {
         );
         assert_eq!(rows[0].name, "Auditor");
         assert_eq!(rows[0].ref_name, "origin/ma/auditor");
-        assert_eq!(rows[0].owner, "Tester");
+        assert_eq!(rows[0].owner, crate::git::fixture::FIXTURE_AUTHOR);
         // A remote-only *position*, so it lands in `positions` — the assertion here was
         // `active == 1`, which is the conflation this split exists to undo.
         assert_eq!(rows[0].state, "position");
@@ -383,7 +362,7 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].ref_name, "ma/substrate-survey");
         assert_eq!(rows[0].name, "Substrate survey");
-        assert_eq!(rows[0].owner, "Tester");
+        assert_eq!(rows[0].owner, crate::git::fixture::FIXTURE_AUTHOR);
         assert_eq!(rows[0].commits, 1);
         assert!(!rows[0].started.is_empty());
     }

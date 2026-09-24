@@ -17,6 +17,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod common;
+
 struct Run {
     stdout: String,
     stderr: String,
@@ -63,12 +65,7 @@ fn run(dir: &Path, cache: &Path, args: &[&str]) -> Run {
 /// A derived repository, optionally with a `[vault.…]` section.
 fn repo(config: Option<&str>) -> tempfile::TempDir {
     let tmp = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(tmp.path())
-        .status()
-        .unwrap()
-        .success());
+    common::git::git(tmp.path(), &["init", "-q"]);
     std::fs::create_dir_all(tmp.path().join(".yidam")).unwrap();
     if let Some(c) = config {
         std::fs::write(tmp.path().join(".yidam/config.toml"), c).unwrap();

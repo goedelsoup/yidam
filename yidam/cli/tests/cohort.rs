@@ -18,7 +18,6 @@ mod common;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use common::Example;
 
@@ -133,11 +132,7 @@ fn reading_a_cohort_touches_no_working_tree() {
     std::fs::write(root.join("scratch.txt"), "untracked\n").unwrap();
 
     let before = tree(&root);
-    let head_before = Command::new("git")
-        .current_dir(&root)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .unwrap();
+    let head_before = common::git::out(&root, &["rev-parse", "HEAD"]);
 
     // Run from a *different* repository, which is how a cohort is read: the subject is named
     // on the command line and is never the working directory.
@@ -151,13 +146,8 @@ fn reading_a_cohort_touches_no_working_tree() {
         "`yidam cohort` changed the tree it read"
     );
     assert_eq!(
-        Command::new("git")
-            .current_dir(&root)
-            .args(["rev-parse", "HEAD"])
-            .output()
-            .unwrap()
-            .stdout,
-        head_before.stdout,
+        common::git::out(&root, &["rev-parse", "HEAD"]),
+        head_before,
         "`yidam cohort` moved the ref of the repository it read"
     );
 }

@@ -19,6 +19,8 @@
 use std::path::Path;
 use std::process::Command;
 
+mod common;
+
 /// A `crates/` workspace: a virtual manifest, one aligned member, one member that inherits
 /// its description. Nothing else — the command needs a repository root, not a corpus.
 fn stage() -> tempfile::TempDir {
@@ -58,15 +60,7 @@ fn stage() -> tempfile::TempDir {
          verb   = \"refresh\"\n",
     );
 
-    let git = |args: &[&str]| {
-        Command::new("git")
-            .current_dir(root)
-            .args(args)
-            .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
-            .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
-            .status()
-            .unwrap();
-    };
+    let git = |args: &[&str]| common::git::git_at(root, args, common::git::FIXTURE_DATE);
     git(&["init", "-q", "-b", "main"]);
     git(&["config", "user.email", "fixture@yidam.test"]);
     git(&["config", "user.name", "Fixture"]);

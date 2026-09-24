@@ -12,6 +12,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod common;
+
 fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/sdks/parity/fixtures/reports/basic")
 }
@@ -35,15 +37,7 @@ fn stage() -> tempfile::TempDir {
             std::fs::copy(entry.path(), &dest).unwrap();
         }
     }
-    let git = |args: &[&str]| {
-        Command::new("git")
-            .current_dir(tmp.path())
-            .args(args)
-            .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
-            .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
-            .status()
-            .unwrap();
-    };
+    let git = |args: &[&str]| common::git::git_at(tmp.path(), args, common::git::FIXTURE_DATE);
     git(&["init", "-q", "-b", "main"]);
     git(&["config", "user.email", "fixture@yidam.test"]);
     git(&["config", "user.name", "Fixture"]);

@@ -1814,18 +1814,8 @@ decision := {"allow": true, "deny": []}
     fn repo_with_an_aged_orphan(commits: usize) -> TempDir {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
-        let git = |args: &[&str]| {
-            let ok = std::process::Command::new("git")
-                .current_dir(root)
-                .args(args)
-                .status()
-                .unwrap()
-                .success();
-            assert!(ok, "git {args:?}");
-        };
-        git(&["init", "-q", "-b", "main"]);
-        git(&["config", "user.email", "t@t.com"]);
-        git(&["config", "user.name", "T"]);
+        crate::git::fixture::init(root);
+        let git = |args: &[&str]| crate::git::fixture::git(root, args);
 
         let corpus = root.join(".yidam/corpus/reach");
         fs::create_dir_all(&corpus).unwrap();
@@ -1973,18 +1963,8 @@ decision := {"allow": true, "deny": []}
     fn repo_that_trips_many_checks() -> TempDir {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
-        let git = |args: &[&str]| {
-            let ok = std::process::Command::new("git")
-                .current_dir(root)
-                .args(args)
-                .status()
-                .unwrap()
-                .success();
-            assert!(ok, "git {args:?}");
-        };
-        git(&["init", "-q", "-b", "main"]);
-        git(&["config", "user.email", "t@t.com"]);
-        git(&["config", "user.name", "T"]);
+        crate::git::fixture::init(root);
+        let git = |args: &[&str]| crate::git::fixture::git(root, args);
 
         let corpus = root.join(".yidam/corpus/reach");
         fs::create_dir_all(&corpus).unwrap();
@@ -2289,15 +2269,5 @@ decision := {"allow": true, "deny": []}
         out
     }
 
-    fn commit_all(root: &Path, message: &str) {
-        for args in [vec!["add", "-A"], vec!["commit", "-q", "-m", message]] {
-            let ok = std::process::Command::new("git")
-                .current_dir(root)
-                .args(&args)
-                .status()
-                .unwrap()
-                .success();
-            assert!(ok, "git {args:?}");
-        }
-    }
+    use crate::git::fixture::commit as commit_all;
 }

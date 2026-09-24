@@ -23,15 +23,9 @@
 use std::path::Path;
 use std::process::Command;
 
-fn git(root: &Path, args: &[&str]) {
-    let ok = Command::new("git")
-        .current_dir(root)
-        .args(args)
-        .status()
-        .expect("git runs")
-        .success();
-    assert!(ok, "git {args:?} failed");
-}
+mod common;
+
+use common::git::git;
 
 fn write(root: &Path, rel: &str, text: &str) {
     let path = root.join(rel);
@@ -104,12 +98,7 @@ fn object_coupled_repo() -> (tempfile::TempDir, Vec<String>) {
     write(root, ".yidam/corpus/charts.md", "# charts\n");
     commit(root, "viewport: charts that cannot draw a number");
 
-    let out = Command::new("git")
-        .current_dir(root)
-        .args(["log", "--reverse", "--format=%H"])
-        .output()
-        .expect("git log");
-    let hashes: Vec<String> = String::from_utf8_lossy(&out.stdout)
+    let hashes: Vec<String> = common::git::out(root, &["log", "--reverse", "--format=%H"])
         .lines()
         .map(|l| l.trim()[..8].to_string())
         .collect();
@@ -138,12 +127,7 @@ fn with_no_declaration_every_off_vocabulary_commit_is_reported() {
 
 /// The short hash of `HEAD`, in the form the report writes.
 fn head(root: &Path) -> String {
-    let out = Command::new("git")
-        .current_dir(root)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .expect("git rev-parse");
-    String::from_utf8_lossy(&out.stdout).trim()[..8].to_string()
+    common::git::out(root, &["rev-parse", "HEAD"])[..8].to_string()
 }
 
 /// A node moved *out* of the corpus register is corpus work, and the register split may not

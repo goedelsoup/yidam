@@ -236,11 +236,11 @@ fn check_repository(root: &Path) -> Answer {
         }
         return Answer::ok(format!("{}", root.display()));
     }
-    let in_git = std::process::Command::new("git")
+    // `Git::here()`: this asks about the process's own working directory, the way
+    // [`crate::paths::repo_root`] does, so it is one of the two callers with no root to name.
+    let in_git = crate::git::Git::here()
         .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+        .succeeded();
     let (detail, remedy) = if in_git {
         (
             format!("{} is a git repository with no .yidam/", root.display()),
@@ -282,22 +282,20 @@ fn has_corpus_content(root: &Path) -> bool {
 /// an environment where the question cannot be answered does not manufacture a false
 /// "never committed".
 fn head_is_unborn(root: &Path) -> bool {
-    let in_work_tree = std::process::Command::new("git")
-        .current_dir(root)
+    let in_work_tree = crate::git::Git::new(root)
         .args(["rev-parse", "--is-inside-work-tree"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+        .succeeded();
     if !in_work_tree {
         return false;
     }
-    let head_resolves = std::process::Command::new("git")
-        .current_dir(root)
-        .args(["rev-parse", "--verify", "-q", "HEAD"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(true);
-    !head_resolves
+    // Note the asymmetry: an unrunnable git leaves `in_work_tree` false and returns above,
+    // so reaching here means git ran. `succeeded()` collapses "git refused" and "git could
+    // not run" into false, which here reads as an unborn HEAD — the same answer the old
+    // `.unwrap_or(true)` gave, since it is reachable only when git already ran once.
+    !crate::git::Git::new(root)
+        .args(["rev-parse", "--verify", "-q"])
+        .rev("HEAD")
+        .succeeded()
 }
 
 /// The pin a derived repository is upgradable from.
@@ -946,14 +944,11 @@ fn check_policy(root: &Path) -> Answer {
 /// How many commits `HEAD` carries. `0` on anything that cannot be counted, which reads the
 /// same as "too early to tell" everywhere it is used.
 fn commit_count(root: &Path) -> usize {
-    std::process::Command::new("git")
-        .current_dir(root)
-        .args(["rev-list", "--count", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .and_then(|s| s.trim().parse().ok())
+    crate::git::Git::new(root)
+        .args(["rev-list", "--count"])
+        .rev("HEAD")
+        .try_run()
+        .and_then(|s| s.parse().ok())
         .unwrap_or(0)
 }
 
@@ -1567,6 +1562,7 @@ impl ManifestPin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git::fixture::git;
     use tempfile::TempDir;
 
     fn find<'a>(checks: &'a [Check], id: &str) -> &'a Check {
@@ -1928,22 +1924,7 @@ mod tests {
             "x: 1\n",
         )
         .unwrap();
-        for args in [
-            &["init", "-q", "-b", "main"][..],
-            &["config", "user.email", "t@t.com"][..],
-            &["config", "user.name", "T"][..],
-            &["config", "commit.gpgsign", "false"][..],
-            &["add", "-A"][..],
-            &["commit", "-q", "--no-gpg-sign", "-m", "genesis: a corpus"][..],
-        ] {
-            let ok = std::process::Command::new("git")
-                .current_dir(dir)
-                .args(args)
-                .status()
-                .unwrap()
-                .success();
-            assert!(ok, "git {args:?} failed");
-        }
+        crate::git::fixture::repo(dir, "genesis: a corpus");
         crate::git::genesis_hash(dir).expect("the fixture checkout has a root commit")
     }
 
@@ -2086,11 +2067,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         std::fs::create_dir_all(tmp.path().join(".yidam")).unwrap();
         std::fs::write(tmp.path().join(".yidam/marker"), "").unwrap();
-        git(tmp.path(), &["init", "-q", "-b", "main"]);
-        git(tmp.path(), &["config", "user.email", "doctor@yidam.test"]);
-        git(tmp.path(), &["config", "user.name", "Doctor"]);
-        git(tmp.path(), &["add", "-A"]);
-        git(tmp.path(), &["commit", "-q", "-m", "genesis: test"]);
+        crate::git::fixture::repo(tmp.path(), "genesis: test");
 
         let c = check_repository(tmp.path());
         assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
@@ -2104,15 +2081,6 @@ mod tests {
         let tmp = derived_repo();
         assert!(!head_is_unborn(tmp.path()));
         assert_eq!(check_repository(tmp.path()).verdict, Verdict::Ok);
-    }
-
-    fn git(dir: &Path, args: &[&str]) {
-        let status = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .expect("git");
-        assert!(status.success(), "git {args:?} failed in {}", dir.display());
     }
 
     // ── provenance ───────────────────────────────────────────────────────────

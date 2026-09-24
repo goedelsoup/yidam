@@ -17,6 +17,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod common;
+
 fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/sdks/parity/fixtures/reports/basic")
 }
@@ -41,15 +43,7 @@ fn apply_recipe(root: &Path, recipe: &Path) {
     let spec: toml::Value =
         toml::from_str(&std::fs::read_to_string(recipe).expect("stage.toml")).expect("stage.toml");
 
-    let git = |args: &[&str]| {
-        let ok = Command::new("git")
-            .current_dir(root)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    };
+    let git = |args: &[&str]| common::git::git(root, args);
     git(&["init", "-q", "-b", "main"]);
     git(&["config", "user.email", "fixture@yidam.test"]);
     git(&["config", "user.name", "Fixture"]);
@@ -92,19 +86,12 @@ fn apply_recipe(root: &Path, recipe: &Path) {
         }
         git(&["add", "-A"]);
         // Fixed dates keep `status`'s genesis field stable across runs.
-        Command::new("git")
-            .current_dir(root)
-            .args(["commit", "-q", "-m", commit["message"].as_str().unwrap()])
-            .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
-            .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
-            .status()
-            .unwrap();
-        let out = Command::new("git")
-            .current_dir(root)
-            .args(["rev-parse", "HEAD"])
-            .output()
-            .unwrap();
-        let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        common::git::git_at(
+            root,
+            &["commit", "-q", "-m", commit["message"].as_str().unwrap()],
+            common::git::FIXTURE_DATE,
+        );
+        let sha = common::git::out(root, &["rev-parse", "HEAD"]);
         // Empty would substitute as an empty `since`, which reads as "never expires" — the
         // one failure this whole mechanism exists to make impossible.
         assert!(

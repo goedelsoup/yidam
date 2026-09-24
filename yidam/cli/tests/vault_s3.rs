@@ -27,6 +27,8 @@
 use std::path::Path;
 use std::process::Command;
 
+mod common;
+
 const ENDPOINT: &str = "http://127.0.0.1:9000";
 const ACCESS: &str = "yidamtest";
 const SECRET: &str = "yidamtest123";
@@ -61,12 +63,7 @@ fn run(dir: &Path, cache: &Path, args: &[&str]) -> (String, String, i32) {
 /// A derived repository whose vault is the MinIO bucket.
 fn repo(extra_catalog: Option<&str>) -> tempfile::TempDir {
     let tmp = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(tmp.path())
-        .status()
-        .unwrap()
-        .success());
+    common::git::git(tmp.path(), &["init", "-q"]);
     std::fs::create_dir_all(tmp.path().join(".yidam/catalog")).unwrap();
     std::fs::write(
         tmp.path().join(".yidam/config.toml"),

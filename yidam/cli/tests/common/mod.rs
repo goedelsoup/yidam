@@ -7,6 +7,8 @@
 
 #![allow(dead_code)] // each test binary uses a different part of this
 
+pub mod git;
+
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -237,11 +239,7 @@ pub fn install_of(rel: &str) -> Option<(&'static Install, Option<String>)> {
 /// `ls-files` and not `archive HEAD`, so an uncommitted edit is covered too — the point is
 /// to test the tree about to be committed, not the one already was.
 pub fn tracked_under(root: &Path, prefix: &str) -> Vec<String> {
-    let out = std::process::Command::new("git")
-        .current_dir(root)
-        .args(["ls-files", "-z", "--", prefix])
-        .output()
-        .expect("git ls-files");
+    let out = git::raw(root, &["ls-files", "-z", "--", prefix]);
     assert!(out.status.success(), "git ls-files failed for {prefix}");
     String::from_utf8_lossy(&out.stdout)
         .split('\0')
@@ -364,13 +362,12 @@ fn history(root: &Path, name: &str) -> Option<Vec<HistoryCommit>> {
 }
 
 fn git(dir: &Path, args: &[&str], name: &str) {
-    let ok = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok, "git {args:?} failed for {name}");
+    let out = git::raw(dir, args);
+    assert!(
+        out.status.success(),
+        "git {args:?} failed for {name}: {}",
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
 }
 
 /// Build the repository one commit at a time, in the order the manifest gives.
@@ -402,41 +399,31 @@ fn replay_history(dir: &Path, name: &str, commits: &[HistoryCommit], copied: &[S
             c.message
         );
         // Already-committed files stage as no-ops, so an entry can still be empty here.
-        let nothing_new = Command::new("git")
-            .args(["diff", "--cached", "--quiet"])
-            .current_dir(dir)
-            .status()
-            .unwrap()
-            .success();
+        let nothing_new = git::succeeded(dir, &["diff", "--cached", "--quiet"]);
         assert!(
             !nothing_new,
             "{name}: history entry {:?} adds nothing not already committed",
             c.message
         );
 
-        let mut cmd = Command::new("git");
-        cmd.args(["commit", "-q", "-m", &c.message])
-            .current_dir(dir);
-        if let Some(date) = &c.date {
-            // Both, because a reader comparing `replay` to this manifest is comparing dates,
-            // and git takes the two from different places.
-            cmd.arg(format!("--date={date}"));
-            cmd.env("GIT_COMMITTER_DATE", date);
-        }
+        // `git_at` rather than `git`, because a reader comparing `replay` to this manifest
+        // is comparing dates and git takes the author's and the committer's from different
+        // places.
+        let args = ["commit", "-q", "-m", &c.message];
+        let out = match &c.date {
+            Some(date) => git::raw_at(dir, &args, date),
+            None => git::raw(dir, &args),
+        };
         assert!(
-            cmd.status().unwrap().success(),
-            "{name}: commit {:?} failed",
-            c.message
+            out.status.success(),
+            "{name}: commit {:?} failed: {}",
+            c.message,
+            String::from_utf8_lossy(&out.stderr).trim()
         );
     }
 
     git(dir, &["add", "-A"], name);
-    let nothing_left = Command::new("git")
-        .args(["diff", "--cached", "--quiet"])
-        .current_dir(dir)
-        .status()
-        .unwrap()
-        .success();
+    let nothing_left = git::succeeded(dir, &["diff", "--cached", "--quiet"]);
     if !nothing_left {
         git(
             dir,
@@ -520,13 +507,7 @@ impl Example {
             vec!["config", "user.email", "example@yidam.test"],
             vec!["config", "user.name", "Example"],
         ] {
-            let ok = Command::new("git")
-                .args(&args)
-                .current_dir(&here)
-                .status()
-                .unwrap()
-                .success();
-            assert!(ok, "git {args:?} failed for {name}");
+            git(&here, &args, name);
         }
 
         match history(&root, name) {
@@ -601,11 +582,7 @@ fn git_toplevel(start: &Path) -> PathBuf {
     } else {
         start.parent().unwrap_or(start)
     };
-    let out = Command::new("git")
-        .current_dir(anchor)
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .unwrap_or_else(|e| panic!("git rev-parse in {}: {e}", start.display()));
+    let out = git::raw(anchor, &["rev-parse", "--show-toplevel"]);
     assert!(
         out.status.success(),
         "{} is not inside a git repository, so nothing here can tell authored files from \
@@ -627,9 +604,9 @@ fn git_toplevel(start: &Path) -> PathBuf {
 /// individually by the same call, which is why [`repo_walk_keeping`] checks files against
 /// this set too and not only directories.
 fn git_ignored(top: &Path) -> BTreeSet<String> {
-    let out = Command::new("git")
-        .current_dir(top)
-        .args([
+    let out = git::raw(
+        top,
+        &[
             "ls-files",
             "-z",
             "--others",
@@ -637,9 +614,8 @@ fn git_ignored(top: &Path) -> BTreeSet<String> {
             "--exclude-standard",
             "--directory",
             "--no-empty-directory",
-        ])
-        .output()
-        .unwrap_or_else(|e| panic!("git ls-files in {}: {e}", top.display()));
+        ],
+    );
     // A failure here must not degrade to "ignore nothing": that is the state #900 reports,
     // and it is silent.
     assert!(

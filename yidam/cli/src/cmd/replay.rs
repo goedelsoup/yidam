@@ -404,25 +404,13 @@ mod tests {
     fn a_class_the_ontology_only_names_is_scored_against_nothing() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path();
-        let git = |args: &[&str]| {
-            assert!(
-                std::process::Command::new("git")
-                    .current_dir(root)
-                    .args(args)
-                    .status()
-                    .unwrap()
-                    .success(),
-                "git {args:?}"
-            );
-        };
+        let git = |args: &[&str]| crate::git::fixture::git(root, args);
         let write = |rel: &str, body: &str| {
             let p = root.join(".yidam/corpus").join(rel);
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(p, body).unwrap();
         };
-        git(&["init", "-q", "-b", "main"]);
-        git(&["config", "user.email", "t@t.com"]);
-        git(&["config", "user.name", "T"]);
+        crate::git::fixture::init(root);
 
         write(
             "gauge.ont.yml",

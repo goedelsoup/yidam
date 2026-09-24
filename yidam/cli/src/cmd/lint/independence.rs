@@ -787,42 +787,10 @@ mod tests {
     // test HEAD cannot pass: the registry says one thing at the tips and another at HEAD, and
     // only one of those answers is the record's own ancestry.
 
-    fn git(dir: &std::path::Path, args: &[&str]) {
-        let ok = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
-
-    fn write(dir: &std::path::Path, rel: &str, body: &str) {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, body).unwrap();
-    }
-
-    fn commit(dir: &std::path::Path, msg: &str) {
-        git(dir, &["add", "-A"]);
-        let ok = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(["commit", "-q", "--no-gpg-sign", "-m", msg])
-            .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
-            .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "commit failed");
-    }
+    use crate::git::fixture::{commit, git, git_out, write};
 
     fn head(dir: &std::path::Path) -> String {
-        let out = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(["rev-parse", "--short", "HEAD"])
-            .output()
-            .unwrap();
-        String::from_utf8(out.stdout).unwrap().trim().to_string()
+        git_out(dir, &["rev-parse", "--short", "HEAD"])
     }
 
     /// A registry with the two seats at the configs given.

@@ -5,7 +5,6 @@
 //! ask the same question twice, and that a question is retired when its finding goes.
 
 use std::path::Path;
-use std::process::Command;
 
 use super::draft::Verb;
 use super::*;
@@ -88,24 +87,7 @@ fn node(root: &Path, class: &str, name: &str, prose: &str, links: &[&str]) {
     .unwrap();
 }
 
-fn git(root: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .current_dir(root)
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
-}
-
-fn commit(root: &Path, message: &str) {
-    git(root, &["add", "-A"]);
-    git(root, &["commit", "-q", "-m", message]);
-}
+use crate::git::fixture::{commit, git_out as git};
 
 fn read(root: &Path, rel: &str) -> String {
     std::fs::read_to_string(root.join(rel)).unwrap_or_default()

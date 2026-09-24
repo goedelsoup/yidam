@@ -385,15 +385,7 @@ mod tests {
 
     // ── one name, two corpora ─────────────────────────────────────────────────
 
-    fn git(dir: &Path, args: &[&str]) {
-        let ok = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
+    use crate::git::fixture::git;
 
     /// A corpus with one commit, so it has a genesis hash of its own.
     fn corpus(dir: &Path) -> String {
@@ -403,10 +395,7 @@ mod tests {
             "x: 1\n",
         )
         .unwrap();
-        git(dir, &["init", "-q", "-b", "main"]);
-        git(dir, &["config", "user.email", "t@t.com"]);
-        git(dir, &["config", "user.name", "T"]);
-        git(dir, &["config", "commit.gpgsign", "false"]);
+        crate::git::fixture::init(dir);
         git(dir, &["add", "-A"]);
         git(
             dir,

@@ -18,6 +18,8 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
+mod common;
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
@@ -26,14 +28,7 @@ fn contract_dir() -> PathBuf {
     repo_root().join("yidam/prelude/sdks/parity/mcp")
 }
 
-fn git(dir: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .status()
-        .unwrap();
-    assert!(status.success(), "git {args:?} failed");
-}
+use common::git::git;
 
 /// The same staging recipe `mcp_serve.rs` uses, against the same shipped corpus.
 ///

@@ -17,22 +17,12 @@
 //! the report that claims it did not — which is the assertion a resumable executor owes and
 //! the one a report cannot make on its own behalf.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
-fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .unwrap_or_else(|e| panic!("git {args:?}: {e}"));
-    assert!(
-        out.status.success(),
-        "git {args:?} failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
-}
+mod common;
+
+use common::git::out as git;
 
 /// A corpus, the probe file its steps append to, and the temp dir holding both.
 struct Fixture {
