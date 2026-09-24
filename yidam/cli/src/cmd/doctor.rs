@@ -1388,20 +1388,19 @@ fn short(hash: &str) -> &str {
 /// the first node: `Ok` with `no corpus files yet` says the question was put and had no
 /// subject, which is not the same as a clean bill of health over nothing.
 fn check_corpus(root: &Path) -> Answer {
-    let corpus = crate::paths::yidam_corpus_dir(root);
-    let instances = crate::walk::walk_corpus_instances(&corpus);
-    let ont_files = crate::walk::walk_ont_files(&corpus);
-    let total = instances.len() + ont_files.len();
+    let read = crate::corpus::Corpus::open(root);
+    let total = read.instance_paths().len() + read.ont_paths().len();
     if total == 0 {
         return Answer::ok("no corpus files yet");
     }
 
-    let overlay = crate::corpus::Overlay::default();
-    let unreadable = crate::corpus::load_nodes(root, &instances, &overlay)
+    let unreadable = read
+        .nodes()
         .iter()
         .filter(|n| n.malformed.is_some())
         .count()
-        + crate::corpus::load_classes(root, &ont_files, &overlay)
+        + read
+            .classes()
             .iter()
             .filter(|c| c.malformed.is_some())
             .count();

@@ -323,7 +323,7 @@ The server spawns the pinned binary per request and parses the envelope. Nothing
 |---|---|
 | `GET /` and the app's pages | Astro, server-rendered on `@astrojs/node` |
 | `GET /api/handshake` | `format_version` plus the CLI's version, commit and feature list — the fields [`report::YidamBlock::current()`](../../yidam/cli/src/report.rs#L48) assembles |
-| `GET /api/corpus` | `yidam graph --format json`, whose nodes and resolved edges come from [`model::corpus_nodes()`](../../yidam/cli/src/model.rs#L460) — the function `serve`, `graphml` and `rdf` already share |
+| `GET /api/corpus` | `yidam graph --format json`, whose nodes and resolved edges come from [`model::corpus_nodes()`](../../yidam/cli/src/model.rs#L463) — the function `serve`, `graphml` and `rdf` already share |
 | `GET /api/reports` | `lint` and `graph-check` as the RFC-0001 envelope, byte-identical to `--format json` |
 | `GET /api/overlay` (SSE) | Diagnostics from a supervised `yidam serve --lsp` — see below |
 | `POST /api/act/propose`, `POST /api/act/cycle` | The two tools of RFC-0029's `act` tier, through `yidam serve --mcp` — one stdio connection per request, three lines down and two back ([`act.ts:129`](../../yidam/editors/web/src/lib/act.ts#L129)). `?dry_run=true` is the tool's own argument; `force` has no field to arrive in. Landed 2026-09-22 (#608) |
@@ -356,7 +356,7 @@ most expensive thing in the document. The original said so, about this design, a
 
 That bridge is now the plan. [`Overlay`](../../yidam/cli/src/corpus/overlay.rs#L15) is a
 `pub struct` in the lint module, and
-[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L132) is the entry point the language
+[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L130) is the entry point the language
 server calls on every change ([`lsp.rs:250`](../../yidam/cli/src/cmd/lsp.rs#L250)) — but it is
 reachable only through `serve --lsp`. `yidam lint` has no overlay flag, and the extension is no
 prior art here: it carries no LSP client and no dependencies at all, running `lint --format json`
@@ -458,7 +458,7 @@ being built:
   buffer publishes nothing new, so a page cannot tell *clean* from *not judged yet*. The server
   answers any request it does not know with `null`, and does so **after** the publishes a
   preceding change produced —
-  [`a_request_after_a_change_is_answered_after_its_diagnostics`](../../yidam/cli/src/cmd/lsp.rs#L875)
+  [`a_request_after_a_change_is_answered_after_its_diagnostics`](../../yidam/cli/src/cmd/lsp.rs#L874)
   pins the order. The bridge sends `$/yidam/barrier` after every `didChange` and treats the
   reply as the verdict's edge
   ([`overlay.ts:396`](../../yidam/editors/web/src/lib/overlay.ts#L396)). No protocol extension,

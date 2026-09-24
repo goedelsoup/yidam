@@ -30,7 +30,7 @@ pub mod lang;
 use anyhow::Result;
 use std::fmt::Write as _;
 
-use crate::paths::{repo_root, yidam_corpus_dir};
+use crate::paths::repo_root;
 use crate::retrieval::Retrieval;
 use crate::walk::{walk_corpus_instances, walk_ont_files};
 
@@ -73,6 +73,12 @@ impl Default for Options {
 /// and must not re-walk `.yidam/corpus` per call. The CLI loads one and drops it.
 pub struct Graph {
     pub nodes: Vec<crate::corpus::Node>,
+    /// The resolved graph over [`Self::nodes`], built with them.
+    ///
+    /// Held rather than derived in `exec::execute`, which is where it used to be built —
+    /// once per query, out of a `nodes_by_path` map that three other call sites were
+    /// building independently. See [`crate::corpus::Edges`].
+    pub edges: crate::corpus::Edges,
     pub classes: Vec<crate::corpus::Class>,
     pub universal: crate::universal::Universal,
     /// Repo-relative, e.g. `.yidam/corpus` — the prefix node ids are stripped of.
@@ -102,6 +108,9 @@ pub struct Graph {
 pub struct Foreign {
     pub package: String,
     pub nodes: Vec<crate::corpus::Node>,
+    /// This dependency's own graph — see [`Graph::edges`]. Built from its own nodes and
+    /// never from a merged list, which is the same boundary the type note draws.
+    pub edges: crate::corpus::Edges,
     pub classes: Vec<crate::corpus::Class>,
     pub universal: crate::universal::Universal,
     pub corpus_dir: String,
@@ -109,10 +118,9 @@ pub struct Foreign {
 
 impl Graph {
     pub fn load(root: &std::path::Path) -> Self {
-        let corpus_dir = yidam_corpus_dir(root);
-        let overlay = crate::corpus::Overlay::default();
-        let nodes = crate::corpus::load_nodes(root, &walk_corpus_instances(&corpus_dir), &overlay);
-        let classes = crate::corpus::load_classes(root, &walk_ont_files(&corpus_dir), &overlay);
+        let read = crate::corpus::Corpus::open(root);
+        let corpus_dir = read.dir().to_path_buf();
+        let (nodes, classes, edges) = read.into_parts();
         let rel = corpus_dir
             .strip_prefix(root)
             .unwrap_or(&corpus_dir)
@@ -120,6 +128,7 @@ impl Graph {
             .replace('\\', "/");
         Self {
             nodes,
+            edges,
             classes,
             universal: crate::universal::Universal::load(root),
             corpus_dir: rel,
@@ -156,12 +165,11 @@ impl Graph {
                 // so ids come out as `<class>/<name>.yml` on both sides of the boundary and
                 // the package name is what distinguishes them.
                 let owner = dir.parent().unwrap_or(&dir).to_path_buf();
+                let nodes =
+                    crate::corpus::load_nodes(&owner, &walk_corpus_instances(&dir), &overlay);
                 Foreign {
-                    nodes: crate::corpus::load_nodes(
-                        &owner,
-                        &walk_corpus_instances(&dir),
-                        &overlay,
-                    ),
+                    edges: crate::corpus::Edges::build(&nodes),
+                    nodes,
                     classes: crate::corpus::load_classes(&owner, &walk_ont_files(&dir), &overlay),
                     universal: crate::universal::Universal::parse(
                         &std::fs::read_to_string(dir.join("universal.yml")).unwrap_or_default(),
@@ -783,6 +791,7 @@ fn run_checked(
         parsed,
         &checked,
         &graph.nodes,
+        &graph.edges,
         &graph.corpus_dir,
         resolved.as_ref(),
     );
@@ -833,6 +842,7 @@ fn run_checked(
             parsed,
             &checked,
             &foreign.nodes,
+            &foreign.edges,
             &foreign.corpus_dir,
             // No anchor: an anchored `--across` is refused above. Passing `None` here is not
             // a silent downgrade, it is the arm that cannot be reached.

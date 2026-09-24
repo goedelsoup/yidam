@@ -1082,17 +1082,18 @@ pub fn measure(root: &Path) -> Measurement {
         .filter(|s| !crate::cmd::lint::commits::is_merge(&s.text, s.parents))
         .collect();
 
-    let corpus = crate::paths::yidam_corpus_dir(root);
-    let fields = crate::claims::ClaimFields::load(&corpus);
+    let read = crate::corpus::Corpus::open(root);
+    let fields = crate::claims::ClaimFields::load(read.dir());
     let mut lines: Vec<usize> = Vec::new();
     let mut open_questions = 0usize;
-    for path in crate::walk::walk_corpus_instances(&corpus) {
-        lines.push(crate::walk::line_count(&path));
-        let text = std::fs::read_to_string(&path).unwrap_or_default();
-        let inst = crate::parse::parse_instance(&text);
-        let label = inst.label.unwrap_or_default();
-        let class = inst.class.unwrap_or_default();
-        if crate::claims::has_open_claim(&label, &text, fields.for_class(&class)) {
+    // One read of each node, where this loop used to open every file twice — once to count
+    // its lines and once to parse it (#925). A `Node` carries the bytes it was parsed from,
+    // so the line count is a count of what is already in hand.
+    for node in read.nodes() {
+        lines.push(node.text.lines().count());
+        let label = node.inst.label.clone().unwrap_or_default();
+        let class = node.inst.class.clone().unwrap_or_default();
+        if crate::claims::has_open_claim(&label, &node.text, fields.for_class(&class)) {
             open_questions += 1;
         }
     }

@@ -67,16 +67,16 @@ at depth 2 and all of it at depth 3.
 ### E1 typed the graph and no traversal reads the types
 
 `.ont.yml` now declares, and lint now enforces: the class an instance belongs to
-([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L453), Error), the properties it may
-and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L953),
-[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1126)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1380)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1446)), and which class
+([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L473), Error), the properties it may
+and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L921),
+[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1094)), the type of each value
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1348)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1417)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1513), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1484), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
-([`checks.rs:1456-1457`](../../yidam/cli/src/cmd/lint/checks.rs#L1456-L1457)):
+([`checks.rs:1427-1428`](../../yidam/cli/src/cmd/lint/checks.rs#L1427-L1428)):
 
 > a relationship in no declaration is worth seeing, because **a traversal that walks by
 > relationship will not find it**
@@ -290,7 +290,7 @@ relationship the class does not declare resolves as:
 
 The first row is load-bearing and is easy to omit. `unlicensed_edge` short-circuits on an empty
 edge list **before** it consults the policy
-([`checks.rs:1416-1417`](../../yidam/cli/src/cmd/lint/checks.rs#L1416-L1417)):
+([`checks.rs:1383-1384`](../../yidam/cli/src/cmd/lint/checks.rs#L1383-L1384)):
 
 ```rust
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
@@ -506,9 +506,9 @@ unproductive the report says so rather than shrugging:
 
 A rejected query **emits its report and exits 1**. That is the shape four commands already
 have — `doctor`
-([`std::process::exit(1)`](../../yidam/cli/src/cmd/doctor.rs#L1536)), `regen`
+([`std::process::exit(1)`](../../yidam/cli/src/cmd/doctor.rs#L1535)), `regen`
 ([`std::process::exit(1)`](../../yidam/cli/src/cmd/regen.rs#L184)), `rename`
-([`std::process::exit(1)`](../../yidam/cli/src/cmd/rename.rs#L413)) and `index-verify`
+([`std::process::exit(1)`](../../yidam/cli/src/cmd/rename.rs#L398)) and `index-verify`
 ([`std::process::exit(1)`](../../yidam/cli/src/cmd/index_verify.rs#L266)) all print, then
 exit.
 

@@ -2,12 +2,12 @@ use anyhow::Result;
 use serde::Serialize;
 
 use crate::git::head_commit_short;
-use crate::parse::{frontmatter_body, parse_frontmatter, CorpusInstance};
+use crate::parse::{frontmatter_body, parse_frontmatter};
 use crate::paths::{
     class_of_path, repo_root, yidam_catalog_dir, yidam_corpus_dir, yidam_embeddings_dir,
 };
 use crate::s3vectors::request;
-use crate::walk::{walk_corpus_instances, walk_md_files};
+use crate::walk::walk_md_files;
 
 /// The `corpus` a dry run measures with when the repository cannot see its own root commit.
 ///
@@ -330,7 +330,11 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
 
     let prose_fields = crate::prose::ProseFields::load(&corpus_dir);
     let retrievable = crate::retrievable::Retrievable::load(&corpus_dir);
-    let instances = walk_corpus_instances(&corpus_dir);
+    // One read of the corpus, where this loop used to be the sixth place with its own copy
+    // of read-then-`serde_yaml::from_str` (#925). A malformed file is still skipped with a
+    // warning: `Node::malformed` carries the same `serde_yaml` message this printed.
+    let read = crate::corpus::Corpus::open(&root);
+    let instances = read.nodes();
     if instances.is_empty() && sources.is_empty() {
         println!("No corpus instances found in {}.", corpus_dir.display());
         return Ok(());
@@ -354,17 +358,14 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
 
     let mut count = 0;
     let mut skipped = 0usize;
-    for path in &instances {
-        let yaml = std::fs::read_to_string(path)?;
-        let inst: CorpusInstance = match serde_yaml::from_str(&yaml) {
-            Ok(v) => v,
-            Err(e) => {
-                let rel = path.strip_prefix(&root).unwrap_or(path);
-                eprintln!("[warn] skipping {}: {e}", rel.display());
-                skipped += 1;
-                continue;
-            }
-        };
+    for node in instances {
+        let path = &node.path;
+        if let Some(e) = &node.malformed {
+            eprintln!("[warn] skipping {}: {e}", node.rel);
+            skipped += 1;
+            continue;
+        }
+        let inst = &node.inst;
 
         // `crate::paths::class_of_path` and not a copy of its body: this value is written
         // into every index row and every remote vector, and the query path recomputes the
@@ -389,13 +390,12 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
         //
         // Node text is what an index is built from, so a corpus that flags a property must
         // re-embed. That is the change rather than a side effect of it.
-        let description = crate::retrievable::text(&inst, &prose_fields, &retrievable, &class);
+        let description = crate::retrievable::text(inst, &prose_fields, &retrievable, &class);
         let links = inst.links.as_deref().unwrap_or(&[]);
         let text = compose_text(&label, &description, links);
 
-        let rel_path = path.strip_prefix(&root).unwrap_or(path);
         let record = EmbedRecord {
-            path: rel_path.to_string_lossy().to_string(),
+            path: node.rel.clone(),
             class: class.clone(),
             label,
             text,

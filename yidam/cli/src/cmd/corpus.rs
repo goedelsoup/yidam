@@ -2,11 +2,9 @@ use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::corpus::Overlay;
-use crate::corpus::{load_classes, load_nodes};
-use crate::paths::{repo_root, yidam_corpus_dir};
+use crate::corpus::Corpus;
+use crate::paths::repo_root;
 use crate::regen::update_file_regen;
-use crate::walk::{line_count, walk_corpus_instances, walk_ont_files};
 
 /// A path as a markdown link target: `/`-separated on every platform.
 ///
@@ -33,9 +31,8 @@ fn slash_path(p: &Path) -> String {
 /// — 84 dead links, and that repo's own link checker had to carry an exemption for them.
 /// [`render_open_questions`] below *does* strip the root and is correct, because the file
 /// it writes is the root README. One renderer serving two destinations is what let this sit.
-pub(crate) fn render_corpus_index(link_prefix: &str, corpus: &Path) -> String {
-    let instances = walk_corpus_instances(corpus);
-    if instances.is_empty() {
+pub(crate) fn render_corpus_index(link_prefix: &str, corpus: &Corpus) -> String {
+    if corpus.nodes().is_empty() {
         return "_No corpus instances yet._".to_string();
     }
     // `Claims` is verified / inference / open. It tells a reader how much of a node is
@@ -47,13 +44,10 @@ pub(crate) fn render_corpus_index(link_prefix: &str, corpus: &Path) -> String {
     // node's text — and hidden when empty because this table is committed and gated: a
     // permanent `—` column would redden `yidam regen --check` in every derived repository on
     // upgrade, over a distinction none of them had made.
-    let read: Vec<(std::path::PathBuf, String)> = instances
+    let with_edges = corpus
+        .nodes()
         .iter()
-        .map(|p| (p.clone(), std::fs::read_to_string(p).unwrap_or_default()))
-        .collect();
-    let with_edges = read
-        .iter()
-        .any(|(_, text)| crate::claims::count_in_edges(text).total() > 0);
+        .any(|n| crate::claims::count_in_edges(&n.text).total() > 0);
     let (head, rule) = if with_edges {
         (
             "| Instance | Class | Label | Links out | Claims | Edges | Lines |",
@@ -66,7 +60,8 @@ pub(crate) fn render_corpus_index(link_prefix: &str, corpus: &Path) -> String {
         )
     };
     let mut rows = vec![head.to_string(), rule.to_string()];
-    for (path, text) in &read {
+    for node in corpus.nodes() {
+        let (path, text) = (&node.path, &node.text);
         // Masked, like every other node-scoped reading: a link that wrote `claim_tag:
         // "[open]"` is visible to the byte scan and is the edge's claim, not the node's.
         let claims = crate::claims::count_in_source(&crate::claims::mask_links(text)).cell();
@@ -75,12 +70,13 @@ pub(crate) fn render_corpus_index(link_prefix: &str, corpus: &Path) -> String {
         } else {
             String::new()
         };
-        let inst = crate::parse::parse_instance(text);
-        let class = inst.class.unwrap_or_else(|| "—".to_string());
-        let label = inst.label.unwrap_or_else(|| "—".to_string());
-        let links = inst.links.unwrap_or_default().len();
-        let lines = line_count(path);
-        let rel = path.strip_prefix(corpus).unwrap_or(path);
+        let inst = &node.inst;
+        let class = inst.class.clone().unwrap_or_else(|| "—".to_string());
+        let label = inst.label.clone().unwrap_or_else(|| "—".to_string());
+        let links = inst.links.as_deref().unwrap_or_default().len();
+        // The bytes the node was parsed from, rather than a third read of the same file.
+        let lines = text.lines().count();
+        let rel = path.strip_prefix(corpus.dir()).unwrap_or(path);
         let filename = path.file_name().unwrap_or_default().to_string_lossy();
         rows.push(format!(
             "| [{filename}]({link_prefix}{}) | {class} | {label} | {links} | {claims} |{edges} \
@@ -97,17 +93,16 @@ pub(crate) fn render_corpus_index(link_prefix: &str, corpus: &Path) -> String {
 /// directory a link resolves against *is* the root. The asymmetry with
 /// [`render_corpus_index`] is the point — each renderer is relative to where its output
 /// lands, and neither may assume the other's depth.
-pub(crate) fn render_open_questions(root: &Path, corpus: &Path) -> String {
-    let instances = walk_corpus_instances(corpus);
-    let fields = crate::claims::ClaimFields::load(corpus);
+pub(crate) fn render_open_questions(corpus: &Corpus) -> String {
+    let root = corpus.root();
+    let fields = crate::claims::ClaimFields::load(corpus.dir());
     let mut items = Vec::new();
-    for path in &instances {
-        let text = std::fs::read_to_string(path).unwrap_or_default();
-        let inst = crate::parse::parse_instance(&text);
-        let label = inst.label.clone().unwrap_or_default();
-        let class = inst.class.clone().unwrap_or_default();
+    for node in corpus.nodes() {
+        let (path, text) = (&node.path, &node.text);
+        let label = node.inst.label.clone().unwrap_or_default();
+        let class = node.inst.class.clone().unwrap_or_default();
         let rel = path.strip_prefix(root).unwrap_or(path);
-        if crate::claims::has_open_claim(&label, &text, fields.for_class(&class)) {
+        if crate::claims::has_open_claim(&label, text, fields.for_class(&class)) {
             items.push(format!("- [{label}]({})", slash_path(rel)));
         }
         // An edge tagged `open` is a question in its own right (#857), and it is listed as
@@ -115,7 +110,7 @@ pub(crate) fn render_open_questions(root: &Path, corpus: &Path) -> String {
         // edges, and a line that said only *this node has something open* would send the
         // reader to find out which. The link still points at the node, because that is the
         // file the edge is written in.
-        for claim in crate::claims::edge_claims(&text) {
+        for claim in crate::claims::edge_claims(text) {
             if claim.standing != "open" {
                 continue;
             }
@@ -175,11 +170,11 @@ pub struct GraphCheckReport {
     pub classes_without_instances: Vec<String>,
 }
 
-pub(crate) fn graph_check_data(root: &Path, corpus: &Path) -> GraphCheckReport {
-    let instances = walk_corpus_instances(corpus);
-    let ont_files = walk_ont_files(corpus);
+pub(crate) fn graph_check_data(corpus: &Corpus) -> GraphCheckReport {
+    let root = corpus.root();
+    let instances = corpus.instance_paths();
 
-    if instances.is_empty() && ont_files.is_empty() {
+    if instances.is_empty() && corpus.ont_paths().is_empty() {
         return GraphCheckReport {
             passed: true,
             corpus_empty: true,
@@ -192,22 +187,15 @@ pub(crate) fn graph_check_data(root: &Path, corpus: &Path) -> GraphCheckReport {
         };
     }
 
-    let defined_classes: std::collections::HashSet<String> = ont_files
-        .iter()
-        .filter_map(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .and_then(|n| n.strip_suffix(".ont.yml"))
-                .map(|s| s.to_string())
-        })
-        .collect();
+    let defined_classes: std::collections::HashSet<String> =
+        corpus.defined_classes().map(str::to_string).collect();
 
     // Class files, read for one question only: did they parse? Their *contents* are not
     // consulted — `defined_classes` above is derived from filenames, and deliberately stays
     // that way, so a typo inside `gage.ont.yml` does not make every instance of `gage`
     // report an unknown class. That would be the same contradiction one layer up.
     let mut classes_with_issues: Vec<NodeIssues> = Vec::new();
-    for class in load_classes(root, &ont_files, &Overlay::default()) {
+    for class in corpus.classes() {
         if let Some(why) = &class.malformed {
             classes_with_issues.push(NodeIssues {
                 node: slash_path(Path::new(&class.rel)),
@@ -224,7 +212,7 @@ pub(crate) fn graph_check_data(root: &Path, corpus: &Path) -> GraphCheckReport {
     // here as an *empty record*, and the checks below then reported `missing 'class:'`
     // about a file whose first line is a `class:` field (#721). `Node::parse` records the
     // parse outcome where the parse happens, so going through it gets the answer for free.
-    for node in load_nodes(root, &instances, &Overlay::default()) {
+    for node in corpus.nodes() {
         let path = &node.path;
         let inst = &node.inst;
         let mut node_issues = Vec::new();
@@ -319,10 +307,10 @@ pub(crate) fn graph_check_data(root: &Path, corpus: &Path) -> GraphCheckReport {
 /// Render [`graph_check_data`] as the prose this command has always printed.
 ///
 /// Byte-identical to the pre-contract output, which the report goldens pin.
-pub(crate) fn render_graph_check(root: &Path, corpus: &Path) -> (String, usize) {
-    let r = graph_check_data(root, corpus);
+pub(crate) fn render_graph_check(corpus: &Corpus) -> (String, usize) {
+    let r = graph_check_data(corpus);
     (
-        render_graph_check_text(&r, corpus),
+        render_graph_check_text(&r, corpus.dir()),
         r.nodes_with_issues.len(),
     )
 }
@@ -412,36 +400,42 @@ pub struct CorpusIndexReport {
     pub nodes: Vec<IndexRow>,
 }
 
-pub(crate) fn corpus_index_data(root: &Path, corpus: &Path) -> CorpusIndexReport {
-    let fields = crate::claims::ClaimFields::load(corpus);
-    let nodes = walk_corpus_instances(corpus)
+pub(crate) fn corpus_index_data(corpus: &Corpus) -> CorpusIndexReport {
+    let fields = crate::claims::ClaimFields::load(corpus.dir());
+    let nodes = corpus
+        .nodes()
         .iter()
-        .map(|path| {
-            let text = std::fs::read_to_string(path).unwrap_or_default();
-            let inst = crate::parse::parse_instance(&text);
+        .map(|node| {
+            let (path, text, inst) = (&node.path, &node.text, &node.inst);
             let claims = crate::claims::count_in_node(
-                &text,
+                text,
                 fields.for_class(inst.class.as_deref().unwrap_or_default()),
             );
-            let edges = crate::claims::count_in_edges(&text);
-            let rel = path.strip_prefix(corpus).unwrap_or(path);
+            let edges = crate::claims::count_in_edges(text);
+            let rel = path.strip_prefix(corpus.dir()).unwrap_or(path);
             IndexRow {
                 node: slash_path(rel),
-                class: inst.class.unwrap_or_else(|| "—".to_string()),
-                label: inst.label.unwrap_or_else(|| "—".to_string()),
-                links_out: inst.links.unwrap_or_default().len(),
+                class: inst.class.clone().unwrap_or_else(|| "—".to_string()),
+                label: inst.label.clone().unwrap_or_else(|| "—".to_string()),
+                links_out: inst.links.as_deref().unwrap_or_default().len(),
                 claims_verified: claims.verified,
                 claims_inference: claims.inference,
                 claims_open: claims.open,
                 edge_claims_verified: edges.verified,
                 edge_claims_inference: edges.inference,
                 edge_claims_open: edges.open,
-                lines: line_count(path),
+                // The bytes the node was parsed from — see [`render_corpus_index`].
+                lines: text.lines().count(),
             }
         })
         .collect();
     CorpusIndexReport {
-        corpus_dir: slash_path(corpus.strip_prefix(root).unwrap_or(corpus)),
+        corpus_dir: slash_path(
+            corpus
+                .dir()
+                .strip_prefix(corpus.root())
+                .unwrap_or(corpus.dir()),
+        ),
         nodes,
     }
 }
@@ -467,16 +461,16 @@ pub struct OpenQuestionsReport {
     pub open_questions: Vec<OpenQuestion>,
 }
 
-pub(crate) fn open_questions_data(root: &Path, corpus: &Path) -> OpenQuestionsReport {
-    let fields = crate::claims::ClaimFields::load(corpus);
+pub(crate) fn open_questions_data(corpus: &Corpus) -> OpenQuestionsReport {
+    let root = corpus.root();
+    let fields = crate::claims::ClaimFields::load(corpus.dir());
     let mut open_questions = Vec::new();
-    for path in walk_corpus_instances(corpus).iter() {
-        let text = std::fs::read_to_string(path).unwrap_or_default();
-        let inst = crate::parse::parse_instance(&text);
-        let label = inst.label.clone().unwrap_or_default();
-        let class = inst.class.clone().unwrap_or_default();
+    for node in corpus.nodes() {
+        let (path, text) = (&node.path, &node.text);
+        let label = node.inst.label.clone().unwrap_or_default();
+        let class = node.inst.class.clone().unwrap_or_default();
         let rel = path.strip_prefix(root).unwrap_or(path);
-        if crate::claims::has_open_claim(&label, &text, fields.for_class(&class)) {
+        if crate::claims::has_open_claim(&label, text, fields.for_class(&class)) {
             open_questions.push(OpenQuestion {
                 node: slash_path(rel),
                 label: label.clone(),
@@ -487,7 +481,7 @@ pub(crate) fn open_questions_data(root: &Path, corpus: &Path) -> OpenQuestionsRe
         }
         // See [`render_open_questions`]: the edge is the subject, and the triple is what it
         // asserted. The label stays the node's, because that is where the reader opens.
-        for claim in crate::claims::edge_claims(&text) {
+        for claim in crate::claims::edge_claims(text) {
             if claim.standing != "open" {
                 continue;
             }
@@ -505,24 +499,28 @@ pub(crate) fn open_questions_data(root: &Path, corpus: &Path) -> OpenQuestionsRe
 
 pub fn corpus_index(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
-    let corpus = yidam_corpus_dir(&root);
+    let corpus = Corpus::open(&root);
     if format.is_json() {
-        return crate::report::emit(&root, corpus_index_data(&root, &corpus));
+        return crate::report::emit(&root, corpus_index_data(&corpus));
     }
     // Prefix "": the README this writes to sits in `corpus/`, so a row's path relative
     // to `corpus/` is already the link a reader's client resolves.
     let content = render_corpus_index("", &corpus);
     crate::regen::emit(&content);
-    update_file_regen(&corpus.join("README.md"), "yidam corpus-index", &content)
+    update_file_regen(
+        &corpus.dir().join("README.md"),
+        "yidam corpus-index",
+        &content,
+    )
 }
 
 pub fn open_questions(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
-    let corpus = yidam_corpus_dir(&root);
+    let corpus = Corpus::open(&root);
     if format.is_json() {
-        return crate::report::emit(&root, open_questions_data(&root, &corpus));
+        return crate::report::emit(&root, open_questions_data(&corpus));
     }
-    let content = render_open_questions(&root, &corpus);
+    let content = render_open_questions(&corpus);
     crate::regen::emit(&content);
     update_file_regen(&root.join("README.md"), "yidam open-questions", &content)
 }
@@ -532,15 +530,15 @@ pub fn graph_check(format: crate::report::Format) -> Result<()> {
     // Before anything is counted: a gate that cannot see the repository must say so rather
     // than report the nothing it found as a clean bill of health. See `require_yidam_repo`.
     crate::paths::require_yidam_repo(&root)?;
-    let corpus = yidam_corpus_dir(&root);
-    let data = graph_check_data(&root, &corpus);
+    let corpus = Corpus::open(&root);
+    let data = graph_check_data(&corpus);
     let issue_count = data.nodes_with_issues.len();
     let unreadable_classes = data.classes_with_issues.len();
 
     if format.is_json() {
         crate::report::emit(&root, data)?;
     } else {
-        println!("{}", render_graph_check_text(&data, &corpus));
+        println!("{}", render_graph_check_text(&data, corpus.dir()));
     }
 
     // The gate, shared: the verdict cannot depend on the rendering. Both counts are named
@@ -592,7 +590,7 @@ mod tests {
     const BROKEN_SCHEMA: &str = "class: gage\nlabel: \"Gage\n";
 
     fn check(root: &Path) -> GraphCheckReport {
-        graph_check_data(root, &root.join(".yidam/corpus"))
+        graph_check_data(&Corpus::open(root))
     }
 
     /// **The report contradicted the file.** An instance nobody could read arrived here as
@@ -743,7 +741,7 @@ mod tests {
         node(&corpus, "event", "beta");
 
         // The README lives in `corpus/`, so that is the directory its links resolve from.
-        assert_links_resolve(&render_corpus_index("", &corpus), &corpus);
+        assert_links_resolve(&render_corpus_index("", &Corpus::open(tmp.path())), &corpus);
     }
 
     /// The bundle lays the same table out at `index/corpus.md` with the nodes at
@@ -760,7 +758,7 @@ mod tests {
         std::fs::write(bundle.join("corpus").join("person").join("alpha.yml"), "x").unwrap();
 
         assert_links_resolve(
-            &render_corpus_index("../corpus/", &corpus),
+            &render_corpus_index("../corpus/", &Corpus::open(tmp.path())),
             &bundle.join("index"),
         );
     }
@@ -780,7 +778,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_links_resolve(&render_open_questions(root, &corpus), root);
+        assert_links_resolve(&render_open_questions(&Corpus::open(root)), root);
     }
 
     /// A row's link is `/`-separated whatever the host does, because the rendered table is
@@ -791,7 +789,7 @@ mod tests {
         let corpus = tmp.path().join(".yidam").join("corpus");
         node(&corpus, "person", "alpha");
 
-        let rendered = render_corpus_index("", &corpus);
+        let rendered = render_corpus_index("", &Corpus::open(tmp.path()));
         assert!(rendered.contains("(person/alpha.yml)"), "{rendered}");
         assert!(!rendered.contains('\\'), "{rendered}");
     }

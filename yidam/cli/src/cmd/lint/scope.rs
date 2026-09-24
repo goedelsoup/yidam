@@ -67,10 +67,10 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 
-use super::checks::normalize;
 use super::history::{is_instance, read_blobs};
 use super::model::{Check, Severity, Violation};
 use crate::cmd::sangha::Resolution;
+use crate::corpus::resolve_target;
 
 const CORPUS: &str = ".yidam/corpus";
 const RESOLUTIONS: &str = ".yidam/sangha/resolutions";
@@ -307,13 +307,12 @@ fn links_of(path: &str, text: &str) -> BTreeSet<(String, String)> {
         // unreadable would lose the node clause along with the edge clause.
         Err(_) => return BTreeSet::new(),
     };
-    let dir = Path::new(path).parent().unwrap_or(Path::new(""));
     inst.links
         .unwrap_or_default()
         .iter()
         .filter_map(|l| {
             let target = l.target.as_ref()?;
-            let resolved = normalize(&dir.join(target))
+            let resolved = resolve_target(Path::new(path), target)
                 .to_string_lossy()
                 .replace('\\', "/");
             Some((

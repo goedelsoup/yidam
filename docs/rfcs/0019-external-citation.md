@@ -187,7 +187,7 @@ Stated as prohibitions because each one is a thing a reader will assume:
   `instance_links` — the gate's own edge reader, and RFC-0018's — never sees it. `--across`
   (#268) queries the dependency set as a *scope*; it does not follow citations.
 - **Not licensed by `edge_policy`.** `unlicensed-edge`'s own rationale draws this line
-  already ([`checks.rs:1459-1460`](../../yidam/cli/src/cmd/lint/checks.rs#L1459-L1460)): *a link to the
+  already ([`checks.rs:1430-1431`](../../yidam/cli/src/cmd/lint/checks.rs#L1430-L1431)): *a link to the
   class file or into the catalog is a citation, not a relationship.*
   A class's `edges:` bounds relationships; a citation is not one, and asking a class to
   declare which foreign corpora its instances may cite would be asking the ontology a

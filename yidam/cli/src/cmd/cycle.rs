@@ -63,7 +63,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::cmd::due::{Clock, State};
-use crate::paths::{repo_root, require_yidam_repo, yidam_corpus_dir};
+use crate::paths::{repo_root, require_yidam_repo};
 
 /// One inquiry ref in flight.
 ///
@@ -330,7 +330,7 @@ fn blocked(root: &Path) -> Vec<Blocked> {
         });
     }
 
-    let gc = crate::cmd::corpus::graph_check_data(root, &yidam_corpus_dir(root));
+    let gc = crate::cmd::corpus::graph_check_data(&crate::corpus::Corpus::open(root));
     if !gc.passed {
         for n in gc.classes_with_issues.iter().chain(&gc.nodes_with_issues) {
             out.push(Blocked {

@@ -54,7 +54,7 @@ use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::paths::{repo_root, require_yidam_repo, yidam_catalog_dir, yidam_corpus_dir};
+use crate::paths::{repo_root, require_yidam_repo, yidam_catalog_dir};
 
 /// What one clock concluded.
 ///
@@ -494,7 +494,7 @@ fn clock_questions(root: &Path, after: Option<usize>) -> Clock {
 /// The near-miss it avoids is small and real: a node whose YAML does not parse still counts
 /// there, because the tag is found in its prose.
 fn open_at_head(root: &Path) -> Vec<String> {
-    crate::cmd::corpus::open_questions_data(root, &yidam_corpus_dir(root))
+    crate::cmd::corpus::open_questions_data(&crate::corpus::Corpus::open(root))
         .open_questions
         .into_iter()
         .map(|q| q.node)

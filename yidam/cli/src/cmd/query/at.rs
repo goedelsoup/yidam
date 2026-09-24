@@ -403,6 +403,11 @@ impl Graph {
         classes.sort_by(|a, b| a.rel.cmp(&b.rel));
 
         Ok(Self {
+            // Resolved over the historical nodes, for the same reason the historical
+            // ontology wins below: an edge is a path one of *those* files wrote, and
+            // resolving it against today's corpus would answer about a file that did not
+            // exist at the commit.
+            edges: crate::corpus::Edges::build(&nodes),
             nodes,
             classes,
             universal,

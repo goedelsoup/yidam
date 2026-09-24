@@ -122,12 +122,6 @@ pub fn walk_decision_files(decisions_dir: &Path) -> Vec<PathBuf> {
     )
 }
 
-pub fn line_count(path: &Path) -> usize {
-    std::fs::read_to_string(path)
-        .map(|s| s.lines().count())
-        .unwrap_or(0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

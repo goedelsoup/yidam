@@ -5,7 +5,9 @@
 //! `cmd/graph.rs` states the rule this inherits: *"A consumer resolving edges itself would be
 //! re-deriving it — and would disagree with the gate about which edges are broken, silently,
 //! in the direction of 'looks fine here'."* So the edge set here is
-//! [`crate::cmd::lint::checks::instance_links`] — the gate's own — and not a second walk.
+//! [`crate::corpus::Edges::instance_links`] — the gate's own — and not a second walk. It
+//! arrives resolved: since #925 the caller holds a [`crate::corpus::Edges`] and this function
+//! is handed it, where it used to rebuild a path map of the whole corpus per query.
 //!
 //! That is deliberately **narrower** than what `neighbors` reports. `graph.rs` keeps a link
 //! whose target resolves inside the corpus but names no file, because an editor wants to see
@@ -25,8 +27,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::check::Checked;
 use super::lang::{Dir, Op, Pred, Query, Step};
-use crate::cmd::lint::checks::{class_of, instance_links};
-use crate::corpus::Node;
+use crate::cmd::lint::checks::class_of;
+use crate::corpus::{Edges, Node};
 
 /// What an arm of the query cost, in the units #264 compares on.
 #[derive(Debug, Default, Clone, serde::Serialize)]
@@ -199,20 +201,23 @@ pub fn execute(
     query: &Query,
     checked: &Checked,
     nodes: &[Node],
+    resolved_edges: &Edges,
     corpus_dir: &str,
     entry: Option<&super::anchor::Resolved>,
 ) -> Outcome {
-    let by_path = crate::cmd::lint::checks::nodes_by_path(nodes);
     let id = |n: &Node| id_of(n, corpus_dir);
 
     // Every traversable edge once: (from id, relationship, to id). The gate's own set.
     let mut edges: Vec<(String, String, String)> = Vec::new();
-    for node in nodes {
-        for (link, to) in instance_links(node, &by_path) {
+    for (i, node) in nodes.iter().enumerate() {
+        for (edge, to) in resolved_edges.instance_links(i) {
             edges.push((
                 id(node),
-                link.relationship.clone().unwrap_or_default(),
-                id(to),
+                edge.written_as(node)
+                    .relationship
+                    .clone()
+                    .unwrap_or_default(),
+                id(&nodes[to]),
             ));
         }
     }
@@ -489,7 +494,14 @@ mod tests {
                 .map(|v| v.into_iter().map(String::from).collect())
                 .collect(),
         };
-        execute(&q, &checked, &nodes, ".yidam/corpus", None)
+        execute(
+            &q,
+            &checked,
+            &nodes,
+            &Edges::build(&nodes),
+            ".yidam/corpus",
+            None,
+        )
     }
 
     #[test]
@@ -597,14 +609,29 @@ mod tests {
             narrowed: vec![vec!["concept".to_string()]],
         };
         assert_eq!(
-            execute(&q, &checked, &nodes, ".yidam/corpus", None).matched,
+            execute(
+                &q,
+                &checked,
+                &nodes,
+                &Edges::build(&nodes),
+                ".yidam/corpus",
+                None,
+            )
+            .matched,
             vec!["concept/low-flow.yml"]
         );
         // ...and `!=` has to hold of every element, or a node tagged both would satisfy it.
         let q = super::super::lang::parse("concept[claim_tag!=open]").unwrap();
-        assert!(execute(&q, &checked, &nodes, ".yidam/corpus", None)
-            .matched
-            .is_empty());
+        assert!(execute(
+            &q,
+            &checked,
+            &nodes,
+            &Edges::build(&nodes),
+            ".yidam/corpus",
+            None,
+        )
+        .matched
+        .is_empty());
     }
 
     /// A `date` predicate at the precision it was written.
@@ -624,17 +651,31 @@ mod tests {
         for query in ["note[observed_on=2026-08]", "note[observed_on=2026-08-23]"] {
             let q = super::super::lang::parse(query).unwrap();
             assert_eq!(
-                execute(&q, &checked, &nodes, ".yidam/corpus", None)
-                    .matched
-                    .len(),
+                execute(
+                    &q,
+                    &checked,
+                    &nodes,
+                    &Edges::build(&nodes),
+                    ".yidam/corpus",
+                    None,
+                )
+                .matched
+                .len(),
                 1,
                 "{query}"
             );
         }
         let q = super::super::lang::parse("note[observed_on=2026-09]").unwrap();
-        assert!(execute(&q, &checked, &nodes, ".yidam/corpus", None)
-            .matched
-            .is_empty());
+        assert!(execute(
+            &q,
+            &checked,
+            &nodes,
+            &Edges::build(&nodes),
+            ".yidam/corpus",
+            None,
+        )
+        .matched
+        .is_empty());
     }
 
     // ── ordering and absence (#725) ───────────────────────────────────────────
@@ -686,7 +727,16 @@ mod tests {
             unschematised: false,
             narrowed: vec![vec!["tenure".to_string()]],
         };
-        execute(&q, &checked, &tenures(), ".yidam/corpus", None).matched
+        let nodes = tenures();
+        execute(
+            &q,
+            &checked,
+            &nodes,
+            &Edges::build(&nodes),
+            ".yidam/corpus",
+            None,
+        )
+        .matched
     }
 
     /// **The query the corpora wrote down in prose and could not run.**
@@ -758,9 +808,16 @@ mod tests {
             narrowed: vec![vec!["tenure".to_string()]],
         };
         assert!(
-            execute(&q, &checked, &nodes, ".yidam/corpus", None)
-                .matched
-                .contains(&"tenure/closed-before.yml".to_string()),
+            execute(
+                &q,
+                &checked,
+                &nodes,
+                &Edges::build(&nodes),
+                ".yidam/corpus",
+                None,
+            )
+            .matched
+            .contains(&"tenure/closed-before.yml".to_string()),
             "`ended: null` carries no value and is absent by the same rule"
         );
     }
