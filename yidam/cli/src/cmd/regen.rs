@@ -202,8 +202,8 @@ mod tests {
     /// `yidam regen` did not run and `--check` did not check (#831). A guard whose subject is
     /// a list cannot see a hole in that list; this one's subject is the crate.
     ///
-    /// Comment lines are dropped before the scan. Several doc comments here and in
-    /// `lint/mod.rs` name `update_file_regen` and quote generator strings, and a guard that
+    /// Comment lines are dropped before the scan. Several doc comments here and under
+    /// `lint/` name `update_file_regen` and quote generator strings, and a guard that
     /// counts prose as code is satisfied by prose.
     fn generators_in_source() -> (std::collections::BTreeSet<String>, usize, usize) {
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");

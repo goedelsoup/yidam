@@ -1,9 +1,10 @@
 //! An unregistered check cannot exist, and this is what that rests on.
 //!
-//! #680 was filed against `lint/mod.rs`'s hand-written `vec![]` of checks: a `pub fn … ->
-//! Check` added to `checks.rs` and not added there **compiles, passes its own unit tests, and
-//! never runs**, and the corpus then reports clean. The proposed fix was a test that scans the
-//! source for `-> Check` signatures and compares them to the `checks::name(` call sites.
+//! #680 was filed against `lint/mod.rs`'s hand-written registry of checks — a `vec![]` then,
+//! `ROSTER` since #928: a `pub fn … -> Check` added to `checks.rs` and not added there
+//! **compiles, passes its own unit tests, and never runs**, and the corpus then reports clean.
+//! The proposed fix was a test that scans the source for `-> Check` signatures and compares
+//! them to the `checks::name(` call sites.
 //!
 //! **The premise is false, and the scan would have been the weaker guard.** Measured at
 //! `14c94b9` by adding exactly the function the issue describes — unregistered, with a passing
@@ -55,10 +56,12 @@
 //!
 //! ## What nothing here covers
 //!
-//! A check function that *is* called somewhere under `lint/` but never reaches the registry
-//! vec — bound to a `let _`, or pushed into a vector that is dropped. It is "used", so the
-//! compiler is content, and it still never reaches a report. Narrower than what #680
-//! describes; worth a follow-up, not worth a signature scanner.
+//! A check function that *is* called somewhere under `lint/` but never reaches the registry —
+//! bound to a `let _`, or built into a value nothing reads. It is "used", so the compiler is
+//! content, and it still never reaches a report. Narrower since #928 than when this was
+//! written: `run_checks_with` no longer accumulates into a mutable vec that a later line could
+//! drop from, and every `ROSTER` entry is mapped into the report. Worth a follow-up, not worth
+//! a signature scanner.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -151,7 +154,13 @@ fn ci_cli_denies_warnings_over_the_library() {
 ///
 /// A token scan for `module::name(`, which needs no signature parsing — the thing that makes a
 /// `-> Check` scan unreliable is the multi-line *signature*, and a call site is one token.
-/// Every check the report carries is reached through one of these.
+///
+/// It stays on `mod.rs` alone after #928, which moved the *readings* the checks are answered
+/// from into `lint/input.rs`. That file's `citations::installed(` and `scope::audit(` are not
+/// checks, and counting them would raise the floor below without widening what it guards. The
+/// six group producers (`citations::checks(` and its siblings) moved with them; they build
+/// their findings inline and export no per-check function, so there is nothing there for this
+/// scan to miss.
 fn registered_check_names() -> BTreeSet<String> {
     let src = code("yidam/cli/src/cmd/lint/mod.rs");
     let mut out = BTreeSet::new();
