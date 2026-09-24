@@ -67,7 +67,6 @@
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::Result;
 
@@ -220,14 +219,7 @@ pub struct Options {
 // ── the readings ──────────────────────────────────────────────────────────────
 
 fn git(root: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git")
-        .current_dir(root)
-        .args(args)
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    crate::git::Git::new(root).args(args).try_run()
 }
 
 /// `phase/*` refs that are merged ancestors of `HEAD`, and how many exist at all.

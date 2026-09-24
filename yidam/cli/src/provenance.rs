@@ -39,17 +39,9 @@ pub struct Provenance {
 }
 
 fn git_output(root: &Path, args: &[&str]) -> Option<String> {
-    let out = std::process::Command::new("git")
-        .current_dir(root)
+    crate::git::Git::new(root)
         .args(args)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    String::from_utf8(out.stdout)
-        .ok()
-        .map(|s| s.trim().to_string())
+        .try_run()
         .filter(|s| !s.is_empty())
 }
 
@@ -127,22 +119,11 @@ impl Provenance {
 mod tests {
     use super::*;
 
-    fn git(dir: &Path, args: &[&str]) {
-        let status = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?} failed");
-    }
+    use crate::git::fixture::git;
 
     fn repo_with_commit(root: &Path) {
-        git(root, &["init", "-q", "-b", "main"]);
-        git(root, &["config", "user.email", "t@t.co"]);
-        git(root, &["config", "user.name", "Test"]);
-        std::fs::write(root.join("a"), "a").unwrap();
-        git(root, &["add", "."]);
-        git(root, &["commit", "-q", "-m", "seed"]);
+        crate::git::fixture::write(root, "a", "a");
+        crate::git::fixture::repo(root, "seed");
     }
 
     #[test]

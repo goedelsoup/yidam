@@ -17,7 +17,7 @@
 //! "epistemic" means by construction rather than by docstring — which is precisely the
 //! divergence a downstream re-implementation already demonstrated.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::Serialize;
 use std::fmt::Write as _;
 
@@ -83,18 +83,12 @@ pub struct LogReport {
 
 /// Read and classify every commit in `range`.
 pub fn collect(root: &std::path::Path, range: &str, filter: Filter) -> Result<LogReport> {
-    let out = std::process::Command::new("git")
-        .current_dir(root)
-        .args(["log", "--format=%H\x1f%s\x1f%an\x1f%aI\x1e", range])
-        .output()
-        .context("running git log")?;
-    if !out.status.success() {
-        anyhow::bail!(
-            "git log failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    let text = String::from_utf8(out.stdout).context("git log output is not UTF-8")?;
+    // `.rev()`, because `range` came off the command line. Without the separator it was an
+    // option: `yidam log -- --output=<path>` made git write that file and exited 0.
+    let text = crate::git::Git::new(root)
+        .args(["log", "--format=%H\x1f%s\x1f%an\x1f%aI\x1e"])
+        .rev(range)
+        .run()?;
     Ok(build(range, filter, &text))
 }
 

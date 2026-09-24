@@ -6,7 +6,6 @@
 //! other check here.
 
 use std::path::Path;
-use std::process::Command;
 
 use yidam_core::git::is_recognized_verb;
 
@@ -62,13 +61,13 @@ pub fn read_subjects(root: &Path, range: Option<&str>) -> Vec<Subject> {
     if let Some(r) = range {
         args.push(r.to_string());
     }
-    let Ok(out) = Command::new("git").current_dir(root).args(&args).output() else {
+    // The range, when there is one, is already the last element of `args` — a `.rev()` here
+    // would need the caller to hand the two apart, and every caller's range comes from
+    // `lint`'s own `--since`, not from a revision a person typed at this command.
+    let Some(text) = crate::git::Git::new(root).args(&args).try_run() else {
         return vec![];
     };
-    if !out.status.success() {
-        return vec![];
-    }
-    parse_records(&String::from_utf8_lossy(&out.stdout))
+    parse_records(&text)
 }
 
 /// Split `git log`'s output on the record separator and read one [`Subject`] from each.

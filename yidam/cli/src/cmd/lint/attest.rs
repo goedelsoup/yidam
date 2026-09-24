@@ -149,14 +149,13 @@ pub(crate) struct Attestation {
 
 /// Read `%G?` and `%GS` for a ref, under a generated allowed-signers file.
 fn signature_of(root: &Path, allowed: &Path, git_ref: &str) -> Option<(String, String)> {
-    let out = std::process::Command::new("git")
-        .current_dir(root)
-        .arg("-c")
-        .arg(format!(
-            "gpg.ssh.allowedSignersFile={}",
-            allowed.to_string_lossy()
-        ))
-        .args(["log", "-1", "--format=%G?%x00%GS", git_ref])
+    let out = crate::git::Git::new(root)
+        .config(
+            "gpg.ssh.allowedSignersFile",
+            allowed.to_string_lossy().into_owned(),
+        )
+        .args(["log", "-1", "--format=%G?%x00%GS"])
+        .rev(git_ref)
         .output()
         .ok()?;
     if !out.status.success() {
@@ -476,15 +475,7 @@ mod signing_tests {
         Key { private, public }
     }
 
-    fn git(root: &Path, args: &[&str]) {
-        let ok = Command::new("git")
-            .current_dir(root)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
+    use crate::git::fixture::git;
 
     /// A repository with one `ma/auditor` branch whose tip is signed by `signed_with`, or
     /// unsigned when that is `None`.
@@ -670,11 +661,6 @@ mod signing_tests {
     }
 
     fn tracked_and_untracked(root: &Path) -> String {
-        let out = Command::new("git")
-            .current_dir(root)
-            .args(["status", "--porcelain", "--untracked-files=all"])
-            .output()
-            .unwrap();
-        String::from_utf8(out.stdout).unwrap()
+        crate::git::fixture::git_out(root, &["status", "--porcelain", "--untracked-files=all"])
     }
 }

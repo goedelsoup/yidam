@@ -65,7 +65,6 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
-use std::process::Command;
 
 use super::history::{is_instance, read_blobs};
 use super::model::{Check, Severity, Violation};
@@ -336,9 +335,13 @@ fn remains_open(text: &str) -> String {
     }
 }
 
+/// Stdout, or `""` for any failure at all — **including git exiting non-zero**.
+///
+/// `.output()` rather than `.try_run()` deliberately: this collapses "no findings" into "git
+/// could not answer", and that is the behaviour on the branch before it. Fixing it changes
+/// what `lint` reports, which is a question about lint and not about how git is spawned.
 fn git(root: &Path, args: &[&str]) -> String {
-    Command::new("git")
-        .current_dir(root)
+    crate::git::Git::new(root)
         .args(args)
         .output()
         .ok()
@@ -347,31 +350,18 @@ fn git(root: &Path, args: &[&str]) -> String {
 }
 
 /// Feed `input` to `git <args>` and read stdout.
+/// Feed `input` to `git <args>` and read stdout.
+///
+/// The writer thread this used to own is now the runner's, and for the reason it was written
+/// here: a batch large enough to fill the pipe buffer deadlocks against a child that is
+/// blocked writing its own answer.
 fn git_stdin(root: &Path, args: &[&str], input: &str) -> String {
-    use std::io::Write;
-    use std::process::Stdio;
-    let Ok(mut child) = Command::new("git")
-        .current_dir(root)
+    crate::git::Git::new(root)
         .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
-        return String::new();
-    };
-    // Written from a thread: a batch large enough to fill the pipe buffer would otherwise
-    // deadlock against a child that is blocked writing its own answer.
-    let stdin = child.stdin.take();
-    let owned = input.to_string();
-    let writer = std::thread::spawn(move || {
-        if let Some(mut stdin) = stdin {
-            let _ = stdin.write_all(owned.as_bytes());
-        }
-    });
-    let out = child.wait_with_output().ok();
-    let _ = writer.join();
-    out.and_then(|o| String::from_utf8(o.stdout).ok())
+        .stdin(input.as_bytes().to_vec())
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
         .unwrap_or_default()
 }
 
@@ -974,34 +964,7 @@ mod tests {
 
     // ── against a repository ──────────────────────────────────────────────────
 
-    fn git(dir: &Path, args: &[&str]) {
-        let ok = Command::new("git")
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
-
-    fn write(dir: &Path, rel: &str, body: &str) {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, body).unwrap();
-    }
-
-    fn commit(dir: &Path, msg: &str) {
-        git(dir, &["add", "-A"]);
-        let ok = Command::new("git")
-            .current_dir(dir)
-            .args(["commit", "-q", "--no-gpg-sign", "-m", msg])
-            .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
-            .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "commit failed");
-    }
+    use crate::git::fixture::{commit, git, write};
 
     fn head(dir: &Path) -> String {
         super::git(dir, &["rev-parse", "--short", "HEAD"])
@@ -1013,10 +976,7 @@ mod tests {
     fn repo() -> (tempfile::TempDir, String) {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path();
-        git(root, &["init", "-q", "-b", "main"]);
-        git(root, &["config", "user.email", "t@t.com"]);
-        git(root, &["config", "user.name", "T"]);
-        git(root, &["config", "commit.gpgsign", "false"]);
+        crate::git::fixture::init(root);
         write(root, ".yidam/corpus/concept/a.yml", "class: concept\n");
         write(root, ".yidam/corpus/concept/b.yml", "class: concept\n");
         commit(root, "establish: a and b");

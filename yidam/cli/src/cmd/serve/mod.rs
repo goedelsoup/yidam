@@ -398,16 +398,12 @@ fn act_declared(root: &Path) -> Result<bool> {
 /// fail rather than where a hand-rolled precedence happens to. A server that checked
 /// `user.email` alone would pass a checkout that git refuses to commit in.
 pub(crate) fn git_author(root: &Path) -> Option<String> {
-    let out = std::process::Command::new("git")
-        .current_dir(root)
+    // No `.rev()`: `git var` takes no revision and is the one subcommand measured to
+    // *reject* `--end-of-options`.
+    crate::git::Git::new(root)
         .args(["var", "GIT_AUTHOR_IDENT"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let ident = String::from_utf8(out.stdout).ok()?.trim().to_string();
-    (!ident.is_empty()).then_some(ident)
+        .try_run()
+        .filter(|ident| !ident.is_empty())
 }
 
 /// Whether an address is on this machine and nowhere else — RFC-0029 §2.2 clause 3.

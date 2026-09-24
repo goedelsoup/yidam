@@ -25,7 +25,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
 
 use crate::corpus::resolve_target;
 
@@ -96,8 +95,9 @@ struct CommitChanges {
 
 /// `git log --raw` over the corpus, oldest first.
 fn change_stream(root: &Path) -> Vec<CommitChanges> {
-    let out = Command::new("git")
-        .current_dir(root)
+    // `core.quotepath=false` comes from the runner, and it matters here: `--raw` quotes a
+    // non-ASCII path exactly as `--name-status` does, and the parser below tests a prefix.
+    let Some(text) = crate::git::Git::new(root)
         .args([
             "log",
             "--reverse",
@@ -105,12 +105,10 @@ fn change_stream(root: &Path) -> Vec<CommitChanges> {
             "--no-abbrev",
             "--no-renames",
             "--format=C %H %at",
-            "--",
-            ".yidam/corpus",
         ])
-        .output();
-    let Ok(out) = out else { return Vec::new() };
-    let Ok(text) = String::from_utf8(out.stdout) else {
+        .paths([".yidam/corpus"])
+        .try_run()
+    else {
         return Vec::new();
     };
 
@@ -158,13 +156,9 @@ pub(crate) fn read_blobs(root: &Path, shas: &[String]) -> HashMap<String, String
     if shas.is_empty() {
         return found;
     }
-    let Ok(mut child) = Command::new("git")
-        .current_dir(root)
+    let Ok(mut child) = crate::git::Git::new(root)
         .args(["cat-file", "--batch"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
+        .spawn_piped()
     else {
         return found;
     };
@@ -644,29 +638,9 @@ mod tests {
 
     // ── the replay ────────────────────────────────────────────────────────────
 
-    fn git(dir: &Path, args: &[&str]) {
-        let ok = Command::new("git")
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
-
     /// Commit at a fixed date so the assertions are about the replay and not the clock.
     fn commit(dir: &Path, day: &str, msg: &str) {
-        git(dir, &["add", "-A"]);
-        let stamp = format!("{day}T00:00:00Z");
-        let ok = Command::new("git")
-            .current_dir(dir)
-            .args(["commit", "-q", "-m", msg])
-            .env("GIT_AUTHOR_DATE", &stamp)
-            .env("GIT_COMMITTER_DATE", &stamp)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "commit failed");
+        crate::git::fixture::commit_at(dir, msg, &format!("{day}T00:00:00Z"));
     }
 
     fn node(dir: &Path, rel: &str, body: &str) {
@@ -675,11 +649,7 @@ mod tests {
         std::fs::write(p, body).unwrap();
     }
 
-    fn init(dir: &Path) {
-        git(dir, &["init", "-q", "-b", "main"]);
-        git(dir, &["config", "user.email", "t@t.com"]);
-        git(dir, &["config", "user.name", "T"]);
-    }
+    use crate::git::fixture::init;
 
     fn day(ts: i64) -> String {
         crate::cmd::export::unix_to_iso(ts as u64)
@@ -1152,11 +1122,6 @@ mod tests {
     }
 
     fn rev_parse(dir: &Path, rev: &str) -> String {
-        let out = Command::new("git")
-            .current_dir(dir)
-            .args(["rev-parse", rev])
-            .output()
-            .unwrap();
-        String::from_utf8(out.stdout).unwrap().trim().to_string()
+        crate::git::fixture::git_out(dir, &["rev-parse", rev])
     }
 }

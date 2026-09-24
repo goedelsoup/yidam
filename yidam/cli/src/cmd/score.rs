@@ -33,7 +33,6 @@
 use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::{bail, Result};
 
@@ -152,9 +151,11 @@ struct Payload<'a> {
 /// The commit is a resolved sha by the time it reaches here, so there is no argument for a
 /// caller to smuggle an option through.
 fn declared_at(root: &Path, commit: &str) -> Option<(String, u32)> {
-    let out = Command::new("git")
-        .current_dir(root)
-        .args(["show", &format!("{commit}:{}", kuten::DECISION_PATH)])
+    // `.output()` rather than `.try_run()`: this is file content, and a trimmed file is not
+    // the file. The declaration parser tolerates the trailing newline; it should not have to.
+    let out = crate::git::Git::new(root)
+        .arg("show")
+        .rev(format!("{commit}:{}", kuten::DECISION_PATH))
         .output()
         .ok()?;
     if !out.status.success() {

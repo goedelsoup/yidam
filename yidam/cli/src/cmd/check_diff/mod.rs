@@ -43,7 +43,6 @@ pub mod near;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::{Context, Result};
 
@@ -118,18 +117,11 @@ pub struct CheckDiffReport {
 /// `--unified=0` because context lines are only opportunities to misread a declaration, and
 /// `-M` so a file move produces no hunks rather than a hundred spurious introductions.
 fn read_diff(root: &Path, before: &str, after: &str) -> Result<String> {
-    let out = Command::new("git")
-        .current_dir(root)
-        .args([
-            "diff",
-            "-M",
-            "--unified=0",
-            &format!("{before}..{after}"),
-            "--",
-            "crates/",
-        ])
-        .output()
-        .context("running git diff")?;
+    let out = crate::git::Git::new(root)
+        .args(["diff", "-M", "--unified=0"])
+        .rev(format!("{before}..{after}"))
+        .paths(["crates/"])
+        .output()?;
     if !out.status.success() {
         anyhow::bail!(
             "git diff failed: {}",
@@ -242,14 +234,9 @@ struct Position {
 
 fn read_position(root: &Path) -> Position {
     let git = |args: &[&str]| -> Option<String> {
-        let out = Command::new("git")
-            .current_dir(root)
+        crate::git::Git::new(root)
             .args(args)
-            .output()
-            .ok()?;
-        out.status
-            .success()
-            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+            .try_run()
             .filter(|s| !s.is_empty())
     };
     let base = crate::git::base_branch(root);

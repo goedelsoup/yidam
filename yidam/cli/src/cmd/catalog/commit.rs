@@ -36,9 +36,8 @@
 //! a fetch has no business refusing to run because a corpus node is being edited elsewhere.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use yidam_core::git::{classify_commit, CommitKind};
 
 /// The author every commit written here carries.
@@ -59,20 +58,7 @@ pub struct Commit {
 }
 
 fn git(root: &Path, args: &[&str]) -> Result<String> {
-    let out = Command::new("git")
-        .current_dir(root)
-        .args(args)
-        .stdin(Stdio::null())
-        .output()
-        .context("running git")?;
-    if !out.status.success() {
-        bail!(
-            "git {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    crate::git::Git::new(root).args(args).run()
 }
 
 /// Refuse when any of these paths differs from `HEAD`.
@@ -154,22 +140,12 @@ pub fn author(root: &Path, subject: &str, body: &str, paths: &[String]) -> Resul
     // `commit -- <paths>` builds the commit from HEAD plus these paths only, leaving anything
     // else in the index staged and uncommitted. That is the property that makes this safe to
     // run in a repository somebody is working in.
-    let mut args = vec!["commit", "--no-verify", "-m", &message, "--"];
-    args.extend(paths.iter().map(String::as_str));
-    let out = Command::new("git")
-        .current_dir(root)
-        .args(&args)
+    crate::git::Git::new(root)
+        .args(["commit", "--no-verify", "-m", &message])
+        .paths(paths)
         .env("GIT_AUTHOR_NAME", AUTHOR_NAME)
         .env("GIT_AUTHOR_EMAIL", AUTHOR_EMAIL)
-        .stdin(Stdio::null())
-        .output()
-        .context("running git commit")?;
-    if !out.status.success() {
-        bail!(
-            "git commit failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
+        .run()?;
     Ok(Some(Commit {
         sha: git(root, &["rev-parse", "--short", "HEAD"])?,
         subject: subject.to_string(),
@@ -183,33 +159,9 @@ mod tests {
     fn repo() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        for args in [
-            vec!["init", "-q", "-b", "main"],
-            vec!["config", "user.email", "t@t"],
-            vec!["config", "user.name", "T"],
-        ] {
-            Command::new("git")
-                .current_dir(root)
-                .args(&args)
-                .output()
-                .unwrap();
-        }
-        std::fs::create_dir_all(root.join(".yidam/catalog")).unwrap();
-        std::fs::write(
-            root.join(".yidam/catalog/a.md"),
-            "---\nname: a\n---\n\n# A\n",
-        )
-        .unwrap();
-        Command::new("git")
-            .current_dir(root)
-            .args(["add", "-A"])
-            .output()
-            .unwrap();
-        Command::new("git")
-            .current_dir(root)
-            .args(["commit", "-qm", "scaffold: a catalog"])
-            .output()
-            .unwrap();
+        crate::git::fixture::init(root);
+        crate::git::fixture::write(root, ".yidam/catalog/a.md", "---\nname: a\n---\n\n# A\n");
+        crate::git::fixture::commit(root, "scaffold: a catalog");
         dir
     }
 
@@ -251,7 +203,11 @@ mod tests {
         let log = git(root, &["log", "-1", "--format=%an <%ae>%n%ce%n%s"]).unwrap();
         let mut lines = log.lines();
         assert_eq!(lines.next().unwrap(), "yidam catalog <catalog@yidam>");
-        assert_eq!(lines.next().unwrap(), "t@t", "the committer is the person");
+        assert_eq!(
+            lines.next().unwrap(),
+            crate::git::fixture::FIXTURE_EMAIL,
+            "the committer is the person"
+        );
         assert_eq!(lines.next().unwrap(), "refresh: a from its source");
     }
 
@@ -280,11 +236,7 @@ mod tests {
         let dir = repo();
         let root = dir.path();
         std::fs::write(root.join("notes.txt"), "half-finished\n").unwrap();
-        Command::new("git")
-            .current_dir(root)
-            .args(["add", "notes.txt"])
-            .output()
-            .unwrap();
+        crate::git::fixture::git(root, &["add", "notes.txt"]);
 
         std::fs::write(
             root.join(ENTRY),

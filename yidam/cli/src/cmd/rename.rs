@@ -286,14 +286,10 @@ pub(crate) fn plan(root: &Path, corpus: &Path, old: &str, new: &str) -> RenameRe
 /// `pub(crate)` for `migrate`, which moves a whole class directory one instance at a time
 /// and wants history to follow each node for the same reason a rename does.
 pub(crate) fn git_mv(root: &Path, from: &Path, to: &Path) -> bool {
-    std::process::Command::new("git")
-        .current_dir(root)
+    crate::git::Git::new(root)
         .arg("mv")
-        .arg(from)
-        .arg(to)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+        .paths([from, to])
+        .succeeded()
 }
 
 /// Apply the plan. Every edit lands before the move, so nothing observes a half-state.

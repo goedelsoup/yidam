@@ -3953,9 +3953,9 @@ mod tests {
     /// git tracks, and asking git is the only form of the answer that cannot drift from it.
     /// An uncommitted new corpus is covered too: `ls-files` reads the index, not HEAD.
     fn collect_ont_files(dir: &Path, out: &mut Vec<PathBuf>) {
-        let output = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(["ls-files", "-z", "--", "*.ont.yml"])
+        let output = crate::git::Git::new(dir)
+            .args(["ls-files", "-z"])
+            .paths(["*.ont.yml"])
             .output()
             .expect("git ls-files");
         assert!(

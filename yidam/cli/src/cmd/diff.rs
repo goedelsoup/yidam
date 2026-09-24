@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -50,20 +50,15 @@ pub fn diff_corpus(range: &str, format: crate::report::Format) -> Result<()> {
     // Normalise to an explicit two-dot range so git diff is unambiguous
     let git_range = format!("{before_ref}..{after_ref}");
 
-    let out = std::process::Command::new("git")
-        .current_dir(&root)
-        .args(["diff", "--name-status", &git_range, "--", ".yidam/corpus/"])
-        .output()
-        .context("running git diff --name-status")?;
-
-    if !out.status.success() {
-        anyhow::bail!(
-            "git diff failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-
-    let diff_text = String::from_utf8(out.stdout).context("git diff output is not UTF-8")?;
+    // The range is half command-line input, so it goes behind `--end-of-options`; the
+    // pathspec goes behind `--`. Both separators are the runner's, so neither can be
+    // forgotten here. `core.quotepath=false` is the runner's too — without it a node named
+    // `café.yml` reached the parser below escaped, matched no prefix, and was dropped.
+    let diff_text = crate::git::Git::new(&root)
+        .args(["diff", "--name-status"])
+        .rev(&git_range)
+        .paths([".yidam/corpus/"])
+        .run()?;
 
     let mut node_lines: Vec<String> = Vec::new();
     let mut edge_lines: Vec<String> = Vec::new();
@@ -225,9 +220,10 @@ pub(crate) fn parse_range(range: &str) -> (String, String) {
 
 fn git_show(root: &Path, git_ref: &str, path: &Path) -> Option<String> {
     let spec = format!("{git_ref}:{}", path.display());
-    let out = std::process::Command::new("git")
-        .current_dir(root)
-        .args(["show", &spec])
+    // `.output()`, not `.run()`: this is file content, and a trimmed file is not the file.
+    let out = crate::git::Git::new(root)
+        .arg("show")
+        .rev(&spec)
         .output()
         .ok()?;
     if out.status.success() {

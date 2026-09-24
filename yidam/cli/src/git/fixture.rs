@@ -60,9 +60,14 @@ pub(crate) fn git_out(dir: &Path, args: &[&str]) -> String {
 /// failures from CI.
 pub(crate) fn init(dir: &Path) {
     git(dir, &["init", "-q", "-b", "main"]);
-    git(dir, &["config", "user.email", "t@t.co"]);
-    git(dir, &["config", "user.name", "T"]);
+    git(dir, &["config", "user.email", FIXTURE_EMAIL]);
+    git(dir, &["config", "user.name", FIXTURE_AUTHOR]);
 }
+
+/// The author every fixture commit carries. Named, because three tests assert who wrote a
+/// commit, and an assertion against a bare `"T"` reads as a typo rather than as this.
+pub(crate) const FIXTURE_AUTHOR: &str = "T";
+pub(crate) const FIXTURE_EMAIL: &str = "t@t.co";
 
 /// The date every fixture commit carries unless one is given.
 ///

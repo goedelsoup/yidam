@@ -1212,13 +1212,11 @@ fn materialize(entry: Option<&str>) -> Result<()> {
 /// would a file written here be committable?
 fn ensure_ignored(root: &Path, dest: &Path) -> Result<()> {
     let probe = dest.join("probe");
-    let out = std::process::Command::new("git")
-        .arg("-C")
-        .arg(root)
+    let out = crate::git::Git::new(root)
         .args(["check-ignore", "-q"])
-        .arg(&probe)
-        .status();
-    match out {
+        .paths([&probe])
+        .output();
+    match out.map(|o| o.status) {
         Ok(s) if s.success() => Ok(()),
         // 1 means "not ignored"; anything else means git could not answer, and an unanswered
         // question about whether these bytes would be committed is not a yes.

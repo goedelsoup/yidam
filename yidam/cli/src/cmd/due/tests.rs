@@ -7,32 +7,13 @@
 
 use super::*;
 use std::path::Path;
-use std::process::Command;
 
-fn git(dir: &Path, args: &[&str]) {
-    let ok = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok, "git {args:?} failed");
-}
+use crate::git::fixture::{git, init};
 
 /// Commit at a fixed date. Every clock here is read against a `today` this file supplies, so
 /// nothing in it can depend on the day it runs.
 fn commit(dir: &Path, day: &str, msg: &str) {
-    git(dir, &["add", "-A"]);
-    let stamp = format!("{day}T00:00:00Z");
-    let ok = Command::new("git")
-        .current_dir(dir)
-        .args(["commit", "-q", "-m", msg])
-        .env("GIT_AUTHOR_DATE", &stamp)
-        .env("GIT_COMMITTER_DATE", &stamp)
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok, "commit failed");
+    crate::git::fixture::commit_at(dir, msg, &format!("{day}T00:00:00Z"));
 }
 
 fn node(dir: &Path, rel: &str, body: &str) {
@@ -45,9 +26,7 @@ fn node(dir: &Path, rel: &str, body: &str) {
 fn repo() -> tempfile::TempDir {
     let tmp = tempfile::TempDir::new().unwrap();
     let root = tmp.path();
-    git(root, &["init", "-q", "-b", "main"]);
-    git(root, &["config", "user.email", "t@t.com"]);
-    git(root, &["config", "user.name", "T"]);
+    init(root);
     node(root, "concept/a.yml", "class: concept\nlabel: A\n");
     commit(root, "2026-01-01", "establish: a");
     tmp

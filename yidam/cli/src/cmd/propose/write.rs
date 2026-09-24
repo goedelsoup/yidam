@@ -19,9 +19,8 @@
 //! borrow one's name.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 
 use super::draft::{Change, Proposal};
 
@@ -48,32 +47,22 @@ pub(crate) fn git(
     args: &[&str],
     stdin: Option<&str>,
 ) -> Result<String> {
-    let mut cmd = Command::new("git");
-    cmd.current_dir(root).args(args);
+    // `GIT_INDEX_FILE` is set *through* the runner, which strips the inherited one first —
+    // so a scratch index survives while a leaked one does not. That order is the whole
+    // reason this can be a deliberate `.env()` rather than a hole.
+    let mut cmd = crate::git::Git::new(root).args(args);
     if let Some(i) = index {
-        cmd.env("GIT_INDEX_FILE", i);
+        cmd = cmd.env("GIT_INDEX_FILE", i);
     }
-    cmd.stdin(if stdin.is_some() {
-        Stdio::piped()
-    } else {
-        Stdio::null()
-    });
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = cmd.spawn().context("running git")?;
     if let Some(text) = stdin {
-        use std::io::Write;
-        child
-            .stdin
-            .as_mut()
-            .expect("stdin piped")
-            .write_all(text.as_bytes())
-            .context("writing to git")?;
+        cmd = cmd.stdin(text.as_bytes().to_vec());
     }
-    let out = child.wait_with_output().context("running git")?;
+    let shown = args.join(" ");
+    let out = cmd.output()?;
     if !out.status.success() {
         bail!(
             "git {} failed: {}",
-            args.join(" "),
+            shown,
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
@@ -135,17 +124,10 @@ pub fn branch_for(short_head: &str) -> String {
 }
 
 fn branch_exists(root: &Path, branch: &str) -> bool {
-    Command::new("git")
-        .current_dir(root)
-        .args([
-            "show-ref",
-            "--verify",
-            "--quiet",
-            &format!("refs/heads/{branch}"),
-        ])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    crate::git::Git::new(root)
+        .args(["show-ref", "--verify", "--quiet"])
+        .rev(format!("refs/heads/{branch}"))
+        .succeeded()
 }
 
 /// A scratch index, inside the git directory and removed when the run ends.
@@ -272,34 +254,12 @@ pub(crate) fn commit_tree(
     message: &str,
     author: (&str, &str),
 ) -> Result<String> {
-    let mut cmd = Command::new("git");
-    cmd.current_dir(root)
+    crate::git::Git::new(root)
         .args(["commit-tree", tree, "-p", parent, "-F", "-"])
         .env("GIT_AUTHOR_NAME", author.0)
         .env("GIT_AUTHOR_EMAIL", author.1)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = cmd.spawn().context("running git commit-tree")?;
-    {
-        use std::io::Write;
-        child
-            .stdin
-            .as_mut()
-            .expect("stdin piped")
-            .write_all(message.as_bytes())
-            .context("writing the commit message")?;
-    }
-    let out = child
-        .wait_with_output()
-        .context("running git commit-tree")?;
-    if !out.status.success() {
-        bail!(
-            "git commit-tree failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .stdin(message.as_bytes().to_vec())
+        .run()
 }
 
 pub(crate) fn short_of(root: &Path, sha: &str) -> String {
@@ -320,30 +280,10 @@ mod tests {
     fn repo() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        for args in [
-            vec!["init", "-q", "-b", "main"],
-            vec!["config", "user.email", "t@t"],
-            vec!["config", "user.name", "Tester"],
-        ] {
-            Command::new("git")
-                .current_dir(root)
-                .args(&args)
-                .status()
-                .unwrap();
-        }
-        std::fs::create_dir_all(root.join(".yidam/corpus/concept")).unwrap();
-        std::fs::write(root.join(".yidam/corpus/concept/a.yml"), "class: concept\n").unwrap();
-        std::fs::write(root.join("README.md"), "seed\n").unwrap();
-        for args in [
-            vec!["add", "-A"],
-            vec!["commit", "-q", "-m", "genesis: seed"],
-        ] {
-            Command::new("git")
-                .current_dir(root)
-                .args(&args)
-                .status()
-                .unwrap();
-        }
+        crate::git::fixture::init(root);
+        crate::git::fixture::write(root, ".yidam/corpus/concept/a.yml", "class: concept\n");
+        crate::git::fixture::write(root, "README.md", "seed\n");
+        crate::git::fixture::commit(root, "genesis: seed");
         dir
     }
 
@@ -477,7 +417,11 @@ mod tests {
         )
         .unwrap();
         let who = show(root, &["log", "-1", "--format=%an|%ae|%cn|%ce", &w.branch]);
-        assert_eq!(who, format!("{AUTHOR_NAME}|{AUTHOR_EMAIL}|Tester|t@t"));
+        let (name, email) = (
+            crate::git::fixture::FIXTURE_AUTHOR,
+            crate::git::fixture::FIXTURE_EMAIL,
+        );
+        assert_eq!(who, format!("{AUTHOR_NAME}|{AUTHOR_EMAIL}|{name}|{email}"));
     }
 
     #[test]

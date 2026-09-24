@@ -214,9 +214,9 @@ fn reading_of(findings: &[kuten::Finding], revision_skew: bool) -> String {
 
 /// A commit's author date, UTC — the runner's timezone must not move a committed block.
 fn commit_date(root: &Path, sha: &str) -> Result<String> {
-    let out = std::process::Command::new("git")
-        .current_dir(root)
-        .args(["show", "-s", "--format=%at", sha])
+    let out = crate::git::Git::new(root)
+        .args(["show", "-s", "--format=%at"])
+        .rev(sha)
         .output()?;
     anyhow::ensure!(out.status.success(), "git show -s {sha} failed");
     let secs: u64 = String::from_utf8_lossy(&out.stdout).trim().parse()?;
@@ -228,9 +228,10 @@ fn commit_date(root: &Path, sha: &str) -> Result<String> {
 /// commit this clone has" — and the second cannot happen under `regen`'s own whole-history
 /// precondition, which is the same clone-shape contract this block lives under.
 fn show(root: &Path, sha: &str, path: &str) -> Option<String> {
-    let out = std::process::Command::new("git")
-        .current_dir(root)
-        .args(["show", &format!("{sha}:{path}")])
+    // `.output()`, not `.try_run()`: this is file content, and a trimmed file is not the file.
+    let out = crate::git::Git::new(root)
+        .arg("show")
+        .rev(format!("{sha}:{path}"))
         .output()
         .ok()?;
     out.status
@@ -460,24 +461,10 @@ mod tests {
     fn a_regen_commit_does_not_move_the_document_and_an_authored_one_does() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path();
-        let git = |args: &[&str]| {
-            assert!(
-                std::process::Command::new("git")
-                    .current_dir(root)
-                    .args(args)
-                    .status()
-                    .unwrap()
-                    .success(),
-                "git {args:?}"
-            );
-        };
-        git(&["init", "-q", "-b", "main"]);
-        git(&["config", "user.email", "t@t.com"]);
-        git(&["config", "user.name", "T"]);
+        crate::git::fixture::init(root);
         let commit = |msg: &str| {
             std::fs::write(root.join("n"), msg).unwrap();
-            git(&["add", "-A"]);
-            git(&["commit", "-q", "-m", msg]);
+            crate::git::fixture::commit(root, msg);
         };
         commit("genesis: a corpus");
         commit("establish: one thing");
