@@ -12,22 +12,15 @@
 //! second is the one that lands in a derived repo and is the one nothing here would otherwise
 //! compile, so it is discovered rather than named.
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
+
+mod common;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-fn git(dir: &Path, args: &[&str]) {
-    let ok = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .status()
-        .expect("git")
-        .success();
-    assert!(ok, "git {args:?} failed");
-}
+use common::git::git;
 
 /// A commit carrying every layer's tag resolves to the template's, not to whichever git prefers.
 ///
@@ -52,19 +45,17 @@ fn a_commit_tagged_by_every_layer_still_names_the_template() {
         git(p, &["tag", tag]);
     }
 
-    let out = Command::new("git")
-        .current_dir(p)
-        .args([
+    let resolved = common::git::out(
+        p,
+        &[
             "describe",
             "--tags",
             "--exact-match",
             "--match",
             yidam::provenance::TEMPLATE_TAG_GLOB,
             "HEAD",
-        ])
-        .output()
-        .expect("git describe");
-    let resolved = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        ],
+    );
     assert_eq!(
         resolved, "v0.1.0",
         "the template pin must answer with the template layer's tag, not with whichever \
@@ -73,12 +64,7 @@ fn a_commit_tagged_by_every_layer_still_names_the_template() {
 
     // And the unrestricted question — the one that shipped — gets it wrong here, so this
     // test is about the `--match` and not about `git describe` being obviously right.
-    let naive = Command::new("git")
-        .current_dir(p)
-        .args(["describe", "--tags", "--exact-match", "HEAD"])
-        .output()
-        .expect("git describe");
-    let naive = String::from_utf8_lossy(&naive.stdout).trim().to_string();
+    let naive = common::git::out(p, &["describe", "--tags", "--exact-match", "HEAD"]);
     assert_ne!(
         naive, "v0.1.0",
         "if the unrestricted form now answers correctly, this fixture no longer reproduces \

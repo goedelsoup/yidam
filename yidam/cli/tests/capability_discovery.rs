@@ -39,7 +39,6 @@ mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::process::Command;
 
 use common::{examples, Example};
 
@@ -77,13 +76,7 @@ fn declared(corpus: &Path) -> BTreeMap<String, Declared> {
 /// `Example::materialize`, which builds its tree from the index. A guard that walked the
 /// filesystem would call a capability implemented that no run could ever be given.
 fn tracked(corpus: &Path) -> BTreeSet<String> {
-    let out = Command::new("git")
-        .current_dir(corpus)
-        .args(["ls-files"])
-        .output()
-        .expect("git ls-files runs");
-    assert!(out.status.success(), "git ls-files failed in {corpus:?}");
-    String::from_utf8_lossy(&out.stdout)
+    common::git::out(corpus, &["ls-files"])
         .lines()
         .map(str::to_string)
         .collect()

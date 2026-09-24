@@ -18,6 +18,8 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+mod common;
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
@@ -336,15 +338,7 @@ fn stage_corpus(into: &Path) {
             std::fs::copy(entry.path(), &to).unwrap();
         }
     }
-    let git = |args: &[&str]| {
-        let ok = Command::new("git")
-            .current_dir(into)
-            .args(args)
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        assert!(ok, "git {args:?} failed staging the fixture corpus");
-    };
+    let git = |args: &[&str]| common::git::git(into, args);
     git(&["init", "-q", "-b", "main"]);
     git(&["config", "user.email", "t@t.co"]);
     git(&["config", "user.name", "Test"]);

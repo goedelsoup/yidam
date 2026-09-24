@@ -7,13 +7,17 @@
 //! of the cases below were exactly that.
 //!
 //! Each was reproduced against git 2.50.1 through the built binary before the runner
-//! existed, and each fails on the commit before [`crate::git::run`] landed. They are here
+//! existed, and each fails on the commit before `src/git/run.rs` landed. They are here
 //! rather than beside the runner because none of them is a question about argv: they are
 //! questions about what a person standing in a repository gets back, and the argv is only
 //! how it goes wrong.
 
 use std::path::Path;
 use std::process::Command;
+
+mod common;
+
+use common::git::git;
 
 /// Run the built CLI in `dir`, with extra environment.
 fn run(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> (String, i32) {
@@ -27,16 +31,6 @@ fn run(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> (String, i32) {
         String::from_utf8_lossy(&out.stdout).to_string(),
         out.status.code().unwrap_or(-1),
     )
-}
-
-fn git(dir: &Path, args: &[&str]) {
-    let ok = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok, "git {args:?} failed");
 }
 
 /// A corpus of one commit, with whatever nodes `nodes` names.

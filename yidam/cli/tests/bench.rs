@@ -153,11 +153,7 @@ fn bench_refuses_when_the_flat_arm_would_be_keyword_search() {
         vec!["add", "-A"],
         vec!["commit", "-qm", "chore: genesis — bench"],
     ] {
-        Command::new("git")
-            .args(&args)
-            .current_dir(dir.path())
-            .status()
-            .unwrap();
+        common::git::git(dir.path(), &args);
     }
 
     let out = Command::new(env!("CARGO_BIN_EXE_yidam"))

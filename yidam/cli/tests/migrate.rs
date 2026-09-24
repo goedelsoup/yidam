@@ -53,13 +53,7 @@ impl Corpus {
     }
 
     fn git(&self, args: &[&str]) {
-        let ok = Command::new("git")
-            .current_dir(self.path())
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?}");
+        common::git::git(self.path(), args);
     }
 
     fn run(&self, args: &[&str]) -> (bool, String) {
@@ -86,12 +80,7 @@ impl Corpus {
     }
 
     fn dirty(&self) -> bool {
-        let out = Command::new("git")
-            .current_dir(self.path())
-            .args(["status", "--porcelain"])
-            .output()
-            .unwrap();
-        !out.stdout.is_empty()
+        !common::git::out(self.path(), &["status", "--porcelain"]).is_empty()
     }
 }
 
@@ -260,12 +249,7 @@ fn a_class_rename_moves_files_with_git_so_history_follows() {
     let c = Corpus::new();
     let (ok, _) = c.run(&["migrate", "class", "gage", "station"]);
     assert!(ok);
-    let out = Command::new("git")
-        .current_dir(c.path())
-        .args(["status", "--porcelain"])
-        .output()
-        .unwrap();
-    let status = String::from_utf8_lossy(&out.stdout);
+    let status = common::git::out(c.path(), &["status", "--porcelain"]);
     // `RM`, not `R `: the content edits land before the move, so the staged rename carries
     // a worktree modification with it. What matters is the `R` — git recorded a rename
     // rather than a delete and an add, so `--follow` reaches the node's earlier history.

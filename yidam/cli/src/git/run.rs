@@ -263,7 +263,10 @@ impl Git {
         let mut child = cmd
             .spawn()
             .with_context(|| format!("running git {}", self.display()))?;
-        let mut sink = child.stdin.take().expect("piped");
+        let mut sink = child
+            .stdin
+            .take()
+            .context("git was spawned without the stdin pipe it was asked for")?;
         let writer = std::thread::spawn(move || sink.write_all(&bytes));
         let out = child
             .wait_with_output()

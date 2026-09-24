@@ -22,24 +22,16 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod common;
+
 fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/catalog-fetch")
 }
 
+/// Every commit this file makes carries the same timestamp, so a report's dates are the
+/// fixture's and not the run's.
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .env("GIT_AUTHOR_DATE", "@1700000000 +0000")
-        .env("GIT_COMMITTER_DATE", "@1700000000 +0000")
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
+    common::git::out_at(dir, args, "@1700000000 +0000")
 }
 
 /// A staging area holding the fixture as its own git repository, plus a private cache.

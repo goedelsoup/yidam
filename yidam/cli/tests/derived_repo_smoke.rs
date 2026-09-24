@@ -68,15 +68,7 @@ impl Derived {
 
         // The provenance pin. `yidam clone`/`overlay` write it; bootstrap requires it to
         // exist and carry a real commit before the vendor step is considered done.
-        let commit = String::from_utf8(
-            Command::new("git")
-                .current_dir(&root)
-                .args(["rev-parse", "HEAD"])
-                .output()
-                .expect("git rev-parse")
-                .stdout,
-        )
-        .unwrap();
+        let commit = common::git::out(&root, &["rev-parse", "HEAD"]);
         std::fs::write(
             target.join(".yidam.toml"),
             format!(
@@ -161,15 +153,7 @@ impl Derived {
     }
 }
 
-fn git(dir: &Path, args: &[&str]) {
-    let ok = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .status()
-        .expect("git")
-        .success();
-    assert!(ok, "git {args:?} failed");
-}
+use common::git::git;
 
 fn text(out: &std::process::Output) -> String {
     format!(
@@ -485,12 +469,7 @@ fn a_prescribed_git_add_stages_no_cargo_install_bookkeeping() {
     std::fs::write(root.join(".yidam/corpus/thing/one.yml"), "class: thing\n").unwrap();
 
     git(root, &["add", "-A"]);
-    let staged = Command::new("git")
-        .current_dir(root)
-        .args(["diff", "--cached", "--name-only"])
-        .output()
-        .expect("git diff --cached");
-    let staged = String::from_utf8_lossy(&staged.stdout).to_string();
+    let staged = common::git::out(root, &["diff", "--cached", "--name-only"]);
     let staged: Vec<&str> = staged.lines().collect();
 
     let machine: Vec<&&str> = staged
@@ -669,19 +648,7 @@ fn the_local_gate_runs_what_ci_gates_on() {
 // states, which is exactly what this file already builds.
 
 /// Read a git command's output, for the fixtures below that need a hash back.
-fn git_out(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .expect("git");
-    assert!(
-        out.status.success(),
-        "git {args:?} failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8(out.stdout).expect("utf-8").trim().into()
-}
+use common::git::out as git_out;
 
 /// Half one: a phase ref appearing must not move a gated block.
 ///
@@ -876,13 +843,17 @@ fn the_gate_refuses_a_shallow_clone_rather_than_gating_an_invented_value() {
     let dest = tempfile::tempdir().expect("tempdir");
     let clone = dest.path().join("shallow");
     let url = format!("file://{}", repo.path().display());
-    let ok = Command::new("git")
-        .args(["clone", "-q", "--depth", "1", &url])
-        .arg(&clone)
-        .status()
-        .expect("git clone")
-        .success();
-    assert!(ok, "cloning the fixture shallowly failed");
+    common::git::git(
+        dest.path(),
+        &[
+            "clone",
+            "-q",
+            "--depth",
+            "1",
+            &url,
+            &clone.to_string_lossy(),
+        ],
+    );
     assert_eq!(
         git_out(&clone, &["rev-parse", "--is-shallow-repository"]),
         "true",

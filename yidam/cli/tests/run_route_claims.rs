@@ -113,14 +113,7 @@ fn observe() -> (Observed, String) {
     );
     std::fs::write(&manifest, after).unwrap();
 
-    let head = |dir: &Path| {
-        let out = Command::new("git")
-            .current_dir(dir)
-            .args(["rev-parse", "HEAD"])
-            .output()
-            .expect("git rev-parse runs");
-        String::from_utf8_lossy(&out.stdout).trim().to_string()
-    };
+    let head = |dir: &Path| common::git::out(dir, &["rev-parse", "HEAD"]);
     // Settle the corpus under the edited manifest before measuring anything.
     //
     // The edit changes the manifest digest, which is in every capability's input state, so it
@@ -137,20 +130,12 @@ fn observe() -> (Observed, String) {
     // Settling ran the epistemic step as well and its result is committed on a proposal
     // branch, so the next run would find it fresh. Deleting that branch is what a person does
     // to reject a proposal, and it is what leaves the step owed for the run below.
-    let refs = Command::new("git")
-        .current_dir(e.path())
-        .args(["for-each-ref", "--format=%(refname)", "refs/heads/propose/"])
-        .output()
-        .expect("git for-each-ref runs");
-    for name in String::from_utf8_lossy(&refs.stdout)
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-    {
-        Command::new("git")
-            .current_dir(e.path())
-            .args(["update-ref", "-d", name])
-            .status()
-            .expect("git update-ref runs");
+    let refs = common::git::out(
+        &e.path(),
+        &["for-each-ref", "--format=%(refname)", "refs/heads/propose/"],
+    );
+    for name in refs.lines().filter(|l| !l.trim().is_empty()) {
+        common::git::git(&e.path(), &["update-ref", "-d", name]);
     }
 
     let start = head(&e.path());
@@ -213,12 +198,7 @@ const DEFINITION_SITE: &str = "yidam/cli/tests/run_route_claims.rs";
 /// repository with nothing to say.
 fn authored_prose() -> Vec<(String, String)> {
     let root = repo_root();
-    let out = Command::new("git")
-        .current_dir(&root)
-        .args(["ls-files", "*.md", "*.rs"])
-        .output()
-        .expect("git ls-files runs");
-    let mut docs: Vec<(String, String)> = String::from_utf8_lossy(&out.stdout)
+    let mut docs: Vec<(String, String)> = common::git::out(&root, &["ls-files", "*.md", "*.rs"])
         .lines()
         .filter(|p| !p.starts_with("yidam/tests/results/"))
         .filter(|p| *p != DEFINITION_SITE)

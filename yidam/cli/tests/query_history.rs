@@ -17,14 +17,9 @@
 use std::path::Path;
 use std::process::Command;
 
-fn git(dir: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .status()
-        .unwrap();
-    assert!(status.success(), "git {args:?} failed");
-}
+mod common;
+
+use common::git::git;
 
 /// The same, at a fixed timestamp on both dates.
 ///
@@ -33,14 +28,7 @@ fn git(dir: &Path, args: &[&str]) {
 fn git_at(dir: &Path, args: &[&str], epoch: u64) {
     // Git's raw date format. Without the `@` it refuses the whole commit.
     let when = format!("@{epoch} +0000");
-    let status = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .env("GIT_AUTHOR_DATE", &when)
-        .env("GIT_COMMITTER_DATE", &when)
-        .status()
-        .unwrap();
-    assert!(status.success(), "git {args:?} failed");
+    common::git::git_at(dir, args, &when);
 }
 
 /// An empty repository with an identity, ready for a corpus.
@@ -240,16 +228,7 @@ fn an_unchanged_ontology_produces_no_note() {
 fn a_series_has_a_row_per_commit_that_touched_the_corpus() {
     let repo = history();
     let dir = repo.path();
-    let genesis = String::from_utf8_lossy(
-        &Command::new("git")
-            .current_dir(dir)
-            .args(["rev-list", "--max-parents=0", "HEAD"])
-            .output()
-            .unwrap()
-            .stdout,
-    )
-    .trim()
-    .to_string();
+    let genesis = common::git::out(dir, &["rev-list", "--max-parents=0", "HEAD"]);
 
     let series = json(dir, &["concept", "--between", &format!("{genesis}..HEAD")]);
     let rows = series["series"].as_array().unwrap();
@@ -587,16 +566,7 @@ fn a_branchy_history_is_ordered_by_the_graph_and_not_by_the_clock() {
         1_400,
     );
 
-    let genesis = String::from_utf8_lossy(
-        &Command::new("git")
-            .current_dir(dir)
-            .args(["rev-list", "--max-parents=0", "HEAD"])
-            .output()
-            .unwrap()
-            .stdout,
-    )
-    .trim()
-    .to_string();
+    let genesis = common::git::out(dir, &["rev-list", "--max-parents=0", "HEAD"]);
     let series = json(dir, &["gage", "--between", &format!("{genesis}..HEAD")]);
     let rows: Vec<Vec<String>> = series["series"]
         .as_array()
@@ -654,13 +624,7 @@ fn a_signature_verifying_configuration_does_not_become_a_revision() {
         "class: gage\nlabel: C\n",
     );
     git(dir, &["add", "-A"]);
-    if !Command::new("git")
-        .current_dir(dir)
-        .args(["commit", "-qS", "-m", "chore: genesis — signed"])
-        .status()
-        .unwrap()
-        .success()
-    {
+    if !common::git::succeeded(dir, &["commit", "-qS", "-m", "chore: genesis — signed"]) {
         ci_report::skipped("this git cannot sign with SSH");
         return;
     }
@@ -832,16 +796,7 @@ fn a_row_that_changed_the_answer_without_changing_its_size_is_marked() {
 fn a_series_prints_the_notes_it_computes() {
     let repo = history();
     let dir = repo.path();
-    let genesis = String::from_utf8_lossy(
-        &Command::new("git")
-            .current_dir(dir)
-            .args(["rev-list", "--max-parents=0", "HEAD"])
-            .output()
-            .unwrap()
-            .stdout,
-    )
-    .trim()
-    .to_string();
+    let genesis = common::git::out(dir, &["rev-list", "--max-parents=0", "HEAD"]);
 
     let run = query(dir, &["concept", "--between", &format!("{genesis}..HEAD")]);
     assert_eq!(run.code, 0, "{}", run.stdout);

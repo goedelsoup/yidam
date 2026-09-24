@@ -234,15 +234,11 @@ fn the_pin_is_an_exact_version() {
 /// would have audited a dependency resolution that existed only on the runner.
 #[test]
 fn every_workspace_commits_its_lockfile() {
-    let out = std::process::Command::new("git")
-        .current_dir(repo_root())
-        .args(["ls-files", "--", "*Cargo.lock"])
-        .output()
-        .expect("git should be runnable");
-    let tracked: BTreeSet<String> = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(|l| l.trim().to_string())
-        .collect();
+    let tracked: BTreeSet<String> =
+        common::git::out(&repo_root(), &["ls-files", "--", "*Cargo.lock"])
+            .lines()
+            .map(|l| l.trim().to_string())
+            .collect();
 
     // A workspace root is a Cargo.toml with a [workspace] table, or one cargo builds alone.
     let roots = [

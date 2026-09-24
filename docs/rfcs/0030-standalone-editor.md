@@ -508,7 +508,7 @@ the phase shipped as two routes and one page. Three things it settled by being b
   person's command and carries none of the tier. The `[serve] act = true` declaration, the
   startup refusal on a checkout with no author, and the frozen `capability-not-supported` shape
   all live behind `handle`, so the editor speaks the protocol to a child for exactly one call and
-  reads the answer off stdout. [`a_one_shot_connection_answers_both_ids_and_exits_at_eof`](../../yidam/cli/tests/mcp_act_tier.rs#L728)
+  reads the answer off stdout. [`a_one_shot_connection_answers_both_ids_and_exits_at_eof`](../../yidam/cli/tests/mcp_act_tier.rs#L713)
   pins, on the CLI side, that a three-line frame followed by EOF is a conversation the server
   finishes.
 - **It did not need Phase 2.** `propose`'s whole input schema is `{ dry_run }`

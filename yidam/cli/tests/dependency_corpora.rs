@@ -259,6 +259,8 @@ fn a_path_that_does_not_exist_is_skipped_not_fatal() {
 
 use std::process::Command;
 
+mod common;
+
 struct Run {
     stdout: String,
     stderr: String,
@@ -294,12 +296,7 @@ fn producer_and_consumer(extra_toml: &str) -> (tempfile::TempDir, std::path::Pat
     std::fs::create_dir_all(consumer.join(".yidam")).unwrap();
     // A real git repository: `repo_root` resolves the path relative to the toplevel, and a
     // fallback to the working directory would make this test pass for the wrong reason.
-    assert!(Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(&consumer)
-        .status()
-        .unwrap()
-        .success());
+    common::git::git(&consumer, &["init", "-q"]);
     std::fs::write(
         consumer.join(".yidam/tonpa.toml"),
         format!("[dependencies.producer]\npath = \"../producer\"\n{extra_toml}"),

@@ -21,7 +21,6 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::process::Command;
 
 mod common;
 
@@ -104,13 +103,9 @@ fn every_gate_runs_under_the_config_that_turns_on_junit() {
 /// rather than the negation, because it is the outcome the local machine cannot see.
 #[test]
 fn the_nextest_profile_is_tracked_in_git() {
-    let out = Command::new("git")
-        .current_dir(repo_root())
-        .args(["ls-files", "--", ".config/nextest.toml"])
-        .output()
-        .expect("git should be runnable");
+    let tracked = common::git::out(&repo_root(), &["ls-files", "--", ".config/nextest.toml"]);
     assert!(
-        !String::from_utf8_lossy(&out.stdout).trim().is_empty(),
+        !tracked.is_empty(),
         ".config/nextest.toml is not tracked by git. It exists on this machine and would not \
          exist in CI, where every gate would silently run under nextest's default profile and \
          write no JUnit at all."
@@ -238,12 +233,11 @@ fn every_job_that_runs_tests_also_renders_a_summary() {
 #[test]
 fn locked_is_passed_against_the_workspaces_that_have_a_lock() {
     let tracked = |ws: &str| {
-        Command::new("git")
-            .current_dir(repo_root())
-            .args(["ls-files", "--", &format!("{ws}/Cargo.lock")])
-            .output()
-            .ok()
-            .is_some_and(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
+        !common::git::out(
+            &repo_root(),
+            &["ls-files", "--", &format!("{ws}/Cargo.lock")],
+        )
+        .is_empty()
     };
 
     let mut wrong = Vec::new();

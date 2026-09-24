@@ -18,6 +18,8 @@
 use std::path::Path;
 use std::process::Command;
 
+mod common;
+
 /// A git repository that pins a `yidam` which is not the one under test.
 fn repo_pinning_something_else(root: &Path) {
     for args in [
@@ -25,12 +27,7 @@ fn repo_pinning_something_else(root: &Path) {
         vec!["config", "user.email", "fixture@yidam.test"],
         vec!["config", "user.name", "Fixture"],
     ] {
-        assert!(Command::new("git")
-            .current_dir(root)
-            .args(&args)
-            .status()
-            .unwrap()
-            .success());
+        common::git::git(root, &args);
     }
     let bin = root.join(".yidam/bin");
     std::fs::create_dir_all(&bin).unwrap();

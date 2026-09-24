@@ -61,12 +61,7 @@ fn stage() -> tempfile::TempDir {
         vec!["add", "-A"],
         vec!["commit", "-qm", "feat: the instances"],
     ] {
-        assert!(Command::new("git")
-            .args(&args)
-            .current_dir(dir.path())
-            .status()
-            .unwrap()
-            .success());
+        common::git::git(dir.path(), &args);
     }
     dir
 }

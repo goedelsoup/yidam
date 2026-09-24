@@ -20,7 +20,6 @@ mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::process::Command;
 
 use common::{examples, Example};
 
@@ -88,19 +87,7 @@ fn every_terminal_capability() -> Vec<(String, String)> {
     all
 }
 
-fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .unwrap_or_else(|e| panic!("git {args:?}: {e}"));
-    assert!(
-        out.status.success(),
-        "git {args:?} failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
-}
+use common::git::out as git;
 
 /// Every file under `root` except git's own, by relative path.
 ///
@@ -413,13 +400,10 @@ fn a_step_that_writes_outside_its_declaration_is_refused_and_lands_nothing() {
         // which a plan may legitimately have advanced: an upstream this step comes `after` is
         // a separate act that succeeded, and rolling it back because a later step overreached
         // would be this command deciding to undo a commit it already wrote.
-        let receipt = Command::new("git")
-            .current_dir(&root)
-            .args(["cat-file", "-e", &format!("HEAD:.yidam/runs/{step}.yml")])
-            .output()
-            .unwrap()
-            .status
-            .success();
+        let receipt = common::git::succeeded(
+            &root,
+            &["cat-file", "-e", &format!("HEAD:.yidam/runs/{step}.yml")],
+        );
         assert!(
             !receipt,
             "a refused `{step}` in {example} committed a receipt, so something it wrote landed"
@@ -473,12 +457,10 @@ fn a_dependent_step_runs_against_the_commit_its_dependency_landed() {
             let downstream = commit(step);
             let upstream = commit(dep);
             assert!(
-                Command::new("git")
-                    .current_dir(e.path())
-                    .args(["merge-base", "--is-ancestor", &upstream, &downstream])
-                    .status()
-                    .unwrap()
-                    .success(),
+                common::git::succeeded(
+                    &e.path(),
+                    &["merge-base", "--is-ancestor", &upstream, &downstream]
+                ),
                 "`{step}` does not descend from `{dep}` in {name}, so it was computed from a \
                  tree that did not hold what it declares it reads"
             );
@@ -873,12 +855,8 @@ fn an_epistemic_run_lands_on_a_proposal_branch_and_the_branch_does_not_move() {
 
         // And nothing merged itself: the proposal is not reachable from the branch.
         let tip = git(&e.path(), &["rev-parse", landed]);
-        let merged = Command::new("git")
-            .current_dir(e.path())
-            .args(["merge-base", "--is-ancestor", &tip, &before])
-            .status()
-            .unwrap()
-            .success();
+        let merged =
+            common::git::succeeded(&e.path(), &["merge-base", "--is-ancestor", &tip, &before]);
         assert!(
             !merged,
             "{landed} is an ancestor of {branch} in {example} — something merged itself"

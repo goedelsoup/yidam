@@ -1,9 +1,9 @@
 //! Building a git repository to test against.
 //!
-//! #929: twelve `#[cfg(test)]` modules under `src/` each wrote their own `fn git(dir, args)`
-//! — the same six lines, with four spellings of "and assert it worked" and no agreement on
-//! whether a commit is signed, dated or quiet. They are collapsed here so the gate in
-//! `tests/git_spawns.rs` can say *one file* without an allowlist of twelve exemptions
+//! #929: twenty-two test modules under `src/` spawned git forty-three times to build the
+//! repositories they test against — the same six lines rewritten, with no agreement on
+//! whether a commit is signed, dated or quiet, or on whether a failure says why. They are collapsed here so the gate in
+//! `tests/git_spawns.rs` can name three files without an allowlist of twenty-two exemptions
 //! standing beside it.
 //!
 //! **These are fixtures, not the runner.** They deliberately do not go through [`super::run`]:
@@ -13,7 +13,7 @@
 //! asserts, which is what a fixture owes.
 //!
 //! Integration tests under `tests/` cannot reach a `#[cfg(test)]` module of the library, so
-//! they have the same helpers in `tests/common/mod.rs`. Two copies, both named by the gate,
+//! they have the same helpers in `tests/common/git.rs`. Two copies, both named by the gate,
 //! because the crate boundary leaves no third option.
 
 use std::path::Path;

@@ -47,6 +47,8 @@ use std::process::Command;
 
 use yidam::kuten::{compare, Measurement, Profile, Verdict, Vintage};
 
+mod common;
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
@@ -651,15 +653,7 @@ fn stage(declared_revision: u32) -> tempfile::TempDir {
         "# Agents\n\n<!-- REGEN: yidam kuten\n-->\n_stale_\n<!-- /REGEN -->\n",
     );
 
-    let git = |args: &[&str]| {
-        Command::new("git")
-            .current_dir(root)
-            .args(args)
-            .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
-            .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
-            .status()
-            .unwrap();
-    };
+    let git = |args: &[&str]| common::git::git_at(root, args, common::git::FIXTURE_DATE);
     git(&["init", "-q", "-b", "main"]);
     git(&["config", "user.email", "fixture@yidam.test"]);
     git(&["config", "user.name", "Fixture"]);
@@ -806,13 +800,7 @@ fn commits(root: &Path, subjects: &[&str]) {
             vec!["add", "-A"],
             vec!["commit", "-q", "--no-gpg-sign", "-m", subject],
         ] {
-            Command::new("git")
-                .current_dir(root)
-                .args(args)
-                .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
-                .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
-                .status()
-                .unwrap();
+            common::git::git_at(root, &args, common::git::FIXTURE_DATE);
         }
     }
 }
