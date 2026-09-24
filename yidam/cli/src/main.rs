@@ -917,6 +917,17 @@ enum Command {
         #[command(subcommand)]
         sub: Option<yidam::KutenCommand>,
     },
+    /// Write what this corpus has practiced into `PRACTICE.md` — regenerated, never authored
+    ///
+    /// A corpus's practice is in its history (#287). This samples a handful of points across
+    /// the authored history and reads each against the kuten that point's own tree held,
+    /// in `kuten check`'s verdict vocabulary; where no kuten is held it describes conduct
+    /// without a baseline and says so. Merges and `regen:` commits are outside the
+    /// population, so the commit that carries the document is never counted by it.
+    ///
+    /// A repository with no `PRACTICE.md` has opted out: run directly, this prints the
+    /// section that opts back in; under `yidam regen` it is a no-op.
+    Practice,
     /// Read a range of commits against the criteria this corpus declared
     ///
     /// The genesis rubric scores a repository's birth and fires once. Nothing said whether a
@@ -1370,6 +1381,7 @@ fn main() -> Result<()> {
         Command::Vault { sub } => yidam::run_vault(sub),
         Command::Policy { sub } => yidam::run_policy(sub),
         Command::Kuten { sub } => yidam::run_kuten(sub),
+        Command::Practice => yidam::run_practice(),
         Command::Score {
             range,
             brief,

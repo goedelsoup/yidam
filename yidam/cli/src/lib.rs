@@ -75,13 +75,13 @@ pub use cmd::{
     index_status, index_verify, label_range, label_symbols, lint, list_formats, log, migrate,
     neighbors, open_questions, overlay, pack, packages_index, parse_bench_goals, parse_binding,
     phases, propose, query, regen, relocate, rename, replay, retrieve, run_capability, run_export,
-    run_kuten, run_phase, run_policy, run_score, run_vault, samudaya_audit, sangha, schema,
-    serve_lsp, serve_mcp, skills_index, slid_line_citation, status, unverified_line_citation,
-    vault_status, vocabulary, BenchGoal, BenchGoalSet, CohortOptions, EmbedOptions, ExportFormat,
-    ExportOptions, FetchOptions, KutenCommand, LineCitation, LineFragment, LintCheck, LintOptions,
-    LintViolation, LogFilter, MigrateOperation, PhaseCommand, PolicyCommand, PreludeNorm,
-    ProposeOptions, RdfFormat, ReconcileOptions, Relocation, RetrieveOptions, RunOptions,
-    VaultCommand, COMMIT_KINDS, LINT_SEVERITIES, PRELUDE_NORMS,
+    run_kuten, run_phase, run_policy, run_practice, run_score, run_vault, samudaya_audit, sangha,
+    schema, serve_lsp, serve_mcp, skills_index, slid_line_citation, status,
+    unverified_line_citation, vault_status, vocabulary, BenchGoal, BenchGoalSet, CohortOptions,
+    EmbedOptions, ExportFormat, ExportOptions, FetchOptions, KutenCommand, LineCitation,
+    LineFragment, LintCheck, LintOptions, LintViolation, LogFilter, MigrateOperation, PhaseCommand,
+    PolicyCommand, PreludeNorm, ProposeOptions, RdfFormat, ReconcileOptions, Relocation,
+    RetrieveOptions, RunOptions, VaultCommand, COMMIT_KINDS, LINT_SEVERITIES, PRELUDE_NORMS,
 };
 
 /// The remote transport (#423). Gated because the feature is what pulls the server, and

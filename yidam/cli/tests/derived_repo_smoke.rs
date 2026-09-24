@@ -511,7 +511,7 @@ fn a_prescribed_git_add_stages_no_cargo_install_bookkeeping() {
 /// Step 8.5 is load-bearing, and the skill still prescribes it.
 ///
 /// The bootstrap protocol used to end at the `vendor:` commit. It installed a CI workflow
-/// that runs `yidam regen --check`, a scaffold carrying REGEN markers in seven files, and a
+/// that runs `yidam regen --check`, a scaffold carrying REGEN markers in eight files, and a
 /// CLI that could refresh them — and ran none of it. The templates' markers are generated
 /// from a corpus that did not exist when the template was written, so they are stale from
 /// the moment they are copied: a repository with no nodes at all reports ten stale blocks.

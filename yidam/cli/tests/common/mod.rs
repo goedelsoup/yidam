@@ -105,6 +105,9 @@ pub const MAPPING: &[Install] = &[
     row("sadhana/root/mise.toml", Some("mise.toml")),
     row("sadhana/root/gitattributes", Some(".gitattributes")),
     row("sadhana/root/gitignore", Some(".gitignore")),
+    // The one root file yidam keeps no copy of: the template's own history is a CLI's, not
+    // a corpus's, so there is nothing for a practice document to describe here (#287).
+    row("sadhana/root/PRACTICE.md", Some("PRACTICE.md")),
     // A directory mirror, not two named files (#589). Step 3 used to name `ci.yml` and
     // `release.yml` and overwrite only those two, leaving the rest of yidam's own
     // `.github/workflows/` behind — `docs.yml`, `editor.yml`, `install-channels.yml`,

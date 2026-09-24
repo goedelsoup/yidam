@@ -57,6 +57,10 @@ const GENERATORS: &[Generator] = &[
     // at session start. Regenerated rather than hand-copied: a hand-copied declaration is
     // one re-vendor away from being silently wrong.
     ("kuten", super::kuten::block),
+    // What this corpus has practiced, into `PRACTICE.md` — a document, regenerated rather
+    // than authored (#287). A repository keeping no `PRACTICE.md` has opted out, and the
+    // generator is its own no-op there, before `update_file_regen`'s.
+    ("practice", super::practice::block),
 ];
 
 /// The names of every generator this command runs, in order.

@@ -96,7 +96,10 @@ pub const GROUPS: &[Group] = &[
         // however much is owed; two of the four surfaces it reads *are* gates, and filing the
         // composition under them would make the whole report inherit a verdict that only a
         // quarter of it has.
-        commands: &[r("due"), r("cycle"), w("kuten"), r("score")],
+        // `practice` writes a REGEN block and still belongs here, beside `kuten`, for the
+        // same reason: what it writes is a reading of how the practice has gone, in `kuten
+        // check`'s verdict vocabulary, and divergence in it is a question and not a defect.
+        commands: &[r("due"), r("cycle"), w("kuten"), w("practice"), r("score")],
     },
     Group {
         title: "README blocks — each rewrites its <!-- REGEN --> block where it is run",
