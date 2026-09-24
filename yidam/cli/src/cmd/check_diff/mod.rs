@@ -350,11 +350,7 @@ pub fn check_diff(range: Option<String>, format: crate::report::Format) -> Resul
 
     let report = build(range, &diff, &extract::declared(&classes), &authorship);
 
-    if format.is_json() {
-        return crate::report::emit(&root, report);
-    }
-    println!("{}", render(&report));
-    Ok(())
+    crate::report::finish(&root, format, report, |r| println!("{}", render(r)))
 }
 
 /// The text report.

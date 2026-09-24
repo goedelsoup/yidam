@@ -526,12 +526,9 @@ pub(crate) fn render_check(r: &Report) -> String {
 pub fn check(format: Format) -> Result<()> {
     let root = crate::paths::repo_root()?;
     let report = kuten::check(&root)?;
-    if format.is_json() {
-        crate::report::emit(&root, Payload { kuten: &report })?;
-    } else {
-        println!("{}", render_check(&report));
-    }
-    Ok(())
+    crate::report::finish(&root, format, Payload { kuten: &report }, |p| {
+        println!("{}", render_check(p.kuten))
+    })
 }
 
 #[cfg(test)]

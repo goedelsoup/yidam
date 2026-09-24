@@ -69,12 +69,9 @@ pub fn retrieve(query: &str, opts: Options) -> Result<()> {
     // contract's (`rejected` is an answer to a client) meeting the shell's (a wrong argument
     // is an error to a caller).
     let rejected = payload["rejected"].is_object();
-    if opts.format.is_json() {
-        crate::report::emit(&root, payload)?;
-    } else {
-        print!("{}", render(query, &payload, &state.corpus_aliases));
-    }
-    crate::report::verdict(!rejected)
+    crate::report::gate(&root, opts.format, payload, !rejected, |p| {
+        print!("{}", render(query, p, &state.corpus_aliases))
+    })
 }
 
 /// The human rendering.

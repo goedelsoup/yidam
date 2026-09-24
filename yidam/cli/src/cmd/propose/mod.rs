@@ -302,11 +302,9 @@ pub fn propose(opts: Options) -> Result<()> {
     let root = repo_root()?;
     let report = run(&root, &opts)?;
 
-    if opts.format.is_json() {
-        return crate::report::emit(&root, report);
-    }
-    println!("{}", render(&report, opts.dry_run));
-    Ok(())
+    crate::report::finish(&root, opts.format, report, |r| {
+        println!("{}", render(r, opts.dry_run))
+    })
 }
 
 /// Draft — and unless `--dry-run`, write — against the corpus at `root`.

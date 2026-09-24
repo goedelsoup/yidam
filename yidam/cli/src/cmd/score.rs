@@ -439,12 +439,9 @@ pub fn score(range: &str, format: Format, brief: bool) -> Result<()> {
         },
     };
 
-    if format.is_json() {
-        crate::report::emit(&root, Payload { score: &report })?;
-    } else {
-        println!("{}", render(&report));
-    }
-    Ok(())
+    crate::report::finish(&root, format, Payload { score: &report }, |p| {
+        println!("{}", render(p.score))
+    })
 }
 
 #[cfg(test)]

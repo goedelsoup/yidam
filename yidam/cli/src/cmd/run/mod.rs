@@ -220,11 +220,7 @@ pub fn run(step: Option<&str>, opts: Options) -> Result<()> {
     let root = repo_root()?;
     require_yidam_repo(&root)?;
     let report = plan_and_write(&root, step, opts.dry_run)?;
-    if opts.format.is_json() {
-        return crate::report::emit(&root, report);
-    }
-    println!("{}", render(&report));
-    Ok(())
+    crate::report::finish(&root, opts.format, report, |r| println!("{}", render(r)))
 }
 
 /// Everything between resolving the corpus and printing — the testable half.

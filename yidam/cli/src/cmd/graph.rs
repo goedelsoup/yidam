@@ -425,11 +425,7 @@ pub fn neighbors(id: &str, depth: usize, format: crate::report::Format) -> Resul
     let root = repo_root()?;
     let graph = graph_data(&Corpus::open(&root));
     let data = neighbors_data(&graph, id, depth);
-    if format.is_json() {
-        return crate::report::emit(&root, data);
-    }
-    println!("{}", render_neighbors(&data));
-    Ok(())
+    crate::report::finish(&root, format, data, |r| println!("{}", render_neighbors(r)))
 }
 
 pub(crate) fn render_graph(r: &GraphReport) -> String {
@@ -475,11 +471,7 @@ pub(crate) fn render_graph(r: &GraphReport) -> String {
 pub fn graph(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
     let data = graph_data(&Corpus::open(&root));
-    if format.is_json() {
-        return crate::report::emit(&root, data);
-    }
-    println!("{}", render_graph(&data));
-    Ok(())
+    crate::report::finish(&root, format, data, |r| println!("{}", render_graph(r)))
 }
 
 #[cfg(test)]

@@ -1205,12 +1205,9 @@ pub fn query(
         Scope::Now => run(&root, text, &opts),
     };
     let rejected = report.rejected.is_some();
-    if format.is_json() {
-        crate::report::emit(&root, report)?;
-    } else {
-        println!("{}", render(&report));
-    }
-    crate::report::verdict(!rejected)
+    crate::report::gate(&root, format, report, !rejected, |r| {
+        println!("{}", render(r))
+    })
 }
 
 /// `--between`: the series, or the one refusal that applies to every row of it.
@@ -1235,12 +1232,9 @@ fn series(
     // different claim: the query text or the range was wrong, and it is wrong at every commit
     // in it. That is what exit 1 has always meant here.
     let rejected = report.rejected.is_some();
-    if format.is_json() {
-        crate::report::emit(root, report)?;
-    } else {
-        println!("{}", render_series(&report));
-    }
-    crate::report::verdict(!rejected)
+    crate::report::gate(root, format, report, !rejected, |r| {
+        println!("{}", render_series(r))
+    })
 }
 
 #[cfg(test)]

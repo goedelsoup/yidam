@@ -1183,11 +1183,9 @@ pub fn migrate(op: Operation, dry_run: bool, format: crate::report::Format) -> R
         apply(&root, &corpus, &op, &mut report)?;
     }
 
-    if format.is_json() {
-        crate::report::emit(&root, &report)?;
-    } else {
-        println!("{}", render_migrate(&report));
-    }
+    crate::report::finish(&root, format, &report, |r| {
+        println!("{}", render_migrate(r))
+    })?;
     if !report.blocked.is_empty() {
         anyhow::bail!("migrate: blocked");
     }

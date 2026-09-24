@@ -379,11 +379,9 @@ pub fn fetch(opts: &FetchOptions) -> Result<()> {
         });
     }
 
-    if opts.format.is_json() {
-        return crate::report::emit(&root, FetchReport { fetched: out });
-    }
-    print!("{}", render(&out, opts.dry_run));
-    Ok(())
+    crate::report::finish(&root, opts.format, FetchReport { fetched: out }, |r| {
+        print!("{}", render(&r.fetched, opts.dry_run))
+    })
 }
 
 /// Indent a message's continuation lines to sit under the line that introduced it.

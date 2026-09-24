@@ -304,11 +304,7 @@ pub fn start(name: &str, kind: &str, format: Format) -> Result<()> {
         record: record::path(slug),
         input: rec.input,
     };
-    if format.is_json() {
-        return crate::report::emit(&root, report);
-    }
-    println!("{}", render_start(&report));
-    Ok(())
+    crate::report::finish(&root, format, report, |r| println!("{}", render_start(r)))
 }
 
 fn start_message(subject: &str, rec: &Record, from: &str) -> String {
@@ -546,11 +542,7 @@ fn run_phase(dry_run: bool, format: Format) -> Result<()> {
             resumed,
             revision_skew: skew,
         };
-        if format.is_json() {
-            return crate::report::emit(&root, report);
-        }
-        println!("{}", render_run(&report));
-        return Ok(());
+        return crate::report::finish(&root, format, report, |r| println!("{}", render_run(r)));
     }
 
     // The plan is recorded before the first step is invoked, and that order is what makes an
@@ -659,11 +651,7 @@ fn run_phase(dry_run: bool, format: Format) -> Result<()> {
         resumed,
         revision_skew: skew,
     };
-    if format.is_json() {
-        return crate::report::emit(&root, report);
-    }
-    println!("{}", render_run(&report));
-    Ok(())
+    crate::report::finish(&root, format, report, |r| println!("{}", render_run(r)))
 }
 
 /// Land the record as it now stands, unless it is already the committed bytes.
@@ -835,11 +823,7 @@ fn settle(format: Format) -> Result<()> {
             .revision_skew(held.revision)
             .map(|(recorded, held)| Skew { recorded, held }),
     };
-    if format.is_json() {
-        return crate::report::emit(&root, report);
-    }
-    println!("{}", render_settle(&report));
-    Ok(())
+    crate::report::finish(&root, format, report, |r| println!("{}", render_settle(r)))
 }
 
 fn merge_subject(slug: &str, commits: usize, files: usize) -> String {

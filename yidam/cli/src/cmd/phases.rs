@@ -263,11 +263,9 @@ struct PhasesReport<'a> {
 pub fn phases(format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
     let rows = collect_phases(&root)?;
-    if format.is_json() {
-        return crate::report::emit(&root, PhasesReport { phases: &rows });
-    }
-    println!("{}", render_phases(&rows));
-    Ok(())
+    crate::report::finish(&root, format, PhasesReport { phases: &rows }, |p| {
+        println!("{}", render_phases(p.phases))
+    })
 }
 
 #[cfg(test)]

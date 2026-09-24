@@ -179,11 +179,7 @@ pub fn log(range: Option<String>, filter: Filter, format: Format) -> Result<()> 
     let range = range.unwrap_or_else(|| "HEAD".to_string());
     let report = collect(&root, &range, filter)?;
 
-    if format.is_json() {
-        return crate::report::emit(&root, report);
-    }
-    println!("{}", render_text(&report));
-    Ok(())
+    crate::report::finish(&root, format, report, |r| println!("{}", render_text(r)))
 }
 
 #[cfg(test)]

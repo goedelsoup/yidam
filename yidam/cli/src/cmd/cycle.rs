@@ -464,12 +464,9 @@ pub fn cycle(strict: bool, format: crate::report::Format) -> Result<()> {
     let report = read_cycle(&root, strict, crate::dates::today_days())?;
     let passed = report.passed;
 
-    if format.is_json() {
-        crate::report::emit(&root, report)?;
-    } else {
-        println!("{}", render(&report, &root));
-    }
-    crate::report::verdict(passed)
+    crate::report::gate(&root, format, report, passed, |r| {
+        println!("{}", render(r, &root))
+    })
 }
 
 /// The text report.

@@ -623,12 +623,9 @@ pub fn due(strict: bool, format: crate::report::Format) -> Result<()> {
     let report = DueReport::new(clocks, strict).noting(unknown);
     let passed = report.passed;
 
-    if format.is_json() {
-        crate::report::emit(&root, report)?;
-    } else {
-        println!("{}", render(&report, &root));
-    }
-    crate::report::verdict(passed)
+    crate::report::gate(&root, format, report, passed, |r| {
+        println!("{}", render(r, &root))
+    })
 }
 
 /// The text report.

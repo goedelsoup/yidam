@@ -180,11 +180,12 @@ pub fn reconcile(opts: &ReconcileOptions) -> Result<()> {
         });
     }
 
-    if opts.format.is_json() {
-        return crate::report::emit(&root, ReconcileReport { reconciled: out });
-    }
-    print!("{}", render(&out, opts.dry_run));
-    Ok(())
+    crate::report::finish(
+        &root,
+        opts.format,
+        ReconcileReport { reconciled: out },
+        |r| print!("{}", render(&r.reconciled, opts.dry_run)),
+    )
 }
 
 /// The subject and body of the `reconcile:` commit.

@@ -456,12 +456,9 @@ pub fn pack(
         },
     );
     let rejected = report.rejected.is_some();
-    if format.is_json() {
-        crate::report::emit(&root, report)?;
-    } else {
-        println!("{}", render(&report));
-    }
-    crate::report::verdict(!rejected)
+    crate::report::gate(&root, format, report, !rejected, |r| {
+        println!("{}", render(r))
+    })
 }
 
 #[cfg(test)]
