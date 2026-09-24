@@ -153,8 +153,8 @@ yidam regen --check   # what CI runs — reports staleness, writes nothing
 ```
 
 **Careful:** `regen`, `status`, `open-questions` and the other index commands *rewrite files*.
-Twenty-three commands do; `yidam --help` marks each with a `*`. Against a checkout you only mean
-to read, `yidam doctor` is the one that is guaranteed not to touch anything.
+Twenty-three commands do; `yidam --help-all` marks each with a `*`. Against a checkout you only
+mean to read, `yidam doctor` is the one that is guaranteed not to touch anything.
 
 **`this is a shallow clone, and a REGEN block cannot be generated from one`.** The block reports
 the corpus genesis, which is the repository's first commit. A truncated history does not have it,

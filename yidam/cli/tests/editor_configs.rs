@@ -31,13 +31,22 @@ fn read_guide() -> String {
     std::fs::read_to_string(guide()).expect("yidam/editors/README.md")
 }
 
-/// `--help` for a subcommand, or for the binary itself when `args` is empty.
+/// `--help` for a subcommand, or `--help-all` for the binary itself when `args` is empty.
+///
+/// Since #921 those are two different listings, not the same one at two depths: `yidam
+/// --help` prints the thirteen commands a session usually needs, and `--help-all` prints all
+/// fifty-eight. This guide names commands from well outside the thirteen, so the whole
+/// surface is what it has to be checked against.
 fn help(args: &[&str]) -> String {
     let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
         .args(args)
-        .arg("--help")
+        .arg(if args.is_empty() {
+            "--help-all"
+        } else {
+            "--help"
+        })
         .output()
-        .expect("running yidam --help");
+        .expect("running yidam --help, or --help-all");
     // clap writes long help to stdout and errors to stderr; take both so an unknown
     // subcommand surfaces as an empty command list rather than as a silent pass.
     format!(
@@ -47,7 +56,7 @@ fn help(args: &[&str]) -> String {
     )
 }
 
-/// Every subcommand `yidam --help` lists.
+/// Every subcommand `yidam --help-all` lists.
 ///
 /// The listing is `help::render`'s, not clap's flat `Commands:` block: group headings sit
 /// flush left, command rows are indented two spaces, and the trailing legend's continuation

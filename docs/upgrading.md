@@ -28,6 +28,27 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `yidam --help` is short, and `--help-all` is the full listing
+
+**`yidam --help` now prints thirteen commands instead of fifty-eight (#921).** It ran to ninety
+lines, and the eleven `<!-- REGEN -->` generators — `corpus-index`, `crates-index`,
+`bundle-status` and the rest — printed above `graph`, `retrieve` and `query`, which are what
+the tool is for. A reader opening it to find out what `yidam` does met a maintenance surface
+first.
+
+**What changes for you.** Nothing about the commands themselves: every one still exists, still
+takes the same flags, and `yidam <command> --help` is unchanged. What moved is where the whole
+roster is printed. `yidam --help-all` is the ninety-line grouped listing, `*` markers and all.
+
+**If you parse `yidam --help`, read `--help-all` instead.** A script deriving the command set
+from the short listing will now see thirteen commands, not fifty-eight. One deriving the set
+that writes will see five, not thirty-two. Neither will fail while doing it. That is the one
+way this change is quiet, so it is the one worth checking. `docs/cli-reference.md` documents
+the full surface, and a gate holds it to `--help-all`.
+
+`yidam` with no arguments now prints the short listing. It used to print an error about a
+missing subcommand. Both exit 2; only the text changed.
+
 ### The `web-install`, `web-dev` and `web-build` tasks are gone
 
 **`packages/web/` has been deleted, and its three inherited tasks with it (#942).** The

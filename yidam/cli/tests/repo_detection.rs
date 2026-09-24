@@ -177,15 +177,19 @@ fn files(dir: &Path) -> Vec<String> {
     out
 }
 
-/// The commands `yidam --help` marks with `*`, which its own legend defines as those that
+/// The commands `yidam --help-all` marks with `*`, which its own legend defines as those that
 /// "rewrite files in the repository it is run against".
 ///
 /// **Discovered, not listed.** A hardcoded roster stops covering whatever is added next
 /// without ever going red, and the help text is where this repository already declares which
 /// commands write — so a new writer joins this population by being documented as one.
+///
+/// The long listing, since #921 split the two: `--help` marks five writers and `--help-all`
+/// marks all thirty-two. The tests below assert a property of *every* writing command, and
+/// reading the short one would have quietly narrowed that to five.
 fn writing_commands() -> Vec<String> {
     let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
-        .arg("--help")
+        .arg("--help-all")
         .output()
         .unwrap();
     let help = String::from_utf8_lossy(&out.stdout).to_string();
