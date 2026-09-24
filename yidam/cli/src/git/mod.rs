@@ -1,4 +1,17 @@
+//! What this repository knows about the git repository it sits in.
+//!
+//! Two layers, and the split is #929's: [`run`] owns *how* git is invoked — the directory,
+//! the environment, the pinned config, where a revision may appear — and this module owns
+//! *what is asked*, as functions whose names are questions a corpus has. Nothing outside
+//! [`run`] spawns git, and `tests/git_spawns.rs` holds that.
+
+#[cfg(test)]
+pub(crate) mod fixture;
+pub mod run;
+
 use std::path::Path;
+
+pub use run::Git;
 
 /// Hash of the root (genesis) commit.
 ///
@@ -36,16 +49,12 @@ pub fn genesis_hash(root: &Path) -> Option<String> {
     if !is_repository_root(root) || is_shallow(root) {
         return None;
     }
-    let out = std::process::Command::new("git")
-        .current_dir(root)
-        .args(["rev-list", "--max-parents=0", "HEAD"])
-        .output()
-        .ok()?;
-    String::from_utf8(out.stdout)
-        .ok()?
-        .lines()
+    Git::new(root)
+        .args(["rev-list", "--max-parents=0"])
+        .rev("HEAD")
+        .lines()?
+        .into_iter()
         .next()
-        .map(str::to_string)
         .filter(|s| !s.is_empty())
 }
 
@@ -67,14 +76,10 @@ pub fn genesis_hash(root: &Path) -> Option<String> {
 /// Asked through `rev-parse` rather than by looking for `.git/shallow`: a worktree's git dir is a
 /// file and a submodule's is elsewhere again, so the path is not one this can construct.
 pub fn is_shallow(root: &Path) -> bool {
-    std::process::Command::new("git")
-        .current_dir(root)
+    Git::new(root)
         .args(["rev-parse", "--is-shallow-repository"])
-        .output()
-        .ok()
-        .and_then(|out| String::from_utf8(out.stdout).ok())
-        .map(|s| s.trim() == "true")
-        .unwrap_or(false)
+        .try_run()
+        .is_some_and(|s| s == "true")
 }
 
 /// Is `root` the top of the git repository it is in, rather than a directory inside one?
@@ -87,16 +92,9 @@ pub fn is_shallow(root: &Path) -> bool {
 ///
 /// `false` when there is no repository at all: nothing to be the top of.
 fn is_repository_root(root: &Path) -> bool {
-    let out = std::process::Command::new("git")
-        .arg("-C")
-        .arg(root)
+    let Some(top) = Git::new(root)
         .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .ok();
-    let Some(top) = out
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
+        .try_run()
         .filter(|s| !s.is_empty())
     else {
         return false;
@@ -121,14 +119,11 @@ fn is_repository_root(root: &Path) -> bool {
 pub fn genesis_date(root: &Path) -> String {
     genesis_hash(root)
         .and_then(|hash| {
-            let out = std::process::Command::new("git")
-                .current_dir(root)
-                .args(["log", "-1", "--format=%as", &hash])
-                .output()
-                .ok()?;
-            String::from_utf8(out.stdout).ok()
+            Git::new(root)
+                .args(["log", "-1", "--format=%as"])
+                .rev(&hash)
+                .try_run()
         })
-        .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| UNKNOWN_COMMIT.to_string())
 }
@@ -142,13 +137,10 @@ pub fn genesis_date(root: &Path) -> String {
 pub const UNKNOWN_COMMIT: &str = "unknown";
 
 pub fn head_commit_short(root: &Path) -> String {
-    let out = std::process::Command::new("git")
-        .current_dir(root)
-        .args(["rev-parse", "--short", "HEAD"])
-        .output()
-        .ok();
-    out.and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
+    Git::new(root)
+        .args(["rev-parse", "--short"])
+        .rev("HEAD")
+        .try_run()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| UNKNOWN_COMMIT.to_string())
 }
@@ -156,14 +148,11 @@ pub fn head_commit_short(root: &Path) -> String {
 pub fn genesis_message(root: &Path) -> String {
     genesis_hash(root)
         .and_then(|hash| {
-            let out = std::process::Command::new("git")
-                .current_dir(root)
-                .args(["log", "-1", "--format=%B", &hash])
-                .output()
-                .ok()?;
-            String::from_utf8(out.stdout).ok()
+            Git::new(root)
+                .args(["log", "-1", "--format=%B"])
+                .rev(&hash)
+                .try_run()
         })
-        .map(|s| s.trim().to_string())
         .unwrap_or_default()
 }
 
@@ -280,17 +269,14 @@ pub(crate) fn parse_phase_refs(out: &str) -> Vec<PhaseRef> {
 /// still counted here but will not be counted in CI — push it, or accept the disagreement.
 /// And a developer whose remote-tracking refs are stale sees what their last fetch saw.
 pub fn phase_refs(root: &Path) -> Vec<PhaseRef> {
-    let out = std::process::Command::new("git")
-        .current_dir(root)
+    Git::new(root)
         .args([
             "for-each-ref",
             "--format=%(refname:short)",
             "refs/heads",
             "refs/remotes",
         ])
-        .output()
-        .ok();
-    out.and_then(|o| String::from_utf8(o.stdout).ok())
+        .try_run()
         .map(|s| parse_phase_refs(&s))
         .unwrap_or_default()
 }
@@ -298,12 +284,11 @@ pub fn phase_refs(root: &Path) -> Vec<PhaseRef> {
 /// The branch bounded work settles onto: `main` if it exists, else `master`.
 pub(crate) fn base_branch(root: &Path) -> Option<String> {
     ["main", "master"].into_iter().find_map(|name| {
-        let out = std::process::Command::new("git")
-            .current_dir(root)
-            .args(["rev-parse", "--verify", "--quiet", name])
-            .output()
-            .ok()?;
-        out.status.success().then(|| name.to_string())
+        Git::new(root)
+            .args(["rev-parse", "--verify", "--quiet"])
+            .rev(name)
+            .succeeded()
+            .then(|| name.to_string())
     })
 }
 
@@ -321,26 +306,14 @@ fn is_settled(root: &Path, git_ref: &str, base: Option<&str>) -> bool {
     if base == git_ref {
         return false;
     }
-    std::process::Command::new("git")
-        .current_dir(root)
-        .args(["merge-base", "--is-ancestor", git_ref, base])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    Git::new(root)
+        .args(["merge-base", "--is-ancestor"])
+        .revs([git_ref, base])
+        .succeeded()
 }
 
 fn git_lines(root: &Path, args: &[&str]) -> Option<Vec<String>> {
-    let out = std::process::Command::new("git")
-        .current_dir(root)
-        .args(args)
-        .output()
-        .ok()?;
-    out.status.success().then(|| {
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .map(str::to_string)
-            .collect()
-    })
+    Git::new(root).args(args).lines()
 }
 
 /// Has `git_ref`'s work reached the baseline by a merge that rewrote its commits?
@@ -416,14 +389,11 @@ fn is_rewritten(root: &Path, git_ref: &str, base: Option<&str>) -> bool {
     if files.is_empty() {
         return false;
     }
-    let mut args = vec!["diff", "--quiet", base, git_ref, "--"];
-    args.extend_from_slice(&files);
-    std::process::Command::new("git")
-        .current_dir(root)
-        .args(&args)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    Git::new(root)
+        .args(["diff", "--quiet"])
+        .revs([base, git_ref])
+        .paths(files)
+        .succeeded()
 }
 
 /// What the tracked refs actually hold, split by the four things they can be.
@@ -515,6 +485,7 @@ pub fn phase_tally(root: &Path) -> PhaseTally {
 
 #[cfg(test)]
 mod tests {
+    use super::fixture::{git, git_out};
     use super::*;
 
     // ── #773: a phase merged with a rewriting button is not in flight ─────────
@@ -527,10 +498,7 @@ mod tests {
     fn phases_repo() -> tempfile::TempDir {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path();
-        git(root, &["init", "-q", "-b", "main"]);
-        git(root, &["config", "user.email", "t@t.com"]);
-        git(root, &["config", "user.name", "T"]);
-        git(root, &["config", "commit.gpgsign", "false"]);
+        super::fixture::init(root);
         git(root, &["config", "merge.ff", "true"]);
         commit_file(root, "base.txt", "one", "genesis: base");
         for name in ["ff", "rebase", "squash", "active", "partial"] {
@@ -558,23 +526,12 @@ mod tests {
     }
 
     fn commit_file(root: &Path, name: &str, body: &str, msg: &str) {
-        std::fs::write(root.join(name), format!("{body}\n")).unwrap();
-        git(root, &["add", "-A"]);
-        git(root, &["commit", "-q", "--no-gpg-sign", "-m", msg]);
+        super::fixture::write(root, name, &format!("{body}\n"));
+        super::fixture::commit(root, msg);
     }
 
     fn rev(root: &Path, r: &str) -> String {
-        String::from_utf8(
-            std::process::Command::new("git")
-                .current_dir(root)
-                .args(["rev-parse", r])
-                .output()
-                .unwrap()
-                .stdout,
-        )
-        .unwrap()
-        .trim()
-        .to_string()
+        git_out(root, &["rev-parse", r])
     }
 
     /// What GitHub's **Rebase and merge** does: rebase onto the baseline, fast-forward the
@@ -1195,28 +1152,13 @@ origin/rigpa/payload-budget
         assert_eq!(names("upstream/rigpa/bar\n"), ["rigpa/bar"]);
     }
 
-    fn git(dir: &Path, args: &[&str]) {
-        let status = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?} failed");
-    }
-
     #[test]
     fn genesis_message_returns_root_commit_not_newest() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path();
-        git(root, &["init", "-q", "-b", "main"]);
-        git(root, &["config", "user.email", "t@t.co"]);
-        git(root, &["config", "user.name", "Test"]);
-        std::fs::write(root.join("a"), "a").unwrap();
-        git(root, &["add", "."]);
-        git(root, &["commit", "-q", "-m", "chore: genesis — my-domain"]);
-        std::fs::write(root.join("b"), "b").unwrap();
-        git(root, &["add", "."]);
-        git(root, &["commit", "-q", "-m", "establish: something newer"]);
+        super::fixture::init(root);
+        commit_file(root, "a", "a", "chore: genesis — my-domain");
+        commit_file(root, "b", "b", "establish: something newer");
 
         assert_eq!(genesis_message(root), "chore: genesis — my-domain");
         assert!(!genesis_date(root).is_empty());
@@ -1230,13 +1172,11 @@ origin/rigpa/payload-budget
     /// object store — `--depth` is then silently ignored and the fixture is not shallow at all.
     fn shallow_clone_of(source: &Path, dest: &Path) {
         let url = format!("file://{}", source.display());
-        let ok = std::process::Command::new("git")
-            .args(["clone", "-q", "--depth", "1", &url])
-            .arg(dest)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "cloning {url} shallowly failed");
+        let dest_arg = dest.display().to_string();
+        git(
+            dest.parent().unwrap(),
+            &["clone", "-q", "--depth", "1", &url, &dest_arg],
+        );
         assert!(
             is_shallow(dest),
             "the fixture is not shallow, so it proves nothing about shallow clones"
@@ -1253,9 +1193,7 @@ origin/rigpa/payload-budget
         let tmp = tempfile::TempDir::new().unwrap();
         let source = tmp.path().join("source");
         std::fs::create_dir_all(&source).unwrap();
-        git(&source, &["init", "-q", "-b", "main"]);
-        git(&source, &["config", "user.email", "t@t.co"]);
-        git(&source, &["config", "user.name", "Test"]);
+        super::fixture::init(&source);
         commit_file(&source, "a", "a", "chore: genesis — my-domain");
         commit_file(&source, "b", "b", "establish: something newer");
 
@@ -1270,13 +1208,7 @@ origin/rigpa/payload-budget
     /// `rev-list --max-parents=0 HEAD`, which is what [`genesis_hash`] asks git before deciding
     /// whether to believe the answer. Here so the test above can show the raw answer.
     fn first_root_commit(root: &Path) -> String {
-        let out = std::process::Command::new("git")
-            .current_dir(root)
-            .args(["rev-list", "--max-parents=0", "HEAD"])
-            .output()
-            .unwrap();
-        String::from_utf8(out.stdout)
-            .unwrap()
+        git_out(root, &["rev-list", "--max-parents=0", "HEAD"])
             .lines()
             .next()
             .unwrap()
@@ -1293,9 +1225,7 @@ origin/rigpa/payload-budget
         let tmp = tempfile::TempDir::new().unwrap();
         let source = tmp.path().join("source");
         std::fs::create_dir_all(&source).unwrap();
-        git(&source, &["init", "-q", "-b", "main"]);
-        git(&source, &["config", "user.email", "t@t.co"]);
-        git(&source, &["config", "user.name", "Test"]);
+        super::fixture::init(&source);
         commit_file(&source, "a", "a", "chore: genesis — my-domain");
         commit_file(&source, "b", "b", "establish: something newer");
 
