@@ -47,7 +47,19 @@ ls samudaya/
 
 If only `README.md` and `examples/` are present, there are no seeds — skip to step 1.
 
-Otherwise, read every file present — excluding `samudaya/examples/` and `samudaya/README.md`,
+If seeds are present and a `yidam` binary is already on `PATH` (`command -v yidam`), run:
+
+```
+yidam samudaya-audit
+```
+
+It validates each seed's frontmatter — the `kind:` value, a title, the
+`constitutional: true|false` flag on augmentations — and prints a `[review]` line for each
+constitutional augmentation; trust its flags over re-deriving them by hand. The binary is
+usually not there yet — step 8.5 installs it — so when the command is absent, skip it and
+read the files directly; do not install the CLI early just to run the audit.
+
+Whether or not the audit ran, read every file present — excluding `samudaya/examples/` and `samudaya/README.md`,
 which are not seeds. Note each seed file's `kind` frontmatter field.
 - **`axiom`** files: treat these concepts as pre-committed — they must appear in the corpus.
   Hold them in working memory as required nodes going into the ontology-discovery dialogue.
@@ -55,12 +67,14 @@ which are not seeds. Note each seed file's `kind` frontmatter field.
   discovery. They are not guaranteed — if the user's answers don't support them, discard.
 - **`constraint`** files: enforce these as hard boundaries during scaffolding. Do not deviate
   from them without surfacing the constraint and asking explicitly.
-- **`augmentation`** files: examine whether the content is a constitutional extension or a
-  general guideline. Constitutional extensions (domain-specific articles that add to
-  [CONSTITUTION.md](../CONSTITUTION.md)) must be committed into the derived repo permanently
-  — append them to the repo's copy of the constitution as part of the genesis scaffolding.
-  General guideline augmentations are treated as additional prelude for this run only and do
-  not persist after samudaya is consumed.
+- **`augmentation`** files: read the `constitutional:` frontmatter flag. `constitutional:
+  true` marks a constitutional extension — a domain-specific article that adds to
+  [CONSTITUTION.md](../CONSTITUTION.md) — and must be committed into the derived repo
+  permanently: append it to the repo's copy of the constitution as part of the genesis
+  scaffolding. `constitutional: false` marks a general guideline — additional prelude for
+  this run only, gone once samudaya is consumed. A file missing the flag is malformed
+  (`samudaya-audit` reports it as an issue); surface it to the user and ask, rather than
+  classifying the content yourself.
 
 Samudaya does not replace the dialogue. It seeds it.
 
@@ -951,8 +965,9 @@ CI workflow, a local gate, and a CLI it can install — and no step has run any 
 is not a gap in coverage; it is the difference between a repository that works and one that
 merely exists, and it is answerable in four commands.
 
-**Install the binary this repository pins.** Nothing before this point needed the CLI, so it
-is not there yet:
+**Install the binary this repository pins.** Nothing before this point required the CLI —
+step 0's audit runs only when a binary happens to be present — so it is usually not there
+yet:
 
 ```
 mise run yidam-build
