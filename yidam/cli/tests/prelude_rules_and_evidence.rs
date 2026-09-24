@@ -71,6 +71,18 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// same reason the floor is: slack is the room a regression needs, and here the regression is an
 /// essay growing back into a rules file.
 ///
+/// **Why the number went up by 354.** It is 17,686 and 22,993 now, and the reason is the whole
+/// hazard a no-slack ratchet has: this ceiling and #933's `GLOSSARY.md` were measured on sibling
+/// branches, each green, and the merge was over by exactly the glossary's 334 words plus the
+/// 20-word bullet that puts it on each route. Neither branch was wrong and neither could have
+/// seen it. The number is re-measured rather than padded, because a ceiling that absorbs the
+/// next addition silently is not a ratchet — and re-measuring is the *only* honest response
+/// when the addition was deliberate. What distinguishes that from the regression this guards
+/// is not the size of the change but its direction: an essay growing back adds words to a rules
+/// file and `every_split_pair_keeps_its_evidence` sees it; a file joining the read list adds a
+/// line to the route, which `every_route_has_a_ceiling` sees. Raise this only with the second
+/// kind, and say which file bought the words.
+///
 /// **The form does not reach #933's ~3,000 on its own, and the remaining weight says why.**
 /// `directories.md` is the largest file left on the read at 7,295 words, and what is left in it
 /// after the essays moved is reference — what belongs in each of twenty directories, the catalog
@@ -79,7 +91,7 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// scoped to the occasion, where an agent about to write a node is handed the node conventions
 /// and not the vault routing table. That is a separate change to how a route is written, and
 /// this ceiling is what will hold it honest.
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 17_332), ("sadhana/root/AGENTS.md", 22_639)];
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 17_686), ("sadhana/root/AGENTS.md", 22_993)];
 
 /// Floors on a split pair's combined word count: **the measured post-split total, with no
 /// slack.**
