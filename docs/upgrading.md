@@ -28,6 +28,8 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+## cli/v0.15.0
+
 ### `yidam clone` copies what git tracks, and refuses a source that is not the template
 
 **A clone is now the tracked set of the checkout it is run from, minus `NOT_INHERITED` (#912).**
