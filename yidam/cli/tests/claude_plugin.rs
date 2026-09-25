@@ -48,6 +48,10 @@ fn json(rel: &str) -> serde_json::Value {
 /// goedelsoup/yidam` reads.
 const MARKETPLACE: &str = ".claude-plugin/marketplace.json";
 
+/// The page that carries the `/plugin marketplace add` instruction, and so the one a reader
+/// meets the plugin on. Named once because three tests below read it.
+const PLUGIN_DOC: &str = "docs/mcp-server.md";
+
 /// Every `<dir>/SKILL.md` under a plugin's `skills/`, as (directory name, text).
 ///
 /// Discovered rather than listed, for the reason in the module doc. Depth is fixed at one
@@ -490,7 +494,7 @@ fn the_plugin_is_reachable_from_the_documentation() {
         .as_str()
         .expect("the marketplace is named");
 
-    let docs = read("docs/mcp-server.md");
+    let docs = read(PLUGIN_DOC);
     assert!(
         docs.contains("/plugin marketplace add"),
         "docs/mcp-server.md is the document about connecting an agent and does not mention \
@@ -712,7 +716,7 @@ fn every_count_the_plugin_prose_writes_is_one_the_repository_produces() {
             prose.push((format!("{name}'s README.md"), text));
         }
     }
-    prose.push(("docs/mcp-server.md".into(), read("docs/mcp-server.md")));
+    prose.push((PLUGIN_DOC.into(), read(PLUGIN_DOC)));
 
     let mut wrong = Vec::new();
     for (where_, text) in &prose {
@@ -742,18 +746,27 @@ fn every_count_the_plugin_prose_writes_is_one_the_repository_produces() {
     );
 }
 
-/// A skill the README does not mention is one only its own directory knows about.
+/// A skill that neither document mentions is one only its own directory knows about.
 ///
 /// This is #943's other half, and the more expensive one. The counts were wrong *because*
-/// `starting-a-session` was written, shipped and never written down: it is absent from the
-/// README's table of what the plugin installs, so the only way to learn the plugin has it is
-/// to list the directory. A skill nobody documents is a skill nobody reviews.
+/// `starting-a-session` was written, shipped and never written down: it was absent from the
+/// README's table of what the plugin installs *and* from the page that tells a reader to
+/// install it, so the only way to learn the plugin had it was to list the directory. A skill
+/// nobody documents is a skill nobody reviews.
 ///
-/// The README is a document, not a manifest, so this asks only that the name appear in it.
-/// Where it appears — a table row, a sentence, a heading — is an editorial choice, and one a
-/// test has no business making.
+/// Both documents, because they answer to different readers and neither substitutes for the
+/// other: [`PLUGIN_DOC`] is where somebody decides whether to install this at all, and the
+/// README is what they find afterwards. #943 left `docs/mcp-server.md` counting *"six
+/// skills"* and then enumerating them by position — *"the fifth fires… the sixth fires…"* —
+/// which the count gate cannot read. A seventh skill would have left that sentence wrong
+/// with every test green. Naming the skills is what makes the claim checkable at all.
+///
+/// These are documents, not manifests, so this asks only that the name appear. Where it
+/// appears — a table row, a sentence, a heading — is an editorial choice, and one a test has
+/// no business making.
 #[test]
-fn every_skill_the_plugin_ships_is_named_by_its_readme() {
+fn every_skill_the_plugin_ships_is_named_where_the_plugin_is_documented() {
+    let doc = read(PLUGIN_DOC);
     for (name, dir) in marketplace_plugins() {
         let readme = dir.join("README.md");
         let text = std::fs::read_to_string(&readme).unwrap_or_else(|e| {
@@ -762,16 +775,20 @@ fn every_skill_the_plugin_ships_is_named_by_its_readme() {
                 readme.display()
             )
         });
-        let missing: Vec<String> = skills(&dir)
-            .into_iter()
-            .map(|(skill, _)| skill)
-            .filter(|skill| !text.contains(skill.as_str()))
-            .collect();
-        assert!(
-            missing.is_empty(),
-            "`{name}` installs {missing:?}, which {} never names. A skill the README omits is \
-             one a reader finds by listing the directory.",
-            readme.display()
-        );
+        for (where_, prose) in [
+            (readme.display().to_string(), &text),
+            (PLUGIN_DOC.into(), &doc),
+        ] {
+            let missing: Vec<String> = skills(&dir)
+                .into_iter()
+                .map(|(skill, _)| skill)
+                .filter(|skill| !prose.contains(skill.as_str()))
+                .collect();
+            assert!(
+                missing.is_empty(),
+                "`{name}` installs {missing:?}, which {where_} never names. A skill a document \
+                 omits is one a reader finds by listing the directory.",
+            );
+        }
     }
 }

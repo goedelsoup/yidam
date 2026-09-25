@@ -92,13 +92,14 @@ the same install.
 /plugin install yidam@yidam
 ```
 
-What arrives: the MCP server, registered, plus six skills. Each fires at the point a decision is
-made. That is before a commit subject, an evidence tag, a link, or a `cites:`. The fifth fires
-before answering from the corpus rather than the model. The sixth fires at the start of a
-session, where what to do next is the decision. Each one names the tool to call and points at
-the prelude for the reasoning. None restates a rule: a second copy of a closed vocabulary is a
-second thing to hold in step. About 680 tokens are always on; the rest is paid only when a skill
-fires.
+What arrives: the MCP server, registered, plus six skills. Each fires at the point a decision
+is made. `writing-a-corpus-commit` fires before a commit subject and `tagging-a-claim` before
+an evidence tag. `linking-a-node` fires before a link, `citing-a-dependency` before a
+`cites:`. `reading-a-corpus` fires before answering from the corpus rather than the model.
+`starting-a-session` fires at the start of a session, where what to do next is the decision.
+Each one names the tool to call and points at the prelude for the reasoning. None restates a
+rule: a second copy of a closed vocabulary is a second thing to hold in step. About 680
+tokens are always on; the rest is paid only when a skill fires.
 
 **The plugin carries no binary.** Install `yidam` first — any channel in
 [installation](installation.md) — and the plugin's launcher will find it. If it cannot, it
