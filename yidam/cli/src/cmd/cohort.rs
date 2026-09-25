@@ -514,12 +514,12 @@ pub fn collect(roots: &[PathBuf], show_paths: bool) -> CohortReport {
 /// **Exits zero, always.** A norm that lost is a question about the norm, and a command that
 /// gated on it would make one repository's practice a defect in another's build — which is
 /// `kuten check`'s argument and `due`'s before it.
-pub fn cohort(roots: &[PathBuf], opts: Options) -> Result<()> {
+pub fn cohort(root: Option<&std::path::Path>, roots: &[PathBuf], opts: Options) -> Result<()> {
     let report = collect(roots, opts.paths);
     if opts.format.is_json() {
         // The envelope's `root` is this repository — the prelude the cohort is evidence
         // about — and not any member of it. That is the subject of the report.
-        return crate::report::emit(&crate::paths::repo_root()?, report);
+        return crate::report::emit(&crate::paths::resolve_root(root)?, report);
     }
     println!("{}", render(&report));
     Ok(())

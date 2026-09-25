@@ -35,7 +35,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use crate::paths::{pinned_binary, repo_root, yidam_bin_path, yidam_index_dir, Pinned};
+use crate::paths::{pinned_binary, yidam_bin_path, yidam_index_dir, Pinned};
 use crate::provenance::MANIFEST;
 
 /// How old a pin may get before it is worth a word.
@@ -519,7 +519,7 @@ fn check_regen(root: &std::path::Path) -> Answer {
             Some("git fetch --unshallow, or fetch-depth: 0 in CI"),
         );
     }
-    match crate::cmd::stale_blocks() {
+    match crate::cmd::stale_blocks(Some(root)) {
         Err(e) => Answer::fail(format!("could not be computed: {e:#}"), None),
         Ok(stale) if stale.is_empty() => {
             Answer::ok("every REGEN block holds what its generator produces")
@@ -1537,8 +1537,12 @@ pub(crate) fn render(report: &DoctorReport, root: &Path) -> String {
 }
 
 /// `yidam doctor`. Read-only, and exits nonzero on anything actionable.
-pub fn doctor(strict: bool, format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn doctor(
+    root: Option<&std::path::Path>,
+    strict: bool,
+    format: crate::report::Format,
+) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let running = std::env::current_exe().ok();
     let path_var = std::env::var_os("PATH");
     let checks = diagnose(

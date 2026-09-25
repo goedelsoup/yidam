@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::path::Path;
 
 use crate::parse::parse_frontmatter;
-use crate::paths::{repo_root, yidam_skills_dir};
+use crate::paths::yidam_skills_dir;
 use crate::regen::update_file_regen;
 use crate::walk::walk_md_files;
 
@@ -31,8 +31,8 @@ pub(crate) fn render_skills_index(skills_dir: &Path) -> String {
     rows.join("\n")
 }
 
-pub fn agents_index() -> Result<()> {
-    let root = repo_root()?;
+pub fn agents_index(root: Option<&std::path::Path>) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let agents_dir = root.join("agents");
     let agents = walk_md_files(&agents_dir);
 
@@ -67,8 +67,8 @@ pub fn agents_index() -> Result<()> {
     )
 }
 
-pub fn skills_index() -> Result<()> {
-    let root = repo_root()?;
+pub fn skills_index(root: Option<&std::path::Path>) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let skills_dir = yidam_skills_dir(&root);
     let content = render_skills_index(&skills_dir);
     crate::regen::emit(&content);

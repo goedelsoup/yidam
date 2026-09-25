@@ -11,7 +11,7 @@ So the roster below is the roster you have. It says nothing about the prose. A d
 here, or in a long help, is written by hand. It can fall behind the behaviour it describes,
 which is what #873 was.
 
-Two conventions run through the whole surface.
+Three conventions run through the whole surface.
 
 **A `*` means the command rewrites files in the repository it is run against.** Twenty-three
 do. That was previously visible only in each command's long help, where you had to already
@@ -22,6 +22,18 @@ they only meant to inspect.
 of [RFC-0016](rfcs/0016-editor-surface.md). `text` is the default and is byte-stable. The editor
 surface and CI both consume the JSON, so the prose is free to stay prose. Commands below that take
 no options at all are marked *(no flags)*.
+
+**`--root <DIR>` names the corpus to read.** Every command that reads one takes it, including
+the generators that refresh a README block. Without it `yidam` finds a repository with
+`git rev-parse --show-toplevel` from wherever the process started, which makes the working
+directory load-bearing. It takes the corpus directory or any directory inside one. The `root`
+field of every JSON report says which one was resolved.
+
+The commands that **refuse** it are the `*` ones that do more than refresh a README block. They
+author a commit, write a build artifact, or name a repository to derive. Naming a corpus to
+report on is one promise. Being run inside the one you are about to write to is another. It is
+not a promise a reader should be able to make by passing a path. `yidam <command> --help` is
+the answer for any single command.
 
 Some commands need a build carrying the matching cargo feature. Those are marked, and
 [Installation](installation.md#check-which-build-you-have) has the table. `yidam --version` prints
@@ -1064,11 +1076,12 @@ compiled-in mapping and reads no corpus.
 | `serve --mcp --http` | The same server over HTTP, for a client that takes a URL rather than spawning a process. `--bind` (loopback by default), `--port`, `--allow-origin` |
 | `serve --lsp` | LSP over stdio — the editor surface. See [Editor setup](editor-setup.md) |
 
-**`--root <DIR>` names the corpus**, on every transport. Without it `serve` finds one from
-wherever the client started the process. That makes the working directory load-bearing, which
+**`--root <DIR>` matters most here**, and `serve` is where it started (#421). A client
+configures a command line, not a working directory. Without the flag the corpus depends on
+wherever the client happened to spawn the process. That is what
 [Connecting an agent](mcp-server.md#the-working-directory-is-load-bearing) used to document a `sh
--c 'cd … && exec …'` workaround for. It takes the corpus directory or any directory inside one. A
-directory that is not in a corpus is refused, not served empty.
+-c 'cd … && exec …'` workaround for. A directory that is not in a corpus is refused, not served
+empty.
 
 **Both transports are in the light default build.** `--features index` upgrades MCP's `retrieve`
 from keyword to semantic search, and adds nothing else. A default binary still serves every other

@@ -3,6 +3,14 @@
 use anyhow::{Context, Result};
 use std::fmt::Write as _;
 
+/// A named generator: the CLI subcommand's name, and the function behind it.
+///
+/// Every generator takes the corpus rather than resolving one, because `regen --root` has to
+/// mean the same thing as running each of these commands with `--root` (#918). A generator
+/// that resolved its own root would refresh *this* repository's blocks while the reader had
+/// named another — and the fourteen would not even agree with each other about which.
+type Generator = (&'static str, fn(Option<&std::path::Path>) -> Result<()>);
+
 /// Every generator that writes a REGEN block.
 ///
 /// **This is the list**, and it is one list on purpose. There used to be two: a `regen`
@@ -20,24 +28,23 @@ use std::fmt::Write as _;
 /// A generator whose target file does not exist is a no-op — `update_file_regen` returns
 /// early — so this runs unchanged in a repository that has no `agents/` or `packages/`
 /// yet. That is why the list is unconditional.
-/// A named generator: the CLI subcommand's name, and the function behind it.
-type Generator = (&'static str, fn() -> Result<()>);
-
 const GENERATORS: &[Generator] = &[
     // Text, always. These write REGEN blocks into markdown; `--format json` is a
     // reporting mode and has nothing to regenerate.
-    ("status", || super::status(crate::report::Format::Text)),
-    ("open-questions", || {
-        super::open_questions(crate::report::Format::Text)
+    ("status", |root| {
+        super::status(root, crate::report::Format::Text)
     }),
-    ("corpus-index", || {
-        super::corpus_index(crate::report::Format::Text)
+    ("open-questions", |root| {
+        super::open_questions(root, crate::report::Format::Text)
     }),
-    ("index-status", || {
-        super::index_status(crate::report::Format::Text)
+    ("corpus-index", |root| {
+        super::corpus_index(root, crate::report::Format::Text)
     }),
-    ("catalog-audit", || {
-        super::catalog_audit(crate::report::Format::Text)
+    ("index-status", |root| {
+        super::index_status(root, crate::report::Format::Text)
+    }),
+    ("catalog-audit", |root| {
+        super::catalog_audit(root, crate::report::Format::Text)
     }),
     ("agents-index", super::agents_index),
     ("skills-index", super::skills_index),
@@ -51,7 +58,7 @@ const GENERATORS: &[Generator] = &[
     // day a vault was declared, and no gate had an opinion either way. `false` is
     // `vault_status`'s `direct`: see its own note on the one character between it and a
     // read-only command.
-    ("vault-status", || super::vault_status(false)),
+    ("vault-status", |root| super::vault_status(root, false)),
     ("decisions-log", super::decisions_log),
     // The declaration a corpus makes about its own practice, into the file an agent reads
     // at session start. Regenerated rather than hand-copied: a hand-copied declaration is
@@ -103,10 +110,10 @@ pub(crate) fn render_regen_check(r: &RegenReport) -> String {
 ///
 /// [`crate::regen::begin_check`] is process-global, so this is not reentrant. Nothing calls
 /// it concurrently: both callers are a single command's single pass.
-pub(crate) fn stale_blocks() -> Result<Vec<crate::regen::Stale>> {
+pub(crate) fn stale_blocks(root: Option<&std::path::Path>) -> Result<Vec<crate::regen::Stale>> {
     crate::regen::begin_check();
     for (name, run) in GENERATORS {
-        let outcome = run().with_context(|| format!("running {name}"));
+        let outcome = run(root).with_context(|| format!("running {name}"));
         if outcome.is_err() {
             // Leave check mode before propagating, or the next caller inherits a
             // half-finished check and a write path that silently records instead of writes.
@@ -121,15 +128,20 @@ pub(crate) fn stale_blocks() -> Result<Vec<crate::regen::Stale>> {
 ///
 /// `--check` runs the same [`GENERATORS`] list, which is the whole point: a check that
 /// walked its own list would be the third list this command exists to have prevented.
-pub fn regen(check: bool, format: crate::report::Format) -> Result<()> {
-    require_whole_history(&crate::paths::repo_root()?)?;
+pub fn regen(
+    root: Option<&std::path::Path>,
+    check: bool,
+    format: crate::report::Format,
+) -> Result<()> {
+    let resolved = crate::paths::resolve_root(root)?;
+    require_whole_history(&resolved)?;
     if check {
-        let stale = stale_blocks()?;
-        return report_check(stale, format);
+        let stale = stale_blocks(root)?;
+        return report_check(&resolved, stale, format);
     }
     for (name, run) in GENERATORS {
         println!("── {name}");
-        run().with_context(|| format!("running {name}"))?;
+        run(root).with_context(|| format!("running {name}"))?;
     }
     Ok(())
 }
@@ -169,17 +181,22 @@ fn require_whole_history(root: &std::path::Path) -> Result<()> {
     )
 }
 
-fn report_check(stale: Vec<crate::regen::Stale>, format: crate::report::Format) -> Result<()> {
+fn report_check(
+    root: &std::path::Path,
+    stale: Vec<crate::regen::Stale>,
+    format: crate::report::Format,
+) -> Result<()> {
     let report = RegenReport {
         passed: stale.is_empty(),
         stale,
     };
     let passed = report.passed;
-    // `repo_root` is resolved for both formats now, where the JSON arm used to reach it
-    // alone. It cannot fail here for the first time: `regen` resolves it before calling
-    // this. `cohort` and `bench --scaling` are the sites where that is *not* true — both
-    // run outside a repository today — and they keep their own branch because of it.
-    crate::report::gate(&crate::paths::repo_root()?, format, report, passed, |r| {
+    // The root is the caller's, not `repo_root()`'s. It was the latter until #918, which is
+    // the one place `--root` could be accepted and the envelope still name the directory the
+    // process happened to start in — `root_flag.rs` measured it. The blocks were always read
+    // from the right corpus; only the envelope disagreed, which is exactly the class of
+    // defect a report nobody reads by hand keeps.
+    crate::report::gate(root, format, report, passed, |r| {
         println!("{}", render_regen_check(r))
     })
 }

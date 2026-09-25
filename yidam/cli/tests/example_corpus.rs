@@ -28,9 +28,12 @@
 //! own instructions, which name that corpus by name.
 //!
 //! Each corpus is copied to a temp directory and `git init`-ed rather than checked in place.
-//! `repo_root()` resolves through `git rev-parse --show-toplevel`, so running the binary
-//! inside `examples/<name>/` finds *this* repository — which has no `.yidam/` and would fail
-//! for a reason that has nothing to do with the example.
+//! Not for want of a flag any more — `--root <DIR>` reads a corpus where it sits on every
+//! reading command since #918, and [`every_example_exports_in_place_through_root`] is the case
+//! that asserts it. The copy is for the *history*: an example's commits are replayed from its
+//! `history.toml`, and `lint` dates an orphan against them. Read through `--root`, the history
+//! git answers with is this repository's, and the baseline ratchet would be measuring yidam's
+//! own commits against the example's nodes.
 
 mod common;
 
@@ -443,12 +446,13 @@ fn clone_does_not_copy_the_example_into_a_derived_repository() {
 
 /// An example exports **in place**, named rather than copied (#236, #428).
 ///
-/// This file's header describes the workaround: every case above copies its corpus to a temp
-/// directory and `git init`s it, because `git rev-parse --show-toplevel` from
-/// `examples/<name>/` answers with *this* repository, which has no `.yidam/`. That is a real
-/// constraint on the tests and it was also a constraint on anybody wanting to do anything
-/// with an example — #428 needs `examples/streamflow` served, #236 needs it exported, and
-/// both named the same missing flag.
+/// Every case above copies its corpus to a temp directory and `git init`s it, because
+/// `git rev-parse --show-toplevel` from `examples/<name>/` answers with *this* repository,
+/// which has no `.yidam/`. That was a constraint on the tests and it was also a constraint on
+/// anybody wanting to do anything with an example — #428 needs `examples/streamflow` served,
+/// #236 needs it exported, and both named the same missing flag. #918 finished the job for
+/// every reading command; `root_flag.rs` holds the whole roster, and this case holds the one
+/// command whose output is a file rather than a report envelope.
 ///
 /// So this one deliberately does **not** materialize. It runs against the checked-in
 /// directory, from a working directory that is neither the example nor this repository, and

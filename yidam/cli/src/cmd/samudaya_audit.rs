@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 
 use crate::parse::parse_samudaya_seed;
-use crate::paths::{repo_root, samudaya_dir};
+use crate::paths::samudaya_dir;
 
 /// The `kind` values a seed file may declare.
 ///
@@ -30,8 +30,8 @@ fn has_title(text: &str) -> bool {
         .any(|l| l.starts_with("# ") && l.len() > 2)
 }
 
-pub fn samudaya_audit() -> Result<()> {
-    let root = repo_root()?;
+pub fn samudaya_audit(root: Option<&std::path::Path>) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let samudaya = samudaya_dir(&root);
 
     if !samudaya.exists() {

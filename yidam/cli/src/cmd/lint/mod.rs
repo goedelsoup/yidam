@@ -93,7 +93,6 @@ pub(crate) fn commit_verb_severity() -> Severity {
 }
 
 use crate::corpus::Overlay;
-use crate::paths::repo_root;
 use crate::walk::walk_linkable_files;
 
 /// How `lint` was invoked.
@@ -747,8 +746,8 @@ fn bless(root: &Path, all: &[Check]) -> Result<baseline::Baseline> {
     Ok(b)
 }
 
-pub fn lint(opts: Options) -> Result<()> {
-    let root = repo_root()?;
+pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     // Same reason as `graph_check`: `lint` reported "0 finding(s), no errors" from an empty
     // directory that was not a repository at all.
     crate::paths::require_yidam_repo(&root)?;
@@ -2256,17 +2255,14 @@ decision := {"allow": true, "deny": []}
 
     /// Run `lint` against a directory that is not the process's cwd.
     ///
-    /// `lint()` resolves the repository itself, so the tests that need the whole command —
-    /// rather than `run_checks` — set the cwd. Serialized behind a mutex because the cwd
-    /// is process-global and the test runner is threaded.
+    /// The whole command — rather than `run_checks` — against a named fixture.
+    ///
+    /// This used to set the process's working directory and hold a mutex while it did, because
+    /// `lint()` resolved the repository itself and the cwd is process-global while the test
+    /// runner is threaded. `--root` (#918) means the command can simply be told, so the
+    /// serialization and the restore-on-the-way-out are gone with it.
     fn lint_at(root: &Path, opts: Options) -> Result<()> {
-        static CWD: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _held = CWD.lock().unwrap_or_else(|e| e.into_inner());
-        let previous = std::env::current_dir().unwrap();
-        std::env::set_current_dir(root).unwrap();
-        let out = lint(opts);
-        std::env::set_current_dir(previous).unwrap();
-        out
+        lint(Some(root), opts)
     }
 
     use crate::git::fixture::commit as commit_all;

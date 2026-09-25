@@ -291,20 +291,23 @@ the original design put all three in the CLI.
 Found by running Phase 1's scaffold rather than by reading, and it belongs in this document
 because it is a property of the seam this design chose, not of the code that hit it.
 
-`--root` exists on `serve` and on `export`, and `export`'s own declaration says why:
+When this was written `--root` existed on `serve` and on `export` alone. It is on every
+reading command since #918, whose shared declaration says why:
 
-> The same flag `serve` takes, and for the reason #236 and #428 both give: the corpus worth
-> exporting is often not the repository you are standing in. `examples/streamflow` is a corpus
-> inside this one, and `git rev-parse --show-toplevel` from it answers with yidam, which has
-> no `.yidam/` — so the only way to export it was to copy it elsewhere and `git init` the copy.
+> The reasoning generalised long before the flag did: *every* command resolved its corpus from
+> the working directory, so a corpus that lives inside another git repository —
+> `examples/streamflow` in this one, or any checkout inside a larger workspace — could be read
+> only by copying it somewhere else and running `git init` on the copy.
 >
-> — [`main.rs:547-551`](../../yidam/cli/src/main.rs#L547-L551)
+> — [`main.rs:126-130`](../../yidam/cli/src/main.rs#L126-L130)
 
-The five commands this surface spawns do not have that flag. So `yidam-edit --root DIR` sets
-the child's working directory and inherits exactly the behaviour the quotation describes:
-pointed at `examples/streamflow` inside this checkout, every report answers about the outer
-repository, and the browser shows a corpus with no nodes in it. **An empty corpus and a wrong
-corpus render identically**, which is what makes this worth a paragraph rather than a bug.
+The five commands this surface spawns did not have the flag when this design was chosen, so
+`yidam-edit --root DIR` sets the child's working directory and inherits exactly the behaviour
+the quotation describes: pointed at `examples/streamflow` inside this checkout, every report
+answered about the outer repository, and the browser showed a corpus with no nodes in it. **An
+empty corpus and a wrong corpus render identically**, which is what makes this worth a
+paragraph rather than a bug — and it remains true of the working directory even now that
+passing the corpus along is available.
 
 Phase 1 does the honest minimum: every envelope carries `root`, so the surface compares what
 it asked for against what answered and says so in the header when they differ. That is
@@ -356,7 +359,7 @@ most expensive thing in the document. The original said so, about this design, a
 
 That bridge is now the plan. [`Overlay`](../../yidam/cli/src/corpus/overlay.rs#L15) is a
 `pub struct` in the lint module, and
-[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L131) is the entry point the language
+[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L130) is the entry point the language
 server calls on every change ([`lsp.rs:250`](../../yidam/cli/src/cmd/lsp.rs#L250)) — but it is
 reachable only through `serve --lsp`. `yidam lint` has no overlay flag, and the extension is no
 prior art here: it carries no LSP client and no dependencies at all, running `lint --format json`

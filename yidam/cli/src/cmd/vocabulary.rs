@@ -31,7 +31,6 @@ use yidam_core::git::{
 };
 
 use crate::cmd::lint::commits::split_scope;
-use crate::paths::repo_root;
 
 #[derive(Debug, serde::Serialize)]
 pub struct Verb {
@@ -417,8 +416,12 @@ fn render_subject(s: &SubjectCheck) -> String {
 }
 
 /// Print the closed commit vocabulary, optionally checking one subject against it.
-pub fn vocabulary(check: Option<String>, format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn vocabulary(
+    root: Option<&std::path::Path>,
+    check: Option<String>,
+    format: crate::report::Format,
+) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let data = vocabulary_data(&root, check.as_deref());
     crate::report::finish(&root, format, data, |r| {
         println!("{}", render_vocabulary(r))

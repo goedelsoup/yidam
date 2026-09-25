@@ -2,7 +2,6 @@ use anyhow::Result;
 use std::path::Path;
 
 use crate::cmd::phase::record::{self, Record};
-use crate::paths::repo_root;
 
 /// One row of the `yidam phases` table: an inquiry ref backed by a `ma/*`, `rigpa/*` or
 /// `phase/*` branch.
@@ -250,8 +249,8 @@ struct PhasesReport<'a> {
     phases: &'a [PhaseRow],
 }
 
-pub fn phases(format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn phases(root: Option<&std::path::Path>, format: crate::report::Format) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let rows = collect_phases(&root)?;
     crate::report::finish(&root, format, PhasesReport { phases: &rows }, |p| {
         println!("{}", render_phases(p.phases))

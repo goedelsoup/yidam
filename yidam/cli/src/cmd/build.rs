@@ -27,11 +27,10 @@ use crate::parse::{
     parse_cargo_manifest, parse_npm_manifest, parse_pyproject_manifest, parse_workspace_package,
     ManifestEntry, WorkspacePackage,
 };
-use crate::paths::repo_root;
 use crate::regen::update_file_regen;
 
-pub fn crates_index() -> Result<()> {
-    let root = repo_root()?;
+pub fn crates_index(root: Option<&std::path::Path>) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let crates_dir = root.join("crates");
     let workspace = workspace_package(&root, &crates_dir);
     let declared = declared_capabilities(&root)?;
@@ -59,8 +58,8 @@ pub fn crates_index() -> Result<()> {
     )
 }
 
-pub fn packages_index() -> Result<()> {
-    let root = repo_root()?;
+pub fn packages_index(root: Option<&std::path::Path>) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let packages_dir = root.join("packages");
     let workspace = workspace_package(&root, &packages_dir);
     let declared = declared_capabilities(&root)?;

@@ -54,7 +54,7 @@ use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::paths::{repo_root, require_yidam_repo, yidam_catalog_dir};
+use crate::paths::{require_yidam_repo, yidam_catalog_dir};
 
 /// What one clock concluded.
 ///
@@ -614,8 +614,12 @@ fn unknown_declines(cfg: &crate::config::DueConfig, clocks: &[Clock]) -> Vec<Str
 }
 
 /// `yidam due`. Read-only, offline, and exits zero however much is owed unless `--strict`.
-pub fn due(strict: bool, format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn due(
+    root: Option<&std::path::Path>,
+    strict: bool,
+    format: crate::report::Format,
+) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     require_yidam_repo(&root)?;
     let cfg = crate::config::load_yidam_config(&root)?;
     let clocks = read_clocks(&root, &cfg.due, crate::dates::today_days());

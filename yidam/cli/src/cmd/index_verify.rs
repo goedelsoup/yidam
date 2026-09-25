@@ -214,13 +214,14 @@ fn read_remote_config(root: Option<&Path>) -> Result<EmbedConfig> {
 }
 
 pub fn index_verify(
+    root: Option<&std::path::Path>,
     index: Option<PathBuf>,
     provider: Option<String>,
     runtime: Option<String>,
     remote: bool,
     format: crate::report::Format,
 ) -> Result<()> {
-    let root = crate::paths::repo_root().ok();
+    let root = crate::paths::resolve_root(root).ok();
     let index = index.unwrap_or_else(|| {
         root.clone()
             .map(|r| crate::paths::yidam_index_dir(&r))

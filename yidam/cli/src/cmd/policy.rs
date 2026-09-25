@@ -47,7 +47,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::Subcommand;
 
-use crate::paths::repo_root;
 use crate::policy::{Decision, Origin, Policies};
 use crate::report::Format;
 
@@ -100,10 +99,10 @@ pub enum PolicyCommand {
     },
 }
 
-pub fn run(sub: PolicyCommand) -> Result<()> {
+pub fn run(root: Option<&std::path::Path>, sub: PolicyCommand) -> Result<()> {
     // `unwrap_or_else` rather than `require_yidam_repo`: the compiled-in default is a complete
     // rule set, so every subcommand has something to answer with outside a repository.
-    let root = repo_root().unwrap_or_else(|_| PathBuf::from("."));
+    let root = crate::paths::resolve_root(root).unwrap_or_else(|_| PathBuf::from("."));
     match sub {
         PolicyCommand::Check { format } => check(&root, format),
         PolicyCommand::Eval {

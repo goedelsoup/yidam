@@ -63,7 +63,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::cmd::due::{Clock, State};
-use crate::paths::{repo_root, require_yidam_repo};
+use crate::paths::require_yidam_repo;
 
 /// One inquiry ref in flight.
 ///
@@ -458,8 +458,12 @@ pub(crate) fn read_cycle(root: &Path, strict: bool, today: i64) -> Result<CycleR
 }
 
 /// `yidam cycle`. Read-only, offline, and exits zero however much is owed unless `--strict`.
-pub fn cycle(strict: bool, format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn cycle(
+    root: Option<&std::path::Path>,
+    strict: bool,
+    format: crate::report::Format,
+) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     require_yidam_repo(&root)?;
     let report = read_cycle(&root, strict, crate::dates::today_days())?;
     let passed = report.passed;

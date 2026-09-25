@@ -36,7 +36,6 @@ pub mod lang;
 use anyhow::Result;
 use std::fmt::Write as _;
 
-use crate::paths::repo_root;
 use crate::retrieval::Retrieval;
 use crate::walk::{walk_corpus_instances, walk_ont_files};
 
@@ -1173,6 +1172,7 @@ fn history_unreadable(e: anyhow::Error) -> check::Rejection {
 
 /// Execute a query against the resolved graph.
 pub fn query(
+    root: Option<&std::path::Path>,
     text: &str,
     select: Option<String>,
     limit: usize,
@@ -1180,7 +1180,7 @@ pub fn query(
     scope: Scope,
     format: crate::report::Format,
 ) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::resolve_root(root)?;
     let opts = Options {
         select: select
             .unwrap_or_else(|| DEFAULT_SELECT.to_string())

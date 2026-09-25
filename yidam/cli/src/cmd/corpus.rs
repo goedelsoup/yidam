@@ -3,7 +3,6 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::corpus::Corpus;
-use crate::paths::repo_root;
 use crate::regen::update_file_regen;
 
 /// A path as a markdown link target: `/`-separated on every platform.
@@ -497,8 +496,8 @@ pub(crate) fn open_questions_data(corpus: &Corpus) -> OpenQuestionsReport {
     OpenQuestionsReport { open_questions }
 }
 
-pub fn corpus_index(format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn corpus_index(root: Option<&std::path::Path>, format: crate::report::Format) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let corpus = Corpus::open(&root);
     if format.is_json() {
         return crate::report::emit(&root, corpus_index_data(&corpus));
@@ -514,8 +513,8 @@ pub fn corpus_index(format: crate::report::Format) -> Result<()> {
     )
 }
 
-pub fn open_questions(format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn open_questions(root: Option<&std::path::Path>, format: crate::report::Format) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let corpus = Corpus::open(&root);
     if format.is_json() {
         return crate::report::emit(&root, open_questions_data(&corpus));
@@ -525,8 +524,8 @@ pub fn open_questions(format: crate::report::Format) -> Result<()> {
     update_file_regen(&root.join("README.md"), "yidam open-questions", &content)
 }
 
-pub fn graph_check(format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn graph_check(root: Option<&std::path::Path>, format: crate::report::Format) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     // Before anything is counted: a gate that cannot see the repository must say so rather
     // than report the nothing it found as a clean bill of health. See `require_yidam_repo`.
     crate::paths::require_yidam_repo(&root)?;

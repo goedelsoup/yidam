@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::path::Path;
 
 use crate::parse::Decision;
-use crate::paths::{repo_root, yidam_decisions_dir};
+use crate::paths::yidam_decisions_dir;
 use crate::regen::update_file_regen;
 use crate::walk::walk_decision_files;
 
@@ -61,8 +61,8 @@ pub(crate) fn render_decisions_log(decisions_dir: &Path) -> String {
     rows.join("\n")
 }
 
-pub fn decisions_log() -> Result<()> {
-    let root = repo_root()?;
+pub fn decisions_log(root: Option<&std::path::Path>) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let decisions_dir = yidam_decisions_dir(&root);
     let content = render_decisions_log(&decisions_dir);
     crate::regen::emit(&content);

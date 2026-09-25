@@ -42,7 +42,6 @@ use std::fmt::Write as _;
 
 use crate::cmd::pack;
 use crate::cmd::query::{self, absence, check, exec};
-use crate::paths::repo_root;
 
 /// How a token is estimated. The same basis `pack` reports, and named for the same reason.
 const BASIS: &str = "chars/4";
@@ -356,6 +355,7 @@ fn verdict(fits: Option<bool>) -> &'static str {
 /// Quote what a query would cost before running it.
 #[allow(clippy::too_many_arguments)]
 pub fn estimate(
+    root: Option<&std::path::Path>,
     text: &str,
     select: Option<String>,
     limit: usize,
@@ -363,7 +363,7 @@ pub fn estimate(
     anchor_k: usize,
     format: crate::report::Format,
 ) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::resolve_root(root)?;
     let opts = Options {
         select: select
             .unwrap_or_else(|| query::DEFAULT_SELECT.to_string())

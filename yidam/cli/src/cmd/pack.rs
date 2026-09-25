@@ -38,7 +38,6 @@ use crate::cmd::lint::checks::class_of;
 use crate::cmd::query::{self, absence, anchor, check, exec};
 use crate::corpus::Node;
 use crate::model::NodeView;
-use crate::paths::repo_root;
 
 /// How a token is estimated, everywhere in this report.
 ///
@@ -441,12 +440,13 @@ pub fn render(report: &PackReport) -> String {
 
 /// Render a context pack for one goal.
 pub fn pack(
+    root: Option<&std::path::Path>,
     text: &str,
     budget: Option<usize>,
     anchor_k: usize,
     format: crate::report::Format,
 ) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::resolve_root(root)?;
     let report = run(
         &root,
         text,

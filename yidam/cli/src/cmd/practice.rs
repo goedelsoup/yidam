@@ -44,8 +44,8 @@ const MAX_POINTS: usize = 8;
 /// The one difference from the generator is the absent-file arm: a generator stays silent
 /// there (the repository opted out), but a person who *ran the command* asked for the
 /// document and is owed the reason there is none — and the section that opts back in.
-pub fn run() -> Result<()> {
-    let root = crate::paths::repo_root()?;
+pub fn run(root: Option<&std::path::Path>) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     if !root.join(FILE).exists() {
         println!("There is no {FILE} here, so this corpus keeps no practice document.");
         println!("That is a supported state: the scaffold ships one, and a repository");
@@ -58,12 +58,12 @@ pub fn run() -> Result<()> {
         }
         return Ok(());
     }
-    block()
+    block(Some(&root))
 }
 
 /// Write the `PRACTICE.md` REGEN block. The generator `yidam regen` runs.
-pub fn block() -> Result<()> {
-    let root = crate::paths::repo_root()?;
+pub fn block(root: Option<&std::path::Path>) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     // Not just an economy: `update_file_regen` would no-op on the absent file anyway, but
     // the series below walks the history once per sampled point, and a repository that
     // opted out should not pay for a document it does not keep.

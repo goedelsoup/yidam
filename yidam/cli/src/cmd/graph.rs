@@ -27,7 +27,6 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::corpus::{resolve_target, Corpus};
-use crate::paths::repo_root;
 
 /// A class definition as the ontology writes it.
 ///
@@ -421,8 +420,13 @@ pub(crate) fn render_neighbors(r: &NeighborsReport) -> String {
 }
 
 /// Report the neighbourhood of one node.
-pub fn neighbors(id: &str, depth: usize, format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn neighbors(
+    root: Option<&std::path::Path>,
+    id: &str,
+    depth: usize,
+    format: crate::report::Format,
+) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let graph = graph_data(&Corpus::open(&root));
     let data = neighbors_data(&graph, id, depth);
     crate::report::finish(&root, format, data, |r| println!("{}", render_neighbors(r)))
@@ -468,8 +472,8 @@ pub(crate) fn render_graph(r: &GraphReport) -> String {
 }
 
 /// Report the corpus graph: nodes, resolved edges, and the classes that license them.
-pub fn graph(format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn graph(root: Option<&std::path::Path>, format: crate::report::Format) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let data = graph_data(&Corpus::open(&root));
     crate::report::finish(&root, format, data, |r| println!("{}", render_graph(r)))
 }
