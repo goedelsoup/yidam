@@ -221,7 +221,14 @@ pub fn index_verify(
     remote: bool,
     format: crate::report::Format,
 ) -> Result<()> {
-    let root = crate::paths::resolve_root(root).ok();
+    // `.ok()` for the inferred root: `--index <DIR>` names an index directly, so this command
+    // has a job outside a repository and must not require one to find. A named `--root` is a
+    // different matter — it asserts a corpus, and #1000 refuses one that is not there rather
+    // than falling back to `.yidam/index` under the directory the process started in.
+    let root = match root {
+        Some(_) => Some(crate::paths::resolve_root(root)?),
+        None => crate::paths::resolve_root(None).ok(),
+    };
     let index = index.unwrap_or_else(|| {
         root.clone()
             .map(|r| crate::paths::yidam_index_dir(&r))
