@@ -29,6 +29,10 @@ the generators that refresh a README block. Without it `yidam` finds a repositor
 directory load-bearing. It takes the corpus directory or any directory inside one. The `root`
 field of every JSON report says which one was resolved.
 
+**A named `--root` must hold a corpus.** A directory with no `.yidam/` is refused, not reported
+empty. The working directory is not held to that. Run a report from nowhere and it still prints
+what it found. Naming a directory is an assertion; being somewhere is not.
+
 The commands that **refuse** it are the `*` ones that do more than refresh a README block. They
 author a commit, write a build artifact, or name a repository to derive. Naming a corpus to
 report on is one promise. Being run inside the one you are about to write to is another. It is

@@ -23,7 +23,9 @@ pub fn repo_root() -> Result<PathBuf> {
 /// is that sentence as a flag (#421), and this is the one place that decides what it means, so
 /// a fourth transport cannot quietly disagree with the other three.
 ///
-/// **Without `--root`, nothing changes** — [`repo_root`] answers exactly as it always has.
+/// **Without `--root`, nothing changes** — [`repo_root`] answers exactly as it always has,
+/// working-directory fallback included, and a report run from nowhere in particular still
+/// prints what it found there.
 ///
 /// **With it, the nearest `.yidam/` at or above the named directory is the corpus.** Not
 /// `git rev-parse --show-toplevel`, which is how the working directory is resolved and is
@@ -33,15 +35,33 @@ pub fn repo_root() -> Result<PathBuf> {
 /// returns the *outer* repository, which has no `.yidam/`, so the flag whose whole job is to
 /// end the ambiguity refuses a directory the person had correctly named. Measured, not
 /// assumed. Walking up finds the same corpus `cd`-ing there would, in every nesting.
+///
+/// **And if that walk finds none, the call fails** (#1000). The two arms are different acts,
+/// which is why only one of them is tolerant. A working directory is not an assertion: you
+/// were somewhere, and the report says what it found there. A named root *is* one — the
+/// caller said *that directory is the corpus* — so a typo, a stale path in an agent's MCP
+/// config, or a `--root` one level too high is a mistake rather than an empty corpus.
+/// Measured by deleting this call and running `tests/root_flag.rs`: of the forty-one rooted
+/// commands a default build can reach, **twenty-eight exit 0** against a git repository
+/// holding no `.yidam/`. `status` prints **0 nodes**, `open-questions` prints *no open
+/// questions*, and `regen` reports every generator current, because `update_file_regen`
+/// no-ops on every absent file. Each of those lines is also the honest answer for a corpus
+/// that is genuinely empty in that respect — the observation [`require_yidam_repo`]'s own doc
+/// comment rejects, and a named root is where it applies to reports as well as gates.
+///
+/// The check and the messages are [`require_yidam_repo`]'s, unchanged: a named directory that
+/// is an unbootstrapped `yidam clone` is told so by name, rather than reading as empty.
 pub fn resolve_root(explicit: Option<&Path>) -> Result<PathBuf> {
     let Some(dir) = explicit else {
         return repo_root();
     };
-    Ok(dir
+    let resolved = dir
         .ancestors()
         .find(|d| d.join(".yidam").is_dir())
         .unwrap_or(dir)
-        .to_path_buf())
+        .to_path_buf();
+    require_yidam_repo(&resolved)?;
+    Ok(resolved)
 }
 
 /// A repository `yidam clone` made, in which no bootstrap has run yet.
@@ -89,7 +109,12 @@ pub fn is_unbootstrapped_clone(root: &Path) -> bool {
     }
 }
 
-/// Fail unless the current directory really is a yidam-derived repository.
+/// Fail unless this directory really is a yidam-derived repository.
+///
+/// Two callers, and they are the two ways a root is arrived at. [`resolve_root`] calls this
+/// on a root that was **named** — every command, report or gate, because naming a directory
+/// is an assertion that it is the corpus (#1000). A gate calls it on a root that was
+/// **inferred**, for the reason below.
 ///
 /// [`repo_root`] falls back to the working directory when `git rev-parse` fails, which is
 /// what lets every report run somewhere no repository exists. For a *report* that is
@@ -581,16 +606,55 @@ mod resolve_root_tests {
         assert_eq!(resolve_root(Some(&inner)).unwrap(), inner);
     }
 
-    /// A directory with no corpus at or above it is returned unchanged, so that
-    /// [`require_yidam_repo`] refuses *the directory that was named* rather than some
-    /// ancestor the person never mentioned.
+    /// A directory with no corpus at or above it is refused, and the refusal names *the
+    /// directory that was named* rather than some ancestor the person never mentioned.
     #[test]
-    fn a_directory_with_no_corpus_is_returned_as_named() {
+    fn a_directory_with_no_corpus_is_refused_by_name() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path().join("nowhere");
         std::fs::create_dir_all(&dir).unwrap();
-        assert_eq!(resolve_root(Some(&dir)).unwrap(), dir);
-        assert!(require_yidam_repo(&dir).is_err());
+        let err = resolve_root(Some(&dir)).unwrap_err().to_string();
+        assert!(
+            err.contains(&dir.display().to_string()),
+            "the refusal must quote the directory the caller named, not an ancestor: {err}"
+        );
+        assert!(err.contains("not a yidam repository"), "{err}");
+    }
+
+    /// The refusal is [`require_yidam_repo`]'s, so the state `yidam clone` leaves behind is
+    /// still told apart from a directory that never was a corpus (#914). Naming a fresh
+    /// clone is the one case where "no `.yidam/`" is expected rather than a typo, and the
+    /// reader is pointed at BOOTSTRAP.md instead of at `yidam clone`.
+    #[test]
+    fn a_named_unbootstrapped_clone_keeps_its_own_message() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        crate::git::fixture::git(dir, &["init", "-q"]);
+        std::fs::write(dir.join(crate::provenance::MANIFEST), "").unwrap();
+        let err = resolve_root(Some(dir)).unwrap_err().to_string();
+        assert!(err.contains("not bootstrapped yet"), "{err}");
+    }
+
+    /// **The working directory is not gated.** `resolve_root(None)` is [`repo_root`], which
+    /// falls back to the current directory precisely so a report run somewhere no corpus
+    /// exists prints what it found. Asserted because gating the named arm is one `if` away
+    /// from gating both, and the tolerant arm has nothing of its own to go red.
+    ///
+    /// This is the template repository, which has no `.yidam/` of its own — it is the
+    /// prelude derived corpora are made *from*. So a `resolve_root` that gated both arms
+    /// would refuse here, and the precondition is asserted rather than assumed: the day a
+    /// `.yidam/` appears at this checkout's root, this test stops proving anything and says
+    /// so instead of passing quietly.
+    #[test]
+    fn an_inferred_root_is_still_tolerant_of_nowhere() {
+        let cwd = resolve_root(None).expect("the inferred root must not be gated");
+        assert!(
+            !cwd.join(".yidam").is_dir(),
+            "{} now holds a .yidam/, so an inferred root resolves to a corpus and this test \
+             can no longer tell a gated `resolve_root` from an ungated one. Point it at a \
+             directory that is not a corpus instead.",
+            cwd.display()
+        );
     }
 }
 

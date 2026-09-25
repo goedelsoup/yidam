@@ -138,8 +138,14 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 17_686), ("sadhana/root/A
 /// on this path — it is reached by a `[why]` link, never by a step — and [`PAIR_FLOOR`] is
 /// what keeps the moved reasoning from thinning.
 ///
+/// **Raised to 26,392 when the scaffold step gained `sadhana/config.toml` (#916).** One file
+/// changed: `bootstrap.md` went from 7,358 words to 7,427, and 26,323 + 69 is this figure
+/// exactly. The step had to grow because the template is the deliverable — a config file that
+/// is read, documented and never scaffolded is the defect #916 names, and the skill is what
+/// puts it in a derived repository.
+///
 /// The same raise discipline as [`READ_CEILING`]: a raise has to name the file and the words.
-const BOOTSTRAP_CEILING: usize = 26_323;
+const BOOTSTRAP_CEILING: usize = 26_392;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///

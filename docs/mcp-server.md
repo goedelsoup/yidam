@@ -182,6 +182,10 @@ above it wins — the same corpus `cd`-ing there would have found. This is not `
 one of those, toplevel resolution answers with the *outer* repository, which is no corpus at
 all.
 
+**A `--root` that names no corpus is refused, like a working directory that is not one.** A
+typo, or a path that moved, fails at startup. It is not served empty. Every other command that
+takes `--root` refuses the same way.
+
 This replaces the shell form these docs used to prescribe:
 
 ```json
@@ -707,6 +711,7 @@ not protocol.
 |---|---|
 | The frozen tool contract — names, schemas, response shapes | [rfcs/0005-mcp-tool-contract.md](rfcs/0005-mcp-tool-contract.md) |
 | The machine-readable freeze every server is tested against | [`prelude/sdks/parity/mcp/tools.json`](../yidam/prelude/sdks/parity/mcp/tools.json) |
+| Which document each contract version names, and how to bump one | [`prelude/sdks/parity/mcp/CONTRACT_SHA`](../yidam/prelude/sdks/parity/mcp/CONTRACT_SHA) |
 | Dependencies, `origin`, and what a cross-corpus citation is | [sharing-derivations.md](sharing-derivations.md) |
 | The index the non-degraded `retrieve` runs on | [domain-computer.md](domain-computer.md) |
 | Getting a corpus to serve in the first place | [quickstart.md](quickstart.md) |

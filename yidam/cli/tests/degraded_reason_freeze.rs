@@ -116,11 +116,23 @@ fn every_frozen_reason_is_produced_by_something() {
     );
 }
 
-/// The contract version moves when its vocabulary does.
+/// The three copies of the contract version agree — which is all this establishes.
 ///
-/// Three copies, and they are a contract with each other: `tools.json` carries it, `VERSION`
-/// carries it, and the README example prints it. A client reading the handshake and a client
-/// reading the file must not be told different numbers.
+/// `tools.json` carries it, `VERSION` carries it, and the README example prints it. A client
+/// reading the handshake and a client reading the file must not be told different numbers.
+///
+/// It does **not** establish that the version moved when the surface did, and it used to claim
+/// it did (#940). Copies held to copies are green on a branch that adds a tool and reuses the
+/// number, and on a second branch doing the same, and on the merge of both. What the version
+/// names is settled one file over, in `mcp/CONTRACT_SHA` and `tests/mcp_contract_digest.rs`: a
+/// digest of the document is recorded beside each version, so the number cannot be reused and
+/// two branches claiming one collide in that ledger.
+///
+/// A fourth copy exists — `docs/mcp-server.md`'s handshake example, which went stale across
+/// eleven bumps — and is held by `versioning_layers.rs::the_mcp_contract_states_one_version`
+/// along with these three. This test is the narrower duplicate, and it stays here because the
+/// reasons frozen above are part of what that version names: changing one of them is a bump,
+/// and this file is where it gets changed.
 #[test]
 fn the_three_copies_of_the_contract_version_agree() {
     let root = repo_root().join("yidam/prelude/sdks/parity/mcp");
@@ -135,11 +147,17 @@ fn the_three_copies_of_the_contract_version_agree() {
         .expect("VERSION is readable")
         .trim()
         .to_string();
-    assert_eq!(in_json, in_version, "tools.json and VERSION disagree");
+    assert_eq!(
+        in_json, in_version,
+        "tools.json and VERSION disagree. A bump touches five things: those two, the README \
+         capability block, the handshake example in `docs/mcp-server.md`, and a new record in \
+         `mcp/CONTRACT_SHA` — `mcp_contract_digest.rs` prints the line to append."
+    );
 
     let readme = std::fs::read_to_string(root.join("README.md")).expect("README is readable");
     assert!(
         readme.contains(&format!("\"contract\": \"{in_json}\"")),
-        "the README example prints a contract version other than {in_json}"
+        "the README example prints a contract version other than {in_json} — an implementer \
+         copying that block conforms to a version the file no longer declares"
     );
 }

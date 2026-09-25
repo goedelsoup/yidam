@@ -1,0 +1,169 @@
+# What this corpus has decided about itself.
+#
+# Every key here is absent by default, and absent is an answer rather than a gap. A number
+# compiled into the binary would be one corpus's judgement arriving as a build failure in
+# another that never agreed to it — so nothing below is set, and the file ships anyway. What
+# it gives you is the list: the clocks, gates and stores this repository *could* declare, so
+# that leaving one unset is a choice you looked at rather than a key you never met.
+#
+# `yidam due` and `yidam doctor` both name this file in their remedies. Uncomment what you
+# mean and delete what you do not; an empty section says the same thing as no section.
+#
+# Never a credential. This file is committed. Credentials come from the environment, and a
+# repository has already been found carrying an untracked `.env` that its own prescribed
+# `git add -A` would have staged.
+
+# ── the clocks ────────────────────────────────────────────────────────────────
+#
+# `yidam due` reads four of them and gates on none: it answers *is it time*, where `yidam ci`
+# answers *is anything wrong*. A clock with no interval reports what it measured and never
+# comes due. That is not a degraded mode — an interval nobody has chosen is a number whose
+# meaning nobody has decided — but it is also not a decision, and `[due.declined]` below is
+# where a decision goes.
+
+[due]
+# Corpus-touching commits an open question may stand before it is due a look. Commits rather
+# than days: how long a question has gone unanswered is a fact about the repository, and the
+# repository's clock is HEAD. A corpus that has not committed has not ignored anything.
+# questions_after = 100
+
+# Days a bounded inquiry ref may be in flight before it is due a look. Days, because a phase
+# is work somebody is doing in the world, and it does not stop having been open for four
+# months because nobody committed.
+# phases_after = 60
+
+# Corpus files that may change after the index was built before a rebuild is due. `1` means
+# any edit at all makes it due, which is what a repository keeping semantic search sharp
+# wants; a larger number is this corpus saying it is content for retrieval to lag its edits
+# by that much.
+# index_after = 25
+
+# Clocks this corpus examined and does not want, each naming the record that argues it.
+# Unset and declined are different states and only one of them was a choice: without this,
+# a corpus that considered a vector index and chose against it reports identically to one
+# that has never heard of it, and the only remedy `due` can offer the first is to declare an
+# interval for work nobody intends. The key is the clock's id — `index`, `catalog`,
+# `questions`, `phases` — and the value is a record in `.yidam/decisions/`, by its `id:` or
+# its file stem. The record is required: a decline naming one this repository does not hold
+# is not honoured, and `due` says so rather than going quiet.
+# [due.declined]
+# index = "due-clocks"
+
+[catalog]
+# Days a catalog entry may stand before it is worth looking at again, where the entry does
+# not declare its own. The per-entry `ttl_days:` is the primary form — a gauge reading and a
+# statute do not age alike — and this is for the corpus whose sources mostly do, so that
+# adopting a TTL is one line rather than one line per entry. It is the fourth interval
+# `yidam due` reads, and it is deliberately not repeated under `[due]`: a source's TTL is a
+# statement about the source and belongs where a source is configured.
+# ttl_days = 180
+
+# ── the gate ──────────────────────────────────────────────────────────────────
+
+[lint]
+# Corpus-touching commits a dated finding may hold before it escalates to an error. Absent
+# means no finding ever escalates, and `lint` still fails on anything the change under test
+# introduced — the baseline is what separates the two. The number is a judgement about how
+# fast this corpus is meant to consume what it collects: twelve nodes landed by a breadth
+# sweep and linked over the next eighty commits is healthy in one repository and
+# over-collection in another.
+# escalate_after = 100
+
+[propose]
+# Corpus-touching commits an uncited node may hold before `yidam propose` drafts its
+# withdrawal. Not `escalate_after` under another name: that declares when a finding becomes
+# a build failure, which is a statement about the gate; this declares when an uncited node
+# stops being a sweep in progress and becomes over-collection, which is a statement about
+# the corpus. Most repositories will hold the first and not the second — failing the build
+# asks a person to look, and deleting the node decides what they would have concluded.
+# withdraw_uncited_after = 400
+
+# ── what this repository is, beside the corpus ────────────────────────────────
+
+[object]
+# Globs naming the artifact register, relative to the repository root, for a repository that
+# keeps one. `lint --commits` declines to report a commit touching only these paths against
+# the corpus vocabulary: `feat:` on the artifact is not a corpus-vocabulary violation. A
+# commit touching both registers is governed by the corpus register, and so is an authored
+# merge, which lists no paths at all. Absent means this repository has one register and the
+# corpus vocabulary governs every commit.
+# paths = ["web/**", "crates/**", "package.json"]
+
+[serve]
+# Whether a server started against this corpus may declare the `act` capability — that is,
+# may write to it. `false` is the default, and a server satisfying every other condition
+# still declares false without this key: a read tier's absence says the server *cannot* and
+# is therefore discovered, while this says the deployment *will not*, and a policy a server
+# can discover about itself is not a policy. Declaring it true is not sufficient either — a
+# git author identity must resolve in the corpus being served, and every listening socket
+# must be loopback. Both are checked at startup and both fail the server rather than
+# quietly downgrading it.
+# act = true
+
+# Whether a server started against this corpus appends a line per `tools/call` to
+# `.yidam/record/calls.jsonl`: which tool, a digest of its arguments, how many rows came back,
+# whether the answer was degraded, and the commit it answered from. Never the query text — over
+# `--http` a server answers callers it cannot authenticate, and a plaintext record would be a
+# file of their questions accumulating in a working tree. `false` is the default, on the
+# precedent `[due]` and `ttl_days` set: the corpus declares and nothing is compiled in.
+#
+# Not `act` under another name. `act` declares what the server may write *into the graph* and
+# carries an identity gate because the history it writes is testimony. This is an operational
+# record of what the server was asked, and needs no author. `.yidam/record/` must be gitignored
+# — the template ships it so — and `serve` refuses to start until it is, because this
+# repository's protocols prescribe `git add -A` and a tracked record dirties the tree after
+# every served session.
+# record = true
+
+# ── retrieval ─────────────────────────────────────────────────────────────────
+
+[index]
+# The embedding model this corpus is indexed with. Read by `index-build`, which the light
+# build does not carry — a binary that cannot act on this still parses it rather than
+# rejecting the file.
+# model = "BAAI/bge-small-en-v1.5"
+
+# The vector index this corpus publishes to and can be queried out of. One index holds one
+# vector space, so every corpus sharing it must be embedded with the same model. Never a
+# credential; `region` selects the endpoint as well as the signing scope, and has no default.
+# [index.remote]
+# kind   = "s3-vectors"
+# bucket = "yidam-corpora"
+# index  = "yidam-main"
+# region = "us-east-1"
+# An explicit endpoint, for a PrivateLink or dual-stack address. Absent means the regional
+# public endpoint, which `region` above already derives.
+# endpoint = "https://vectors.us-east-1.api.aws"
+
+# The other corpora sharing that index, by a name this repository chose for each. The value
+# is the corpus's identity — the twelve-character genesis hash its keys are written under —
+# and the key is what a person types instead. The nickname is this repository's and means
+# nothing outside this file. Declaring one is never required: a query may name a corpus by
+# its hash directly, so asking a question does not require reading this.
+# [index.remote.corpora]
+# ohio-budget = "3f2a9c4d1b70"
+
+# ── the stores ────────────────────────────────────────────────────────────────
+#
+# Written as `[vault.<name>]`, never as a bare `[vault]`: the two are different config
+# shapes, this file is committed, and a corpus that wrote the singular form is one a later
+# release breaks. Exactly one entry is honoured today; a second is refused rather than
+# resolved to the first.
+#
+# `audience` is required and is prose a person reads: an unstated audience is how a document
+# obtained under terms permitting reporting but not hosting ends up in the store meant for
+# public output. `holds` is optional for a lone vault and required once there are two — a
+# vault among several that claims nothing becomes the catch-all the boundary exists to
+# prevent. `region`, `endpoint` and `path_style` mean nothing to a `file://` store and are
+# carried so a config written for S3 is not rejected by a build that cannot reach one.
+#
+# `.github/workflows/index.yml` refuses to run at all without a vault, and says so in its
+# first step rather than after twenty minutes of building an index with nowhere to put it.
+
+# [vault.default]
+# url      = "s3://your-bucket/yidam"
+# audience = "Anyone who can read this corpus. Derived output only."
+# holds    = ["index", "embeddings", "bundle"]
+# region   = "us-east-1"
+# endpoint = "https://minio.internal:9000"
+# path_style = true

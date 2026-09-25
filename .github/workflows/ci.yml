@@ -471,6 +471,10 @@ jobs:
     # protoc + from-source SQLite. Runs on main push + the weekly schedule only,
     # never on PRs, so PR latency stays on the light build. This is the guard
     # against the reports and index paths drifting apart inside yidam (RFC-0003).
+    #
+    # What a pull request gets instead is `cli-features` below: this job's two clippy legs
+    # and none of its tests. That is the compile half, which is where all three of the
+    # recorded outages were; running the gated suite is still a thing only the merge does.
     name: ci (cli · full features)
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -521,10 +525,15 @@ jobs:
       - uses: jdx/mise-action@v4
       - name: Ensure rustfmt and clippy for the pinned toolchain
         run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
+      # `shared-key`, not `key`, and the difference is what makes `cli-features` possible.
+      # `key` is *added to* an automatic job-id component, so two jobs can never share a
+      # cache through it; `shared-key` replaces that component with a name both can spell.
+      # Changing it costs one cold run on main — this key has no prior entry — and buys the
+      # PR gate below an 8.5s clippy instead of a 20-minute dependency build.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: yidam/cli
-          key: cli-full
+          shared-key: cli-full
       # Where the runner died on d596634, with no line in the log naming a resource — the
       # sampler was on `coverage-full`, two steps later. Every heavy step in this job goes
       # through the wrapper now, and `ci_reporting.rs` asserts that rather than trusting it.
@@ -591,6 +600,51 @@ jobs:
           name: coverage-full-lcov
           path: yidam/cli/target/coverage-full.lcov
           if-no-files-found: warn
+
+  cli-features:
+    # The compile half of `cli-full`, on the pull request (#922).
+    #
+    # `cli-full` above is `if: github.event_name != 'pull_request'`, so the only gate that
+    # COMPILES the feature-gated code has always run after the merge. Three outages went
+    # through that hole, each green through review and red on a job nobody was watching:
+    # `unsafe_code = "forbid"` breaking `--features export-sqlite` for four merges, the
+    # fastembed 4→6 bump, and #1003's unused import in `index_push.rs`. `dependency_holds.rs`
+    # now runs on PRs, but it holds one dependency — a fix for the instance, not the class.
+    #
+    # The condition is the exact complement of `cli-full`'s, so between them these two run on
+    # every event and never both: the compile check is what a pull request gets, and the merge
+    # still gets the tests. `ci_reporting.rs` asserts that complement rather than trusting it.
+    name: ci (cli · feature check)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      # Not a memory cap here — nothing in this job links. It is here because rust-cache
+      # hashes every `CARGO*`, `CC*`, `CFLAGS*`, `CXX*`, `CMAKE*` and `RUST*` variable in the
+      # environment into its cache key, so a job that does not set what `cli-full` sets is a
+      # job that misses the cache it was written to borrow — silently, as a twenty-minute
+      # build rather than an error. `ci_reporting.rs` requires the two to agree.
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
+      - name: Ensure clippy for the pinned toolchain
+        run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component clippy
+      # Read-only, by the same `shared-key` `cli-full` saves under. A pull request's cache
+      # writes go to the PR's own scope, where nothing else can read them and where they
+      # count against the repository's 10GB before being evicted — so this job would pay to
+      # store a copy of a tree it borrowed and never reads again. Restoring from main is what
+      # makes the two clippy legs 8.5s and 11.8s instead of a dependency build.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/cli
+          shared-key: cli-full
+          save-if: ${{ false }}
+      # A cache miss here — a lockfile bump is the common one, and the fastembed bump above is
+      # exactly that — falls back to building the tree, which is why this is capped rather
+      # than left on the 6-hour default. It is the cheap gate or it is nothing.
+      - name: Compile-check the feature-gated builds
+        timeout-minutes: 30
+        run: mise run check-features
 
   quality:
     # One `quality-report.json` out of every gate's fragment (#467).
