@@ -96,6 +96,13 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// before raising this again: a raise whose delta is not attributable to a named file is a
 /// regression being waved through, which is precisely what a ratchet exists to make visible.
 ///
+/// **`sadhana/root/AGENTS.md` raised to 23,051 when the local gate grew the commit-vocabulary
+/// check (#938).** The delta is **58 words in that one file** — `git show HEAD:…` measured 1,515
+/// against 1,573 — and the evidence that nothing else rode along is that the *other* route did
+/// not move at all. That is the right control here and equality would have been the wrong one:
+/// the file is a derived repository's conduct doc and is on one of the two read lists, so a rise
+/// on both would mean something else had grown.
+///
 /// The glossary is also the one file here that reduces the *effective* read rather than adding
 /// to it — six of the files above use *rigpa*, *ma* and *tonpa* as though defined — so the
 /// trade is 354 words against the vocabulary the other 17,332 assume.
@@ -108,7 +115,7 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// scoped to the occasion, where an agent about to write a node is handed the node conventions
 /// and not the vault routing table. That is a separate change to how a route is written, and
 /// this ceiling is what will hold it honest.
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 17_686), ("sadhana/root/AGENTS.md", 22_993)];
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 17_686), ("sadhana/root/AGENTS.md", 23_051)];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
 ///

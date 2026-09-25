@@ -527,7 +527,7 @@ fn the_scaffold_is_stale_on_arrival_and_bootstrap_says_to_fix_it() {
     );
 }
 
-/// The local gate runs every yidam gate CI gates on.
+/// The local gate runs every yidam gate CI gates on, with every flag CI passes it.
 ///
 /// `mise run ci` is what the derived README tells a new repository to run first, and
 /// `.github/workflows/ci.yml`'s corpus job is what decides whether the push is green. They
@@ -535,10 +535,21 @@ fn the_scaffold_is_stale_on_arrival_and_bootstrap_says_to_fix_it() {
 /// and `regen --check`. A repository could therefore pass its own gate and fail its first
 /// build, on a check it had no local way to run.
 ///
-/// Compared by **subcommand**, not by command line. CI runs `lint --commits --range
-/// origin/main..HEAD`, which needs a remote-tracking ref that a repository seven commits old
-/// working locally may not have; requiring the flags to match would force the local gate to
-/// carry an argument that cannot work there. What has to travel is the check itself.
+/// **Compared by command, not by subcommand** (#938). This read subcommands alone, on the
+/// reasoning that `lint --commits --range origin/main..HEAD` names a remote-tracking ref a
+/// working copy may not have, so requiring the flags to match would force the local gate to
+/// carry an argument that cannot work there. The reasoning was sound about the *value* and
+/// wrong about the flag: the local gate resolves its own range and passes the same flags, and
+/// meanwhile `graph-lint` (`yidam lint`, no `--commits`) and CI's `yidam lint --commits`
+/// both reduced to `lint`, so the one check a contributor cannot act on after the fact —
+/// history cannot be rewritten to fix a commit verb — was the one this test could not see
+/// was missing.
+///
+/// So: flag NAMES must match, values are each side's own business. CI's flags must be a
+/// subset of some local invocation's, which is the direction that matters — the local gate
+/// may check more than CI, never less. A flag CI passes and the local gate does not is a
+/// divergence in either direction (`--warn` in CI alone would be one too), and that is a
+/// human's call rather than something to classify here.
 ///
 /// Both sides are read out of the files. A list here would be a third thing to keep in step,
 /// which is the failure this is guarding against in the first place.
@@ -549,29 +560,84 @@ fn the_local_gate_runs_what_ci_gates_on() {
     let mise_root = std::fs::read_to_string(root.join("sadhana/root/mise.toml")).unwrap();
     let mise_layer = std::fs::read_to_string(root.join("mise.yidam.toml")).unwrap();
 
-    /// The subcommand of a `yidam <cmd> …` invocation on a line, ignoring comments.
-    fn yidam_subcommand(line: &str) -> Option<String> {
+    /// One `yidam <cmd> [--flag …]` invocation, reduced to what a gate is.
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+    struct Invocation {
+        cmd: String,
+        /// Long flag NAMES only. `--range origin/main..HEAD` contributes `--range`: the
+        /// value is where the two sides legitimately differ, and is not part of the check.
+        flags: BTreeSet<String>,
+    }
+
+    impl Invocation {
+        fn render(&self) -> String {
+            let mut s = format!("yidam {}", self.cmd);
+            for f in &self.flags {
+                s.push(' ');
+                s.push_str(f);
+            }
+            s
+        }
+    }
+
+    /// A word read as a long flag name, or `None` if it is not one.
+    ///
+    /// The trailing quote is trimmed because `mise.yidam.toml` holds a one-line
+    /// `run = "yidam regen --check"`, whose last word arrives here as `--check"`. Reading
+    /// that as its own flag is not a harmless untidiness: it is a name CI's unquoted
+    /// `--check` can never be a subset of, so the comparison reports a divergence that is
+    /// entirely this parse's own.
+    fn flag(word: &str) -> Option<String> {
+        let word = word.trim_matches(|c: char| c == '"' || c == '\'');
+        if !word.starts_with("--") {
+            return None;
+        }
+        // `--range=x` and `--range x` are the same flag.
+        Some(word.split('=').next().unwrap_or(word).to_string())
+    }
+
+    /// The `yidam …` invocation on a line, ignoring comments.
+    fn invocation(line: &str) -> Option<Invocation> {
         let line = line.split('#').next()?.trim();
         let at = line.find("yidam ")?;
         // `.yidam/bin/yidam` and `.yidam.toml` are paths, not invocations.
         if line[..at].ends_with(['/', '.']) {
             return None;
         }
-        let word = line[at + "yidam ".len()..]
-            .split_whitespace()
-            .next()?
-            .trim_matches(|c: char| c == '"' || c == '\'');
+        let mut words = line[at + "yidam ".len()..].split_whitespace();
+        let cmd = words.next()?.trim_matches(|c: char| c == '"' || c == '\'');
         // Flags and paths are not subcommands; `--version` asks what answered, not a gate.
-        if word.is_empty() || word.starts_with('-') || word.contains('/') || word.contains('.') {
+        if cmd.is_empty() || cmd.starts_with('-') || cmd.contains('/') || cmd.contains('.') {
             return None;
         }
-        Some(word.to_string())
+        Some(Invocation {
+            cmd: cmd.to_string(),
+            flags: words.filter_map(flag).collect(),
+        })
     }
 
-    let ci_gates: BTreeSet<String> = workflow
+    // The extractor, self-tested against a literal before it is trusted over two files.
+    // Without this, the mutation that matters passes silently: a flag scan that always
+    // returns nothing reduces both sides to subcommands, and every assertion below still
+    // holds — which is exactly the state this test was in while #938 was open.
+    assert_eq!(
+        invocation("        run: yidam lint --commits --range origin/main..HEAD"),
+        Some(Invocation {
+            cmd: "lint".into(),
+            flags: ["--commits".to_string(), "--range".to_string()].into(),
+        }),
+        "the invocation parse does not read flags"
+    );
+    assert_eq!(invocation("        run: yidam --version"), None);
+
+    let is_run = |l: &&str| {
+        let t = l.trim_start();
+        t.starts_with("run: ") || t.starts_with("- run: ")
+    };
+    let ci_gates: BTreeSet<Invocation> = workflow
         .lines()
-        .filter(|l| l.trim_start().starts_with("run: ") || l.trim_start().starts_with("- run: "))
-        .filter_map(yidam_subcommand)
+        .filter(is_run)
+        .filter_map(invocation)
         .collect();
 
     // What `mise run ci` reaches: its own body, plus the `run` of every task it delegates to.
@@ -596,11 +662,7 @@ fn the_local_gate_runs_what_ci_gates_on() {
     }
 
     let ci_task = task_body(&mise_root, "ci").expect("sadhana/root/mise.toml [tasks.ci]");
-    let mut local: BTreeSet<String> = ci_task
-        .iter()
-        .copied()
-        .filter_map(yidam_subcommand)
-        .collect();
+    let mut local: BTreeSet<Invocation> = ci_task.iter().copied().filter_map(invocation).collect();
     for line in &ci_task {
         let Some(rest) = line.trim().strip_prefix("mise run ") else {
             continue;
@@ -608,7 +670,7 @@ fn the_local_gate_runs_what_ci_gates_on() {
         let name = rest.split_whitespace().next().unwrap_or("");
         for src in [&mise_layer, &mise_root] {
             if let Some(body) = task_body(src, name) {
-                local.extend(body.into_iter().filter_map(yidam_subcommand));
+                local.extend(body.into_iter().filter_map(invocation));
             }
         }
     }
@@ -619,13 +681,150 @@ fn the_local_gate_runs_what_ci_gates_on() {
          workflow: {ci_gates:?}",
         ci_gates.len()
     );
-    let missing: Vec<&String> = ci_gates.difference(&local).collect();
+
+    // Every `--flag` on a line the parse accepted must be in what it extracted. Discovered
+    // rather than listed, so it does not rot as ci.yml changes, and independent of the
+    // flag-reading half of `invocation` — which is the half a mutation would gut.
+    let on_accepted_lines: BTreeSet<String> = workflow
+        .lines()
+        .filter(is_run)
+        .filter(|l| invocation(l).is_some())
+        .flat_map(|l| l.split_whitespace().filter_map(flag))
+        .collect();
+    assert!(
+        !on_accepted_lines.is_empty(),
+        "no yidam gate in the derived ci.yml carries a flag, so this test is comparing \
+         nothing but subcommands and cannot see the divergence it exists for"
+    );
+    let extracted: BTreeSet<String> = ci_gates.iter().flat_map(|g| g.flags.clone()).collect();
+    assert_eq!(
+        extracted, on_accepted_lines,
+        "the parse dropped flags the workflow passes"
+    );
+
+    let mut missing: Vec<String> = Vec::new();
+    for gate in &ci_gates {
+        let forms: Vec<&Invocation> = local.iter().filter(|i| i.cmd == gate.cmd).collect();
+        if forms.is_empty() {
+            missing.push(format!("`{}` — `mise run ci` never runs it", gate.render()));
+        } else if !forms.iter().any(|i| gate.flags.is_subset(&i.flags)) {
+            missing.push(format!(
+                "`{}` — `mise run ci` runs `{}`",
+                gate.render(),
+                forms
+                    .iter()
+                    .map(|i| i.render())
+                    .collect::<Vec<_>>()
+                    .join("`, `"),
+            ));
+        }
+    }
     assert!(
         missing.is_empty(),
-        "CI's corpus job gates on {missing:?}, and `mise run ci` never runs {}. A repository \
-         that passes the gate its README names and fails its first push learns the \
-         difference from a red build.\n  ci.yml: {ci_gates:?}\n  mise run ci: {local:?}",
-        if missing.len() == 1 { "it" } else { "them" }
+        "CI's corpus job gates on what `mise run ci` does not:\n  {}\nA repository that \
+         passes the gate its README names and fails its first push learns the difference \
+         from a red build — and for the commit vocabulary it learns it too late to fix.",
+        missing.join("\n  ")
+    );
+}
+
+/// The local gate reports a bad commit verb, over the commits this branch adds and no more.
+///
+/// The test above holds the two gates' *command lines* together. This one runs the thing:
+/// `the_local_gate_runs_what_ci_gates_on` would be satisfied by a task that passed
+/// `--commits --range` to a range resolving to nothing, and so would every other test here —
+/// `read_subjects` hands a range git cannot parse back as an empty list, so the check would
+/// run over no commits and report a clean log. A resolution bug is therefore invisible
+/// except by asking for a finding and getting it.
+///
+/// Two commits, one on each side of the base, because "it reported the bad verb" is also
+/// what a task ignoring `--range` entirely would do. The one outside has to be absent.
+///
+/// A remote-tracking ref without a remote: `git update-ref` writes one directly, and
+/// `git rev-parse` does not care how it got there. Nothing here touches the network.
+#[test]
+fn the_local_gate_reports_a_bad_commit_verb_within_the_branchs_range() {
+    let repo = Derived::bootstrap();
+    let root = repo.path();
+
+    // Empty commits: the subject is the whole subject of this test, and a commit touching
+    // no path stays governed by the vocabulary the same way a merge does.
+    git(
+        root,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "flumox: already pushed, outside the range",
+        ],
+    );
+    let base = git_out(root, &["rev-parse", "HEAD"]);
+    git(
+        root,
+        &["update-ref", "refs/remotes/origin/main", base.trim()],
+    );
+    git(
+        root,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "zorbulate: not yet pushed, inside the range",
+        ],
+    );
+
+    let out = repo.mise(&["run", "graph-lint-gate"]);
+    let report = text(&out);
+    // Warn severity, here as in CI. A check that gated on this would be unfixable by
+    // definition — history cannot be rewritten to satisfy it.
+    assert!(
+        out.status.success(),
+        "`mise run graph-lint-gate` must not gate on the commit vocabulary:\n{report}"
+    );
+    assert!(
+        report.contains("zorbulate"),
+        "the local gate ran the commit-vocabulary check over nothing:\n{report}"
+    );
+    assert!(
+        !report.contains("flumox"),
+        "the local gate ignored its range and re-reported already-pushed history, which is \
+         the noise `--range` exists to remove:\n{report}"
+    );
+}
+
+/// ...and with no remote to compare against, it reads the whole log rather than nothing.
+///
+/// This is the state a repository is in for as long as it takes to create the remote, and it
+/// is the state `the_derived_repos_own_gate_passes_at_genesis` runs `mise run ci` in. The
+/// silent-empty-range failure is the one to avoid: a gate that quietly checks no commits
+/// looks exactly like a clean log.
+#[test]
+fn with_no_upstream_the_local_gate_reads_the_whole_log() {
+    let repo = Derived::bootstrap();
+    git(
+        repo.path(),
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "zorbulate: a verb no vocabulary has",
+        ],
+    );
+
+    let out = repo.mise(&["run", "graph-lint-gate"]);
+    let report = text(&out);
+    assert!(out.status.success(), "{report}");
+    assert!(
+        report.contains("no upstream"),
+        "a repository with no remote must say which range it fell back to:\n{report}"
+    );
+    assert!(
+        report.contains("zorbulate"),
+        "the fallback reported nothing, so a repository that has never been pushed gets no \
+         vocabulary check at all:\n{report}"
     );
 }
 

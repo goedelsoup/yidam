@@ -144,6 +144,13 @@ cargo fmt --all --manifest-path crates/Cargo.toml
 # own README tells it to run first and fail the build on the next push — with
 # `regen --check`, on generated content nobody had written.
 #
+# That test compared SUBCOMMANDS, which is how the two then disagreed in a way
+# it could not see: CI ran `yidam lint --commits --range`, this ran `graph-lint`,
+# and both reduce to `lint`. It reads the flags now, and `graph-lint-gate` — from
+# mise.yidam.toml, like the rest — is what closes the gap: the commit-vocabulary
+# check over the commits this branch adds, with the range resolved from whatever
+# upstream this working copy actually has.
+#
 # These come from mise.yidam.toml and work from the genesis commit onward,
 # before any crate exists.
 
@@ -152,7 +159,7 @@ description = "Full local gate: corpus graph check, then the domain computer."
 run = """
 set -eu
 mise run graph-check
-mise run graph-lint
+mise run graph-lint-gate
 mise run regen-check
 if [ ! -f crates/Cargo.toml ]; then
   echo
