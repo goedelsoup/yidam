@@ -63,6 +63,44 @@ fn the_readme_advertises_the_url_the_site_is_built_for() {
     );
 }
 
+/// A step's `run:` script with its comment lines removed.
+///
+/// `docs.yml` argues about `pages_build_version` at length in prose, so a check that
+/// grepped the file would be answered by the argument rather than by the request.
+fn script_of(step: &serde_yaml::Value) -> String {
+    step["run"]
+        .as_str()
+        .unwrap_or_else(|| {
+            panic!(
+                "the step named `{}` runs nothing",
+                step["name"].as_str().unwrap_or("?")
+            )
+        })
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The step that publishes — the one `environment.url` reads the site's URL from.
+///
+/// Found by that id rather than by what it runs, so the assertions below can ask what it
+/// does without having already assumed the answer.
+fn deploy_step() -> serde_yaml::Value {
+    let workflow: serde_yaml::Value =
+        serde_yaml::from_str(&read(".github/workflows/docs.yml")).expect("docs.yml parses");
+    workflow["jobs"]["deploy"]["steps"]
+        .as_sequence()
+        .expect("docs.yml has a deploy job with steps")
+        .iter()
+        .find(|s| s["id"].as_str() == Some("deployment"))
+        .expect(
+            "docs.yml's deploy job has no step with `id: deployment`. That id is what the \
+             job's `environment.url` and the check after it read the page URL from.",
+        )
+        .clone()
+}
+
 /// A workflow deploys it, and deploys the assembled tree rather than one version of it.
 ///
 /// The `path:` is asserted rather than merely the action, because `upload-pages-artifact`
@@ -78,9 +116,12 @@ fn a_workflow_publishes_the_assembled_site() {
     let workflow = read(".github/workflows/docs.yml");
 
     assert!(
-        workflow.contains("actions/deploy-pages@"),
-        "docs.yml must deploy to Pages; without it the site builds in CI and reaches nobody, \
-         which is the state this workflow was written to end"
+        script_of(&deploy_step())
+            .lines()
+            .any(|l| l.contains("POST") && l.contains("pages/deployments")),
+        "docs.yml's deploy step creates no Pages deployment — nothing in it POSTs to \
+         `pages/deployments`. Without that request the site builds in CI and reaches \
+         nobody, which is the state this workflow was written to end"
     );
     assert!(
         workflow.contains("scripts/assemble.mjs"),
@@ -267,41 +308,66 @@ fn the_docs_workflow_fires_on_the_tags_its_version_list_is_built_from() {
 
 /// A Pages deployment must be identified by more than the commit it was built from.
 ///
-/// `actions/deploy-pages` sends `pages_build_version: process.env.GITHUB_SHA` and nothing
-/// else. Pages treats that string as the deployment's id, and re-deploying an id already
-/// live is accepted, acknowledged, and serves nothing new.
+/// A deployment is identified by `pages_build_version` and nothing else. Pages treats that
+/// string as the deployment's id, and re-deploying an id already live is accepted,
+/// acknowledged, and serves nothing new.
 ///
 /// A release is precisely that case. The tag is cut on the current `main`, so the tag and
 /// the push that became it carry the same sha — and main's build ran first, before the tag
 /// existed, with the *previous* release resolved as latest. At `cli/v0.14.0` the tag's build
 /// was correct (`v0.14 (latest)`, `./v0.14/` in the uploaded artifact), the deploy reported
 /// success, and the site kept serving the earlier tree with `/yidam/v0.14/` a 404. The #535
-/// trigger fired; its deploy was a no-op. `workflow_dispatch` — this file's documented way
+/// trigger fired; its deploy was a no-op. `workflow_dispatch` — `docs.yml`'s documented way
 /// to redeploy without a commit — has the same defect for the same reason.
 ///
 /// The assembled tree is a function of the commit *and the tag set*, so the run is the
 /// smallest thing that identifies it.
+///
+/// The first attempt at that was an override of `GITHUB_SHA`, which `actions/deploy-pages`
+/// reads and exposes no input for, and **the override never reached the action** (#992).
+/// The runner loads a step's declared `env:` and then overwrites every name the `github`
+/// context carries, before a step of either kind runs — an action or a script. At
+/// `cli/v0.15.0` the log printed the suffixed value in the step's `env:` block and sent the
+/// bare sha three lines later: the echo is the declaration, not the process environment.
+///
+/// This test is written against the request for that reason, and it pins the dead route
+/// shut at the end.
 #[test]
 fn the_pages_deployment_is_identified_by_more_than_the_commit() {
-    let workflow: serde_yaml::Value =
-        serde_yaml::from_str(&read(".github/workflows/docs.yml")).expect("docs.yml parses");
-    let steps = workflow["jobs"]["deploy"]["steps"]
-        .as_sequence()
-        .expect("docs.yml has a deploy job with steps");
-    let deploy = steps
-        .iter()
-        .find(|s| {
-            s["uses"]
-                .as_str()
-                .is_some_and(|u| u.starts_with("actions/deploy-pages"))
-        })
-        .expect("docs.yml deploys with actions/deploy-pages");
+    let step = deploy_step();
+    let script = script_of(&step);
 
-    let version = deploy["env"]["GITHUB_SHA"].as_str().unwrap_or_else(|| {
+    assert!(
+        script.contains("pages_build_version: $pages_build_version"),
+        "the deploy step's payload does not fill `pages_build_version` from the argument \
+         resolved below, so what this test grades is not what Pages is sent"
+    );
+
+    // Resolved rather than assumed: the jq argument names a shell variable, and that
+    // variable is an `env:` entry. A check that found `github.run_id` somewhere in the step
+    // would pass on a run id the request never carries — which is exactly how the
+    // `GITHUB_SHA` override passed for six weeks.
+    let binding = script
+        .lines()
+        .map(str::trim)
+        .find_map(|l| l.strip_prefix("--arg pages_build_version "))
+        .unwrap_or_else(|| {
+            panic!(
+                "the deploy step builds no `pages_build_version` argument. It has to send \
+                 one: the default is the bare commit, and a tag shares its commit with the \
+                 push it was cut from."
+            )
+        });
+    let name = binding
+        .trim_end_matches('\\')
+        .trim()
+        .trim_matches('"')
+        .trim_start_matches('$')
+        .trim_matches(|c| c == '{' || c == '}');
+    let version = step["env"][name].as_str().unwrap_or_else(|| {
         panic!(
-            "the deploy step sends the bare commit as its build version. The action reads \
-             GITHUB_SHA and exposes no input, so a tag that shares main's sha deploys an id \
-             Pages already serves — accepted, and a no-op."
+            "the deploy step fills `pages_build_version` from `${name}`, which its `env:` \
+             does not declare. Whatever the request carries, it is not this."
         )
     });
     assert!(
@@ -310,6 +376,24 @@ fn the_pages_deployment_is_identified_by_more_than_the_commit() {
          deploys of the same commit — a release tag and the push it was cut from, or a \
          `workflow_dispatch` redeploy — and only the run distinguishes those."
     );
+
+    // The route that looked like it worked, held shut. It is the obvious thing to reach for
+    // again, the runner accepts it without complaint, and the log prints the declaration
+    // back as though it had taken effect.
+    let workflow: serde_yaml::Value =
+        serde_yaml::from_str(&read(".github/workflows/docs.yml")).expect("docs.yml parses");
+    for (job, body) in workflow["jobs"].as_mapping().expect("docs.yml has jobs") {
+        let job = job.as_str().unwrap_or("?");
+        for step in body["steps"].as_sequence().into_iter().flatten() {
+            assert!(
+                step["env"]["GITHUB_SHA"].is_null(),
+                "a step in the `{job}` job overrides GITHUB_SHA. The runner replaces every \
+                 `GITHUB_*` name from the github context before running a step, so the \
+                 override reaches nothing and the `env:` line the log echoes back is the \
+                 declaration rather than the process environment (#992)."
+            );
+        }
+    }
 }
 
 /// What the deploy claims and what the site serves are checked against each other.
@@ -353,11 +437,12 @@ fn the_deploy_is_checked_against_the_site_it_claims_to_have_published() {
         .as_sequence()
         .expect("docs.yml has a deploy job with steps")
         .iter()
-        .filter_map(|s| s["run"].as_str())
         .find(|s| {
-            s.lines()
-                .map(str::trim)
-                .any(|l| !l.starts_with('#') && l.contains(&stamp))
+            s["run"].as_str().is_some_and(|r| {
+                r.lines()
+                    .map(str::trim)
+                    .any(|l| !l.starts_with('#') && l.contains(&stamp))
+            })
         })
         .unwrap_or_else(|| {
             panic!(
@@ -365,12 +450,32 @@ fn the_deploy_is_checked_against_the_site_it_claims_to_have_published() {
                  stamp nothing reads is a file, not a check"
             )
         });
+    let script = checker["run"].as_str().unwrap_or_default();
     assert!(
-        checker.contains("GITHUB_RUN_ID") && checker.contains("exit 1"),
+        script.contains("GITHUB_RUN_ID") && script.contains("exit 1"),
         "the deploy job fetches `{stamp}` and does not fail when it names another run. \
          Serving the previous build is the failure; reporting it as success is what made it \
          cost a release"
     );
+
+    // Which events it runs on is the other half. A push to main always carries a sha Pages
+    // has not seen, so it cannot collide and the check is not worth its thirteen minutes
+    // there; the two events that *can* collide are a release tag and a `workflow_dispatch`,
+    // which redeploys a commit that is live by definition.
+    //
+    // The dispatch is also the only rehearsal there is. A tag cannot be cut to test a
+    // deploy, and a green run on main proves nothing about the tag path — so a change to
+    // the deploy step is verifiable before a release only if this check is armed on the
+    // event a maintainer can fire on demand.
+    let when = checker["if"].as_str().unwrap_or_default();
+    for event in ["tag", "workflow_dispatch"] {
+        assert!(
+            when.contains(event),
+            "the check that the site serves this build runs `if: {when}`, which does not \
+             cover `{event}`. Both events deploy a commit Pages may already be serving, and \
+             the dispatch is the only one that can be fired without cutting a release."
+        );
+    }
 }
 
 // ── the README and the site say the shared part once ──────────────────────────
