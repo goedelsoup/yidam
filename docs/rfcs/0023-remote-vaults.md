@@ -1,6 +1,7 @@
 # RFC-0023 — Bytes the catalog fetched and never kept (remote vaults)
 
 - **Status:** Implemented
+- **Commands:** `vault`, `vault-status`, `catalog-fetch`
 - **Track:** I18
 - **Relates to:**
   - RFC-0003 (the light binary this must run in, and the feature gate it argues about)

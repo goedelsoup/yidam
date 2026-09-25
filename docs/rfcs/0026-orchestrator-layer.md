@@ -1,6 +1,7 @@
 # RFC-0026 — A run is a commit somebody can refuse (the orchestrator layer)
 
-- **Status:** Draft
+- **Status:** Implemented
+- **Commands:** `run`, `phase`
 - **Track:** I21
 - **Relates to:**
   - RFC-0020 (the carriage rule this extends from findings to executions)
@@ -16,6 +17,12 @@
   `.yidam/capabilities.toml`) / tooling (`yidam` CLI implements it) — **no parity-surface change,
   no MCP contract change in this RFC**
 - **Parent epic:** #460 — this RFC specifies **#471** through **#476**
+- **Amended 2026-09-25 (#941):** the status reads `Implemented` on the command surface above —
+  `run` and `phase` shipped, and 0.14.0 was cut with them. Two of #460's children are open and
+  neither is a command: **#475**, the invariant of §3 as a permission rather than a code path,
+  and **#476**, asking a `tonpa` pin a question. An `Accepted` status would have been the
+  truer reading of those two and a false one about a released binary, and the release is the
+  half a reader can check.
 - **Downstream reference case:** none yet. The first consumer is `examples/streamflow`, by
   construction — see "Why the first thing built is not the manifest".
 

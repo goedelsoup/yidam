@@ -1,6 +1,7 @@
 # RFC-0004 — Drift detection: making `.yidam.toml` enforceable (`yidam sync`)
 
 - **Status:** Draft
+- **Commands:** `sync`, `check-drift`, `upgrade`
 - **Track:** I4
 - **Relates to:** RFC-0001 (report contract), RFC-0003 (light reports-only binary), RFC-0006 (embed drift)
 - **Versioning layers touched:** template (the `.yidam.toml` schema + the bootstrap scaffold); tooling (the `yidam` CLI — [Layer 4](../../VERSIONING.md), which this RFC predates)

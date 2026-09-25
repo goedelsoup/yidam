@@ -1,6 +1,7 @@
 # RFC-0018 — The query surface — typed traversal bounded by the ontology (`yidam query`)
 
 - **Status:** Implemented
+- **Commands:** `query`
 - **Track:** I13
 - **Relates to:**
   - RFC-0016 (the report JSON contract results are emitted on)
