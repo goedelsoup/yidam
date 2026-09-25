@@ -151,7 +151,7 @@ yidam rename concept/low-flow concept/low-flow-statistics
 
 ```text
 Renamed concept/low-flow.yml → concept/low-flow-statistics.yml
-4 link(s) rewritten across 4 file(s)
+3 inbound link(s) rewritten across 3 file(s)
   ...
 commit: migrate: concept/low-flow.yml → concept/low-flow-statistics.yml (3 inbound link(s) rewritten)
 ```
