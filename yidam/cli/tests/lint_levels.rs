@@ -2,8 +2,11 @@
 //!
 //! `[lints]` in `Cargo.toml` applies to the whole package under every feature set, and this
 //! gate compiles one of them. So a level that only the *gated* code violates is invisible
-//! here and fails on `ci (cli · full features)` — a job that runs on main and the weekly
-//! schedule and never on a pull request.
+//! here and fails wherever the gated code is compiled — which, until #922, was `ci (cli ·
+//! full features)` alone: a job that runs on main and the weekly schedule and never on a
+//! pull request. `ci (cli · feature check)` now clippies every feature set on the pull
+//! request, so this class is caught a job earlier; the check below is what states the rule
+//! rather than waiting for a build to discover it.
 //!
 //! That is not hypothetical. #464 set `unsafe_code = "forbid"` on the reasoning that this
 //! crate has no business writing unsafe. It has exactly one `unsafe` block, in
@@ -113,8 +116,10 @@ fn nothing_is_forbidden_that_the_crate_actually_does() {
     assert!(
         trouble.is_empty(),
         "`forbid` cannot be lifted by `#[allow]`, so each of these is a feature set that \
-         does not compile — and only `ci (cli · full features)` would notice, on main, after \
-         the merge:\n{}\n\nUse `deny` and put an `#[allow]` with a reason at the site.",
+         does not compile — and the gates that notice are the ones that compile it: \
+         `ci (cli · feature check)` on the pull request, `ci (cli · full features)` on the \
+         merge. Neither is this gate, which compiles one feature set:\n{}\n\nUse `deny` and \
+         put an `#[allow]` with a reason at the site.",
         trouble.join("\n")
     );
 }

@@ -532,7 +532,7 @@ run = [
 ]
 
 [tasks.coverage-full]
-description = "Coverage including the feature-gated paths a pull request never compiles."
+description = "Coverage including the feature-gated paths no pull request measures."
 tools = { "github:taiki-e/cargo-llvm-cov" = "v0.9.0" }
 # Where the gated files stop being unmeasured. This is the run whose number covers the index,
 # sqlite and rdf paths, and it belongs beside `ci-cli-full` on main and the weekly schedule
@@ -635,6 +635,36 @@ run = [
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-targets --locked -- -D warnings",
   "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --locked",
   "cargo test --doc --manifest-path yidam/cli/Cargo.toml --locked",
+]
+
+# The two clippy legs of `ci-cli-full`, without its tests — the part of that job that a pull
+# request can afford (#922).
+#
+# `cli-full` is `if: github.event_name != 'pull_request'`, so until this task existed the only
+# gate that COMPILED the feature-gated code ran after the merge. Three outages went through
+# that hole, each green through review and red on a job nobody was watching: `unsafe_code =
+# "forbid"` breaking `--features export-sqlite` for four merges (the note on `[lints.rust]` in
+# yidam/cli/Cargo.toml), the fastembed 4→6 bump (`.github/dependabot.yml`), and #1003's unused
+# import in `index_push.rs`, which compiles only under `vector-read`.
+#
+# Clippy rather than `cargo check`, which is what #922 asked for, because two of the three
+# were LINT failures and not compile errors: `-D warnings` is what turns #1003's unused import
+# into a red gate, and passing it as `RUSTFLAGS` to a `check` instead would rekey every
+# dependency's fingerprint and rebuild the tree this task exists to avoid rebuilding. These
+# are the same two command lines `ci-cli-full` runs below, character for character, so they
+# resolve to artifacts its cache already holds — 8.5s and 11.8s off a warm one.
+#
+# Both legs, because `--all-features` cannot see the code that `--features vector-read`
+# compiles *instead*: the `#[cfg(not(feature = "index"))]` arms of the build that has
+# fastembed and arrow and no lancedb.
+#
+# What it does not cover is the tests — no `--all-targets` here, for the same reason
+# `ci-cli-full` omits it — nor anything that only fails when run. Those stay on main.
+[tasks.check-features]
+description = "Compile-check the feature-gated CLI builds that only `ci-cli-full` otherwise compiles."
+run = [
+  "cargo clippy --manifest-path yidam/cli/Cargo.toml --features vector-read --locked -- -D warnings",
+  "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-features --locked -- -D warnings",
 ]
 
 # Full-feature CLI build (index/sqlite/rdf) — pulls fastembed/lancedb and needs

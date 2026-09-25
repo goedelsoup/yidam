@@ -862,3 +862,187 @@ fn the_build_job_cap_covers_the_whole_full_feature_job() {
          failed last time.\n{block}"
     );
 }
+
+/// The command lines one `mise.toml` task runs, comments already stripped.
+///
+/// Both spellings, because both are in this file: `run = "…"` for a task with one command
+/// and `run = [ … ]` for a list. A parser that read only the list form would return an empty
+/// vector for the other, and an empty vector passes every comparison below.
+fn task_commands(name: &str) -> Vec<String> {
+    let text = mise_toml();
+    let block = text
+        .split(&format!("[tasks.{name}]\n"))
+        .nth(1)
+        .unwrap_or_else(|| panic!("no `[tasks.{name}]` in mise.toml, or it was renamed"))
+        .split("\n[")
+        .next()
+        .unwrap_or_default()
+        .to_string();
+
+    let mut out = Vec::new();
+    for line in block.lines().map(str::trim) {
+        let command = if let Some(rest) = line.strip_prefix("run = ") {
+            rest
+        } else if line.starts_with('"') {
+            line
+        } else {
+            continue;
+        };
+        let command = command.trim_matches(|c| c == '"' || c == ',' || c == ' ');
+        if !command.is_empty() && command != "[" && command != "]" {
+            out.push(command.to_string());
+        }
+    }
+    assert!(
+        !out.is_empty(),
+        "`[tasks.{name}]` parsed to no commands; every comparison built on this would be \
+         vacuous"
+    );
+    out
+}
+
+/// The feature-gated code is compiled on every event, by one job or the other (#922).
+///
+/// `cli-full` has been `if: github.event_name != 'pull_request'` since it was written, which
+/// left the only gate that compiles `--all-features` running *after* the merge. Three outages
+/// went through that hole — `unsafe_code = "forbid"` against `--features export-sqlite`, the
+/// fastembed 4→6 bump, and #1003's unused import in `index_push.rs` — and each was green
+/// through review and red on a job nobody was watching.
+///
+/// `cli-features` closes it by taking the complement of that condition, so the assertion is
+/// the complement itself rather than either half: an edit that narrows one condition without
+/// widening the other reopens the hole at whatever event falls between them, and the sign
+/// would again be a red `main`.
+#[test]
+fn the_feature_gated_build_is_compiled_on_every_event() {
+    let condition = |block: &str| -> String {
+        block
+            .lines()
+            .map(str::trim)
+            .find(|l| l.starts_with("if:"))
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    let full = condition(&job_block("cli-full"));
+    let check = condition(&job_block("cli-features"));
+    assert_eq!(
+        full, "if: github.event_name != 'pull_request'",
+        "`cli-full` no longer skips pull requests in the spelling `cli-features` was written \
+         to complement. The two conditions have to partition the events between them; this \
+         one is now `{full}`."
+    );
+    assert_eq!(
+        check, "if: github.event_name == 'pull_request'",
+        "`cli-features` is the pull-request half of `cli-full`, and it now reads `{check}`. \
+         Anything other than the exact complement leaves an event on which nothing compiles \
+         the gated code — which is the state #922 was filed about."
+    );
+}
+
+/// The pull-request check compiles exactly what the merge compiles.
+///
+/// It is worth what it resembles. A check that fell behind `ci-cli-full` — a third feature
+/// set added there and not here — would be a green pull request in front of a red main, for
+/// the feature that was added *because* it needed compiling.
+///
+/// So the clippy legs of the two tasks are compared as a whole and in order, rather than the
+/// check being asserted to contain something. Character for character, also because that is
+/// what makes them cache hits: cargo fingerprints a command's features, and a leg spelled
+/// differently is a dependency tree rebuilt from nothing on a job budgeted for 20 seconds.
+///
+/// Clippy and not `cargo check`, which is what #922 proposed: two of the three outages were
+/// lint failures rather than compile errors, and `-D warnings` is what makes them red.
+#[test]
+fn the_pull_request_check_compiles_what_the_merge_compiles() {
+    let legs = |cmds: &[String]| -> Vec<String> {
+        cmds.iter()
+            .filter(|c| c.contains("cargo clippy"))
+            .cloned()
+            .collect()
+    };
+
+    let merge = legs(&task_commands("ci-cli-full"));
+    let check = legs(&task_commands("check-features"));
+    assert!(
+        merge.len() >= 2,
+        "`ci-cli-full` runs {} clippy leg(s); it has had two since the vector-read split, so \
+         this is reading the wrong thing: {merge:?}",
+        merge.len()
+    );
+    assert_eq!(
+        merge, check,
+        "`check-features` and `ci-cli-full` no longer compile the same feature sets. The \
+         pull-request gate is worth exactly its resemblance to the merge gate, and the legs \
+         must also match character for character or they miss the cache they borrow."
+    );
+
+    let job = job_block("cli-features");
+    assert!(
+        job.contains("mise run check-features"),
+        "the `cli-features` job does not run `check-features`, so the task above is compared \
+         against a gate that runs something else:\n{job}"
+    );
+}
+
+/// The check borrows the cache it could never afford to build.
+///
+/// `cargo clippy --all-features` finishes in 8.5s against a restored tree and takes twenty
+/// minutes against an empty one, so this gate is cheap only while it hits `cli-full`'s cache.
+/// Two things decide that, and neither announces itself when it breaks — a miss is a slow
+/// green, not a red.
+///
+/// **The key.** rust-cache's `key` input is *added to* an automatic job-id component, so two
+/// jobs cannot share a cache through it; `shared-key` replaces that component. Both jobs must
+/// name the same one.
+///
+/// **The environment.** rust-cache hashes every variable prefixed `CARGO`, `CC`, `CFLAGS`,
+/// `CXX`, `CMAKE` or `RUST` into the same key. `cli-full` carries `CARGO_BUILD_JOBS: '2'` for
+/// a memory cap that has nothing to do with this job, and a job that does not carry it writes
+/// a different key — which is why the two environments are compared rather than the flag
+/// being explained where only a reader would find it.
+#[test]
+fn the_feature_check_borrows_the_full_feature_cache() {
+    let full = job_block("cli-full");
+    let check = job_block("cli-features");
+
+    for (name, block) in [("cli-full", &full), ("cli-features", &check)] {
+        assert!(
+            block.contains("shared-key: cli-full"),
+            "`{name}` does not restore under `shared-key: cli-full`. With rust-cache's `key` \
+             input instead, the job id goes into the key and the two jobs get one cache each \
+             — the pull-request one built from nothing, every time.\n{block}"
+        );
+    }
+    assert!(
+        check.contains("save-if: ${{ false }}"),
+        "`cli-features` would save a cache. A pull request's writes land in the PR's own \
+         scope, where nothing else can read them and where they count against the \
+         repository's limit until they are evicted — so it would pay to store a tree it \
+         borrowed.\n{check}"
+    );
+
+    // The prefixes rust-cache hashes, from its `config.ts`. An `env:` key is `NAME: value`
+    // at some indent; nothing else in a job body starts with one of these in upper case.
+    let keyed_env = |block: &str| -> BTreeSet<String> {
+        block
+            .lines()
+            .map(str::trim)
+            .filter(|l| {
+                ["CARGO", "CC", "CFLAGS", "CXX", "CMAKE", "RUST"]
+                    .iter()
+                    .any(|p| l.starts_with(p))
+                    && l.contains(':')
+            })
+            .map(str::to_string)
+            .collect()
+    };
+    assert_eq!(
+        keyed_env(&full),
+        keyed_env(&check),
+        "`cli-full` and `cli-features` set different cache-keyed environment variables, so \
+         they compute different cache keys and the pull-request job restores nothing. \
+         rust-cache hashes CARGO*, CC*, CFLAGS*, CXX*, CMAKE* and RUST* into the key; \
+         whatever one job sets, the other has to set too."
+    );
+}
