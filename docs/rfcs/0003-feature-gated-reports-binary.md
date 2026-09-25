@@ -48,7 +48,7 @@ native stack is confined to four modules: `cmd/index_build.rs` (`fastembed`, `la
 (`rusqlite`, `:2`), and `cmd/export_rdf.rs` (`oxrdf`, `:2`). The dependency line runs cleanly
 between the reports and the index — but the crate does not cut there.
 
-**The binary is unpublished.** `VERSIONING.md:44-48` lists three packages on registries —
+**The binary is unpublished.** `VERSIONING.md:56-60` lists three packages on registries —
 `yidam-core` on crates.io, `@yidam/core` on npm, `yidam-core` on PyPI — and the `yidam`
 binary on none of them. The documented install is `cargo install --path yidam/cli`
 (`mise.toml:33-35`). BOSC's own `.yidam.toml` records the consequence in its comment: *"Not
@@ -148,13 +148,13 @@ Ship the reports-capable binary two ways, so no consumer needs a Rust build:
    tool. This requires publishing the `yidam-core` path dependency first: `Cargo.toml:43`
    pins it as `{ path = "../prelude/sdks/rust" }`, and a crates.io release cannot carry a
    `path` dep — it must become a `version` dep against the published `yidam-core`
-   (already slated for crates.io in `VERSIONING.md:46`). Add a `full` convenience feature
+   (already slated for crates.io in `VERSIONING.md:58`). Add a `full` convenience feature
    (`full = ["reports", "index", "export-sqlite", "export-graph"]`) so
    `cargo install yidam --features full` reproduces today's monolith.
 2. **Prebuilt release artifacts** — attach `reports` (and `full`) binaries for the common
    targets to GitHub Releases and index them for `cargo-binstall`, so a consumer's CI runs
    `cargo binstall yidam` (or downloads a tarball) and needs **no Rust toolchain, no `protoc`,
-   no C compiler** at all. Register the binary as a fourth row in the `VERSIONING.md:44-48`
+   no C compiler** at all. Register the binary as a fourth row in the `VERSIONING.md:56-60`
    table with its own tag train (proposed `cli/v{x.y.z}`, distinct from `sdk/rust/*`).
 
 ### What this unlocks for RFC-0001 and RFC-0004

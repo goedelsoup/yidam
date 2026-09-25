@@ -291,7 +291,7 @@ Beyond that, each phase golden-fixtures its output where output is a contract:
   minutes. nextest is faster than `cargo test`; `cargo-deny` is seconds. `cargo-mutants` and
   full-repo coverage go on the weekly schedule `cli-full` already uses.
 - **No `format_version` bump.** A new report under the existing envelope is additive, and
-  `VERSIONING.md:241` reserves the bump for a removed field, a changed meaning, or a narrowed
+  `VERSIONING.md:253` reserves the bump for a removed field, a changed meaning, or a narrowed
   type.
 
 ## Open questions

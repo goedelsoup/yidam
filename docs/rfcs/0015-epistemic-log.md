@@ -27,7 +27,7 @@ message is **testimony** — not a changelog, but a record of a change in unders
 ([`:17`](../../yidam/prelude/SCRIPTURE.md#L17)).
 
 The classifier is built and certified. `classify_commit` is one of the six parity functions
-([`VERSIONING.md:53-54`](../../VERSIONING.md#L53-L54)), implemented in all three SDKs
+([`VERSIONING.md:65-66`](../../VERSIONING.md#L65-L66)), implemented in all three SDKs
 (`rust/src/git.rs`, `python/yidam_core/git.py`, TS) with fixtures for `epistemic-add`,
 `epistemic-refine`, `epistemic-link`, `operational-build`, `operational-fix`, `operational-regen`.
 

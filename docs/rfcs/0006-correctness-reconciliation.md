@@ -182,7 +182,7 @@ RFC-0007; this RFC supplies the two functions and the gate that would have flagg
 
 **Problem.** Two smaller inconsistencies, both about a claimed shape not matching the real one.
 
-- **Count drift.** `VERSIONING.md:53-56` states "The six parity functions (`parse_node`,
+- **Count drift.** `VERSIONING.md:65-68` states "The six parity functions (`parse_node`,
   `extract_claims`, `extract_links`, `classify_commit`, `parse_markers`, `update_regen`)" —
   omitting `find_reachable` and `find_citations` entirely. The parity README says eight
   (`prelude/sdks/parity/README.md:2`, table at lines 9-19), and `mise.toml:128` iterates eight.
@@ -195,7 +195,7 @@ RFC-0007; this RFC supplies the two functions and the gate that would have flagg
   `<class>/<name>` id. The two can disagree on what a link points at — graph-check reports on
   the disk path while the node/report model reasons in id space.
 
-**Proposal.** Correct `VERSIONING.md:53-56` to name all eight functions and match the "eight"
+**Proposal.** Correct `VERSIONING.md:65-68` to name all eight functions and match the "eight"
 wording of the READMEs (a documentation-only patch). For link resolution, route graph-check's
 broken-link check through `resolve_link_target` so "broken link" means "resolves to no known
 node id," consistent with the rest of the model — or, if the filesystem-relative check is
