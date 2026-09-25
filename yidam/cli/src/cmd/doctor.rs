@@ -317,6 +317,28 @@ fn head_is_unborn(root: &Path) -> bool {
         .succeeded()
 }
 
+/// The remedy every provenance answer points at, and the file that defines it.
+///
+/// `mise.yidam.toml` is the inherited task layer: `yidam clone` and `yidam overlay` copy it
+/// verbatim into a derived repository, and `[yidam-vendor-update]` is declared in it. So it
+/// is not merely correlated with being a derived repository — it is *the thing that makes
+/// this remedy runnable*, which is why the checks below discriminate on it rather than on,
+/// say, the presence of `.yidam/`.
+const VENDOR_UPDATE: &str = "mise run yidam-vendor-update";
+const TASK_LAYER: &str = "mise.yidam.toml";
+
+/// Can the vendor tasks be run here at all?
+///
+/// A corpus copied out to be read or broken on purpose — `cp -R examples/streamflow /tmp`,
+/// which is what the quickstart has a newcomer do in its first ten minutes — is a valid git
+/// repository holding a valid corpus, and it is not derived from anything. Before #915 it
+/// met a red `fail provenance` there, remedied by a task that directory has no `mise.toml`
+/// to define. Both halves were wrong: nothing about the setup was broken, and the one
+/// instruction offered could not be carried out.
+fn has_task_layer(root: &Path) -> bool {
+    root.join(TASK_LAYER).is_file()
+}
+
 /// The pin a derived repository is upgradable from.
 ///
 /// A repository with no recorded origin cannot be upgraded: there is no baseline to compute
@@ -325,10 +347,14 @@ fn head_is_unborn(root: &Path) -> bool {
 fn check_provenance(root: &Path) -> Answer {
     let manifest = root.join(MANIFEST);
     let Ok(text) = std::fs::read_to_string(&manifest) else {
-        return Answer::fail(
-            format!("no {MANIFEST}"),
-            Some("mise run yidam-vendor-update"),
-        );
+        return if has_task_layer(root) {
+            Answer::fail(format!("no {MANIFEST}"), Some(VENDOR_UPDATE))
+        } else {
+            Answer::skipped(format!(
+                "no {MANIFEST} and no {TASK_LAYER} — not a derived repository, so it has no \
+                 pin and is missing nothing"
+            ))
+        };
     };
     let pin = ManifestPin::parse(&text);
     match pin.commit.as_deref() {
@@ -337,9 +363,19 @@ fn check_provenance(root: &Path) -> Answer {
             &commit[..commit.len().min(12)],
             pin.template.as_deref().unwrap_or("untagged")
         )),
-        _ => Answer::fail(
+        _ if has_task_layer(root) => Answer::fail(
             format!("{MANIFEST} records no resolvable commit"),
-            Some("mise run yidam-vendor-update"),
+            Some(VENDOR_UPDATE),
+        ),
+        // The pin is there and unusable, which is wrong however the repository got that
+        // way — but with no task layer there is no `yidam-vendor-update` here to offer.
+        // Naming the reason beats naming a command that answers "no task yidam-vendor-update".
+        _ => Answer::fail(
+            format!(
+                "{MANIFEST} records no resolvable commit, and with no {TASK_LAYER} this \
+                 repository has no vendor task to rewrite it"
+            ),
+            None,
         ),
     }
 }
@@ -433,10 +469,19 @@ fn check_prelude(root: &Path, today: i64) -> Answer {
                           which needs network";
     let vendored = root.join(".yidam").join(".vendor").join("prelude");
     if !vendored.is_dir() {
-        return Answer::warn(
-            "no .yidam/.vendor/prelude/ — this repository carries no vendored prelude",
-            Some("mise run yidam-vendor-update"),
-        );
+        // Same discrimination as `check_provenance`, and for the same reason: a corpus that
+        // was never derived carries no vendored prelude and is not missing one.
+        return if has_task_layer(root) {
+            Answer::warn(
+                "no .yidam/.vendor/prelude/ — this repository carries no vendored prelude",
+                Some(VENDOR_UPDATE),
+            )
+        } else {
+            Answer::skipped(format!(
+                "no .yidam/.vendor/prelude/ and no {TASK_LAYER} — nothing was vendored here \
+                 because nothing was derived here"
+            ))
+        };
     }
     let pin = std::fs::read_to_string(root.join(MANIFEST))
         .map(|t| ManifestPin::parse(&t))
@@ -1985,6 +2030,20 @@ mod tests {
     fn derived_repo() -> TempDir {
         let tmp = TempDir::new().unwrap();
         std::fs::create_dir_all(tmp.path().join(".yidam")).unwrap();
+        // The inherited task layer, which is what makes `mise run yidam-vendor-update`
+        // a thing that can be run here — and so what `check_provenance` and
+        // `check_prelude` read to tell a derived repository from a corpus that was
+        // copied out of one. A fixture without it is not the thing it is named after.
+        std::fs::write(tmp.path().join(TASK_LAYER), "[yidam-vendor-update]\n").unwrap();
+        tmp
+    }
+
+    /// A corpus copied out to be read: valid, committed, derived from nothing.
+    ///
+    /// `cp -R examples/streamflow /tmp && git init` — the quickstart's own third step.
+    fn copied_corpus() -> TempDir {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".yidam").join("corpus")).unwrap();
         tmp
     }
 
@@ -2234,6 +2293,59 @@ mod tests {
         )
         .unwrap();
         assert_eq!(check_provenance(tmp.path()).verdict, Verdict::Fail);
+    }
+
+    /// #915. A corpus with no pin *and* no task layer is not a broken derived repository;
+    /// it is a corpus nobody derived, and there is nothing for it to be missing.
+    ///
+    /// `Skipped` rather than `Ok` because the question genuinely was not answered, and
+    /// rather than `Warn` because a warn is something owed. It carries no remedy by
+    /// construction — which is the half of this that matters, since the defect was an
+    /// instruction naming a task the directory has no `mise.toml` to define.
+    #[test]
+    fn a_corpus_that_was_never_derived_is_not_missing_a_pin() {
+        let tmp = copied_corpus();
+        let c = check_provenance(tmp.path());
+        assert_eq!(c.verdict, Verdict::Skipped, "{}", c.detail);
+        assert!(c.remedy.is_none(), "{:?}", c.remedy);
+        assert!(c.detail.contains(TASK_LAYER), "{}", c.detail);
+    }
+
+    /// The same discrimination, and the same reason: the warn named an unrunnable task.
+    #[test]
+    fn a_corpus_that_was_never_derived_vendored_no_prelude() {
+        let tmp = copied_corpus();
+        let c = check_prelude(tmp.path(), 20_000);
+        assert_eq!(c.verdict, Verdict::Skipped, "{}", c.detail);
+        assert!(c.remedy.is_none(), "{:?}", c.remedy);
+    }
+
+    /// An unusable pin is wrong wherever it is found — but where the vendor task does not
+    /// exist, saying so beats naming it. A remedy a reader cannot run is worse than none:
+    /// they run it, get `no task yidam-vendor-update`, and now have two problems.
+    #[test]
+    fn an_unusable_pin_without_the_task_layer_still_fails_and_offers_nothing() {
+        let tmp = copied_corpus();
+        std::fs::write(tmp.path().join(MANIFEST), "[yidam]\ncommit = \"unknown\"\n").unwrap();
+        let c = check_provenance(tmp.path());
+        assert_eq!(c.verdict, Verdict::Fail, "{}", c.detail);
+        assert!(c.remedy.is_none(), "{:?}", c.remedy);
+        assert!(c.detail.contains(TASK_LAYER), "{}", c.detail);
+    }
+
+    /// The failing arms must keep naming a command, or the fix above has turned the
+    /// remedy off for the repositories that do need it.
+    #[test]
+    fn a_derived_repository_still_gets_the_vendor_remedy() {
+        let missing = check_provenance(derived_repo().path());
+        assert_eq!(missing.verdict, Verdict::Fail);
+        assert_eq!(missing.remedy.as_deref(), Some(VENDOR_UPDATE));
+
+        let tmp = derived_repo();
+        std::fs::write(tmp.path().join(MANIFEST), "[yidam]\ncommit = \"unknown\"\n").unwrap();
+        let unusable = check_provenance(tmp.path());
+        assert_eq!(unusable.verdict, Verdict::Fail);
+        assert_eq!(unusable.remedy.as_deref(), Some(VENDOR_UPDATE));
     }
 
     #[test]
