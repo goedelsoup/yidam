@@ -281,3 +281,191 @@ fn clone_delivers_none_of_it() {
          `docs/`, and step 3 reads it"
     );
 }
+
+// ── #912: the copy is the tracked set, and nothing else ──────────────────────────────────
+
+/// Every tracked path at `root` that is a regular file, with its git mode.
+///
+/// Derived from `git ls-files -s` rather than from the filesystem, so the symlinks are
+/// identified by what git recorded rather than by the same `symlink_metadata` call production
+/// makes. Two derivations of one set can disagree; one computation compared against itself
+/// cannot.
+fn tracked_regular_files(root: &Path) -> BTreeSet<String> {
+    // `common::git`, which is the integration suite's one fixture helper (#929) — a `-z`
+    // list survives its trim, because NUL is not whitespace.
+    let listing = common::git::out(root, &["ls-files", "-s", "-z"]);
+    listing
+        .split('\0')
+        .filter(|s| !s.is_empty())
+        .filter_map(|row| {
+            // `<mode> <sha> <stage>\t<path>`
+            let (meta, path) = row.split_once('\t')?;
+            let mode = meta.split_whitespace().next()?;
+            // 120000 is a symlink and 160000 a submodule gitlink; the copy skips both, as
+            // the filesystem walk before it did.
+            (mode == "100644" || mode == "100755").then(|| path.to_string())
+        })
+        .collect()
+}
+
+/// Every file `yidam clone` wrote into `target`, excluding what it wrote *itself*.
+///
+/// `.git/` is `git init`'s, and `.yidam.toml` is the provenance pin — neither is copied from
+/// the template, and neither is tracked here, so both would read as a leak.
+fn delivered(target: &Path) -> BTreeSet<String> {
+    fn walk(dir: &Path, base: &Path, out: &mut BTreeSet<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.filter_map(Result::ok) {
+            let path = e.path();
+            if path.file_name().is_some_and(|n| n == ".git") {
+                continue;
+            }
+            if path.is_dir() {
+                walk(&path, base, out);
+            } else {
+                out.insert(path.strip_prefix(base).unwrap().display().to_string());
+            }
+        }
+    }
+    let mut out = BTreeSet::new();
+    walk(target, target, &mut out);
+    out.remove(yidam::provenance::MANIFEST);
+    out
+}
+
+/// **`yidam clone` delivers the tracked set minus [`yidam::NOT_INHERITED`], exactly.**
+///
+/// The strongest form of the question `clone_delivers_none_of_it` asks one list at a time.
+/// That test could only ever be as complete as the list it iterates, which is how #912
+/// happened: a clone taken from a working checkout was 2,931 files, and 1,436 of them were
+/// `.claude/worktrees/` — the operator's own agent worktrees, gitignored at `.gitignore:17`,
+/// named by no exclusion because they were never authored and never tracked.
+///
+/// Set equality in both directions, because each failure is real and different. A delivered
+/// path that git does not track is working-tree debris shipped into every repository created
+/// after it. A tracked path that was not delivered is template content that silently stopped
+/// arriving.
+#[test]
+fn clone_delivers_exactly_the_tracked_set() {
+    let root = repo_root();
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("derived");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(&root)
+        .args(["clone", target.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "clone failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let expected: BTreeSet<String> = tracked_regular_files(&root)
+        .into_iter()
+        .filter(|p| {
+            let top = p.split('/').next().unwrap_or(p);
+            !yidam::NOT_INHERITED.contains(&top)
+        })
+        .collect();
+    assert!(
+        expected.len() > 1000,
+        "only {} path(s) expected — the ls-files derivation is broken, and an empty \
+         expectation is satisfied by an empty clone",
+        expected.len()
+    );
+
+    let got = delivered(&target);
+    let untracked: Vec<&String> = got.difference(&expected).collect();
+    let missing: Vec<&String> = expected.difference(&got).collect();
+
+    assert!(
+        untracked.is_empty(),
+        "`yidam clone` delivered {} path(s) this repository does not track — working-tree \
+         debris now ships into every repository created from it:\n{}",
+        untracked.len(),
+        untracked
+            .iter()
+            .take(20)
+            .map(|p| format!("  {p}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    assert!(
+        missing.is_empty(),
+        "`yidam clone` did not deliver {} tracked path(s) — template content stopped \
+         arriving:\n{}",
+        missing.len(),
+        missing
+            .iter()
+            .take(20)
+            .map(|p| format!("  {p}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+}
+
+/// The reported case, manufactured: a checkout carrying a gitignored file at its root.
+///
+/// [`clone_delivers_exactly_the_tracked_set`] would catch this too, but only when the
+/// checkout it runs against happens to have such a file — which a CI runner's does not. This
+/// builds one, through the real binary, so the property is asserted rather than waited for.
+///
+/// The fixture is the smallest thing that is a template: the two directories
+/// [`yidam::TEMPLATE_MARKERS`] names, which is also what makes this a test of the refusal's
+/// other half. A predicate that rejected everything would fail here.
+#[test]
+fn a_clone_of_a_checkout_with_gitignored_files_does_not_carry_them() {
+    let tmp = tempfile::tempdir().unwrap();
+    let source = tmp.path().join("template");
+    let target = tmp.path().join("derived");
+
+    let write = |rel: &str, body: &str| {
+        let path = source.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    };
+    for marker in yidam::TEMPLATE_MARKERS {
+        write(&format!("{marker}/README.md"), "the template");
+    }
+    write(".gitignore", ".claude/worktrees/\n.local/\n");
+    common::git::git(&source, &["init", "-q", "-b", "main"]);
+    common::git::git(&source, &["config", "user.email", "t@t.co"]);
+    common::git::git(&source, &["config", "user.name", "Test"]);
+    common::git::git(&source, &["add", "-A"]);
+    common::git::git(&source, &["commit", "-q", "-m", "seed"]);
+    // Written after the commit: gitignored at the root, and absent from `git ls-files`.
+    write(".claude/worktrees/task/corpus.yml", "an embedded worktree");
+    write(".local/bin/yidam", "an ELF from August");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(&source)
+        .args(["clone", target.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "clone refused a checkout carrying both markers: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    for leaked in [".claude", ".local"] {
+        assert!(
+            !target.join(leaked).exists(),
+            "`{leaked}` is gitignored at the source root and is not part of the template, \
+             but the clone carried it"
+        );
+    }
+    assert_eq!(
+        delivered(&target),
+        yidam::TEMPLATE_MARKERS
+            .iter()
+            .map(|m| format!("{m}/README.md"))
+            .chain([".gitignore".to_string()])
+            .collect::<BTreeSet<String>>(),
+        "the tracked set is what should have arrived, and only that"
+    );
+}

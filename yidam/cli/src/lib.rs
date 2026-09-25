@@ -117,6 +117,11 @@ pub use cmd::NOT_INHERITED;
 /// The seed kinds `yidam samudaya-audit` accepts. See [`samudaya_seed_kind`].
 #[doc(hidden)]
 pub use cmd::SAMUDAYA_KINDS;
+/// The directories that make a checkout the template. Public for the same reason as
+/// [`NOT_INHERITED`]: the guard over `yidam clone` builds a fixture that has to be a
+/// template, and a fixture restating the predicate would go on satisfying itself.
+#[doc(hidden)]
+pub use cmd::TEMPLATE_MARKERS;
 #[doc(hidden)]
 pub use cmd::{
     agents_index, backfill, bench, bundle, bundle_status, catalog_audit, catalog_fetch,

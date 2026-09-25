@@ -80,8 +80,9 @@ against rubric criteria. See [HARNESS.md](tests/HARNESS.md) for authoring scenar
 
 ## Lifecycle
 
-1. `yidam clone <dir>` copies the template (minus `docs/` and `examples/`) into a new repo and
-   inits a fresh git repo.
+1. `yidam clone <dir>` copies the template into a new repo and inits a fresh git repo. What it
+   copies is the tracked set of the checkout it is run from, minus `docs/`, `examples/` and the
+   rest of `NOT_INHERITED`; it refuses a source that is not the template.
 2. `yidam overlay <dir>` adds the infrastructure — `yidam/`, `sadhana/`, `BOOTSTRAP.md`,
    `mise.yidam.toml`, and the `.yidam.toml` pin — to an existing git repo, leaving its own
    content untouched.

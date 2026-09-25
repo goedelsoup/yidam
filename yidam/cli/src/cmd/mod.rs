@@ -81,7 +81,7 @@ pub use catalog::{
     FetchOptions, ReconcileOptions,
 };
 pub use check_diff::check_diff;
-pub use clone::{clone, NOT_INHERITED};
+pub use clone::{clone, NOT_INHERITED, TEMPLATE_MARKERS};
 pub use cohort::{cohort, Norm as PreludeNorm, Options as CohortOptions, NORMS as PRELUDE_NORMS};
 pub use corpus::{corpus_index, graph_check, open_questions};
 pub use cycle::cycle;
