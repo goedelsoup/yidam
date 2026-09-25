@@ -119,7 +119,7 @@ also what makes editing a calculator change the input state and re-run its step.
 
 ```sh
 cp -R examples/streamflow /tmp/streamflow
-cd /tmp/streamflow && git init -q && git add -A && git commit -qm genesis
+cd /tmp/streamflow && git init -q && git add -A && git commit -qm 'genesis: streamflow'
 yidam graph-check     # 8 instances across 3 classes — all clean
 yidam lint            # 0 finding(s), no errors
 yidam open-questions  # four live questions

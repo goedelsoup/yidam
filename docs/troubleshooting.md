@@ -94,7 +94,7 @@ finds *yidam*, which is not a corpus:
 
 ```sh
 cp -R examples/streamflow /tmp/streamflow
-cd /tmp/streamflow && git init -q && git add -A && git commit -qm genesis
+cd /tmp/streamflow && git init -q && git add -A && git commit -qm 'genesis: streamflow'
 yidam graph-check
 ```
 

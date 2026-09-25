@@ -33,9 +33,11 @@ source build.
 yidam --version
 ```
 
-It should answer with a version, a build commit, and the features it carries —
-`[reports tonpa]` for a released binary. If it does not answer at all, `~/.local/bin` is not
-on your `PATH`.
+It should answer with a version, a build commit, and the features it carries. Every released
+artifact carries the default set, which
+[installation](installation.md#verify-the-install) prints in full. If it does not answer at
+all, the binary is not on your `PATH`. `install.sh` puts it in `~/.local/bin`; brew, mise and
+binstall each manage a directory of their own.
 
 ```sh
 yidam doctor
@@ -55,12 +57,15 @@ instances across three classes, on streamflow below dams.
 ```sh
 git clone https://github.com/goedelsoup/yidam
 cp -R yidam/examples/streamflow /tmp/streamflow
-cd /tmp/streamflow && git init -q && git add -A && git commit -qm genesis
+cd /tmp/streamflow && git init -q && git add -A && git commit -qm 'genesis: streamflow'
 ```
 
 The copy-and-`git init` is not ceremony. `yidam` locates a repository with
 `git rev-parse --show-toplevel`, so running it inside the yidam checkout finds yidam — which
 is a template, not a corpus.
+
+The commit message is not ceremony either. `export` and `bundle` read the domain from the
+genesis subject. A subject naming none warns, and falls back to the directory name.
 
 ```sh
 yidam graph-check
