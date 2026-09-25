@@ -82,19 +82,21 @@ file onto the same pane.
 
 ### Claude Code, as a plugin
 
-This is the one that gives you both halves. Four of the thirteen tools below exist for one reason.
-The practice is documented in the prelude. But *an agent that has to hold that prose in context
-complies by having remembered*. The plugin puts the prose and the tools in the same install.
+This is the one that gives you both halves. Four of the thirteen read tools below exist for
+one reason. The practice is documented in the prelude. But *an agent that has to hold that
+prose in context complies by having remembered*. The plugin puts the prose and the tools in
+the same install.
 
 ```
 /plugin marketplace add goedelsoup/yidam
 /plugin install yidam@yidam
 ```
 
-What arrives: the MCP server, registered, plus five skills. Each fires at the point a decision is
+What arrives: the MCP server, registered, plus six skills. Each fires at the point a decision is
 made. That is before a commit subject, an evidence tag, a link, or a `cites:`. The fifth fires
-before answering from the corpus rather than the model. Each one names the tool to call and points
-at the prelude for the reasoning. None restates a rule: a second copy of a closed vocabulary is a
+before answering from the corpus rather than the model. The sixth fires at the start of a
+session, where what to do next is the decision. Each one names the tool to call and points at
+the prelude for the reasoning. None restates a rule: a second copy of a closed vocabulary is a
 second thing to hold in step. About 680 tokens are always on; the rest is paid only when a skill
 fires.
 
