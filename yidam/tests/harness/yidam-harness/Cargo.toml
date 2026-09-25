@@ -16,7 +16,11 @@ path = "src/main.rs"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.9"
+# Aliased for the reason `cli/Cargo.toml` gives at length: the original is archived and
+# published as `0.9.34+deprecated`, and the fork is byte-identical across the parse path.
+# The harness reads the same `.yml` the CLI does, so the two must not resolve to different
+# parsers.
+serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 serde_json = "1"
 walkdir = "2"
 tempfile = "3"

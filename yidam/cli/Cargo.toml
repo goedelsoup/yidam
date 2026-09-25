@@ -120,7 +120,29 @@ walkdir = "2"
 # native libraries.
 regex = "1"
 serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.9"
+# `serde_yaml` the name, `serde_yaml_ng` the crate. dtolnay archived the original and
+# published it as `0.9.34+deprecated`; every node, class and source in a corpus is parsed
+# through it, so this is not a parser to leave unpatched.
+#
+# A `package =` alias rather than 170 rewritten call sites, because the fork is a fork and
+# not a rewrite. Diffed against `0.9.34`, four files differ and the whole parse path —
+# `de.rs`, `loader.rs`, `libyaml/`, `ser.rs`, `mapping.rs` — is identical; the two diffs
+# that touch code at all are `i64::max_value()` → `i64::MAX` and a borrow in
+# `value/index.rs`. Same five dependencies, MSRV 1.64 against this crate's 1.88.
+#
+# That identity is the reason for the choice and not a convenience.
+# `prelude/sdks/parity/README.md` pins this parser's YAML 1.1 scalar resolution as the Rust
+# side of a three-language contract — given `010` it answers `"010"` where PyYAML answers
+# `8` — and 110 fixtures are written against it. A parser resolving scalars differently
+# would be a new contract rather than a maintenance bump, which is what rules out
+# `serde-saphyr`: YAML 1.2, a different scanner, and an MSRV of 1.89 that this workspace's
+# 1.88 floor cannot take regardless.
+#
+# Not fixed by this, and worth knowing before the next person reopens it: the scanner
+# underneath — `unsafe-libyaml`, transitive, unchanged by the fork — is also dtolnay's and
+# also archived. This buys a maintained wrapper over an unmaintained scanner, which is one
+# level and not the stack. Replacing that level is the contract change described above.
+serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 serde_json = "1"
 sha2 = "0.11"
 hex = "0.4"
@@ -466,7 +488,10 @@ toml = "1.1"
 # that greps a whole file is satisfied by that file's own comments — which is precisely what
 # a profile explaining the prohibition it is breaking would do. Costs no package: already a
 # dependency above, and naming it here is what lets a test use it.
-serde_yaml = "0.9"
+# The rename is repeated rather than inherited: `package =` binds per table, so a
+# dev-dependency written `serde_yaml = "0.9"` would pull the archived crate back in
+# beside the fork. `[dependencies]` above explains the alias.
+serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 quick-xml = "0.42"
 tempfile = "3"
 jsonschema = { version = "0.56.0", default-features = false }

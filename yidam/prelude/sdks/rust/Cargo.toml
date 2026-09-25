@@ -45,5 +45,11 @@ serde = { version = "1", features = ["derive"] }
 toml = "1.1"
 # The ontology compiler reads `.ont.yml` and emits JSON Schema. Both are the corpus's own
 # serialization formats rather than this crate reaching for a convenience.
-serde_yaml = "0.9"
+#
+# Aliased to `serde_yaml_ng` for the reason `cli/Cargo.toml` gives at length. This crate is
+# the *reference* side of the parity contract, so the requirement here is sharper than
+# maintenance: the fork's parse path is byte-identical to `0.9.34`, which is what keeps the
+# 110 fixtures in `../parity/fixtures` measuring the languages against each other rather
+# than against a parser change.
+serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 serde_json = "1"
