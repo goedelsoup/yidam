@@ -115,6 +115,62 @@ fn every_example_lints_clean_at_every_severity() {
     }
 }
 
+/// `doctor` must find nothing wrong with a corpus copied out and committed.
+///
+/// This is the quickstart's third step, verbatim: `cp -R examples/streamflow /tmp` and
+/// `git init`. Before #915 it produced `fail  provenance  no .yidam.toml`, remedied by
+/// `mise run yidam-vendor-update` — a task defined in `mise.yidam.toml`, which a copied
+/// example does not have and which no `mise.toml` in that directory declares. So a
+/// newcomer's first ten minutes ended in a red FAIL on a correct setup, offering an
+/// instruction that could not be carried out.
+///
+/// **Asserted per check, not on `failed == 0`.** The count is what the command already
+/// decides the exit code from, and a check that stops running stops contributing to it
+/// without anything saying so; the loop below names the check that went red. The floor
+/// underneath both is that `doctor` answered a plausible number of questions at all — a
+/// report with an empty `checks` array satisfies "no check failed" perfectly.
+///
+/// Warnings are allowed and are the point of the verdict: an example ships no built index,
+/// and `journalism` declares a vault it has no credentials for. Neither is a defect in the
+/// corpus, and both are things a reader should be told.
+#[test]
+fn every_example_passes_doctor_where_a_reader_would_run_it() {
+    for name in examples() {
+        let ex = Example::materialize(&name);
+        let (stdout, stderr, code) = ex.run(&["doctor", "--format", "json"]);
+        let report: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
+            panic!("doctor --format json for {name} is not JSON: {e}\n{stdout}\n{stderr}")
+        });
+        let checks = report["checks"]
+            .as_array()
+            .unwrap_or_else(|| panic!("doctor for {name} reported no `checks` array: {stdout}"));
+
+        assert!(
+            checks.len() >= 5,
+            "doctor answered {} question(s) for {name}. Below that this test is passing by \
+             finding nothing, not by finding nothing wrong: {stdout}",
+            checks.len()
+        );
+
+        for check in checks {
+            let id = check["id"].as_str().unwrap_or("?");
+            assert_ne!(
+                check["verdict"].as_str(),
+                Some("fail"),
+                "doctor fails `{id}` on {name}, a corpus copied out exactly as the quickstart \
+                 says to copy it: {} (remedy: {})",
+                check["detail"].as_str().unwrap_or(""),
+                check["remedy"].as_str().unwrap_or("none")
+            );
+        }
+
+        assert_eq!(
+            code, 0,
+            "doctor exited {code} for {name}\n{stdout}\n{stderr}"
+        );
+    }
+}
+
 /// The example has to be *worth* reading, not only valid — a corpus of four disconnected
 /// stubs passes both gates above.
 /// `orphan-in` can actually fire here, which it could not before #336.
