@@ -512,26 +512,16 @@ fn recorded_version_features(text: &str) -> Vec<BTreeSet<String>> {
         .collect()
 }
 
-/// **A recorded `--version` names no feature outside the default set.**
+/// Every recorded `--version` in the repository: the file it is on, and the features it shows.
 ///
-/// Subset, not equality, and the asymmetry is the point. Every released artifact carries
-/// exactly `default`, so a transcript naming something outside it describes a binary nobody
-/// can install from a release — which is what the installation page was doing. A *shorter*
-/// list is a legitimate illustration: `docs/troubleshooting.md` shows `[reports tonpa]`
-/// precisely to explain why `index-build` reports `unrecognized subcommand` on a build
-/// without it, and a rule of equality would have to argue with that page.
-///
-/// Both sides discovered: the transcripts come from walking the markdown, the truth from the
-/// manifest. Neither is a list in this file.
-#[test]
-fn a_recorded_version_names_no_feature_outside_the_default_set() {
-    let default = feature_body("default");
+/// Discovered by walking the markdown, so the two rules below are both written against the
+/// set of transcripts that exists rather than one named here. The `>= 2` floor is theirs
+/// jointly: a walk that reaches nothing satisfies a subset rule and an existence rule alike.
+fn recorded_versions_in_the_repository() -> Vec<(String, BTreeSet<String>)> {
     let declared = declared_features();
     let root = repo_root().canonicalize().expect("repo root is readable");
 
-    let mut offenders: Vec<String> = Vec::new();
-    let mut transcripts = 0;
-
+    let mut found: Vec<(String, BTreeSet<String>)> = Vec::new();
     for entry in
         common::repo_walk_keeping(&root, |e| !e.file_name().to_string_lossy().starts_with('.'))
             .filter(|e| e.file_type().is_file())
@@ -555,21 +545,42 @@ fn a_recorded_version_names_no_feature_outside_the_default_set() {
             if !shown.iter().any(|f| declared.contains(f)) {
                 continue;
             }
-            transcripts += 1;
-            let extra: Vec<&String> = shown.difference(&default).collect();
-            if !extra.is_empty() {
-                offenders.push(format!(
-                    "  {rel} — shows {extra:?}, which no released binary carries"
-                ));
-            }
+            found.push((rel.clone(), shown));
         }
     }
 
     // #672: a walk that finds no transcripts passes.
     assert!(
-        transcripts >= 2,
-        "{transcripts} recorded `--version` line(s) found; the scan is not reaching them"
+        found.len() >= 2,
+        "{} recorded `--version` line(s) found; the scan is not reaching them",
+        found.len()
     );
+    found
+}
+
+/// **A recorded `--version` names no feature outside the default set.**
+///
+/// Subset, not equality, and the asymmetry is the point. Every released artifact carries
+/// exactly `default`, so a transcript naming something outside it describes a binary nobody
+/// can install from a release — which is what the installation page was doing. A *shorter*
+/// list is a legitimate illustration: `docs/troubleshooting.md` shows `[reports tonpa]`
+/// precisely to explain why `index-build` reports `unrecognized subcommand` on a build
+/// without it, and a rule of equality would have to argue with that page.
+///
+/// The other direction is [`a_recorded_version_somewhere_shows_the_whole_default_set`].
+#[test]
+fn a_recorded_version_names_no_feature_outside_the_default_set() {
+    let default = feature_body("default");
+
+    let offenders: Vec<String> = recorded_versions_in_the_repository()
+        .into_iter()
+        .filter_map(|(rel, shown)| {
+            let extra: Vec<String> = shown.difference(&default).cloned().collect();
+            (!extra.is_empty())
+                .then(|| format!("  {rel} — shows {extra:?}, which no released binary carries"))
+        })
+        .collect();
+
     assert!(
         offenders.is_empty(),
         "{} recorded `--version` line(s) name features outside `[features] default`:\n{}\n\n\
@@ -577,6 +588,47 @@ fn a_recorded_version_names_no_feature_outside_the_default_set() {
          Show the default set, or say in the prose beside it which lighter build it is.",
         offenders.len(),
         offenders.join("\n")
+    );
+}
+
+/// **Some recorded `--version` shows the default set entire.**
+///
+/// The converse of the test above, and the direction #917 went through. Subset is the rule
+/// there because a short bracket is a legitimate illustration — `docs/troubleshooting.md`
+/// shows `[reports tonpa]` to explain an `unrecognized subcommand`. But *every* bracket being
+/// short passes that rule, and a feature joining `default` makes every bracket short at once.
+/// That is how `vault-s3` went unrecorded for a release cycle, and how `docs/quickstart.md`
+/// came to tell a reader that a released binary answers `[reports tonpa]` — five features
+/// short, in a sentence that said "for a released binary".
+///
+/// So one recording has to be the complete one. Which page carries it is not asserted: the
+/// canonical block is `docs/installation.md`'s under "Verify the install", and pinning that
+/// name here would be the guard-list shape this file argues against everywhere else. What is
+/// asserted is that the complete list exists somewhere a reader can reach, which is the part
+/// that stops being true the day `default` grows.
+#[test]
+fn a_recorded_version_somewhere_shows_the_whole_default_set() {
+    let default = feature_body("default");
+    let recorded = recorded_versions_in_the_repository();
+
+    let complete: Vec<&String> = recorded
+        .iter()
+        .filter(|(_, shown)| *shown == default)
+        .map(|(rel, _)| rel)
+        .collect();
+
+    assert!(
+        !complete.is_empty(),
+        "no recorded `yidam --version` in this repository shows `[features] default` \
+         entire — {default:?}. Every one of them is short:\n{}\n\n\
+         A released artifact carries exactly that set, so with no complete recording a \
+         reader has no page that tells them what their own install answers. Update the \
+         block under \"Verify the install\" in docs/installation.md.",
+        recorded
+            .iter()
+            .map(|(rel, shown)| format!("  {rel} — {:?}", shown.iter().collect::<Vec<_>>()))
+            .collect::<Vec<_>>()
+            .join("\n")
     );
 }
 

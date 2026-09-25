@@ -509,3 +509,212 @@ fn every_example_exports_in_place_through_root() {
         );
     }
 }
+
+// ── the genesis commit the documentation teaches (#917) ───────────────────────
+//
+// Four pages tell a reader to copy an example out and give it a repository, and all four
+// spelled the commit `git commit -qm genesis`. `load_domain_model` reads the domain out of
+// the genesis subject, so `export` and `bundle` answered that instruction with
+// `[warn] genesis commit "genesis" names no domain` — the document's own steps producing a
+// warning the document never mentions, on a page whose whole job is the reader's first
+// twenty minutes.
+//
+// Discovered rather than listed: the messages come from walking the markdown, and the
+// verdict from running the binary over a repository built with each one. Neither side is a
+// rule restated here — a check that re-implemented `domain_from_genesis` would be a second
+// copy of the parser, free to agree with a page the binary disagrees with.
+
+/// Every `git commit` message the documentation pairs with a `git init`, and the page it is on.
+///
+/// The pairing is what makes it a *genesis* instruction rather than any commit in any
+/// transcript: a fence that initialises a repository and commits into it is telling the
+/// reader how their corpus is born.
+fn documented_genesis_messages() -> Vec<(String, String)> {
+    let root = repo_root().canonicalize().expect("repo root is readable");
+    let mut found = Vec::new();
+    for entry in
+        common::repo_walk_keeping(&root, |e| !e.file_name().to_string_lossy().starts_with('.'))
+            .filter(|e| e.file_type().is_file())
+    {
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if !name.ends_with(".md") && !name.ends_with(".mdx") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        let rel = entry
+            .path()
+            .strip_prefix(&root)
+            .unwrap()
+            .display()
+            .to_string();
+        for block in fenced_blocks(&text) {
+            if !block.contains("git init") {
+                continue;
+            }
+            for message in commit_messages(&block) {
+                found.push((rel.clone(), message));
+            }
+        }
+    }
+    found
+}
+
+/// The contents of each ``` fence in `text`.
+fn fenced_blocks(text: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut current: Option<String> = None;
+    for line in text.lines() {
+        if line.trim_start().starts_with("```") {
+            match current.take() {
+                Some(body) => blocks.push(body),
+                None => current = Some(String::new()),
+            }
+            continue;
+        }
+        if let Some(body) = current.as_mut() {
+            body.push_str(line);
+            body.push('\n');
+        }
+    }
+    blocks
+}
+
+/// `s` split into shell words, respecting `'…'` and `"…"`.
+fn shell_words(s: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut quote: Option<char> = None;
+    for c in s.chars() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => word.push(c),
+            None if c == '\'' || c == '"' => quote = Some(c),
+            None if c.is_whitespace() => {
+                if !word.is_empty() {
+                    words.push(std::mem::take(&mut word));
+                }
+            }
+            None => word.push(c),
+        }
+    }
+    if !word.is_empty() {
+        words.push(word);
+    }
+    words
+}
+
+/// Every `git commit … -m <message>` in `block`, as the message alone.
+///
+/// The flag is matched as "a short cluster ending in `m`" rather than as `-m`, because every
+/// instruction in this repository writes `-qm`: a rule that only knew `-m` would have read
+/// none of the four lines it exists for.
+///
+/// The program and its subcommand are found as the one substring `COMMIT` rather than as two
+/// words compared separately, which is `git_spawns`'s rule (#929): the bare literal is
+/// forbidden anywhere in this crate's code, and the alternative — an entry in `NOT_A_SPAWN`
+/// for a file that really does build repositories — would stop this file being watched for
+/// the thing the rule is about.
+fn commit_messages(block: &str) -> Vec<String> {
+    const COMMIT: &str = "git commit";
+    let mut found = Vec::new();
+    for statement in block.split(['\n', ';']).flat_map(|l| l.split("&&")) {
+        let Some(at) = statement.find(COMMIT) else {
+            continue;
+        };
+        let words = shell_words(&statement[at + COMMIT.len()..]);
+        let mut rest = words.iter();
+        while let Some(w) = rest.next() {
+            let short_m = w.starts_with('-')
+                && !w.starts_with("--")
+                && w.ends_with('m')
+                && w.len() >= 2
+                && w[1..].chars().all(|c| c.is_ascii_alphabetic());
+            if short_m || w == "--message" {
+                if let Some(msg) = rest.next() {
+                    found.push(msg.clone());
+                }
+                break;
+            }
+        }
+    }
+    found
+}
+
+/// A repository committed with `message`, and whatever `yidam bundle` said on stderr.
+///
+/// The corpus is a bare `.yidam/corpus/` rather than a copy of an example. What is under
+/// test is the *subject line*, and the smallest tree that makes the binary load a domain
+/// model is the one that cannot make the answer depend on anything else.
+fn stderr_of_bundle_after(message: &str) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let here = dir.path();
+    std::fs::create_dir_all(here.join(".yidam/corpus")).unwrap();
+    std::fs::write(here.join(".yidam/corpus/.gitkeep"), "").unwrap();
+    for args in [
+        vec!["init", "-q"],
+        vec!["config", "user.email", "example@yidam.test"],
+        vec!["config", "user.name", "Example"],
+        vec!["add", "-A"],
+        vec!["commit", "-q", "-m", message],
+    ] {
+        common::git::git(here, &args);
+    }
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(here)
+        .arg("bundle")
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stderr).to_string()
+}
+
+/// The phrase `model.rs` prints when a genesis subject names no domain.
+const NO_DOMAIN: &str = "names no domain";
+
+/// The fixture can tell the two messages apart.
+///
+/// Without this, a `bundle` that stopped loading a domain model — or a tempdir the binary
+/// declined to read at all — would make the check below pass on every message it is given,
+/// which is exactly the failure it was written to catch in the documentation.
+#[test]
+fn the_genesis_fixture_sees_a_subject_that_names_no_domain() {
+    assert!(
+        stderr_of_bundle_after("genesis").contains(NO_DOMAIN),
+        "`genesis` alone names no domain and the fixture did not notice; every assertion \
+         below is passing on nothing"
+    );
+    assert!(
+        !stderr_of_bundle_after("genesis: streamflow").contains(NO_DOMAIN),
+        "`genesis: streamflow` does name one and the fixture reported otherwise"
+    );
+}
+
+/// **A documented `git init` + commit teaches a genesis subject the binary accepts.**
+///
+/// Held to the binary, not to a spelling: the message is committed and `bundle` is asked.
+#[test]
+fn every_documented_genesis_commit_names_a_domain() {
+    let documented = documented_genesis_messages();
+    assert!(
+        documented.len() >= 4,
+        "{} documented `git init` + commit instruction(s) found; the scan is not reaching \
+         them: {documented:?}",
+        documented.len()
+    );
+
+    let mut offenders = Vec::new();
+    for (rel, message) in &documented {
+        if stderr_of_bundle_after(message).contains(NO_DOMAIN) {
+            offenders.push(format!("  {rel} — commits {message:?}"));
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "{} documented instruction(s) create a repository whose genesis names no domain:\n{}\
+         \n\nA reader following the page gets `[warn] … {NO_DOMAIN}` from `export` and \
+         `bundle` afterwards, and the page never mentions it. Write `genesis: <domain>`.",
+        offenders.len(),
+        offenders.join("\n")
+    );
+}
