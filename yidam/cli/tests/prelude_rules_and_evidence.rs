@@ -145,7 +145,14 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 17_686), ("sadhana/root/A
 /// puts it in a derived repository.
 ///
 /// The same raise discipline as [`READ_CEILING`]: a raise has to name the file and the words.
-const BOOTSTRAP_CEILING: usize = 26_392;
+///
+/// **Raised to 26,563 when step 8.5 got a branch for an uninstallable CLI (#936).** The delta is
+/// **171 words in `bootstrap.md`** — 7,427 to 7,598, and 26,392 + 171 is this figure exactly, so
+/// nothing else on the path moved under the same edit. The step's whole argument for the branch
+/// is 229 further words in `bootstrap.evidence.md`, which is reached by a `[why]` link and is
+/// charged to [`PAIR_FLOOR`] rather than here: a rule that costs every bootstrap 171 words and
+/// an argument that costs the ones who follow the link is the split working as intended.
+const BOOTSTRAP_CEILING: usize = 26_563;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -172,11 +179,18 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 ///
 /// A pair absent from this list is not exempt — [`every_pair_has_a_floor`] fails until somebody
 /// records one.
+///
+/// **`bootstrap.md` re-measured to 10,433 for #936.** 400 words arrived — 171 in the rules half,
+/// 229 in the evidence half — and the floor moves by 469, because 69 more had been standing as
+/// slack before this edit: the raise before it raised [`BOOTSTRAP_CEILING`] for a change to the
+/// same file and left this number where it was. That is the drift a no-slack floor is against,
+/// so it is closed here rather than carried forward, and the two halves of the move are stated
+/// separately so a later reader can tell them apart.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_399),
     ("yidam/prelude/GRAPH.md", 8_818),
     ("yidam/prelude/guidelines/directories.md", 10_961),
-    ("yidam/prelude/skills/bootstrap.md", 9_964),
+    ("yidam/prelude/skills/bootstrap.md", 10_433),
 ];
 
 fn read(rel: &str) -> String {
