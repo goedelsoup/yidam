@@ -44,6 +44,51 @@ pub fn resolve_root(explicit: Option<&Path>) -> Result<PathBuf> {
         .to_path_buf())
 }
 
+/// A repository `yidam clone` made, in which no bootstrap has run yet.
+///
+/// `clone` writes `.yidam.toml`, copies the template and runs `git init`. `.yidam/` is
+/// written at *genesis* — step 8 of the bootstrap dialogue. Between those two moments a
+/// repository has a pin and no corpus, and every gate reported that as "not a yidam
+/// repository … Derive one with `yidam clone <target>`", naming the command whose output the
+/// reader was standing in (#914). The state is not a fault: it is the one bootstrap starts
+/// from, and it is recognisable.
+///
+/// Three conditions, and the last two are what stop this swallowing a real breakage:
+///
+/// - `.yidam.toml` present and `.yidam/` absent — the pin without the corpus.
+/// - A git work tree. A template copied by hand with no `git init` is still "not inside a git
+///   repository", which is a different problem with a different remedy.
+/// - At most one commit. A repository worked in for months that has *lost* its `.yidam/` is
+///   broken rather than new, and the older message is the right one for it. A fresh clone has
+///   an unborn `HEAD`; one commit is allowed because the target may be committed before the
+///   dialogue is run.
+pub fn is_unbootstrapped_clone(root: &Path) -> bool {
+    if !root.join(crate::provenance::MANIFEST).is_file() || root.join(".yidam").is_dir() {
+        return false;
+    }
+    // Both questions go through [`crate::git::Git`], like the two spawns above and every
+    // other production read since #929. It strips an inherited `GIT_DIR`, which would
+    // otherwise answer both of them about whichever repository exported it rather than
+    // about `root` — and this predicate exists precisely to tell two directories apart.
+    if !crate::git::Git::new(root)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .succeeded()
+    {
+        return false;
+    }
+    // An unborn `HEAD` makes `rev-list` fail, and that is zero commits rather than a
+    // broken repository — it is also the common case, because `clone` runs `git init` and
+    // commits nothing. The work-tree check above is what makes the distinction safe.
+    match crate::git::Git::new(root)
+        .args(["rev-list", "--count"])
+        .rev("HEAD")
+        .try_run()
+    {
+        None => true,
+        Some(count) => count.parse::<u32>().is_ok_and(|n| n <= 1),
+    }
+}
+
 /// Fail unless the current directory really is a yidam-derived repository.
 ///
 /// [`repo_root`] falls back to the working directory when `git rev-parse` fails, which is
@@ -60,6 +105,17 @@ pub fn resolve_root(explicit: Option<&Path>) -> Result<PathBuf> {
 pub fn require_yidam_repo(root: &Path) -> Result<()> {
     if root.join(".yidam").is_dir() {
         return Ok(());
+    }
+
+    if is_unbootstrapped_clone(root) {
+        anyhow::bail!(
+            "not bootstrapped yet: {} was derived from yidam and has no .yidam/ directory\n  \
+             `yidam clone` copied the template and pinned the commit it came from in \
+             .yidam.toml. The ontology dialogue that writes .yidam/ has not run, so there is \
+             no corpus for this command to read yet. Open this repository with an agent and \
+             start at BOOTSTRAP.md.",
+            root.display()
+        )
     }
 
     // `-C root`, because the question is whether *this* directory is in a repository. Without

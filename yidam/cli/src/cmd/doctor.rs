@@ -211,7 +211,11 @@ impl DoctorReport {
 /// makes, and for the same reason: a repository bootstrapped an hour ago has the directory
 /// and no nodes in it, and that is a legitimately empty corpus rather than an absent one.
 ///
-/// One more state lives at this same test: `.yidam/` holding real corpus content — class
+/// Two more states live at this same test, and the point of naming them is that both used
+/// to be reported as "this is not a repository" — an answer whose remedy destroys or repeats
+/// work that has already been done.
+///
+/// The first: `.yidam/` holding real corpus content — class
 /// definitions or decision records, not just an empty scaffold — with git's `HEAD` unborn
 /// (#579): a bootstrap that ran the ontology dialogue, wrote class definitions and decision
 /// records, and stopped before step 8's genesis commit. The whole model rests on git history
@@ -235,6 +239,21 @@ fn check_repository(root: &Path) -> Answer {
             );
         }
         return Answer::ok(format!("{}", root.display()));
+    }
+    // #914: `.yidam.toml` and no `.yidam/`, on an empty or single-commit history — what
+    // `yidam clone` leaves behind. `warn`, because it is actionable and a normal state to be
+    // in, which is the whole of what this constructor means. Reported as `fail` it told the
+    // reader to run `yidam overlay .` on a repository that already carries the template, or
+    // to derive one with the command they had just run.
+    if crate::paths::is_unbootstrapped_clone(root) {
+        return Answer::warn(
+            format!(
+                "{} is derived from yidam and not bootstrapped yet — .yidam.toml is pinned, \
+                 and .yidam/ is not written until genesis",
+                root.display()
+            ),
+            Some("open this repository with an agent and start at BOOTSTRAP.md"),
+        );
     }
     // `Git::here()`: this asks about the process's own working directory, the way
     // [`crate::paths::repo_root`] does, so it is one of the two callers with no root to name.
@@ -559,7 +578,10 @@ enum Asked {
     /// produces confident nonsense — "no index", "no provenance" — that reads as a list of
     /// things to fix rather than as one thing. A `.yidam/` with an unborn HEAD (#579) fails
     /// the same test for a different reason and is just as unanswerable: most of these read
-    /// git history, which does not exist yet either.
+    /// git history, which does not exist yet either. So does a clone that has not been
+    /// bootstrapped (#914), which is the one of the three that is not a fault — the
+    /// repository check `warn`s, and [`diagnose`] keys on "not `Ok`" rather than on "failed"
+    /// so that this state skips the roster too.
     ///
     /// Reported `skipped` and never dropped — a check that vanishes cannot be told from one
     /// that never ran, which is what the report contract says about `checks` and what
@@ -730,9 +752,16 @@ pub(crate) fn diagnose(
     let mut checks = Vec::with_capacity(ROSTER.len());
     for question in ROSTER {
         let check = question.ask(&subject, unanswerable);
-        if question.id == Check::REPOSITORY && check.verdict == Verdict::Fail {
+        // `!= Ok` rather than `== Fail`: since #914 the repository check has a third
+        // answer, and it is a `warn`. A clone that has not been bootstrapped has no more
+        // history to read than one that is not a repository at all, so the rest of the
+        // roster is just as unanswerable — and answering it anyway would print fifteen
+        // findings against a repository whose only real state is "start at BOOTSTRAP.md".
+        if question.id == Check::REPOSITORY && check.verdict != Verdict::Ok {
             unanswerable = Some(if root.join(".yidam").is_dir() {
                 "bootstrapped but never committed"
+            } else if crate::paths::is_unbootstrapped_clone(root) {
+                "derived from yidam, not bootstrapped yet"
             } else {
                 "not a yidam repository"
             });
@@ -2081,6 +2110,105 @@ mod tests {
         let tmp = derived_repo();
         assert!(!head_is_unborn(tmp.path()));
         assert_eq!(check_repository(tmp.path()).verdict, Verdict::Ok);
+    }
+
+    /// #914: `.yidam.toml` present, no `.yidam/`, nothing committed — exactly what
+    /// `yidam clone` leaves behind, and the first thing its reader runs.
+    ///
+    /// This used to read `fail  repository  … is a git repository with no .yidam/` with the
+    /// remedy `yidam overlay .`, which overlays the template onto a repository that already
+    /// carries it, and the sixteen checks behind it reported nothing at all rather than
+    /// skipping. A clone is not a broken repository; it is an unstarted one.
+    #[test]
+    fn a_fresh_clone_is_derived_but_not_yet_bootstrapped() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join(crate::provenance::MANIFEST),
+            "[yidam]\ncommit = \"abc1234\"\n",
+        )
+        .unwrap();
+        git(tmp.path(), &["init", "-q", "-b", "main"]);
+        // Deliberately no commit: `clone` runs `git init` and commits nothing.
+
+        let c = check_repository(tmp.path());
+        assert_eq!(c.verdict, Verdict::Warn, "detail was: {}", c.detail);
+        assert!(
+            c.detail.contains("not bootstrapped yet"),
+            "the detail must name the state: {}",
+            c.detail
+        );
+        assert!(
+            c.remedy
+                .as_deref()
+                .unwrap_or_default()
+                .contains("BOOTSTRAP.md"),
+            "the remedy must point at the dialogue, not at the command already run: {:?}",
+            c.remedy
+        );
+
+        let checks = diagnose(tmp.path(), None, None, 20_000);
+        // Every question is still reported, and the ones that read history are skipped with
+        // a reason that does not claim this is not a repository.
+        for question in ROSTER.iter().filter(|q| q.asked == Asked::OfARepository) {
+            let check = find(&checks, question.id);
+            assert_eq!(
+                check.verdict,
+                Verdict::Skipped,
+                "{} was answered against a repository with no corpus yet",
+                question.id
+            );
+            assert!(
+                check.detail.contains("not bootstrapped yet"),
+                "{} skipped for the wrong reason: {}",
+                question.id,
+                check.detail
+            );
+        }
+        // And it is not a red build. Nothing is wrong; something has not happened yet.
+        assert!(
+            DoctorReport::new(checks, false).passed,
+            "a clone nobody has bootstrapped is not a failing repository"
+        );
+    }
+
+    /// The commit-count condition, measured. A repository with a real history and no
+    /// `.yidam/` has *lost* something, and telling its owner to run a bootstrap dialogue
+    /// would be the wrong instruction. Without this the predicate would relabel every
+    /// repository that happens to carry a `.yidam.toml` as brand new.
+    #[test]
+    fn a_repository_with_a_history_and_no_dot_yidam_is_not_a_fresh_clone() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join(crate::provenance::MANIFEST),
+            "[yidam]\ncommit = \"abc1234\"\n",
+        )
+        .unwrap();
+        git(tmp.path(), &["init", "-q", "-b", "main"]);
+        git(tmp.path(), &["config", "user.email", "doctor@yidam.test"]);
+        git(tmp.path(), &["config", "user.name", "Doctor"]);
+        for n in ["one", "two", "three"] {
+            std::fs::write(tmp.path().join(n), "").unwrap();
+            git(tmp.path(), &["add", "-A"]);
+            git(tmp.path(), &["commit", "-q", "-m", n]);
+        }
+
+        assert!(!crate::paths::is_unbootstrapped_clone(tmp.path()));
+        let c = check_repository(tmp.path());
+        assert_eq!(c.verdict, Verdict::Fail, "detail was: {}", c.detail);
+    }
+
+    /// A template copied by hand, with no `git init`. `is_unbootstrapped_clone` requires a
+    /// work tree, so this keeps the "not inside a git repository" message it needs — the
+    /// remedy there is `git init`, not a bootstrap dialogue.
+    #[test]
+    fn a_pin_with_no_git_at_all_is_not_a_fresh_clone() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join(crate::provenance::MANIFEST),
+            "[yidam]\ncommit = \"abc1234\"\n",
+        )
+        .unwrap();
+        assert!(!crate::paths::is_unbootstrapped_clone(tmp.path()));
     }
 
     // ── provenance ───────────────────────────────────────────────────────────

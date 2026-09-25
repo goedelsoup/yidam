@@ -65,6 +65,24 @@ check, so a screen of skips means the first line is the problem.
 
 ---
 
+## `not bootstrapped yet`
+
+```
+Error: not bootstrapped yet: /home/you/my-corpus was derived from yidam and has no
+  .yidam/ directory
+  `yidam clone` copied the template and pinned the commit it came from in .yidam.toml.
+  The ontology dialogue that writes .yidam/ has not run, so there is no corpus for this
+  command to read yet. Open this repository with an agent and start at BOOTSTRAP.md.
+```
+
+Nothing is wrong. `clone` hands you a pinned template; `.yidam/` is written at genesis, which
+is step 8 of the [bootstrap dialogue](bootstrap-flow.md). The step you have not done yet is
+[Quickstart §4](quickstart.md).
+
+`yidam doctor` reports this as a `warn` rather than a `fail`, and exits 0. A clone is not a red
+build before anyone has had the chance to bootstrap it. `--strict` still refuses it, which is
+the reading a CI job wants.
+
 ## `not a yidam repository`
 
 ```

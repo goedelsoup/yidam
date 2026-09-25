@@ -60,6 +60,18 @@ fn bootstrapped_but_empty() -> tempfile::TempDir {
     tmp
 }
 
+/// What `yidam clone` leaves behind: the pin, a `git init`, and nothing committed. The
+/// corpus arrives at genesis, which is step 8 of the bootstrap dialogue.
+fn fresh_clone() -> tempfile::TempDir {
+    let tmp = plain_git();
+    std::fs::write(
+        tmp.path().join(".yidam.toml"),
+        "[yidam]\ncommit = \"abc1234\"\n",
+    )
+    .unwrap();
+    tmp
+}
+
 #[test]
 fn graph_check_fails_outside_a_git_repository() {
     let d = bare();
@@ -122,6 +134,66 @@ fn a_bootstrapped_repository_with_an_empty_corpus_still_passes() {
         l.code, 0,
         "lint must run in a bootstrapped repo: {}",
         l.stderr
+    );
+}
+
+/// #914: a clone that has not been bootstrapped still refuses — there is no corpus to check
+/// — but the refusal named `yidam clone <target>`, which is the command the reader had just
+/// run, and `yidam overlay .`, which would overlay the template onto a copy of the template.
+///
+/// Asserted on the prose here, unlike the tests above, because the prose *is* the defect: the
+/// exit code was already right and telling someone to redo the step they had just done is the
+/// whole of what went wrong.
+#[test]
+fn a_clone_nobody_bootstrapped_is_told_to_bootstrap_it() {
+    let d = fresh_clone();
+    for args in [&["graph-check"][..], &["lint"][..], &["schema"][..]] {
+        let r = run(d.path(), args);
+        assert_ne!(
+            r.code,
+            0,
+            "`yidam {}` reported a corpus that does not exist yet as clean: {}",
+            args.join(" "),
+            r.stdout
+        );
+        assert!(
+            r.stderr.contains("BOOTSTRAP.md"),
+            "`yidam {}` must point at the dialogue: {}",
+            args.join(" "),
+            r.stderr
+        );
+        assert!(
+            !r.stderr.contains("yidam clone <target>") && !r.stderr.contains("yidam overlay ."),
+            "`yidam {}` recommended the command that produced this directory: {}",
+            args.join(" "),
+            r.stderr
+        );
+    }
+}
+
+/// `doctor` is the command whose whole job is to name the state, and the one a reader of the
+/// quickstart runs first. A clone must not be a failing repository: nothing is wrong in it.
+#[test]
+fn doctor_reports_a_fresh_clone_as_a_state_rather_than_a_failure() {
+    let d = fresh_clone();
+    let r = run(d.path(), &["doctor"]);
+    assert_eq!(
+        r.code, 0,
+        "doctor failed a repository whose only state is \"not started\"\nstdout: {}\nstderr: {}",
+        r.stdout, r.stderr
+    );
+    assert!(
+        r.stdout.contains("BOOTSTRAP.md"),
+        "doctor must say what to do next: {}",
+        r.stdout
+    );
+    // The other half: `--strict` is the reading a CI job wants, and an unbootstrapped clone
+    // is not something CI should be green about.
+    let strict = run(d.path(), &["doctor", "--strict"]);
+    assert_ne!(
+        strict.code, 0,
+        "--strict must still refuse an unbootstrapped clone: {}",
+        strict.stdout
     );
 }
 

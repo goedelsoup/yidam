@@ -63,6 +63,27 @@ yidam clone ~/my-corpus
 The test is `yidam/prelude/` and `sadhana/`. Those are what a *derived* repository does not
 have: bootstrap vendors the prelude away and consumes the scaffold at genesis. So a derived
 repository is refused too. To move a corpus, copy the corpus.
+### A clone that has not been bootstrapped is a state, not a failure
+
+**`yidam doctor` reports a fresh clone as a `warn` and exits 0 (#914).** It used to report
+`fail  repository  … is a git repository with no .yidam/`, with the remedy `yidam overlay .` —
+overlaying the template onto a copy of the template. `graph-check`, `lint` and the other gates
+said `not a yidam repository … Derive one with 'yidam clone <target>'`, naming the command
+whose output the reader was standing in.
+
+`.yidam/` is written at genesis, which is step 8 of the bootstrap dialogue. Between `clone` and
+genesis a repository has a pin and no corpus. That is not a fault. It is the state bootstrap
+starts from, and all three reports now name it and point at `BOOTSTRAP.md`.
+
+**What changes for you.** A CI job that runs `yidam doctor` and keys on the exit code now
+passes here, where it used to fail. Three conditions together recognise the state: `.yidam.toml`
+present, `.yidam/` absent, and at most one commit. A repository that has been worked in and has
+*lost* its `.yidam/` is still a `fail`, with the older message. That is a breakage rather than a
+beginning.
+
+**`doctor --strict` still refuses it**, which is the reading a CI job wants. Nothing that gates
+on a corpus started passing: `graph-check`, `lint`, `export`, `schema` and `bundle` exit 1 as
+before. Only what they say changed.
 
 ### `yidam --help` is short, and `--help-all` is the full listing
 
