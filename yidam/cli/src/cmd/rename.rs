@@ -16,6 +16,13 @@
 //! knows about it. A rename that fixed every other file and broke the one it moved would be a
 //! strange kind of correct.
 //!
+//! Only the ones the move actually breaks, though. The test is whether the target still lands
+//! where it did once resolved from the destination — so a `./sibling.yml` in a node renamed
+//! *within* its class passes it, and keeps the words its author wrote. Re-relativizing it to
+//! the equivalent long form put a line in the diff nobody had asked for, in a commit whose
+//! subject counted the other three (#920). `migrate` reached the same rule by its own route:
+//! a link changes when its target moved, never merely because its owner did.
+//!
 //! The third is the file itself, via `git mv` where there is a repository, so history follows
 //! the node rather than stopping at its old name.
 //!
@@ -85,6 +92,26 @@ pub struct RenameReport {
     /// moved", and GRAPH.md is explicit that reaching for the closest existing verb beats
     /// inventing one.
     pub commit_subject: String,
+}
+
+impl RenameReport {
+    /// The moved node, repository-relative, at the name it ends up with.
+    ///
+    /// Every edit is reported under the path its file has once the command finishes, so this
+    /// is the one path in [`Self::edits`] that belongs to the renamed node itself.
+    fn moved_file(&self) -> String {
+        format!("{}/{}", self.corpus_dir, self.to)
+    }
+
+    /// Edits in files other than the one being moved.
+    ///
+    /// The summary line and the commit subject both count *this*, so the number the reader
+    /// sees printed and the number the commit message claims cannot disagree — they did, and
+    /// the difference was a link the rename had no business touching.
+    fn inbound(&self) -> impl Iterator<Item = &Edit> {
+        let moved = self.moved_file();
+        self.edits.iter().filter(move |e| e.file != moved)
+    }
 }
 
 fn slash(p: &Path) -> String {
@@ -194,13 +221,19 @@ pub(crate) fn plan(root: &Path, corpus: &Path, old: &str, new: &str) -> RenameRe
         return report;
     }
 
+    let moved_rel = report.moved_file();
     for path in walk_corpus_instances(corpus) {
         let id = slash(path.strip_prefix(corpus).unwrap_or(&path));
         let text = std::fs::read_to_string(&path).unwrap_or_default();
-        let rel = slash(path.strip_prefix(root).unwrap_or(&path));
         // The moved node's own links are re-relativized from where it lands; everybody else's
-        // are rewritten only when they point at the node being moved.
+        // are rewritten only when they point at the node being moved. Either way the edit is
+        // reported under the path its file has when the command finishes — for the mover that
+        // is the new name, not the one it is leaving.
         let moving = id == from;
+        let rel = match moving {
+            true => moved_rel.clone(),
+            false => slash(path.strip_prefix(root).unwrap_or(&path)),
+        };
         for (i, line) in text.lines().enumerate() {
             let Some((_, _, value)) = target_on(line) else {
                 continue;
@@ -220,15 +253,22 @@ pub(crate) fn plan(root: &Path, corpus: &Path, old: &str, new: &str) -> RenameRe
                 false if resolved == from => (id.clone(), to.clone()),
                 false => continue,
             };
-            let rewritten = relative_target(&owner, &target);
-            if rewritten == value {
+            // A link the move does not break keeps the words its author wrote. The mover's
+            // `./sibling.yml` still finds that sibling from a destination in the same class,
+            // and rewriting it to the equivalent `../<class>/sibling.yml` put a line nobody
+            // asked for into the diff — counted in the summary, absent from the commit
+            // subject, and attributed to a file that no longer answered to that name.
+            //
+            // This subsumes the older "is the rewrite a no-op?" test: a target already
+            // written the long way resolves to itself from the same origin.
+            if slash(&resolve_target(Path::new(&owner), &value)) == target {
                 continue;
             }
             report.edits.push(Edit {
                 file: rel.clone(),
                 line: i + 1,
                 from: value,
-                to: rewritten,
+                to: relative_target(&owner, &target),
             });
         }
     }
@@ -274,11 +314,7 @@ pub(crate) fn plan(root: &Path, corpus: &Path, old: &str, new: &str) -> RenameRe
     });
     report.commit_subject = format!(
         "migrate: {from} → {to} ({} inbound link(s) rewritten)",
-        report
-            .edits
-            .iter()
-            .filter(|e| !e.file.ends_with(&from))
-            .count()
+        report.inbound().count()
     );
     report
 }
@@ -292,8 +328,26 @@ pub(crate) fn git_mv(root: &Path, from: &Path, to: &Path) -> bool {
         .succeeded()
 }
 
-/// Apply the plan. Every edit lands before the move, so nothing observes a half-state.
+/// Apply the plan.
+///
+/// The move goes first, because every edit is recorded under the path its file has when the
+/// command finishes and one of those files is the node being moved. Ordering the other way
+/// would mean translating that one path back to the name it is leaving, on every write.
+///
+/// Nothing observes a half-state either way: the gate reads the working tree, and the tree is
+/// only read once the command returns.
 fn apply(root: &Path, corpus: &Path, report: &mut RenameReport) -> Result<()> {
+    let old_path = corpus.join(&report.from);
+    let new_path = corpus.join(&report.to);
+    if let Some(parent) = new_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    if !git_mv(root, &old_path, &new_path) {
+        // Not a repository, or the file is untracked. Moving it is still the right outcome —
+        // `git mv` is for history, not for correctness.
+        std::fs::rename(&old_path, &new_path)?;
+    }
+
     let mut by_file: std::collections::BTreeMap<&str, Vec<&Edit>> = Default::default();
     for e in &report.edits {
         by_file.entry(&e.file).or_default().push(e);
@@ -323,16 +377,6 @@ fn apply(root: &Path, corpus: &Path, report: &mut RenameReport) -> Result<()> {
         std::fs::write(&path, out)?;
     }
 
-    let old_path = corpus.join(&report.from);
-    let new_path = corpus.join(&report.to);
-    if let Some(parent) = new_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    if !git_mv(root, &old_path, &new_path) {
-        // Not a repository, or the file is untracked. Moving it is still the right outcome —
-        // `git mv` is for history, not for correctness.
-        std::fs::rename(&old_path, &new_path)?;
-    }
     report.applied = true;
     Ok(())
 }
@@ -345,20 +389,35 @@ pub(crate) fn render_rename(r: &RenameReport) -> String {
         }
         return out.trim_end().to_string();
     }
+    // Inbound and the mover's own are counted apart, because only inbound reaches the commit
+    // subject. One number for both is a summary that says four over a message that says three.
+    let inbound: Vec<&Edit> = r.inbound().collect();
     let mut out = format!(
-        "{} {} → {}\n{} link(s) rewritten across {} file(s)\n",
+        "{} {} → {}\n{} inbound link(s) rewritten across {} file(s)\n",
         if r.applied { "Renamed" } else { "Would rename" },
         r.from,
         r.to,
-        r.edits.len(),
-        r.edits
+        inbound.len(),
+        inbound
             .iter()
             .map(|e| e.file.as_str())
             .collect::<std::collections::BTreeSet<_>>()
             .len()
     );
-    for e in &r.edits {
+    for e in &inbound {
         let _ = writeln!(out, "  {}:{}  {} → {}", e.file, e.line, e.from, e.to);
+    }
+    let moved = r.moved_file();
+    let own: Vec<&Edit> = r.edits.iter().filter(|e| e.file == moved).collect();
+    if !own.is_empty() {
+        let _ = write!(
+            out,
+            "\n{} link(s) inside the moved node re-relativized:\n",
+            own.len()
+        );
+        for e in &own {
+            let _ = writeln!(out, "  {}:{}  {} → {}", e.file, e.line, e.from, e.to);
+        }
     }
     if !r.unhandled.is_empty() {
         let _ = write!(
@@ -491,6 +550,84 @@ mod tests {
         assert!(
             moved.contains("target: ../concept/sibling.yml"),
             "the moved node still points at its old sibling: {moved}"
+        );
+    }
+
+    /// The other half: a link the move does not break is left alone.
+    ///
+    /// `concept/low-flow.yml` pointed at `./base-flow-separation.yml`, and renaming it within
+    /// `concept/` churned that into the equivalent `../concept/base-flow-separation.yml` —
+    /// a fourth line in a diff whose commit message said three (#920).
+    #[test]
+    fn a_link_the_move_does_not_break_keeps_the_words_it_was_written_with() {
+        let (_t, root, corpus) = corpus();
+        write(
+            &corpus.join("concept/old.yml"),
+            "class: concept\nlinks:\n  - target: ./sibling.yml\n    relationship: r\n",
+        );
+        write(&corpus.join("concept/sibling.yml"), "class: concept\n");
+
+        let mut r = plan(&root, &corpus, "concept/old", "concept/new");
+        assert!(
+            r.edits.is_empty(),
+            "nothing broke, so nothing moves: {:?}",
+            r.edits
+        );
+        apply(&root, &corpus, &mut r).unwrap();
+        assert!(read(&corpus.join("concept/new.yml")).contains("target: ./sibling.yml"));
+    }
+
+    /// An edit inside the renamed file is reported at the name the reader will find it under.
+    ///
+    /// The plan runs before the move, so the obvious path to record is the one being left —
+    /// and a reader who opened it found nothing there (#920).
+    #[test]
+    fn the_moved_nodes_own_edits_are_reported_under_its_new_path() {
+        let (_t, root, corpus) = corpus();
+        write(
+            &corpus.join("concept/old.yml"),
+            "class: concept\nlinks:\n  - target: sibling.yml\n    relationship: r\n",
+        );
+        write(&corpus.join("concept/sibling.yml"), "class: concept\n");
+
+        let r = plan(&root, &corpus, "concept/old", "gauge/moved");
+        assert_eq!(r.edits.len(), 1);
+        assert_eq!(r.edits[0].file, ".yidam/corpus/gauge/moved.yml");
+    }
+
+    /// The summary and the commit subject count the same thing.
+    ///
+    /// They disagreed: the summary counted every rewrite and the subject counted the inbound
+    /// ones, so a rename that touched the moved node printed four over a message saying three
+    /// with nothing to explain the gap (#920). Now the moved node's own rewrites are a second
+    /// stanza with its own count.
+    #[test]
+    fn the_summary_count_and_the_commit_count_are_the_same_number() {
+        let (_t, root, corpus) = corpus();
+        write(
+            &corpus.join("concept/old.yml"),
+            "class: concept\nlinks:\n  - target: sibling.yml\n    relationship: r\n",
+        );
+        write(&corpus.join("concept/sibling.yml"), "class: concept\n");
+        write(
+            &corpus.join("concept/b.yml"),
+            "class: concept\nlinks:\n  - target: ../concept/old.yml\n    relationship: r\n",
+        );
+
+        let r = plan(&root, &corpus, "concept/old", "gauge/moved");
+        assert_eq!(r.edits.len(), 2, "one inbound and one of the mover's own");
+        let rendered = render_rename(&r);
+        assert!(
+            rendered.contains("1 inbound link(s) rewritten across 1 file(s)"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("(1 inbound link(s) rewritten)"),
+            "the subject must carry the number the summary printed: {rendered}"
+        );
+        assert!(
+            rendered.contains("1 link(s) inside the moved node re-relativized:"),
+            "the rewrite the subject does not count must still be shown: {rendered}"
         );
     }
 
