@@ -78,6 +78,12 @@ records which yidam governs the repository, and only that one gets to say.
 What this corpus has decided about itself. Every section and every key is optional, and
 **absent means the behaviour is off** — not a compiled-in default quietly applying.
 
+Bootstrap scaffolds this file with every key present and commented out. That is the delivered
+state, not an unfinished one. A number shipped in a scaffold is one corpus's judgement,
+arriving in another that never agreed to it. What the file gives you is the list. Leaving a
+clock unset is then a choice you looked at, rather than a key you never met. Uncomment what
+you mean; an empty section says what no section says.
+
 ```toml
 [lint]
 escalate_after = 100
@@ -105,6 +111,12 @@ paths = ["web/**", "crates/**"]
 [serve]
 act = true
 ```
+
+`[index.remote]` and `[vault.<name>]` are the two sections not shown above. Each has required
+fields, so a half-filled one is refused rather than ignored. Both are in the scaffold,
+commented, with those fields named. The shared vector index is covered in
+[`cli-reference.md`](cli-reference.md#index-and-embeddings); the stores, in
+[`artifact-vaults.md`](artifact-vaults.md).
 
 ### `[lint] escalate_after`
 

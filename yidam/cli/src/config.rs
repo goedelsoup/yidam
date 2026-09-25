@@ -289,3 +289,94 @@ pub fn load_yidam_config(root: &Path) -> Result<YidamConfig> {
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `sadhana/config.toml`, the scaffold a derived repository gets, deserializes into
+    /// [`YidamConfig`] once every offered line is uncommented.
+    ///
+    /// The file ships with every key commented out, because an interval compiled into a
+    /// scaffold is one corpus's judgement arriving in another that never agreed to it. That
+    /// is the right delivered state and it is also why nothing checks the file: a comment
+    /// has no parser, so a key in the wrong section, a misspelling, or a string where a
+    /// number belongs sits there until the day a corpus takes the offer up.
+    ///
+    /// This is the typed half of that check — right section, right spelling, right type,
+    /// through the binary's own deserializer, which is why it lives here and not in
+    /// `tests/scaffolded_config.rs`: `mod config` is private. `VaultConfig` and
+    /// `RemoteIndexConfig` are `deny_unknown_fields`, so a leaf typo fails here rather than
+    /// parsing into nothing.
+    #[test]
+    fn the_scaffolded_config_deserializes() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("sadhana/config.toml");
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+
+        // As delivered: no live keys at all, so a derived repository's config parses to
+        // exactly what an absent file gives it.
+        let delivered: YidamConfig = toml::from_str(&text)
+            .unwrap_or_else(|e| panic!("{} does not parse as delivered: {e}", path.display()));
+        assert!(
+            delivered.vault.is_empty()
+                && delivered.due.questions_after.is_none()
+                && delivered.lint.escalate_after.is_none()
+                && !delivered.serve.act,
+            "the scaffolded config sets a key. Every one of them is meant to be commented \
+             out: a number shipped here is a judgement this corpus never made."
+        );
+
+        // And as taken up.
+        let live: String = text
+            .lines()
+            .filter_map(|line| {
+                let bare = line
+                    .strip_prefix('#')
+                    .map(str::trim_start)
+                    .unwrap_or(line)
+                    .trim();
+                let header = bare.starts_with('[') && bare.ends_with(']') && !bare.contains(' ');
+                let assignment = bare.split_once('=').is_some_and(|(k, _)| {
+                    let k = k.trim();
+                    !k.is_empty()
+                        && k.chars().all(|c| {
+                            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-'
+                        })
+                });
+                (header || assignment).then(|| bare.to_string())
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let config: YidamConfig = toml::from_str(&live).unwrap_or_else(|e| {
+            panic!(
+                "{} does not deserialize once uncommented: {e}\n\n--- uncommented ---\n{live}",
+                path.display()
+            )
+        });
+
+        // Spot-check the ends of the shape, so a parse that silently read nothing is not
+        // mistaken for one that read everything.
+        assert_eq!(config.due.questions_after, Some(100));
+        assert_eq!(config.vault.len(), 1, "the example vault did not survive");
+        let vault = config.vault.values().next().unwrap();
+        assert!(
+            vault.audience.is_some(),
+            "the example vault states no audience"
+        );
+        let remote = config
+            .index
+            .remote
+            .as_ref()
+            .expect("the example remote index did not survive");
+        assert!(
+            !remote.corpora.is_empty(),
+            "the example `[index.remote.corpora]` nickname did not survive — a key with a \
+             hyphen in it is how that reads, and a parse that drops it would pass every \
+             other assertion here"
+        );
+    }
+}
