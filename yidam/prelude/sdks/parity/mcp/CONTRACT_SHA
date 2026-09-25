@@ -1,0 +1,59 @@
+# The contract version, and the document it names.
+#
+# One record per contract version, in the order they shipped, appended and never edited:
+#
+#     <version>  sha256:<digest of tools.json with its own `contract` field removed>
+#
+# `tools.json` declares the version, `VERSION` states it, `README.md`'s capability block
+# prints it and `docs/mcp-server.md`'s handshake example shows it. All four were held to each
+# other and none of them was required to move, so two branches could each add a tool, each
+# ship `"contract": "0.24.0"`, and every gate stay green on both and on the merge (#940). This
+# file is the half that was missing: a number, once written here, is that document's name, and
+# a second change claiming it has to write a second line for a version already in the file.
+#
+# The digest is over the WHOLE document minus the version — prose included. Measured against
+# this file's own history: 27 commits to `tools.json` carrying 25 bumps, of which 11 changed
+# no structured field at all. `0.16.0 → 0.17.0` specified what an ordering does when two dates
+# disagree about precision, entirely in two `notes` paragraphs. The frozen vocabularies live in
+# that prose too, deliberately. A digest over names, tiers and schemas would have been silent
+# on those bumps, which is most of what this contract has ever changed.
+#
+# Appending is part of a bump, and `yidam/cli/tests/mcp_contract_digest.rs` is what says so:
+# it recomputes the digest of the contract in the tree, fails when the last record disagrees,
+# and prints the line to append. Reformatting `tools.json` is free — keys are sorted and
+# whitespace dropped before hashing — and a reworded sentence is not: the contract is the
+# document, and a client that read 0.24.0 yesterday must not get different bytes today under
+# that number.
+#
+# The 25 records before the last were measured, not written: each is the digest of the
+# `tools.json` a commit left behind, and
+# `the_ledger_is_the_history_the_repository_records` recomputes all of them from the history
+# whenever it is run against a full clone. 0.16.0 stood two ways — `948c316` reworded a `notes`
+# paragraph without moving the version, which is this hole happening once — and the record is
+# the document as that version ended.
+0.1.0    sha256:dadaf09dbc439947f98f1fa17d945f70fb59307c6c83162659643e8f3b4ea548
+0.2.0    sha256:cf4c3d9438874f211d7f9d3d9ce697c9d40a5e05a129cc12b875280ba9df4bb4
+0.3.0    sha256:6d870baa387ee8ea848ef7b7a06601cffa8a01a42c889f46ffff248bed831be8
+0.4.0    sha256:5b53e7a5d05524c488fe95dcc1bfa261252c902348d75f8ac9cd94a9a20675bb
+0.5.0    sha256:86a80db54af7ac96da9a6703d41147d4f42161c0a74f44358cb8a2cb47bd3e0c
+0.6.0    sha256:d246be8cc744bc1bad587b4769e1424e6ac60bb3d23e6e62ebb763e58db2812b
+0.7.0    sha256:bf7946256cf2f92ccb05f59b0231ffb1a531817c7fc880034b8db05dcf27d96c
+0.8.0    sha256:38090471ab5498ed1e8b67ed4ec3d6aa12311f76710569eadd7b6a3621d3958c
+0.9.0    sha256:23b57b19d5a6c80fa58f08a512e77813e5b47a030aaece910ca6ab7a3055c71d
+0.9.1    sha256:6c2cb4a1bbebc50d323627e2999e8f4ac9660d10d93e94861da54bda721ba245
+0.10.0   sha256:e34c8a371b5f03d4e314312e4630f756a393a143190530dcec476e607eeb0bfe
+0.11.0   sha256:5f46e1286e6896a2c999138b8ea7a96f7a0d2fa9ddf574ce2202ab94aa66e4ac
+0.11.1   sha256:40ad87e4dc764ff467a9d06558d0d325c8b73cbdb38e70be961b3d1960604208
+0.12.0   sha256:ae4d431a8c1756c0bb3e2accd0ea49cac04e6df68ad09d4d1356559c7dcb61de
+0.13.0   sha256:cebdea98e0957d4248003ac6b8a44ab2c5c4741ea473886f93844434570aa951
+0.14.0   sha256:a9be93a29796c972ee39ec2ed67746a4aa8a1f3744715bc4fc2a652406d5aa96
+0.15.0   sha256:4ac0cb176a79a423f18c4f80730e147096b36d1e44e4fe846b50a7362960843a
+0.16.0   sha256:6fa767a0971ed3a77fce7f6eb5a9c4f59dec598ccc9a785d2a924df7dc96445a
+0.17.0   sha256:5af5962539d9dcf0793578ea6f3afe22b1900f0c8c208a02eafa63f8f12d7892
+0.18.0   sha256:ecafeafcbfe3328d41406af24a469a9d2c3daf45a71a87ce70f42592e3954959
+0.19.0   sha256:94a8ed35ad961abf08caf8b093102e5d1f4c6e52429f0030b7b0dd9ecd8282cb
+0.20.0   sha256:e505ad310faad48d96aacd9afa2cc0122adccafe2026eded3ecefce4e69df68b
+0.21.0   sha256:703c5b9ccd199371690b823b921673e36fc547bedf4a0839c40b796dda32cf0f
+0.22.0   sha256:4514d48f67b85764be9915b9b9dec53e80f88489cddeb36efb36d3fed07278db
+0.23.0   sha256:07bdffda7ced97cec109db3d8c50980b289d183cf741c18920bb7f9315424a9c
+0.24.0   sha256:00ce13cffc5c321e1cbd5530d376a46d5016c70acfdfbb7410d5321730a4ee5f

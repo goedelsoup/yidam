@@ -672,6 +672,7 @@ not protocol.
 |---|---|
 | The frozen tool contract — names, schemas, response shapes | [rfcs/0005-mcp-tool-contract.md](rfcs/0005-mcp-tool-contract.md) |
 | The machine-readable freeze every server is tested against | [`prelude/sdks/parity/mcp/tools.json`](../yidam/prelude/sdks/parity/mcp/tools.json) |
+| Which document each contract version names, and how to bump one | [`prelude/sdks/parity/mcp/CONTRACT_SHA`](../yidam/prelude/sdks/parity/mcp/CONTRACT_SHA) |
 | Dependencies, `origin`, and what a cross-corpus citation is | [sharing-derivations.md](sharing-derivations.md) |
 | The index the non-degraded `retrieve` runs on | [domain-computer.md](domain-computer.md) |
 | Getting a corpus to serve in the first place | [quickstart.md](quickstart.md) |

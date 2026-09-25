@@ -71,6 +71,36 @@ the vector index is loaded, which is the same fact `degraded` reports per call. 
 declares `vector: false` is promising every `retrieve` will come back `degraded: true`, with
 the `reason` it names here. `reason` is null exactly when `vector` is true.
 
+## Bumping the contract
+
+The version names a document, and `CONTRACT_SHA` is where the name is bound to it: one
+`<version>  sha256:<digest>` record per version, in ship order, appended and never edited. The
+digest is of `tools.json` with its own `contract` field removed — keys sorted, whitespace
+dropped — so reformatting the file is free and rewording a sentence in it is not.
+
+That asymmetry is the point. Before the ledger, four places carried the version and were held
+only to *each other*: two branches could each add a tool, each ship the number already there,
+and every gate stay green on both and on the merge (#940). A number written here is taken, so
+the second branch has to append a line for a version the file already records — which is a
+conflict in one file at merge rather than two contracts sharing a name.
+
+The digest covers the whole document, prose included, because that is where this contract keeps
+most of its substance: of 25 bumps, 11 changed no structured field at all. A digest over names,
+tiers and schemas would have been silent on the one that specified what an ordering does when
+two dates disagree about precision, which lives in two paragraphs of `notes`.
+
+A bump therefore edits five things, and `yidam/cli/tests/mcp_contract_digest.rs` prints the
+list with the line to append whenever they disagree:
+
+1. `tools.json` — the `contract` field. The live one: `serve --mcp` compiles it in.
+2. `VERSION`.
+3. this file's capability block, which is the first thing an implementer copies.
+4. `docs/mcp-server.md`'s handshake example.
+5. `CONTRACT_SHA` — append the new version and the digest of the document you just changed.
+
+Only the last is load-bearing against reuse; the first four are copies, and a copy agreeing
+with a copy is what #940 was about.
+
 ## The codes a client branches on (contract 0.15.0)
 
 `query`'s `rejected.code` set is frozen and this file says, in as many words, that a client
