@@ -26,7 +26,6 @@ use anyhow::{bail, Context, Result};
 
 use crate::config::load_yidam_config;
 use crate::model::{index_rows, load_domain_model};
-use crate::paths::repo_root;
 use crate::s3vectors::{
     ops::{self, MirrorPlan, Session},
     request::{self, OutVector},
