@@ -120,12 +120,69 @@ struct FormatArg {
     value: yidam::Format,
 }
 
+/// `--root`, declared once for every command that names a corpus (#918).
+///
+/// `serve` took this flag first (#421) and `export` second (#236, #428), and both wrote out
+/// their own declaration with a paragraph of reasoning attached. The reasoning generalised
+/// long before the flag did: *every* command resolved its corpus from the working directory,
+/// so a corpus that lives inside another git repository — `examples/streamflow` in this one,
+/// or any checkout inside a larger workspace — could be read only by copying it somewhere
+/// else and running `git init` on the copy. `docs/quickstart.md` spent a paragraph of a
+/// reader's first twenty minutes on exactly that, and the paragraph was about the tool rather
+/// than about corpora.
+///
+/// What the flag *means* is [`yidam::paths::resolve_root`]'s and is documented there — one
+/// place, so the next command to take it cannot quietly disagree with the rest. What this
+/// struct adds is that the flag is now *spelled* once: a copy of the `#[arg]` and its help
+/// sentence per command is a chance per command for the value name or the wording to drift,
+/// and the two copies that already existed had already begun to.
+///
+/// The commands that do **not** take it are the ones for which a corpus you are not standing
+/// in is not a coherent thing to act on. Three kinds: those that author a commit into the
+/// corpus, those that write a build artefact into its `.yidam/`, and those that derive or
+/// maintain a repository and already name their target positionally. They refuse `--root` as
+/// an unknown argument, which is clap's own answer and needs no code here.
+///
+/// **The REGEN generators are on this side of the line, not that one**, although every one of
+/// them writes a tracked file. `yidam regen` runs the whole list in one pass, so a generator
+/// that refused the flag would be a block `regen --root X` refreshes and `<generator> --root X`
+/// will not — and `regen` would then be writing into a corpus through commands that deny they
+/// can. The write is a block regenerated from what the corpus already says, which is a report
+/// that happens to be stored; that is a different act from authoring a commit.
+///
+/// `root_flag.rs` is what keeps that division honest, and it checks the half a reviewer
+/// cannot: for every command whose `--help` lists the flag, that passing it actually reads
+/// the named corpus. A declaration that is never threaded through to `resolve_root` compiles,
+/// accepts the flag, and reports on the wrong repository — which is the silent failure
+/// `export` was measured against in #428 and the only one worth a gate.
+#[derive(clap::Args, Debug, Clone, Default)]
+struct RootArg {
+    /// The corpus to act on. Defaults to wherever this process was started.
+    //
+    // `long` and `value_name` are spelled out for the reason `FormatArg` gives: the field is
+    // not called `root`, because `root.root` at thirty-nine call sites is the duplication
+    // this struct exists to remove, said once more. A `///` here would be a second paragraph
+    // of help, which promotes the whole thing to clap's long form and prints this note to
+    // every reader of `yidam <command> --help`.
+    #[arg(long = "root", value_name = "DIR")]
+    dir: Option<PathBuf>,
+}
+
+impl RootArg {
+    /// The flag as every command function takes it, and as `resolve_root` reads it.
+    fn as_deref(&self) -> Option<&std::path::Path> {
+        self.dir.as_deref()
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Repository overview: nodes, open questions, catalog, index freshness, phases.
     ///
     /// Writes the `<!-- REGEN: yidam status -->` block in the repository's README.
     Status {
+        #[command(flatten)]
+        root: RootArg,
         #[command(flatten)]
         format: FormatArg,
     },
@@ -135,6 +192,8 @@ enum Command {
     #[command(name = "open-questions")]
     OpenQuestions {
         #[command(flatten)]
+        root: RootArg,
+        #[command(flatten)]
         format: FormatArg,
     },
     /// Index every corpus node by class, with its label and link count.
@@ -143,11 +202,15 @@ enum Command {
     #[command(name = "corpus-index")]
     CorpusIndex {
         #[command(flatten)]
+        root: RootArg,
+        #[command(flatten)]
         format: FormatArg,
     },
     /// Check an embedding provider against an index's reproducibility contract
     #[command(name = "index-verify")]
     IndexVerify {
+        #[command(flatten)]
+        root: RootArg,
         /// Index directory (default: `.yidam/index`)
         #[arg(long)]
         index: Option<PathBuf>,
@@ -175,6 +238,8 @@ enum Command {
     #[command(name = "index-status")]
     IndexStatus {
         #[command(flatten)]
+        root: RootArg,
+        #[command(flatten)]
         format: FormatArg,
     },
     /// Audit catalog sources: which are cited by the corpus, and which are not.
@@ -182,6 +247,8 @@ enum Command {
     /// Writes the `<!-- REGEN: yidam catalog-audit -->` block in the repository's README.
     #[command(name = "catalog-audit")]
     CatalogAudit {
+        #[command(flatten)]
+        root: RootArg,
         #[command(flatten)]
         format: FormatArg,
     },
@@ -240,27 +307,42 @@ enum Command {
     ///
     /// Writes the `<!-- REGEN: yidam agents-index -->` block in the repository's README.
     #[command(name = "agents-index")]
-    AgentsIndex,
+    AgentsIndex {
+        #[command(flatten)]
+        root: RootArg,
+    },
     /// Index the domain skills in `.yidam/skills/`.
     ///
     /// Writes the `<!-- REGEN: yidam skills-index -->` block in the repository's README.
     #[command(name = "skills-index")]
-    SkillsIndex,
+    SkillsIndex {
+        #[command(flatten)]
+        root: RootArg,
+    },
     /// Index the domain-computer crates in `crates/`.
     ///
     /// Writes the `<!-- REGEN: yidam crates-index -->` block in the repository's README.
     #[command(name = "crates-index")]
-    CratesIndex,
+    CratesIndex {
+        #[command(flatten)]
+        root: RootArg,
+    },
     /// Index the domain-computer packages in `packages/`.
     ///
     /// Writes the `<!-- REGEN: yidam packages-index -->` block in the repository's README.
     #[command(name = "packages-index")]
-    PackagesIndex,
+    PackagesIndex {
+        #[command(flatten)]
+        root: RootArg,
+    },
     /// Report the freshness of `.yidam/bundle.yiz` against the corpus it was built from.
     ///
     /// Writes the `<!-- REGEN: yidam bundle-status -->` block in the repository's README.
     #[command(name = "bundle-status")]
-    BundleStatus,
+    BundleStatus {
+        #[command(flatten)]
+        root: RootArg,
+    },
     /// Write the README's `vault-status` block — `yidam vault status` is the read-only report
     ///
     /// **This modifies README.md**, which is the one thing its name does not say: it is one
@@ -272,12 +354,17 @@ enum Command {
     /// Reads committed files only — never the local cache, and never the network — because a
     /// generated block that varied by machine could not be checked.
     #[command(name = "vault-status")]
-    VaultStatus,
+    VaultStatus {
+        #[command(flatten)]
+        root: RootArg,
+    },
     /// Is this setup sound? One screen of checks, each with a verdict and a remedy.
     ///
     /// Read-only and offline. Exits nonzero when something is wrong now; warnings — no
     /// index, an old pin — are reported and do not affect the exit code unless `--strict`.
     Doctor {
+        #[command(flatten)]
+        root: RootArg,
         /// Treat warnings as failures. For a CI job that wants the strictest reading.
         #[arg(long)]
         strict: bool,
@@ -299,6 +386,8 @@ enum Command {
     /// for sources, `[due]` for the other three. A clock with no interval reports what it
     /// measured and never comes due. Read-only and offline.
     Due {
+        #[command(flatten)]
+        root: RootArg,
         /// Exit nonzero when a clock is due. For a cron or CI job that wants a signal.
         #[arg(long)]
         strict: bool,
@@ -324,6 +413,8 @@ enum Command {
     /// exits nonzero, for a scheduled job that wants a signal. `yidam doctor` answers what is
     /// wrong and `yidam lint` is the gate. Read-only, offline, and it writes nothing.
     Cycle {
+        #[command(flatten)]
+        root: RootArg,
         /// Exit nonzero when anything is owed or blocked. For a cron or CI job that wants a
         /// signal off the whole loop rather than off one of its halves.
         #[arg(long)]
@@ -333,6 +424,8 @@ enum Command {
     },
     /// Refresh every REGEN block in one pass.
     Regen {
+        #[command(flatten)]
+        root: RootArg,
         /// Report which blocks are stale and write nothing. Exits nonzero when any is.
         #[arg(long)]
         check: bool,
@@ -371,6 +464,8 @@ enum Command {
     },
     /// Measure the committed goal set: anchored traversal against flat retrieval
     Bench {
+        #[command(flatten)]
+        root: RootArg,
         /// The flat arm's budget — `retrieve`'s `k`, defaulting to the 5 `serve --mcp` uses
         #[arg(long, default_value_t = 5)]
         budget: usize,
@@ -388,6 +483,8 @@ enum Command {
     /// read one. `--corpora` reaches the other corpora sharing the vector index
     /// `[index.remote]` names; every result says which corpus it came from.
     Retrieve {
+        #[command(flatten)]
+        root: RootArg,
         /// What to search for, in words
         query: String,
         /// Number of results
@@ -407,6 +504,8 @@ enum Command {
     },
     /// Execute a typed path over the resolved graph — `reach -measured-by-> gage`
     Query {
+        #[command(flatten)]
+        root: RootArg,
         /// The query. Whitespace around a hop is required: `-rel->` and `<-rel-` are single
         /// tokens, which is what makes a hyphenated relationship unambiguous
         query: String,
@@ -440,6 +539,8 @@ enum Command {
     /// Build a context pack for one goal — a query's full answer, filled to a token budget,
     /// with an account of what did not fit
     Pack {
+        #[command(flatten)]
+        root: RootArg,
         /// The query naming the goal, in `yidam query`'s language — including a similarity
         /// anchor, e.g. `concept~"hydropeaking" <-exhibits- reach`
         query: String,
@@ -458,6 +559,8 @@ enum Command {
     /// Quote what a query would cost before running it — nodes matched, and what each
     /// projection would run to in characters and approximate tokens
     Estimate {
+        #[command(flatten)]
+        root: RootArg,
         /// The query to price, in `yidam query`'s language
         query: String,
         /// A projection to price beside the standard three, comma-separated
@@ -479,10 +582,14 @@ enum Command {
     /// Report the corpus graph: nodes, resolved edges, and the classes that license them
     Graph {
         #[command(flatten)]
+        root: RootArg,
+        #[command(flatten)]
         format: FormatArg,
     },
     /// Show the neighbourhood of one node — the traversal `serve --mcp` performs
     Neighbors {
+        #[command(flatten)]
+        root: RootArg,
         /// Node id, e.g. `concept/tailwater.yml` or `concept/tailwater`
         node: String,
         /// Maximum hops (default 1)
@@ -497,6 +604,8 @@ enum Command {
     #[command(name = "graph-check")]
     GraphCheck {
         #[command(flatten)]
+        root: RootArg,
+        #[command(flatten)]
         format: FormatArg,
     },
     /// List the decision records in `.yidam/decisions/`, newest first.
@@ -507,9 +616,14 @@ enum Command {
     /// does, so in practice the write is usually a no-op — which is how the claim survived.
     /// `yidam regen` runs it with the rest.
     #[command(name = "decisions-log")]
-    DecisionsLog,
+    DecisionsLog {
+        #[command(flatten)]
+        root: RootArg,
+    },
     /// Show corpus node and edge changes between two git refs
     Diff {
+        #[command(flatten)]
+        root: RootArg,
         /// Git range, e.g. `main..HEAD`, `HEAD~5`, `abc123..def456`
         range: String,
         #[command(flatten)]
@@ -531,6 +645,8 @@ enum Command {
     /// prints when your branch is genuinely clean.
     #[command(name = "check-diff")]
     CheckDiff {
+        #[command(flatten)]
+        root: RootArg,
         /// Git range, e.g. `main..HEAD`, `HEAD~5`, `abc123..def456`. Defaults to the
         /// merge-base with `main` (or `master`) — this branch's worth of work.
         range: Option<String>,
@@ -542,15 +658,8 @@ enum Command {
     Bundle,
     /// Export the domain model in the specified format
     Export {
-        /// The corpus to export. Defaults to wherever this process was started.
-        ///
-        /// The same flag `serve` takes, and for the reason #236 and #428 both give: the
-        /// corpus worth exporting is often not the repository you are standing in.
-        /// `examples/streamflow` is a corpus inside this one, and `git rev-parse
-        /// --show-toplevel` from it answers with yidam, which has no `.yidam/` — so the
-        /// only way to export it was to copy it elsewhere and `git init` the copy.
-        #[arg(long, value_name = "DIR")]
-        root: Option<PathBuf>,
+        #[command(flatten)]
+        root: RootArg,
         /// Output format (use --list to see available formats and their status)
         #[arg(long, value_enum, required_unless_present = "list")]
         format: Option<ExportFormat>,
@@ -598,6 +707,8 @@ enum Command {
     /// corpus sharing the index.
     #[command(name = "index-push")]
     IndexPush {
+        #[command(flatten)]
+        root: RootArg,
         /// Report what would be written and deleted, print the canonical request, send nothing
         #[arg(long)]
         dry_run: bool,
@@ -635,6 +746,8 @@ enum Command {
     },
     /// Show commit history classified as testimony or pipeline work
     Log {
+        #[command(flatten)]
+        root: RootArg,
         /// Show only epistemic commits — the testimony
         #[arg(long, conflicts_with = "operational")]
         epistemic: bool,
@@ -663,6 +776,8 @@ enum Command {
     /// Show active inquiry phases (ma/* and rigpa/* branches)
     Phases {
         #[command(flatten)]
+        root: RootArg,
+        #[command(flatten)]
         format: FormatArg,
     },
     /// Reconstruct corpus health across the repository's whole history
@@ -670,6 +785,8 @@ enum Command {
     /// Every other report answers about now. This answers about the shape of the change,
     /// which is where a corpus that is quietly accumulating uncited nodes becomes visible.
     Replay {
+        #[command(flatten)]
+        root: RootArg,
         /// Rows to print. 0 prints every commit that touched the corpus. Ignored by
         /// `--format json`, which always carries the whole series.
         #[arg(long, default_value_t = 12)]
@@ -680,20 +797,8 @@ enum Command {
     },
     /// Serve the domain computer over a stdio protocol
     Serve {
-        /// The corpus to serve. Defaults to wherever this process was started (#421).
-        ///
-        /// Every other command is typed by a person standing in the repository they mean.
-        /// A server is spawned by a client, so its working directory is whatever that
-        /// client happened to use — which is why `docs/mcp-server.md` had to document
-        /// `sh -c 'cd … && exec …'` as the way to say which corpus you meant. This is that
-        /// sentence as a flag, and it is what the `.mcpb` bundle's directory picker fills
-        /// in.
-        ///
-        /// Resolved the same way the working directory is: `git rev-parse --show-toplevel`
-        /// from here, falling back to this directory. It must be a corpus — a directory
-        /// with no `.yidam/` is refused by name rather than served as an empty one (#549).
-        #[arg(long, value_name = "DIR")]
-        root: Option<std::path::PathBuf>,
+        #[command(flatten)]
+        root: RootArg,
         /// Serve MCP over stdio — the agent surface. In the light default; `--features
         /// index` upgrades `retrieve` from keyword to semantic.
         #[arg(long)]
@@ -731,6 +836,8 @@ enum Command {
     },
     /// Run corpus quality checks against the baseline ratchet
     Lint {
+        #[command(flatten)]
+        root: RootArg,
         /// Report findings but always exit 0
         #[arg(long)]
         warn: bool,
@@ -762,9 +869,14 @@ enum Command {
     },
     /// Inspect and validate samudaya/ seed files
     #[command(name = "samudaya-audit")]
-    SamudayaAudit,
+    SamudayaAudit {
+        #[command(flatten)]
+        root: RootArg,
+    },
     /// Print the closed commit vocabulary, optionally checking one subject against it
     Vocabulary {
+        #[command(flatten)]
+        root: RootArg,
         /// Check this subject line against the vocabulary, the way `lint --commits`
         /// checks a committed one — but before the commit exists
         #[arg(long, value_name = "SUBJECT")]
@@ -794,6 +906,8 @@ enum Command {
     ///
     /// See docs/post-genesis-measurement.md for the hand-run this replaces.
     Cohort {
+        #[command(flatten)]
+        root: RootArg,
         /// Paths to derived repositories. The nearest `.yidam/` at or above each is
         /// the corpus, so pointing at a subdirectory works
         #[arg(required = true)]
@@ -871,6 +985,8 @@ enum Command {
     /// Report the sangha: electors, positions, and settled resolutions
     Sangha {
         #[command(flatten)]
+        root: RootArg,
+        #[command(flatten)]
         format: FormatArg,
     },
     /// Manage bundle dependencies in .yidam/tonpa/
@@ -900,6 +1016,8 @@ enum Command {
     /// Not gated on a feature, and not for size. A build that cannot evaluate policy is a
     /// build that cannot refuse.
     Policy {
+        #[command(flatten)]
+        root: RootArg,
         #[command(subcommand)]
         sub: yidam::PolicyCommand,
     },
@@ -912,6 +1030,8 @@ enum Command {
     /// With no subcommand it writes the `AGENTS.md` REGEN block — the one path a
     /// declaration has into what an agent reads at session start. `check` reads.
     Kuten {
+        #[command(flatten)]
+        root: RootArg,
         #[command(subcommand)]
         sub: Option<yidam::KutenCommand>,
     },
@@ -925,7 +1045,10 @@ enum Command {
     ///
     /// A repository with no `PRACTICE.md` has opted out: run directly, this prints the
     /// section that opts back in; under `yidam regen` it is a no-op.
-    Practice,
+    Practice {
+        #[command(flatten)]
+        root: RootArg,
+    },
     /// Read a range of commits against the criteria this corpus declared
     ///
     /// The genesis rubric scores a repository's birth and fires once. Nothing said whether a
@@ -941,6 +1064,8 @@ enum Command {
     /// that gated would be a gate decided by one. The single refusal is a range spanning a
     /// kuten revision, where there is no one set of criteria to answer with.
     Score {
+        #[command(flatten)]
+        root: RootArg,
         /// Git range, e.g. `main..HEAD`, `HEAD~5`, `abc123..def456`
         ///
         /// Required, as `diff`'s is. A default range would produce a number about a scope
@@ -1121,18 +1246,30 @@ fn run() -> Result<()> {
     // for a repository that pins its own is the failure that reads as success.
     yidam::warn_if_shadowed();
     match command {
-        Command::Status { format } => yidam::status(format.value),
-        Command::OpenQuestions { format } => yidam::open_questions(format.value),
-        Command::CorpusIndex { format } => yidam::corpus_index(format.value),
+        Command::Status { root, format } => yidam::status(root.as_deref(), format.value),
+        Command::OpenQuestions { root, format } => {
+            yidam::open_questions(root.as_deref(), format.value)
+        }
+        Command::CorpusIndex { root, format } => yidam::corpus_index(root.as_deref(), format.value),
         Command::IndexVerify {
+            root,
             index,
             provider,
             runtime,
             remote,
             format,
-        } => yidam::index_verify(index, provider, runtime, remote, format.value),
-        Command::IndexStatus { format } => yidam::index_status(format.value),
-        Command::CatalogAudit { format } => yidam::catalog_audit(format.value),
+        } => yidam::index_verify(
+            root.as_deref(),
+            index,
+            provider,
+            runtime,
+            remote,
+            format.value,
+        ),
+        Command::IndexStatus { root, format } => yidam::index_status(root.as_deref(), format.value),
+        Command::CatalogAudit { root, format } => {
+            yidam::catalog_audit(root.as_deref(), format.value)
+        }
         Command::CatalogFetch {
             entry,
             location,
@@ -1161,21 +1298,39 @@ fn run() -> Result<()> {
             dry_run,
             format: format.value,
         }),
-        Command::AgentsIndex => yidam::agents_index(),
-        Command::SkillsIndex => yidam::skills_index(),
-        Command::CratesIndex => yidam::crates_index(),
-        Command::PackagesIndex => yidam::packages_index(),
-        Command::BundleStatus => yidam::bundle_status(),
-        Command::VaultStatus => yidam::vault_status(true),
-        Command::Doctor { strict, format } => yidam::doctor(strict, format.value),
-        Command::Due { strict, format } => yidam::due(strict, format.value),
-        Command::Cycle { strict, format } => yidam::cycle(strict, format.value),
-        Command::Regen { check, format } => yidam::regen(check, format.value),
+        Command::AgentsIndex { root } => yidam::agents_index(root.as_deref()),
+        Command::SkillsIndex { root } => yidam::skills_index(root.as_deref()),
+        Command::CratesIndex { root } => yidam::crates_index(root.as_deref()),
+        Command::PackagesIndex { root } => yidam::packages_index(root.as_deref()),
+        Command::BundleStatus { root } => yidam::bundle_status(root.as_deref()),
+        Command::VaultStatus { root } => yidam::vault_status(root.as_deref(), true),
+        Command::Doctor {
+            root,
+            strict,
+            format,
+        } => yidam::doctor(root.as_deref(), strict, format.value),
+        Command::Due {
+            root,
+            strict,
+            format,
+        } => yidam::due(root.as_deref(), strict, format.value),
+        Command::Cycle {
+            root,
+            strict,
+            format,
+        } => yidam::cycle(root.as_deref(), strict, format.value),
+        Command::Regen {
+            root,
+            check,
+            format,
+        } => yidam::regen(root.as_deref(), check, format.value),
         Command::Cohort {
+            root,
             repos,
             paths,
             format,
         } => yidam::cohort(
+            root.as_deref(),
             &repos,
             yidam::CohortOptions {
                 format: format.value,
@@ -1209,11 +1364,13 @@ fn run() -> Result<()> {
             format,
         } => yidam::rename(&old, &new, dry_run, format.value),
         Command::Bench {
+            root,
             budget,
             scaling,
             format,
-        } => yidam::bench(budget, scaling, format.value),
+        } => yidam::bench(root.as_deref(), budget, scaling, format.value),
         Command::Query {
+            root,
             query,
             select,
             limit,
@@ -1223,6 +1380,7 @@ fn run() -> Result<()> {
             across,
             format,
         } => yidam::query(
+            root.as_deref(),
             &query,
             select,
             limit,
@@ -1238,12 +1396,14 @@ fn run() -> Result<()> {
             format.value,
         ),
         Command::Retrieve {
+            root,
             query,
             k,
             class,
             corpora,
             format,
         } => yidam::retrieve(
+            root.as_deref(),
             &query,
             yidam::RetrieveOptions {
                 k,
@@ -1253,29 +1413,48 @@ fn run() -> Result<()> {
             },
         ),
         Command::Pack {
+            root,
             query,
             budget,
             anchor_k,
             format,
-        } => yidam::pack(&query, budget, anchor_k, format),
+        } => yidam::pack(root.as_deref(), &query, budget, anchor_k, format),
         Command::Estimate {
+            root,
             query,
             select,
             limit,
             budget,
             anchor_k,
             format,
-        } => yidam::estimate(&query, select, limit, budget, anchor_k, format.value),
-        Command::Graph { format } => yidam::graph(format.value),
+        } => yidam::estimate(
+            root.as_deref(),
+            &query,
+            select,
+            limit,
+            budget,
+            anchor_k,
+            format.value,
+        ),
+        Command::Graph { root, format } => yidam::graph(root.as_deref(), format.value),
         Command::Neighbors {
+            root,
             node,
             depth,
             format,
-        } => yidam::neighbors(&node, depth, format.value),
-        Command::GraphCheck { format } => yidam::graph_check(format.value),
-        Command::DecisionsLog => yidam::decisions_log(),
-        Command::Diff { range, format } => yidam::diff_corpus(&range, format.value),
-        Command::CheckDiff { range, format } => yidam::check_diff(range, format.value),
+        } => yidam::neighbors(root.as_deref(), &node, depth, format.value),
+        Command::GraphCheck { root, format } => yidam::graph_check(root.as_deref(), format.value),
+        Command::DecisionsLog { root } => yidam::decisions_log(root.as_deref()),
+        Command::Diff {
+            root,
+            range,
+            format,
+        } => yidam::diff_corpus(root.as_deref(), &range, format.value),
+        Command::CheckDiff {
+            root,
+            range,
+            format,
+        } => yidam::check_diff(root.as_deref(), range, format.value),
         Command::Bundle => yidam::bundle(),
         Command::Export {
             root,
@@ -1322,14 +1501,18 @@ fn run() -> Result<()> {
                 )
             }
         }
-        Command::IndexPush { dry_run, create } => {
+        Command::IndexPush {
+            root,
+            dry_run,
+            create,
+        } => {
             #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
             {
-                yidam::index_push(dry_run, create)
+                yidam::index_push(root.as_deref(), dry_run, create)
             }
             #[cfg(not(all(feature = "vector-read", feature = "s3-vectors")))]
             {
-                let _ = (dry_run, create);
+                let _ = (root, dry_run, create);
                 anyhow::bail!(
                     "`index-push` needs the `vector-read` feature to decode the index it \
                      pushes — reinstall with `cargo install yidam --features vector-read`. \
@@ -1345,6 +1528,7 @@ fn run() -> Result<()> {
         } => yidam::overlay(&target, backfill, backfill_ref.as_deref()),
         Command::Backfill { since } => yidam::backfill(since.as_deref()),
         Command::Log {
+            root,
             epistemic,
             operational,
             range,
@@ -1358,11 +1542,15 @@ fn run() -> Result<()> {
                 (_, true) => yidam::LogFilter::Operational,
                 _ => yidam::LogFilter::All,
             };
-            yidam::log(range, filter, format.value)
+            yidam::log(root.as_deref(), range, filter, format.value)
         }
         Command::Phase { sub } => yidam::run_phase(sub),
-        Command::Phases { format } => yidam::phases(format.value),
-        Command::Replay { every, format } => yidam::replay(format, every),
+        Command::Phases { root, format } => yidam::phases(root.as_deref(), format.value),
+        Command::Replay {
+            root,
+            every,
+            format,
+        } => yidam::replay(root.as_deref(), format, every),
         // Neither transport is gated any more, and that is the point: an agent surface
         // only the ML build carried was one almost nobody could reach. MCP's *semantic*
         // retrieval still needs `index`; every tool it serves does not, and the server
@@ -1397,6 +1585,7 @@ fn run() -> Result<()> {
             anyhow::bail!("name a transport — `yidam serve --lsp` or `yidam serve --mcp`")
         }
         Command::Lint {
+            root,
             warn,
             explain,
             commits,
@@ -1404,37 +1593,45 @@ fn run() -> Result<()> {
             bless,
             init_baseline,
             format,
-        } => yidam::lint(yidam::LintOptions {
-            warn_only: warn,
-            explain,
-            commits,
-            range,
-            bless,
-            init_baseline,
-            format: format.value,
-        }),
+        } => yidam::lint(
+            root.as_deref(),
+            yidam::LintOptions {
+                warn_only: warn,
+                explain,
+                commits,
+                range,
+                bless,
+                init_baseline,
+                format: format.value,
+            },
+        ),
         Command::Migrate {
             operation,
             dry_run,
             format,
         } => yidam::migrate(operation.into(), dry_run, format.value),
         Command::Schema { settings } => yidam::schema(settings),
-        Command::SamudayaAudit => yidam::samudaya_audit(),
-        Command::Sangha { format } => yidam::sangha(format.value),
-        Command::Vocabulary { check, format } => yidam::vocabulary(check, format.value),
+        Command::SamudayaAudit { root } => yidam::samudaya_audit(root.as_deref()),
+        Command::Sangha { root, format } => yidam::sangha(root.as_deref(), format.value),
+        Command::Vocabulary {
+            root,
+            check,
+            format,
+        } => yidam::vocabulary(root.as_deref(), check, format.value),
         #[cfg(feature = "tonpa")]
         Command::Tonpa { sub } => block_on(yidam::tonpa::run(sub)),
         // Not `block_on`: every vault operation this build has is synchronous, and the
         // `Store` trait is synchronous so that the transport can block on the runtime without
         // putting one in the signature of the ungated half. See `vault/store.rs`.
         Command::Vault { sub } => yidam::run_vault(sub),
-        Command::Policy { sub } => yidam::run_policy(sub),
-        Command::Kuten { sub } => yidam::run_kuten(sub),
-        Command::Practice => yidam::run_practice(),
+        Command::Policy { root, sub } => yidam::run_policy(root.as_deref(), sub),
+        Command::Kuten { root, sub } => yidam::run_kuten(root.as_deref(), sub),
+        Command::Practice { root } => yidam::run_practice(root.as_deref()),
         Command::Score {
+            root,
             range,
             brief,
             format,
-        } => yidam::run_score(&range, format.value, brief),
+        } => yidam::run_score(root.as_deref(), &range, format.value, brief),
     }
 }

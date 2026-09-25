@@ -52,11 +52,11 @@ pub enum KutenCommand {
 ///
 /// No subcommand writes the `AGENTS.md` block, which is what puts `kuten` in the generator
 /// list beside the other ten. `check` reads; `adopt` writes the decision record.
-pub fn run(sub: Option<KutenCommand>) -> Result<()> {
+pub fn run(root: Option<&std::path::Path>, sub: Option<KutenCommand>) -> Result<()> {
     match sub {
-        None => block(),
-        Some(KutenCommand::Check { format }) => check(format),
-        Some(KutenCommand::Adopt { name }) => adopt(&name),
+        None => block(root),
+        Some(KutenCommand::Check { format }) => check(root, format),
+        Some(KutenCommand::Adopt { name }) => adopt(root, &name),
     }
 }
 
@@ -212,8 +212,8 @@ fn stopped(gloss: &str) -> String {
 }
 
 /// Write the `AGENTS.md` REGEN block. The generator `yidam regen` runs.
-pub fn block() -> Result<()> {
-    let root = crate::paths::repo_root()?;
+pub fn block(root: Option<&std::path::Path>) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let content = block_content(&root)?;
     crate::regen::emit(&content);
     write_block(&root, &content)
@@ -363,8 +363,8 @@ fn ensure_agents_section(root: &std::path::Path) -> Result<Section> {
 ///
 /// Every refusal exits non-zero and names the repair. A refusal is not an adoption, and one
 /// that exits quietly is a corpus believing it declared something it did not.
-pub fn adopt(name: &str) -> Result<()> {
-    let root = crate::paths::repo_root()?;
+pub fn adopt(root: Option<&std::path::Path>, name: &str) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
 
     let vendored = kuten::vendored_profiles(&root);
     if vendored.is_empty() {
@@ -523,8 +523,8 @@ pub(crate) fn render_check(r: &Report) -> String {
 
 /// **Exits zero, always.** Divergence is not a defect, and a report that gated would make it
 /// one — which is the whole of the argument `due` already makes about being owed.
-pub fn check(format: Format) -> Result<()> {
-    let root = crate::paths::repo_root()?;
+pub fn check(root: Option<&std::path::Path>, format: Format) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let report = kuten::check(&root)?;
     crate::report::finish(&root, format, Payload { kuten: &report }, |p| {
         println!("{}", render_check(p.kuten))

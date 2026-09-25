@@ -52,7 +52,7 @@ Three things in it are not obvious and are the reason the RFC is longer than the
 
 `walk_neighbors` chains outbound and inbound edges unconditionally and filters on neither
 relationship nor direction
-([`graph.rs:184-193`](../../yidam/cli/src/cmd/graph.rs#L184-L193)):
+([`graph.rs:183-192`](../../yidam/cli/src/cmd/graph.rs#L183-L192)):
 
 ```rust
 let outward = edges.iter().filter(|(from, _, _)| *from == current) …
@@ -507,8 +507,8 @@ unproductive the report says so rather than shrugging:
 
 A rejected query **emits its report and exits 1**. That is the shape four commands already
 have — `doctor`
-([`crate::report::gate`](../../yidam/cli/src/cmd/doctor.rs#L1553)), `regen`
-([`crate::report::gate`](../../yidam/cli/src/cmd/regen.rs#L182)), `rename`
+([`crate::report::gate`](../../yidam/cli/src/cmd/doctor.rs#L1557)), `regen`
+([`crate::report::gate`](../../yidam/cli/src/cmd/regen.rs#L199)), `rename`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/rename.rs#L388)) and `index-verify`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/index_verify.rs#L260)) all print, then
 fail.
@@ -558,7 +558,7 @@ The one `Err` that is not ordinary is
 [`report::GateFailed`](../../yidam/cli/src/report.rs#L173), the sentinel #926 introduced so
 that the library could stop calling `std::process::exit` from inside a published crate. It
 carries no message, and `main.rs` prints nothing for it
-([`fn main`](../../yidam/cli/src/main.rs#L1065-L1072)) — so the report emitted above it is
+([`fn main`](../../yidam/cli/src/main.rs#L1186-L1192)) — so the report emitted above it is
 still the only thing on the stream, which is the whole property this section is arranged
 around. The exit code did not move; the call to `exit` did.
 

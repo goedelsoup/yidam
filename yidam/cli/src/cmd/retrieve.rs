@@ -32,8 +32,8 @@ pub struct Options {
     pub format: Format,
 }
 
-pub fn retrieve(query: &str, opts: Options) -> Result<()> {
-    let root = crate::paths::repo_root()?;
+pub fn retrieve(root: Option<&std::path::Path>, query: &str, opts: Options) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let mut state = crate::cmd::serve::ServerState::load(&root)?;
 
     let args = serde_json::json!({

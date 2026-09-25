@@ -56,30 +56,29 @@ instances across three classes, on streamflow below dams.
 
 ```sh
 git clone https://github.com/goedelsoup/yidam
-cp -R yidam/examples/streamflow /tmp/streamflow
-cd /tmp/streamflow && git init -q && git add -A && git commit -qm 'genesis: streamflow'
 ```
 
-The copy-and-`git init` is not ceremony. `yidam` locates a repository with
-`git rev-parse --show-toplevel`, so running it inside the yidam checkout finds yidam — which
-is a template, not a corpus.
-
-The commit message is not ceremony either. `export` and `bundle` read the domain from the
-genesis subject. A subject naming none warns, and falls back to the directory name.
+Every report takes `--root <DIR>`, so read it where it sits:
 
 ```sh
-yidam graph-check
+yidam graph-check --root yidam/examples/streamflow
 # Checked 8 instances across 3 classes — all clean.
 
-yidam lint
+yidam lint --root yidam/examples/streamflow
 # lint: 0 finding(s), no errors
 
-yidam open-questions
+yidam open-questions --root yidam/examples/streamflow
 # - [Base-flow separation](.yidam/corpus/concept/base-flow-separation.yml)
 # - [Hydropeaking](.yidam/corpus/concept/hydropeaking.yml)
 # - [Instream flow right](.yidam/corpus/concept/instream-flow-right.yml)
 # - [Valley Bridge gage](.yidam/corpus/gage/valley-bridge.yml)
 ```
+
+Without the flag, `yidam` locates a repository with `git rev-parse --show-toplevel`. Run from
+inside the clone, it would find yidam — a template, not a corpus. `--root` is how you say
+which one you meant. The commands that **refuse** it are the ones that author a commit into a
+corpus, or derive a repository. They refuse because naming a target and being run in one are
+different promises. `yidam --help-all` marks them with a `*`.
 
 Four open questions out of eight nodes is not an unfinished corpus. It is what a corpus
 looks like when the claim tags are being used honestly.
@@ -96,7 +95,18 @@ demonstrating.
 
 ## 3. Watch the gate stop you — three minutes
 
-This is the part worth doing rather than reading.
+This is the part worth doing rather than reading, and the part that wants a copy. What follows
+breaks a corpus on purpose, and you want that somewhere you can delete.
+
+```sh
+cp -R yidam/examples/streamflow /tmp/streamflow
+cd /tmp/streamflow && git init -q && git add -A && git commit -qm 'genesis: streamflow'
+```
+
+The `git init` is not ceremony. A corpus is a git history with a gate over it. The distinction
+the next few commands turn on — *new* finding versus inherited one — comes from that history.
+Neither is the commit message. `export` and `bundle` read the domain from the genesis subject.
+A subject naming none warns, and falls back to the directory name.
 
 Rename a node the obvious way:
 

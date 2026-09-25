@@ -915,8 +915,8 @@ fn human_bytes(path: &Path) -> String {
 /// So a direct invocation says what it is about to do before doing it. `yidam regen` passes
 /// `false`: there the write is the entire premise of the command the person ran, and a line
 /// per generator saying so is noise in front of the thirteen it already announces.
-pub fn vault_status(direct: bool) -> Result<()> {
-    let root = repo_root()?;
+pub fn vault_status(root: Option<&std::path::Path>, direct: bool) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     if direct {
         // stderr, not stdout: the block itself goes to stdout, and a notice mixed into it
         // would end up in anything piping this command's output.

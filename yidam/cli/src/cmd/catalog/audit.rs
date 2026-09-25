@@ -35,7 +35,7 @@ use anyhow::Result;
 
 use crate::corpus::Corpus;
 use crate::parse::parse_frontmatter;
-use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir};
+use crate::paths::{yidam_catalog_dir, yidam_corpus_dir};
 use crate::regen::update_file_regen;
 use crate::walk::walk_md_files;
 
@@ -229,8 +229,8 @@ const LEGEND: &str = "\n\n**Nodes** counts corpus instances that link here — t
      nothing about whether the bytes are present or correct: that is a fact about the machine \
      asking, and `yidam vault verify` is where it is answered.";
 
-pub fn catalog_audit(format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn catalog_audit(root: Option<&std::path::Path>, format: crate::report::Format) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let catalog = yidam_catalog_dir(&root);
     let entries = walk_md_files(&catalog);
 

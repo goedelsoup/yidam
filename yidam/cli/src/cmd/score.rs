@@ -372,8 +372,13 @@ pub(crate) fn render(r: &Report) -> String {
 
 /// **Writes nothing, and exits zero however it reads.** See the module header for the one
 /// case that does not answer at all.
-pub fn score(range: &str, format: Format, brief: bool) -> Result<()> {
-    let root = crate::paths::repo_root()?;
+pub fn score(
+    root: Option<&std::path::Path>,
+    range: &str,
+    format: Format,
+    brief: bool,
+) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let (before, after) = crate::cmd::diff::parse_range(range);
     let base = at::resolve(&root, &before)?;
     let tip = at::resolve(&root, &after)?;

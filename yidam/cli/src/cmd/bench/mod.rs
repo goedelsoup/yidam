@@ -810,7 +810,12 @@ pub fn render(report: &BenchReport) -> String {
 }
 
 /// Measure the goal set against every arm.
-pub fn bench(budget: usize, scaling: bool, format: crate::report::Format) -> Result<()> {
+pub fn bench(
+    root: Option<&std::path::Path>,
+    budget: usize,
+    scaling: bool,
+    format: crate::report::Format,
+) -> Result<()> {
     if scaling {
         let report = scaling::run()?;
         if format.is_json() {
@@ -819,7 +824,7 @@ pub fn bench(budget: usize, scaling: bool, format: crate::report::Format) -> Res
         println!("{}", scaling::render(&report));
         return Ok(());
     }
-    let root = repo_root()?;
+    let root = crate::paths::resolve_root(root)?;
     let report = run(&root, budget)?;
     crate::report::finish(&root, format, report, |r| println!("{}", render(r)))
 }

@@ -35,8 +35,8 @@ use crate::s3vectors::{
 };
 use crate::vault::creds;
 
-pub fn index_push(dry_run: bool, create: bool) -> Result<()> {
-    let root = repo_root()?;
+pub fn index_push(root: Option<&std::path::Path>, dry_run: bool, create: bool) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
 
     let cfg = load_yidam_config(&root)?;
     let declared = cfg.index.remote.as_ref().ok_or_else(|| {

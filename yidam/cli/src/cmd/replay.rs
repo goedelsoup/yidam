@@ -19,7 +19,6 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use crate::cmd::lint::history::Expectation;
-use crate::paths::repo_root;
 
 /// One class's standing at one commit, against what the class declares.
 #[derive(Debug, serde::Serialize, Clone, Default)]
@@ -218,8 +217,12 @@ fn verdict(c: &ClassRow) -> String {
     }
 }
 
-pub fn replay(format: crate::report::Format, every: usize) -> Result<()> {
-    let root = repo_root()?;
+pub fn replay(
+    root: Option<&std::path::Path>,
+    format: crate::report::Format,
+    every: usize,
+) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let rows = collect(&root);
     crate::report::finish(&root, format, ReplayReport { replay: &rows }, |r| {
         print!("{}", render(r.replay, every))

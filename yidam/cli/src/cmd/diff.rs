@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::parse::{CorpusInstance, CorpusLink};
-use crate::paths::repo_root;
 
 #[derive(serde::Serialize)]
 struct NodeChange {
@@ -43,8 +42,12 @@ fn edge_change(status: &'static str, source: &str, link: &CorpusLink) -> EdgeCha
     }
 }
 
-pub fn diff_corpus(range: &str, format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn diff_corpus(
+    root: Option<&std::path::Path>,
+    range: &str,
+    format: crate::report::Format,
+) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let (before_ref, after_ref) = parse_range(range);
 
     // Normalise to an explicit two-dot range so git diff is unambiguous

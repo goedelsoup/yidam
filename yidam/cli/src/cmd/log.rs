@@ -23,7 +23,6 @@ use std::fmt::Write as _;
 
 use yidam_core::git::{classify_commit, CommitKind};
 
-use crate::paths::repo_root;
 use crate::report::Format;
 
 /// Which events to show.
@@ -168,8 +167,13 @@ pub(crate) fn render_text(r: &LogReport) -> String {
     out
 }
 
-pub fn log(range: Option<String>, filter: Filter, format: Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn log(
+    root: Option<&std::path::Path>,
+    range: Option<String>,
+    filter: Filter,
+    format: Format,
+) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let range = range.unwrap_or_else(|| "HEAD".to_string());
     let report = collect(&root, &range, filter)?;
 

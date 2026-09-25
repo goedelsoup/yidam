@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crate::corpus::Corpus;
 use crate::git::{genesis_date, phase_tally};
-use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir, yidam_index_dir};
+use crate::paths::{yidam_catalog_dir, yidam_corpus_dir, yidam_index_dir};
 use crate::regen::update_file_regen;
 
 #[derive(serde::Serialize)]
@@ -84,8 +84,8 @@ struct StatusReport {
 /// repository's first commit, which a shallow clone does not have. [`crate::git::is_shallow`] is
 /// why that now reports `unknown` instead of a date it invented, and
 /// [`crate::cmd::regen`] is where the gate refuses rather than gating a value it cannot compute.
-pub fn status(format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn status(root: Option<&std::path::Path>, format: crate::report::Format) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let corpus = yidam_corpus_dir(&root);
     let catalog = yidam_catalog_dir(&root);
 
@@ -297,8 +297,8 @@ const COMMITTED_INDEX_BLOCK: &str =
      `yidam index-status` for this machine's answer, or `yidam doctor` for it alongside the \
      rest._";
 
-pub fn index_status(format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn index_status(root: Option<&std::path::Path>, format: crate::report::Format) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let data = index_status_data(&root);
     if format.is_json() {
         return crate::report::emit(&root, data);

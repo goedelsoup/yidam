@@ -48,7 +48,7 @@ use anyhow::{Context, Result};
 
 use crate::authorship::Authorship;
 use crate::cmd::check_diff::near::Nearest;
-use crate::paths::{repo_root, require_yidam_repo, yidam_corpus_dir};
+use crate::paths::{require_yidam_repo, yidam_corpus_dir};
 use crate::report::Span;
 
 /// The one finding this command reports, in either phase.
@@ -313,8 +313,12 @@ fn default_range(p: &Position) -> Result<String> {
     })
 }
 
-pub fn check_diff(range: Option<String>, format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn check_diff(
+    root: Option<&std::path::Path>,
+    range: Option<String>,
+    format: crate::report::Format,
+) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     require_yidam_repo(&root)?;
     let range = match range {
         Some(r) => r,

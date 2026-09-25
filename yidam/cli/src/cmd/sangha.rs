@@ -19,7 +19,7 @@ use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::paths::{repo_root, yidam_sangha_dir};
+use crate::paths::yidam_sangha_dir;
 
 /// A recognized elector: someone maintaining a `ma/<name>` branch.
 ///
@@ -498,8 +498,8 @@ pub(crate) fn render_sangha(r: &SanghaReport) -> String {
 }
 
 /// Report the sangha: electors, positions, resolutions.
-pub fn sangha(format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+pub fn sangha(root: Option<&std::path::Path>, format: crate::report::Format) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let data = sangha_data(&root);
     crate::report::finish(&root, format, data, |r| println!("{}", render_sangha(r)))
 }

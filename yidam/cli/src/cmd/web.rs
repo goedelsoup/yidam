@@ -1,6 +1,5 @@
 use anyhow::Result;
 
-use crate::paths::repo_root;
 use crate::regen::update_file_regen;
 
 /// What the committed block holds — and it is not the measurement below.
@@ -21,8 +20,8 @@ const COMMITTED_BUNDLE_BLOCK: &str =
      holds, is a fact about a working tree rather than about this revision. Run \
      `yidam bundle-status` for this machine's answer._";
 
-pub fn bundle_status() -> Result<()> {
-    let root = repo_root()?;
+pub fn bundle_status(root: Option<&std::path::Path>) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let bundle_path = root.join(".yidam").join("bundle.yiz");
 
     let content = if bundle_path.exists() {
