@@ -43,7 +43,7 @@ matches nothing it says *which kind* of nothing, which a zero-hit `grep` cannot.
 
 ```
 mise run regen           # refresh REGEN blocks, then commit the result as `regen:`
-mise run ci              # graph-check, graph-lint, regen --check — the whole gate
+mise run ci              # graph-check, graph-lint-gate, regen --check — the whole gate
 ```
 
 `mise run ci` is what CI runs, and the two are held together by a test upstream. Run it

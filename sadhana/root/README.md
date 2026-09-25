@@ -106,9 +106,15 @@ that runs `tonpa-install`. It is safe to re-run: anything already unpacked is ve
 a warning and exits 0 regardless, so a green `mise install` is not proof the corpora arrived. If
 something looks absent, run `mise run tonpa-install` on its own and read its exit code.
 
-`mise run ci` is the whole corpus gate — `graph-check`, `graph-lint`, and `regen --check` —
-and it is held to CI's by a test upstream rather than by anyone remembering to keep the two
-in step. Run it, not its parts.
+`mise run ci` is the whole corpus gate — `graph-check`, `graph-lint-gate`, and
+`regen --check` — and it is held to CI's by a test upstream rather than by anyone
+remembering to keep the two in step. Run it, not its parts.
+
+`graph-lint-gate` is `yidam lint` plus the commit-vocabulary check over the commits this
+branch adds, which is the one finding that arrives too late if you first see it in CI:
+history cannot be rewritten to fix a verb. It reports and never gates, so it cannot turn
+this red. To ask the same question before writing the commit,
+`yidam vocabulary --check "<subject>"`.
 
 The yidam release this repository was vendored from is recorded in
 [`.yidam.toml`](.yidam.toml). To move to a newer one, run `mise run yidam-vendor-update`.

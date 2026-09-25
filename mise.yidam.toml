@@ -793,6 +793,48 @@ run = "yidam rename"
 description = "Lint the corpus against the baseline ratchet: 31 checks over nodes, edges, catalog, classes, and tables."
 run = "yidam lint"
 
+# The lint as the GATE runs it, and the reason it is a task of its own rather than a
+# flag someone remembers. `.github/workflows/ci.yml` runs `yidam lint --commits
+# --range origin/main..HEAD`; `mise run ci` ran `graph-lint`, which is `yidam lint`
+# with no `--commits` at all. The commit-vocabulary finding is the one a contributor
+# cannot act on after the fact — history cannot be rewritten to fix a verb — and it
+# was the one finding the local gate never showed them. They learned it from a push.
+#
+# It reports and never gates, here and in CI alike: `unrecognized-verb` is Warn
+# severity and carries no age, so nothing in it can escalate. Adding it to `ci`
+# cannot turn a green gate red. What it buys is the finding arriving while the next
+# commit message is still unwritten, which is the only time it is useful —
+# `yidam vocabulary --check "<subject>"` asks the same question of a subject that
+# does not exist yet.
+#
+# The range is resolved rather than hardcoded. CI knows it is comparing against
+# `origin/main`; a working copy does not — the branch may track something else, the
+# default branch may not be `main`, and there may be no remote at all. Each candidate
+# is *resolved* before it is used, because a range git cannot parse makes
+# `read_subjects` return an empty list: the check would run over nothing and report
+# a clean log, which is worse than not running it.
+[graph-lint-gate]
+description = "Lint as CI does: the baseline ratchet, plus the commit vocabulary over the commits this branch adds."
+run = """
+set -eu
+base=""
+for ref in '@{upstream}' origin/HEAD origin/main; do
+  if git rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then
+    base="$ref"
+    break
+  fi
+done
+if [ -n "$base" ]; then
+  yidam lint --commits --range "$base..HEAD"
+else
+  # No remote to compare against. The whole log rather than nothing: a repository
+  # that has never been pushed has no "what this branch adds", and its whole log is
+  # short enough that reading it is the cheaper answer.
+  echo "no upstream to compare against — reading the whole log for the vocabulary check."
+  yidam lint --commits
+fi
+"""
+
 [graph-lint-explain]
 description = "Lint, printing each check's rationale alongside its findings."
 run = "yidam lint --explain"

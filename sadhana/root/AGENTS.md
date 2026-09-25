@@ -142,9 +142,9 @@ broken. Delete this block afterwards.
 
 ## The gate
 
-`mise run ci` is what CI runs: `graph-check`, `graph-lint`, and `regen --check`. A commit
-that breaks an edge, orphans a node, or leaves a REGEN block stale fails there. Run it
-before committing rather than after.
+`mise run ci` is what CI runs: `graph-check`, `graph-lint-gate`, and `regen --check`. A
+commit that breaks an edge, orphans a node, or leaves a REGEN block stale fails there. Run
+it before committing rather than after.
 
 Run the composite rather than its parts. Each catches something the others do not —
 `graph-check` reads the graph and is blind to a stale REGEN block; `regen --check` reads
@@ -158,12 +158,17 @@ the baseline, and a baseline entry that no longer occurs. The second is not a bu
 baseline permitted to be wrong drifts, and one that over-lists silently re-permits whatever
 it over-lists. Fix the corpus, then `mise run graph-lint-bless` and commit the diff.
 
-Two checks report and never gate. `unauthored-prose-link` covers material this repository
+Two of the corpus checks report and never gate. `unauthored-prose-link` covers material this repository
 did not author — generated output, and imports copied from elsewhere unmodified — declared in
 `.yidam/authorship.yml`. Those findings are real; they are somebody else's. Fix the
 generator, or raise it upstream. Do not baseline them, and do not edit an import to satisfy a
 linter: that falsifies the record the import exists to keep. `authorship-region-stale` says a
 declaration there no longer matches anything on disk.
+
+`graph-lint-gate` is that, plus `--commits` over what this branch adds: the git log against
+the closed vocabulary in `GRAPH.md`. It reports and never gates — history cannot be
+rewritten to fix a verb, which is why learning it from CI is learning it too late. `yidam
+vocabulary --check "<subject>"` asks it before the commit exists.
 
 `mise run graph-lint-explain` prints each check's rationale. Read it before deciding a
 check is wrong.
