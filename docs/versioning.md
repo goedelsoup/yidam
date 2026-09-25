@@ -19,6 +19,18 @@ layer happened to tag last. That has broken real things: at one commit carrying 
 so every repository cloned there recorded a VS Code extension's version as the version of its
 template layer. Any code asking "which tag?" must name the layer it means.
 
+**There is a second versioning document, and the split is deliberate.** This page is what a
+reader consults: what the four layers are, how a derived repository pins and adopts one, and
+how a release is cut. [`VERSIONING.md`](https://github.com/goedelsoup/yidam/blob/main/VERSIONING.md)
+at the repository root is the maintainer's reference — the semver table for every layer, the
+release history behind each protocol bump, and the decision records for what is *not* a layer.
+It stays at the root rather than moving here for two reasons that are not style: it is part of
+the template root `clone` withholds and bootstrap deletes, because a derived repository does not
+release yidam's layers; and `versioning_layers.rs` and `release_script.rs` parse it at that path
+to check that what it promises is what the manifests, constants and workflows actually do. Every
+path and every tag prefix either document names is held against the tree, in both directions —
+these two may go out of step on prose, never on a fact.
+
 ---
 
 ## Layer 1 — Template
@@ -91,13 +103,13 @@ repository on the next template bump it adopts.
 ## Layer 2 — SDKs
 
 Three packages under `yidam/prelude/sdks/`, held together by one jointly-versioned parity
-contract (`sdks/parity/VERSION`).
+contract (`yidam/prelude/sdks/parity/VERSION`).
 
 | Package | Manifest | Registry |
 |---|---|---|
-| `yidam-core` (Rust) | `sdks/rust/Cargo.toml` | crates.io |
-| `@yidam/core` | `sdks/typescript/package.json` | not published |
-| `yidam-core` (Python) | `sdks/python/pyproject.toml` | not published |
+| `yidam-core` (Rust) | `yidam/prelude/sdks/rust/Cargo.toml` | crates.io |
+| `@yidam/core` | `yidam/prelude/sdks/typescript/package.json` | not published |
+| `yidam-core` (Python) | `yidam/prelude/sdks/python/pyproject.toml` | not published |
 
 Only the Rust package is released, tagged `sdk/rust/v{x.y.z}`. The other two are versioned in
 their manifests and move with the parity surface; they carry no release tag, because a tag whose
@@ -167,7 +179,7 @@ rather than guessing at an envelope it cannot read.
 
 1. **Decide which layers the changeset affects.**
 2. **Update the relevant manifests** — `Cargo.toml`, `package.json`, `pyproject.toml`, the
-   protocol-version constant, or `sdks/parity/VERSION`.
+   protocol-version constant, or `yidam/prelude/sdks/parity/VERSION`.
 3. **`mise run ci`** — everything must pass.
 4. **For SDK changes, `mise run parity`** — all three suites.
 5. **Tag with `./release.sh`**, e.g. `mise run release cli 0.5.1`. It refuses a version the
@@ -196,5 +208,7 @@ change anything.
 
 ---
 
-The full source, including the semver tables for each layer, is
-[VERSIONING.md](https://github.com/goedelsoup/yidam/blob/main/VERSIONING.md) in the repository.
+The semver table for each layer, the release history behind every protocol bump, and the
+arguments for what is deliberately *not* a layer are in
+[VERSIONING.md](https://github.com/goedelsoup/yidam/blob/main/VERSIONING.md) at the repository
+root — see the note under the layer table above for why it lives there rather than here.

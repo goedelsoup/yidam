@@ -42,8 +42,14 @@ says so on every page.
 | Point an agent at a corpus | [Connecting an agent (MCP)](https://goedelsoup.github.io/yidam/mcp-server/) |
 | Look up a term | [Vocabulary](https://goedelsoup.github.io/yidam/vocabulary/) |
 
+Designs under review are in [RFCs](https://goedelsoup.github.io/yidam/rfcs/README/). The
+markdown sources are [`docs/`](docs/README.md) — read those when you are working offline or
+changing them, and `mise run docs-dev` serves the site locally from the same files. A page no
+sidebar entry names fails the build, so nothing on the site is published-but-unreachable.
+
 The rest of this file is the repository's own map: how to install the CLI, where each layer
-lives, and how to work on yidam itself.
+lives, and how to work on yidam itself. It does not restate the site — where a subject has a
+page, this file says the one thing specific to the repository and links out.
 
 ## Two commit kinds, and no others
 
@@ -83,50 +89,14 @@ brew install goedelsoup/tap/yidam
 The formula is rendered from the release's own checksums by the release workflow, so the tap
 cannot lag behind a published version.
 
-If you already manage toolchains with [mise](https://mise.jdx.dev), it serves the same
-release assets and keeps yidam in the same place as everything else:
+Four more channels reach the same artifact — mise, `cargo binstall`, an `.mcpb` bundle for
+Claude Desktop, and `cargo install` from source — and
+[Installation](https://goedelsoup.github.io/yidam/installation/) has the line for each, the
+version each one resolves, and the reason mise's declaration needs `version_prefix = "cli/v"`.
+It is the page to read rather than this one: four layers publish onto a single release list, so
+a resolver that asks the repository-wide question gets whichever layer tagged last.
 
-```sh
-mise use -g "github:goedelsoup/yidam[version_prefix=cli/v]@latest"
-```
-
-`version_prefix` is not decoration. This repository publishes four layers onto one release
-list, so without it mise asks the repository-wide question and gets the editor's answer —
-`@latest` resolves `editor/v*`, whose release ships only a `.vsix`. Drop `-g` to pin yidam
-in one project's `mise.toml` instead.
-
-With cargo already on hand, [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall)
-fetches the same artifact:
-
-```sh
-cargo binstall yidam
-```
-
-Not going to install a binary at all? Claude Desktop takes an `.mcpb` bundle — the server and
-the binary in one file you drag onto the Extensions pane, which asks which repository to serve.
-macOS only, and it gives you the MCP server rather than the CLI:
-
-```sh
-open yidam-0.15.0-aarch64-apple-darwin.mcpb    # from the latest release; or double-click it
-```
-
-Or from source, if you would rather. Same light default build, and it needs only a Rust
-toolchain — no protoc, no system C library, no ML runtime. `--locked` builds from the lock file the
-tag committed, which is what makes it the same binary the release was built from; without it
-cargo re-resolves every dependency:
-
-```sh
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.15.0 --locked yidam
-```
-
-Either way, `yidam --version` should answer, naming the build and the features it carries.
-
-`--features full` adds `index-build`, semantic `retrieve`, and the sqlite/rdf exports — and
-with them protoc 31, an ONNX runtime, and a system C toolchain. That is the maintainer's
-build, described under [Working on yidam](#working-on-yidam) below. It is **not** what
-deriving a repository needs: `clone`, `overlay`, `tonpa` and both `serve` transports are all
-in the light set, as is every report and gate. A default binary serves MCP; what it does not
-serve is *semantic* retrieval, and it says so on every call.
+`yidam --version` should then answer, naming the build and the features compiled into it.
 
 Then create a derived repository, or overlay the infrastructure onto one that already exists.
 Both copy the template, so both are run from a checkout of it — an installed binary carries the
@@ -150,45 +120,17 @@ arrives (see [samudaya/README.md](samudaya/README.md)).
 
 Two of them, and the split is deliberate. `yidam serve --lsp` is the language server —
 diagnostics, definition, references, hover, and rename, computed by the same functions
-`yidam lint` runs, for any LSP-capable editor. It is in the light default build, so the
-binary you just installed already serves it; [yidam/editors/README.md](yidam/editors/README.md)
-has the Neovim and Helix stanzas.
+`yidam lint` runs, for any LSP-capable editor. It is in the light default build, so the binary
+you just installed already serves it. The other is a VS Code extension: five views over the
+corpus, verdicts as diagnostics, claim decoration, and the inherited mise tasks as editor
+tasks. It **renders** verdicts and never computes them — `.yidam.toml` records which yidam
+governs a corpus, so the extension resolves the binary that repository pins and bundles none
+of its own, which is why the CLI is installed first.
 
-The other is a VS Code extension — five views over the corpus, lint and `graph-check`
-verdicts as diagnostics, claim decoration, and the inherited mise tasks as editor tasks. It
-**renders** verdicts and never computes them: `.yidam.toml` records which yidam governs a
-corpus, so the extension resolves the binary that repository pins and bundles none of its
-own. Install the CLI first or it has nothing to show.
-
-**On VSCodium, Cursor, Windsurf, Gitpod or code-server**, which read [Open
-VSX](https://open-vsx.org/extension/goedelsoup/yidam-vscode), search for *yidam* in the
-extensions panel, or:
-
-```sh
-codium --install-extension goedelsoup.yidam-vscode
-```
-
-**On VS Code itself, download the `.vsix` from the [latest `editor/v*`
-release](https://github.com/goedelsoup/yidam/releases) and install it by hand.** VS Code reads
-the Microsoft Marketplace and nothing else, and this project does not publish there — the
-publisher needs an Azure DevOps organisation that does not exist yet. That is stated rather
-than papered over: a documented install line that cannot succeed is the failure
-`install-channels.yml` was written to catch.
-
-```sh
-code --install-extension yidam-vscode-<version>.vsix
-```
-
-Or build it from a checkout, which is what a change to the extension needs anyway:
-
-```sh
-mise run ext-package -- dist/yidam-vscode.vsix   # packages, and checks what is in the package
-code --install-extension yidam/editors/vscode/dist/yidam-vscode.vsix
-```
-
-`mise run ext-dev` instead opens an Extension Development Host against a staged fixture,
-which is the loop for working *on* it. See
-[yidam/editors/vscode/README.md](yidam/editors/vscode/README.md).
+[Editor setup](https://goedelsoup.github.io/yidam/editor-setup/) has the Neovim and Helix
+stanzas, the install line for each marketplace that carries the extension, and why VS Code
+proper needs the `.vsix` from a GitHub release. To work *on* either surface, see
+[yidam/editors/README.md](yidam/editors/README.md).
 
 ## Layout
 
@@ -277,29 +219,21 @@ this binary was compiled with. It writes nothing and does no network, so it is s
 a checkout you only mean to inspect — which the rest of the reports are not. It exits
 nonzero on what is wrong now; warnings (no index, an old pin) gate only under `--strict`.
 
-The binary is partitioned by cargo feature so the common case stays cheap to install:
+The binary is partitioned by cargo feature so the common case stays cheap to install, and the
+default set is what every released artifact carries. [Check which build you
+have](https://goedelsoup.github.io/yidam/installation/#check-which-build-you-have) is the
+table — which feature adds what, what each one costs to compile, and the two things about it
+that are easy to get backwards. Reading an index is much cheaper than building one, and they
+are separate features.
 
-| Feature | Adds | Cost |
-|---|---|---|
-| `reports` *(default)* | Every pure-Rust command — reports, gates, export to graphml/llms, clone, overlay | None. No protoc, no ML runtime |
-| `tonpa` *(default)* | Bundle dependency manager — `tonpa add`, `verify`, `update` | reqwest (rustls) + tokio. Vendored C, no system library |
-| `index` | `index-build`, and upgrades `serve --mcp`'s `retrieve` from keyword to semantic | fastembed (ONNX) + LanceDB; needs protoc 31 at build time |
-| `export-sqlite` | `export --format sqlite` | Bundled SQLite + sqlite-vec, compiled from C |
-| `vault-s3` *(default)* | The `s3://` transport for `yidam vault` — the rest of the vault is ungated | hmac + reqwest (rustls) + tokio |
-| `s3-vectors` *(default)* | Signing, querying and mirroring an S3 vector bucket — `index-push`, and the remote arm of `retrieve`. Querying one also needs `vector-read`, which embeds the query | **+0 packages**; hmac, reqwest and tokio are already here for `vault-s3` |
-| `export-graph` *(default)* | `export --format rdf` | Pure Rust |
-| `serve-http` *(default)* | `serve --mcp --http` — MCP over a URL, the transport every remote agent platform needs | hyper 1.x server features. **+1 package** (`httpdate`); hyper is already here for reqwest |
-| `catalog-fetch` *(default)* | `catalog-fetch` against a `url` or `url_template` location — the `kind: file` path is ungated and works without it | **+0 packages**; reqwest and tokio are already here for `tonpa` and `vault-s3` |
-| `full` | All of the above | |
+That table is the only copy. This file carried a second one until #947, and by then it had gone
+out of step with it: `vector-read` had no row at all, and the capability that feature adds was
+credited to `index` — so a reader who wanted semantic retrieval without protoc could not learn
+from here that the build exists. `a_feature_table_marks_exactly_the_default_features` now holds
+every declared feature to a row rather than only the default ones.
 
-`tonpa` is in the default set even though it costs an HTTP stack, because it is the only
-feature whose absence broke an instruction rather than removing a capability: without it
-`yidam tonpa add …` answered `unrecognized subcommand`, and inside a script with output
-redirected that is indistinguishable from success.
-
-MSRV is Rust 1.88, the toolchain this repo pins. It read 1.85 here and in `Cargo.toml` while
-every gate built 1.88 and nothing ever compiled the floor, so #463 raised it to the pin —
-an unverified promise replaced by one every build checks.
+MSRV is Rust 1.88, the toolchain this repo pins; [VERSIONING.md](VERSIONING.md) records why
+raising it is a minor bump at least.
 
 ## Prelude SDKs, parity, and specs
 
@@ -350,20 +284,6 @@ The vocabulary is drawn from Tibetan Buddhist epistemology; the register is deli
 
 Full definitions, including the `[verified]` / `[inference]` / `[open]` claim markers, are in
 [Vocabulary](https://goedelsoup.github.io/yidam/vocabulary/) ([docs/vocabulary.md](docs/vocabulary.md)).
-
-## Documentation
-
-**[goedelsoup.github.io/yidam](https://goedelsoup.github.io/yidam/)** — read it there. The
-site is built from [`docs/`](docs/README.md) on every push to `main`, and a page that no
-sidebar entry names fails that build, so nothing in it is published-but-unreachable.
-
-Start with [What yidam is](https://goedelsoup.github.io/yidam/what-yidam-is/), then
-[Information architecture](https://goedelsoup.github.io/yidam/information-architecture/) and
-[Bootstrap flow](https://goedelsoup.github.io/yidam/bootstrap-flow/). Designs under review
-are in [RFCs](https://goedelsoup.github.io/yidam/rfcs/README/).
-
-The markdown sources are [`docs/`](docs/README.md) — read those when you are working offline
-or changing them, and `mise run docs-dev` serves the site locally from the same files.
 
 ## Status
 

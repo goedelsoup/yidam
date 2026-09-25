@@ -21,11 +21,11 @@ is exactly current and its behavior already diverges.
 
 ## Problem
 
-**The tool was documented and never built.** `VERSIONING.md:16-35` prints the `.yidam.toml`
+**The tool was documented and never built.** `VERSIONING.md:28-47` prints the `.yidam.toml`
 schema and states: "`claudesync sync` reads `.yidam.toml` and reports drift against the origin
-tags" (`VERSIONING.md:25`), and "`claudesync upgrade --template 0.2.0` fetches the target release
-and applies forward changes" (`VERSIONING.md:26`); the bootstrap layer repeats the promise at
-`VERSIONING.md:96-99`. The string `claudesync` occurs in the repository *only* on those three
+tags" (`VERSIONING.md:37`), and "`claudesync upgrade --template 0.2.0` fetches the target release
+and applies forward changes" (`VERSIONING.md:38`); the bootstrap layer repeats the promise at
+`VERSIONING.md:108-111`. The string `claudesync` occurs in the repository *only* on those three
 lines. There is no `claudesync` binary, no `sync` subcommand, and no `.yidam.toml` reader anywhere
 under `yidam/cli/src/`.
 
@@ -178,7 +178,7 @@ that only checked hashes must say so, not imply behavioral parity.
 ## Migration & compatibility
 
 - **Template layer (minor).** Add `cli`/`cli_ref` to the `.yidam.toml` schema in
-  `VERSIONING.md:16-35`, marked optional, `cli_ref` authoritative. Additive; existing files
+  `VERSIONING.md:28-47`, marked optional, `cli_ref` authoritative. Additive; existing files
   (three-field) keep validating.
 - **Bootstrap scaffold.** Fix `overlay.rs` to *emit* a `.yidam.toml` pinned to the current origin
   tags plus `cli_ref` = the overlay commit — so a derived repo starts with a correct, machine-read

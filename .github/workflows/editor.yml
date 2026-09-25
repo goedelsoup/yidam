@@ -2,7 +2,7 @@
 #
 # `release.sh:91-92` has named this file since the release script was written: the `editor`
 # layer tags `editor/v*`, declares its version in `yidam/editors/vscode/package.json`, and
-# requires `.github/workflows/editor.yml` to exist at HEAD. VERSIONING.md:157 has named the
+# requires `.github/workflows/editor.yml` to exist at HEAD. VERSIONING.md:169 has named the
 # tag pattern and both registries for longer than that. Until now the file was not here, so
 # `./release.sh editor 0.1.0` refused — correctly — with `no-workflow`, and the extension
 # reached a person only as a `.vsix` somebody built on their own machine.

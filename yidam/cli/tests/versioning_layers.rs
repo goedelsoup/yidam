@@ -1,4 +1,12 @@
-//! `VERSIONING.md` names files. This checks they are there.
+//! The versioning documents name files. This checks they are there.
+//!
+//! There are two, and #947 is what the split cost while only one was read. `VERSIONING.md` at
+//! the root is the maintainer's reference, parsed here and by `release_script.rs`;
+//! `docs/versioning.md` is the page the site publishes. The second one restates the first's
+//! layer tables in a reader's register — and its Layer 2 table named three manifests as
+//! `sdks/rust/Cargo.toml` and two siblings, paths that have not existed since everything moved
+//! under `yidam/`. Exactly the rot described below, in the copy this scan was not reading. A
+//! published page is the one a stranger types a path out of.
 //!
 //! A versioning document is a promise about where things live, and a promise nothing checks
 //! is one that rots at the first move. This one had already rotted: the paths in Layers 2
@@ -24,6 +32,47 @@ fn versioning() -> String {
     std::fs::read_to_string(repo_root().join("VERSIONING.md")).expect("VERSIONING.md")
 }
 
+/// Both versioning documents, by the path each is read at.
+///
+/// Named rather than discovered, because "a versioning document" is not a property of a file
+/// that anything can decide — and named in one place, so a third one is added here once. What
+/// keeps the naming honest is that every entry must yield paths of its own: a document that
+/// stops parsing fails rather than dropping out of the population.
+const VERSIONING_DOCS: [&str; 2] = ["VERSIONING.md", "docs/versioning.md"];
+
+/// Every versioning document, read, with the roster checked on the way through.
+///
+/// The roster is checked here rather than trusted, because its failure is silent. A roster that
+/// named one document twice passed `both_versioning_documents_name_the_same_tag_prefixes` — a
+/// set compared with itself is equal — so the test stayed green while seeing half of what it
+/// claimed to. Found by mutation, not by reading. Distinct paths *and* distinct contents: two
+/// entries reaching one file through a symlink satisfy the first and not the second.
+fn versioning_documents() -> Vec<(&'static str, String)> {
+    let root = repo_root();
+    let docs: Vec<(&str, String)> = VERSIONING_DOCS
+        .iter()
+        .map(|doc| {
+            let path = root.join(doc);
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("{} is unreadable ({e})", path.display()));
+            (*doc, text)
+        })
+        .collect();
+
+    for (i, (a, ta)) in docs.iter().enumerate() {
+        for (b, tb) in &docs[i + 1..] {
+            assert_ne!(a, b, "the versioning-document roster names `{a}` twice");
+            assert_ne!(
+                ta, tb,
+                "`{a}` and `{b}` hold identical text, so every comparison across the two is \
+                 vacuous. One is the reader's page and one the maintainer's reference; identical \
+                 text means a copy or a restore has written one over the other."
+            );
+        }
+    }
+    docs
+}
+
 /// Every backticked token that looks like a repository path.
 ///
 /// Path-shaped means: contains a `/`, and ends in an extension this repository actually
@@ -45,12 +94,22 @@ fn referenced_paths(text: &str) -> Vec<String> {
 }
 
 /// Also the paths inside markdown links, which is how the newer sections write them.
+///
+/// The fragment is dropped, the way `broken-prose-link` drops it: a `#some-heading` names a
+/// rendering of the file rather than a location in the tree, and this test is about whether the
+/// file is there. The root document writes none, so the split was unreachable until the
+/// published page came under this scan — where `[Configuration](configuration.md#yidamtoml)` is
+/// the house form and would have been reported as a missing file.
 fn linked_paths(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for chunk in text.split("](").skip(1) {
         let Some(end) = chunk.find(')') else { continue };
         let target = chunk[..end].trim();
         if target.starts_with('#') || target.contains("://") {
+            continue;
+        }
+        let target = target.split('#').next().unwrap_or(target);
+        if target.is_empty() {
             continue;
         }
         out.push(target.to_string());
@@ -78,34 +137,93 @@ fn commented_paths(text: &str) -> Vec<String> {
 }
 
 #[test]
-fn every_file_versioning_md_names_exists() {
+fn every_file_a_versioning_document_names_exists() {
     let root = repo_root();
-    let text = versioning();
+    let mut missing: Vec<String> = Vec::new();
 
-    let mut referenced = referenced_paths(&text);
-    referenced.extend(linked_paths(&text));
-    referenced.extend(commented_paths(&text));
-    assert!(
-        referenced.len() > 5,
-        "found only {} path(s) — the scan is broken, not the document",
-        referenced.len()
-    );
+    for (doc, text) in versioning_documents() {
+        let path = root.join(doc);
+        // Links in the published page are relative to `docs/`, not to the root; the maintainer's
+        // reference is at the root and writes root-relative paths. So a path resolves against
+        // the directory its document sits in, which is what a reader following it does.
+        let from = path
+            .parent()
+            .expect("a document has a parent")
+            .to_path_buf();
 
-    let missing: Vec<String> = referenced
-        .iter()
-        .filter(|p| !root.join(p).exists())
-        .cloned()
-        .collect();
+        let mut referenced = referenced_paths(&text);
+        referenced.extend(linked_paths(&text));
+        referenced.extend(commented_paths(&text));
+        // Per document, not a total across them: a floor over the sum is cleared by one
+        // document while the scan is blind to the other.
+        assert!(
+            referenced.len() > 5,
+            "found only {} path(s) in {doc} — the scan is broken, not the document",
+            referenced.len()
+        );
+
+        missing.extend(
+            referenced
+                .iter()
+                .filter(|p| !from.join(p).exists() && !root.join(p).exists())
+                .map(|p| format!("  {doc}: {p}")),
+        );
+    }
 
     assert!(
         missing.is_empty(),
-        "VERSIONING.md names files that do not exist:\n{}\n\nA versioning document is a \
+        "{} path(s) in a versioning document do not exist:\n{}\n\nA versioning document is a \
          promise about where things live. Fix the path, or move the file.",
-        missing
-            .iter()
-            .map(|p| format!("  {p}"))
-            .collect::<Vec<_>>()
-            .join("\n")
+        missing.len(),
+        missing.join("\n")
+    );
+}
+
+/// The two documents must name the same set of tag prefixes.
+///
+/// This is the one fact the duplication cannot be allowed to drift on. Everything else the
+/// published page restates is prose a reader can discount; a tag prefix is what `release.sh`
+/// takes, what a workflow triggers on, and what a resolver asks for — a page naming a layer
+/// the reference does not, or missing one it does, sends somebody to tag the wrong thing.
+///
+/// Compared as prefixes because the two write the version part differently on purpose:
+/// `cli/v{major}.{minor}.{patch}` in the reference, `cli/v{x.y.z}` on the page. The prefix is
+/// the part that decides anything.
+#[test]
+fn both_versioning_documents_name_the_same_tag_prefixes() {
+    let prefixes = |text: &str| -> std::collections::BTreeSet<String> {
+        // Every backticked `<prefix>v{…}` token. The template layer's prefix is empty, which
+        // is why the match is on `v{` rather than on a separator.
+        text.split('`')
+            .skip(1)
+            .step_by(2)
+            .filter_map(|t| t.trim().split_once("v{"))
+            .map(|(prefix, _)| prefix.to_string())
+            .collect()
+    };
+
+    let mut found: Vec<(&str, std::collections::BTreeSet<String>)> = Vec::new();
+    for (doc, text) in versioning_documents() {
+        let set = prefixes(&text);
+        assert!(
+            set.len() >= 5,
+            "{doc} yielded {} tag prefix(es) ({set:?}); five layers have carried one since \
+             #609, so this is parsing the wrong thing and the comparison below is vacuous",
+            set.len()
+        );
+        found.push((doc, set));
+    }
+
+    let (first, a) = &found[0];
+    let (second, b) = &found[1];
+    assert_eq!(
+        a,
+        b,
+        "{first} and {second} disagree about which tag prefixes exist.\n  only in {first}: \
+         {:?}\n  only in {second}: {:?}\n\nA tag prefix is what release.sh takes and what a \
+         workflow triggers on. The two documents may differ on prose; not on this.",
+        a.difference(b).collect::<Vec<_>>(),
+        b.difference(a).collect::<Vec<_>>(),
     );
 }
 

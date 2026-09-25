@@ -417,7 +417,7 @@ designing A0's own confound into A0's deliverable. So (#572, scope decision 6):
   every re-vendor.
 - **Cross-revision comparison refuses or annotates, never silently proceeds.** The precedent is
   the harness's cross-`PROTOCOL_VERSION` rule
-  ([`VERSIONING.md:126-129`](../../VERSIONING.md#L126-L129)): comparisons are valid only at the
+  ([`VERSIONING.md:138-141`](../../VERSIONING.md#L138-L141)): comparisons are valid only at the
   same version, and the tool *"rejects cross-version diffs with an explicit error rather than
   silently producing misleading output."* `score` (A5) and `fit` (A7) inherit that shape
   verbatim.

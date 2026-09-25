@@ -372,3 +372,156 @@ fn the_deploy_is_checked_against_the_site_it_claims_to_have_published() {
          cost a release"
     );
 }
+
+// ── the README and the site say the shared part once ──────────────────────────
+
+/// The one passage the README and the site are meant to share, taken from the site's copy.
+///
+/// Extracted rather than written here, so this file is not a third place the text lives.
+fn shared_passage() -> String {
+    let page = read("docs/what-yidam-is.md");
+    let start = page
+        .find("Most knowledge systems keep the graph")
+        .expect("docs/what-yidam-is.md no longer opens its argument with the database paragraph");
+    let mut lines: Vec<&str> = Vec::new();
+    let mut seen_table = false;
+    for line in page[start..].lines() {
+        // The passage is the paragraph plus the table that follows it, and it ends where the
+        // table does.
+        if line.trim_start().starts_with('|') {
+            seen_table = true;
+        } else if seen_table {
+            break;
+        }
+        lines.push(line);
+    }
+    let passage = lines.join("\n");
+    // Vacuity guard: this is the text every assertion below is written in terms of, and an
+    // extractor that returned the paragraph alone would compare almost nothing.
+    let rows = passage
+        .lines()
+        .filter(|l| l.trim_start().starts_with('|'))
+        .count();
+    assert!(
+        rows >= 6 && passage.contains("| Git | Graph |"),
+        "the extractor found {rows} table row(s) and no Git/Graph header; it is reading the \
+         wrong part of the page and every comparison built on it is vacuous:\n{passage}"
+    );
+    passage
+}
+
+/// Every `.md` under `docs/`, by repo-relative path.
+fn docs_pages() -> Vec<String> {
+    fn walk(dir: &PathBuf, out: &mut Vec<PathBuf>) {
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, out);
+            } else if p.extension().is_some_and(|x| x == "md") {
+                out.push(p);
+            }
+        }
+    }
+    let docs = repo_root().join("docs");
+    let mut found = Vec::new();
+    walk(&docs, &mut found);
+    let root = repo_root().canonicalize().unwrap_or_else(|_| repo_root());
+    let mut pages: Vec<String> = found
+        .iter()
+        .map(|p| {
+            let c = p.canonicalize().unwrap_or_else(|_| p.clone());
+            c.strip_prefix(&root)
+                .unwrap_or(&c)
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+    pages.sort();
+    // Discovered, not listed — a page added under `docs/` is covered the day it lands, which a
+    // roster cannot manage. Loud if the walk finds nothing, because an empty population is the
+    // way this stops checking.
+    assert!(
+        pages.len() > 40,
+        "found only {} page(s) under docs/; the walk is broken, not the directory",
+        pages.len()
+    );
+    pages
+}
+
+/// The README repeats one passage from the site, character for character, and no other.
+///
+/// #947: the README reproduced the Git/Graph table and the paragraph introducing it from
+/// `what-yidam-is.md`, and three further stretches — the install channels, the editor
+/// walkthrough, the cargo feature table — restated `installation.md` and `editor-setup.md` in
+/// their own words. Nothing held any of it, and the feature table is what that cost: it had
+/// lost `vector-read` entirely and credited that feature's capability to `index`, while the
+/// published table beside it was right.
+///
+/// So the pitch stays in both places — a README with no pitch is worse than a duplicated one —
+/// and it is held identical to the site's copy, where the prose checks can see it. Everything
+/// else is a link. The second half of this test is the part that keeps working after today: it
+/// does not know which passages are duplicated, it finds them, so the next restatement to be
+/// pasted in goes red without anyone remembering to add it here.
+#[test]
+fn the_readme_shares_one_passage_with_the_site_and_repeats_nothing_else() {
+    let readme = read("README.md");
+    let passage = shared_passage();
+
+    assert!(
+        readme.contains(&passage),
+        "the README's copy of the Git/Graph passage has drifted from \
+         `docs/what-yidam-is.md`.\n\nThe site's copy reads:\n\n{passage}\n\nEdit both or neither. \
+         The site's copy is the one under the prose checks, so it is the one to change first."
+    );
+
+    // Every other run of four or more substantive lines the README shares with a published
+    // page, found rather than listed.
+    let rl: Vec<&str> = readme.lines().collect();
+    let allowed: Vec<&str> = passage.lines().collect();
+    let mut repeats: Vec<String> = Vec::new();
+
+    for page in docs_pages() {
+        let text = read(&page);
+        let wl: Vec<&str> = text.lines().collect();
+        for i in 0..rl.len() {
+            for j in 0..wl.len() {
+                if rl[i] != wl[j] {
+                    continue;
+                }
+                // Only maximal runs: a run that could start one line earlier is reported there.
+                if i > 0 && j > 0 && rl[i - 1] == wl[j - 1] {
+                    continue;
+                }
+                let mut n = 0;
+                while i + n < rl.len() && j + n < wl.len() && rl[i + n] == wl[j + n] {
+                    n += 1;
+                }
+                let run = &rl[i..i + n];
+                // Blank lines and a lone `|---|---|` are shape, not text; four lines of prose
+                // is the threshold at which a restatement is a restatement.
+                if run.iter().filter(|l| l.trim().len() > 12).count() < 4 {
+                    continue;
+                }
+                if run.iter().all(|l| allowed.contains(l)) {
+                    continue;
+                }
+                repeats.push(format!(
+                    "  README:{} and {page}:{} share {n} lines, beginning: {}",
+                    i + 1,
+                    j + 1,
+                    run.iter().find(|l| !l.trim().is_empty()).unwrap_or(&"")
+                ));
+            }
+        }
+    }
+
+    assert!(
+        repeats.is_empty(),
+        "{} passage(s) in the README repeat a published page:\n{}\n\nThe README is not a copy \
+         of the site. Where a subject has a page, say the one thing specific to the repository \
+         and link out; the Git/Graph pitch is the single exception, and it is held identical \
+         rather than merely similar.",
+        repeats.len(),
+        repeats.join("\n")
+    );
+}

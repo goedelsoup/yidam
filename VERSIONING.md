@@ -3,6 +3,18 @@
 Yidam has four independent versioning layers. They share a monorepo but are released
 on separate trains with separate semantics. Understand the layers before bumping anything.
 
+**This is the maintainer's reference, and there is a reader's page beside it.**
+[`docs/versioning.md`](docs/versioning.md) is published on the documentation site and answers
+what the layers are, how a derived repository pins and adopts one, and how a release is cut.
+This file carries what that page does not: the semver table for every layer, the release
+history behind each protocol bump, and the arguments for what is deliberately *not* a layer.
+It stays at the repository root rather than moving under `docs/` because it is part of the
+template root `clone` withholds and the bootstrap skill deletes — a derived repository does
+not release yidam's layers — and because `yidam/cli/tests/versioning_layers.rs` and
+`yidam/cli/tests/release_script.rs` read it here to check that what it promises is what the
+manifests, constants and workflows do. Both documents are held to the tree: every path either
+one names must resolve, and the two must name the same set of tag prefixes.
+
 ---
 
 ## Layer 1 — Template

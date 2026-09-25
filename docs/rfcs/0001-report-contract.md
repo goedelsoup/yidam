@@ -142,11 +142,11 @@ diff against `expected/` — the same load-and-assert loop already in `parity.rs
 
 **Make the reports a first-class part of the versioning contract.** Govern the `reports/` family by
 the same joint `prelude/sdks/parity/VERSION` (`0.3.0` today) that already versions the eight
-functions (`VERSIONING.md:53-64`). Adding the family bumps it once; thereafter the rule mirrors the
+functions (`VERSIONING.md:65-76`). Adding the family bumps it once; thereafter the rule mirrors the
 existing fixture discipline — **additions are safe, mutations are breaking.** Changing a report's
 output shape (a new `kind`, a reordered column, a different open predicate) requires a fixture
 change *and* a `VERSION` bump *and* a same-PR update to every SDK implementation, exactly as a
-function-contract change does (`VERSIONING.md:56-61`). This is the precedent already set for the
+function-contract change does (`VERSIONING.md:68-73`). This is the precedent already set for the
 `embed_config` fixtures, which live under `fixtures/` and are versioned with parity but run by a
 dedicated task (`README.md:65-79`); `reports/` follows the same pattern.
 

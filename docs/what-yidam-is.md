@@ -94,6 +94,15 @@ The constraints are the point: because the corpus is gated, it can be *computed 
 
 None of that needs a database, and none of it is a projection that can fall out of sync.
 
+**The anchored walk is an argument, not an assumption.**
+[Ontology-anchored path resolution](research/system/README.md) is the paper this design is built
+on: it claims that anchoring a goal to a concept the corpus already represents turns an O(*n*)
+scan into a walk whose depth is bounded by the ontology rather than by the corpus size, and that
+where a full lookup is impossible, ontological context still bounds the scan. It is an early
+draft with most of its sections open, so it is cited here as the reasoning rather than as a
+result — `yidam bench` is what scores the claim against a committed goal set, and it reports the
+parameters that make its answer arguable.
+
 ## Reading on
 
 | If you want to | Go to |
@@ -102,5 +111,6 @@ None of that needs a database, and none of it is a projection that can fall out 
 | Install the CLI | [Installation](installation.md) |
 | Understand the file shapes | [Information architecture](information-architecture.md) |
 | Bootstrap a repository | [Bootstrap flow](bootstrap-flow.md) |
+| Read the argument this is built on | [Ontology-anchored path resolution](research/system/README.md) — early draft |
 | Point an agent at a corpus | [Connecting an agent](mcp-server.md) |
 | Look up a term | [Vocabulary](vocabulary.md) |

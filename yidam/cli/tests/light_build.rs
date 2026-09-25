@@ -416,62 +416,119 @@ fn marked_rows(text: &str) -> Vec<(String, bool)> {
         .collect()
 }
 
-/// Every feature table agrees with the manifest about which features are default.
+/// The canonical feature table is complete, and no table anywhere mismarks a default.
+///
+/// Two claims, because the documents make two different promises. `docs/installation.md` is the
+/// one table that claims to be the whole set — a reader choosing a build reads it and expects
+/// every feature to be there — so it is held to completeness in both directions. Every other
+/// table is partial on purpose: `docs/cli-reference.md` names `index` per command, and the
+/// tables in RFC-0003 and RFC-0023 record a set as it stood when the decision was taken.
+/// Holding those to completeness would make the check a nuisance that gets relaxed, so they are
+/// held to the one thing that is wrong in any document — a row marked `*(default)*` for a
+/// feature the manifest does not put in `default`.
+///
+/// A row is recognised by a backticked feature name in its first cell, and `index` names both a
+/// feature and a command, so outside the canonical page a matched row may not be about features
+/// at all. That ambiguity is survivable in the direction this checks — nobody writes
+/// `*(default)*` beside a command — and is the second reason completeness is asked of one page
+/// rather than of every table that happens to mention a feature.
+///
+/// The second claim is why the scan is a walk rather than a roster. Until #947 the README
+/// carried a second complete table, and by then it had drifted: `vector-read` had no row at
+/// all, and the capability that feature adds was credited to `index`. That table is gone, but
+/// the next one will not be added to a list this test names, and a roster cannot go red for a
+/// document nobody told it about.
 #[test]
 fn a_feature_table_marks_exactly_the_default_features() {
+    /// The document that claims to name every feature. The others are partial by design.
+    const CANONICAL: &str = "docs/installation.md";
+
     let default = feature_body("default");
     let declared = declared_features();
+    let complete: BTreeSet<&String> = declared
+        .iter()
+        .filter(|f| !AGGREGATE.contains(&f.as_str()))
+        .collect();
     let mut problems: Vec<String> = Vec::new();
-    let mut tables = 0;
+    let mut scanned: Vec<String> = Vec::new();
+    let mut canonical_rows = 0usize;
+    // The walk yields paths as it was given the root — `yidam/cli/../../docs/…` — so a
+    // document is recognised by its trailing components rather than by a string compare
+    // against a spelling of the root. `ends_with` on a `Path` is component-wise.
+    let root = repo_root();
+    let root_canon = root.canonicalize().unwrap_or_else(|_| root.clone());
 
-    for doc in ["README.md", "docs/installation.md"] {
-        let path = repo_root().join(doc);
-        let text = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("{} unreadable: {e}", path.display()));
+    for entry in common::repo_walk(&root) {
+        if entry.file_type().is_dir() || entry.path().extension().is_none_or(|e| e != "md") {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let doc = canon
+            .strip_prefix(&root_canon)
+            .unwrap_or(&canon)
+            .to_string_lossy()
+            .to_string();
         let rows: Vec<(String, bool)> = marked_rows(&text)
             .into_iter()
             .filter(|(name, _)| declared.contains(name))
             .collect();
-        // A document with no feature rows is not a document this test is about; one with a
-        // handful is, and losing them silently is how the check stops checking.
-        if rows.len() < 3 {
+        // A document with no feature rows is not a document this test is about.
+        if rows.is_empty() {
             continue;
         }
-        tables += 1;
+        scanned.push(doc.clone());
+        if path.ends_with(CANONICAL) {
+            canonical_rows = rows.len();
+        }
 
+        // Wrong in any document: the mark is a claim about the manifest, and a reader who
+        // trusts it builds something other than what they were told.
         for (name, marked) in &rows {
-            match (default.contains(name), marked) {
-                (true, false) => problems.push(format!(
-                    "  {doc}: `{name}` is in the default set and its row is not marked \
-                     *(default)*"
-                )),
-                (false, true) => problems.push(format!(
+            if *marked && !default.contains(name) {
+                problems.push(format!(
                     "  {doc}: `{name}` is marked *(default)* and is not in the default set"
-                )),
-                _ => {}
+                ));
             }
         }
 
-        // And the other direction: a default feature with no row at all is the way
-        // `vault-s3` went missing — a table cannot mark a row it does not have.
-        let listed: BTreeSet<&String> = rows.iter().map(|(n, _)| n).collect();
-        for f in &default {
-            if !listed.contains(f) {
+        if !path.ends_with(CANONICAL) {
+            continue;
+        }
+
+        for (name, marked) in &rows {
+            if default.contains(name) && !marked {
                 problems.push(format!(
-                    "  {doc}: `{f}` is in the default set and the table has no row for it"
+                    "  {doc}: `{name}` is in the default set and its row is not marked \
+                     *(default)*"
+                ));
+            }
+        }
+        // And the other direction: a feature with no row at all is how `vault-s3` went missing
+        // from one table and `vector-read` from another. A table cannot mark a row it lacks.
+        let listed: BTreeSet<&String> = rows.iter().map(|(n, _)| n).collect();
+        for f in &complete {
+            if !listed.contains(*f) {
+                problems.push(format!(
+                    "  {doc}: `{f}` is declared in Cargo.toml and the table has no row for it"
                 ));
             }
         }
     }
 
+    // Per document, never a count: `scanned.len() >= 2` was cleared by two partial tables
+    // while the canonical one had stopped parsing.
     assert!(
-        tables >= 2,
-        "{tables} feature table(s) found; this test is reading the wrong documents or the \
-         row parser stopped recognising one"
+        canonical_rows > 0,
+        "{CANONICAL} yielded no feature rows, so the completeness half of this test ran against \
+         nothing. Documents that did yield rows: {scanned:?}"
     );
     assert!(
         problems.is_empty(),
-        "{} feature table row(s) disagree with `[features] default`:\n{}\n\n\
+        "{} feature table row(s) disagree with `[features]`:\n{}\n\n\
          The default set is what `cargo install yidam` resolves and what the release ships. \
          A table that names a different one sends a reader to build something else.",
         problems.len(),
