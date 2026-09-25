@@ -1087,6 +1087,13 @@ empty.
 from keyword to semantic search, and adds nothing else. A default binary still serves every other
 tool. It says `degraded` on the calls where the difference shows.
 
+**`serve --mcp` writes nothing unless the corpus says to.** With `[serve] record = true` in
+`.yidam/config.toml` it appends one line per `tools/call` to `.yidam/record/calls.jsonl`. The line
+names the tool, a digest of its arguments, the row count and the latency. It also names whether
+retrieval was degraded, and the corpus commit it answered from. Never the query text.
+`.yidam/record/` must be gitignored and the server refuses to start until it is. See
+[Configuration](configuration.md#serve-record).
+
 ## Measuring the corpus
 
 | Command | What it does |

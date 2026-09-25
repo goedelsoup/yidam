@@ -164,19 +164,51 @@ fn refuse_unbacked(state: &ServerState, name: &str) -> Option<String> {
     }
 }
 
-/// Dispatch a tools/call. Tool-level failures come back as MCP tool errors
-/// (`isError: true`), not protocol errors — the agent can read and react.
+/// Dispatch a tools/call, and record that it happened.
+///
+/// Tool-level failures come back as MCP tool errors (`isError: true`), not protocol errors — the
+/// agent can read and react.
+///
+/// # The one write site
+///
+/// Every tool call in the system funnels through here, and [`super::record`] appends one line per
+/// call — a success, a refusal, an unbacked tier and an unknown name alike. The alternative
+/// considered was a write in each of [`wrap`]'s two arms, which the verification in #719 is
+/// phrased against; it was rejected because it records neither early return above, and a record
+/// that silently omits the refusal paths is a record whose emptiness reads as *nothing was
+/// asked*. The mutation that must go red is therefore the narrowing one: record only the `Ok`
+/// arm, and `a_refusal_is_recorded` fails.
+///
+/// The record is `None` unless the corpus declared `[serve] record`, so the default path here is
+/// one `Instant::now()` and a `None` test.
 pub(crate) fn call(state: &mut ServerState, name: &str, args: &Value) -> Value {
+    let started = std::time::Instant::now();
+    let outcome = dispatch(state, name, args);
+    // `state.record` and `state.commit` are disjoint fields, and the commit is read here rather
+    // than cached at open because an `act` call reloads the snapshot underneath this line.
+    if let Some(record) = state.record.as_mut() {
+        record.append(&state.commit, name, args, &outcome, started.elapsed());
+    }
+    wrap(outcome)
+}
+
+/// Every path a `tools/call` can take, before it is wrapped for the wire.
+///
+/// Split out of [`call`] so the record above sees the outcome rather than the envelope. Reading
+/// `results` and `degraded` back out of a pretty-printed string inside `content[0].text` would
+/// have been a second parse of bytes this process had just serialised, on the read path, to
+/// recover fields it was holding a moment earlier.
+fn dispatch(state: &mut ServerState, name: &str, args: &Value) -> Result<Value, String> {
     if let Some(refusal) = refuse_unbacked(state, name) {
-        return json!({"content": [{"type": "text", "text": refusal}], "isError": true});
+        return Err(refusal);
     }
     // The write tier, dispatched before the read arms and returning early, because it is the
     // only path that may leave the snapshot below it stale. Everything after this line reads
     // `&*state` and could not tell a reload had happened.
-    if let Some(result) = act(state, name, args) {
-        return result;
+    if let Some(outcome) = act(state, name, args) {
+        return outcome;
     }
-    let outcome = match name {
+    match name {
         "retrieve" => retrieve(state, args),
         "get_node" => get_node(state, args),
         "neighbors" => neighbors(state, args),
@@ -191,7 +223,15 @@ pub(crate) fn call(state: &mut ServerState, name: &str, args: &Value) -> Value {
         "pack" => pack(state, args),
         "estimate" => estimate(state, args),
         other => Err(format!("unknown tool: {other}")),
-    };
+    }
+}
+
+/// One outcome as the MCP wire shape.
+///
+/// One function, where [`call`] and [`act`] each held a copy of the same two arms. They could
+/// not drift while both were three lines long; they could once the record needed the outcome and
+/// only one of them had it.
+fn wrap(outcome: Result<Value, String>) -> Value {
     match outcome {
         Ok(result) => {
             let text = serde_json::to_string_pretty(&result).unwrap_or_default();
@@ -227,18 +267,11 @@ pub(crate) fn call(state: &mut ServerState, name: &str, args: &Value) -> Value {
 ///
 /// Nothing else is reachable. There is no `merge`, no `run`, no `index-build`, and adding one
 /// is a contract event under RFC-0005 rather than an arm in this match.
-fn act(state: &mut ServerState, name: &str, args: &Value) -> Option<Value> {
-    let outcome = match name {
+fn act(state: &mut ServerState, name: &str, args: &Value) -> Option<Result<Value, String>> {
+    Some(match name {
         "propose" => act_propose(state, args),
         "cycle" => act_cycle(state),
         _ => return None,
-    };
-    Some(match outcome {
-        Ok(result) => {
-            let text = serde_json::to_string_pretty(&result).unwrap_or_default();
-            json!({"content": [{"type": "text", "text": text}]})
-        }
-        Err(message) => json!({"content": [{"type": "text", "text": message}], "isError": true}),
     })
 }
 

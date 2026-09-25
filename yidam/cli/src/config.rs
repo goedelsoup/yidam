@@ -278,6 +278,27 @@ pub struct ServeConfig {
     /// ```
     #[serde(default)]
     pub act: bool,
+    /// Whether a server started against this corpus appends a line per `tools/call` to
+    /// `.yidam/record/calls.jsonl` — [`crate::cmd::serve::record`].
+    ///
+    /// **`false` is the default, on the precedent `[due]` and `ttl_days` set**: the corpus
+    /// declares, nothing is compiled in. A number or a policy compiled into the binary would be
+    /// one repository's judgement arriving in another that never agreed to it, and that argument
+    /// is sharper here than for `escalate_after`, because over `--http` the thing being recorded
+    /// is traffic from callers this server cannot authenticate.
+    ///
+    /// **Not `act` under another name.** `act` declares what the server may write *into the
+    /// graph*, and carries an identity gate because the history it writes is the knowledge
+    /// graph. This declares that the server keeps an operational record of what it was asked —
+    /// RFC-0026's permitted side, closest to `index:` in the commit vocabulary's own table — and
+    /// needs no author, because nothing it writes is testimony.
+    ///
+    /// ```toml
+    /// [serve]
+    /// record = true
+    /// ```
+    #[serde(default)]
+    pub record: bool,
 }
 
 pub fn load_yidam_config(root: &Path) -> Result<YidamConfig> {
