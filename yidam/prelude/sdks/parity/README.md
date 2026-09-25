@@ -102,6 +102,13 @@ The ontology is what types these values — `<class>.ont.yml` declares them — 
 reads them as text. What *is* in contract is every string value, the key sets of `properties`
 and `extra`, and the difference between an absent key and a present empty one.
 
+**`serde_yaml` above is a name, not a crate.** The Rust SDK imports it under that name and
+`Cargo.toml` aliases it to `serde_yaml_ng`, because dtolnay archived the original and
+published it as `0.9.34+deprecated` (#931). The alias is what keeps this section true: the
+fork's parse path is byte-identical to `0.9.34`, so the scalar resolution pinned here is the
+same code and not a second reading of it. A fork that scanned differently would be a new
+contract rather than a maintenance bump, which is the bar any later replacement has to meet.
+
 **Sorted means code-point order.** Rust sorts a `String` by UTF-8 bytes and Python by code
 point, and those two agree everywhere. JavaScript's default comparator orders by UTF-16 code
 unit, which puts an astral character *below* every BMP character from U+E000 up — so the
