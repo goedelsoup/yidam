@@ -182,6 +182,10 @@ above it wins — the same corpus `cd`-ing there would have found. This is not `
 one of those, toplevel resolution answers with the *outer* repository, which is no corpus at
 all.
 
+**A `--root` that names no corpus is refused, like a working directory that is not one.** A
+typo, or a path that moved, fails at startup. It is not served empty. Every other command that
+takes `--root` refuses the same way.
+
 This replaces the shell form these docs used to prescribe:
 
 ```json

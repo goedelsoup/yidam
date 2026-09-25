@@ -193,6 +193,44 @@ fn a_repository_is_not_named_unless_the_caller_asks() {
     assert!(named.contains(&path), "--paths did not name it:\n{named}");
 }
 
+/// The same rule, on the row for a member that was **not** read.
+///
+/// A skip carries a reason as well as a letter, and the reason comes from `resolve_root`,
+/// whose refusal quotes the directory — it is written for somebody at a terminal who needs to
+/// see which path was wrong. Pasted into a public issue it discloses a private checkout just
+/// as surely as a member row would, and the test above cannot see it: every member it uses is
+/// one that *was* read.
+#[test]
+fn a_skipped_path_is_not_named_unless_the_caller_asks() {
+    let e = Example::materialize("streamflow");
+    // Outside every corpus, not merely without one of its own: a subdirectory *inside* the
+    // example resolves up to it and is read rather than skipped, which is `resolve_root`
+    // behaving correctly and this test measuring nothing.
+    let nowhere = tempfile::tempdir().unwrap();
+    let path = nowhere.path().display().to_string();
+
+    let (quiet, err, code) = e.run(&["cohort", &path]);
+    assert_eq!(code, 0, "{quiet}{err}");
+    assert!(
+        !quiet.contains(&path),
+        "the default report names a path it skipped:\n{quiet}"
+    );
+    assert!(
+        quiet.contains("not a yidam repository"),
+        "redacting the path dropped the reason with it:\n{quiet}"
+    );
+
+    // The other direction. This is satisfied by the row's own `path` field rather than by the
+    // reason, so it is not the redaction's falsifier — the assertion above is. It is here
+    // because a redaction applied unconditionally would drop the skipped path from the report
+    // altogether, and then `--paths` would be a flag that does nothing for a skip.
+    let (named, _, _) = e.run(&["cohort", &path, "--paths"]);
+    assert!(
+        named.contains(&path),
+        "--paths did not name the skipped path:\n{named}"
+    );
+}
+
 /// A cohort of one is not evidence about a prelude, and the report must not read as if it is.
 #[test]
 fn one_repository_produces_no_finding_about_the_prelude() {

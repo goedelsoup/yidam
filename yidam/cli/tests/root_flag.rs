@@ -222,6 +222,112 @@ fn every_rooted_command_has_an_invocation_here() {
     );
 }
 
+/// A named `--root` holding no corpus is refused, by every command that takes the flag.
+///
+/// The companion to the test below, and the other half of what the flag promises. That one
+/// asks whether a command reads the corpus it was *given*; this asks what it does when the
+/// directory it was given is not a corpus at all. Both were silent failures, and they are
+/// the same silence: nothing in the output says which directory was read, so a clean report
+/// about nowhere is indistinguishable from a clean report about the corpus you meant.
+///
+/// Measured before the fix, against a git repository with one commit and no `.yidam/`: five
+/// of the forty-two refused, because they call `require_yidam_repo` for themselves. The other
+/// thirty-seven proceeded — `status` printing **0 nodes**, `open-questions` printing *no open
+/// questions*, `regen` reporting every generator current because `update_file_regen` no-ops
+/// on a file that is not there. Every one of those lines is also the honest answer for a real
+/// corpus that is genuinely empty in that respect, which is exactly the observation
+/// `require_yidam_repo`'s doc comment rejects.
+///
+/// **The refusal, not merely a failure.** Asserting a nonzero exit alone would be cleared by
+/// a command that fell over for an unrelated reason — `HEAD~1` that does not resolve in a
+/// one-commit repository, a query with nothing to parse. The message is asserted too, and it
+/// must quote the directory the caller named: a refusal that does not say *which* directory
+/// leaves the typo as hard to see as the clean report did.
+///
+/// A git repository rather than a bare directory, because that is the near miss worth
+/// covering: `--root` pointing at a checkout one level above the corpus, or at the wrong
+/// checkout entirely. `paths.rs` holds the unit tests for the other two shapes — a directory
+/// in no repository at all, and an unbootstrapped `yidam clone`, which keeps its own message.
+#[test]
+fn every_rooted_command_refuses_a_named_directory_that_is_not_a_corpus() {
+    // Derived from the table rather than listed here: a row excused from proving it reads a
+    // corpus is excused from this for the same reason, and a *new* excuse has to be argued
+    // in one place instead of two.
+    let exempt: BTreeSet<&str> = INVOCATIONS
+        .iter()
+        .filter(|(.., tell)| matches!(tell, Tell::Elsewhere(_)))
+        .map(|(c, ..)| *c)
+        .collect();
+
+    // A git repository with one commit and no `.yidam/` — the shape `--root` most plausibly
+    // lands on by mistake.
+    let named = tempfile::tempdir().unwrap();
+    let dir = named.path();
+    common::git::git(dir, &["init", "-q", "-b", "main"]);
+    common::git::git(dir, &["config", "user.email", "runner@test"]);
+    common::git::git(dir, &["config", "user.name", "Runner"]);
+    common::git::git_at(
+        dir,
+        &["commit", "-q", "--allow-empty", "-m", "not a corpus"],
+        common::git::FIXTURE_DATE,
+    );
+    assert!(
+        !named.path().join(".yidam").is_dir(),
+        "the fixture must hold no corpus, or this test asserts nothing"
+    );
+
+    // Where the process stands, which is not where it is pointed. A command that dropped the
+    // flag would resolve this instead — also not a corpus, so it would still fail; what it
+    // could not do is name the directory the assertion below looks for.
+    let elsewhere = tempfile::tempdir().unwrap();
+
+    let mut failures: Vec<String> = Vec::new();
+    for (command, args, _) in INVOCATIONS.iter().filter(|(c, ..)| !exempt.contains(c)) {
+        let path = named.path().display().to_string();
+        let mut argv: Vec<String> = vec![command.to_string(), "--root".into(), path.clone()];
+        argv.extend(args.iter().map(|a| match *a {
+            CORPUS => path.clone(),
+            other => other.to_string(),
+        }));
+
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_yidam"))
+            .current_dir(elsewhere.path())
+            .args(&argv)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap_or_else(|e| panic!("running `yidam {}`: {e}", argv.join(" ")));
+        let both = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+
+        if out.status.success() {
+            failures.push(format!(
+                "{command}: exited 0 and reported on a directory holding no corpus: {both:.300}"
+            ));
+        } else if !both.contains("not a yidam repository") {
+            failures.push(format!(
+                "{command}: failed, but not with the refusal — something else went wrong \
+                 first, so this row proves nothing about the flag: {both:.300}"
+            ));
+        } else if !both.contains(&path) {
+            failures.push(format!(
+                "{command}: refused without naming the directory it was given: {both:.300}"
+            ));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "these commands accept a named `--root` that is not a corpus:\n  {}\n\
+         `--root <DIR>` is an assertion — the caller said that directory *is* the corpus — so \
+         `paths::resolve_root` refuses one holding no `.yidam/`. A command that reports \
+         cleanly here buys a clean bill of health for a corpus that was never read.",
+        failures.join("\n  ")
+    );
+}
+
 #[test]
 fn every_rooted_command_reads_the_corpus_it_is_given() {
     // Held, not shadowed: `Example` owns the temporary directory, and dropping it here would

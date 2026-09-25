@@ -411,20 +411,39 @@ pub fn collect(roots: &[PathBuf], show_paths: bool) -> CohortReport {
 
     for given in roots {
         let named = |p: &Path| show_paths.then(|| p.display().to_string());
-        let Ok(root) = resolve_root(Some(given)) else {
-            skipped.push(Skipped {
-                path: named(given),
-                reason: "the path could not be resolved".into(),
-            });
-            continue;
+        // One question, asked once. `resolve_root` walks up to the nearest `.yidam/` and, since
+        // #1000, refuses a named path that has none — which is exactly a cohort member that is
+        // not a derived repository. This used to ask again afterwards, and the second copy of
+        // the rule is what would drift: a member skipped here is skipped for the reason the
+        // resolver gives, not for a paraphrase of it kept in step by hand.
+        //
+        // First line only. The refusal's remaining lines are remedies addressed to a person at
+        // a terminal — derive one, open BOOTSTRAP.md — and this is a row in a survey of other
+        // people's repositories, where the remedy is not the reader's to apply.
+        //
+        // **And redacted unless `--paths` was asked for.** The refusal quotes the directory,
+        // which is the whole point of it and exactly what *Lettered, not named* above forbids
+        // this report from disclosing. Redacted rather than trimmed: the path can fall
+        // anywhere in the sentence, and dropping the sentence would drop the reason with it.
+        let root = match resolve_root(Some(given)) {
+            Ok(root) => root,
+            Err(e) => {
+                let first = e
+                    .to_string()
+                    .lines()
+                    .next()
+                    .unwrap_or("could not be resolved")
+                    .to_string();
+                skipped.push(Skipped {
+                    path: named(given),
+                    reason: match show_paths {
+                        true => first,
+                        false => first.replace(&given.display().to_string(), "<path>"),
+                    },
+                });
+                continue;
+            }
         };
-        if !root.join(".yidam").is_dir() {
-            skipped.push(Skipped {
-                path: named(given),
-                reason: "no .yidam/ at or above this path — not a derived repository".into(),
-            });
-            continue;
-        }
         if git(&root, &["rev-parse", "HEAD"]).is_none() {
             skipped.push(Skipped {
                 path: named(&root),
@@ -515,11 +534,16 @@ pub fn collect(roots: &[PathBuf], show_paths: bool) -> CohortReport {
 /// gated on it would make one repository's practice a defect in another's build — which is
 /// `kuten check`'s argument and `due`'s before it.
 pub fn cohort(root: Option<&std::path::Path>, roots: &[PathBuf], opts: Options) -> Result<()> {
+    // Resolved before the survey, and in both formats. `--root` names this repository — the
+    // prelude the cohort is evidence about, and not any member of it — but only the JSON
+    // envelope ever asked for it, so in text mode the flag was accepted and never read. That
+    // is the shape #918 went looking for, and #1000 is what makes a wrong one say so: this is
+    // the only command in the roster that could be handed a directory holding no corpus and
+    // print a survey anyway.
+    let root = crate::paths::resolve_root(root)?;
     let report = collect(roots, opts.paths);
     if opts.format.is_json() {
-        // The envelope's `root` is this repository — the prelude the cohort is evidence
-        // about — and not any member of it. That is the subject of the report.
-        return crate::report::emit(&crate::paths::resolve_root(root)?, report);
+        return crate::report::emit(&root, report);
     }
     println!("{}", render(&report));
     Ok(())

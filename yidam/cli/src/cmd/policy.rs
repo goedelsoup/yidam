@@ -101,8 +101,14 @@ pub enum PolicyCommand {
 
 pub fn run(root: Option<&std::path::Path>, sub: PolicyCommand) -> Result<()> {
     // `unwrap_or_else` rather than `require_yidam_repo`: the compiled-in default is a complete
-    // rule set, so every subcommand has something to answer with outside a repository.
-    let root = crate::paths::resolve_root(root).unwrap_or_else(|_| PathBuf::from("."));
+    // rule set, so every subcommand has something to answer with outside a repository. That
+    // tolerance belongs to the *inferred* root only — a named `--root` holding no corpus is a
+    // typo rather than a place to answer from, and swallowing its refusal here would answer
+    // about the working directory the caller was explicitly not asking about (#1000).
+    let root = match root {
+        Some(_) => crate::paths::resolve_root(root)?,
+        None => crate::paths::resolve_root(None).unwrap_or_else(|_| PathBuf::from(".")),
+    };
     match sub {
         PolicyCommand::Check { format } => check(&root, format),
         PolicyCommand::Eval {
