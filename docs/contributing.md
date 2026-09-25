@@ -37,6 +37,17 @@ mise run ci
 **Check it by exit code**, not by reading the output: a task that fails mid-pipeline still
 prints a lot of green.
 
+`mise run ci` is the wrong size between two edits, though: it formats, lints and tests both
+workspaces. For the CLI suite alone, with an optional filter:
+
+```sh
+mise run test-cli                 # the whole CLI suite
+mise run test-cli rename_         # only the tests whose name contains this
+```
+
+Anything after the task name reaches `cargo nextest`. The command itself is `ci-cli`'s own,
+held to it by a gate, so a filtered run is the gate on a subset.
+
 Two things `mise run ci` does *not* cover, and both have bitten:
 
 ```sh

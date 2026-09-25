@@ -606,6 +606,23 @@ run = "yidam overlay"
 # `cargo test --doc` stays as its own step: **nextest does not run doctests.** A runner swap
 # that silently stopped running a whole class of test would be this issue's own subject, one
 # level up.
+
+# The CLI suite, without the gate legs — the loop a contributor is actually in (#923).
+#
+# `ci-cli` below is fmt, clippy `--all-targets`, nextest and doctests: the right thing before
+# a push and the wrong thing between two edits. Clippy checks every target from its own
+# artifacts, which is 23s on an already-warm tree here before the first test runs, against 76s
+# for all 2,748 tests. `[tasks.test]` runs the domain computer's crates, which in this
+# repository are empty, so until this existed the only way to run one CLI test was the whole
+# gate.
+#
+# Arguments reach nextest, which is where a subset is expressed: `mise run test-cli
+# ci_reporting` for a name filter, or `mise run test-cli -- -E 'binary(ci_reporting)'` for one
+# test binary — which is also the unit that costs, since each is a separate link.
+[tasks.test-cli]
+description = "Run the CLI test suite, or the tests a filter names. Usage: mise run test-cli [<filter>]"
+run = "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --locked"
+
 [tasks.ci-harness]
 description = "CI for the harness workspace: fmt-check, clippy, test."
 run = [
