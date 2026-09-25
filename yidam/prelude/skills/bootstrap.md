@@ -341,6 +341,7 @@ Then read each template file in `sadhana/`:
 - `sadhana/web/README.md`
 - `sadhana/root/README.md`, `sadhana/root/AGENTS.md`, `sadhana/root/CLAUDE.md`, `sadhana/root/mise.toml`,
   `sadhana/root/gitattributes`, `sadhana/root/gitignore`, `sadhana/root/PRACTICE.md`
+- `sadhana/config.toml`
 - every file in `sadhana/github/workflows/` — run `ls sadhana/github/workflows/` and read
   each one; do not assume a fixed list (#589)
 - `sadhana/sangha/README.md` (and PROTOCOL.md, electors.md, resolutions/, positions/) —
@@ -364,6 +365,16 @@ web/README.md
 .yidam/decisions/          ← new, empty; written to in steps 2 and 5
 .yidam/skills/README.md
 ```
+
+One file installs under `.yidam/` rather than mirroring a directory:
+
+```
+sadhana/config.toml               → .yidam/config.toml   (yidam keeps no copy)
+```
+
+**Copy it unedited.** Alone among the templates it asks for no substitution: every key in it
+is commented out, and that is the delivered state. It ships so a corpus's clocks, gates and
+stores are a list this repository has left unset, not keys nobody here has met.
 
 **Create on first use, not now:** `agents/`, `packages/`, and `docs/`. Their sadhana
 templates exist and are the right content — but scaffold them the day something goes in

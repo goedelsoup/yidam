@@ -153,6 +153,12 @@ pub const MAPPING: &[Install] = &[
         dst: Some(".yidam/sangha"),
         when: Some(COLLECTIVE),
     },
+    // Not a directory mirror and not a root file: one named file that installs under
+    // `.yidam/`. It is the only member of that shape, and it exists because the file was
+    // read, documented and never written — `config.rs` parses it, `sadhana/root/README.md`
+    // tells readers the `due` intervals come from it, `index.yml` hard-errors when it holds
+    // no `[vault.*]`, and nothing put one in a derived repository (#916).
+    row("sadhana/config.toml", Some(".yidam/config.toml")),
     row("sadhana/catalog", Some(".yidam/catalog")),
     row("sadhana/corpus", Some(".yidam/corpus")),
     row("sadhana/skills", Some(".yidam/skills")),
