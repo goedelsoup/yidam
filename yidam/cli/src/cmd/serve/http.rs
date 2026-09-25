@@ -359,7 +359,8 @@ async fn serve_one(
 ///
 /// That is not a detail to discover later. `tokio::spawn` **compiles in the light default
 /// build**, where no `RefCell` is in the state, and fails only under `--features vector-read`
-/// — a build no pull request compiles (`ci (cli · full features)` is `main`-push only). The
+/// — a build no pull request compiled until #922 added `ci (cli · feature check)`, which
+/// clippies that feature set and `--all-features` on every pull request. The
 /// alternative to a `LocalSet` is a lock on the embedder, which buys parallelism this server
 /// has no use for: the work is JSON dispatch over an in-memory corpus, and connections
 /// interleave on one thread perfectly well.

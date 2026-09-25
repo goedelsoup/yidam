@@ -82,8 +82,10 @@ pub struct Provenance {
 /// The one `Provenance` every test fixture in this crate is built from.
 ///
 /// Seven test modules used to write the literal out by hand, and one of them —
-/// `cmd/export_sqlite.rs` — is behind a feature gate that **no pull-request job compiles**
-/// (`ci (cli · full features)` and `ci (series)` run on `main` only). So adding a field meant
+/// `cmd/export_sqlite.rs` — is behind a feature gate whose **tests no pull-request job
+/// compiles**. #922's `ci (cli · feature check)` clippies the gated code itself on every pull
+/// request, and deliberately without `--all-targets`, so a `#[cfg(test)]` fixture inside a
+/// gated module is still first compiled on `main`. So adding a field meant
 /// editing eight places while the compiler could only complain about seven, and `9f33a37`
 /// reddened `main` exactly that way: P3 added `genesis_hash`, six fixtures were updated, the
 /// gated one was not, and every gate a pull request runs agreed the change was complete.

@@ -60,11 +60,13 @@ path = "src/main.rs"
 # distinguishes it from `deny` — so `--features export-sqlite` stopped compiling, and with it
 # `--all-features`.
 #
-# Nothing said so for four merges. `ci (cli · full features)` is the only gate that compiles
-# that feature and it runs on main and the weekly schedule, never on a pull request, so the
-# change went green through review and red on a job nobody was watching. The same phase
+# Nothing said so for four merges. `ci (cli · full features)` was then the only gate that
+# compiled that feature and it runs on main and the weekly schedule, never on a pull request,
+# so the change went green through review and red on a job nobody was watching. The same phase
 # measured `clippy::unwrap_used` before rejecting it — 1,831 warnings — and added this one by
-# assuming. `sqlite_ffi.rs` in the test suite is the guard that would have caught it.
+# assuming. `sqlite_ffi.rs` in the test suite is the guard that would have caught it, and
+# #922's `ci (cli · feature check)` is the one that now compiles every feature set on the
+# pull request itself — this outage's whole class, one job earlier.
 unsafe_code = "deny"
 
 # The crate had never been run against `pedantic` or `nursery` until #681, which measured
