@@ -108,6 +108,38 @@ format_push_string = "deny"
 # Mechanical, `--fix`-able, and 152 sites. Named here so it stays done.
 use_self = "deny"
 
+# -- profiles ------------------------------------------------------------------
+#
+# **Dependencies carry no debug info.** The number this is worth is a link count.
+#
+# On run 36174755582, the full-feature CLI job took 22m21s of a 23m31s main run; the light
+# `ci (cli)` took 5m36s and every other job finished under 3m. One job is nearly the whole
+# critical path, and what it spends that on is not compiling dependencies: `Swatinem/rust-cache`
+# restores that tree. It is codegen and LINK of the ~100 integration test binaries under
+# `tests/`, and `ci-cli-full` does it twice, once per feature set. None of those binaries is
+# ever in the cache — rust-cache prunes workspace artifacts before saving, so every run
+# relinks all of them, and each statically contains whatever of lance, datafusion, arrow and
+# ort it reaches.
+#
+# Measured here: `cargo build --all-features` produces the same 606 dependency rlibs either
+# way, totalling 2,708MB under the default `debug = 2` and 1,402MB under this — 1.3GB of DWARF
+# the linker no longer reads and copies, once per binary that reaches it. lance goes 175MB to
+# 50MB, lance_index 87MB to 26MB, aws_sdk_dynamodb 81MB to 40MB. Those rlibs *are* the link
+# inputs of `cargo test`: the profile a dependency is built under is `dev` whether the thing
+# being built is the binary or a test target, so this is the whole `tests/` link set at once.
+#
+# `"*"` is **dependencies only** — a workspace member is not matched by it. So `yidam` and
+# every test crate keep full debug info: a panic still carries file and line, `rust-lldb`
+# still works on the code being debugged, and a backtrace through arrow still names its
+# symbols, because symbol names are not DWARF. What is lost is stepping into a dependency's
+# source, which is not a thing this repository does.
+#
+# In the manifest rather than a `CARGO_PROFILE_*` in `ci.yml`, for the reason the `[lints]`
+# table above gives: a setting here is read by every invocation, so a contributor's
+# `mise run test-cli` gets the build CI gets.
+[profile.dev.package."*"]
+debug = 0
+
 [dependencies]
 # ── base: the light `reports` build — the four reports + all pure-Rust
 #    commands. No protoc, no native libraries, no ML runtime. ───────────────

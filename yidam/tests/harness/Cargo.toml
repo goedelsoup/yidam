@@ -4,3 +4,11 @@
 # a tool that reports on the gates must not be the one thing no gate reads.
 members = ["yidam-harness", "ci-report"]
 resolver = "2"
+
+# Same setting, same reason as `yidam/cli/Cargo.toml`'s: the test binaries this workspace
+# links are rebuilt on every CI run (rust-cache prunes workspace artifacts before saving),
+# and nothing here is ever debugged through a dependency's own source. The argument and the
+# measurement live there; `build_profile.rs` holds both manifests to it, discovering them
+# from the tasks that link rather than from a list.
+[profile.dev.package."*"]
+debug = 0
