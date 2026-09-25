@@ -57,7 +57,9 @@ on:
     paths-ignore:
       - 'LICENSE'
   # Redeploy without a commit — after a Pages settings change, or to recover a
-  # deployment that expired.
+  # deployment that expired. This deploys a commit Pages is already serving, which is the
+  # collision a release tag hits, so it is also the only rehearsal of the tag path that does
+  # not require cutting a tag: run it after any change to the deploy job (#992).
   workflow_dispatch:
 
 permissions:
@@ -381,10 +383,9 @@ jobs:
     steps:
       # ── the deployment's identity is not the commit ──────────────────────────
       #
-      # `actions/deploy-pages` sends `pages_build_version: process.env.GITHUB_SHA` and
-      # nothing else identifies the deployment. Pages treats that value as the deployment's
-      # id — and a second deployment of an id already live is accepted, acknowledged, and
-      # serves nothing new.
+      # A Pages deployment is identified by `pages_build_version` and nothing else. Pages
+      # treats that string as the deployment's id, and a deployment of an id already live
+      # is accepted, acknowledged, and serves nothing new.
       #
       # That is exactly a release. A tag is cut on the current `main`, so `cli/v0.14.0` and
       # the push that became it carry the *same sha*; main's build ran first, thirty minutes
@@ -397,27 +398,127 @@ jobs:
       # thing that quietly did not work.
       #
       # The assembled tree is a function of the commit *and the tag set*, so the run is the
-      # smallest thing that identifies it. Overriding `GITHUB_SHA` for this step is the only
-      # way in: the action exposes no input for the build version.
+      # smallest thing that identifies it.
+      #
+      # ── why this is a REST call and not `actions/deploy-pages` (#992) ────────
+      #
+      # That action sends `pages_build_version: process.env.GITHUB_SHA` and exposes no input
+      # for it, so the only way in was to override `GITHUB_SHA` on the step. **That does not
+      # work.** The runner loads a step's declared `env:` first and then overwrites it from
+      # the `github` context — `Environment[env.Key] = env.Value` over
+      # `GetRuntimeEnvironmentVariables()`, in runner's
+      # `src/Runner.Worker/Handlers/NodeScriptActionHandler.cs` and again, identically, in
+      # `ScriptHandler.cs`. A `GITHUB_*` name therefore cannot be overridden for a step of
+      # either kind, and moving the override onto a `run:` step would fail the same way. The
+      # fix is to stop putting our value in the runner's name.
+      #
+      # It failed silently for six weeks because the log looks like proof it worked. At
+      # `cli/v0.15.0` the step printed `GITHUB_SHA: <sha>-<run id>` in its `env:` block and
+      # sent `"pages_build_version": "<sha>"` three lines later: the runner echoes the
+      # *declaration*, before it overwrites it. The override was written in response to the
+      # `cli/v0.14.0` failure and shipped after that tag, so nothing exercised it until the
+      # next release — a mitigation is untested until the incident it was written for
+      # happens again.
+      #
+      # So this step does what the action does, against the same REST API, passing the build
+      # version as an argument rather than through a name the runner owns. What it gives up
+      # is the action's cancellation handling: cancelling this run leaves the Pages
+      # deployment to reach its own terminal state rather than cancelling it.
       #
       # If Pages ever refuses a build version that is not a bare sha, this step fails at the
       # request rather than after it — loudly, before the check below — and the fix is to
       # send a value it accepts, never to go back to sending the sha alone.
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
         env:
-          GITHUB_SHA: ${{ github.sha }}-${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+          # The whole fix. Deliberately not spelled `GITHUB_SHA`: that name belongs to the
+          # runner and this one does not.
+          BUILD_VERSION: ${{ github.sha }}-${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # The artifact `upload-pages-artifact` left in this run. The action asks the
+          # Actions results service for it by name; this is the REST spelling of the same
+          # question, and it is what the `actions: read` permission above is for.
+          artifacts=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?name=github-pages")
+          found=$(jq '.artifacts | length' <<<"$artifacts")
+          if [ "$found" != "1" ]; then
+            echo "::error::this run has $found artifacts named 'github-pages'; expected 1."
+            echo "::error::The assemble job uploads it; a deploy without it would publish"
+            echo "::error::whatever was last deployed and report success."
+            exit 1
+          fi
+          artifact_id=$(jq '.artifacts[0].id' <<<"$artifacts")
+
+          # Pages authorises the deployment with an OIDC token, which is what this job's
+          # `id-token: write` permission mints. Masked because it is a bearer credential and
+          # everything below prints freely.
+          id_token=$(curl -fsS \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}" | jq -r '.value')
+          echo "::add-mask::${id_token}"
+
+          created=$(jq -nc \
+              --argjson artifact_id "$artifact_id" \
+              --arg pages_build_version "$BUILD_VERSION" \
+              --arg oidc_token "$id_token" \
+              '{artifact_id: $artifact_id,
+                pages_build_version: $pages_build_version,
+                oidc_token: $oidc_token}' \
+            | gh api -X POST "repos/${GITHUB_REPOSITORY}/pages/deployments" --input -)
+
+          # Pages hands the build version back as the deployment's id. Read *that*, and not
+          # the value this step declared: the server's copy is the only line here that is
+          # evidence rather than intent, and mistaking the second for the first is the whole
+          # of #992.
+          id=$(jq -r 'if .id then (.id | tostring)
+                      else (.status_url // "" | split("/") | last) end' <<<"$created")
+          [ -n "$id" ] || { echo "::error::Pages returned no deployment id"; exit 1; }
+          page_url=$(jq -r '.page_url // ""' <<<"$created")
+          [ -n "$page_url" ] || { echo "::error::Pages returned no page_url"; exit 1; }
+          echo "requested build version:      ${BUILD_VERSION}"
+          echo "Pages recorded deployment id: ${id}"
+          echo "page_url=${page_url}" >> "$GITHUB_OUTPUT"
+
+          # Ten minutes, which is the action's own default timeout. `succeed` is the Pages
+          # spelling; the four failures below are terminal and everything else is progress.
+          for _ in $(seq 1 60); do
+            sleep 10
+            status=$(gh api "repos/${GITHUB_REPOSITORY}/pages/deployments/${id}" \
+              --jq '.status' || echo 'unknown_status')
+            echo "  status: ${status}"
+            case "${status}" in
+              succeed)
+                echo "Pages reports the deployment succeeded"
+                exit 0
+                ;;
+              deployment_failed|deployment_content_failed|deployment_cancelled|deployment_lost)
+                echo "::error::Pages reports '${status}' for deployment ${id}"
+                exit 1
+                ;;
+            esac
+          done
+          echo "::error::deployment ${id} reported no terminal status within ten minutes"
+          exit 1
 
       # The deploy step reports what the API said. This asks the site.
       #
-      # Tags only, and that is a budget rather than a principle: a push to main always
+      # Not every event, and that is a budget rather than a principle: a push to main always
       # carries a sha Pages has not seen, so the collision above cannot happen there, and
       # Pages fronts the site with a ten-minute cache that a query string does not reliably
-      # bust. A release is the one moment the answer is worth waiting for — it is when a
-      # reader arrives from the announcement, and it is the case that broke.
+      # bust. The two events it does cover are the two that can collide — a release, which
+      # is when a reader arrives from the announcement and is the case that broke, and a
+      # `workflow_dispatch`, which redeploys a commit that is already live by definition.
+      #
+      # That second one is also the only rehearsal there is. A green run on a push to main
+      # proves nothing about the tag path, and a tag cannot be cut to test a deploy; a
+      # dispatch on an unchanged `main` reproduces the collision exactly and can be run on
+      # demand. Any change to the step above should be checked that way before a release
+      # depends on it.
       - name: The deployed site is this build
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
         run: |
           set -euo pipefail
           url="${{ steps.deployment.outputs.page_url }}deployed.json"
@@ -431,7 +532,8 @@ jobs:
             echo "::error::The deploy reported success and the site does not serve this"
             echo "::error::build. A deployment whose build version is already live is"
             echo "::error::accepted and changes nothing; that is how cli/v0.14.0 published"
-            echo "::error::a version list the site never served. Check the GITHUB_SHA"
-            echo "::error::override on the deploy step above."
+            echo "::error::a version list the site never served. Check what the step above"
+            echo "::error::sent as pages_build_version — the id Pages echoed back, not the"
+            echo "::error::value this workflow declared."
             exit 1
           }
