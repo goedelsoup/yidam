@@ -1,6 +1,7 @@
 # RFC-0028 — The form a practice takes (the kuten layer)
 
-- **Status:** Accepted
+- **Status:** Implemented
+- **Commands:** `kuten`, `score`, `cohort`
 - **Track:** I23
 - **Relates to:**
   - RFC-0020 (the carriage lineage this extends a third step — from findings to executions to conduct)
@@ -19,6 +20,10 @@
   recognition, never classification"
 - **Parent epic:** #572 — this RFC is A1 (#573) and specifies **A2–A7** (#574, #575, #576,
   #286, #577, #288)
+- **Amended 2026-09-25 (#941):** the status reads `Implemented` on the command surface above —
+  `kuten`, `kuten check`, `score` (A5) and A7's cross-repository read, which shipped as
+  `cohort` rather than the `fit` §2 calls it. **A6 (#577)** is open: the object-coupling check,
+  which is a `lint` check and not a command of its own.
 - **Downstream reference case:** A0's population — eighteen derived corpora on disk, 6,900
   commits, read-only. Six of them define `inquiry`; two are object-coupled; one is a projected
   mirror of 1,656 commits (#582).

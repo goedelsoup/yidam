@@ -706,3 +706,56 @@ where
         })
         .filter_map(Result::ok)
 }
+
+/// Every subcommand this binary offers, read out of its own `--help-all`.
+///
+/// Asking the built binary rather than the source is deliberate: it is the same question a
+/// reader asks, answered the same way, and it stays correct through a refactor of how the
+/// clap enum is spelled. A roster listed here instead would stop covering a rename without
+/// ever going red, which is the rot every check over this surface exists for.
+///
+/// A command line in that listing is indented two spaces, starts with the name, and is
+/// followed by either the `*` write-marker or two spaces before its description. Group
+/// headings are flush left, the legend's continuation line is indented four, and the option
+/// block is filtered out by requiring a lowercase-and-hyphens name. `help` is clap's own and
+/// is not part of the surface.
+///
+/// `--help-all` and not `--help`: since #921 `--help` is the thirteen commands a session
+/// usually needs, and every question asked of this roster is about the whole surface.
+///
+/// Three test files parsed this listing separately before this function existed
+/// (`cli_reference`, `reading_surface`, `editor_configs`); those copies are #993's to fold in.
+pub fn commands_from_help() -> BTreeSet<String> {
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .arg("--help-all")
+        .output()
+        .expect("running `yidam --help-all`");
+    assert!(out.status.success(), "`yidam --help-all` exited nonzero");
+    let help = String::from_utf8(out.stdout).expect("--help-all is utf-8");
+
+    let mut found = BTreeSet::new();
+    for line in help.lines() {
+        let Some(rest) = line.strip_prefix("  ") else {
+            continue;
+        };
+        if rest.starts_with(' ') || rest.starts_with('-') {
+            continue; // continuation, or an option like `-h, --help`
+        }
+        let name = rest.split_whitespace().next().unwrap_or_default();
+        if name.is_empty() || !name.chars().all(|c| c.is_ascii_lowercase() || c == '-') {
+            continue;
+        }
+        if name == "help" {
+            continue;
+        }
+        found.insert(name.to_string());
+    }
+
+    assert!(
+        found.len() > 20,
+        "parsed only {} command(s) from --help-all — the output shape changed and this is no \
+         longer reading it: {found:?}",
+        found.len()
+    );
+    found
+}

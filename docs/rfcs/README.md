@@ -55,15 +55,15 @@ re-deriving it.
 | [0022](0022-semantic-alignment.md) | I17 | What a tool may say about code it cannot read (`check-diff`, Phase B) | Implemented |
 | [0023](0023-remote-vaults.md) | I18 | Bytes the catalog fetched and never kept — remote vaults | Implemented |
 | [0024](0024-policy-as-code.md) | I19 | The rule a repository writes about itself — policy as code | Implemented |
-| [0025](0025-quality-surface.md) | I20 | The instrument, turned around — measuring the repository that measures | Accepted |
-| [0026](0026-orchestrator-layer.md) | I21 | A run is a commit somebody can refuse — the orchestrator layer | Draft |
+| [0025](0025-quality-surface.md) | I20 | The instrument, turned around — measuring the repository that measures | Implemented |
+| [0026](0026-orchestrator-layer.md) | I21 | A run is a commit somebody can refuse — the orchestrator layer | Implemented |
 | [0027](0027-openai-profile.md) | I22 | A profile is a projection, not a second contract — the `openai` profile | Draft |
-| [0028](0028-kuten-layer.md) | I23 | The form a practice takes — the kuten layer | Accepted |
+| [0028](0028-kuten-layer.md) | I23 | The form a practice takes — the kuten layer | Implemented |
 | [0029](0029-write-tier.md) | I24 | A write is a capability a server declares, not a transport it happens to have — the MCP write tier | Accepted |
 | [0030](0030-standalone-editor.md) | I25 | The surface is beside the binary, and earns a version (`yidam-edit`) | Draft |
 | [0031](0031-node-prose-model.md) | I26 | A node's prose is not one field, and a finding is not a sentence — the node prose model | Draft |
 | [0032](0032-reference-grammar.md) | I27 | One name for a thing, and one parser that reads it — the reference grammar | Draft |
-| [0033](0033-remote-vector-index.md) | I28 | A vector index a corpus is queried out of, not one it carries | Draft |
+| [0033](0033-remote-vector-index.md) | I28 | A vector index a corpus is queried out of, not one it carries | Implemented |
 | [0034](0034-local-citation.md) | I29 | A claim resting on a node beside it (`cites:` without a package) | Draft |
 | [0035](0035-class-extent.md) | I30 | What a class is meant to span, and what a hole in it is worth (`coverage:`) | Draft |
 | [0036](0036-yidam-level-change.md) | G6 | An yidam-level change, and the two shapes a derivation's report takes | Accepted |
@@ -83,8 +83,31 @@ re-deriving it.
 ## Status legend
 
 `Draft` — under review, not accepted. `Accepted` — agreed, implementation may begin.
-`Implemented` — landed and referenced by a released layer. `Superseded` — replaced by a
+`Implemented` — landed: the behaviour it specifies ships, in a released layer or in this
+repository's own infrastructure where the RFC releases nothing. `Superseded` — replaced by a
 later RFC (named in its header). `Rejected` — considered and declined, with the reason kept.
+
+## The Commands line
+
+A status is a claim about a design, and the one thing in an RFC that can be *checked* against
+the tree is the command surface it specifies. So an RFC that specifies commands names them in
+its header, machine-readably, one line:
+
+```markdown
+- **Commands:** `run`, `phase`
+```
+
+Top-level command names as `yidam --help-all` spells them, comma-separated, and nothing else on
+the line — `rfc_status.rs` reads it and asks the built binary whether each one exists. Once every
+command an RFC names is in the binary, the RFC may not read `Draft` or `Accepted`: a design still
+under review does not have a shipped command. #941 reported that combination three times; writing
+the lines out found it in RFC-0033 as well, which nobody had noticed.
+
+The line is for commands this RFC **specifies**, not ones it mentions. Every RFC below names
+`lint` or `vault` somewhere; two thirds of them introduce no command at all and carry no line.
+An RFC whose commands are unbuilt carries the line too — RFC-0004's three are the example — and
+that is the half of the check with a future: the day one of them ships, the status has to move
+with it.
 
 ## RFC template
 
@@ -94,6 +117,7 @@ Every RFC in this directory follows this shape:
 # RFC-000X — <Title>
 
 - **Status:** Draft
+- **Commands:** `<name>`, `<name>`  — only where this RFC specifies commands; see above
 - **Track:** I<n>
 - **Relates to:**
   - RFC-000Y (what this takes from it, in a clause)

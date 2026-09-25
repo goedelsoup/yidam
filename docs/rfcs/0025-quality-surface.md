@@ -1,6 +1,6 @@
 # RFC-0025 — The instrument, turned around: measuring the repository that measures
 
-- **Status:** Accepted
+- **Status:** Implemented
 - **Track:** I20
 - **Relates to:**
   - RFC-0001 (the report envelope this reuses rather than extends)
@@ -12,6 +12,12 @@
   the token source with no change to its output format. No new subcommand, no `format_version`
   bump, no parity-surface change, no MCP contract change, no bootstrap-protocol change.
 - **Parent epic:** #459 — this RFC specifies **#461** through **#468**, one per phase
+- **Amended 2026-09-25 (#941):** the status reads `Implemented`. #461 through #468 are all
+  closed and the surface ships — the verification task, the nextest summary, `quality_surface.rs`,
+  the design-token lint, the versioning page and the `/quality/` site routes. It releases no
+  versioned layer, which is the case the legend's `Implemented` names second; this is the RFC
+  that clause was written for. It specifies no command, so `rfc_status.rs`'s command check does
+  not reach it and this status is a judgement rather than a gated fact.
 
 ## Summary
 

@@ -1,6 +1,7 @@
 # RFC-0021 — Code that names what the ontology has not (`yidam check-diff`)
 
 - **Status:** Implemented
+- **Commands:** `check-diff`
 - **Track:** I16
 - **Relates to:**
   - RFC-0020 (the proposal surface a finding here becomes)

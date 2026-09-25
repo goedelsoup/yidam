@@ -1,6 +1,7 @@
 # RFC-0020 — Proposing what a finding already says (`yidam propose`)
 
 - **Status:** Implemented
+- **Commands:** `propose`
 - **Track:** I15
 - **Relates to:**
   - RFC-0019 (whose movement questions this carries into commits)

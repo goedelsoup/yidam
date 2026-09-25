@@ -14,6 +14,30 @@
 //! comes from the "Status legend" section of the README itself. A new RFC, a renamed one, or a
 //! legend addition all take effect the moment the file changes — never a second list to remember
 //! to update alongside them.
+//!
+//! ## And the status against the binary (#941)
+//!
+//! Two copies agreeing with each other is still two copies of a claim nothing outside the
+//! documents can check. #941 found three RFCs reading `Draft` or `Accepted` while the commands
+//! they specify were in `main.rs` and in a cut release — RFC-0026's `run` and `phase` shipped
+//! under a release commit that names the phase surface in its own subject line, and the RFC
+//! above it still said the design was under review.
+//!
+//! What made that undecidable is that an RFC's commands were only ever in its prose, and prose
+//! names commands it does not specify: every RFC here mentions `lint` or `vault` somewhere, and
+//! a scan over those would flag two thirds of the directory. So an RFC that specifies commands
+//! now declares them in its header, as a `- **Commands:**` bullet, and the checks below
+//! read that line against the built binary's own `--help-all`. The README's "The Commands line"
+//! section is the rule those checks enforce.
+//!
+//! The gate is one-directional by construction: it fires on a status that lags behind a shipped
+//! command, and it cannot fire on an RFC that specifies a command and declines to say so. That
+//! hole is real and is not closable from here — which command an RFC *specifies*, as against
+//! mentions, is the judgement the line exists to record. What holds it is review, plus the
+//! population floor below and the title check, which takes the one case the documents make
+//! decidable: an RFC advertising a command in its own H1 has to declare it.
+
+mod common;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -190,4 +214,219 @@ fn every_header_status_is_a_legend_status() {
             "RFC-{number}'s header status `{header}` is not one of the legend's {legend:?}"
         );
     }
+}
+
+/// The commands an RFC's header declares it specifies, or `None` where it declares none.
+///
+/// The line reads `- **Commands:**` followed by top-level names as `--help-all` spells them,
+/// comma-separated, backticks optional. Nothing else may be on it — a trailing clause would be
+/// parsed as a command name, and `every_declared_command_is_spelled_like_a_command` rejects it
+/// rather than ignoring it, because a name this file cannot recognise is a name it cannot check
+/// the status against.
+///
+/// `None` and an empty list are different answers and both are kept: `None` is an RFC that
+/// specifies no command, which is two thirds of the directory, and an empty list is a line
+/// somebody left blank.
+fn declared_commands(text: &str) -> Option<Vec<String>> {
+    let value = text
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("- **Commands:**"))?;
+    Some(
+        value
+            .split(',')
+            .map(|c| c.trim().trim_matches('`').trim().to_string())
+            .filter(|c| !c.is_empty())
+            .collect(),
+    )
+}
+
+/// Every RFC that declares commands, keyed by number.
+fn rfcs_declaring_commands() -> BTreeMap<String, (PathBuf, Vec<String>)> {
+    discover_rfc_files()
+        .into_iter()
+        .filter_map(|(number, path)| {
+            let commands = declared_commands(&read(&path))?;
+            Some((number, (path, commands)))
+        })
+        .collect()
+}
+
+/// The commands an RFC advertises in its own H1, as `` `yidam <name>` ``.
+///
+/// Five titles do — `yidam sync`, `yidam log --epistemic`, `yidam query`, `yidam propose`,
+/// `yidam check-diff`. RFC-0016's bare `` `yidam` `` names no command and does not match, which
+/// is the distinction the leading space carries: a backticked `yidam` with nothing after it is
+/// the tool, not a subcommand of it.
+fn commands_in_title(text: &str) -> Vec<String> {
+    let title = text.lines().next().unwrap_or_default();
+    let mut found = Vec::new();
+    let mut rest = title;
+    while let Some((_, after)) = rest.split_once("`yidam ") {
+        let (inside, after) = after.split_once('`').unwrap_or((after, ""));
+        if let Some(name) = inside.split_whitespace().next() {
+            found.push(name.to_string());
+        }
+        rest = after;
+    }
+    found
+}
+
+/// Commands absent from a `--no-default-features` build, so absence proves nothing about them.
+///
+/// `tonpa` alone, for `cli_reference.rs`'s reason: it is the one command gated at the clap
+/// level, and every other feature-gated path is always present and refuses at runtime.
+fn feature_gated(name: &str) -> bool {
+    name == "tonpa"
+}
+
+/// The scan sees a population, and every name in it is shaped like a command.
+///
+/// Both halves are the floor under the two checks below, which are assertions over a filtered
+/// set and pass vacuously on an empty one. A parser that stopped matching the header line, or a
+/// line that grew a trailing clause, would otherwise take the gate quietly out of service.
+#[test]
+fn every_declared_command_is_spelled_like_a_command() {
+    let declaring = rfcs_declaring_commands();
+    assert!(
+        declaring.len() >= 10,
+        "only {} RFC(s) declare a `- **Commands:**` line — thirteen did when #941 landed, and \
+         this dropping is the parser breaking rather than the directory shrinking that far",
+        declaring.len()
+    );
+
+    let built = common::commands_from_help();
+    let mut malformed = Vec::new();
+    for (number, (_, commands)) in &declaring {
+        assert!(
+            !commands.is_empty(),
+            "RFC-{number}'s `- **Commands:**` line names nothing. Remove the line, or name the \
+             commands it specifies."
+        );
+        for name in commands {
+            let looks_like_one = !name.is_empty()
+                && name.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+                && !name.starts_with('-')
+                && !name.ends_with('-');
+            if !looks_like_one {
+                malformed.push(format!("RFC-{number}: `{name}`"));
+            }
+        }
+    }
+    assert!(
+        malformed.is_empty(),
+        "these entries on a `- **Commands:**` line are not command names:\n  {}\nThe line takes \
+         comma-separated top-level names as `yidam --help-all` spells them, and nothing else — a \
+         clause explaining them belongs in the RFC's body.",
+        malformed.join("\n  ")
+    );
+
+    assert!(
+        declaring
+            .values()
+            .any(|(_, c)| c.iter().any(|n| built.contains(n))),
+        "no RFC declares a command this binary has, so the check below cannot fire for any \
+         reason. Either every declared name is misspelled or the roster came back wrong."
+    );
+}
+
+/// An RFC whose every declared command exists reads neither `Draft` nor `Accepted`.
+///
+/// The gate #941 asked for. `Draft` means *under review, not accepted* and `Accepted` means
+/// *implementation may begin*; a command in the built binary is neither of those, and the three
+/// RFCs that read one anyway had shipped commands under them for between two weeks and a month.
+///
+/// Every command and not any, deliberately. An RFC that specifies three commands and has built
+/// one is mid-implementation, which is exactly what `Accepted` says — RFC-0004's `sync`,
+/// `check-drift` and `upgrade` are the standing case, none of them built. The status has to move
+/// on the day the last one lands, and this is what says so.
+#[test]
+fn an_rfc_whose_commands_all_ship_is_not_draft_or_accepted() {
+    let built = common::commands_from_help();
+    let mut lagging = Vec::new();
+
+    for (number, (path, commands)) in rfcs_declaring_commands() {
+        if !commands.iter().all(|c| built.contains(c)) {
+            continue;
+        }
+        let status = header_status(&read(&path));
+        if status == "Draft" || status == "Accepted" {
+            lagging.push(format!(
+                "RFC-{number}: `{status}`, and all of {commands:?} are in this binary"
+            ));
+        }
+    }
+
+    assert!(
+        lagging.is_empty(),
+        "{} RFC(s) read a status their own command surface has outrun:\n  {}\nThe status is the \
+         stale copy — move it to `Implemented` in the header and in docs/rfcs/README.md's index \
+         row, or correct the `- **Commands:**` line if it names a command the RFC does not \
+         specify.",
+        lagging.len(),
+        lagging.join("\n  ")
+    );
+}
+
+/// An `Implemented` RFC declares no command the binary does not have.
+///
+/// The other direction, and the cheaper mistake: a status moved ahead of the build, or a command
+/// renamed out from under a document that claims to have landed it. `tonpa` is excluded because
+/// a `--no-default-features` build legitimately does not have it.
+#[test]
+fn an_implemented_rfc_declares_no_command_the_binary_lacks() {
+    let built = common::commands_from_help();
+    let mut overclaimed = Vec::new();
+
+    for (number, (path, commands)) in rfcs_declaring_commands() {
+        if header_status(&read(&path)) != "Implemented" {
+            continue;
+        }
+        let missing: Vec<&String> = commands
+            .iter()
+            .filter(|c| !built.contains(*c) && !feature_gated(c))
+            .collect();
+        if !missing.is_empty() {
+            overclaimed.push(format!("RFC-{number}: {missing:?}"));
+        }
+    }
+
+    assert!(
+        overclaimed.is_empty(),
+        "these RFCs read `Implemented` and declare commands this binary does not offer:\n  \
+         {}\nEither the command was renamed and the header still names the old spelling, or the \
+         status moved before the build did.",
+        overclaimed.join("\n  ")
+    );
+}
+
+/// A command an RFC advertises in its own title is a command its header declares.
+///
+/// The one case the documents themselves make decidable, and so the only guard against the
+/// `- **Commands:**` line simply being left off. A title reading *"(`yidam query`)"* has already
+/// said what this RFC's command surface is; the header saying it again in a form a test can read
+/// costs one line, and is what puts five of the thirteen beyond a reviewer's memory.
+#[test]
+fn a_command_an_rfc_titles_itself_after_is_declared_in_its_header() {
+    let mut undeclared = Vec::new();
+
+    for (number, path) in discover_rfc_files() {
+        let text = read(&path);
+        let titled = commands_in_title(&text);
+        if titled.is_empty() {
+            continue;
+        }
+        let declared = declared_commands(&text).unwrap_or_default();
+        for name in titled {
+            if !declared.contains(&name) {
+                undeclared.push(format!("RFC-{number}: `{name}`"));
+            }
+        }
+    }
+
+    assert!(
+        undeclared.is_empty(),
+        "these RFCs name a command in their H1 and do not declare it in a `- **Commands:**` \
+         header line:\n  {}\nAn RFC that titles itself after a command specifies that command.",
+        undeclared.join("\n  ")
+    );
 }

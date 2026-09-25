@@ -1,6 +1,7 @@
 # RFC-0033 — A vector index a corpus is queried out of, not one it carries
 
-- **Status:** Draft
+- **Status:** Implemented
+- **Commands:** `index-push`
 - **Track:** I28
 - **Relates to:**
   - RFC-0023 (which gave a built index a way to travel, as a tarball a reader fetches whole; this is the other answer to the same problem and does not replace it)
