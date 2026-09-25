@@ -10,14 +10,16 @@
 ## What it installs
 
 **The server.** [`.mcp.json`](.mcp.json) registers `yidam serve --mcp` over stdio, which is
-the surface RFC-0005 froze: thirteen tools over the corpus, a capability block that declares
-its holes at connect time, and an `absence` field on every empty answer saying which kind of
-nothing it is.
+the surface RFC-0005 froze: thirteen read tools over the corpus, two more at the `act` tier
+that a corpus has to ask for, a capability block that declares its holes at connect time, and
+an `absence` field on every empty answer saying which kind of nothing it is.
 
-**Five skills**, in [`skills/`](skills/), one per decision the corpus constrains:
+**Six skills**, in [`skills/`](skills/) — one per decision the corpus constrains, and one for
+the decision of what to do next:
 
 | Skill | Fires before | Calls |
 |---|---|---|
+| `starting-a-session` | choosing what to work on | `cycle`, `propose` |
 | `writing-a-corpus-commit` | a commit subject | `check_subject` |
 | `tagging-a-claim` | an evidence tag | `claim_tags` |
 | `linking-a-node` | a link between nodes | `licensed_edges` |

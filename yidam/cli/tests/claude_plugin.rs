@@ -2,26 +2,28 @@
 //!
 //! `/plugin install yidam@yidam` is meant to leave a person holding the MCP server *and* the
 //! practice it enforces. That is a claim about three files nobody compiles — a marketplace
-//! manifest, a plugin manifest, and a `.mcp.json` naming a shell script — plus five skills
-//! whose whole content is *which tool to call*. Every one of them can rot without a build
+//! manifest, a plugin manifest, and a `.mcp.json` naming a shell script — plus a directory of
+//! skills whose whole content is *which tool to call*. Every one of them can rot without a build
 //! ever going red.
 //!
 //! The failure this file is built around is the specific one: **a skill that tells an agent to
-//! call a tool the contract no longer has.** RFC-0005 froze thirteen names; the skills spend
+//! call a tool the contract no longer has.** RFC-0005 froze the tool names; the skills spend
 //! those names in prose; and prose is not linked against anything. So the central assertion
 //! runs the other way round from a name list — it derives the vocabulary from
 //! `mcp-contract.json` and requires the skills to stay inside it.
 //!
 //! **Nothing here is a list of skills, tools or plugins.** The marketplace names its plugins,
-//! the plugin directory names its skills, and the contract names its tools. A sixth skill is
-//! covered the day it is written, and a fourteenth tool fails this file until some skill says
-//! when to reach for it — which is the conversation that should happen.
+//! the plugin directory names its skills, and the contract names its tools. A new skill is
+//! covered the day it is written, and a new tool fails this file until some skill says when to
+//! reach for it — which is the conversation that should happen. The one place a number is
+//! written down is the prose about the plugin, and the last two tests hold it to these same
+//! sources rather than to somebody's memory.
 //!
 //! What is *not* checked here: that `/plugin marketplace add` succeeds. That needs Claude
 //! Code, and `claude plugin validate --strict` is the tool for it. What is checked is every
 //! precondition of it that lives in this repository.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 mod common;
@@ -332,8 +334,8 @@ fn every_name_a_skill_writes_in_code_font_is_one_the_contract_defines() {
 ///
 /// The plugin's premise is that the practice is callable *at the point the decision is made*,
 /// and a tool no skill mentions is one an agent reaches by having remembered — which is the
-/// state #422 was filed about. This is why a fourteenth tool fails here: adding one to
-/// RFC-0005 without deciding where in the loop it belongs is the omission, not the test.
+/// state #422 was filed about. This is why a new tool fails here: adding one to RFC-0005
+/// without deciding where in the loop it belongs is the omission, not the test.
 #[test]
 fn every_contract_tool_is_named_by_some_skill() {
     let contract = json("yidam/cli/mcp-contract.json");
@@ -499,6 +501,277 @@ fn the_plugin_is_reachable_from_the_documentation() {
             docs.contains(&format!("{plugin}@{name}")),
             "docs/mcp-server.md never writes `{plugin}@{name}`, which is the id \
              `/plugin install` takes"
+        );
+    }
+}
+
+// ── what the prose counts ─────────────────────────────────────────────────────
+//
+// Everything above derives its vocabulary from the contract and the skills directory, which
+// is what lets a sixth skill be covered on the day it is written. The prose that *describes*
+// the plugin was not derived from anything, and #943 is what that cost: the two manifest
+// descriptions read "thirteen MCP tools over the corpus, and five skills", the skills
+// directory held six, and `starting-a-session` — the one it shipped without counting — was
+// also the one the README table omitted. A marketplace description is the only thing a
+// reader sees before installing, and it was the last thing anybody checked.
+//
+// The two tests below are the same trick as the rest of the file applied to sentences: the
+// numbers are computed, and the prose is held to them.
+
+/// The English numerals this repository's prose reaches for.
+///
+/// Digits are deliberately absent. Nothing here writes "13 skills", and a scanner that took
+/// both would be reading version numbers, node counts and issue numbers as claims about what
+/// the plugin ships.
+const NUMERALS: &[(&str, usize)] = &[
+    ("one", 1),
+    ("two", 2),
+    ("three", 3),
+    ("four", 4),
+    ("five", 5),
+    ("six", 6),
+    ("seven", 7),
+    ("eight", 8),
+    ("nine", 9),
+    ("ten", 10),
+    ("eleven", 11),
+    ("twelve", 12),
+    ("thirteen", 13),
+    ("fourteen", 14),
+    ("fifteen", 15),
+    ("sixteen", 16),
+    ("seventeen", 17),
+    ("eighteen", 18),
+    ("nineteen", 19),
+    ("twenty", 20),
+];
+
+/// What the repository can actually produce a count of.
+struct Shipped {
+    skills: usize,
+    /// Every name RFC-0005 froze, act tier included.
+    tools: usize,
+    /// The tools a server serves without being told it may write — what an install gets.
+    read: usize,
+    /// How many tools sit at each tier, keyed by the tier's own name.
+    ///
+    /// Prose about this server counts by tier as often as it counts the whole surface — *"the
+    /// four tools at that tier"* — so a rule that knew only the total and the read set would
+    /// be wrong about sentences that are right.
+    tiers: BTreeMap<String, usize>,
+}
+
+fn shipped() -> Shipped {
+    let contract = json("yidam/cli/mcp-contract.json");
+    let tools = contract["tools"].as_array().expect("tools is an array");
+    let mut tiers: BTreeMap<String, usize> = BTreeMap::new();
+    for tool in tools {
+        let tier = tool["tier"].as_str().expect("a tool declares a tier");
+        *tiers.entry(tier.to_string()).or_default() += 1;
+    }
+    let act = tiers.get("act").copied().unwrap_or(0);
+    let skills = marketplace_plugins()
+        .iter()
+        .map(|(_, dir)| skills(dir).len())
+        .sum();
+    Shipped {
+        skills,
+        tools: tools.len(),
+        read: tools.len() - act,
+        tiers,
+    }
+}
+
+/// Every `<numeral> skills` and `<numeral> [qualifier] tools` phrase in `text`, as
+/// (phrase, the number written, the thing counted).
+///
+/// `qualifiers` is the set of words allowed between the numeral and the noun — `read`, `mcp`,
+/// and every tier name the contract declares. It is passed in rather than written here so
+/// that a tier added to RFC-0005 becomes a qualifier this scanner reads, rather than a
+/// sentence it stops seeing.
+///
+/// The lookahead stops at one qualifier on purpose. *"Four of the thirteen read tools"* is one
+/// claim — that there are thirteen read tools — and not a second one about four of anything.
+/// A singular noun is not matched at all: *"one field, on one tool"* counts nothing.
+fn counted_claims(text: &str, qualifiers: &BTreeSet<String>) -> Vec<(String, usize, String)> {
+    let words: Vec<String> = text
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| w.to_ascii_lowercase())
+        .collect();
+
+    let mut out = Vec::new();
+    for (i, word) in words.iter().enumerate() {
+        let Some(&(_, written)) = NUMERALS.iter().find(|(n, _)| n == word) else {
+            continue;
+        };
+        let next = words.get(i + 1).map(String::as_str);
+        let after = words.get(i + 2).map(String::as_str);
+        let (modifier, noun) = match (next, after) {
+            (Some(n @ ("tools" | "skills")), _) => ("", n),
+            (Some(m), Some(n @ ("tools" | "skills"))) if qualifiers.contains(m) => (m, n),
+            _ => continue,
+        };
+        let counted = format!("{modifier} {noun}").trim().to_string();
+        let phrase = format!("{word} {counted}");
+        out.push((phrase, written, counted));
+    }
+    out
+}
+
+/// The words `counted_claims` will read as a qualifier.
+fn qualifiers(s: &Shipped) -> BTreeSet<String> {
+    let mut out: BTreeSet<String> = s.tiers.keys().cloned().collect();
+    out.insert("read".into());
+    out.insert("mcp".into());
+    out
+}
+
+/// The numbers a phrase is allowed to be, or `None` if this file has no opinion about it.
+///
+/// A bare *"tools"* admits every count the contract can produce — the frozen total, the set an
+/// install serves, and each tier — because all of them are things prose about this server
+/// legitimately means, and a sentence naming a tier two clauses earlier reads perfectly
+/// without repeating it. That is looser than pinning one number, and it is still not nothing:
+/// the day a tool is added to RFC-0005, the stale count falls out of the set that admitted it.
+/// A qualified phrase is pinned, because the qualifier says which set is meant.
+fn permitted(counted: &str, s: &Shipped) -> Option<Vec<usize>> {
+    if let Some(tier) = counted.strip_suffix(" tools") {
+        // `MCP tools` is the manifests' phrase, and a manifest describes an install. An
+        // install serves the read tools; `act` is a key the *corpus* writes in its own
+        // config, so a description promising that tier promises what the plugin cannot give.
+        if tier == "read" || tier == "mcp" {
+            return Some(vec![s.read]);
+        }
+        return s.tiers.get(tier).map(|n| vec![*n]);
+    }
+    Some(match counted {
+        "skills" => vec![s.skills],
+        "tools" => [s.tools, s.read]
+            .into_iter()
+            .chain(s.tiers.values().copied())
+            .collect(),
+        // A qualifier on `skills` — there is one set of skills and no tiers over it — is a
+        // sentence this file has nothing to say about.
+        _ => return None,
+    })
+}
+
+/// The prose that describes the plugin may only count to numbers this repository produces.
+///
+/// The scanned surface is the plugin as a reader meets it: the marketplace entry, the plugin
+/// manifest, the plugin's own README, and the page the marketplace instruction lives on. All
+/// four are discovered from the marketplace rather than listed, except the last, which
+/// [`the_plugin_is_reachable_from_the_documentation`] already pins by name.
+#[test]
+fn every_count_the_plugin_prose_writes_is_one_the_repository_produces() {
+    let s = shipped();
+    assert!(
+        s.skills > 1 && s.read > 1 && s.tiers.len() > 1,
+        "the counts came back as skills={}, read={}, tiers={:?} — the derivation is wrong and \
+         every assertion below is meaningless",
+        s.skills,
+        s.read,
+        s.tiers
+    );
+    let qualifiers = qualifiers(&s);
+    // The scanner, not the prose, is what goes vacuous silently: prose that stops counting is
+    // a decision somebody made and can be read in a diff, and a parse that stops matching is
+    // nothing at all.
+    let probe = counted_claims(
+        "four of the thirteen read tools, six skills, and two act tools",
+        &qualifiers,
+    );
+    assert_eq!(
+        probe.len(),
+        3,
+        "counted_claims no longer reads the phrases it was written for: {probe:?}"
+    );
+
+    let marketplace = json(MARKETPLACE);
+    let mut prose: Vec<(String, String)> = Vec::new();
+    for entry in marketplace["plugins"]
+        .as_array()
+        .expect("plugins is an array")
+    {
+        let name = entry["name"].as_str().unwrap_or("<unnamed>");
+        if let Some(d) = entry.get("description").and_then(|d| d.as_str()) {
+            prose.push((format!("{MARKETPLACE} ({name})"), d.to_string()));
+        }
+    }
+    for (name, dir) in marketplace_plugins() {
+        let manifest = dir.join(".claude-plugin/plugin.json");
+        let plugin: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&manifest).expect("manifest readable"))
+                .expect("the plugin manifest is valid JSON");
+        if let Some(d) = plugin.get("description").and_then(|d| d.as_str()) {
+            prose.push((format!("{name}'s plugin.json"), d.to_string()));
+        }
+        let readme = dir.join("README.md");
+        if let Ok(text) = std::fs::read_to_string(&readme) {
+            prose.push((format!("{name}'s README.md"), text));
+        }
+    }
+    prose.push(("docs/mcp-server.md".into(), read("docs/mcp-server.md")));
+
+    let mut wrong = Vec::new();
+    for (where_, text) in &prose {
+        for (phrase, written, counted) in counted_claims(text, &qualifiers) {
+            let Some(allowed) = permitted(&counted, &s) else {
+                continue;
+            };
+            if !allowed.contains(&written) {
+                let numeral = NUMERALS
+                    .iter()
+                    .find(|(_, n)| Some(n) == allowed.first())
+                    .map(|(w, _)| *w)
+                    .unwrap_or("<out of range>");
+                wrong.push(format!(
+                    "  {where_} — `{phrase}`, and there are {allowed:?} ({numeral})"
+                ));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "the plugin's prose counts something that is no longer true:\n{}\n\
+         The skills directory and yidam/cli/mcp-contract.json are what these numbers are \
+         read from. Correct the sentence, or drop the number from it — a description that \
+         counts nothing is not checked here.",
+        wrong.join("\n")
+    );
+}
+
+/// A skill the README does not mention is one only its own directory knows about.
+///
+/// This is #943's other half, and the more expensive one. The counts were wrong *because*
+/// `starting-a-session` was written, shipped and never written down: it is absent from the
+/// README's table of what the plugin installs, so the only way to learn the plugin has it is
+/// to list the directory. A skill nobody documents is a skill nobody reviews.
+///
+/// The README is a document, not a manifest, so this asks only that the name appear in it.
+/// Where it appears — a table row, a sentence, a heading — is an editorial choice, and one a
+/// test has no business making.
+#[test]
+fn every_skill_the_plugin_ships_is_named_by_its_readme() {
+    for (name, dir) in marketplace_plugins() {
+        let readme = dir.join("README.md");
+        let text = std::fs::read_to_string(&readme).unwrap_or_else(|e| {
+            panic!(
+                "`{name}` ships skills and {} is unreadable ({e})",
+                readme.display()
+            )
+        });
+        let missing: Vec<String> = skills(&dir)
+            .into_iter()
+            .map(|(skill, _)| skill)
+            .filter(|skill| !text.contains(skill.as_str()))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "`{name}` installs {missing:?}, which {} never names. A skill the README omits is \
+             one a reader finds by listing the directory.",
+            readme.display()
         );
     }
 }
