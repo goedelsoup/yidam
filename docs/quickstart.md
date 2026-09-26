@@ -171,6 +171,10 @@ mechanical change, not a knowledge event, and the history should say so.
 
 ## 4. Make your own — the bootstrap dialogue
 
+This step wants two things you may not have: the checkout from step 2, and an agent session.
+[first-corpus-by-hand.md](first-corpus-by-hand.md) is the route without either. Six files in
+an editor, and the same gates pass over them.
+
 Run this from the yidam checkout step 2 made, not from the corpus you have been reading:
 
 ```sh
@@ -254,6 +258,7 @@ anyone remembering.
 
 | If you want | Read |
 |---|---|
+| A corpus written by hand, no agent | [first-corpus-by-hand.md](first-corpus-by-hand.md) |
 | The bootstrap protocol in full | [bootstrap-flow.md](bootstrap-flow.md) |
 | What the terms mean | [vocabulary.md](vocabulary.md) |
 | Why a commit is a graph event | [what-yidam-is.md](what-yidam-is.md) |

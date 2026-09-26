@@ -19,6 +19,10 @@ const sidebar = [
       { slug: 'what-yidam-is', label: 'What yidam is' },
       { slug: 'quickstart', label: 'Quickstart' },
       { slug: 'installation', label: 'Installation' },
+      // After the quickstart rather than instead of it. The quickstart's route to a corpus
+      // of your own is an agent dialogue run from a template checkout, and a reader with
+      // neither stops at its §3. This is the same destination reached by typing (#951).
+      { slug: 'first-corpus-by-hand', label: 'Your first corpus, by hand' },
     ],
   },
   // Before 'The model' rather than inside it. Every derived repository answers the alignment
