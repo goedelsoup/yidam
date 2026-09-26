@@ -10,7 +10,7 @@
     {
       "name": "yidam",
       "source": "./yidam/plugin",
-      "description": "Reach a yidam corpus from Claude Code: thirteen MCP tools over the corpus, and seven skills that call them at the point each decision is made.",
+      "description": "Reach a yidam corpus from Claude Code: up to thirteen MCP tools over the corpus, and seven skills that call them at the point each decision is made.",
       "category": "knowledge",
       "author": {
         "name": "goedelsoup",

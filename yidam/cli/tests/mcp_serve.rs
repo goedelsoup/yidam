@@ -14,12 +14,13 @@
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 mod common;
 
 use common::git::git;
+use common::repo_root;
 
 /// Stage the contract's own fixture corpus as a git repository.
 ///
@@ -93,8 +94,26 @@ struct McpClient {
 
 impl McpClient {
     fn spawn(cwd: &Path) -> Self {
+        Self::spawn_with(cwd, &[])
+    }
+
+    /// The same server against a corpus named rather than entered (#428, #918).
+    ///
+    /// `examples/streamflow` cannot be served by `cd`-ing into it: `git rev-parse
+    /// --show-toplevel` from there answers with *this* repository, which has no `.yidam/`.
+    /// `--root` is the flag that exists for it, and serving the checked-in directory rather
+    /// than a copy is the point — a copy is a corpus this repository does not ship.
+    fn spawn_root(root: &Path) -> Self {
+        Self::spawn_with(
+            &PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            &["--root", &root.display().to_string()],
+        )
+    }
+
+    fn spawn_with(cwd: &Path, extra: &[&str]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_yidam"))
             .args(["serve", "--mcp"])
+            .args(extra)
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -717,6 +736,158 @@ fn every_tool_in_the_contract_is_in_the_document_an_agent_reads() {
         "docs/mcp-server.md's tool table has no row for {missing:?} — a conforming server \
          serves them and no agent reading the documentation knows they exist"
     );
+}
+
+/// The handshake the document prints is the one its own example corpus sends (#948).
+///
+/// #906 caught the `contract` key two minor versions stale and gated that one value against
+/// `tools.json`. Every other key in the block was still nobody's, and one of them was wrong:
+/// it declared `"dependencies": true` over a corpus with no `.yidam/tonpa/`. That is not a
+/// cosmetic disagreement. `dependencies` is one of the two keys that decide *which tools
+/// exist*, so the page promised a `tools/list` of thirteen names where the server sends
+/// twelve — and then said "the thirteen read tools" twice in prose on the strength of it.
+///
+/// So the block is read as a **prediction** rather than diffed against a second hardcoded
+/// copy of the truth: [`expected_tool_names`] turns the documented capabilities into the set
+/// a conforming server must serve, and that is held to the set this one does serve. A
+/// capability the page gets wrong fails here whether or not anybody also wrote the count out
+/// in words, which is the half of #948 that prose alone cannot hold.
+///
+/// **`corpus.commit` is exempt, and only it.** `a1b2c3d` is visibly a placeholder, and the
+/// example is served in place, so the value the server reports is this repository's HEAD.
+/// Every other field is asserted, `nodes`/`skills`/`decisions` included — those are facts
+/// about a corpus that ships here, and a page quoting a banner nobody sees any more is the
+/// same defect one paragraph up.
+#[test]
+fn the_documented_handshake_is_the_one_its_example_corpus_sends() {
+    let doc = std::fs::read_to_string(repo_root().join("docs/mcp-server.md"))
+        .expect("docs/mcp-server.md is readable");
+    let documented = documented_handshake(&doc);
+
+    let example = repo_root().join("examples/streamflow");
+    assert!(
+        example.join(".yidam").is_dir(),
+        "the page's handshake example names a corpus this repository does not ship at {}",
+        example.display()
+    );
+    // Served in place, so a server that wrote anything would dirty this repository's own
+    // working tree — and the next gate to notice would be some unrelated one complaining
+    // about an unexpected file. `[serve] record` is off unless a corpus asks for it and the
+    // read tier writes nothing at all, both of which this holds rather than assumes.
+    let before = tree_of(&example);
+    assert!(
+        before.len() > 1,
+        "the before-and-after snapshot of {} read {} file(s), so the comparison below \
+         compares nothing",
+        example.display(),
+        before.len()
+    );
+
+    let mut client = McpClient::spawn_root(&example);
+    let sent = client.initialize();
+
+    // Both directions. A key the server sends and the page omits is a capability a reader
+    // never learns to look for — `act` was missing from this block for the whole of the
+    // write tier — and one the page sends and the server does not is a key a client would
+    // branch on and never see.
+    let keys = |v: &Value| -> BTreeSet<String> { v.as_object().unwrap().keys().cloned().collect() };
+    assert_eq!(
+        keys(&documented),
+        keys(&sent),
+        "docs/mcp-server.md's handshake example and the handshake `examples/streamflow` \
+         sends do not carry the same keys"
+    );
+
+    for key in keys(&sent) {
+        let mut want = documented[&key].clone();
+        if key == "corpus" {
+            want["commit"] = sent[&key]["commit"].clone();
+        }
+        assert_eq!(
+            want, sent[&key],
+            "docs/mcp-server.md's handshake example declares `{key}` as {want} and a server \
+             pointed at `examples/streamflow` sends {}",
+            sent[&key]
+        );
+    }
+
+    // The consequence, stated. Every key above is asserted exactly, so today this fails only
+    // where that loop already does. It is here because it is the claim #948 was actually
+    // about and the one a reader checks by running the handshake — and because the loop
+    // grows exemptions (`commit` is one already) while this depends on precisely the keys
+    // that decide the tool set.
+    let served: Vec<String> = client.request("tools/list", json!({}))["tools"]
+        .as_array()
+        .expect("tools/list returns an array")
+        .iter()
+        .map(|t| t["name"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        expected_tool_names(&documented),
+        served,
+        "a client that believed docs/mcp-server.md's handshake example would expect a \
+         different `tools/list` than `examples/streamflow` actually serves"
+    );
+
+    drop(client);
+    assert_eq!(
+        before,
+        tree_of(&example),
+        "serving `examples/streamflow` changed it. This test points at the checked-in \
+         directory rather than a copy, so a server that writes into the corpus it serves \
+         dirties this repository"
+    );
+}
+
+/// Every file under a directory, by path and length — enough to see a write.
+fn tree_of(dir: &Path) -> BTreeMap<String, u64> {
+    walkdir::WalkDir::new(dir)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+        .map(|e| {
+            (
+                e.path().strip_prefix(dir).unwrap().display().to_string(),
+                e.metadata().map(|m| m.len()).unwrap_or_default(),
+            )
+        })
+        .collect()
+}
+
+/// The capability block `docs/mcp-server.md` shows a client receiving on `initialize`.
+///
+/// Located by **shape** — the one fenced `json` block carrying a `corpus` key — and not by
+/// position, so moving the section or adding an example above it repoints nothing. Exactly
+/// one, rather than the first match: a second handshake example on the page is a thing to
+/// decide about, not to silently pick between.
+fn documented_handshake(doc: &str) -> Value {
+    let mut found: Vec<Value> = Vec::new();
+    let mut block: Option<String> = None;
+    for line in doc.lines() {
+        match (block.as_mut(), line.trim_end()) {
+            (None, "```json") => block = Some(String::new()),
+            (Some(_), "```") => {
+                let text = block.take().expect("inside a fence");
+                match serde_json::from_str::<Value>(&text) {
+                    Ok(v) if v.get("corpus").is_some() => found.push(v),
+                    _ => {}
+                }
+            }
+            (Some(buf), _) => {
+                buf.push_str(line);
+                buf.push('\n');
+            }
+            (None, _) => {}
+        }
+    }
+    assert_eq!(
+        found.len(),
+        1,
+        "docs/mcp-server.md carries {} fenced json blocks with a `corpus` key. This reads \
+         the `initialize` handshake example, and there is exactly one of those",
+        found.len()
+    );
+    found.pop().expect("exactly one")
 }
 
 /// Spanning is `query`-only, and that is a decision rather than an omission (#333).
