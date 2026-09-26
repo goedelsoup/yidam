@@ -616,7 +616,8 @@ close it.
 **`degraded` and `degraded_reason`, on every `retrieve`.** Both are present on every response —
 there is no third state, and `degraded_reason` is `null` exactly when `degraded` is `false`.
 `true` means the answer came from case-insensitive term matching over label, description and body.
-It is scored by the fraction of query terms hit. That is a real answer and often a good one, but
+It is ranked by BM25 over the nodes scanned. A short node about your query beats a long one that
+mentions it. That is a real answer and often a good one, but
 it is lexical. It will not find a node that says the same thing in different words.
 
 The reason says which repair you need, and they are not the same repair:

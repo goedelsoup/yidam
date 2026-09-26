@@ -360,8 +360,8 @@ the read-only overview.
 enough to write one. It is the same call `serve --mcp` answers, dispatched by tool name. What
 it prints is what an agent sees.
 
-Without a vector index it degrades to keyword search and says so. With one it ranks by cosine
-similarity.
+Without a vector index it degrades to keyword search and says so. That arm ranks by BM25 over
+the nodes it scanned. With one it ranks by cosine similarity.
 
 `--corpora` reaches the other corpora sharing the vector index `[index.remote]` names. This
 corpus is always searched, and the named ones are added to it. Every result says which corpus

@@ -637,8 +637,8 @@ fn body(
     })
 }
 
-/// Fallback when no vector index exists: case-insensitive term matching over
-/// label, description, and body, scored by the fraction of query terms hit.
+/// Fallback when no vector index exists: case-insensitive term matching over label,
+/// description, and body, ranked by BM25 over the candidates scanned.
 fn keyword_retrieve(
     state: &ServerState,
     query: &str,
@@ -646,8 +646,6 @@ fn keyword_retrieve(
     class_filter: Option<&str>,
     reason: Option<&'static str>,
 ) -> Value {
-    let terms = crate::retrieval::terms(query);
-
     // Local nodes first, then every installed dependency's. Retrieval is the one surface a
     // dependency is allowed on: an agent asking "what is known about X" should be told when
     // the answer lives in a corpus this repository merely cites, not have it withheld — and
@@ -655,15 +653,29 @@ fn keyword_retrieve(
     //
     // A query's similarity anchor does *not* get this reach — see `query::anchor`. The
     // difference is the whole reason the scorer is shared and the candidate set is not.
-    let mut scored: Vec<(&super::Node, f32)> = state
+    //
+    // TWO PASSES, because BM25 is not a property of one node: a term's weight is how rare it
+    // is across the set scanned, and a node's length only means something against the set's
+    // mean. The first pass composes every candidate's text and the second scores it. The
+    // fraction this replaced needed only the node in front of it, which is exactly why it
+    // could not order an answer (#1026).
+    let candidates: Vec<(&super::Node, String)> = state
         .nodes
         .iter()
         .chain(state.dep_nodes.iter())
         .filter(|n| class_filter.is_none_or(|c| n.class == c))
-        .filter_map(|n| {
+        .map(|n| {
             let haystack = format!("{} {} {}", n.label, n.description, n.content).to_lowercase();
-            crate::retrieval::keyword_score(&terms, &haystack).map(|score| (n, score))
+            (n, haystack)
         })
+        .collect();
+    // Over the candidates and not over `state.nodes`: the class filter has already run, so a
+    // `--class` call weights its terms against the class it is searching rather than against a
+    // corpus it will not return from.
+    let bm25 = crate::retrieval::Bm25::over(query, candidates.iter().map(|(_, h)| h.as_str()));
+    let mut scored: Vec<(&super::Node, f32)> = candidates
+        .iter()
+        .filter_map(|(n, haystack)| bm25.score(haystack).map(|score| (*n, score)))
         .collect();
     // Ties break on the qualified id, not the bare one: two corpora may hold the same
     // `class/name`, and ordering that cannot tell them apart is not deterministic.
@@ -1417,6 +1429,102 @@ mod tests {
             "tool {name} errored: {result}"
         );
         serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap()
+    }
+
+    // ── the keyword arm's ranking ──────────────────────────────────────────────
+
+    /// **The order the degraded arm returns, end to end.**
+    ///
+    /// This is the retrieval every released binary performs: `--features vector-read` is not
+    /// in the release matrix, so `retrieve` degrades here and this is the only ranking a
+    /// consumer's installed `yidam` can produce. Before #1026 it could not rank at all —
+    /// every node holding all of the query's terms scored exactly `1.0`, the tie broke on the
+    /// qualified id below, and the answer was the first `k` **alphabetically**.
+    ///
+    /// The fixture is built so the two orders disagree. `concept/a-long-review` and
+    /// `concept/z-short-note` both contain `hydropeaking` and `dam`, so term presence scored
+    /// both `1.0` and returned the long one first. `concept/c-low-flow` holds neither and is
+    /// here because document frequency and mean length are properties of the *set*: without
+    /// it, `dam` would be as rare as `hydropeaking` and every node would look short.
+    ///
+    /// The whole returned order is asserted, and that is the only assertion that distinguishes
+    /// the two scorers. Membership is unchanged by design — `Bm25`'s IDF is the `+1` variant
+    /// precisely so nothing drops out — and a score cannot be asserted either, because the
+    /// defect being fixed was that the scores were equal.
+    #[test]
+    fn the_degraded_arm_ranks_by_bm25_and_not_alphabetically() {
+        let mut state = test_state();
+        // The fixture's own nodes and dependencies would both join the scanned set and move
+        // the statistics. They are replaced rather than added to, so what this asserts is the
+        // ordering of four documents a reader of this test can see.
+        state.nodes = vec![
+            node(
+                "concept/a-long-review",
+                "A review of sub-daily variation",
+                "A review of the literature on sub-daily discharge variation below \
+                 hydroelectric facilities, a phenomenon named hydropeaking, covering the \
+                 regulatory history, the measurement record, the statistical summaries in \
+                 common use, the ecological response studies, the mitigation trials, and the \
+                 open questions that remain after forty years of work on rivers where a dam \
+                 is present.",
+            ),
+            node(
+                "concept/b-dam-history",
+                "Reservoir history",
+                "The dam was built in 1957 and raised in 1974, and the reservoir behind it \
+                 stores two seasons of runoff.",
+            ),
+            node(
+                "concept/c-low-flow",
+                "Low flow",
+                "Seven-day low flow with a ten-year recurrence interval, computed from the \
+                 gauge record.",
+            ),
+            node(
+                "concept/z-short-note",
+                "Hydropeaking",
+                "Hydropeaking at the dam: hydropeaking is the diel cycle.",
+            ),
+        ];
+        state.dep_nodes = vec![];
+
+        let result = call_ok(
+            &mut state,
+            "retrieve",
+            json!({"query": "hydropeaking dam", "k": 4}),
+        );
+        let ids: Vec<&str> = result["results"]
+            .as_array()
+            .expect("results is an array")
+            .iter()
+            .map(|row| row["id"].as_str().expect("every row carries an id"))
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                "concept/z-short-note",
+                "concept/a-long-review",
+                "concept/b-dam-history",
+            ],
+            "alphabetical order would put `a-long-review` first: {result:#}"
+        );
+    }
+
+    /// A node with a `label`, a `description` and a body, in the shape the keyword arm scans.
+    ///
+    /// `content` carries the description again because that is what a corpus file holds — the
+    /// haystack is `label + description + content` and a fixture whose body did not repeat its
+    /// own prose would score unlike any real node.
+    fn node(id: &str, label: &str, description: &str) -> super::super::Node {
+        super::super::Node {
+            id: id.to_string(),
+            class: "concept".to_string(),
+            label: label.to_string(),
+            description: description.to_string(),
+            content: format!("class: concept\nlabel: {label}\ndescription: {description}\n"),
+            links: vec![],
+            origin: None,
+        }
     }
 
     /// A class filter naming no declared class is refused before anything is searched.
