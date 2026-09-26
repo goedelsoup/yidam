@@ -25,4 +25,11 @@ pub struct Source {
     /// so that an empty list is silent. A corpus adopting the field opts into the checks; a
     /// corpus that has not adopted it sees no new findings at all.
     pub artifacts: Vec<crate::parse::CatalogArtifact>,
+    /// Why the frontmatter did not parse, when it did not. See
+    /// [`crate::parse::parse_frontmatter_reporting`].
+    ///
+    /// Carried for the reason [`super::Node::malformed`] is: every field above is `Option` or
+    /// a `Vec`, so an unreadable header is indistinguishable from an entry that declares
+    /// nothing — and the checks reading those fields are then describing a file nobody read.
+    pub malformed: Option<String>,
 }

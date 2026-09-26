@@ -130,14 +130,39 @@ pub struct CatalogLocation {
 pub const CATALOG_LOCATION_KINDS: &[&str] = &["url", "url_template", "address", "file"];
 
 pub fn parse_frontmatter(text: &str) -> Frontmatter {
+    parse_frontmatter_reporting(text).0
+}
+
+/// The same read, and why it came back empty when it did.
+///
+/// [`parse_frontmatter`] is this with the reason thrown away, and throwing it away is what
+/// #1056 is about: a catalog entry with one unclosed quote in its header reached every check
+/// as a `Frontmatter::default()`, which is not the empty file it looks like — it is `obtained`
+/// absent (and so read as true), no `ttl_days`, no `used-by`, no `location` and no
+/// `artifacts`. A corpus lost an entry's TTL for its whole history that way, and no gate could
+/// say so. [`crate::cmd::lint::checks::malformed_yaml`] reports the reason this returns; it is
+/// the same division of labour [`crate::corpus::parse_or_default`] makes for an instance and a
+/// class, in the one other place bytes become a record.
+///
+/// **No frontmatter at all is not a failure.** A file that does not open with `---` has not
+/// contradicted anything, and the surfaces reading a skill or a seed through this are entitled
+/// to that reading. An *opened* header is a claim that a document follows, so a header that
+/// never closes, or that closes over YAML the parser rejects, is reported.
+pub fn parse_frontmatter_reporting(text: &str) -> (Frontmatter, Option<String>) {
     let body = text.trim_start();
     let Some(rest) = body.strip_prefix("---\n") else {
-        return Frontmatter::default();
+        return (Frontmatter::default(), None);
     };
     let Some(end) = rest.find("\n---") else {
-        return Frontmatter::default();
+        return (
+            Frontmatter::default(),
+            Some("frontmatter opens with `---` and is never closed".to_string()),
+        );
     };
-    serde_yaml::from_str(&rest[..end]).unwrap_or_default()
+    match serde_yaml::from_str(&rest[..end]) {
+        Ok(parsed) => (parsed, None),
+        Err(e) => (Frontmatter::default(), Some(e.to_string())),
+    }
 }
 
 /// The prose beneath a file's YAML frontmatter, or the whole text when there is none.

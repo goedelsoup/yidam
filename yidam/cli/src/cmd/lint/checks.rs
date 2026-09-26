@@ -11,7 +11,7 @@ use crate::parse::CATALOG_LOCATION_KINDS;
 
 use super::model::{Check, Severity, Violation};
 use crate::corpus::{
-    edge_views, normalize, source_classes, Class, EdgePolicy, Edges, Node, Source,
+    edge_views, normalize, source_classes, Class, DecisionRecord, EdgePolicy, Edges, Node, Source,
 };
 
 /// One corpus file's prose and where it lives — all [`claim_tag_malformed`] reads.
@@ -405,12 +405,36 @@ pub const MALFORMED_YAML: &str = "malformed-yaml";
 /// reading. What is *not* suppressed is a finding whose subject is a different file, even
 /// where the unreadable one is why it fired — a catalog entry whose `used-by` list names a
 /// node that can no longer be shown to cite it still says so. See there for why.
-pub fn malformed_yaml(nodes: &[Node], classes: &[Class]) -> Check {
-    // Instances then classes, the order [`prose_views`] reads the corpus in.
+///
+/// # All four records, since #1056
+///
+/// #676 covered the two records `lint` had a model for, and the other two kept the defect
+/// verbatim. A catalog entry's frontmatter read through `unwrap_or_default()` to a
+/// `Frontmatter::default()`, which is not an entry declaring nothing — it is `obtained:`
+/// absent and so read as *true*, with no TTL, no `used-by`, no locations and no artifacts. A
+/// decision record read to a `Decision` with no `id:` and no `summary:`, which the log renders
+/// under its file stem with an em dash, exactly as it renders a record nobody has filled in.
+///
+/// One corpus lost a catalog entry's TTL for its whole history and a decision record that
+/// governed a phase, to one unclosed quote each. `grep` saw both; nothing in this binary did,
+/// and the class arm's reason applies unchanged: these are gates and a renderer reporting
+/// clean over files they did not read. `catalog-artifact-malformed` is not that report — it
+/// fires only on entries that *declare* `artifacts:`, and an entry whose header did not parse
+/// declares none.
+pub fn malformed_yaml(
+    nodes: &[Node],
+    classes: &[Class],
+    sources: &[Source],
+    decisions: &[DecisionRecord],
+) -> Check {
+    // Instances, classes, catalog, decisions — the order [`prose_views`] reads the corpus in,
+    // extended the way the walk is.
     let violations = nodes
         .iter()
         .map(|n| (&n.rel, &n.malformed))
         .chain(classes.iter().map(|c| (&c.rel, &c.malformed)))
+        .chain(sources.iter().map(|s| (&s.rel, &s.malformed)))
+        .chain(decisions.iter().map(|d| (&d.rel, &d.malformed)))
         .filter_map(|(rel, why)| {
             Some(Violation::new(
                 rel,
@@ -429,8 +453,12 @@ pub fn malformed_yaml(nodes: &[Node], classes: &[Class]) -> Check {
          edges, which is indistinguishable from an ontology nobody has filled in — and five \
          checks that gate on those declarations find nothing to check and pass. That is a \
          false negative in a gate, produced by a typo, and nothing else in the report can \
-         say it happened. Every other finding about the file is suppressed: fix the parse \
-         error and they come back, correct this time.",
+         say it happened. On a catalog entry it reads as an entry with no TTL, no `used-by` \
+         and no artifacts that never declared `obtained: false` — so it is read as obtained, \
+         governed by nothing, and cited by nothing. On a decision record it reads as a record \
+         with no `id:` and no `summary:`, which the log renders under its file stem with an em \
+         dash, indistinguishable from a record nobody filled in. Every other finding about \
+         the file is suppressed: fix the parse error and they come back, correct this time.",
         violations,
     )
 }
@@ -2879,9 +2907,30 @@ mod tests {
         }
     }
 
-    /// Both populations, in the order the corpus is read in.
+    /// A catalog entry at `rel`, read the way [`crate::corpus::load_sources`] reads one — so a
+    /// fixture cannot hand the check a `malformed` that disagrees with the bytes beside it.
+    fn catalog(rel: &str, text: &str) -> Source {
+        let (fm, malformed) = crate::parse::parse_frontmatter_reporting(text);
+        Source {
+            rel: rel.to_string(),
+            path: PathBuf::from(rel),
+            obtained: fm.obtained.unwrap_or(true),
+            used_by: fm.used_by,
+            locations: fm.location.unwrap_or_default(),
+            retrieved: fm.retrieved,
+            ttl_days: fm.ttl_days,
+            artifacts: fm.artifacts.unwrap_or_default(),
+            malformed,
+        }
+    }
+
+    fn decision(rel: &str, text: &str) -> DecisionRecord {
+        DecisionRecord::parse(PathBuf::from(rel), rel, text)
+    }
+
+    /// All four populations, in the order the corpus is read in.
     #[test]
-    fn the_check_reports_instances_and_classes_alike() {
+    fn the_check_reports_every_record_a_repository_is_written_in() {
         let broken = Node::parse(PathBuf::from("c/x.yml"), "c/x.yml", "label: \"unclosed\n");
         let sound = node("c/y.yml", "class: c\n");
         let c = malformed_yaml(
@@ -2890,14 +2939,70 @@ mod tests {
                 Class::parse("c.ont.yml", "class: c\n"),
                 Class::parse("d.ont.yml", "label: \"unclosed\n"),
             ],
+            &[
+                catalog("cat/ok.md", "---\nobtained: true\n---\nbody\n"),
+                catalog("cat/bad.md", "---\nttl_days: \"30\n---\nbody\n"),
+            ],
+            &[
+                decision("dec/ok.yml", "id: d1\nsummary: fine\n"),
+                decision("dec/bad.yml", "summary: \"unclosed\n"),
+            ],
         );
         let named: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
-        assert_eq!(named, vec!["c/x.yml", "d.ont.yml"]);
+        assert_eq!(
+            named,
+            vec!["c/x.yml", "d.ont.yml", "cat/bad.md", "dec/bad.yml"]
+        );
         assert_eq!(
             c.severity,
             Severity::Error,
             "a gate that cannot read a file"
         );
+    }
+
+    /// The state #1056 is about, asserted on the record rather than through the check: an
+    /// unreadable header is not an entry that declared nothing, and every field it leaves
+    /// behind reads as a claim the entry never made.
+    #[test]
+    fn an_unreadable_catalog_header_reads_as_obtained_and_governed_by_nothing() {
+        let s = catalog(
+            "cat/bad.md",
+            "---\nobtained: false\nttl_days: \"30\n---\nbody\n",
+        );
+        assert!(s.malformed.is_some(), "the header does not parse");
+        assert!(s.obtained, "`obtained: false` was written and is not read");
+        assert_eq!(s.ttl_days, None, "the TTL the entry declared is gone");
+    }
+
+    /// A header that opens and never closes is the same empty record by a different route, and
+    /// it is the one a truncated write leaves behind.
+    #[test]
+    fn an_unclosed_frontmatter_fence_is_reported() {
+        let s = catalog("cat/cut.md", "---\nobtained: false\n");
+        assert!(s.malformed.is_some());
+        assert!(s.obtained);
+    }
+
+    /// No frontmatter at all is not a failure: the file has not contradicted anything, and the
+    /// surfaces reading a skill or a seed through the same parser are entitled to that reading.
+    #[test]
+    fn a_file_with_no_frontmatter_is_not_malformed() {
+        for text in ["", "\n", "# just prose\n", "Body with no header.\n"] {
+            assert_eq!(catalog("cat/x.md", text).malformed, None, "{text:?}");
+        }
+    }
+
+    /// A decision record whose bytes do not parse is the record the log renders under its file
+    /// stem with an em dash — [`crate::corpus::DecisionRecord::id`] cannot tell the two apart,
+    /// which is why the parse outcome has to be carried beside it.
+    #[test]
+    fn an_unreadable_decision_is_indistinguishable_from_an_unfilled_one() {
+        let bad = decision("dec/phase-two.yml", "summary: \"unclosed\n");
+        let empty = decision("dec/phase-three.yml", "");
+        assert_eq!(bad.id(), "phase-two");
+        assert_eq!(bad.decision.summary, None);
+        assert_eq!(empty.malformed, None, "an empty file is the absent value");
+        assert!(bad.malformed.is_some(), "and this one is not");
     }
 
     /// `None` and an empty drift are different answers, and the report emits them as
@@ -2970,6 +3075,7 @@ mod tests {
             retrieved: None,
             ttl_days: None,
             artifacts: Vec::new(),
+            malformed: None,
         }
     }
 
@@ -3146,6 +3252,7 @@ mod tests {
                 retrieved: a.retrieved.clone(),
                 ttl_days: a.ttl_days,
                 artifacts: Vec::new(),
+                malformed: None,
             })
             .collect();
         catalog_expired(ages, &sources, cites)
@@ -4063,6 +4170,7 @@ mod tests {
             retrieved: None,
             ttl_days: None,
             artifacts: Vec::new(),
+            malformed: None,
         }
     }
 

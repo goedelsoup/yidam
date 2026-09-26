@@ -28,6 +28,37 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `malformed-yaml` reads your catalog and your decisions
+
+**`yidam lint` now gates on a catalog entry or a decision record whose YAML does not parse
+(#1056).** The check covered instances and classes. The other two records read through
+`unwrap_or_default()`, which turns a file nobody can read into a record declaring nothing. One
+corpus lost a catalog entry's TTL for its whole history, and a decision record that governed a
+phase. One unclosed quote each.
+
+**What changes for you: a lint run that passed may now fail.** Nothing about your corpus
+changed. What changed is that the silence ended, and the file the finding names was never being
+read. The repair is the parse error the finding quotes; it carries the parser's own line and
+column.
+
+Two states are worth knowing before you look.
+
+A catalog entry whose frontmatter did not parse was read as `obtained: true`. `obtained:` was
+absent from the empty record, and absent means obtained. It carried no TTL, no `used-by` and no
+artifacts, so `catalog-expired`, `catalog-used-by-drift` and `catalog-artifact-malformed` each
+passed with nothing to check.
+
+A decision record that did not parse was read as a record with no `id:` and no `summary:`.
+`yidam decisions` renders that under the file's stem, with an em dash. It is how the log renders
+a record nobody has filled in.
+
+A file with no frontmatter, and a file with nothing in it, are both unchanged. Neither has
+contradicted anything, and neither is reported. A frontmatter block that opens with `---` and
+never closes **is** reported: an opened header claims a document follows.
+
+Every other finding about an unreadable file is suppressed, as it has been for instances and
+classes since #676. Fix the parse error and they come back, correct this time.
+
 ### `retrieve` takes a `where`, and the index carries the properties it reads
 
 **`yidam retrieve --where '<predicate>'` (#1029, RFC-0041).** The text inside a `query` step's
