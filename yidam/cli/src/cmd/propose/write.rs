@@ -246,7 +246,8 @@ pub fn write(root: &Path, proposals: &[Proposal], force: bool) -> Result<Written
 /// The author is a parameter rather than a constant because a second tool now writes
 /// commits: `yidam run` is not `yidam propose`, and a log that called them both the same
 /// author would have lost the one distinction the split author/committer field exists to
-/// make. Whoever ran it is still the committer, in both.
+/// make. Whoever ran it is still the committer, in both. In a pod nobody ran it, and
+/// `cmd/cluster` writes the pod's own identity into its scratch clone before building.
 pub(crate) fn commit_tree(
     root: &Path,
     tree: &str,

@@ -69,6 +69,7 @@ pub(super) fn run(
     let scratch = Scratch::new("land")?;
     let root = scratch.path().join("corpus");
     clone_branch(&remote.remote, &remote.branch, &root)?;
+    super::commits_as_the_pod(&root)?;
     let record = land_in(&root, scratch.path(), &claim, remote, store.as_ref())?;
     deliver(&root, format, out, record, render)
 }

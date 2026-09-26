@@ -47,6 +47,7 @@ pub(super) fn run(
     let (input, branch) = bundle::pinned_branch(scratch.path(), &file)?;
     let root = scratch.path().join("corpus");
     bundle::clone(&file, &branch, &root)?;
+    super::commits_as_the_pod(&root)?;
     let record = step_in(&root, name, &input, store.as_ref(), scratch.path())?;
     deliver(&root, format, out, record, render)
 }

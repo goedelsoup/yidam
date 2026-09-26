@@ -41,6 +41,14 @@ impl Cluster {
         let remote = work.path().join("remote.git");
         git(work.path(), &["init", "-q", "--bare", "remote.git"]);
         std::fs::create_dir_all(work.path().join("vault")).unwrap();
+        // The global config the binary sees: one that forbids git's fallback of inventing an
+        // identity from the account name and hostname. A CI runner has no name to invent
+        // one from, and this is what its failure looks like on a machine that does.
+        std::fs::write(
+            work.path().join("gitconfig"),
+            "[user]\n\tuseConfigOnly = true\n",
+        )
+        .unwrap();
         git(
             &e.path(),
             &["remote", "add", "origin", remote.to_str().unwrap()],
@@ -69,6 +77,14 @@ impl Cluster {
             .env_remove("AWS_SECRET_ACCESS_KEY")
             .env_remove("AWS_SESSION_TOKEN")
             .env_remove("AWS_PROFILE")
+            // A pod has no git identity but the one the binary gives its scratch clone. A
+            // developer's global config must not supply the committer CI does not have.
+            .env("GIT_CONFIG_GLOBAL", self.work.path().join("gitconfig"))
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env_remove("GIT_AUTHOR_NAME")
+            .env_remove("GIT_AUTHOR_EMAIL")
+            .env_remove("GIT_COMMITTER_NAME")
+            .env_remove("GIT_COMMITTER_EMAIL")
             .output()
             .unwrap();
         (
@@ -267,6 +283,14 @@ fn the_pipeline_lands_every_step_with_its_receipt_and_then_owes_nothing() {
         landed["next"]["sha"],
         built.as_str(),
         "the next pin is the branch after landing"
+    );
+    assert_eq!(
+        out(
+            &c.remote(),
+            &["log", "-1", "--format=%an <%ae> / %cn <%ce>", &built]
+        ),
+        "yidam run <run@yidam> / yidam cluster <cluster@yidam>",
+        "the run is the author and the pod is the committer; no person's identity was read"
     );
 
     // ── step two, on the pin the lander took ──

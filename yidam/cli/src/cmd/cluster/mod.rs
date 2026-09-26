@@ -449,6 +449,30 @@ pub(crate) fn clone_branch(remote: &str, branch: &str, dest: &Path) -> Result<()
     Ok(())
 }
 
+/// The committer a pod's commits carry.
+///
+/// `cmd/run`'s author is `yidam run` and its committer is "whoever ran it", which on a
+/// checkout is the person's git config. In a pod nobody ran it, and a scratch clone inherits
+/// no config, so `commit-tree` would refuse for want of a committer. This names the pod in
+/// the clone's local config, which is gone with the clone. `GIT_COMMITTER_NAME` and
+/// `GIT_COMMITTER_EMAIL` in the pod's environment still win, which is how a deployment
+/// names its own.
+pub(crate) const COMMITTER_NAME: &str = "yidam cluster";
+pub(crate) const COMMITTER_EMAIL: &str = "cluster@yidam";
+
+pub(crate) fn commits_as_the_pod(root: &Path) -> Result<()> {
+    for (key, value) in [
+        ("user.name", COMMITTER_NAME),
+        ("user.email", COMMITTER_EMAIL),
+    ] {
+        crate::git::Git::new(root)
+            .args(["config", key, value])
+            .run()
+            .with_context(|| format!("naming the pod as {key} in the scratch clone"))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -75,6 +75,10 @@ The exit code is zero either way. A corpus with nothing owed is its ordinary sta
 Build it from [cluster/Dockerfile](cluster/Dockerfile). The image is the `yidam` binary, git
 and an SSH client on a slim Debian base. Nothing else runs in a pod.
 
+A pod holds no git identity. The commits it builds carry `yidam run` as author and
+`yidam cluster <cluster@yidam>` as committer. Set `GIT_COMMITTER_NAME` and
+`GIT_COMMITTER_EMAIL` on the containers to name your own.
+
 ```sh
 docker build -f docs/cluster/Dockerfile -t ghcr.io/you/yidam-cluster:latest .
 ```
