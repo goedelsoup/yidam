@@ -46,7 +46,7 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use common::{examples, repo_root, Example};
+use common::{capability_kinds, examples, kind_spellings, repo_root, Example};
 
 // ── what the binary actually does ─────────────────────────────────────────────
 
@@ -372,6 +372,100 @@ fn the_vendored_guideline_states_the_route_and_keeps_the_argument() {
         assert!(
             flat.contains(needle),
             "{rel} does not say `{needle}` — {why}"
+        );
+    }
+}
+
+// ── what a run may declare: the kinds ─────────────────────────────────────────
+//
+// The same defect as the route claims, in the other direction. There the prose described a
+// mechanism the code had dropped; here the code lacked an arm the prose had published, and
+// `Kind` carried two of the taxonomy's three for long enough that a crate implementing the
+// third got `crates-index`'s em dash whatever it declared (#1027). Both are one document and
+// one enum disagreeing with nobody comparing them, so both are compared here.
+//
+// Two directions, because one of them is the whole finding. A scan asking only "is every
+// documented kind one the binary knows" would have passed throughout #1027: the documents named
+// three kinds and showed one, and the arm that was missing was missing from the code.
+
+/// Every `[capability.…]` this repository ships or documents names a kind the binary knows.
+///
+/// Over fenced examples as well as real manifests, because a `toml` block in a document is what
+/// a corpus author copies — a documented example is a prediction about the binary, and this is
+/// the assertion that it holds.
+#[test]
+fn every_documented_capability_names_a_kind_the_binary_knows() {
+    let known = kind_spellings();
+    let root = repo_root();
+    let mut scanned: Vec<String> = Vec::new();
+    let mut wrong: Vec<String> = Vec::new();
+
+    for path in common::git::out(&root, &["ls-files", "*.md", "*.toml"]).lines() {
+        // This file quotes a kind in order to check it, and `manifest.rs`'s own doc comment
+        // records the rejected spellings. Neither is a declaration a corpus would copy.
+        if path == DEFINITION_SITE {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(root.join(path)) else {
+            continue;
+        };
+        for (step, kind) in capability_kinds(&text) {
+            scanned.push(format!("{path} [capability.{step}] {kind}"));
+            if !known.contains(&kind) {
+                wrong.push(format!(
+                    "  {path}\n    [capability.{step}] kind = \"{kind}\""
+                ));
+            }
+        }
+    }
+
+    // Per site rather than a count, because a count is cleared by a scan that reads one file.
+    // These two are the population the gate exists for: the shipped manifest, and the vendored
+    // document a derived repository copies from.
+    for site in [
+        "examples/streamflow/.yidam/capabilities.toml",
+        "yidam/prelude/guidelines/directories.md",
+        "docs/cli-reference.md",
+    ] {
+        assert!(
+            scanned.iter().any(|s| s.starts_with(site)),
+            "no `[capability.…]` was read from {site}, so this scan does not cover it. Either \
+             the block moved or the parse broke; a scan that reads nothing passes everything.\n\
+             read: {scanned:?}"
+        );
+    }
+
+    assert!(
+        wrong.is_empty(),
+        "these declare a `kind` the binary does not know, so the manifest does not parse at all \
+         — not the named refusal a reader could act on, but a serde error against the whole \
+         file. The kinds are {known:?}.\n\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The vendored guideline names every kind a corpus may declare.
+///
+/// The converse, and the reason #1027 was filed. `guidelines/directories.md` is what a derived
+/// repository reads to decide what its capability layer can be, and it cannot edit its copy. For
+/// as long as that document typed the domain computer as three kinds while the manifest comment
+/// beside the example offered two, the third was a vocabulary a corpus could read and not write
+/// — and the way to find that out was to read `manifest.rs`, which a derivation has no copy of.
+///
+/// Held to the vendored document specifically, for the reason
+/// [`the_vendored_guideline_states_the_route_and_keeps_the_argument`] gives: it is the copy that
+/// cost something.
+#[test]
+fn the_vendored_guideline_names_every_kind_a_corpus_may_declare() {
+    let rel = "yidam/prelude/guidelines/directories.md";
+    let text = std::fs::read_to_string(repo_root().join(rel))
+        .unwrap_or_else(|e| panic!("{rel} is unreadable ({e})"));
+    for kind in kind_spellings() {
+        assert!(
+            text.contains(&format!("`{kind}`")) || text.contains(&format!("\"{kind}\"")),
+            "{rel} never names `{kind}`, which a corpus may declare. A derived repository reads \
+             this document to decide what its capability layer can be and cannot edit its copy, \
+             so a kind absent here is a kind nothing will declare — #1027."
         );
     }
 }

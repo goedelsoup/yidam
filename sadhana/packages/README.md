@@ -4,7 +4,7 @@ Other-language packages in the same domain computer layer as [`crates/`](../crat
 Use this directory when ecosystem access, ML frameworks, or upstream SDKs are better
 served by Python, TypeScript, or another runtime than Rust.
 
-The connector/calculator/feature-engineering distinction applies here equally — see
+The connector/calculator/featurizer distinction applies here equally — see
 [packages conventions](../.yidam/.vendor/prelude/guidelines/directories.md#packages).
 
 <!-- TEMPLATE

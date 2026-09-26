@@ -546,6 +546,12 @@ is written to be pasted somewhere. `--paths` opts back in.
 `.yidam/capabilities.toml` declares what may run. Per entry: a `kind`, the argv to invoke, the
 globs it `reads` and `writes`, and the commit verb it authors.
 
+The `kind` is one of the three capability types the domain computer is built from —
+`calculator`, `connector`, `featurizer`. All three are declarable and only a calculator
+is invoked. A plan holding one of the other two is refused before any of it runs. The refusal
+names the step, its kind, and why that kind is not invoked. A connector reaches a network and a
+credential path. Feature engineering is declarable and not yet built.
+
 ```toml
 [capability.travel-tier]
 kind   = "calculator"

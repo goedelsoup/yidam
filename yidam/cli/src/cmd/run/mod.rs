@@ -76,7 +76,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::cmd::propose::write::{commit_tree, current_branch, git, head, short_of, TempIndex};
 use crate::paths::{repo_root, require_yidam_repo};
-use manifest::{Capability, Manifest, Route};
+use manifest::{Capability, Kind, Manifest, Route};
 use receipt::{sha256, File, Input, Receipt};
 
 /// The author every commit a run writes carries.
@@ -263,20 +263,33 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
     // halfway through. A plan holding a connector behind two calculators would otherwise land
     // two commits and then refuse, leaving a corpus half advanced by a run that never had a
     // chance of finishing.
-    let unrunnable: Vec<&str> = plan
+    //
+    // The reason comes from the kind rather than from here. Two of the three are unrunnable and
+    // for unrelated reasons — see [`manifest::Kind::unrunnable_because`] — so a message written
+    // once, in the words of whichever kind was unrunnable when it was written, would send a
+    // featurizer's author to read about credentials.
+    //
+    // Each step is collected with its reason rather than with its name alone, so that the reason
+    // is the thing that put it in the list. Looking the kind back up at the bail site would make
+    // the reason an `Option` that cannot be `None` — a panic path, and an assertion about this
+    // filter restated a few lines below it.
+    let unrunnable: Vec<(&str, Kind, &'static str)> = plan
         .iter()
         .copied()
-        .filter(|n| m.get(n).is_ok_and(|c| !c.kind.executable()))
+        .filter_map(|n| {
+            let kind = m.get(n).ok()?.kind;
+            Some((n, kind, kind.unrunnable_because()?))
+        })
         .collect();
-    if let Some(first) = unrunnable.first() {
+    if let Some((first, kind, reason)) = unrunnable.first() {
+        let names: Vec<&str> = unrunnable.iter().map(|(n, ..)| *n).collect();
         bail!(
-            "`{first}` is a {} and this binary invokes calculators only, so this plan cannot \
-             run.\n  \
-             A connector re-runs against an external source, which is a network capability and \
-             a credential path, and `vault/mod.rs` sets the rule those inherit.\n  \
+            "`{first}` declares `kind = \"{}\"` and this binary invokes calculators only, so \
+             this plan cannot run.\n  \
+             {reason}.\n  \
              In this plan: {}",
-            m.get(first)?.kind.as_str(),
-            unrunnable.join(", ")
+            kind.as_str(),
+            names.join(", ")
         );
     }
 

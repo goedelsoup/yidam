@@ -20,6 +20,72 @@ pub fn repo_root() -> PathBuf {
 /// The bootstrap skill, repo-relative.
 pub const BOOTSTRAP_SKILL: &str = "yidam/prelude/skills/bootstrap.md";
 
+/// Where the capability kinds are defined, repo-relative.
+pub const MANIFEST_MODULE: &str = "yidam/cli/src/cmd/run/manifest.rs";
+
+/// The `kind` values a `.yidam/capabilities.toml` may declare, read out of the enum that
+/// defines them.
+///
+/// Parsed from `Kind::as_str`'s match arms because `cmd` is a private module and no test can
+/// name `Kind`. Shared by `capability_run` (which declares each one against the real binary)
+/// and `run_route_claims` (which holds the documents to the same set), for the reason
+/// [`step_one_read_list`] gives: two parsers of one list is how two gates come to disagree
+/// about what the list says.
+///
+/// A literal list here would be the defect #1027 reported, one layer up. `Kind` had two arms
+/// and the published taxonomy had three for as long as nothing compared them, and a gate over
+/// three strings somebody typed would go quiet again at the fourth.
+pub fn kind_spellings() -> Vec<String> {
+    let path = repo_root().join(MANIFEST_MODULE);
+    let src = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{} is unreadable ({e})", path.display()));
+    let at = src
+        .find("pub fn as_str(self) -> &'static str {")
+        .unwrap_or_else(|| {
+            panic!("`Kind::as_str` is not in {MANIFEST_MODULE}; the definition this parse                     discovers moved, and every gate over it would otherwise go quiet")
+        });
+    let body = &src[at..at + src[at..].find("\n    }").expect("the end of `as_str`")];
+    let kinds: Vec<String> = body
+        .lines()
+        .filter_map(|l| l.split_once("=> \"")?.1.split_once('"'))
+        .map(|(k, _)| k.to_string())
+        .collect();
+    assert!(
+        kinds.len() >= 3 && kinds.iter().any(|k| k == "calculator"),
+        "the kinds were not discovered from {MANIFEST_MODULE}, so every gate over them          asserts nothing: {kinds:?}"
+    );
+    kinds
+}
+
+/// Every `[capability.<name>]` table in `text`, as `(step, kind)`.
+///
+/// Over documented examples as well as real manifests, because a fenced `toml` block showing a
+/// `kind` the binary would refuse is a prediction that fails — and the one a corpus author
+/// copies. Scoped to the table rather than to `kind = "..."` anywhere, because fifteen other
+/// `kind` vocabularies in this repository spell their values the same way.
+pub fn capability_kinds(text: &str) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("[capability.") {
+        let after = &rest[at + "[capability.".len()..];
+        let Some((step, tail)) = after.split_once(']') else {
+            break;
+        };
+        let table = &tail[..tail.find("\n[").unwrap_or(tail.len())];
+        if let Some(kind) = table
+            .lines()
+            .filter_map(|l| l.split_once('=')?.0.trim().eq("kind").then_some(l))
+            .filter_map(|l| l.split_once('"')?.1.split_once('"'))
+            .map(|(k, _)| k.to_string())
+            .next()
+        {
+            found.push((step.to_string(), kind));
+        }
+        rest = tail;
+    }
+    found
+}
+
 /// Step 1's numbered read list, in order, as repo-relative paths.
 ///
 /// Parsed rather than listed, so every assertion over it is about the list the agent actually
