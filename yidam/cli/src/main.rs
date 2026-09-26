@@ -724,6 +724,18 @@ enum Command {
         #[arg(long)]
         create: bool,
     },
+    /// Write the smallest runnable corpus into the current repository
+    ///
+    /// A class per `--class`, an example node in each, and a catalog entry — five files
+    /// by default, and they pass `graph-check` and `lint` as written. Every placeholder
+    /// says what to replace it with. Derives nothing, reads no template, and does not
+    /// commit: the first commit's `genesis:` subject names your domain, and only you
+    /// know it.
+    Init {
+        /// A class to declare; repeat for each. Defaults to `concept` and `observation`
+        #[arg(long = "class", value_name = "NAME")]
+        class: Vec<String>,
+    },
     /// Copy the yidam template into TARGET and initialise a fresh git repo
     Clone {
         /// Directory to create (must not already exist)
@@ -1528,6 +1540,7 @@ fn run() -> Result<()> {
                 )
             }
         }
+        Command::Init { class } => yidam::init(&class),
         Command::Clone { target } => yidam::clone(&target),
         Command::Overlay {
             target,

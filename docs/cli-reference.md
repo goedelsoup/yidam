@@ -4,7 +4,7 @@ Every command `yidam` carries, grouped as `yidam --help-all` groups them. This p
 `yidam <command> --help` is the detail. A gate holds the two *surfaces* equal: a command the
 binary offers and this page omits fails `cli_reference.rs`.
 
-`yidam --help` is a shorter listing: the thirteen commands a session usually needs. Everything
+`yidam --help` is a shorter listing: the fourteen commands a session usually needs. Everything
 on this page is on `--help-all`.
 
 So the roster below is the roster you have. It says nothing about the prose. A description
@@ -13,7 +13,7 @@ which is what #873 was.
 
 Three conventions run through the whole surface.
 
-**A `*` means the command rewrites files in the repository it is run against.** Twenty-three
+**A `*` means the command rewrites files in the repository it is run against.** Thirty-three
 do. That was previously visible only in each command's long help, where you had to already
 suspect it to go looking. That is the wrong way round for a tool people point at a checkout
 they only meant to inspect.
@@ -1182,10 +1182,30 @@ rather than by omission.
 
 | Command | What it does |
 |---|---|
+| `init` * | Write the smallest runnable corpus into the repository you are standing in. `--class` (repeatable) |
 | `clone <target>` * | Copy the template into a new directory and `git init` it. Target must not exist |
 | `overlay <target>` * | Add yidam infrastructure to an existing git repo. `--backfill`, `--backfill-ref` |
 | `backfill` * | Write a decision record for each epistemic commit in history. `--since` |
 | `tonpa <sub>` * | Manage bundle dependencies in `.yidam/tonpa/`. **Needs `tonpa`** (a default) |
+
+`init` is the one of these that runs anywhere. `clone` and `overlay` copy the template out of
+the yidam checkout the shell is standing in. In your own project neither of them does anything.
+That was the whole of #1035.
+
+`init` reads no template. It writes a class file per `--class`, one example node in each, and a
+catalog entry. `--class` defaults to `concept` and `observation`. The tree it leaves passes
+`graph-check` and `lint` as written. Every placeholder says what to replace it with. Each node
+carries an `[open]` claim, so the first `open-questions` answers with something.
+
+Two things it deliberately does not do. It does not run `git init`. A corpus is a git history
+with a gate over it. Creating one where you are standing is a larger thing to do unasked.
+`init` refuses and names the one line instead. It does not commit either. The first commit's
+subject is a `genesis:` naming your domain. `export` and `bundle` read it back later, and only
+you know the domain.
+
+It refuses a tree that already holds a `.yidam/`, the way `clone` and `overlay` do. To add a
+class to a corpus that exists, write its `.ont.yml` beside the others.
+[first-corpus-by-hand.md](first-corpus-by-hand.md) explains the shape `init` writes.
 
 `clone` copies everything except the top-level paths `NOT_INHERITED` names in `cmd/clone.rs`.
 Two of them are `docs/` and `examples/`. The documentation here describes yidam itself. An example

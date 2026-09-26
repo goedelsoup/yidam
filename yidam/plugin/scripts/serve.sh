@@ -17,8 +17,10 @@
 #
 #      It used to name `yidam clone` and `yidam overlay`, which is where #950 came in:
 #      both derive from the checkout the shell is standing in, so neither does anything
-#      for the person reading the message. The message now names the two repairs that
-#      work from any directory — the `starting-a-corpus` skill, and the page it follows.
+#      for the person reading the message. The message now names the repairs that work
+#      from any directory — `yidam init`, which writes the smallest corpus where the
+#      shell is standing (#1035), and the `starting-a-corpus` skill for the part that
+#      needs a conversation rather than a command.
 #
 # Everything here writes to stderr. stdout carries JSON-RPC frames and a stray line on it
 # corrupts the protocol.
@@ -41,10 +43,10 @@ cd "$root"
 # and nothing in it yet, and an empty corpus is not an absent one.
 [ -d .yidam ] || die \
     "yidam: $root is not a yidam corpus (no .yidam/ directory)." \
-    "  Ask the agent to \"make this a yidam corpus\". The plugin ships a" \
-    "  starting-a-corpus skill for exactly this, and it works from any directory:" \
-    "  the smallest corpus is six files you write in an editor." \
-    "  By hand, that is https://goedelsoup.github.io/yidam/first-corpus-by-hand/" \
+    "  Run \`yidam init\` here: it writes the few files a corpus needs, where you" \
+    "  are standing, and every placeholder says what to replace it with." \
+    "  Or ask the agent to \"make this a yidam corpus\" — the plugin ships a" \
+    "  starting-a-corpus skill that decides the classes with you first." \
     "  If this project is not a corpus, disable the yidam plugin for it."
 
 # YIDAM_BIN first, so a build that is not on PATH — `.local/bin/yidam` from

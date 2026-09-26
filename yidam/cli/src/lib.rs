@@ -132,7 +132,7 @@ pub use cmd::{
     catalog_reconcile, check_diff, citation_label_not_cited, citation_range_stated_twice, clone,
     cohort, collect_line_citations, corpus_index, crates_index, cycle, dead_line_citation,
     decisions_log, diff_corpus, doctor, due, embed, estimate, export, graph, graph_check,
-    index_status, index_verify, label_range, label_symbols, lint, list_formats, log, migrate,
+    index_status, index_verify, init, label_range, label_symbols, lint, list_formats, log, migrate,
     neighbors, open_questions, overlay, pack, packages_index, parse_bench_goals, parse_binding,
     phases, propose, query, regen, relocate, rename, replay, retrieve, run_capability, run_export,
     run_kuten, run_phase, run_policy, run_practice, run_score, run_vault, samudaya_audit, sangha,
@@ -141,7 +141,8 @@ pub use cmd::{
     EmbedOptions, ExportFormat, ExportOptions, FetchOptions, KutenCommand, LineCitation,
     LineFragment, LintCheck, LintOptions, LintViolation, LogFilter, MigrateOperation, PhaseCommand,
     PolicyCommand, PreludeNorm, ProposeOptions, RdfFormat, ReconcileOptions, Relocation,
-    RetrieveOptions, RunOptions, VaultCommand, COMMIT_KINDS, LINT_SEVERITIES, PRELUDE_NORMS,
+    RetrieveOptions, RunOptions, VaultCommand, COMMIT_KINDS, DEFAULT_CLASSES, LINT_SEVERITIES,
+    PRELUDE_NORMS,
 };
 
 /// The remote transport (#423). Gated because the feature is what pulls the server, and

@@ -45,9 +45,9 @@ reach for.
 **empty** repository, and this plugin installs into one that already exists.
 
 `starting-a-corpus` is the one skill that fires where the server does not. It is not a copy
-of `bootstrap.md` and does not try to be one: it asks the three ontology questions, writes the
-six files the smallest corpus is, runs the gates over them, and hands off to the dialogue for
-the growing. The reason it exists is #950 — the plugin could serve a corpus and could not
+of `bootstrap.md` and does not try to be one: it asks the three ontology questions, runs
+`yidam init` with the classes they settled, runs the gates over what it wrote, and hands off
+to the dialogue for the growing. The reason it exists is #950 — the plugin could serve a corpus and could not
 cause one to exist, and the refusal it left a reader holding named two commands that only work
 from inside a template checkout. `claude_plugin.rs` holds both halves: every skill's
 description has to say which of the two states it fires in, and the launcher's refusal has to
