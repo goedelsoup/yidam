@@ -92,14 +92,16 @@ tools in the same install.
 /plugin install yidam@yidam
 ```
 
-What arrives: the MCP server, registered, plus six skills. Each fires at the point a decision
-is made. `writing-a-corpus-commit` fires before a commit subject and `tagging-a-claim` before
-an evidence tag. `linking-a-node` fires before a link, `citing-a-dependency` before a
-`cites:`. `reading-a-corpus` fires before answering from the corpus rather than the model.
-`starting-a-session` fires at the start of a session, where what to do next is the decision.
-Each one names the tool to call and points at the prelude for the reasoning. None restates a
-rule: a second copy of a closed vocabulary is a second thing to hold in step. About 680
-tokens are always on; the rest is paid only when a skill fires.
+What arrives: the MCP server, registered, plus seven skills. Each fires at the point a
+decision is made. `writing-a-corpus-commit` fires before a commit subject and
+`tagging-a-claim` before an evidence tag. `linking-a-node` fires before a link,
+`citing-a-dependency` before a `cites:`. `reading-a-corpus` fires before answering from the
+corpus rather than the model. `starting-a-session` fires at the start of a session, where
+what to do next is the decision. `starting-a-corpus` fires where there is no corpus yet. It
+is the one that calls no tool, because there is no server to call. Each of the others names
+the tool, and points at the prelude for the reasoning. None restates a rule: a second copy of
+a closed vocabulary is a second thing to hold in step. About 800 tokens are always on; the
+rest is paid only when a skill fires.
 
 **The plugin carries no binary.** Install `yidam` first — any channel in
 [installation](installation.md) — and the plugin's launcher will find it. If it cannot, it
@@ -111,8 +113,15 @@ Claude Code starts its servers in every project you open. So the launcher checks
 before spawning anything. `serve` itself refuses too. The launcher says it in the plugin's
 terms, and avoids starting a binary just to be told no.
 
+**The refusal now names a repair that works.** It used to offer `yidam clone` and `yidam
+overlay`. Both derive from the checkout the shell is standing in. Neither did anything in the
+project the message was printed for. It names `starting-a-corpus` instead, and
+[first-corpus-by-hand.md](first-corpus-by-hand.md) for doing it without an agent.
+
 `bootstrap.md` does not travel. It is the prelude skill for an *empty* repository. Loading it
 into a corpus that already exists is wrong, and that is what the plugin installs into.
+`starting-a-corpus` is not a copy of it. It asks the ontology questions and writes the
+smallest corpus that passes the gates. Then it hands off to the dialogue for the growing.
 
 ### Claude Code, by hand
 

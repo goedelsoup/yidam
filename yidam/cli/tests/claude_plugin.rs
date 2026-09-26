@@ -481,6 +481,147 @@ fn the_launcher_prescribes_commands_that_exist() {
     }
 }
 
+// ── which state each skill is for ─────────────────────────────────────────────
+//
+// #950: the six skills that shipped first all opened their `description` with *"a repository
+// with a `.yidam/` directory"*, and the launcher refused every project without one. Between
+// them the plugin could serve a corpus and could not cause one to exist, and the refusal it
+// left a reader holding named `yidam clone` and `yidam overlay` — both of which copy the
+// template out of the checkout the shell is standing in, so neither does anything in the
+// project the message was printed for.
+//
+// Two tests, because the fix has two halves and each rots on its own.
+//
+// | mutation | caught by |
+// |---|---|
+// | `yidam overlay .` put back in the refusal | `the_no_corpus_refusal_names_a_repair_that_works_from_any_directory` |
+// | the skill's name dropped from the refusal | the same |
+// | `starting-a-corpus` given the sixth skill's opening | `every_skill_says_which_of_the_two_states_it_is_for` |
+// | any skill's description stops naming a state | the same |
+
+/// What a skill's `description` says about the directory it is for.
+///
+/// Claude Code decides whether to load a skill from this sentence and nothing else, so a skill
+/// that does not say which of the two states it applies to is one that fires in both or
+/// neither. The forms are the ones the skills use; a third phrasing is a decision to make
+/// here rather than a sentence to slip past.
+const WITH_CORPUS: &str = "with a .yidam/ directory";
+const WITHOUT_CORPUS: &str = "no .yidam/ directory";
+
+/// Every skill declares which of the two states it fires in, and both states are covered.
+///
+/// The `and both` half is the assertion #950 is about. A seventh skill written by copying a
+/// sixth inherits *"a repository with a `.yidam/` directory"*, and then the one case the
+/// plugin had no answer for still has none — with the skill sitting in the directory looking
+/// like it does. Nothing else in this file would notice: the count is right, the name is in
+/// both documents, and every identifier is in the contract.
+#[test]
+fn every_skill_says_which_of_the_two_states_it_is_for() {
+    for (plugin, dir) in marketplace_plugins() {
+        let mut with = Vec::new();
+        let mut without = Vec::new();
+        let mut silent = Vec::new();
+        for (name, text) in skills(&dir) {
+            let fm = frontmatter(&text);
+            let description = field(&fm, "description").unwrap_or("");
+            match (
+                description.contains(WITH_CORPUS),
+                description.contains(WITHOUT_CORPUS),
+            ) {
+                (true, false) => with.push(name),
+                (false, true) => without.push(name),
+                (true, true) => panic!(
+                    "`{plugin}`'s `{name}` description claims both states at once. Claude Code \
+                     loads a skill from that sentence; one that says both says nothing."
+                ),
+                (false, false) => silent.push(name),
+            }
+        }
+        assert!(
+            silent.is_empty(),
+            "`{plugin}` ships {silent:?}, whose description says neither `{WITH_CORPUS}` nor \
+             `{WITHOUT_CORPUS}`. A skill that does not name the state it is for is one the \
+             client guesses about."
+        );
+        assert!(
+            !with.is_empty(),
+            "`{plugin}` has no skill for a repository that already is a corpus, which is what \
+             the server is served over"
+        );
+        assert!(
+            !without.is_empty(),
+            "`{plugin}` has no skill for a project that is not a corpus yet. That is #950: \
+             installed once and started in every project, the plugin meets far more \
+             directories without a corpus than with one, and a skill for none of them leaves \
+             the launcher's refusal as the whole answer."
+        );
+    }
+}
+
+/// The launcher's no-corpus refusal names a repair that works from where it is printed.
+///
+/// This is the other half, and the more specific one. The message is the only thing most
+/// readers of this plugin will ever see it say, and it is printed *in the project that is not
+/// a corpus* — which is exactly where `clone` and `overlay` do not help. So the rule is both
+/// directions: the block must name a skill the plugin ships, and must not name a subcommand
+/// that derives from a template checkout.
+///
+/// Scoped to the refusal rather than the file. The comment at the top of the launcher explains
+/// why those two commands are not named, and it has to be able to name them to do that.
+#[test]
+fn the_no_corpus_refusal_names_a_repair_that_works_from_any_directory() {
+    for (plugin, dir) in marketplace_plugins() {
+        let shipped: Vec<String> = skills(&dir).into_iter().map(|(name, _)| name).collect();
+        assert!(
+            !shipped.is_empty(),
+            "`{plugin}` ships no skills and the assertion below is meaningless"
+        );
+
+        for entry in common::repo_walk(&dir.join("scripts")).filter(|e| e.file_type().is_file()) {
+            let text = std::fs::read_to_string(entry.path()).expect("a script is readable");
+            let script = entry.path().display().to_string();
+
+            // The block is `... || die \` and every continuation line ending in a backslash.
+            let Some(start) = text.lines().position(|l| {
+                let l = l.trim();
+                l.starts_with("[ -d .yidam ]") && l.contains("die")
+            }) else {
+                continue;
+            };
+            let refusal: String = text
+                .lines()
+                .skip(start + 1)
+                .take_while(|l| l.trim_end().ends_with('\\') || l.trim_end().ends_with('"'))
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                refusal.contains(".yidam/"),
+                "{script}: the no-corpus refusal did not parse — the block found was:\n{refusal}"
+            );
+
+            let named: Vec<&String> = shipped
+                .iter()
+                .filter(|skill| refusal.contains(skill.as_str()))
+                .collect();
+            assert!(
+                !named.is_empty(),
+                "{script}: the no-corpus refusal names none of {shipped:?}. The reader is in a \
+                 project that is not a corpus, and the plugin's answer for that is a skill."
+            );
+
+            for derive in ["yidam clone", "yidam overlay"] {
+                assert!(
+                    !refusal.contains(derive),
+                    "{script}: the no-corpus refusal tells a reader to run `{derive}`, which \
+                     copies the template out of the checkout the shell is standing in. In the \
+                     project this message is printed for, there is no such checkout — which is \
+                     the whole of #950."
+                );
+            }
+        }
+    }
+}
+
 /// A distribution channel nothing documents is one nobody finds.
 ///
 /// This is `install_channels.rs`'s thesis one channel later. That file cannot cover this one —

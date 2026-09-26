@@ -242,6 +242,10 @@ claude mcp add yidam -- yidam serve --mcp
 The server answers on this tree with no further setup. [mcp-server.md](mcp-server.md) has the
 tools and the ways to read their answers.
 
+The Claude Code plugin registers the same server and adds the skills that call it. One of
+them, `starting-a-corpus`, is this page driven by an agent. Reach for it on the next corpus;
+this one is already written.
+
 ---
 
 ## The worked minimum, kept honest
