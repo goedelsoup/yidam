@@ -40,9 +40,10 @@ declaration. Instances carry bare numbers, and the compiled class schema publish
 as `x-yidam-unit`, an annotation nothing validates against. A class file carrying `unit:`
 is refused by every earlier CLI's class-file schema, which is the correct refusal.
 
-**MCP contract 0.24.0 → 0.25.0. SDK parity 0.12.0 → 0.13.0.** `unordered-property`'s
-message names `date` and `number`; the code is unchanged. `OntologyProperty` gains `unit` in
-all three SDKs. A client built against 0.24.0 never asks to order a number, so nothing it
+**MCP contract 0.24.0 → 0.25.0. SDK parity 0.12.0 → 0.13.0. `yidam-core` 0.7.0 → 0.8.0.**
+`unordered-property`'s message names `date` and `number`; the code is unchanged.
+`OntologyProperty` gains `unit` in all three SDKs. In Rust that is a new public field on a
+struct a caller can write as a literal. The crate moves a minor version for it. A client built against 0.24.0 never asks to order a number, so nothing it
 does today behaves differently. Nothing on disk changes: no corpus has a `number` yet.
 `examples/streamflow` retypes `reach.length_km` and its two instances drop their tildes.
 

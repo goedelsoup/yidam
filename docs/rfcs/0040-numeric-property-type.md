@@ -6,7 +6,7 @@
   - RFC-0018 (the query surface, whose ordering operators were deferred over the absence of exactly this type and then shipped `date`-only — this RFC is the "one condition in `check_pred`" its open question said would have to change)
   - RFC-0016 (the ontology contract, whose `property_type_violation` gains one arm and whose compiled class schema gains one annotation)
   - RFC-0038 and RFC-0039 (the rules/evidence split and the occasion-scoped read — `GRAPH.md` gains one sentence and the ceilings move by that sentence)
-- **Versioning layers touched:** SDK parity 0.12.0 → 0.13.0 (`OntologyProperty.unit`, the `number` arm in all three compilers). MCP contract 0.24.0 → 0.25.0 (an ordering is licensed on `number`, and what it does there is stated). CLI surface: `property-type` reports a quoted number; `unordered-property`'s message names two types instead of one. No migration.
+- **Versioning layers touched:** SDK parity 0.12.0 → 0.13.0 (`OntologyProperty.unit`, the `number` arm in all three compilers). `yidam-core` 0.7.0 → 0.8.0, because `unit` is a new public field on a struct a caller can construct exhaustively, which `cargo semver-checks` reads as breaking. MCP contract 0.24.0 → 0.25.0 (an ordering is licensed on `number`, and what it does there is stated). CLI surface: `property-type` reports a quoted number; `unordered-property`'s message names two types instead of one. No migration.
 - **Downstream reference case:** `examples/streamflow`'s `reach.length_km`, declared `string` and holding `"~24"` and `"~6"` — the property RFC-0018 used as its example of the trap, in the corpus that ships with the template.
 
 ## Summary
