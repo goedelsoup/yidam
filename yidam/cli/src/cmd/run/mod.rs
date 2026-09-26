@@ -84,8 +84,8 @@ use receipt::{sha256, File, Input, Receipt};
 /// Not `yidam propose`'s author, and the difference is the point of recording one at all: two
 /// tools write commits here now, they are licensed by different rules, and a log that called
 /// them the same author would have lost the only distinction the field exists to make.
-const AUTHOR_NAME: &str = "yidam run";
-const AUTHOR_EMAIL: &str = "run@yidam";
+pub(crate) const AUTHOR_NAME: &str = "yidam run";
+pub(crate) const AUTHOR_EMAIL: &str = "run@yidam";
 
 pub struct Options {
     pub format: crate::report::Format,
@@ -477,27 +477,27 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
 /// a thing a corpus **declares**, with `ageing_days`, rather than a cost every step pays on
 /// every invocation; and the interval is in the manifest because a number in this binary would
 /// be one corpus's judgement arriving in another that never agreed to it.
-enum Verdict {
+pub(crate) enum Verdict {
     Fresh(String),
     Stale(String),
 }
 
 impl Verdict {
-    fn freshness(&self) -> Freshness {
+    pub(crate) fn freshness(&self) -> Freshness {
         match self {
             Self::Fresh(_) => Freshness::Fresh,
             Self::Stale(_) => Freshness::Stale,
         }
     }
 
-    fn because(&self) -> &str {
+    pub(crate) fn because(&self) -> &str {
         match self {
             Self::Fresh(why) | Self::Stale(why) => why,
         }
     }
 }
 
-fn freshness(
+pub(crate) fn freshness(
     root: &Path,
     cap: &Capability,
     parent: &str,
@@ -553,7 +553,7 @@ fn receipt_age(root: &Path, parent: &str, receipt_path: &str, today: i64) -> Opt
 }
 
 /// The commit a ref points at, or `None` where the ref does not exist.
-fn tip_of(root: &Path, branch: &str) -> Option<String> {
+pub(crate) fn tip_of(root: &Path, branch: &str) -> Option<String> {
     git(
         root,
         None,
@@ -764,7 +764,11 @@ struct Landing<'a> {
 /// This decides what the report says, never whether the commit is written. A step that ran
 /// because its corpus asked to be re-checked has looked, and the receipt that records it is
 /// worth a commit whether or not the answer moved.
-fn outputs_already_committed(root: &Path, parent: &str, outputs: &[(String, Vec<u8>)]) -> bool {
+pub(crate) fn outputs_already_committed(
+    root: &Path,
+    parent: &str,
+    outputs: &[(String, Vec<u8>)],
+) -> bool {
     !outputs.is_empty()
         && outputs.iter().all(|(path, bytes)| {
             let landed = git(
@@ -787,24 +791,37 @@ fn outputs_already_committed(root: &Path, parent: &str, outputs: &[(String, Vec<
 ///
 /// A corpus with no `.yidam/config.toml` has a real input state rather than an unknown one,
 /// and the digest of the empty string says so without a second representation for absence.
-fn digest_of(root: &Path, rel: &str) -> String {
+pub(crate) fn digest_of(root: &Path, rel: &str) -> String {
     sha256(&std::fs::read(root.join(rel)).unwrap_or_default())
 }
 
-/// Land the outputs and the receipt as one commit on `branch`.
+/// A commit that exists as an object and is pointed at by nothing.
 ///
-/// Returns `None` when the resulting tree is the one already at `HEAD`. A re-run against an
+/// The half of [`commit`] that needs no permission, split out for `cmd/cluster`: a step pod
+/// builds one of these and hands its sha to a lander, and the lander is the only process that
+/// holds a credential for the ref. What this returns is a fact about the object store; what
+/// [`commit`] adds is the one ref write, and the two are separated so that separation can be
+/// deployed rather than described (RFC-0026 §7).
+pub(crate) struct Built {
+    pub sha: String,
+    pub subject: String,
+}
+
+/// Build the outputs and the receipt as one commit object on `parent`, writing no ref.
+///
+/// Returns `None` when the resulting tree is the one already at `parent`. A re-run against an
 /// unchanged input state produces byte-identical bytes — the receipt carries no clock, which
 /// is what makes that true — and an empty commit per invocation would turn the log into a
 /// record of how often somebody ran the command rather than of what changed.
-fn commit(
+pub(crate) fn build_commit(
     root: &Path,
-    at: &Landing<'_>,
+    parent: &str,
     cap: &Capability,
     step: &str,
     landing: &[(String, Vec<u8>)],
-) -> Result<Option<Committed>> {
-    let parent = at.parent;
+    short_input: &str,
+    route: Route,
+) -> Result<Option<Built>> {
     let scratch = TempIndex::new(root, "run")?;
     let index = scratch.path().to_path_buf();
     git(root, Some(&index), &["read-tree", parent], None)?;
@@ -843,9 +860,34 @@ fn commit(
         return Ok(None);
     }
 
-    let subject = subject(&cap.verb, step, landing.len(), at.short_input);
-    let message = message(&subject, cap, step, landing, at.short_input, at.route);
+    let subject = subject(&cap.verb, step, landing.len(), short_input);
+    let message = message(&subject, cap, step, landing, short_input, route);
     let sha = commit_tree(root, &tree, parent, &message, (AUTHOR_NAME, AUTHOR_EMAIL))?;
+    Ok(Some(Built { sha, subject }))
+}
+
+/// Land the outputs and the receipt as one commit on `branch`.
+///
+/// [`build_commit`], then the one ref write. `None` for the reason given there.
+fn commit(
+    root: &Path,
+    at: &Landing<'_>,
+    cap: &Capability,
+    step: &str,
+    landing: &[(String, Vec<u8>)],
+) -> Result<Option<Committed>> {
+    let Some(built) = build_commit(
+        root,
+        at.parent,
+        cap,
+        step,
+        landing,
+        at.short_input,
+        at.route,
+    )?
+    else {
+        return Ok(None);
+    };
 
     // Compare-and-swap. `update-ref <ref> <new> <old>` refuses when the ref moved while the
     // step was running, which for a calculator is not a hypothetical interval. `expected` is
@@ -860,7 +902,7 @@ fn commit(
         &[
             "update-ref",
             &format!("refs/heads/{target}"),
-            &sha,
+            &built.sha,
             at.expected.unwrap_or(ABSENT),
         ],
         None,
@@ -869,8 +911,8 @@ fn commit(
 
     Ok(Some(Committed {
         branch: target.to_string(),
-        commit: short_of(root, &sha),
-        subject,
+        commit: short_of(root, &built.sha),
+        subject: built.subject,
     }))
 }
 

@@ -47,7 +47,7 @@ export const TIER1 = new Set([
   'quickstart.md', 'first-corpus-by-hand.md', 'installation.md', 'configuration.md',
   'troubleshooting.md',
   'editor-setup.md', 'upgrading.md', 'mcp-server.md', 'artifact-vaults.md',
-  'sharing-derivations.md', 'cli-reference.md',
+  'sharing-derivations.md', 'cli-reference.md', 'cluster-runs.md',
 ]);
 
 /** Tier 2 — reference. Descriptive rather than procedural; ceiling 25. */

@@ -178,6 +178,30 @@ sources mostly do age alike. Adopting a TTL is then one line rather than one lin
 
 Absent means no entry expires unless it says so itself.
 
+### `[cluster]`
+
+What `yidam cluster workflow` needs to write an Argo manifest, and what `cluster admit` caps.
+Every key here has a flag that overrides it. See [cluster-runs.md](cluster-runs.md).
+
+```toml
+[cluster]
+remote = "git@github.com:you/corpus.git"
+branch = "main"
+image  = "ghcr.io/you/yidam-cluster:latest"
+vault  = "default"
+namespace = "yidam"
+max_open_proposals = 1
+```
+
+`remote` and `image` have no default, and the generator refuses without them. `branch` is
+`main`. `vault` names a `[vault.<name>]` table, and its `url` is the workflow's `vault-url`.
+`namespace` is written into the manifest's metadata when set.
+
+`max_open_proposals` is the cap `cluster admit` reads. A run that would propose while that
+many `propose/*` branches stand open on the remote is not admitted. Absent means no cap. This
+is the throughput judgement RFC-0026 §3 leaves to the corpus. It never decides what a run may
+author.
+
 ### `[due]`
 
 The intervals [`yidam due`](cli-reference.md#the-practice) reads. Each is an age a subject may

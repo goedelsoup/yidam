@@ -491,6 +491,29 @@ const NO_REPORT: &[(&str, &str)] = &[
          `prelude/sdks/parity/mcp/cases/retrieve/` pins the fields and their values for every \
          server, and `tests/retrieve_cli.rs` holds this command's own rendering of them",
     ),
+    (
+        "cluster pin",
+        "reads a remote and writes a bundle to a vault: the pin of a cluster run, which has \
+         no meaning in a fixture with neither. Exercised against a bare remote and a `file://` \
+         vault built for it in `cluster_run.rs`, which asserts the envelope and the record",
+    ),
+    (
+        "cluster step",
+        "invokes a capability against a bundle from a vault and puts what it built back — \
+         `run`'s reason, in a pod's shape. Covered in `cluster_run.rs` beside `cluster pin`",
+    ),
+    (
+        "cluster land",
+        "moves a ref on a remote, which is the one write the whole cluster design exists to \
+         confine to one place. Covered in `cluster_run.rs`, including the attempt that must \
+         fail",
+    ),
+    (
+        "cluster admit",
+        "reads `due`'s clocks over a clone of a remote and counts its proposal branches — \
+         `due`'s reason for being live, plus a remote no fixture here holds. Covered in \
+         `cluster_run.rs`",
+    ),
     ("query", "requires a query expression"),
     ("pack", "requires a query expression"),
     ("estimate", "requires a query expression"),

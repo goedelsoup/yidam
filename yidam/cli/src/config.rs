@@ -36,6 +36,71 @@ pub struct YidamConfig {
     /// prescribed `git add -A` would have staged.
     #[serde(default)]
     pub vault: BTreeMap<String, crate::vault::VaultConfig>,
+    /// Where this corpus's runs execute when they do not execute here (RFC-0026 §7).
+    ///
+    /// Everything in it is about **whether and where** a run happens — the remote, the
+    /// image, the branch, the cap on open proposals. Nothing in it is about what a run may
+    /// author, and `deny_unknown_fields` is what makes an attempt to add such a key a parse
+    /// error rather than a line somebody reads as effective. §3's distinction, kept where it
+    /// can be checked: *policy decides whether a run happens; it does not decide what a run
+    /// may say.*
+    #[serde(default)]
+    pub cluster: ClusterConfig,
+}
+
+/// The `[cluster]` section: the execution plane a run is generated for.
+///
+/// No default for `remote` or `image`, because a value compiled into the binary would be one
+/// corpus's answer imposed on every other — `config.rs:52`'s argument, which is the same one
+/// that leaves `max_open_proposals` unset until a corpus sets it. `branch` and `vault` have
+/// defaults because they name conventions this repository already holds elsewhere: `main` is
+/// what `clone` leaves a derived repository on, and `default` is the vault name whose
+/// credentials the ambient `AWS_*` variables are honoured for.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClusterConfig {
+    /// The git remote the lander writes and the pin reads. An SSH or HTTPS URL; what
+    /// credential each pod holds for it is the manifest's concern, never this file's.
+    #[serde(default)]
+    pub remote: Option<String>,
+    /// The branch a run advances. Operational commits land here; epistemic ones land on
+    /// `propose/<input>` and this branch does not move.
+    #[serde(default = "default_branch")]
+    pub branch: String,
+    /// The container image every pod runs — a build of this CLI with `git` and `sh` beside it.
+    #[serde(default)]
+    pub image: Option<String>,
+    /// Which `[vault.<name>]` carries bundles between pods.
+    #[serde(default = "default_vault")]
+    pub vault: String,
+    /// The Kubernetes namespace the generated manifest names. Unset leaves it to `kubectl`.
+    #[serde(default)]
+    pub namespace: Option<String>,
+    /// How many `propose/*` branches may stand open before admission refuses to submit a
+    /// workflow (#460 decision 8). Unset means the cap is undeclared, and `admit` says so.
+    #[serde(default)]
+    pub max_open_proposals: Option<usize>,
+}
+
+impl Default for ClusterConfig {
+    fn default() -> Self {
+        Self {
+            remote: None,
+            branch: default_branch(),
+            image: None,
+            vault: default_vault(),
+            namespace: None,
+            max_open_proposals: None,
+        }
+    }
+}
+
+fn default_branch() -> String {
+    "main".to_string()
+}
+
+fn default_vault() -> String {
+    "default".to_string()
 }
 
 #[derive(Debug, Default, Deserialize)]

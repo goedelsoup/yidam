@@ -353,6 +353,7 @@ the read-only overview.
 | `propose` * | Draft findings as proposed epistemic commits on a `propose/<head>` branch |
 | `run [step]` * | Invoke the stale capabilities declared in `.yidam/capabilities.toml`, in dependency order, and commit what each produced with a receipt. Named with a step, runs that step and everything it declares it comes `after`; with nothing, the whole manifest. `--dry-run` plans and writes nothing |
 | `phase <sub>` * | `start` opens a phase and snapshots what it begins from. `run` invokes its plan, recording each step. `settle` checks it produced outputs and drafts the merge — a person runs it |
+| `cluster <sub>` * | The same run on Argo Workflows, one pod per act. `workflow` generates the manifest. `pin` bundles the branch tip into a vault. `step` runs one capability against a bundle. `land` is the one command that moves a ref. `admit` says whether a run is owed |
 
 ### Retrieval, and the corpora it can reach
 
@@ -691,6 +692,44 @@ listed, and their state is still read from the ref. The table says how many rows
 inference. RFC-0028 §3 ranks the two sources rather than replacing one with the other. The ref
 answers *what is this ref*; the record answers *what happened in this run*. Only the ref can say
 whether a phase has landed on the baseline.
+
+### A run on a cluster is the same run, and the ref write is a credential
+
+[cluster-runs.md](cluster-runs.md) is the deployment guide. This is the command surface.
+
+```
+yidam cluster workflow --cron "0 6 * * *" > yidam.cronworkflow.yml
+yidam cluster admit --remote git@host:corpus.git
+yidam cluster pin   --remote git@host:corpus.git --vault-url file:///var/yidam/vault --out pin.json
+yidam cluster step  travel-tier --bundle <digest> --vault-url file:///var/yidam/vault --out step.json
+yidam cluster land  --step-output @step.json --remote git@host:corpus.git --vault-url file:///var/yidam/vault
+```
+
+**`workflow`** reads `.yidam/capabilities.toml` and `[cluster]` in `.yidam/config.toml`, and
+prints an Argo `Workflow`. With `--cron` it prints a `CronWorkflow` that admits itself. It
+runs in a checkout and writes nothing. Every flag it takes overrides one `[cluster]` key.
+
+**`admit`** clones the branch and reads `due`'s clocks, the manifest's staleness and the count
+of open `propose/*` branches. Its record says `admitted` either way, and it exits zero either
+way. A corpus with nothing owed is not a failure. The generated workflow submits no step when
+`admitted` is false.
+
+**`pin`** bundles `refs/heads/<branch>` and puts the bundle in the vault. The record names the
+sha and the bundle's digest. Everything downstream reads the pin, never the remote.
+
+**`step`** fetches a bundle, clones it into scratch and invokes one capability there. It is
+`run`'s loop body with the ref write removed. What it builds is a commit in a second bundle,
+and its record carries `{sha, class, verb, receipt, bundle}`. The command has no `--remote` and
+no `--branch`. That is the point of it, and a test holds it.
+
+**`land`** reads a step record and verifies the bundle. It reads the class off the commit, not
+off the record. Then it pushes the commit to `main` or to `propose/<input>`, with
+`--force-with-lease`. If the branch moved, it rebuilds the commit on the new tip. That holds
+only when nothing the step reads moved. Otherwise it refuses. Its last act is a fresh pin,
+which the next step reads.
+
+The four records are the pod contract, versioned by `format_version`. Under `--format json`
+each sits under a `record` key in the report envelope.
 
 ## Index and embeddings
 

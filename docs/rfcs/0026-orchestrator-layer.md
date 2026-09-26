@@ -27,6 +27,13 @@
   calculator puts in `.yidam/computed/` and how a reader reaches it. `writes` governed the
   executor from the first commit and governed nothing else; two calculators wrote there for
   weeks and no retrieval surface could see a word of it.
+- **Amended 2026-09-26 (#475):** §7 is new. The invariant of §3 is a permission on a
+  cluster — a credential the landing pod alone mounts — and not a code path. `yidam cluster`
+  is the command surface. Three things the build settled that the epic did not say: a `.yiz`
+  cannot feed a step, so what crosses between pods is a git bundle in the vault; admission
+  reads the manifest's staleness beside `due`'s clocks, because `due` has no clock for a
+  receipt that no longer matches; and under `--format json` a pod's record sits under a
+  `record` key in the report envelope rather than flattened into it.
 - **Downstream reference case:** none yet. The first consumer is `examples/streamflow`, by
   construction — see "Why the first thing built is not the manifest".
 
@@ -636,6 +643,63 @@ The guard on this is discovery in both directions and carries no list: every dec
 resolves to a file the repository tracks, and every implementation beside one is declared. Even
 the directory implementations live in is discovered — it is wherever declarations point — so a
 corpus that keeps its calculators somewhere else is covered by the same two assertions.
+
+### 7 — On a cluster, the invariant is which pod holds the credential
+
+§3 holds that what a run may author is not policy. On one machine that is Rust with no override
+path: `cmd/run` routes by the verb's class and nothing in a manifest can change where a class
+goes. #475 asked what that becomes when the run is split into pods, and the answer is that a
+code path is not a permission. A pod running the same binary against the same manifest could
+be handed a flag, a field or an environment variable, and the check would still be a check.
+
+**The invariant is a mount.** A workflow is one `pin`, then for each step a `step` and a
+`land`. The step pod computes: it fetches a pinned bundle from the vault, clones it into
+scratch, invokes the capability, writes the receipt and builds the commit object — `cmd/run`'s
+loop body, to the line, with the ref write taken out. It has no `--remote` and no `--branch`.
+It mounts no git secret. What it emits is `{sha, class, verb, receipt, bundle}`, and a sha is
+not a permission: the commit exists in a bundle in the vault and nowhere a ref can reach. The
+lander is the one component that may update a ref and holds the only credential that can. It
+reads the class off the commit's own subject, not off the record, and pushes to the branch or
+to `propose/<input>` with a compare-and-swap. RFC-0026 §3's requirement — not expressible as a
+manifest field or a policy override — is met by there being no field: the pod that could set
+one cannot land, and the pod that lands does not read one.
+
+**The test is an attempt.** A valid, well-formed commit, handed to the lander against a remote
+the process cannot write, is refused in the remote's words, and the branch does not move. The
+same record with the permission restored lands. Nothing in this binary agreed to refuse; the
+credential was the whole difference. If that test ever passes because of a check, the
+invariant has become a code path again.
+
+**What crosses between pods is a git bundle, never a checkout.** #460 said a pod gets a pinned
+read-only bundle and never a shared PVC. The epic's word was the vault's `.yiz`, and that
+cannot feed a step: a `.yiz` is a tree, and a step needs the commit its receipt names as
+`input` and the history `cmd/run` reads freshness from. So `pin` bundles `refs/heads/<branch>`
+and `step` bundles `<input>..refs/yidam/out`, and both go into the vault content-addressed.
+A `file://` vault on a `ReadWriteMany` claim is a store of immutable digests, not a working
+tree, which is why it is not the shared volume the epic refuses.
+
+**`due` is the admission gate, and staleness sits beside it.** `admit` reads `due`'s clocks as
+`yidam due` reads them, then asks `run --dry-run`'s question of the manifest at the tip — `due`
+has no clock for a receipt that no longer matches, because `due` predates receipts — and
+counts the open `propose/*` branches against `[cluster] max_open_proposals`. That cap is the
+throughput judgement §3 assigns to the corpus. A clock that is not owed submits no workflow:
+the generated `CronWorkflow` carries `admit` first and a `when` on its verdict.
+
+**The lander retries by re-parenting, and refuses by declaration.** A branch that moved
+between the pin and the landing is the ordinary case on a cluster. The lander rebuilds the
+commit on the new tip when the step's declared `reads`, the manifest and the config are
+byte-identical at both parents, and refuses when they are not — a receipt over stale inputs is
+not a receipt. The refusal is the next admission's stale step, which runs at the new tip. A
+result the tip already holds is not landed again.
+
+**Pod logs are not provenance.** A calculator's stderr is passed through to the pod's own for
+whoever is debugging it, and recorded nowhere. Everything that matters is in the committed
+receipt, on the ref the lander wrote.
+
+**What is not built:** no shared volume holding a corpus; no operator reimplementing the DAG,
+because Argo's DAG is the dependency graph and the manifest is generated from
+`.yidam/capabilities.toml`; and no long-lived pod holding a checkout, because every pod clones
+into scratch, does one act and exits. Nothing in #471 through #474 changed to accommodate this.
 
 ## What this does not do
 

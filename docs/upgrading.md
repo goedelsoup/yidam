@@ -28,6 +28,17 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `yidam cluster` runs the manifest on Argo Workflows
+
+**`yidam cluster workflow`, `admit`, `pin`, `step`, `land` (#475, RFC-0026 §7).** The same
+run as `yidam run`, one pod per act. `workflow` generates the Argo manifest from
+`.yidam/capabilities.toml` and `[cluster]` in `.yidam/config.toml`. The step pod holds no
+credential that can move a ref; only the lander does. [cluster-runs.md](cluster-runs.md) is the
+deployment guide, for a `file://` vault that needs no credentials and for `s3://`.
+
+**What changes for you: nothing, unless you deploy it.** `[cluster]` is a new config table and
+is absent by default. No existing command changed.
+
 ### `retrieve` takes a `where`, and the index carries the properties it reads
 
 **`yidam retrieve --where '<predicate>'` (#1029, RFC-0041).** The text inside a `query` step's
