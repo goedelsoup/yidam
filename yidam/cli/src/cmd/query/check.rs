@@ -163,6 +163,15 @@ impl std::fmt::Display for Code {
     }
 }
 
+impl Code {
+    /// The frozen spelling, for a surface that carries codes as bare strings — `retrieve`'s
+    /// `rejected`, which shares the predicate codes with `query` (#1029) and freezes them
+    /// in prose rather than in a roster of its own.
+    pub fn as_str(self) -> &'static str {
+        self.0
+    }
+}
+
 /// So a test may say what a caller says: `assert_eq!(e.code, "unknown-class")`. Comparing
 /// against the wire string is the assertion worth writing — one against another `Code` would
 /// restate a constant to itself and pin nothing a client can see.
@@ -653,6 +662,35 @@ pub struct Checked {
     /// this it read the second as the first — reporting no divergence across the commit where
     /// the ontology arrived, which is where it moved most.
     pub unschematised: bool,
+}
+
+/// Typecheck a bare predicate list — `retrieve --where` — against the corpus (#1029).
+///
+/// **The same check, over one synthetic step.** A `where` is a step's filter with the step
+/// taken away: the class is the caller's `--class` or `*`, the anchor is nothing, and the
+/// rules are exactly [`check`]'s — an undeclared property is a rejection, an ordering on a
+/// type with no order is a rejection, an operand the type cannot hold is a rejection, and a
+/// bare `*` narrows to the classes each predicate can be asked of, with the same `narrowed`
+/// note. Building the step and calling `check` rather than re-stating its loop is what
+/// keeps the two surfaces answering one predicate the same way; a `where` that typechecks
+/// where the query would not, or the reverse, is the surface disagreeing with itself.
+///
+/// The verdict is [`check`]'s for a one-step query, so `narrowed` has one entry and it is
+/// the classes a caller's rows may belong to.
+pub fn check_where(
+    preds: &[Pred],
+    class: Option<&str>,
+    schema: &Schema,
+) -> Result<Checked, Rejection> {
+    let query = Query {
+        steps: vec![Step {
+            class: class.unwrap_or("*").to_string(),
+            anchor: None,
+            filter: preds.to_vec(),
+        }],
+        hops: Vec::new(),
+    };
+    check(&query, schema)
 }
 
 pub fn check(query: &Query, schema: &Schema) -> Result<Checked, Rejection> {

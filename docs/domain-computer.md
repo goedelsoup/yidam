@@ -46,6 +46,13 @@ A vector index over corpus embeddings enables semantic retrieval. The index is n
 corpus — it is a derived representation. Maintaining a fresh index reduces token consumption
 by letting agents retrieve only relevant nodes rather than loading the full corpus.
 
+Beside each row's text and vector the index carries a `properties` column: the row's
+declared `date` and `number` values, as one JSON object. That is what lets `retrieve --where`
+narrow a ranked answer by the predicate `query` evaluates over the YAML
+([RFC-0041](rfcs/0041-typed-property-columns.md)). `meta.json` lists the `columns` the
+file was written with. An index built before the column still reads; a `where` against it is
+refused with the re-index named.
+
 ## Embedding reproducibility
 
 Every consumer that embeds a query against the index — the CLI, the browser agent, the MCP

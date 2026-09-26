@@ -497,6 +497,7 @@ mod tests {
             score,
             truncated: false,
             corpus: None,
+            properties: None,
         }
     }
 

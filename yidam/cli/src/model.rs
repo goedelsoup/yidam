@@ -48,6 +48,21 @@ pub struct IndexData {
     pub embed_config: Option<EmbedConfig>,
 }
 
+impl IndexData {
+    /// Whether the index carries the `properties` column `retrieve --where` reads (#1029).
+    ///
+    /// Read off the Arrow schema and not off `meta.json`'s `columns`, because the schema is
+    /// the artefact a search reads and the list is a description of it: an index whose
+    /// `meta.json` was rewritten by hand still has, or lacks, the column. `meta.json` lists
+    /// the columns for a reader with no Arrow decoder, and `index_rows` is what reads them.
+    #[cfg(any(feature = "vector-read", feature = "export-sqlite"))]
+    pub fn has_properties_column(&self) -> bool {
+        arrow_ipc::reader::FileReader::try_new(std::io::Cursor::new(&self.arrow_ipc), None)
+            .map(|r| r.schema().column_with_name("properties").is_some())
+            .unwrap_or(false)
+    }
+}
+
 /// Immutable provenance fields stamped at load time.
 pub struct Provenance {
     pub commit: String,
@@ -342,6 +357,16 @@ pub struct VectorRow {
     pub label: String,
     pub text: String,
     pub vector: Vec<f32>,
+    /// The `properties` column, when the index was built with one (#1029): a JSON object of
+    /// the node's declared `date` and `number` values, as `EmbedRecord::properties` wrote it.
+    ///
+    /// `None` on a row from an index built before the column existed, and on a row whose
+    /// node carries no ordered property — the two are told apart by
+    /// [`IndexData::columns`], not here. An old index still decodes, which is the point: a
+    /// build that reads this column must not refuse the index it was asked to read, and a
+    /// `--where` against a column-less index is a rejection at the call rather than a
+    /// failure at load.
+    pub properties: Option<String>,
 }
 
 /// Decode the Arrow IPC index into rows — shared by the MCP server's
@@ -367,6 +392,10 @@ pub fn index_rows(index: &IndexData) -> Result<Vec<VectorRow>> {
         let classes = col("class")?;
         let labels = col("label")?;
         let texts = col("text")?;
+        // Optional, by name: an index built before #1029 has no such column and still reads.
+        let properties: Option<&arrow_array::StringArray> = batch
+            .column_by_name("properties")
+            .and_then(|c| c.as_any().downcast_ref());
         let vectors = batch
             .column_by_name("vector")
             .map(|c| c.as_fixed_size_list())
@@ -381,6 +410,9 @@ pub fn index_rows(index: &IndexData) -> Result<Vec<VectorRow>> {
                 label: labels.value(i).to_string(),
                 text: texts.value(i).to_string(),
                 vector: floats.values().to_vec(),
+                properties: properties
+                    .filter(|p| arrow_array::Array::is_valid(*p, i))
+                    .map(|p| p.value(i).to_string()),
             });
         }
     }

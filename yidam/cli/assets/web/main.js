@@ -225,6 +225,9 @@ async function parseArrow(bytes) {
     const row = table.get(i);
     rows.push({
       path: row.path, class: row.class, label: row.label, text: row.text,
+      // The typed-property column (#1029); null on an index built before it existed, and
+      // on a row whose node carries no ordered property.
+      properties: row.properties ?? null,
       vector: Float32Array.from(row.vector.toArray()),
     });
   }

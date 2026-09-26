@@ -335,7 +335,7 @@ the read-only overview.
 |---|---|
 | `graph` | The corpus graph: nodes, resolved edges, and the classes that license them |
 | `neighbors <node>` | One node's neighbourhood — the traversal `serve --mcp` performs. `--depth` |
-| `retrieve <words>` | Semantic search over corpus nodes — the retrieval `serve --mcp` performs. `--k`, `--class`, `--corpora` |
+| `retrieve <words>` | Semantic search over corpus nodes — the retrieval `serve --mcp` performs. `--k`, `--class`, `--corpora`, `--where` |
 | `query <query>` | A typed path over the resolved graph |
 | `pack <query>` | A query's full answer filled to a token budget, with an account of what did not fit |
 | `estimate <query>` | What a query would cost before you run it |
@@ -362,6 +362,21 @@ it prints is what an agent sees.
 
 Without a vector index it degrades to keyword search and says so. That arm ranks by BM25 over
 the nodes it scanned. With one it ranks by cosine similarity.
+
+`--where` keeps only the rows whose declared `date` or `number` properties satisfy a predicate.
+The predicate is the text inside a `query` step's `[...]`. It is the same grammar, the same
+check and the same comparison. So the two commands below return the same tenures, and the
+second returns them ranked:
+
+```sh
+yidam query 'tenure[began<=1893, ended>?1893]'
+yidam retrieve 'courthouse' --where 'began<=1893, ended>?1893'
+```
+
+The predicate runs before the `k` cut. Without `--class` it narrows to the classes that declare
+each property with an ordered type. A predicate that cannot be asked is rejected with `query`'s
+code. Over a local index built before typed property columns it is `where-unindexed`; run
+`yidam embed && yidam index-build`. A remote index carries no properties and refuses it.
 
 `--corpora` reaches the other corpora sharing the vector index `[index.remote]` names. This
 corpus is always searched, and the named ones are added to it. Every result says which corpus
@@ -714,6 +729,12 @@ read at all — a write-only credential, a throttle — the push says so and pro
 
 It needs `vector-read`, not `index`. Decoding an index wants no protoc, so the machine that
 pushes need not be the one that built.
+
+**The index carries typed properties, and the push does not forward them.** `index-build` writes
+a `properties` column: a JSON object of each row's declared `date` and `number` values. A row
+with none holds null, and `meta.json` lists the `columns`. That is what `retrieve --where` reads.
+The push leaves the column behind, deliberately. A remote index refuses a `where` rather than
+answering it from metadata that only sometimes fits ([RFC-0041](rfcs/0041-typed-property-columns.md)).
 
 ## Artifacts
 

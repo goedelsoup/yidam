@@ -175,6 +175,7 @@ const sidebar = [
       { slug: 'rfcs/0038-rules-and-evidence', label: '0038 · A rule is separable from its essay' },
       { slug: 'rfcs/0039-occasion-scoped-read', label: '0039 · A read is scoped to the occasion' },
       { slug: 'rfcs/0040-numeric-property-type', label: '0040 · A numeric property type' },
+      { slug: 'rfcs/0041-typed-property-columns', label: '0041 · Typed property columns' },
     ],
   },
   {

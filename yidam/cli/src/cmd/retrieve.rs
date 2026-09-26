@@ -29,6 +29,9 @@ pub struct Options {
     /// Other corpora sharing the vector index, by a name `[index.remote.corpora]` declares or
     /// by a genesis hash. Empty is this corpus alone.
     pub corpora: Vec<String>,
+    /// A predicate over declared date and number properties, in `query`'s filter grammar
+    /// (#1029): `began<=1893,ended>?1893`. Typechecked and rejected as `query` would.
+    pub r#where: Option<String>,
     pub format: Format,
 }
 
@@ -41,6 +44,7 @@ pub fn retrieve(root: Option<&std::path::Path>, query: &str, opts: Options) -> R
         "k": opts.k,
         "class": opts.class,
         "corpora": opts.corpora,
+        "where": opts.r#where,
     });
     let envelope = crate::cmd::serve::tools::call(&mut state, "retrieve", &args);
     // A tool error is a failure of the call rather than an answer — the same distinction the
@@ -70,7 +74,7 @@ pub fn retrieve(root: Option<&std::path::Path>, query: &str, opts: Options) -> R
     // is an error to a caller).
     let rejected = payload["rejected"].is_object();
     crate::report::gate(&root, opts.format, payload, !rejected, |p| {
-        print!("{}", render(query, p, &state.corpus_aliases))
+        print!("{}", render(query, opts.r#where.as_deref(), p, &state.corpus_aliases))
     })
 }
 
@@ -79,12 +83,26 @@ pub fn retrieve(root: Option<&std::path::Path>, query: &str, opts: Options) -> R
 /// Pure, and taking the payload rather than producing it, so what a person sees can be held
 /// against a fixture without a corpus, an index or a network — which is the only way the
 /// foreign-row case is testable at all.
-fn render(query: &str, payload: &serde_json::Value, aliases: &crate::s3vectors::Aliases) -> String {
+fn render(
+    query: &str,
+    r#where: Option<&str>,
+    payload: &serde_json::Value,
+    aliases: &crate::s3vectors::Aliases,
+) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
 
     let scope = payload["scope"].as_str().unwrap_or("local");
-    let _ = writeln!(out, "retrieve {query:?} — scope {scope}");
+    // The predicate beside the query, because a reader of `3 results` needs to know it was
+    // three *of the open tenures* and not three of everything (#1029).
+    match r#where {
+        Some(w) => {
+            let _ = writeln!(out, "retrieve {query:?} where [{w}] — scope {scope}");
+        }
+        None => {
+            let _ = writeln!(out, "retrieve {query:?} — scope {scope}");
+        }
+    }
 
     if let Some(reason) = payload["degraded_reason"].as_str() {
         let _ = writeln!(out, "  degraded: {reason}");
@@ -178,6 +196,7 @@ mod tests {
         });
         let out = render(
             "funding",
+            None,
             &payload,
             &aliases(&[("ohio-budget", "3f2a9c4d1b70")]),
         );
@@ -202,7 +221,7 @@ mod tests {
                          "class": "paper", "label": "X", "text": "", "score": 0.5,
                          "truncated": false}],
         });
-        let out = render("x", &payload, &aliases(&[]));
+        let out = render("x", None, &payload, &aliases(&[]));
         assert!(out.contains("[0123456789ab] .yidam/catalog/x.md"), "{out}");
     }
 
@@ -215,7 +234,7 @@ mod tests {
             "rejected": {"code": "unknown-corpus", "message": "`ohi-budget` is neither"},
             "absence": null, "results": [],
         });
-        let out = render("x", &payload, &aliases(&[]));
+        let out = render("x", None, &payload, &aliases(&[]));
         assert!(out.contains("rejected: unknown-corpus"), "{out}");
     }
 }

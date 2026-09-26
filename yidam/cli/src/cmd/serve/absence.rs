@@ -153,6 +153,24 @@ fn candidates(state: &ServerState, class: Option<&str>) -> usize {
         .count()
 }
 
+/// The `where` admitted nothing (#1029).
+///
+/// Its own code rather than a branch of [`diagnose`], because it is derived from something
+/// neither the class filter nor the index states: the predicate was evaluated over
+/// `instances` rows or nodes the class half admitted, and every one of them failed it. That
+/// is a fact about the corpus's values — *no tenure was open in 1893* — and the one answer
+/// here an agent should read as evidence rather than as a search that missed.
+pub(crate) fn predicate_unsatisfied(text: &str, instances: usize) -> Absence {
+    Absence {
+        code: "predicate-unsatisfied",
+        message: format!(
+            "`where` `{text}` admitted none of the {instances} candidate(s) its classes hold. \
+             The predicate parsed and typechecked; the values are what refused it."
+        ),
+        instances,
+    }
+}
+
 /// Diagnose an empty `retrieve`.
 ///
 /// Called only when `results` is empty and the call was not rejected. Every branch reads off
@@ -234,6 +252,16 @@ pub(crate) fn diagnose(
         };
     }
 
+    no_term_match(instances)
+}
+
+/// The keyword arm searched `instances` nodes and none held a word of the query.
+///
+/// Public to the keyword arm because a `where` changes what was searched: the predicate
+/// admitted some candidates and the words were compared against those alone, so the
+/// count here is theirs and not the class's (#1029). [`diagnose`] cannot know that, since it
+/// reads the class and not the candidate list.
+pub(crate) fn no_term_match(instances: usize) -> Absence {
     Absence {
         code: "no-term-match",
         message: format!(

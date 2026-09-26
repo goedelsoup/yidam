@@ -40,7 +40,7 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.25.0",
+    "contract": "0.26.0",
     "corpus": {
       "domain": "streamflow",
       "commit": "a1b2c3d",
@@ -212,6 +212,32 @@ above. `!=` is `=`'s complement on the same reading, and `~` stays textual on ev
 treats as a constraint. The operand is bare too: `length_km>9`, never `length_km>9km`. A
 corpus that writes the number quoted has written text, and `property-type` says so; a stored
 value that is not a number orders against nothing, as a malformed date does.
+
+## A predicate over the row's typed properties (contract 0.26.0)
+
+`retrieve` gains `where` (RFC-0041): the text inside a `query` step's `[...]`, verbatim, and
+nothing of its own. A server parses it with the query grammar, typechecks it with the query
+rules over one synthetic step — the caller's `class` or `*`, no anchor — and evaluates it
+with the query comparison, so the rows it admits are exactly the rows the same predicate
+returns from `query`, ranked. Two cases over `corpus-dated/` hold the two readings of the
+canonical interval: `ended>?1893` admits a holding with no `ended`, `ended>1893` never does.
+One over `corpus-measured/` is where a server that stored the column as text is visible.
+
+Four consequences for a conforming server:
+
+- **It runs before the `k` cut.** `k` counts rows the caller asked for; three rows admitted
+  and `k: 5` is three rows.
+- **The rejections are `query`'s.** `rejected.code` carries `parse`, `undeclared-property`,
+  `unordered-property` or `unsatisfiable-predicate` for a `where` that cannot be asked, and
+  no `step`. Two are this tool's own and are about the index, not the text:
+  `where-unindexed` for a local index that predates the column, naming the re-index, and
+  `where-remote` for a server backed by a remote index, which carries no properties.
+- **Keyword search answers it.** The fixtures carry no index, so every case here runs on the
+  keyword arm, which reads the node the query evaluator reads. A server that answers a
+  `where` only over a vector index fails all of them.
+- **`predicate-unsatisfied` joins the absence codes.** The predicate parsed, typechecked and
+  refused every one of `instances` candidates. It is evidence about the values, and it is
+  reported only when at least one candidate was evaluated.
 
 ## The other closed set (contract 0.18.0)
 

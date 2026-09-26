@@ -85,6 +85,7 @@ pub(crate) fn render_sqlite(model: &DomainModel, out: &Path) -> Result<()> {
            class TEXT,
            label TEXT,
            +text TEXT,
+           +properties TEXT,
            embedding FLOAT[{dim}]
          );
          CREATE TABLE corpus_meta (
@@ -111,8 +112,8 @@ pub(crate) fn render_sqlite(model: &DomainModel, out: &Path) -> Result<()> {
     )?;
 
     let mut insert = conn.prepare(
-        "INSERT INTO corpus_vec (path, class, label, text, embedding)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO corpus_vec (path, class, label, text, properties, embedding)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )?;
     for row in &rows {
         anyhow::ensure!(
@@ -126,6 +127,9 @@ pub(crate) fn render_sqlite(model: &DomainModel, out: &Path) -> Result<()> {
             row.class,
             row.label,
             row.text,
+            // Null where the index carried none — an older index, or a node with no ordered
+            // property — which is the same answer the Arrow column gives (#1029).
+            row.properties,
             f32s_to_blob(&row.vector),
         ])?;
     }
@@ -156,6 +160,7 @@ mod tests {
             Field::new("class", DataType::Utf8, false),
             Field::new("label", DataType::Utf8, false),
             Field::new("text", DataType::Utf8, false),
+            Field::new("properties", DataType::Utf8, true),
             Field::new(
                 "vector",
                 DataType::FixedSizeList(Arc::new(Field::new("item", DataType::Float32, true)), dim),
@@ -180,6 +185,13 @@ mod tests {
                 Arc::new(rows.iter().map(|r| Some(r.1)).collect::<StringArray>()),
                 Arc::new(rows.iter().map(|r| Some(r.2)).collect::<StringArray>()),
                 Arc::new(rows.iter().map(|r| Some(r.3)).collect::<StringArray>()),
+                // One row in three carries an ordered property, the way a corpus does.
+                Arc::new(
+                    rows.iter()
+                        .enumerate()
+                        .map(|(i, _)| (i == 0).then_some(r#"{"began":"1893"}"#))
+                        .collect::<StringArray>(),
+                ),
                 Arc::new(vectors),
             ],
         )

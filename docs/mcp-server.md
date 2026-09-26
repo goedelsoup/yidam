@@ -252,7 +252,7 @@ authentication. Neither is in this transport, and neither is planned for it.
 
 | Tool | Answers | Reach for it when |
 |---|---|---|
-| `retrieve` | Top-k nodes for a natural-language query, with `class`, `k` and `corpora`; an empty answer says which kind of empty | You do not know which node holds the answer |
+| `retrieve` | Top-k nodes for a natural-language query, with `class`, `k`, `corpora` and a `where` over declared date and number properties; an empty answer says which kind of empty | You do not know which node holds the answer |
 | `get_node` | One node's full YAML content and its outgoing links | You know the id and need what it actually says |
 | `neighbors` | Nodes linked to one node, both directions, to `depth` hops | You want the argument around a node, not the node |
 | `list_nodes` | Every node, optionally in one class | You want the shape of the corpus |
@@ -498,6 +498,20 @@ will then be attributed to having worked in the corpus. Every response carries `
 hundred* are different facts. It is the difference between "nobody has written this" and "your
 words missed it".
 
+**`where` is `query`'s predicate, asked of a ranked answer.** It takes the text inside a step's
+`[...]`, verbatim: `began<=1893,ended>?1893`. The same grammar parses it, the same checker
+typechecks it and the same evaluator compares it. The rows it admits are exactly the rows
+`query 'tenure[began<=1893,ended>?1893]'` returns, ranked. It runs before the `k` cut. Without a
+`class` it narrows as `*` does, to the classes declaring each property with an ordered type.
+Only `date` and `number` properties can be asked; an ordering on a string is `unordered-property`,
+here as there. A `where` that cannot be asked is **rejected** under the code `query` gives the same
+text. Two rejections are this tool's own. `where-unindexed` says the local index predates typed
+property columns, and the repair is `yidam embed && yidam index-build`. `where-remote` says the
+server is backed by a remote index, which carries no properties. Keyword search answers a
+`where` in every build. An empty answer whose predicate refused every candidate is
+`predicate-unsatisfied`, with `instances` the candidates it was asked of. That is evidence about
+the values, not a search that missed.
+
 `neighbors` is the other half of that. Half the interesting connections into a node are inbound.
 Reading a node's own YAML shows you only the edges it asserts. The ones asserted *at* it are
 invisible from the file.
@@ -582,7 +596,7 @@ only where you look for it.
 tool-not-found errors:
 
 ```json
-{"contract": "0.25.0",
+{"contract": "0.26.0",
  "corpus": {"domain": "streamflow", "commit": "a1b2c3d",
             "nodes": 8, "skills": 1, "decisions": 2,
             "indexed_commit": null, "stale": false},

@@ -8,7 +8,7 @@ use arrow_schema::{DataType, Field, Schema};
 use fastembed::{InitOptions, TextEmbedding};
 use futures::TryStreamExt;
 use lancedb::connect;
-use lancedb::query::ExecutableQuery;
+use lancedb::query::{ExecutableQuery, QueryBase as _};
 use std::sync::Arc;
 
 use crate::config::load_yidam_config;
@@ -18,12 +18,41 @@ use crate::paths::{repo_root, yidam_embeddings_dir, yidam_index_dir};
 
 const TABLE_NAME: &str = "corpus";
 
+/// The columns every index built by this command carries, in the order the schema declares
+/// them. Written to `meta.json` as `columns` so a reader with no Arrow decoder — a person, a
+/// web shell deciding what it can filter on — can see what the index holds without opening
+/// it. `properties` is the one a `--where` needs, and the one an older index lacks.
+pub const COLUMNS: &[&str] = &["path", "class", "label", "text", "properties", "vector"];
+
 #[derive(serde::Deserialize)]
 struct EmbedRecord {
     path: String,
     class: String,
     label: String,
     text: String,
+    /// What `embed` carried for the node's ordered properties (#1029), absent where it
+    /// carried none. Written to the index as one JSON column rather than a column per
+    /// property: the set of declared names is the corpus's, not the schema's, and a table
+    /// whose columns follow an ontology has to be rebuilt when the ontology gains a field.
+    /// One nullable text column holds whatever the corpus declared, and the evaluator reads
+    /// the declaration at query time — the same split `query` makes between the check, which
+    /// reads the ontology, and the executor, which reads the value.
+    #[serde(default)]
+    properties: Option<std::collections::BTreeMap<String, serde_json::Value>>,
+}
+
+impl EmbedRecord {
+    /// The `properties` cell: the object serialised, or null where the record carried none.
+    ///
+    /// Null and not `{}`, so a row that carried nothing and a row from an index built before
+    /// the column existed read the same to a decoder — both are `None`, and the one thing
+    /// that tells them apart is whether the column is there at all.
+    fn properties_cell(&self) -> Option<String> {
+        self.properties
+            .as_ref()
+            .filter(|p| !p.is_empty())
+            .and_then(|p| serde_json::to_string(p).ok())
+    }
 }
 
 pub async fn index_build(model_arg: Option<String>) -> Result<()> {
@@ -106,6 +135,9 @@ pub async fn index_build(model_arg: Option<String>) -> Result<()> {
         Field::new("class", DataType::Utf8, false),
         Field::new("label", DataType::Utf8, false),
         Field::new("text", DataType::Utf8, false),
+        // Nullable: most rows in most corpora carry no ordered property, and the absence is
+        // the value. See `EmbedRecord::properties_cell`.
+        Field::new("properties", DataType::Utf8, true),
         Field::new(
             "vector",
             DataType::FixedSizeList(
@@ -120,6 +152,7 @@ pub async fn index_build(model_arg: Option<String>) -> Result<()> {
     let classes: StringArray = records.iter().map(|r| Some(r.class.as_str())).collect();
     let labels: StringArray = records.iter().map(|r| Some(r.label.as_str())).collect();
     let texts_arr: StringArray = records.iter().map(|r| Some(r.text.as_str())).collect();
+    let properties_arr: StringArray = records.iter().map(EmbedRecord::properties_cell).collect();
 
     let flat_floats: Float32Array = embeddings
         .iter()
@@ -138,6 +171,7 @@ pub async fn index_build(model_arg: Option<String>) -> Result<()> {
             Arc::new(classes),
             Arc::new(labels),
             Arc::new(texts_arr),
+            Arc::new(properties_arr),
             Arc::new(vector_array),
         ],
     )?;
@@ -159,9 +193,13 @@ pub async fn index_build(model_arg: Option<String>) -> Result<()> {
     .execute()
     .await?;
 
-    // Export Arrow IPC for the web shell (reads from the table to guarantee consistency)
+    // Export Arrow IPC for the web shell (reads from the table to guarantee consistency).
+    //
+    // The limit is explicit because lancedb's is not: a plain `query()` caps its answer at
+    // ten rows, so without it the file the web shell and `retrieve` read held the first ten
+    // of every corpus and `meta.json` said otherwise. Every row is asked for by count.
     let table = db.open_table(TABLE_NAME).execute().await?;
-    let stream = table.query().execute().await?;
+    let stream = table.query().limit(records.len()).execute().await?;
     let batches: Vec<RecordBatch> = stream.try_collect().await?;
 
     if !batches.is_empty() {
@@ -192,6 +230,9 @@ pub async fn index_build(model_arg: Option<String>) -> Result<()> {
         "indexed_commit": commit,
         "table": TABLE_NAME,
         "generated_at": generated_at,
+        // What the table holds, for a reader that will not open it. An index without this key
+        // was built before `properties` existed, and lacks that column.
+        "columns": COLUMNS,
     });
     std::fs::write(
         index_dir.join("meta.json"),

@@ -172,6 +172,15 @@ pub struct Hit {
     /// nickname chosen by the repository that declared it (RFC-0032 §4.5), and a result whose
     /// identity changed with the reader's config would not be an identity.
     pub corpus: Option<String>,
+    /// The row's `properties` column, when the index carries one (#1029): a JSON object of
+    /// the node's declared `date` and `number` values. What `retrieve --where` is evaluated
+    /// over, with the evaluator `query` uses on the file.
+    ///
+    /// `None` on a row from an index without the column, on a node with no ordered property,
+    /// and on every row a remote index returns — the push does not forward the column
+    /// (see `index_push::to_vectors`), so a `where` on a remote-backed server is refused
+    /// before the search rather than applied to rows that cannot carry it.
+    pub properties: Option<String>,
 }
 
 /// What a search may return, in the part of the question a server can be asked.
@@ -556,6 +565,7 @@ fn load_local(model: &DomainModel) -> Result<(Retrieval, Option<String>)> {
                     embed_config: idx.embed_config.clone(),
                     embedder: std::cell::RefCell::new(None),
                     space: std::cell::RefCell::new(None),
+                    properties_indexed: idx.has_properties_column(),
                 })),
                 indexed_commit(idx),
             ))
@@ -1017,6 +1027,7 @@ mod tests {
             embed_config: None,
             embedder: std::cell::RefCell::new(None),
             space: std::cell::RefCell::new(None),
+            properties_indexed: false,
         }));
         assert_eq!(state.degraded_reason(), None);
         assert_eq!(state.repair(), None);
@@ -1041,6 +1052,7 @@ mod tests {
             score: 1.0,
             truncated: false,
             corpus: None,
+            properties: None,
         }
     }
 

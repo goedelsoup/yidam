@@ -86,6 +86,70 @@ pub struct EmbedRecord {
     /// entry is not one.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub signals: std::collections::BTreeMap<String, serde_json::Value>,
+    /// The node's values for every property its class declares `date` or `number` (#1029).
+    ///
+    /// **Carried by type, not by flag.** A `date` or a `number` is declared ordered — the
+    /// two types `query`'s `<` is defined on (RFC-0040) — and an ordered property is one a
+    /// caller can bound a search by: *tenures open in 1893* is `began<=1893,ended>?1893`, and
+    /// nothing a vector can be nudged by answers it. A string is not carried, for the reason
+    /// `retrievable` gives about prose: it has no order, so a filter over it would be a
+    /// second `~` against a column that holds the same words the embedding already does.
+    ///
+    /// **Absent where there is nothing to carry**, for the reason [`Self::signals`] is: a
+    /// corpus declaring no ordered property writes byte-identical records to the ones it
+    /// wrote before, and adopting this build invalidates no index it has already built. A
+    /// property the node omits is omitted here too — an absent key is the absence
+    /// `pred_holds_over` reads, and writing `null` would be a second spelling of it.
+    ///
+    /// Not in `text`, and that is the decision, the same one `signals` records: a bound is
+    /// something a search is *filtered on*, and folding `1893` into the embedded prose would
+    /// move every vector for a value the model cannot compare anyway. The index writes these
+    /// as one JSON column beside the vector — see `index_build` — and `retrieve --where`
+    /// reads them with the evaluator `query` uses.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub properties: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
+/// The values [`EmbedRecord::properties`] carries for one node: every property its class
+/// declares `date` or `number` that the instance actually wrote.
+///
+/// The declaration comes from the class file and the universal declarations — the same two
+/// places `query`'s check reads a type from, in the same order — so what the index carries is
+/// exactly what a `--where` can be typechecked against. The value is copied as the file
+/// wrote it: a `date` is a string, a `number` a number, and a quoted `"24"` stays a string,
+/// which `property-type` reports and which the evaluator then declines to order — the rule a
+/// `query` over the file already follows, met on the row instead.
+pub(crate) fn ordered_properties(
+    inst: &crate::parse::CorpusInstance,
+    class: &str,
+    classes: &[crate::corpus::Class],
+    universal: &crate::universal::Universal,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut out = std::collections::BTreeMap::new();
+    let Some(props) = inst.properties.as_ref() else {
+        return out;
+    };
+    let declared = classes.iter().find(|c| c.name == class);
+    for (key, value) in props {
+        let Some(name) = key.as_str() else {
+            continue;
+        };
+        let r#type = declared
+            .and_then(|c| c.properties.iter().find(|p| p.name == name))
+            .map(|p| p.r#type.as_str())
+            .or_else(|| universal.declared_type(name));
+        if !matches!(r#type, Some("date") | Some("number")) {
+            continue;
+        }
+        // A YAML scalar or list of scalars is a JSON one; a mapping under a `date` is a
+        // corpus defect `property-type` already names, and is not carried rather than guessed.
+        if let Ok(json) = serde_json::to_value(value) {
+            if !json.is_null() && !json.is_object() {
+                out.insert(name.to_string(), json);
+            }
+        }
+    }
+    out
 }
 
 /// Compose the embedding target text for a catalog entry.
@@ -359,6 +423,9 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
     for problem in &signals.problems {
         eprintln!("[warn] {problem}");
     }
+    // What a `--where` may bound a search by, read from the same two declarations the query
+    // check reads (#1029). Loaded once; every node's record consults them.
+    let universal = crate::universal::Universal::load(&root);
     // One read of the corpus, where this loop used to be the sixth place with its own copy
     // of read-then-`serde_yaml::from_str` (#925). A malformed file is still skipped with a
     // warning: `Node::malformed` carries the same `serde_yaml` message this printed.
@@ -431,6 +498,7 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
             commit: commit.clone(),
             kind: KIND_NODE.to_string(),
             signals: signals.for_node(&node.rel),
+            properties: ordered_properties(inst, &class, read.classes(), &universal),
         };
 
         if opts.dry_run {
@@ -491,6 +559,8 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
             commit: commit.clone(),
             kind: KIND_SOURCE.to_string(),
             signals: Default::default(),
+            // A catalog entry is not a corpus node and declares no properties.
+            properties: Default::default(),
         };
         if opts.dry_run {
             footprints.observe(&corpus, &commit, &record);

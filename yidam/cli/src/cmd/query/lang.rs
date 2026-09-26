@@ -300,6 +300,30 @@ fn parse_value(raw: &str, token: usize) -> Result<String, ParseError> {
     }
 }
 
+/// Parse the text a `[...]` filter holds, as a filter on its own (#1029).
+///
+/// `retrieve --where` takes exactly the grammar a step's brackets take, with the brackets
+/// off: `began<=1893,ended>?1893`. One parser rather than a second grammar, because a
+/// predicate that parses in a `query` and not in a `--where`, or the reverse, is the surface
+/// disagreeing with itself about what a predicate is. Errors name no token — there is no
+/// query around them to point into — and the message is the one `parse` would give.
+pub fn parse_where(raw: &str) -> Result<Vec<Pred>, ParseError> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err(err("an empty `where` — write at least one predicate", None));
+    }
+    // A caller that wrote the brackets meant the same thing; take them off rather than
+    // reject `[` as an operator-less predicate.
+    let raw = raw
+        .strip_prefix('[')
+        .and_then(|r| r.strip_suffix(']'))
+        .unwrap_or(raw);
+    parse_filter(raw, 0).map_err(|e| ParseError {
+        token: None,
+        ..e
+    })
+}
+
 fn parse_filter(raw: &str, token: usize) -> Result<Vec<Pred>, ParseError> {
     let mut out = Vec::new();
     // Split on commas outside quotes; a value may legitimately contain one.

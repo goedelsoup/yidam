@@ -42,8 +42,10 @@ struct StatusReport {
     /// Freshness is not here either, for the reason [`crate::cmd::doctor`] has it: a stale
     /// computed answer is a finding with a remedy, and this report carries no verdicts.
     computed_files: usize,
-    /// Every signal name the corpus computes, in byte order. This is the list a consumer needs
-    /// to know what it may filter on once #1029 makes them index columns.
+    /// Every signal name the corpus computes, in byte order. A consumer reads it to know what
+    /// the corpus computes; what it may *filter on* is `meta.json`'s `columns` and the
+    /// ontology's ordered properties (#1029, RFC-0041) — a signal joins them only once it is
+    /// declared on a class.
     computed_signals: Vec<String>,
     computed_nodes: usize,
     /// Computed files no capability's `writes` covers — nothing in the manifest is accountable
