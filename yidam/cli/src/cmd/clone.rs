@@ -86,7 +86,20 @@ pub const NOT_INHERITED: &[&str] = &[
 pub const TEMPLATE_MARKERS: &[&str] = &["yidam/prelude", "sadhana"];
 
 /// Refuse a source that is not the yidam template.
-fn require_template_root(root: &Path) -> Result<()> {
+///
+/// Both commands that copy the template ask this, because both derive their source from
+/// [`repo_root`] — the toplevel of whatever repository the shell is standing in — and neither
+/// can tell on its own whether that is the template or the caller's own project. `clone` has
+/// asked since #913; `overlay` did not, and in an ordinary project it copied nothing, wrote a
+/// pin to a repository the tree had no copy of, and printed a success banner and three next
+/// steps over it (#1033).
+///
+/// `command` and `remedy` are the two halves that differ. The remedy differs because the
+/// commands take their target differently: `clone` writes a new directory, so `cd`-ing into a
+/// fresh checkout loses nothing, while `overlay` writes into a repository that already exists
+/// somewhere else — a reader who ran `yidam overlay .` cannot follow a remedy ending in `cd`
+/// and then run the same `.` again.
+pub(super) fn require_template_root(root: &Path, command: &str, remedy: &str) -> Result<()> {
     let missing: Vec<String> = TEMPLATE_MARKERS
         .iter()
         .filter(|m| !root.join(m).is_dir())
@@ -102,17 +115,22 @@ fn require_template_root(root: &Path) -> Result<()> {
         .join(" and ");
     bail!(
         "not a yidam template checkout: {} has no {}\n  \
-         `clone` copies the directory it is run from, and the template is the yidam \
-         repository itself — the one carrying {}. Run it from a checkout of that:\n      \
-         git clone https://github.com/goedelsoup/yidam && cd yidam\n  \
+         `{}` copies the directory it is run from, and the template is the yidam \
+         repository itself — the one carrying {}. Run it from a checkout of that:\n{}\n  \
          A repository derived from the template is not one: bootstrap vendors the prelude \
-         and deletes both directories at genesis, so a derived repository cannot be cloned \
-         again. To move a corpus, copy the corpus.",
+         and deletes both directories at genesis, so a derived repository cannot be a \
+         source again. To move a corpus, copy the corpus.",
         root.display(),
         missing.join(" or "),
+        command,
         expected,
+        remedy,
     )
 }
+
+/// What `clone` tells a reader to run instead: a checkout of the template, then the command
+/// they already had, whose target is a directory that does not exist yet either way.
+const CLONE_REMEDY: &str = "      git clone https://github.com/goedelsoup/yidam && cd yidam";
 
 pub fn clone(target: &Path) -> Result<()> {
     if target.exists() {
@@ -120,7 +138,7 @@ pub fn clone(target: &Path) -> Result<()> {
     }
 
     let root = repo_root()?;
-    require_template_root(&root)?;
+    require_template_root(&root, "clone", CLONE_REMEDY)?;
     let tracked = tracked::paths(&root)?;
 
     // Read before copying: the copy never carries `.git`, so once the copy is the only
@@ -273,7 +291,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(tmp.path().join("yidam/prelude")).unwrap();
         std::fs::create_dir_all(tmp.path().join("sadhana")).unwrap();
-        require_template_root(tmp.path()).expect("both markers present");
+        require_template_root(tmp.path(), "clone", CLONE_REMEDY).expect("both markers present");
     }
 
     /// The quickstart's own trap: §3 leaves the reader in a copy of `examples/streamflow`
@@ -284,7 +302,9 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(tmp.path().join(".yidam/corpus")).unwrap();
 
-        let err = require_template_root(tmp.path()).unwrap_err().to_string();
+        let err = require_template_root(tmp.path(), "clone", CLONE_REMEDY)
+            .unwrap_err()
+            .to_string();
         assert!(
             err.contains("yidam/prelude"),
             "the refusal must name the checkout it expected: {err}"
@@ -303,12 +323,12 @@ mod tests {
         std::fs::create_dir_all(tmp.path().join(".yidam/corpus")).unwrap();
         std::fs::write(tmp.path().join(".yidam.toml"), "[yidam]\n").unwrap();
 
-        assert!(require_template_root(tmp.path()).is_err());
+        assert!(require_template_root(tmp.path(), "clone", CLONE_REMEDY).is_err());
     }
 
     #[test]
     fn an_empty_directory_is_not_a_template() {
         let tmp = tempfile::TempDir::new().unwrap();
-        assert!(require_template_root(tmp.path()).is_err());
+        assert!(require_template_root(tmp.path(), "clone", CLONE_REMEDY).is_err());
     }
 }
