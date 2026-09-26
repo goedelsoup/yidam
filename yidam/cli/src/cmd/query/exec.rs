@@ -124,14 +124,29 @@ fn compare_dates(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     Some(left[..shared].cmp(&right[..shared]))
 }
 
-/// Whether one predicate holds of one node.
+/// Order two numbers, or `None` if either is not one.
+///
+/// Exact, with no precision rule: `7` and `7.0` denote the same point, where `1893` denotes
+/// an interval — which is why [`compare_dates`] has one and this does not (RFC-0040). The
+/// reader is `numeric_value`, the gate's own, for `iso_date_parts`'s reason.
+fn compare_numbers(left: &str, right: &str) -> Option<std::cmp::Ordering> {
+    crate::cmd::lint::checks::numeric_value(left)?
+        .partial_cmp(&crate::cmd::lint::checks::numeric_value(right)?)
+}
+
+/// Whether one predicate holds of one node, given the property's declared type.
 ///
 /// **An absent property never matches, for any operator including `!=`** — unless the
 /// predicate wrote `?`. A reach with no `claim_tag` is not in `reach[claim_tag!=maybe]`. The
 /// alternative — three-valued logic everywhere — buys nothing here and makes `!=` mean two
 /// different things depending on the corpus. [`Pred::or_absent`] is the same escape hatch
 /// asked for one predicate at a time, where a reader can see it.
-fn pred_holds(node: &Node, pred: &Pred) -> bool {
+///
+/// `declared` is what the check read off the ontology, and it decides how `=` and the
+/// orderings read the value: numerically on a `number`, by date on a `date`, and as text
+/// otherwise — including when the check recorded nothing, which is every rule that existed
+/// before `number` did. The value itself is never sniffed: `7` is a legal `string`.
+fn pred_holds(node: &Node, pred: &Pred, declared: Option<&str>) -> bool {
     let values = property(node, &pred.prop).map(scalars).unwrap_or_default();
     // **Absence is one condition and not two.** A property the node omits, one written
     // `null`, and one written as an empty list all carry no value, and the rule above already
@@ -144,23 +159,35 @@ fn pred_holds(node: &Node, pred: &Pred) -> bool {
         return false;
     }
     let wanted = pred.value.to_lowercase();
+    let numeric = declared == Some("number");
+    // `check` has already established that the property is declared with an order and that
+    // the operand belongs to it. The *stored* value is a separate question: `property-type`
+    // reports a malformed date or a quoted number and does not gate, so a query has to
+    // survive meeting one. It does not order — comparing prose against a date is not a
+    // comparison, and guessing an answer for it would be the undercount's louder twin.
+    let compare = |v: &str| match numeric {
+        true => compare_numbers(v, &pred.value),
+        false => compare_dates(v, &pred.value),
+    };
     let matches_one = |v: &String| match pred.op {
-        // `=` on a `date` compares at the precision written, so `observed_on=2026-08`
-        // matches every day in that month. Textual prefix on a `-` boundary is exactly that
-        // and needs no date parsing.
+        // `=` on a `number` is numeric, so `7.0 = 7` holds and the three operators stay
+        // trichotomous — a stored value that is not a number equals nothing. `=` on a
+        // `date` compares at the precision written, so `observed_on=2026-08` matches every
+        // day in that month. Textual prefix on a `-` boundary is exactly that and needs no
+        // date parsing; on text it is the same rule and does no harm, since no other
+        // declared type puts a `-` boundary in a value's spelling by design.
+        Op::Eq if numeric => compare_numbers(v, &pred.value) == Some(std::cmp::Ordering::Equal),
         Op::Eq => {
             v == &pred.value
                 || v.strip_prefix(&pred.value)
                     .is_some_and(|r| r.starts_with('-'))
         }
+        // `!=` is the complement of `=` on the same reading, so on a `number` a stored value
+        // that is not a number is unequal to every operand — as it is textually.
+        Op::Ne if numeric => compare_numbers(v, &pred.value) != Some(std::cmp::Ordering::Equal),
         Op::Ne => v != &pred.value,
         Op::Contains => v.to_lowercase().contains(&wanted),
-        // `check` has already established that the property is declared `date` and that the
-        // operand is one. The *stored* value is a separate question: `property-type` reports
-        // a malformed date and does not gate, so a query has to survive meeting one. It does
-        // not match — ordering prose against a date is not a comparison, and guessing an
-        // answer for it would be the undercount's louder twin.
-        Op::Lt | Op::Le | Op::Gt | Op::Ge => match compare_dates(v, &pred.value) {
+        Op::Lt | Op::Le | Op::Gt | Op::Ge => match compare(v) {
             None => false,
             Some(ord) => match pred.op {
                 Op::Lt => ord.is_lt(),
@@ -182,14 +209,25 @@ fn pred_holds(node: &Node, pred: &Pred) -> bool {
 }
 
 /// Whether a node satisfies a step: its class, then its predicates.
-fn step_holds(node: &Node, step: &Step, allowed: &[String]) -> bool {
+fn step_holds(node: &Node, step: &Step, checked: &Checked, index: usize) -> bool {
     let class = class_of(node);
-    // `allowed` is the check's narrowing — for `*` with a predicate, the classes that
-    // actually declare it. For a named class it is that class.
+    // The check's narrowing — for `*` with a predicate, the classes that actually declare
+    // it. For a named class it is that class.
+    let allowed = checked
+        .narrowed
+        .get(index)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
     if !allowed.contains(&class) {
         return false;
     }
-    step.filter.iter().all(|p| pred_holds(node, p))
+    step.filter.iter().all(|p| {
+        let declared = checked
+            .declared
+            .get(&(class.clone(), p.prop.clone()))
+            .map(String::as_str);
+        pred_holds(node, p, declared)
+    })
 }
 
 /// Run a checked query.
@@ -245,7 +283,7 @@ pub fn execute(
                     continue;
                 };
                 read.insert(want.clone());
-                if step_holds(node, &query.steps[0], allowed(0)) {
+                if step_holds(node, &query.steps[0], checked, 0) {
                     current.push(want.clone());
                 }
             }
@@ -265,7 +303,7 @@ pub fn execute(
                     continue;
                 }
                 read.insert(id(node));
-                if step_holds(node, &query.steps[0], allowed(0)) {
+                if step_holds(node, &query.steps[0], checked, 0) {
                     current.push(id(node));
                 }
             }
@@ -298,7 +336,7 @@ pub fn execute(
                 continue;
             };
             read.insert(target.clone());
-            if step_holds(node, landing, allowed(index + 1)) && !next.contains(target) {
+            if step_holds(node, landing, checked, index + 1) && !next.contains(target) {
                 next.push(target.clone());
             }
         }
@@ -489,6 +527,7 @@ mod tests {
         let checked = Checked {
             diagnostics: vec![],
             unschematised: false,
+            declared: BTreeMap::new(),
             narrowed: narrowed
                 .into_iter()
                 .map(|v| v.into_iter().map(String::from).collect())
@@ -606,6 +645,7 @@ mod tests {
         let checked = Checked {
             diagnostics: vec![],
             unschematised: false,
+            declared: BTreeMap::new(),
             narrowed: vec![vec!["concept".to_string()]],
         };
         assert_eq!(
@@ -646,6 +686,7 @@ mod tests {
         let checked = Checked {
             diagnostics: vec![],
             unschematised: false,
+            declared: BTreeMap::new(),
             narrowed: vec![vec!["note".to_string()]],
         };
         for query in ["note[observed_on=2026-08]", "note[observed_on=2026-08-23]"] {
@@ -725,6 +766,7 @@ mod tests {
         let checked = Checked {
             diagnostics: vec![],
             unschematised: false,
+            declared: BTreeMap::new(),
             narrowed: vec![vec!["tenure".to_string()]],
         };
         let nodes = tenures();
@@ -805,6 +847,7 @@ mod tests {
         let checked = Checked {
             diagnostics: vec![],
             unschematised: false,
+            declared: BTreeMap::new(),
             narrowed: vec![vec!["tenure".to_string()]],
         };
         assert!(
@@ -866,6 +909,147 @@ mod tests {
             );
         }
         assert!(!over_tenures("tenure[began?]").contains(&"tenure/undated.yml".to_string()));
+    }
+
+    // ── ordering a number (#1030) ─────────────────────────────────────────────
+
+    fn number(n: f64) -> serde_yaml::Value {
+        serde_yaml::Value::Number(serde_yaml::Number::from(n))
+    }
+
+    /// Three reaches whose lengths sort one way as numbers and the other as text, plus one
+    /// whose length `property-type` reports and does not gate.
+    fn reaches() -> Vec<Node> {
+        vec![
+            node(
+                "reach/long.yml",
+                "reach",
+                &[("length_km", number(10.0))],
+                &[],
+            ),
+            node("reach/mid.yml", "reach", &[("length_km", number(9.0))], &[]),
+            node(
+                "reach/short.yml",
+                "reach",
+                &[("length_km", number(7.0))],
+                &[],
+            ),
+            node(
+                "reach/vague.yml",
+                "reach",
+                &[("length_km", text("~24"))],
+                &[],
+            ),
+        ]
+    }
+
+    fn over_reaches(query: &str, declared: Option<&str>) -> Vec<String> {
+        let q = super::super::lang::parse(query).unwrap();
+        let mut types = BTreeMap::new();
+        if let Some(t) = declared {
+            types.insert(
+                ("reach".to_string(), "length_km".to_string()),
+                t.to_string(),
+            );
+        }
+        let checked = Checked {
+            diagnostics: vec![],
+            unschematised: false,
+            declared: types,
+            narrowed: vec![vec!["reach".to_string()]],
+        };
+        let nodes = reaches();
+        execute(
+            &q,
+            &checked,
+            &nodes,
+            &Edges::build(&nodes),
+            ".yidam/corpus",
+            None,
+        )
+        .matched
+    }
+
+    /// **The query #1030 was opened for.** `10 > 9` as numbers; as text, `"10" < "9"`.
+    #[test]
+    fn an_ordering_on_a_number_is_numeric_not_lexical() {
+        assert_eq!(
+            over_reaches("reach[length_km>9]", Some("number")),
+            vec!["reach/long.yml"]
+        );
+        assert_eq!(
+            over_reaches("reach[length_km<9]", Some("number")),
+            vec!["reach/short.yml"]
+        );
+        assert_eq!(
+            over_reaches("reach[length_km>=9]", Some("number")),
+            vec!["reach/long.yml", "reach/mid.yml"]
+        );
+        assert_eq!(
+            over_reaches("reach[length_km<=9]", Some("number")),
+            vec!["reach/mid.yml", "reach/short.yml"]
+        );
+    }
+
+    /// **`=` on a `number` is numeric**, so `7.0` and `7` are the same point and the three
+    /// operators stay trichotomous. There is no precision rule to make them otherwise.
+    #[test]
+    fn equality_on_a_number_is_numeric_and_trichotomous_with_the_orderings() {
+        assert_eq!(
+            over_reaches("reach[length_km=7.0]", Some("number")),
+            vec!["reach/short.yml"]
+        );
+        assert_eq!(
+            over_reaches("reach[length_km!=7]", Some("number")),
+            vec!["reach/long.yml", "reach/mid.yml", "reach/vague.yml"]
+        );
+        for probe in ["7", "9.0", "10", "8.5"] {
+            let hits = ["<", "=", ">"]
+                .iter()
+                .filter(|op| {
+                    over_reaches(&format!("reach[length_km{op}{probe}]"), Some("number"))
+                        .contains(&"reach/mid.yml".to_string())
+                })
+                .count();
+            assert_eq!(hits, 1, "at {probe}");
+        }
+    }
+
+    /// `property-type` reports `"~24"` in a `number` field and does not gate, so a query
+    /// meets it. It is not orderable and it is not absent — answering either would be an
+    /// invention — and `~` still reads it as the text it is.
+    #[test]
+    fn a_stored_value_that_is_not_a_number_orders_against_nothing() {
+        for query in [
+            "reach[length_km<100]",
+            "reach[length_km>0]",
+            "reach[length_km>?0]",
+            "reach[length_km=24]",
+            "reach[length_km?]",
+        ] {
+            assert!(
+                !over_reaches(query, Some("number")).contains(&"reach/vague.yml".to_string()),
+                "{query}"
+            );
+        }
+        assert_eq!(
+            over_reaches("reach[length_km~24]", Some("number")),
+            vec!["reach/vague.yml"]
+        );
+    }
+
+    /// **The declaration decides, never the value.** The stored `7.0` on a property the
+    /// check recorded as text — or recorded nothing for — is the text `7.0`, which `7` is
+    /// not; that is every rule that existed before `number` did, and the value's own shape
+    /// never promotes it.
+    #[test]
+    fn equality_on_a_property_not_declared_number_stays_textual() {
+        assert!(over_reaches("reach[length_km=7]", Some("string")).is_empty());
+        assert!(over_reaches("reach[length_km=7]", None).is_empty());
+        assert_eq!(
+            over_reaches("reach[length_km=7]", Some("number")),
+            vec!["reach/short.yml"]
+        );
     }
 
     /// One rule with no exceptions: `?` is the affix on every operator, so the standing

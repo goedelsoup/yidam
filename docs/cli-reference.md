@@ -412,13 +412,18 @@ A step may be filtered by `[…]`, comma-separated. Commas are **and**; there is
 | `=` | the value equals the operand, compared at the precision the operand was written — so `observed_on=2026-08` matches every day in that month | any |
 | `!=` | it does not. On a list, of every element — or `claim_tag: [open, verified]` would satisfy `claim_tag!=open` | any |
 | `~` | contiguous, case-insensitive substring of the value's serialized text | any |
-| `<` `<=` `>` `>=` | the date orders that way | **`date` only** |
+| `<` `<=` `>` `>=` | the date, or the number, orders that way | **`date` and `number` only** |
 | `?` | written as `prop?` — the node carries no value for it | any |
 
-**Ordering is `date` only, and asking for it elsewhere is refused rather than answered.** No
-declared type is numeric. Comparing a `string` would compare text, ranking `10` before `9` and
-saying nothing about it. `yidam query 'reach[length_km<9]'` comes back `unordered-property` with
-that reason.
+**Ordering is `date` and `number` only, and asking for it elsewhere is refused rather than
+answered.** Comparing a `string` would compare text, ranking `10` before `9` and saying nothing
+about it. `yidam query 'reach[regulated<9]'` comes back `unordered-property` with that reason.
+
+**A `number` compares exactly, and `=` on one is numeric.** `reach[length_km>9]` returns the
+reach measuring `10`, and `length_km=7.0` matches a stored `7`, so `<`, `=` and `>` are
+trichotomous. There is no precision rule: `7` is a point where `1893` is an interval. The
+operand is a bare number. The unit is declared once on the class, as `unit: km`, and never
+written in a value or a query.
 
 A comparison runs **at the precision the two sides share**. `began<1900-06-01` holds for a
 `began: 1893`: 1893 is before 1900 whatever day it fell on. This is deliberately not `=`'s rule.

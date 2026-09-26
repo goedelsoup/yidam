@@ -115,10 +115,13 @@ sourceClasses(classes) : Set<string>
 
 OntologyProperty
   name        : string
-  type        : string             — string | text | date | ref | claim, or a type this
-                                     corpus coined, which is carried through unconstrained
+  type        : string             — string | text | date | number | ref | claim, or a type
+                                     this corpus coined, which is carried through unconstrained
   description : string
   required    : boolean            — must every instance carry it? absent means false
+  unit        : string             — what a number is written in; empty is dimensionless.
+                                     A fact about the column, declared once, so an ordering
+                                     never compares across units. Published as x-yidam-unit
 
 OntologyEdge
   relationship : string

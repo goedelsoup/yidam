@@ -28,6 +28,26 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### A property can be a number, and a number can be ordered
+
+**`type: number` exists (#1030, RFC-0040).** Declare it on a class property, and write the
+values unquoted: `length_km: 24`. A quoted `"24"` is text, and `property-type` now says so.
+The four ordering operators are licensed on it, and `=` compares numerically. So
+`reach[length_km>9]` returns the reach measuring `10`, and `length_km=7.0` matches a stored `7`.
+
+**A unit is declared once, on the column.** `unit: km` sits beside `type: number` on the
+declaration. Instances carry bare numbers, and the compiled class schema publishes the unit
+as `x-yidam-unit`, an annotation nothing validates against. A class file carrying `unit:`
+is refused by every earlier CLI's class-file schema, which is the correct refusal.
+
+**MCP contract 0.24.0 → 0.25.0. SDK parity 0.12.0 → 0.13.0. `yidam-core` 0.7.0 → 0.8.0.**
+`unordered-property`'s message names `date` and `number`; the code is unchanged.
+`OntologyProperty` gains `unit` in all three SDKs. In Rust that is a new public field on a
+struct a caller can write as a literal. The crate moves a minor version for it. A client built against 0.24.0 never asks to order a number, so nothing it
+does today behaves differently. Nothing on disk changes: no corpus has a `number` yet.
+`examples/streamflow` retypes `reach.length_km` and its two instances drop their tildes.
+
+
 ### `doctor --strict` now asks about `.yidam/computed/`
 
 **`doctor` gained a `computed` question (#1028).** A calculator's `writes` glob governed the

@@ -31,10 +31,10 @@ use std::fmt;
 /// concatenated fields. Only the single-word case coincides, and a surface that borrowed the
 /// name without the semantics would be the worse kind of consistency.
 ///
-/// The four ordering operators are **`date` only**, which is the whole of RFC-0018's reason
-/// for deferring them: the declared types are `string`, `text`, `date`, `ref` and `claim`,
-/// there is no numeric type, so an ordering that fell back to lexical comparison would be
-/// right on one type and a trap on the other four. [`super::check`] rejects them elsewhere
+/// The four ordering operators are **`date` and `number` only**, the two declared types with
+/// an order. RFC-0018 deferred them because there was no numeric type, and an ordering that
+/// fell back to lexical comparison would be right on `date` and a trap on the other four;
+/// RFC-0040 added `number` rather than the fallback. [`super::check`] rejects them elsewhere
 /// rather than answering lexically.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Op {

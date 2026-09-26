@@ -15,9 +15,17 @@ import { parse as parseYaml } from 'yaml'
 
 export interface OntologyProperty {
   name: string
-  /** `string`, `text`, `date`, `ref`, `claim` — or a type this corpus coined. */
+  /** `string`, `text`, `date`, `number`, `ref`, `claim` — or a type this corpus coined. */
   type: string
   description: string
+  /**
+   * The unit a `number` is written in, or empty for a dimensionless quantity.
+   *
+   * **A unit is a fact about the column, not the cell** (RFC-0040). Declared once, here, so
+   * an ordering within one property can never compare across units. Published as
+   * `x-yidam-unit` on the compiled schema — an annotation, not a constraint.
+   */
+  unit: string
   /**
    * Whether every instance of the class must carry this property.
    *
@@ -88,6 +96,7 @@ export function parseClass(name: string, content: string): OntologyClass {
       type: str(p.type),
       description: str(p.description),
       required: p?.required === true,
+      unit: str(p.unit),
     })),
     edges: list(doc.edges).map((e) => ({
       relationship: str(e.relationship),
@@ -154,6 +163,10 @@ function propertySchema(type: string): unknown {
     // Structural, not a calendar: what it catches is a date field carrying prose.
     case 'date':
       return { type: 'string', pattern: '^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$' }
+    // A YAML number, unquoted: `"7"` is text and the gate says so — the mirror of the date
+    // arm's advice to quote `00060`. One arm, not `integer` beside it (RFC-0040).
+    case 'number':
+      return { type: 'number' }
     // A list is legal here and nowhere else: the counter reads a list of tags as one claim
     // each, so `claim_tag: [open]` unquoted is a one-element list nobody meant to write.
     case 'claim':
@@ -192,11 +205,12 @@ export function compileClassSchema(cls: OntologyClass): Record<string, unknown> 
   if (cls.properties.length > 0) {
     const declared: Record<string, unknown> = {}
     for (const p of cls.properties) {
-      const body = propertySchema(p.type)
-      declared[p.name] =
-        typeof body === 'object' && body !== null && p.description !== ''
-          ? { ...body, description: p.description }
-          : body
+      let body = propertySchema(p.type)
+      if (typeof body === 'object' && body !== null) {
+        if (p.description !== '') body = { ...body, description: p.description }
+        if (p.unit !== '') body = { ...body, 'x-yidam-unit': p.unit }
+      }
+      declared[p.name] = body
     }
     // Emitted for exactly the properties declared `required: true`, and omitted entirely
     // when there are none — an empty `required: []` would be a different document for the

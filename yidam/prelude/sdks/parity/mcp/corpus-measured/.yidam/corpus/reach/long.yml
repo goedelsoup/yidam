@@ -1,0 +1,9 @@
+class: reach
+label: Long
+description: >-
+  Ten kilometres. The one row `length_km>9` returns — and the one a server comparing text
+  drops, because `"10"` sorts before `"9"`. As text this query answers zero rows; as numbers
+  it answers this one.
+properties:
+  length_km: 10
+links: []

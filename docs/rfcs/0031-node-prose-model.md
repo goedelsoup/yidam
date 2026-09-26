@@ -313,7 +313,7 @@ node model that products would, for the first time, actually run.
    > The catalog schema describes frontmatter inside markdown, which yaml-language-server cannot
    > apply to a .md file
    >
-   > — [`schema.rs:655-656`](../../yidam/cli/src/cmd/schema.rs#L655-L656)
+   > — [`schema.rs:668-669`](../../yidam/cli/src/cmd/schema.rs#L668-L669)
 
    Every compiled per-class schema is delivered through `yaml.schemas`. Under Markdown nodes,
    none of them reaches a node in a third-party editor. This is the strongest argument against,
@@ -534,7 +534,7 @@ properties:
 
 `prose: true`, absent meaning false, inheriting `required`'s argument verbatim — *"every corpus
 written before this field existed was written under a schema where the question could not be
-asked"* — [`ontology.rs:66-75`](../../yidam/prelude/sdks/rust/src/ontology.rs#L66-L75).
+asked"* — [`ontology.rs:79-88`](../../yidam/prelude/sdks/rust/src/ontology.rs#L79-L88).
 `ProseFields` gains a second axis, `prose::of` walks `properties` for the names a class flagged,
 and every consumer above gets the same answer without learning a new shape.
 

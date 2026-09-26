@@ -40,7 +40,7 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.24.0",
+    "contract": "0.25.0",
     "corpus": {
       "domain": "streamflow",
       "commit": "a1b2c3d",
@@ -141,10 +141,11 @@ gate says so.
 ## An ordering is `date`-only (contract 0.16.0)
 
 `<`, `<=`, `>` and `>=` arrived on the query language for `type: date` properties, and
-**`unordered-property` is the refusal everywhere else**. The declared types are `string`,
+**`unordered-property` is the refusal everywhere else**. The declared types were `string`,
 `text`, `date`, `ref` and `claim`, with no numeric among them — an ordering that fell back to
 comparing text would be correct on `date` and a trap on the rest, ranking `10` before `9` and
-saying nothing about having done so. A plausible ordering of the wrong thing is worse than a
+saying nothing about having done so. 0.25.0 widened the licence to `number`, below, and the
+refusal stands everywhere else. A plausible ordering of the wrong thing is worse than a
 refusal, and from outside it is indistinguishable from a right one.
 
 Two consequences for a conforming server:
@@ -189,6 +190,28 @@ express. Eleven classes across six measured corpora are shaped that way.
 A malformed stored value orders against nothing. The type is checked on write and the check
 reports rather than gates, so a query has to survive meeting one; guessing an answer for it
 would be the undercount's louder twin.
+
+## An ordering on a number is numeric (contract 0.25.0)
+
+`type: number` arrived (RFC-0040), and it is the second declared type with an order. It is
+also the one on which a lexical implementation is **visible**: a fixed-width date orders the
+same as text and as a value, so a server comparing text passes every case over
+`corpus-dated/`. `10 > 9` holds as numbers and fails as text, and `corpus-measured/` is the
+fixture that tells the two apart — three reaches measuring 10, 9 and 7, where
+`length_km>9` **must** return the 10.
+
+**The comparison is exact and there is no precision rule.** `1893` denotes an interval,
+which is why dates have one; `7` and `7.0` denote the same point, which is why numbers do
+not. So `=` on a `number` compares numerically too — `length_km=7.0` matches a stored `7` —
+and `<`, `=` and `>` stay trichotomous, where on a `date` `=` keeps the rule in the section
+above. `!=` is `=`'s complement on the same reading, and `~` stays textual on every type.
+
+**A unit is a fact about the column, not the cell.** It is declared once beside the type as
+`unit: km`, the instances carry bare numbers, and the compiled class schema publishes it as
+`x-yidam-unit` — an annotation like `x-yidam-edges` that an editor can show and no validator
+treats as a constraint. The operand is bare too: `length_km>9`, never `length_km>9km`. A
+corpus that writes the number quoted has written text, and `property-type` says so; a stored
+value that is not a number orders against nothing, as a malformed date does.
 
 ## The other closed set (contract 0.18.0)
 

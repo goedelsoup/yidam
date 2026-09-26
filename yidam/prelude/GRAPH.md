@@ -104,6 +104,10 @@ nothing, and an edge to the *wrong* thing resolves, traverses, and exports, and 
 `YYYY-MM-DD`. `last spring` and `[open] No date.` still fail.
 [why](GRAPH.evidence.md#date-precision)
 
+**A `number` is a YAML number, unquoted**, and its unit is declared on the class as
+`unit: km`, never in the value. `"24"` is text and fails.
+[why](GRAPH.evidence.md#number-unquoted)
+
 **Silence is not a contract**, read one field at a time. A class with no `properties:` has
 said nothing about properties and none are checked; a class with no `edges:` has said nothing
 about edges and none are licensed. The same rule decides which classes are source classes for

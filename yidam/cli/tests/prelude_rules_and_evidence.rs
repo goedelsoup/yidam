@@ -136,7 +136,13 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// *calculator* into a manifest and cannot derive `featurizer` from *Feature engineering*, so the
 /// value has to be written down where the type is defined. The argument for both is 107 further
 /// words in `directories.evidence.md`, charged to [`PAIR_FLOOR`].
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_108), ("sadhana/root/AGENTS.md", 23_473)];
+///
+/// **Both raised by a further 28 when `GRAPH.md` gained the `number` rule (#1030, RFC-0040).**
+/// 18,108 → 18,136 and 23,473 → 23,501. The delta is **28 words in that one file** — the
+/// sentence saying a number is unquoted and its unit is on the class — and the equality of the
+/// two deltas is again the control: `GRAPH.md` is on both lists. Its argument is 87 further
+/// words in `GRAPH.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a `[why]` link.
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_136), ("sadhana/root/AGENTS.md", 23_501)];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
 ///
@@ -187,7 +193,11 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_108), ("sadhana/root/A
 /// no copy. 36 of the 61 are that rule and 25 are the declared value, which `featurizer` does not
 /// lowercase out of *Feature engineering* the way the other two do. The 107 further words of
 /// argument are in `directories.evidence.md` and charged to [`PAIR_FLOOR`].
-const BOOTSTRAP_CEILING: usize = 26_985;
+///
+/// **Raised to 27,013 when `GRAPH.md` gained the `number` rule (#1030, RFC-0040).** The delta is
+/// **28 words in `GRAPH.md`**, the same 28 the two recurring routes moved by, and 26,985 + 28 is
+/// this figure exactly, so nothing else on the path moved.
+const BOOTSTRAP_CEILING: usize = 27_013;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///

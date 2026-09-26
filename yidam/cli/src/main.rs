@@ -1108,7 +1108,8 @@ enum MigrateCommand {
         class: String,
         /// The property to retype
         property: String,
-        /// The new type — `string`, `text`, `date`, `ref`, `claim`, or one this corpus coined
+        /// The new type — `string`, `text`, `date`, `number`, `ref`, `claim`, or one this
+        /// corpus coined
         new_type: String,
     },
     /// Lift every reference written inside an evidence tag into the node's `references:` field

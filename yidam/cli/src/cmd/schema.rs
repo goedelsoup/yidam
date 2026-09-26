@@ -171,7 +171,7 @@ pub fn corpus_ontology_schema() -> Value {
                         "name": non_empty_string(),
                         "type": {
                             "type": "string",
-                            "enum": ["string", "date", "ref", "text", "claim"],
+                            "enum": ["string", "date", "number", "ref", "text", "claim"],
                             "description": "`claim` marks a property whose value IS an \
                                             evidence tag — `verified`, `inference`, or \
                                             `open` — rather than prose that mentions one. \
@@ -239,6 +239,19 @@ pub fn corpus_ontology_schema() -> Value {
                                             corpus that flags one must re-embed and no \
                                             report changes. Absent means false, for \
                                             `required`'s reason."
+                        },
+                        "unit": {
+                            "type": "string",
+                            "description": "The unit a `number` is written in — `km`, \
+                                            `cfs`, `USD` — or absent for a dimensionless \
+                                            quantity. A unit is a fact about the column, not \
+                                            the cell: instances carry bare numbers, and the \
+                                            compiled class schema publishes this as \
+                                            `x-yidam-unit`, an annotation like \
+                                            `x-yidam-edges` that an editor can show and no \
+                                            validator treats as a constraint. Meaningful on \
+                                            `number` only; a unit on any other type is \
+                                            carried and ignored."
                         }
                     },
                     "required": ["name", "type", "description"],
@@ -420,7 +433,7 @@ pub fn corpus_universal_schema() -> Value {
                         },
                         "type": {
                             "type": "string",
-                            "enum": ["string", "date", "ref", "text", "claim"],
+                            "enum": ["string", "date", "number", "ref", "text", "claim"],
                             "description": "Universal does not mean untyped — `property-type` \
                                             checks these exactly as it checks a class's own, \
                                             and a class naming the same property wins."
@@ -725,6 +738,7 @@ pub fn class_schemas(root: &Path) -> Vec<(String, String, Value)> {
                         property_type: property_type.to_string(),
                         description: "Declared for every class in .yidam/corpus/universal.yml"
                             .to_string(),
+                        unit: String::new(),
                         // A universal is never required. `universal.yml` has no `required`
                         // field to say so with, and a property declared for EVERY class
                         // that every instance must also carry would gate the whole corpus
@@ -767,6 +781,7 @@ fn with_pattern_properties(schema: &mut Value, universal: &crate::universal::Uni
                     property_type: property_type.to_string(),
                     description: "Permitted for every class by .yidam/corpus/universal.yml"
                         .to_string(),
+                    unit: String::new(),
                     // A *pattern* is a permission, not a demand — the name is not even
                     // known until an instance writes one. Requiring it is not expressible
                     // and would not mean anything if it were.

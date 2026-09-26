@@ -1,0 +1,19 @@
+class: reach
+label: Reach
+description: |
+  A bounded segment of river channel with a measured length.
+
+  It is a class in THIS directory because no property in `corpus/` or `corpus-dated/` is
+  `type: number`, so the branch that compares two numbers is unreachable from every case
+  beside it. A server can implement an ordering on a number as a comparison of text — the
+  trap RFC-0018 refused the operators over — and pass the whole suite over those corpora,
+  because `"1893" < "1900"` as text and as a year agree. `"10" < "9"` as text and `10 < 9`
+  as numbers do not, and that disagreement is the one fact this corpus is shaped to expose.
+properties:
+  # A unit is a fact about the column, not the cell (RFC-0040): the instances carry bare
+  # numbers, and the compiled schema publishes `km` as `x-yidam-unit`, an annotation an
+  # editor can show and no validator treats as a constraint.
+  - name: length_km
+    type: number
+    unit: km
+    description: Channel length.
