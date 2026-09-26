@@ -20,6 +20,7 @@
 mod absence;
 #[cfg(feature = "serve-http")]
 pub(crate) mod http;
+mod record;
 mod resources;
 pub(crate) mod tools;
 
@@ -58,6 +59,15 @@ pub(crate) struct ServerState {
     /// See [`act_declared`] for the three clauses that must hold before a `true` here is
     /// honoured, and for what a server does when one does not.
     pub act: bool,
+    /// The operational record of what this server was asked, or `None` where the corpus
+    /// declared none — [`record`].
+    ///
+    /// **The one field on this struct that is not a projection of the corpus**, and the one the
+    /// write side of this repository had no counterpart for: every other field answers *what was
+    /// asserted*, and this is where *what was read* goes. Read from `[serve] record` in the
+    /// corpus's own `.yidam/config.toml`, on the same precedent as `act` above — a server that
+    /// could record and was not told to records nothing.
+    pub record: Option<record::Record>,
     pub domain: String,
     pub commit: String,
     pub nodes: Vec<Node>,
@@ -265,6 +275,10 @@ impl ServerState {
         // the HTTP arm, applied to every transport. Loading ten thousand nodes first and
         // then refusing would be the same refusal, later and more expensively.
         let act = act_declared(root)?;
+        // Beside `act` and before the corpus, for `act_declared`'s own reason: a server told to
+        // record into a path it cannot write must fail at the command rather than at the first
+        // call.
+        let record = record::Record::open(root)?;
 
         let model = load_domain_model(root)?;
 
@@ -332,6 +346,7 @@ impl ServerState {
         Ok(Self {
             root: root.to_path_buf(),
             act,
+            record,
             domain: model.provenance.domain,
             commit: model.provenance.commit,
             nodes,
@@ -583,6 +598,18 @@ fn banner(state: &ServerState) {
              restart."
         );
     }
+    // Beside `act`, and for the same reason: what this server does to the working tree, said at
+    // connect time to the person who can still stop it. Unlike `act` it is also said over
+    // `--http`, where the operator is the reader and the callers are not.
+    if state.record.is_some() {
+        eprintln!(
+            "record: DECLARED — one line per tool call is appended to {}, naming the tool, a \
+             digest of its arguments, the row count, whether retrieval was degraded, and the \
+             corpus commit it answered from. Never the query text. The file is gitignored; \
+             nothing here writes a commit.",
+            record::PATH
+        );
+    }
     if let Some(indexed) = &state.indexed_commit {
         let head = &state.commit;
         if state.stale_index() == Some(true) {
@@ -801,6 +828,11 @@ mod tests {
             // are exercised against a real repository in `tests/mcp_serve.rs`, where the
             // commits they write can be read back.
             act: false,
+            // Recording nothing, which is every server that has not written the key. What a
+            // record holds is exercised against a real repository in `tests/mcp_serve.rs`, where
+            // the lines it appends can be read back — a hand-built snapshot has no root to
+            // append into, and `root` above names a path that deliberately does not exist.
+            record: None,
             // Built from the nodes above rather than beside them, so the set this server
             // checks citations against is the set it serves. `corpus_dir` names a path that
             // does not exist, deliberately: the snapshot is what must answer, and a read that

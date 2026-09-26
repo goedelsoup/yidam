@@ -110,6 +110,7 @@ paths = ["web/**", "crates/**"]
 
 [serve]
 act = true
+record = true
 ```
 
 `[index.remote]` and `[vault.<name>]` are the two sections not shown above. Each has required
@@ -336,6 +337,73 @@ You review the branch as commits and reject it by deleting it. The CLI's `--forc
 over MCP: replacing a proposal branch discards commits nobody has read.
 
 Absent means read-only, which is what every server did before this key existed.
+
+### `[serve] record`
+
+Whether a server started against this corpus keeps a record of what it was asked.
+
+With it, `serve --mcp` appends one line per `tools/call` to `.yidam/record/calls.jsonl`. It does
+this over either transport. Absent, it writes nothing at all. That is what every server did before
+this key existed.
+
+**The asymmetry this closes.** This repository can say, for every node, who asserted it and when.
+It can say under what review, and what the node looked like at any commit. Until this key it could
+not say whether any node had ever been **read**. Thirteen tools dispatched, returned, and the
+process forgot.
+
+[RFC-0015](rfcs/0015-epistemic-log.md) exists to make testimony visible rather than merely
+asserted. Its argument: a philosophy you cannot see is a philosophy you cannot use. The same
+argument applies unchanged to the consumption side, where nothing was visible at all.
+
+Four questions a corpus cannot ask about itself without this, and can with it:
+
+| Question | What answers it |
+|---|---|
+| Which queries came back empty? | `outcome: "ok"` with `results: 0` and `rejected: false` — the most direct empirical evidence of what a corpus is missing |
+| Did the degraded keyword path serve real traffic? | `degraded` per line. `retrieve` always reported it per call, and nothing aggregated it, so *this corpus has been answering from keyword search for a month* was not a statement anyone could make |
+| Did anything act on a clock? | A `cycle` or `propose` line. Four freshness clocks, and no closing evidence that one was ever discharged through this surface |
+| How much of the read surface is used at all? | `tool` and `ms` across the file |
+
+One line per call, and every key is present on every line. `null` where a key does not apply to the
+tool in hand. So a reader never has to tell *nothing to report* from *a writer too old to report
+it*:
+
+```json
+{"at":1758758400,"commit":"2bb499a","tool":"retrieve",
+ "args_digest":"sha256:9f3a…","outcome":"ok","results":3,
+ "degraded":true,"rejected":false,"ms":12}
+```
+
+`commit` is why a line is evidence. A reading becomes attributable to a corpus state, the way every
+other claim here is. Without it the record says a query came back empty. It cannot say what the
+query was asked of. The value is read live. So a `propose` that reloads the snapshot is followed by
+lines naming what that write produced.
+
+**Never the query text.** The digest and nothing else. Over `--http` a server answers callers it
+cannot authenticate. A plaintext record would be a file of their questions, accumulating in a
+working tree. The digest still answers every question above — *which queries came back empty* is a
+set with counts either way. It answers them identically on both transports, so no
+transport-conditional shape exists for anyone to reason about.
+
+**The file is gitignored, and `serve` refuses to start until it is.** `.yidam/record/` must be
+ignored, on the same rule as `.yidam/vault/`. The reason is related: this project's protocols
+prescribe `git add -A`. A tracked record is a working tree that is dirty after every served
+session. The check asks `git check-ignore` rather than grepping, because ignoring can come from
+`.git/info/exclude` or a global file.
+
+**It is a staging buffer, not the record of last resort.** *The history is the graph* is this
+project's premise. Folding this file into a `refresh:`-class commit is a scheduled run, not
+something a tool call does. `git commit-tree` on the read path would make the cheapest tool call
+the most expensive thing the server does. It would also give `serve` a git-write path that the
+`act` tier's identity gate currently guards alone. A record of what was retrieved is
+**operational** under [RFC-0026](rfcs/0026-orchestrator-layer.md). It is closest to `index:` in the
+commit vocabulary's own table, so it needs no new authority concept. The fold is #1018.
+
+**Not `[serve] act` under another name.** `act` declares what a server may write *into the graph*.
+It carries an identity gate, because the history it writes is the knowledge graph. This key
+declares that the server keeps an operational record of what it was asked. It needs no author,
+because nothing it writes is testimony. Nor is this the `record` in `disclose/record` below. That
+one is a catalog entry's record of a source, judged for disclosure.
 
 ## `.yidam/policy/`
 

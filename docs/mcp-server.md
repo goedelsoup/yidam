@@ -506,6 +506,41 @@ neither is a thing with identity. The server names those two exceptions where it
 A URI naming another corpus — `yidam://<corpus>/<kind>/<path>` — is **refused**, not served from
 this one. The server answers for the repository it was started in.
 
+### What it records about what you asked
+
+A second key in the same file, and the only other thing a server does outside the protocol:
+
+```toml
+[serve]
+record = true
+```
+
+With it, one line goes to `.yidam/record/calls.jsonl` per `tools/call`, over either transport.
+Absent, the server writes nothing at all. That is what every server did before this key.
+
+The reason to turn it on is an asymmetry. This corpus can say who asserted every node, and when,
+and under what review. Until this key it could not say whether any node had ever been **read**. So
+three questions had no answer. *Which of my queries came back empty.* *Has this server been
+answering from keyword search for a month.* *Did anything ever act on a clock.*
+
+```json
+{"at":1758758400,"commit":"2bb499a","tool":"retrieve",
+ "args_digest":"sha256:9f3a…","outcome":"ok","results":3,
+ "degraded":true,"rejected":false,"ms":12}
+```
+
+A refusal is recorded too, on the same shape with `outcome: "error"`. That is the path answering
+*which queries returned nothing*. Dropping it would drop the reason to keep the file.
+
+**Your query text is never written.** A digest of the arguments, and nothing else. Over `--http` a
+server answers callers it cannot authenticate. The record must not become a file of their
+questions. The digest is stable, so the same call digests alike. *This was asked forty times* is
+still answerable.
+
+`.yidam/record/` must be gitignored, and the server **refuses to start** until it is. A tracked
+record would dirty the working tree after every session anyone served. Nothing here writes a
+commit. The file is a staging buffer, and folding it into the history is a scheduled run.
+
 ---
 
 ## 4. Check what you are connected to
