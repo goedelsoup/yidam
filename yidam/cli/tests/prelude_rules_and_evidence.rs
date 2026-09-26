@@ -115,7 +115,18 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// scoped to the occasion, where an agent about to write a node is handed the node conventions
 /// and not the vault routing table. That is a separate change to how a route is written, and
 /// this ceiling is what will hold it honest.
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 17_686), ("sadhana/root/AGENTS.md", 23_051)];
+/// **Both routes raised by 361 when `directories.md` documented `.yidam/computed/` (#1028).**
+/// 17,686 → 18,047 and 23,051 → 23,412. The delta is **361 words in that one file** — 7,295 to
+/// 7,656 — and here *equality of the two deltas* is the control, which is the opposite of the
+/// reading #938 needed: `directories.md` is on both read lists, so a raise of exactly the same
+/// size on each is what says one shared file grew and nothing local to either route rode along.
+/// A difference between them would be the thing to investigate.
+///
+/// The section is reference rather than essay — the shape of a signal table, how a row is keyed,
+/// what happens to a file that declares no version — which is the category the paragraph above
+/// says no further splitting retires. Its three arguments are 364 further words in
+/// `directories.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a `[why]` link.
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_047), ("sadhana/root/AGENTS.md", 23_412)];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
 ///
@@ -152,7 +163,12 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 17_686), ("sadhana/root/A
 /// is 229 further words in `bootstrap.evidence.md`, which is reached by a `[why]` link and is
 /// charged to [`PAIR_FLOOR`] rather than here: a rule that costs every bootstrap 171 words and
 /// an argument that costs the ones who follow the link is the split working as intended.
-const BOOTSTRAP_CEILING: usize = 26_563;
+/// **Raised to 26,924 when `directories.md` documented `.yidam/computed/` (#1028).** The delta
+/// is **361 words in `directories.md`** — 7,295 to 7,656, and 26,563 + 361 is this figure
+/// exactly, so nothing else on the path moved. A bootstrapping agent is charged for it because
+/// the directory is one a scaffold may create and a run does write: the alternative is finding
+/// out what `.yidam/computed/` is from a `doctor` warning.
+const BOOTSTRAP_CEILING: usize = 26_924;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -186,10 +202,16 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// same file and left this number where it was. That is the drift a no-slack floor is against,
 /// so it is closed here rather than carried forward, and the two halves of the move are stated
 /// separately so a later reader can tell them apart.
+///
+/// **`directories.md` re-measured to 11,686 for #1028.** 725 words arrived — 361 in the rules
+/// half, 364 in the evidence half — and the floor moves by all of it, because 10,961 was the
+/// measurement and carried no slack. The two halves are near enough to equal on purpose: each
+/// of the three rules the section states is a decision with a declined alternative, and the
+/// alternative is what the evidence half is for.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_399),
     ("yidam/prelude/GRAPH.md", 8_818),
-    ("yidam/prelude/guidelines/directories.md", 10_961),
+    ("yidam/prelude/guidelines/directories.md", 11_686),
     ("yidam/prelude/skills/bootstrap.md", 10_433),
 ];
 

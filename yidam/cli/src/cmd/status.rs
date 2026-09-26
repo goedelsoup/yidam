@@ -27,6 +27,28 @@ struct StatusReport {
     edge_claims_inference: usize,
     edge_claims_open: usize,
     index_present: bool,
+    /// Files under `.yidam/computed/`, the signal names they carry, and how many nodes those
+    /// signals reach (#1028).
+    ///
+    /// **`--format json` only, and for a different reason than `index_present` above.** An
+    /// index is a build artifact of one machine; `.yidam/computed/` is committed, so a cell
+    /// rendering it *would* satisfy the rule the block is held to. It stays out because the
+    /// README line answers what this corpus **is** — how many nodes, how much of it is
+    /// measured, when it began — and a computed signal is what a calculator most recently
+    /// worked out about it. That moves on a `compute:` commit rather than on a corpus edit, and
+    /// it is zero in fifteen of the sixteen corpora derived from this template, so the cell
+    /// would read as missing rather than as nothing.
+    ///
+    /// Freshness is not here either, for the reason [`crate::cmd::doctor`] has it: a stale
+    /// computed answer is a finding with a remedy, and this report carries no verdicts.
+    computed_files: usize,
+    /// Every signal name the corpus computes, in byte order. This is the list a consumer needs
+    /// to know what it may filter on once #1029 makes them index columns.
+    computed_signals: Vec<String>,
+    computed_nodes: usize,
+    /// Computed files no capability's `writes` covers — nothing in the manifest is accountable
+    /// for them. A list rather than a count, because the answer is a path to go and look at.
+    computed_unowned: Vec<String>,
     /// Bounded work not yet on the baseline. Before `phase_tally` this counted every
     /// `ma/*` and `rigpa/*` ref and no `phase/*` ref at all — see [`crate::git::RefKind`].
     ///
@@ -162,6 +184,9 @@ pub fn status(root: Option<&std::path::Path>, format: crate::report::Format) -> 
         // Read only here, for the same reason as `phases` above: a stat of `.yidam/index/`
         // answers about one machine, and the block is committed. See [`status`].
         let index_present = yidam_index_dir(&root).exists();
+        // Read only here, for the reason `phases` and `index_present` are: the text path must
+        // not look at it. See the field docs on `computed_files`.
+        let computed = crate::computed::Signals::load(&root);
         return crate::report::emit(
             &root,
             StatusReport {
@@ -176,6 +201,15 @@ pub fn status(root: Option<&std::path::Path>, format: crate::report::Format) -> 
                 edge_claims_inference: edge_claims.inference,
                 edge_claims_open: edge_claims.open,
                 index_present,
+                computed_files: computed.files.len(),
+                computed_signals: computed.names(),
+                computed_nodes: computed.nodes(),
+                computed_unowned: computed
+                    .files
+                    .iter()
+                    .filter(|f| f.declared_by.is_empty())
+                    .map(|f| f.path.clone())
+                    .collect(),
                 active_phases: phases.active,
                 settled_phases: phases.settled,
                 rewritten_phases: phases.rewritten,

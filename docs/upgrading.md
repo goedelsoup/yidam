@@ -28,6 +28,40 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `doctor --strict` now asks about `.yidam/computed/`
+
+**`doctor` gained a `computed` question (#1028).** A calculator's `writes` glob governed the
+executor and nothing else. So a corpus could compute an answer, commit it, and have no surface
+that read it back. `doctor` now reads what is in `.yidam/computed/`. It attributes each file to the
+capability that declares it, and says whether the answer still stands.
+
+**What changes for you, and only if you have that directory.** A computed file is now a `warn`
+when its inputs have moved since its receipt. So is one whose bytes are not the ones the receipt
+recorded. Both were silent before. `doctor` still passes on a warning; **`doctor --strict` does
+not.** So strict CI that was green yesterday can go red today, with no file changed. The repair is
+the one the check prints: `yidam run`, then commit what it lands.
+
+**The window right after a run reads differently from a stale answer.** `yidam run` writes a commit
+and deliberately leaves your working tree alone. Between the run and the sync, the files it produced
+are at HEAD and not in your checkout. That is its own warning, remedied by
+`git restore --source=HEAD --worktree --staged -- .yidam/`, rather than a report of never having
+run.
+
+**A file that is not a signal table is not a problem.** Reading requires a top-level
+`format_version: 1` and a `signals:` list. Anything else is listed and ignored.
+[cli-reference](cli-reference.md) has the shape, and RFC-0026 §4.2 the argument.
+
+### `yidam embed` attaches computed signals
+
+**An embedding record now carries a `signals` object (#1028)** where a signal table names that
+node. The key is **absent** where there is none. So a corpus that computes nothing writes the
+records it wrote before, byte for byte. An index already built stays valid.
+
+**What changes for you.** If you have signal tables, re-run `yidam embed` and `yidam index-build`
+to pick the signals up. Nothing forces this. The records you have are still readable, and a stale
+one carries no signals rather than wrong ones. Signals are not part of the embedded text, so the
+vectors do not move.
+
 ### The keyword arm can rank
 
 **`retrieve` without a vector index now ranks by BM25 (#1026).** It scored the fraction of query

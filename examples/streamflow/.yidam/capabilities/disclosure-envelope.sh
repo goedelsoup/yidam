@@ -46,14 +46,14 @@ BEGIN {
 # ── read travel-tier'"'"'s output ────────────────────────────────────────────────
 #
 # Keyed on the record separator travel-tier emits rather than on line numbers: the file is a
-# list of three-field records under `nodes:`, and a reader counting lines would break the day
-# a field is added to it.
+# list of records under `signals:`, and a reader counting lines would break the day a field is
+# added to it.
 /^  - node:/      { node = $3; next }
 /^    travels_as:/ {
   tier = $2
   count[tier]++
-  members[tier] = members[tier] (members[tier] == "" ? "" : "\n") "      - " node
-  total++
+  seq[++total] = node
+  at[total] = tier
   next
 }
 /^    downgraded: true/ { downgraded++; next }
@@ -66,6 +66,10 @@ END {
 
   printf "# Computed by the `disclosure-envelope` calculator and committed by `yidam run`.\n"
   printf "# Recomputed from `.yidam/computed/travel-tier.yml`; edit the corpus, not this file.\n"
+  # See travel-tier.sh for what this declares. A signal name is corpus-wide, so `reaches` here
+  # and `travels_as` there are two names and not one by agreement between the two calculators
+  # — `yidam` refuses a collision rather than picking a winner.
+  printf "format_version: 1\n"
   printf "method:\n"
   printf "  rule: |\n"
   printf "    Each node is placed at the tier `travel-tier` computed for it, and each tier\n"
@@ -77,16 +81,22 @@ END {
   printf "    Nothing. Every node travel-tier reported is placed, and `unmarked` shares\n"
   printf "    `open`'"'"'s destination rather than being dropped: a node that declared no\n"
   printf "    evidence standing has not earned one.\n"
+  # The partition, as counts. The per-tier `members:` lists that used to be here are gone: the
+  # `signals:` table below names every node once and says where it reaches, so the lists were
+  # the same fact in a second shape — and the shape a search can read is the one worth keeping.
   printf "tiers:\n"
   for (i = 1; i <= 4; i++) {
     t = order[i]
     printf "  - tier: %s\n", t
     printf "    reaches: %s\n", reach[t]
     printf "    nodes: %d\n", count[t] + 0
-    if (count[t] > 0) {
-      printf "    members:\n"
-      printf "%s\n", members[t]
-    }
+  }
+  # One row per node, in the order travel-tier reported them, which is byte order over the
+  # corpus — so the file is a function of the corpus and not of how this run was started.
+  printf "signals:\n"
+  for (i = 1; i <= total; i++) {
+    printf "  - node: %s\n", seq[i]
+    printf "    reaches: %s\n", reach[at[i]]
   }
   leaves = count["verified"] + count["inference"]
   printf "summary:\n"

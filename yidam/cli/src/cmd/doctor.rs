@@ -164,6 +164,7 @@ impl Check {
     const PRELUDE: &'static str = "prelude";
     const INDEX: &'static str = "index";
     const REGEN: &'static str = "regen";
+    const COMPUTED: &'static str = "computed";
     const BUILD: &'static str = "build";
     const CATALOG: &'static str = "catalog";
     const CORPORA: &'static str = "corpora";
@@ -546,6 +547,133 @@ fn check_index(root: &Path) -> Answer {
     ))
 }
 
+/// What has this corpus computed about itself, and does it still stand?
+///
+/// The question #1028 was filed about. `.yidam/computed/` was written from the moment a
+/// calculator was declared and nothing ever read it, so a corpus could hold a stale answer,
+/// an answer no capability admits to writing, or two files quarrelling over one signal name,
+/// and the only symptom was a feature silently missing from a search.
+///
+/// It asks two separate things and reports the worse of them, in this order:
+///
+/// 1. **Can the files be read as signal tables at all** — [`crate::computed::Signals`]'s
+///    problems. These are `fail` rather than `warn` because each one means a computed answer
+///    is not reaching the embedding record: a name refused for colliding is dropped, and a row
+///    keyed on a node this corpus does not hold attaches to nothing.
+/// 2. **Does the answer still stand** — [`crate::cmd::run::standing`], which is the run's own
+///    input-state equality asked of the working tree. Two shapes of drift, and they are
+///    different findings: a computed file whose bytes are not the ones its receipt recorded was
+///    edited by hand, and a step whose inputs moved is owed a run.
+///
+/// `ok` on a corpus that computes nothing, and it says so rather than reporting the absence as
+/// a thing to fix: fifteen of the sixteen corpora derived from this template declare no
+/// calculator, and a check that found that remarkable would be noise in all fifteen.
+fn check_computed(root: &Path) -> Answer {
+    const RUN: &str = "yidam run";
+    let signals = crate::computed::Signals::load(root);
+    let steps = match crate::cmd::run::standing(root) {
+        Ok(steps) => steps,
+        // The manifest is the run's own contract and `yidam run` is what reports a broken one.
+        // Saying so at `warn` here rather than `fail` keeps one finding in one place: a corpus
+        // whose manifest does not parse has a `run` problem, not a `computed` problem.
+        Err(e) => {
+            return Answer::warn(
+                format!(
+                    "the capability manifest could not be read, so freshness is unknown: {e:#}"
+                ),
+                Some(RUN),
+            )
+        }
+    };
+
+    if !signals.problems.is_empty() {
+        return Answer::fail(
+            enumerate(&signals.problems, "problem"),
+            Some("fix the capability that writes the file, then `yidam run`"),
+        );
+    }
+
+    if signals.files.is_empty() && steps.is_empty() {
+        return Answer::ok("this corpus computes nothing about itself, and declares no calculator");
+    }
+
+    let edited: Vec<String> = steps
+        .iter()
+        .flat_map(|s| &s.outputs)
+        .filter(|o| o.unchanged == Some(false))
+        .map(|o| o.path.clone())
+        .collect();
+    if !edited.is_empty() {
+        return Answer::warn(
+            format!(
+                "{} — edited since the run that wrote them, so the receipt no longer describes \
+                 what is on disk",
+                enumerate(&edited, "file")
+            ),
+            Some(RUN),
+        );
+    }
+
+    let gone: Vec<String> = steps
+        .iter()
+        .flat_map(|s| &s.outputs)
+        .filter(|o| o.unchanged.is_none())
+        .map(|o| o.path.clone())
+        .collect();
+    if !gone.is_empty() {
+        // Not `yidam run`, and this is the case the remedy matters most for: a run commits and
+        // leaves the checkout alone, so immediately after one these files are at HEAD and not
+        // on disk. Another run would find the input state unchanged and write nothing, which
+        // would read as the command not working. The one that syncs a checkout is `git
+        // restore`, and `cmd::run`'s own report names it for the same reason.
+        return Answer::warn(
+            format!(
+                "{} — at HEAD and not in this checkout, which is where a run leaves them",
+                enumerate(&gone, "file")
+            ),
+            Some("git restore --source=HEAD --worktree --staged -- .yidam/"),
+        );
+    }
+
+    let stale: Vec<String> = steps
+        .iter()
+        .filter(|s| s.freshness == crate::cmd::run::Freshness::Stale)
+        .map(|s| format!("{} ({})", s.step, s.because))
+        .collect();
+    if !stale.is_empty() {
+        return Answer::warn(enumerate(&stale, "step"), Some(RUN));
+    }
+
+    Answer::ok(format!(
+        "{} file(s) carry {} signal(s) on {} node(s); {} step(s) fresh{}",
+        signals.files.len(),
+        signals.names().len(),
+        signals.nodes(),
+        steps.len(),
+        match signals.names().is_empty() {
+            true => String::new(),
+            false => format!(" — {}", signals.names().join(", ")),
+        }
+    ))
+}
+
+/// `n thing(s): a, b, c` with the tail elided, for a detail line that has to stay one line.
+///
+/// Three rather than all of them, and the count first: `check_regen` joins its whole list and
+/// gets away with it because a repository has a dozen REGEN blocks, while a corpus can key a
+/// computed file per node and a detail naming four hundred of them is a report nobody reads.
+fn enumerate(items: &[String], noun: &str) -> String {
+    let head = items.iter().take(3).cloned().collect::<Vec<_>>().join("; ");
+    match items.len() > 3 {
+        true => format!(
+            "{} {noun}(s): {head}; and {} more",
+            items.len(),
+            items.len() - 3
+        ),
+        false => format!("{} {noun}(s): {head}", items.len()),
+    }
+}
+
 /// Are the REGEN blocks current?
 ///
 /// Borrows `regen --check`'s non-writing mode rather than reimplementing the generator
@@ -705,6 +833,12 @@ const ROSTER: &[Question] = &[
         text: "Is the index built, and is it current?",
         asked: Asked::OfARepository,
         answer: |s| check_index(&s.root),
+    },
+    Question {
+        id: Check::COMPUTED,
+        text: "What has this corpus computed about itself, and does it still stand?",
+        asked: Asked::OfARepository,
+        answer: |s| check_computed(&s.root),
     },
     Question {
         id: Check::REGEN,

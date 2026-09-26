@@ -508,30 +508,10 @@ fn freshness(
         );
     }
 
-    let Some(ageing) = cap.ageing_days else {
-        return Verdict::Fresh(
-            "the input state is unchanged, and it declares no `ageing_days`".to_string(),
-        );
-    };
     // The conservative direction, which is `cmd/due.rs`'s rule for a clock it cannot read: a
     // corpus that asked to be told when this aged out and cannot be told is owed the run, not
     // reassured. Reporting it fresh would be the flattering direction to be wrong in.
-    let Some(age) = receipt_age(root, parent, receipt_path, today) else {
-        return Verdict::Stale(format!(
-            "it declares `ageing_days = {ageing}` and its receipt carries no committed date \
-             to measure against"
-        ));
-    };
-    match age >= i64::from(ageing) {
-        true => Verdict::Stale(format!(
-            "the input state is unchanged, and it last ran {age} day(s) ago — past \
-             `ageing_days = {ageing}`"
-        )),
-        false => Verdict::Fresh(format!(
-            "the input state is unchanged, and it last ran {age} day(s) ago of \
-             `ageing_days = {ageing}`"
-        )),
-    }
+    aged(root, cap, parent, receipt_path, today)
 }
 
 /// How many days ago this step's receipt was last committed.
@@ -579,6 +559,172 @@ fn tip_of(root: &Path, branch: &str) -> Option<String> {
 
 /// Where one run's commit lands, resolved before anything is written.
 ///
+/// Where each declared step stands against the tree you are standing in, for a reader.
+///
+/// `doctor` asks this, and it is a deliberately *different* question from the one
+/// [`plan_and_write`] asks. A run resolves both halves against **HEAD**, because a step is
+/// invoked in a tree checked out of a commit. Somebody running `doctor` is standing in a
+/// checkout with edits in it, and the useful question there is *"is what is on disk still what
+/// the committed answer was computed from"* — so the receipt comes from HEAD and the input
+/// state comes from `git ls-files` and the bytes on disk.
+///
+/// **The two sides are deliberately not both read from the same place.** A receipt read off
+/// disk would answer "has never run" for the whole of the interval between a run and the
+/// `git restore` that syncs a checkout back up to it — the run commits and does not touch the
+/// tree, by the rule in this module's header — which is the one moment the question is most
+/// likely to be asked and the answer that is least true. Reading it from HEAD makes that
+/// interval report what it actually is: the answer stands, and the files it produced are not in
+/// your checkout.
+///
+/// It is one rule and not a second approximation of the first: the digest is
+/// [`Receipt::input_state`], the same function the executor commits, fed the working tree
+/// instead of a materialized scratch. Nothing here invokes anything, writes anything, or
+/// touches `.git/index`.
+///
+/// A repository that declares no capabilities answers `Ok(vec![])` rather than an error. That
+/// is every repository but one today, and a check that reported a missing manifest as a
+/// problem would be a finding against fifteen of sixteen derived corpora for not using a
+/// feature.
+pub(crate) fn standing(root: &Path) -> Result<Vec<Standing>> {
+    if !root.join(manifest::MANIFEST).exists() {
+        return Ok(Vec::new());
+    }
+    let m = Manifest::load(root)?;
+    let manifest_sha256 = digest_of(root, manifest::MANIFEST);
+    let config_sha256 = digest_of(root, ".yidam/config.toml");
+    let today = crate::dates::today_days();
+    let tracked = tracked_paths(root);
+
+    let mut out = Vec::new();
+    for name in m.plan(None)? {
+        let cap = m.get(name)?;
+        let receipt_path = Receipt::path(name);
+        let landed = git(root, None, &["show", &format!("HEAD:{receipt_path}")], None)
+            .ok()
+            .as_deref()
+            .and_then(Receipt::landed);
+        let files = resolve_reads(root, cap, &tracked);
+        let input_state = Receipt::input_state(cap, &manifest_sha256, &config_sha256, &files)?;
+
+        let verdict = match &landed {
+            None => Verdict::Stale("it has never run against this corpus".to_string()),
+            Some(l) if l.input_state.as_deref() != Some(input_state.as_str()) => Verdict::Stale(
+                "what it reads, or what it declares, is not what its receipt was computed from"
+                    .to_string(),
+            ),
+            Some(_) => aged(root, cap, "HEAD", &receipt_path, today),
+        };
+
+        let outputs = landed
+            .as_ref()
+            .map(|l| {
+                l.outputs
+                    .iter()
+                    .map(|f| Output {
+                        path: f.path.clone(),
+                        unchanged: std::fs::read(root.join(&f.path))
+                            .ok()
+                            .map(|bytes| sha256(&bytes) == f.sha256),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        out.push(Standing {
+            step: name.to_string(),
+            freshness: verdict.freshness(),
+            because: verdict.because().to_string(),
+            outputs,
+        });
+    }
+    Ok(out)
+}
+
+/// What a reader needs to know about one declared step. See [`standing`].
+pub(crate) struct Standing {
+    pub step: String,
+    pub freshness: Freshness,
+    pub because: String,
+    pub outputs: Vec<Output>,
+}
+
+/// One file a step's receipt says it wrote, and whether it is still those bytes.
+pub(crate) struct Output {
+    pub path: String,
+    /// Whether the file on disk is the bytes the receipt recorded. `None` where it is gone —
+    /// which is not the same finding as an edit, and a boolean would have to call it one.
+    pub unchanged: Option<bool>,
+}
+
+/// Every path this repository tracks, as `exec::materialize` lists them.
+///
+/// Empty where git cannot answer, which makes every step's input state the digest of an empty
+/// file list — stale rather than fresh. That is [`freshness`]'s direction to be wrong in.
+fn tracked_paths(root: &Path) -> Vec<String> {
+    git(root, None, &["ls-files", "-z"], None)
+        .map(|listed| {
+            listed
+                .split('\0')
+                .filter(|p| !p.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The declared `reads`, resolved against the working tree rather than against a commit.
+///
+/// Sorted by path and hashed in that order, because [`Receipt::input_state`] digests the list
+/// as given and `exec::materialize` sorts before it hashes. A digest taken in a different
+/// order would report every step stale forever, and it would look like a freshness bug rather
+/// than a hashing one.
+///
+/// A tracked file that is not on disk hashes as empty, for [`digest_of`]'s reason: a deleted
+/// input is a real input state and a different one, and it needs no second representation.
+fn resolve_reads(root: &Path, cap: &Capability, tracked: &[String]) -> Vec<File> {
+    let mut wanted: Vec<&String> = tracked
+        .iter()
+        .filter(|p| cap.reads.iter().any(|g| crate::kuten::glob_covers(g, p)))
+        .collect();
+    wanted.sort();
+    wanted
+        .into_iter()
+        .map(|path| File {
+            sha256: sha256(&std::fs::read(root.join(path)).unwrap_or_default()),
+            path: path.clone(),
+        })
+        .collect()
+}
+
+/// The `ageing_days` arm of [`freshness`], asked of a receipt whose input state already matched.
+///
+/// Split out so [`standing`] and [`freshness`] share it rather than each having a reading of
+/// the declaration. The age is still the committer date of the commit that last touched the
+/// receipt — an uncommitted receipt has no date, and the conservative answer is the run.
+fn aged(root: &Path, cap: &Capability, parent: &str, receipt_path: &str, today: i64) -> Verdict {
+    let Some(ageing) = cap.ageing_days else {
+        return Verdict::Fresh(
+            "the input state is unchanged, and it declares no `ageing_days`".to_string(),
+        );
+    };
+    let Some(age) = receipt_age(root, parent, receipt_path, today) else {
+        return Verdict::Stale(format!(
+            "it declares `ageing_days = {ageing}` and its receipt carries no committed date \
+             to measure against"
+        ));
+    };
+    match age >= i64::from(ageing) {
+        true => Verdict::Stale(format!(
+            "the input state is unchanged, and it last ran {age} day(s) ago — past \
+             `ageing_days = {ageing}`"
+        )),
+        false => Verdict::Fresh(format!(
+            "the input state is unchanged, and it last ran {age} day(s) ago of \
+             `ageing_days = {ageing}`"
+        )),
+    }
+}
+
 /// A struct rather than five arguments because four of them are shas and branch names, and the
 /// one that matters — `expected` — is the compare-and-swap value. Passing those positionally is
 /// how a caller eventually swaps two of them and the CAS starts checking the wrong ref.

@@ -25,6 +25,7 @@ After bootstrap, a derived repository has two tiers:
 - `.yidam/decisions/` — structured records of choices made during this repo's life
 - `.yidam/capabilities.toml` — what may run here, what it reads and what it writes
 - `.yidam/runs/` — one receipt per capability: what ran, against what, producing which bytes
+- `.yidam/computed/` — what this repository worked out about itself; committed, and read back
 - `.yidam/skills/` — domain-specific skills
 - `.yidam/.vendor/` — inherited yidam prelude; not modified in derived repos
 - `.yidam/bin/` — the `yidam` binary built from this repo's pin; git-ignored, see below
@@ -611,7 +612,7 @@ naming both paths, and an unrecognized subcommand adds which binary refused it. 
 
 ---
 
-## `.yidam/capabilities.toml` and `.yidam/runs/` (optional)
+## `.yidam/capabilities.toml`, `.yidam/runs/` and `.yidam/computed/` (optional)
 
 What a pipeline may do in this repository, and the record that it did it.
 
@@ -716,6 +717,49 @@ that somebody looked. [why](directories.evidence.md#receipt-records-a-look)
 node asserts, silently and for every instance, that the figure is a measurement. Prefer a
 directory of computed artifacts that carry their method, and record the choice in
 `.yidam/decisions/`. [why](directories.evidence.md#computed-output-placement)
+
+### `.yidam/computed/`
+
+What this repository worked out about itself — one file per calculator result. Committed, unlike
+`.yidam/index/`, because a computed quantity is an assertion this repository is making and the
+commit that landed it is the record of what it was computed from.
+
+**A file here is read as a signal table when it says it is one.** That means a top-level
+`format_version: 1` and a `signals:` list whose every row names a node:
+
+```yaml
+format_version: 1
+method:
+  rule: |
+    A derived assertion travels only as far as the weakest claim beneath it.
+signals:
+  - node: gage/canyon-outlet
+    travels_as: open
+    downgraded: true
+```
+
+Every other key in a row is a **signal** about that node, and `yidam embed` attaches it to that
+node's embedding record — which is what turns a computed answer into something a search can
+filter on rather than a file somebody has to open. A file carrying no `format_version` is listed
+and not read, so a calculator whose output is a report rather than a table stays legal and stays
+visible. [why](directories.evidence.md#computed-declares-its-own-readability)
+
+**A row is keyed in the reference grammar and in nothing else.** `gage/canyon-outlet`,
+`node/gage/canyon-outlet`, or the absolute `yidam://<corpus>/node/<path>` form naming this
+corpus — the grammar every SDK's `parse_reference` already implements. A revision pin
+(`gage/canyon-outlet@abc1234`) is refused rather than ignored: a signal attached at a past commit
+is not a signal about the node as it stands.
+[why](directories.evidence.md#computed-keyed-by-the-reference-grammar)
+
+**A signal name is repository-wide, and a collision is refused rather than resolved.** Two
+calculators both emitting `tier` is one name meaning two things, and a reader that picked a
+winner would make the other silently absent. `yidam doctor` reports the collision and names both
+files. [why](directories.evidence.md#computed-signal-names-are-repository-wide)
+
+**Nothing creates this directory.** A repository declaring no calculator has nothing to put in
+it, and a run is the only thing that writes here. `yidam doctor` asks what is in it and whether
+it still stands — a computed file whose inputs have moved, or whose bytes are not the ones its
+receipt recorded, is a stale answer that reads exactly like a current one.
 
 ---
 

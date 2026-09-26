@@ -311,6 +311,16 @@ pub fn yidam_index_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("index")
 }
 
+/// What this corpus computed about itself — one file per calculator result (RFC-0026 §4.1).
+///
+/// Absent in most repositories, and nothing here creates it: a run writes it, and a corpus
+/// that declares no calculator has nothing to put in it. It is committed, unlike
+/// [`yidam_index_dir`], because a computed quantity is an assertion this repository is making
+/// and the commit that landed it is the record of what it was computed from.
+pub fn yidam_computed_dir(root: &Path) -> PathBuf {
+    root.join(".yidam").join("computed")
+}
+
 /// The benchmark's fixed inputs — `goals.yml`, and later the scaling generator's config.
 ///
 /// Absent in most repositories, and `bench` says so rather than inventing a goal set: a

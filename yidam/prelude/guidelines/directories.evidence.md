@@ -325,6 +325,41 @@ A computed quantity is a fact about a calculation, and a class property is read 
 the subject. So writing a derived figure onto a node asserts, silently and for every instance,
 that the figure is a measurement — and nothing in the node records the method that produced it.
 
+## computed-declares-its-own-readability
+
+`.yidam/computed/` was written from the day a calculator was declared and nothing read it. The
+two shipped calculators emitted a `method:` block, a per-node table and a `summary:` block in one
+file, which is a good file for a person and gives a reader no way to tell which part is an
+assertion about a node. A reader guessing — treating any top-level list of mappings as a table —
+would have read `tiers:` as eight signals about nodes named `verified`, `inference` and `open`.
+
+So the file declares its own readability and the reader never guesses. The cost is one line per
+calculator; the alternative is a heuristic that is wrong in a way nothing reports, on a directory
+whose entire failure mode is being silently unread.
+
+## computed-keyed-by-the-reference-grammar
+
+A node had eleven string spellings in this toolkit before a grammar was written for it, and the
+grammar exists because every reader had invented its own. A computed file keyed on a twelfth —
+a bare stem, a class-scoped id, a path with or without `.yml` — would be a form nothing else
+parses and that every later reader has to be taught.
+
+The revision pin is the case worth stating. `gage/canyon-outlet@abc1234` parses, so accepting it
+and ignoring the revision would attach a signal computed against one commit to the node as it
+stands now. That is the failure the chain rule in `agent-conduct.md` exists to prevent, arriving
+by a different door: an answer travelling further than what it was computed from.
+
+## computed-signal-names-are-repository-wide
+
+The alternative was a per-file prefix — `travel-tier.travels_as` — which resolves every collision
+and invents a second name for every signal. Both spellings then exist forever: the one the
+calculator emits and the one a query has to use, with the file's own name load-bearing in the
+second. Renaming a calculator would rename every signal it computes.
+
+Refusing instead makes the collision a thing somebody fixes once, in the calculator, and keeps
+the name a query uses the name the calculator wrote. The refusal names both files because either
+one of them is the one to change and a reader cannot tell which from a message naming one.
+
 ## authorship-why
 
 `broken-prose-link` shipped knowing about exactly one such directory, `.yidam/.vendor/`, on a

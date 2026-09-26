@@ -33,7 +33,12 @@ use super::manifest::Capability;
 pub const FORMAT_VERSION: u32 = 1;
 
 /// One file, by repository-relative path and content digest.
-#[derive(Debug, Clone, Serialize)]
+///
+/// `Deserialize` as well as `Serialize`, because a record format with no reader is the shape
+/// #1028 was filed about: `.yidam/runs/` was written from the first commit and nothing but
+/// [`Receipt::committed_state`]'s one field ever read it back. [`Receipt::landed`] is that
+/// reader, and `doctor` is what asks.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct File {
     pub path: String,
     pub sha256: String,
@@ -156,9 +161,35 @@ impl Receipt {
         serde_yaml::from_str::<Landed>(text).ok()?.input_state
     }
 
+    /// The parts of a committed receipt a reader outside the executor asks about.
+    ///
+    /// A narrow struct rather than [`Receipt`] itself, for the reason
+    /// [`Self::committed_state`] reads one field: this is a *reader* of a format a producer
+    /// owns, and one that deserialized the whole record would refuse a receipt written by a
+    /// later yidam that added a field. What a reader needs is the input state, so it can say
+    /// whether the answer still stands, and the outputs, so it can say whether the files on
+    /// disk are the bytes that were recorded.
+    ///
+    /// `None` only where the text does not parse as YAML at all, which is the same
+    /// conservative answer [`Self::committed_state`] gives and for the same reason.
+    pub fn landed(text: &str) -> Option<Landed> {
+        serde_yaml::from_str::<Landed>(text).ok()
+    }
+
     pub fn to_yaml(&self) -> Result<String> {
         serde_yaml::to_string(self).context("serializing the receipt")
     }
+}
+
+/// A committed receipt, as a reader of it needs it. See [`Receipt::landed`].
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Landed {
+    /// The digest of everything that determined the recorded result.
+    #[serde(default)]
+    pub input_state: Option<String>,
+    /// What the step produced, by digest.
+    #[serde(default)]
+    pub outputs: Vec<File>,
 }
 
 /// The digest every field above is written in.

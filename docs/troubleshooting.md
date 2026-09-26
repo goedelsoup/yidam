@@ -19,6 +19,7 @@ yidam doctor — /home/you/my-domain
                      → mise run yidam-vendor-update
   warn  index        no /home/you/my-domain/.yidam/index
                      → yidam index-build (needs the `index` feature)
+  ok    computed     this corpus computes nothing about itself, and declares no calculator
   ok    regen        every REGEN block holds what its generator produces
   ok    catalog      no TTL declared — 1 source(s) never expire. Set `[catalog] ttl_days` or declare `ttl_days:` on an entry.
   fail  corpora      not installed: hydrology
@@ -48,6 +49,7 @@ exit code unless you pass `--strict`, which is the reading a CI job wants.
 | `path` | Is `.yidam/bin` ahead on `PATH`? |
 | `prelude` | How stale is the vendored prelude? |
 | `index` | Is the index built, and is it current? |
+| `computed` | What has this corpus computed about itself, and does it still stand? |
 | `regen` | Are the REGEN blocks current? |
 | `catalog` | Have any source records aged out? |
 | `corpora` | Did the corpora this repository depends on arrive? |
