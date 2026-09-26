@@ -76,6 +76,25 @@ would make the cheapest tool call the most expensive thing the server does. A re
 retrieved is **operational** under RFC-0026. So it needs no new authority concept and no author.
 That fold is not built yet (#1018), and neither is a report over it (#1019).
 
+### `yidam overlay` copies what git tracks
+
+**Each subtree `overlay` copies is now the tracked set under it (#984).** `yidam/`, `sadhana/`
+and `samudaya/` used to be walked on the filesystem, minus a list of names. That list is the one
+#912 took away from `yidam clone`. It was left standing here. Measured against a working
+checkout, six gitignored paths under `yidam/` were reached by no entry in it. Two `.astro/`
+build caches. Two `junit.xml` reports. The compiled VS Code extension, and a pytest cache. All
+six travelled into every repository `overlay` was run against. That is the half of bootstrap
+where the target already holds someone's work.
+
+**What changes for you.** An overlay from here adds no build output and no editor caches.
+Nothing tracked stopped travelling. As with `clone`, an uncommitted file in your yidam checkout
+will not reach the target. Commit it, or at least `git add` it.
+
+**`overlay` now refuses a source it cannot read a tracked set from.** It does not fall back to
+walking the directory. A fallback restores the whole hole in the circumstance nobody tests. The
+source has to be a git checkout anyway. The `.yidam.toml` pin it writes is read from that same
+git directory.
+
 ## cli/v0.15.0
 
 ### `yidam clone` copies what git tracks, and refuses a source that is not the template

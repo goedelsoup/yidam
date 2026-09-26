@@ -1126,7 +1126,12 @@ demo shell.
 A derived repository can neither run nor update any of it (#807).
 `overlay` refuses a target that already has a `.yidam/`. It adds `yidam/`, `sadhana/`,
 `BOOTSTRAP.md`, `mise.yidam.toml` and the `.yidam.toml` pin, without touching the repository's own
-content.
+content. It also adds `samudaya/`, but only when this checkout holds seeds of its own.
+Each subtree it copies is what git tracks under it. That is the answer `clone` already gives for
+the whole template. A file this checkout does not track is not part of yidam. Build output, install
+prefixes and editor caches therefore have no route into a repository that already holds your work.
+Both commands need a git checkout of yidam as their source. Neither falls back to walking the
+directory when it cannot read a tracked set.
 
 `backfill`'s classification is **heuristic** — it reads leading verbs. It does not extract
 corpus nodes, and the records it writes are a starting point for a person, not testimony.

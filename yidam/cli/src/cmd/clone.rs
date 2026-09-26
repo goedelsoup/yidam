@@ -1,8 +1,10 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use std::path::Path;
 
 use crate::paths::repo_root;
 use crate::provenance::Provenance;
+
+use super::tracked;
 
 /// Top-level paths a derived repository does not inherit.
 ///
@@ -12,7 +14,7 @@ use crate::provenance::Provenance;
 /// point at. Everything here is machinery this repository operates on itself.
 ///
 /// Every entry is **tracked**, and that is now the whole content of this list. What the copy
-/// delivers is `git ls-files` minus these names (see [`tracked_paths`]), so a build
+/// delivers is `git ls-files` minus these names (see [`super::tracked`]), so a build
 /// directory, an install prefix or an agent worktree is not excluded here and never was —
 /// it is simply not part of the template. The list only ever has to answer for things
 /// somebody authored and committed on purpose.
@@ -112,97 +114,6 @@ fn require_template_root(root: &Path) -> Result<()> {
     )
 }
 
-/// Every path git tracks at `root`, repository-relative.
-///
-/// **The tracked set is what the template is**, and reading it from git rather than walking
-/// the filesystem is what makes that a definition rather than a hope (#912). The copy used
-/// to walk the working tree and subtract conventions — `target`, `node_modules`, `dist-*`,
-/// `.local`, anything carrying a `CACHEDIR.TAG` — which is a list of what somebody thought
-/// to ask about. A clone taken from a working checkout was **2,931 files / 22.7 MB**, of
-/// which 1,436 files and 14 MB was `.claude/worktrees/`: the operator's own agent scratch
-/// worktrees, gitignored since the day the entry was written, and absent from `git ls-files`
-/// all along. `.local` was found the same way, `dist` versus `dist-*/` was #900, and the
-/// worktrees were the third instance of one hole.
-///
-/// Nothing is subtracted here that the repository has not already declared. A file this
-/// checkout does not track is not part of the template by construction, so there is no
-/// convention left to name and no fourth instance to wait for.
-///
-/// It refuses rather than falling back to a walk. A fallback would restore the hole in
-/// exactly the circumstance nobody tests, and the source of a `clone` has to be a checkout
-/// for a reason that predates this: [`Provenance`] reads the commit being pinned out of the
-/// same git directory.
-fn tracked_paths(root: &Path) -> Result<Vec<String>> {
-    // Through [`crate::git::Git`], which is the only production code that spawns git
-    // (#929). It owns `-C`, strips an inherited `GIT_DIR` that would otherwise redirect
-    // this read past the directory named here, and pins the config — all three of which
-    // this function would have had to re-decide.
-    let out = crate::git::Git::new(root)
-        .args(["ls-files", "-z", "--full-name"])
-        .output()?;
-
-    let paths: Vec<String> = if out.status.success() {
-        String::from_utf8_lossy(&out.stdout)
-            .split('\0')
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .collect()
-    } else {
-        Vec::new()
-    };
-
-    if paths.is_empty() {
-        bail!(
-            "cannot read the template: git tracks nothing at {}\n  \
-             `clone` copies what git tracks, because the tracked set is what the template \
-             is — a working tree also holds build output, install prefixes and agent \
-             worktrees no derived repository should inherit. Run this from a git checkout \
-             of yidam with its history intact.",
-            root.display()
-        )
-    }
-    Ok(paths)
-}
-
-/// Copy each tracked path into `target`, skipping the ones whose first segment is excluded.
-///
-/// The exclusions are matched on the **first segment only**, which is the same rule the
-/// filesystem walk applied at the first level and is load-bearing for the same reason:
-/// `docs` is yidam's own and must not travel, `sadhana/docs/` is the scaffold step 3 of the
-/// bootstrap skill reads and must. The two differ in depth, not in name.
-///
-/// Returns how many files were written.
-fn copy_tracked(root: &Path, target: &Path, paths: &[String], excluded: &[&str]) -> Result<usize> {
-    std::fs::create_dir_all(target).with_context(|| format!("creating {}", target.display()))?;
-
-    let mut copied = 0;
-    for rel in paths {
-        let top = rel.split('/').next().unwrap_or(rel);
-        if excluded.contains(&top) {
-            continue;
-        }
-        let src = root.join(rel);
-        // `symlink_metadata`, not `is_file`: a tracked path can be a symlink — three under
-        // `yidam/cli/` are — or a submodule's gitlink, and the walk this replaced skipped
-        // both. It can also be absent, when the working tree has a deletion that is not
-        // staged, and there is nothing to copy from a file that is not there.
-        let Ok(meta) = src.symlink_metadata() else {
-            continue;
-        };
-        if !meta.is_file() {
-            continue;
-        }
-        let dst = target.join(rel);
-        if let Some(parent) = dst.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
-        }
-        std::fs::copy(&src, &dst).with_context(|| format!("copying {rel}"))?;
-        copied += 1;
-    }
-    Ok(copied)
-}
-
 pub fn clone(target: &Path) -> Result<()> {
     if target.exists() {
         bail!("target already exists: {}", target.display());
@@ -210,14 +121,14 @@ pub fn clone(target: &Path) -> Result<()> {
 
     let root = repo_root()?;
     require_template_root(&root)?;
-    let tracked = tracked_paths(&root)?;
+    let tracked = tracked::paths(&root)?;
 
     // Read before copying: the copy never carries `.git`, so once the copy is the only
     // thing left there is nothing to read the origin commit from.
     let provenance = Provenance::read(&root);
 
     println!("Copying template → {} …", target.display());
-    let copied = copy_tracked(&root, target, &tracked, NOT_INHERITED)?;
+    let copied = tracked::copy_into(&root, target, &tracked, NOT_INHERITED)?;
 
     provenance.write(target)?;
     println!(
@@ -281,8 +192,8 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         template(&root, &[]);
 
-        let tracked = tracked_paths(&root).unwrap();
-        copy_tracked(&root, &dst, &tracked, NOT_INHERITED).unwrap();
+        let tracked = tracked::paths(&root).unwrap();
+        tracked::copy_into(&root, &dst, &tracked, NOT_INHERITED).unwrap();
 
         assert!(dst.join("yidam/prelude/GRAPH.md").exists());
         assert!(dst.join("LICENSE").exists());
@@ -320,8 +231,8 @@ mod tests {
             std::fs::write(path, "not the template").unwrap();
         }
 
-        let tracked = tracked_paths(&root).unwrap();
-        copy_tracked(&root, &dst, &tracked, NOT_INHERITED).unwrap();
+        let tracked = tracked::paths(&root).unwrap();
+        tracked::copy_into(&root, &dst, &tracked, NOT_INHERITED).unwrap();
 
         for rel in [
             ".claude/worktrees",
@@ -351,30 +262,10 @@ mod tests {
         std::fs::create_dir_all(root.join("build-out")).unwrap();
         std::fs::write(root.join("build-out/blob"), "output").unwrap();
 
-        let tracked = tracked_paths(&root).unwrap();
-        copy_tracked(&root, &dst, &tracked, NOT_INHERITED).unwrap();
+        let tracked = tracked::paths(&root).unwrap();
+        tracked::copy_into(&root, &dst, &tracked, NOT_INHERITED).unwrap();
 
         assert!(!dst.join("build-out").exists());
-    }
-
-    /// A source git cannot describe is refused, not walked.
-    ///
-    /// The fallback is the tempting thing to write and it is the defect: a walk restores the
-    /// whole hole in exactly the circumstance nobody tests, and the message a reader gets
-    /// would be about the copy rather than about the source.
-    #[test]
-    fn a_source_with_no_git_is_refused_rather_than_walked() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
-        std::fs::create_dir_all(root.join("yidam/prelude")).unwrap();
-        std::fs::create_dir_all(root.join("sadhana")).unwrap();
-        std::fs::write(root.join("yidam/prelude/GRAPH.md"), "the graph").unwrap();
-
-        let err = tracked_paths(root).unwrap_err().to_string();
-        assert!(
-            err.contains("git tracks nothing"),
-            "a source git cannot describe must be refused, not walked: {err}"
-        );
     }
 
     #[test]
