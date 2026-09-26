@@ -44,7 +44,8 @@ const UNPUBLISHED = new Set(['README.md']);
 
 /** Tier 1 — task pages. The reader is executing something; ceiling 20. */
 export const TIER1 = new Set([
-  'quickstart.md', 'installation.md', 'configuration.md', 'troubleshooting.md',
+  'quickstart.md', 'first-corpus-by-hand.md', 'installation.md', 'configuration.md',
+  'troubleshooting.md',
   'editor-setup.md', 'upgrading.md', 'mcp-server.md', 'artifact-vaults.md',
   'sharing-derivations.md', 'cli-reference.md',
 ]);
