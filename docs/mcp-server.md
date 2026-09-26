@@ -82,10 +82,10 @@ file onto the same pane.
 
 ### Claude Code, as a plugin
 
-This is the one that gives you both halves. Four of the thirteen read tools below exist for
-one reason. The practice is documented in the prelude. But *an agent that has to hold that
-prose in context complies by having remembered*. The plugin puts the prose and the tools in
-the same install.
+This is the one that gives you both halves. Four of the thirteen read tools the contract
+freezes exist for one reason. The practice is documented in the prelude. But *an agent that has
+to hold that prose in context complies by having remembered*. The plugin puts the prose and the
+tools in the same install.
 
 ```
 /plugin marketplace add goedelsoup/yidam
@@ -375,8 +375,13 @@ serves says so. That is one key in the corpus's own `.yidam/config.toml`:
 act = true
 ```
 
-Until it is written, `tools/list` carries the thirteen read tools. A call to either of these
-comes back `capability-not-supported`, exactly as an unbacked `query` does.
+Until it is written, `tools/list` carries the read tier and nothing else. That is at most
+thirteen tools, and usually fewer. Five of the thirteen are listed only where the corpus backs
+them. `query`, `pack`, `estimate` and `licensed_edges` need declared classes, and
+`check_citation` needs an installed dependency. **Thirteen is the contract's count, not a
+promise about any one server.** What decides each, and what the example corpus below backs, is
+in §4. A call to either of these comes back `capability-not-supported`, exactly as an unbacked
+`query` does.
 
 **This is the one capability in the handshake that is permission rather than ability.** Every
 other key is filled honestly from what the server *can* do. A projected mirror holds no class
@@ -573,8 +578,8 @@ tool-not-found errors:
             "nodes": 8, "skills": 1, "decisions": 2,
             "indexed_commit": null, "stale": false},
  "retrieve": {"vector": false, "reason": "no_index"},
- "graph": true, "ontology": true, "dependencies": true,
- "phases": false, "sangha": false, "resources": true}
+ "graph": true, "ontology": true, "dependencies": false,
+ "phases": false, "sangha": false, "act": false, "resources": true}
 ```
 
 `corpus` is the banner, in the protocol (contract 0.13.0). Every other key here says what this
@@ -592,12 +597,14 @@ working git repository behind it. The key is null rather than absent. A client n
 with no `.ont.yml` has no class contract to back. The four tools at that tier — `query`, `pack`,
 `estimate`, `licensed_edges` — are then neither listed nor callable.
 
-`dependencies` follows the corpus the same way. It is true iff this server resolved at least one
-installed dependency. `check_citation` is neither listed nor callable when it did not. A server
-with nothing installed *could* serve the tool and answer `external-citation-unresolved` to every
-citation put to it. That is correct every time, and a statement about a dependency set it does not
-have. That is the same thing the contract forbids one tier over. There, a server with no
-`.ont.yml` must not call a class unpopulated.
+`dependencies` follows the corpus the same way. It is true iff this server resolved at least
+one installed dependency. `check_citation` is neither listed nor callable when it did not.
+**The block above is such a server.** `examples/streamflow` declares classes and installs
+nothing. So it backs the four ontology tools, and not `check_citation`. That is the ordinary
+case: most corpora depend on none. A server with nothing installed *could* serve the tool and
+answer `external-citation-unresolved` to every citation put to it. That is correct every time,
+and a statement about a dependency set it does not have. That is the same thing the contract
+forbids one tier over. There, a server with no `.ont.yml` must not call a class unpopulated.
 
 **A tool this server does not back refuses by name.** Calling one returns an MCP tool error whose
 text begins `capability-not-supported`, naming the capability that is false, rather than `unknown
