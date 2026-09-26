@@ -48,11 +48,10 @@ const NOT_A_PRUNE: &[(&str, &str)] = &[
         "filters paths out of `git ls-files` output, which never walks a working tree",
     ),
     (
-        "src/cmd/copy.rs",
-        "`yidam overlay`'s copy still walks the filesystem and subtracts conventions, which \
-         is what #912 took away from `yidam clone` — the source is a checkout and git can be \
-         asked. #984; until then the names here are what answers for \
-         the three subtrees overlay copies",
+        "src/cmd/overlay.rs",
+        "asserts the gitignored debris #984 reported was NOT overlaid onto an existing \
+         repository — the names are the finding, not the filter, and the trees its fixture \
+         builds and walks are tempdirs",
     ),
 ];
 

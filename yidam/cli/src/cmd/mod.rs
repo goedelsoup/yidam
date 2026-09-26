@@ -6,7 +6,6 @@ mod catalog;
 pub(crate) mod check_diff;
 mod clone;
 pub(crate) mod cohort;
-mod copy;
 pub(crate) mod corpus;
 pub(crate) mod cycle;
 pub(crate) mod decisions;
@@ -63,6 +62,9 @@ pub(crate) mod serve;
 pub(crate) mod status;
 #[cfg(feature = "tonpa")]
 pub mod tonpa;
+// The tracked set, shared by the two commands that copy this repository into another one:
+// `clone` and `overlay` (#912, #984).
+mod tracked;
 // Ungated. The store, the cache and the `file://` backend need no network, and the light
 // build every derived repository installs is the one that most needs to read a vault it
 // cannot push to.
