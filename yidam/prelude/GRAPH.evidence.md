@@ -59,6 +59,15 @@ What `property-type` catches in a date field is prose, and `1985` is not prose: 
 precision the fact is actually known to, and demanding a month and a day there does not make
 the record more accurate, it makes it invented.
 
+## number-unquoted
+
+The compiled class schema says `{"type": "number"}` and refuses `"24"`, so a gate that
+accepted it would be looser than the schema it exists to be no stricter than. And a unit
+in the cell makes every instance repeat a fact the class already knows, and makes an
+ordering depend on conversion, which is a library and not an operator. The trap RFC-0018
+refused the ordering operators over was a numeric value compared as text; the unquoted
+number is what keeps a `number` from ever being one.
+
 ## silence-is-not-a-contract
 
 Reading either silence as *and therefore none are permitted* would flood every corpus whose

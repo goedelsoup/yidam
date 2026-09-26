@@ -1253,8 +1253,38 @@ pub(crate) fn property_type_violation(declared: &str, value: &serde_yaml::Value)
             Ok(s) if s.trim().is_empty() => Some("is empty".to_string()),
             Ok(_) => None,
         },
+        // **A number is a YAML number, unquoted** (RFC-0040). The mirror of the `string`
+        // arm's "quote it": a corpus that writes `length_km: "24"` has stored text that
+        // happens to spell a number, and the compiled schema — `{"type": "number"}` — would
+        // refuse the file while this gate waved it through. The one reading a number gets is
+        // [`numeric_value`], which `query`'s ordering shares for the reason `iso_date_parts`
+        // gives: a second parser is a corpus where `lint` accepts what `query` will not order.
+        "number" => match value {
+            serde_yaml::Value::Number(n) => match numeric_value(&n.to_string()) {
+                Some(_) => None,
+                None => Some(format!("`{n}` is not a finite number")),
+            },
+            serde_yaml::Value::String(s) => match numeric_value(s) {
+                Some(_) => Some(format!("`{}` is text, not a number — unquote it", s.trim())),
+                None => Some(format!("`{}` is not a number", s.trim())),
+            },
+            serde_yaml::Value::Bool(_) => Some("is a boolean, not a number".to_string()),
+            other => scalar(other).err(),
+        },
         _ => None,
     }
+}
+
+/// The value of a `number`, or `None` when the text is not one.
+///
+/// The whole of the `number` arm's rule, returning what it read, so that an ordering over
+/// numbers and the check that admits them cannot disagree about which values are numbers —
+/// [`iso_date_parts`]'s reason, one type over. Finite only: YAML spells `.inf` and `.nan`,
+/// and neither is a quantity a corpus measured. There is no precision rule here and none is
+/// wanted — `1893` denotes an interval, which is why dates have one; `7` and `7.0` denote
+/// the same point, which is why `=` on a number compares numerically (RFC-0040).
+pub fn numeric_value(s: &str) -> Option<f64> {
+    s.trim().parse::<f64>().ok().filter(|n| n.is_finite())
 }
 
 /// An ISO-8601 calendar date, structurally, **at whatever precision the corpus knows**:
@@ -1350,8 +1380,9 @@ pub fn property_type(
         Severity::Error,
         "A typed field the ontology declares is read by type, not by eye. A `claim` field \
          holding prose is counted as no claim at all; a `string` holding an unquoted number \
-         has lost its leading zeros before anything reads it. Types the corpus coins for \
-         itself are left alone — this reports only the ones it can test.",
+         has lost its leading zeros before anything reads it; a `number` holding a quoted \
+         one is text the compiled schema refuses and an ordering cannot compare. Types the \
+         corpus coins for itself are left alone — this reports only the ones it can test.",
         violations,
     )
 }
@@ -5572,6 +5603,42 @@ edges:
             "properties:\n  - name: extent\n    type: river-mile-range\n",
         )];
         assert!(property_type(&nodes, &classes, &NONE).passed());
+    }
+
+    /// **A number is a YAML number, unquoted** (RFC-0040). The compiled schema says
+    /// `{"type": "number"}`, and a gate that accepted `"24"` here would be looser than the
+    /// schema it exists to be no stricter than — the split from the other side.
+    #[test]
+    fn a_number_field_holding_a_quoted_number_is_reported() {
+        let classes = vec![class_from(
+            "reach",
+            "properties:\n  - name: length_km\n    type: number\n",
+        )];
+        let length = |v: &str| {
+            vec![node(
+                ".yidam/corpus/reach/alpha.yml",
+                &format!("class: reach\nproperties:\n  length_km: {v}\nlinks: []\n"),
+            )]
+        };
+        for v in ["24", "6.5", "-3", "0", "1e3"] {
+            assert!(
+                property_type(&length(v), &classes, &NONE).passed(),
+                "{v} is a number"
+            );
+        }
+        let quoted = property_type(&length("\"24\""), &classes, &NONE);
+        assert_eq!(quoted.violations.len(), 1);
+        assert!(
+            quoted.violations[0].detail.contains("unquote it"),
+            "{quoted:#?}"
+        );
+        // Prose, a boolean, and the two YAML spellings of a non-number are each a field
+        // filled in wrong, and none of them is "unquote it".
+        for v in ["about 24", "yes", ".inf", ".nan", "\"~24\""] {
+            let c = property_type(&length(v), &classes, &NONE);
+            assert_eq!(c.violations.len(), 1, "{v}: {c:#?}");
+            assert!(!c.violations[0].detail.contains("unquote"), "{v}: {c:#?}");
+        }
     }
 
     #[test]

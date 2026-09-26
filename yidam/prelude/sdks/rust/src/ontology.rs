@@ -55,12 +55,25 @@ pub struct OntologyClass {
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct OntologyProperty {
     pub name: String,
-    /// `string`, `text`, `date`, `ref`, `claim` — or a type this corpus coined, which is
-    /// carried through and left unconstrained.
+    /// `string`, `text`, `date`, `number`, `ref`, `claim` — or a type this corpus coined,
+    /// which is carried through and left unconstrained.
     #[serde(default, rename = "type")]
     pub property_type: String,
     #[serde(default)]
     pub description: String,
+    /// The unit a `number` is written in — `km`, `cfs`, `USD` — or empty for a dimensionless
+    /// quantity: a count, an index, a ratio.
+    ///
+    /// **A unit is a fact about the column, not the cell** (RFC-0040). It is declared once,
+    /// here, and instances carry bare numbers, so that an ordering within one property can
+    /// never compare across units. The alternatives both put it somewhere an ordering cannot
+    /// see: inside the value, where `7 cfs` is text again and cannot be ordered at all, or in
+    /// a sibling property, where two instances of one class may carry different units and
+    /// `discharge < 100` compares them anyway. Published as `x-yidam-unit` on the compiled
+    /// schema, an annotation like `x-yidam-edges`, so an editor can show it and no validator
+    /// treats it as a constraint.
+    #[serde(default)]
+    pub unit: String,
     /// Whether every instance of the class must carry this property.
     ///
     /// **Absent means false**, and not out of timidity: every corpus written before this
@@ -195,6 +208,11 @@ fn property_schema(property_type: &str) -> Value {
         // `property-type`'s predicate exactly; a schema stricter than the gate underlines,
         // in the editor, a value the build accepts.
         "date" => json!({ "type": "string", "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$" }),
+        // A YAML number, unquoted. `"7"` is text and the gate says so — the mirror of the
+        // date arm's advice to quote `00060`. One arm and not `integer` beside it: the
+        // ordering is the same, the gate is the same, and across 2,762 measured nodes no
+        // corpus coined either, so a split would be deciding by taste (RFC-0040).
+        "number" => json!({ "type": "number" }),
         // A list is legal here and nowhere else: the counter reads a list of tags as one
         // claim each, so a corpus writing `claim_tag: [open]` unquoted has written a
         // one-element list without meaning to.
@@ -259,8 +277,13 @@ pub fn compile_class_schema(class: &OntologyClass) -> Value {
         let mut declared = Map::new();
         for p in &class.properties {
             let mut schema = property_schema(&p.property_type);
-            if let (Value::Object(map), false) = (&mut schema, p.description.is_empty()) {
-                map.insert("description".into(), json!(p.description));
+            if let Value::Object(map) = &mut schema {
+                if !p.description.is_empty() {
+                    map.insert("description".into(), json!(p.description));
+                }
+                if !p.unit.is_empty() {
+                    map.insert("x-yidam-unit".into(), json!(p.unit));
+                }
             }
             declared.insert(p.name.clone(), schema);
         }

@@ -400,33 +400,45 @@ fn check_pred(
     if pred.op == Op::Absent {
         return Ok(());
     }
-    // **The ordering operators are `date` only, and this is the rejection that keeps them
-    // honest.** RFC-0018 deferred them on exactly this ground: the declared types are
-    // `string`, `text`, `date`, `ref` and `claim` with no numeric among them, so an ordering
-    // that fell back to comparing text would be correct on `date` and a trap on the rest —
-    // `length_km<9` would rank `10` below `9`, and say nothing about having done so. A
-    // corpus that coins its own type gets the same refusal rather than a lexical guess,
-    // because nothing here knows what its order is.
-    if pred.op.is_ordering() && declared != "date" {
+    // **The ordering operators are defined on the two types with an order, and this is the
+    // rejection that keeps them honest.** RFC-0018 deferred them on exactly this ground: the
+    // declared types were `string`, `text`, `date`, `ref` and `claim` with no numeric among
+    // them, so an ordering that fell back to comparing text would be correct on `date` and a
+    // trap on the rest — `length_km<9` would rank `10` below `9`, and say nothing about
+    // having done so. RFC-0040 added `number`, which has an order of its own; everything
+    // else, a coined type included, gets the refusal rather than a lexical guess, because
+    // nothing here knows what its order is.
+    if pred.op.is_ordering() && declared != "date" && declared != "number" {
         return Err(reject(
             code::UNORDERED_PROPERTY,
             Some(step_index),
             format!(
-                "`{}` is `type: {declared}` on `{}`, and `{}` is defined on `date` only — \
-                 comparing anything else would be a comparison of text, which reads `10` as \
-                 before `9`. Use `=`, `!=` or `~`.",
+                "`{}` is `type: {declared}` on `{}`, and `{}` is defined on `date` and \
+                 `number` only — comparing anything else would be a comparison of text, \
+                 which reads `10` as before `9`. Use `=`, `!=` or `~`.",
                 pred.prop,
                 class.name,
                 pred.op.as_str()
             ),
         ));
     }
-    let as_yaml = serde_yaml::Value::String(pred.value.clone());
+    // The operand arrives as text, because a query is text. Against a `number` the gate's
+    // string arm would say "unquote it", which is the right sentence for a corpus file and
+    // nonsense for a query — so an operand that reads as a number is handed over as one, and
+    // the gate's `number` arm has nothing to say. One that does not stays text, and the
+    // arm's own "is not a number" is the rejection.
+    let as_yaml = match declared {
+        "number" => match crate::cmd::lint::checks::numeric_value(&pred.value) {
+            Some(n) => serde_yaml::Value::Number(serde_yaml::Number::from(n)),
+            None => serde_yaml::Value::String(pred.value.clone()),
+        },
+        _ => serde_yaml::Value::String(pred.value.clone()),
+    };
     let bad = crate::cmd::lint::checks::property_type_violation(declared, &as_yaml);
     match (pred.op, bad) {
-        // An ordering needs a date on both sides. The operand's is the half a query can be
-        // wrong about, and `property_type_violation`'s own sentence says what a date is —
-        // which is the sentence the corpus already gets when it writes one wrong.
+        // An ordering needs a date, or a number, on both sides. The operand's is the half a
+        // query can be wrong about, and `property_type_violation`'s own sentence says what
+        // a date is — which is the sentence the corpus already gets when it writes one wrong.
         (op, Some(why)) if op.is_ordering() => Err(reject(
             code::UNSATISFIABLE_PREDICATE,
             Some(step_index),
@@ -618,11 +630,21 @@ fn authored_note(relationship: &str, class: &str, schema: &Schema) -> String {
 
 // ── the check ─────────────────────────────────────────────────────────────────
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Checked {
     pub diagnostics: Vec<Diagnostic>,
     /// Classes each step may match, after `*` narrowing. Index-aligned with the steps.
     pub narrowed: Vec<Vec<String>>,
+    /// The declared type of every `(class, property)` a predicate was checked against.
+    ///
+    /// **The executor dispatches on the declaration, not on the value.** `=` on a `number`
+    /// compares numerically and `=` on a `date` at the precision written, and the stored
+    /// value cannot say which it is: `7` is a legal `string`, and sniffing it as a number
+    /// would make `parameter=60` match `parameter: "060"` on a class that declared text.
+    /// The check already read the declaration to license the operator; this carries what it
+    /// read. An entry the executor cannot find is answered as text, which is the whole of
+    /// the rule before `number` existed.
+    pub declared: std::collections::BTreeMap<(String, String), String>,
     /// True when the corpus declared no classes, so no class name was checked at all.
     ///
     /// Carried on the *verdict* rather than read off the graph at each use site, because it
@@ -636,6 +658,7 @@ pub struct Checked {
 pub fn check(query: &Query, schema: &Schema) -> Result<Checked, Rejection> {
     let mut diagnostics = Vec::new();
     let mut narrowed = Vec::new();
+    let mut declared = std::collections::BTreeMap::new();
 
     // A corpus with no `.ont.yml` at all has no schema layer, which is a different problem
     // from a misspelling — the carve-out `unknown_class` itself makes (checks.rs:383).
@@ -671,7 +694,12 @@ pub fn check(query: &Query, schema: &Schema) -> Result<Checked, Rejection> {
                     continue;
                 };
                 match check_pred(index, class, pred, schema.universal, &mut diagnostics) {
-                    Ok(()) => kept.push(name.clone()),
+                    Ok(()) => {
+                        if let Some(t) = declared_type(class, &pred.prop, schema.universal) {
+                            declared.insert((name.clone(), pred.prop.clone()), t.to_string());
+                        }
+                        kept.push(name.clone());
+                    }
                     Err(rejection) => last = Some(rejection),
                 }
             }
@@ -729,6 +757,7 @@ pub fn check(query: &Query, schema: &Schema) -> Result<Checked, Rejection> {
     Ok(Checked {
         diagnostics,
         narrowed,
+        declared,
         unschematised,
     })
 }
@@ -992,14 +1021,18 @@ mod tests {
         }
     }
 
-    /// **The rejection RFC-0018 deferred the operators for.** There is no numeric declared
-    /// type, so an ordering on anything but `date` would silently be a comparison of text.
+    /// **The rejection RFC-0018 deferred the operators for.** An ordering on a type without
+    /// an order would silently be a comparison of text.
     #[test]
     fn ordering_a_property_that_is_not_a_date_is_rejected_rather_than_answered_lexically() {
         let f = Fixture::new(vec![class(TENURE)]);
         let e = check(&parse("tenure[note<9]").unwrap(), &f.schema()).unwrap_err();
         assert_eq!(e.code, "unordered-property");
-        assert!(e.message.contains("`date` only"), "{}", e.message);
+        assert!(
+            e.message.contains("`date` and `number` only"),
+            "{}",
+            e.message
+        );
         assert!(
             e.message.contains("reads `10` as before `9`"),
             "{}",
@@ -1028,6 +1061,74 @@ mod tests {
         let e = check(&parse("tenure[began<last-tuesday]").unwrap(), &f.schema()).unwrap_err();
         assert_eq!(e.code, "unsatisfiable-predicate");
         assert!(e.message.contains("is not a date"), "{}", e.message);
+    }
+
+    // ── ordering a number (#1030) ─────────────────────────────────────────────
+
+    const MEASURED: &str = "class: reach\nproperties:\n  - name: length_km\n    type: number\n  \
+                         - name: name\n    type: string\n";
+
+    /// **A `number` has an order, and the check hands the executor the declaration.** The
+    /// rejection RFC-0018 wrote was for the absence of a numeric type, not for numbers.
+    #[test]
+    fn ordering_a_number_property_against_a_number_is_licensed() {
+        let f = Fixture::new(vec![class(MEASURED)]);
+        for query in [
+            "reach[length_km<9]",
+            "reach[length_km>=10.5]",
+            "reach[length_km>-1]",
+            "reach[length_km=7.0]",
+            "reach[length_km!=7]",
+            "reach[length_km~2]",
+        ] {
+            let checked = check(&parse(query).unwrap(), &f.schema()).unwrap();
+            assert!(
+                checked.diagnostics.is_empty(),
+                "{query}: {:?}",
+                checked.diagnostics
+            );
+            assert_eq!(
+                checked
+                    .declared
+                    .get(&("reach".to_string(), "length_km".to_string())),
+                Some(&"number".to_string()),
+                "{query}"
+            );
+        }
+    }
+
+    /// The operand is the half a query can be wrong about, and the gate's sentence for a
+    /// corpus file — "unquote it" — is the wrong one for a query, which has no quotes.
+    #[test]
+    fn ordering_a_number_against_an_operand_that_is_not_one_is_rejected() {
+        let f = Fixture::new(vec![class(MEASURED)]);
+        let e = check(&parse("reach[length_km<nine]").unwrap(), &f.schema()).unwrap_err();
+        assert_eq!(e.code, "unsatisfiable-predicate");
+        assert!(
+            e.message.contains("`nine` is not a number"),
+            "{}",
+            e.message
+        );
+        assert!(!e.message.contains("unquote"), "{}", e.message);
+        let e = check(&parse("reach[length_km=nine]").unwrap(), &f.schema()).unwrap_err();
+        assert_eq!(e.code, "unsatisfiable-predicate");
+        let checked = check(&parse("reach[length_km!=nine]").unwrap(), &f.schema()).unwrap();
+        assert_eq!(checked.diagnostics[0].code, "trivial-predicate");
+    }
+
+    /// A `string` that happens to hold digits is still text. `*` narrows an ordering to the
+    /// classes with an order, and the declaration is what says which those are.
+    #[test]
+    fn a_star_ordering_narrows_to_the_classes_declaring_an_ordered_type() {
+        let f = Fixture::new(vec![
+            class(MEASURED),
+            class("class: gage\nproperties:\n  - name: length_km\n    type: string\n"),
+            class(TENURE),
+        ]);
+        let checked = check(&parse("*[length_km<9]").unwrap(), &f.schema()).unwrap();
+        assert_eq!(checked.narrowed[0], vec!["reach"]);
+        assert_eq!(checked.diagnostics[0].code, "narrowed");
+        assert!(checked.diagnostics[0].message.contains("`gage`"));
     }
 
     /// `prop?` reads whether the node carries the property, which is a question about every

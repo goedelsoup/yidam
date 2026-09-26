@@ -1,0 +1,9 @@
+class: reach
+label: Short
+description: >-
+  Seven kilometres, written `7`. `length_km=7.0` matches it, because `=` on a number is
+  numeric and there is no precision rule to make `7` and `7.0` differ: they denote the same
+  point, where `1893` denotes an interval.
+properties:
+  length_km: 7
+links: []

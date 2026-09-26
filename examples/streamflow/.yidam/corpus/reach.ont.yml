@@ -5,7 +5,8 @@ description: |
   as one unit for measurement and regulation.
 properties:
   - name: length_km
-    type: string
+    type: number
+    unit: km
     description: Approximate channel length, in kilometres.
   - name: regulated
     type: string

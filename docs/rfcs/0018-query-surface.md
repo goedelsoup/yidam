@@ -71,13 +71,13 @@ at depth 2 and all of it at depth 3.
 ([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L473), Error), the properties it may
 and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L921),
 [`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1094)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1348)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1417)), and which class
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1378)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1448)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1484), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1515), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
-([`checks.rs:1427-1428`](../../yidam/cli/src/cmd/lint/checks.rs#L1427-L1428)):
+([`checks.rs:1458-1459`](../../yidam/cli/src/cmd/lint/checks.rs#L1458-L1459)):
 
 > a relationship in no declaration is worth seeing, because **a traversal that walks by
 > relationship will not find it**
@@ -291,7 +291,7 @@ relationship the class does not declare resolves as:
 
 The first row is load-bearing and is easy to omit. `unlicensed_edge` short-circuits on an empty
 edge list **before** it consults the policy
-([`checks.rs:1383-1384`](../../yidam/cli/src/cmd/lint/checks.rs#L1383-L1384)):
+([`checks.rs:1414-1415`](../../yidam/cli/src/cmd/lint/checks.rs#L1414-L1415)):
 
 ```rust
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
@@ -368,7 +368,7 @@ takes a declared type and a value and no operator — it answers *may the corpus
 | `=` | exact comparison against the value as written | `property_type_violation` — asking for a value the type cannot hold is a rejection |
 | `!=` | the negation of `=` | none; a `warn` diagnostic when the operand could never be a value of the declared type, since the predicate is then trivially true of every node that carries the property |
 | `~` | contiguous, case-insensitive substring containment over the value's serialized text | none — it applies to every scalar type, so `claim_tag~ope` and `observed_on~2026` are both legal |
-| `<` `<=` `>` `>=` | date ordering, at the precision the two sides share (**amended, #725** — see [Ordering, and the trap it was deferred over](#ordering-and-the-trap-it-was-deferred-over)) | the property must be declared `date` and the operand must be one; anything else is `unordered-property` |
+| `<` `<=` `>` `>=` | date ordering, at the precision the two sides share (**amended, #725** — see [Ordering, and the trap it was deferred over](#ordering-and-the-trap-it-was-deferred-over)); numeric ordering on `number` (**amended, RFC-0040**) | the property must be declared `date` or `number` and the operand must be one; anything else is `unordered-property` |
 | `?` | as `prop?`, whether the node carries a value for the property at all | none — it reads the node's shape, not a value, so every declared type answers it |
 
 Three further rules the naive version leaves undefined:
@@ -410,7 +410,8 @@ The trap is avoided by refusing rather than by widening. **The ordering operator
 `date` and rejected `unordered-property` on every other declared type, including one the corpus
 coined** — nothing here knows what order a coined type has, and guessing is the trap wearing a
 different name. If a numeric type is ever declared, this is the one rule that has to change, and
-it changes in one place.
+it changes in one place. *It was: RFC-0040 declared `number`, and the rule now reads `date` or
+`number`. The refusal on everything else stands.*
 
 Two rules the naive version leaves undefined:
 
@@ -884,7 +885,9 @@ class. See the open question for the trigger that would change this.
   not having the operators, and the deferral cost 41% of twelve corpora's nodes being
   write-checked and unreadable. See [Ordering, and the trap it was deferred
   over](#ordering-and-the-trap-it-was-deferred-over). If a numeric type is ever declared, the
-  rule to revisit is one condition in `check_pred`.
+  rule to revisit is one condition in `check_pred`. **RFC-0040 declared one, and it was that
+  condition** — plus the sentence saying how `=` reads a number, which this RFC had not
+  needed to state while every ordered value was a date.
 - **Anchor width.** Default `--anchor-k 1` is argued above but not measured. Lean: revisit once
   `bench` can report precision at k ∈ {1, 3, 5}; the answer is a measurement, not an opinion.
 - **The near-miss threshold.** The "within one edit of a declared name" diagnostic needs a

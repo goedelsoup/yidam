@@ -8,7 +8,7 @@ description: |
   That near-identity is what makes it useful: it is the reach where an instream flow right
   written at the tailwater can be checked against an independent record. [inference]
 properties:
-  length_km: "~24"
+  length_km: 24
   regulated: "yes — inherited from upstream"
   claim_tag: inference
 links:

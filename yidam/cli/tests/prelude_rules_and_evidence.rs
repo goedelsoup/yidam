@@ -126,7 +126,12 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// what happens to a file that declares no version — which is the category the paragraph above
 /// says no further splitting retires. Its three arguments are 364 further words in
 /// `directories.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a `[why]` link.
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_047), ("sadhana/root/AGENTS.md", 23_412)];
+/// **Both routes raised by 28 when `GRAPH.md` gained the `number` rule (#1030, RFC-0040).**
+/// 18,047 → 18,075 and 23,412 → 23,440. The delta is **28 words in that one file** — the
+/// sentence saying a number is unquoted and its unit is on the class — and the equality of the
+/// two deltas is again the control: `GRAPH.md` is on both lists. Its argument is 87 further
+/// words in `GRAPH.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a `[why]` link.
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_075), ("sadhana/root/AGENTS.md", 23_440)];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
 ///
@@ -168,7 +173,10 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_047), ("sadhana/root/A
 /// exactly, so nothing else on the path moved. A bootstrapping agent is charged for it because
 /// the directory is one a scaffold may create and a run does write: the alternative is finding
 /// out what `.yidam/computed/` is from a `doctor` warning.
-const BOOTSTRAP_CEILING: usize = 26_924;
+/// **Raised to 26,952 when `GRAPH.md` gained the `number` rule (#1030, RFC-0040).** The delta is
+/// **28 words in `GRAPH.md`**, the same 28 the two recurring routes moved by, and 26,924 + 28 is
+/// this figure exactly, so nothing else on the path moved.
+const BOOTSTRAP_CEILING: usize = 26_952;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///

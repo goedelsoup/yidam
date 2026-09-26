@@ -124,7 +124,7 @@
       "id": "property-type",
       "title": "Property value that contradicts its declared type",
       "severity": "error",
-      "rationale": "A typed field the ontology declares is read by type, not by eye. A `claim` field holding prose is counted as no claim at all; a `string` holding an unquoted number has lost its leading zeros before anything reads it. Types the corpus coins for itself are left alone — this reports only the ones it can test.",
+      "rationale": "A typed field the ontology declares is read by type, not by eye. A `claim` field holding prose is counted as no claim at all; a `string` holding an unquoted number has lost its leading zeros before anything reads it; a `number` holding a quoted one is text the compiled schema refuses and an ordering cannot compare. Types the corpus coins for itself are left alone — this reports only the ones it can test.",
       "escalation_eligible": false,
       "violations": []
     },

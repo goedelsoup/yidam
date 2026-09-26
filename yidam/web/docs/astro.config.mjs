@@ -174,6 +174,7 @@ const sidebar = [
       { slug: 'rfcs/0037-open-question-marker', label: '0037 · An open question is a node' },
       { slug: 'rfcs/0038-rules-and-evidence', label: '0038 · A rule is separable from its essay' },
       { slug: 'rfcs/0039-occasion-scoped-read', label: '0039 · A read is scoped to the occasion' },
+      { slug: 'rfcs/0040-numeric-property-type', label: '0040 · A numeric property type' },
     ],
   },
   {

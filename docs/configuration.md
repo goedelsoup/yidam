@@ -519,8 +519,9 @@ a class with no type is the ordinary case rather than debt. Name the type as Rus
 `HTTPServer` and `HttpServer` are two types and one kebab-case name, so nothing is derived.
 
 **A property `type:` the corpus coins is carried through unconstrained.** `string`, `text`,
-`date`, `ref` and `claim` are the types the tooling understands; anything else is accepted and
-left alone rather than rejected.
+`date`, `number`, `ref` and `claim` are the types the tooling understands; anything else is
+accepted and left alone rather than rejected. A `number` is written unquoted. Its unit, if it
+has one, is declared once on the property as `unit:` rather than in each value.
 
 ## Environment variables
 

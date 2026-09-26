@@ -1,0 +1,8 @@
+class: reach
+label: Mid
+description: >-
+  Nine kilometres exactly. Inside `length_km>=9` and outside `length_km>9`, which is the
+  difference between the two operators and nothing else.
+properties:
+  length_km: 9
+links: []

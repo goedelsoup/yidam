@@ -9,7 +9,7 @@ description: |
   everything it measures is an operating decision wearing the units of a natural process.
   [inference]
 properties:
-  length_km: "~6"
+  length_km: 6
   regulated: "yes — discharge set by outlet works"
   claim_tag: inference
 links:
