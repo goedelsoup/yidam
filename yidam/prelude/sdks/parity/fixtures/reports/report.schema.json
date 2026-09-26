@@ -993,6 +993,24 @@
       "type": "boolean",
       "description": "`status` and `index-status`. Whether `.yidam/index/` exists."
     },
+    "computed_files": {
+      "type": "integer",
+      "description": "`status --format json` only. Files under `.yidam/computed/` that declare themselves readable — a top-level `format_version` and a `signals:` list. Zero where the directory is absent, which is every corpus that declares no calculator."
+    },
+    "computed_signals": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "`status --format json` only. Every signal name those files carry, sorted and deduplicated. A name is repository-wide: two files claiming one name is a `doctor` failure, not a namespace."
+    },
+    "computed_nodes": {
+      "type": "integer",
+      "description": "`status --format json` only. Distinct nodes at least one signal is attached to, keyed in the reference grammar."
+    },
+    "computed_unowned": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "`status --format json` only. Computed files no capability's `writes` glob covers, so nothing in the manifest accounts for them."
+    },
     "active_phases": {
       "type": "integer",
       "description": "`status` only. Bounded work (`rigpa/*`, `phase/*`) not yet an ancestor of the baseline. Counted every `ma/*` and `rigpa/*` ref, and no `phase/*` ref, until the namespaces were typed."

@@ -12,7 +12,10 @@ pub(crate) mod decisions;
 mod diff;
 mod doctor;
 pub(crate) mod due;
-mod embed;
+// `pub(crate)` for one reason: `computed.rs` holds the list of names a signal may not take,
+// and its guard serializes an `EmbedRecord` to check that the list covers every field of it.
+// A guard that restated the field names would go on agreeing with itself as fields were added.
+pub(crate) mod embed;
 pub(crate) mod estimate;
 mod export;
 mod export_graphml;

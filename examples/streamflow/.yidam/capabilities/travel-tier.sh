@@ -150,6 +150,12 @@ END {
 
   printf "# Computed by the `travel-tier` calculator and committed by `yidam run`.\n"
   printf "# Recomputed from the corpus; edit the corpus, not this file.\n"
+  # The version of the signal-table contract, not of this calculator. `yidam` reads the rows
+  # under `signals:` and attaches them to the node each one names, and a file carrying no
+  # version is listed and not read — which is how a calculator that has not adopted the
+  # contract stays readable to a person and invisible to the embedder, rather than being
+  # guessed at. See RFC-0026 §4.1.
+  printf "format_version: 1\n"
   printf "method:\n"
   printf "  rule: |\n"
   printf "    A derived assertion travels only as far as the weakest claim beneath it. A\n"
@@ -164,7 +170,10 @@ END {
   printf "    `links_to_non_nodes` rather than dropped in silence. A node declaring no\n"
   printf "    `claim_tag` is `unmarked`, which ranks below `open`: where the evidence is\n"
   printf "    silent the answer is the floor.\n"
-  printf "nodes:\n"
+  # `signals:` and not `nodes:`, because the key is the contract rather than a label. Every
+  # row names a node in the reference grammar and every other field of it is a signal about
+  # that node — which is what makes `travels_as` reach a search rather than only a reader.
+  printf "signals:\n"
   for (i = 1; i <= n; i++) {
     id = nodes[i]
     printf "  - node: %s\n", id

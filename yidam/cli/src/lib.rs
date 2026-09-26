@@ -32,6 +32,10 @@ mod cmd;
 // Not feature-gated. `.yidam/config.toml` carries `[lint] escalate_after`, and `lint` is
 // in the light `reports` binary — gating this on `index` made the corpus's own declaration
 // unreadable in the build most repositories actually install.
+/// What a calculator worked out, read back (#1028). Private like [`corpus`]: nothing outside
+/// the crate reads a signal table today, and the dependency runs the same way — the library
+/// owns the record format and `embed`, `doctor` and `status` consume it.
+mod computed;
 mod config;
 /// What a corpus is made of (#924). Private, like [`cmd`]: nothing outside the crate reads
 /// a [`corpus::Node`] today, and the point of the module is which way the dependency runs —

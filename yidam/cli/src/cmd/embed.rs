@@ -68,6 +68,24 @@ pub struct EmbedRecord {
     /// `node` or `source`. Consumers that only want the corpus can filter on it; older
     /// ones ignore it, which is why the split is a new field rather than a changed `class`.
     pub kind: String,
+    /// What this corpus's calculators worked out about this node — see [`crate::computed`].
+    ///
+    /// **Additive, and absent where there is none.** `skip_serializing_if` is not tidiness: a
+    /// corpus with no `.yidam/computed/` writes byte-identical records to the ones it wrote
+    /// before this field existed, so adopting the reader does not invalidate an index it has
+    /// already built. A corpus that *does* hold computed files sees its records change, which
+    /// is the change rather than a side effect of it — the same rule `retrievable` states about
+    /// a corpus that flags a property.
+    ///
+    /// Not in `text`, and that is the decision. Concatenating `verified` into the embedded
+    /// prose would make a tier a thing a sentence embedding is nudged by rather than a thing a
+    /// query can *filter on*, and it would move every existing node's vector. A signal is
+    /// structured metadata about the node; it is carried as structure.
+    ///
+    /// A source record never carries one: a signal is keyed to a corpus node, and a catalog
+    /// entry is not one.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub signals: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 /// Compose the embedding target text for a catalog entry.
@@ -330,6 +348,17 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
 
     let prose_fields = crate::prose::ProseFields::load(&corpus_dir);
     let retrievable = crate::retrievable::Retrievable::load(&corpus_dir);
+    // What this corpus's calculators worked out, read once for the whole walk (#1028). Before
+    // this there was no reader at all: a calculator could commit a derived quantity under the
+    // orchestrator's guarantees and nothing in the toolkit could see the file it landed in.
+    //
+    // Its `problems` are printed here rather than raised, because a malformed computed file is
+    // not a reason to refuse to embed a corpus, and `yidam doctor` is where the question is
+    // asked as a question.
+    let signals = crate::computed::Signals::load(&root);
+    for problem in &signals.problems {
+        eprintln!("[warn] {problem}");
+    }
     // One read of the corpus, where this loop used to be the sixth place with its own copy
     // of read-then-`serde_yaml::from_str` (#925). A malformed file is still skipped with a
     // warning: `Node::malformed` carries the same `serde_yaml` message this printed.
@@ -401,6 +430,7 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
             text,
             commit: commit.clone(),
             kind: KIND_NODE.to_string(),
+            signals: signals.for_node(&node.rel),
         };
 
         if opts.dry_run {
@@ -460,6 +490,7 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
             text: composed,
             commit: commit.clone(),
             kind: KIND_SOURCE.to_string(),
+            signals: Default::default(),
         };
         if opts.dry_run {
             footprints.observe(&corpus, &commit, &record);
@@ -474,6 +505,13 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
         source_count += 1;
     }
 
+    if signals.nodes() > 0 {
+        println!(
+            "  {} node(s) carry computed signal(s): {}",
+            signals.nodes(),
+            signals.names().join(", ")
+        );
+    }
     if source_count > 0 {
         println!("  {source_count} catalog source(s)");
     } else if !opts.catalog {

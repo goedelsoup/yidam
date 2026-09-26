@@ -575,6 +575,44 @@ at all.
 One step per invocation: dependency order, freshness and `--dry-run` are not built yet.
 [RFC-0026](rfcs/0026-orchestrator-layer.md) has the argument for what a run may author.
 
+### What a run computes, and how it reaches a search
+
+A calculator writes into `.yidam/computed/`, which is committed. Nothing read it until #1028. A
+corpus could compute how far each assertion may travel, and commit the answer. It had no way to
+ask a search for the nodes that may leave the repository.
+
+A file there is read as a **signal table** when it says it is one. Saying so is a top-level
+`format_version: 1` and a `signals:` list. Every row of that list names a node.
+
+```yaml
+format_version: 1
+signals:
+  - node: gage/canyon-outlet
+    travels_as: open
+    downgraded: true
+```
+
+Every other key in a row is a signal about that node. `yidam embed` attaches it to that node's
+embedding record as a `signals` object. The object is absent where there is none. A corpus that
+computes nothing writes the records it wrote before.
+
+A signal is deliberately not folded into the embedded text. A tier a query can *filter* on is
+worth more than one a sentence embedding is nudged by. Concatenating it would also move every
+vector already built. Index columns are a separate decision and are not made here.
+
+Rows are keyed in the reference grammar and in nothing else. That is `gage/canyon-outlet`,
+`node/gage/canyon-outlet`, or the absolute `yidam://<corpus>/node/<path>` form naming this corpus.
+A revision pin is refused rather than ignored. A signal computed against a past commit is not a
+signal about the node as it stands. A signal name is repository-wide. Two files claiming one name
+is refused with both named, rather than resolved in favour of either.
+
+A file with no `format_version` is listed and not read. A calculator whose output is a report
+rather than a table stays legal. `yidam doctor`'s `computed` check reports what is there, and what
+no capability declares it writes. It also reports whether the answer still stands. That includes
+the window right after a run, when the files are at HEAD and not in your checkout. `yidam status
+--format json` carries `computed_files`, `computed_signals`, `computed_nodes` and
+`computed_unowned`.
+
 ### A phase carries what it began from, and says so after an interruption
 
 [PHASES.md](../yidam/prelude/PHASES.md) specifies a phase as a branch, a declared input state,

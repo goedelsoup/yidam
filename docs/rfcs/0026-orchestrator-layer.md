@@ -23,6 +23,10 @@
   and **#476**, asking a `tonpa` pin a question. An `Accepted` status would have been the
   truer reading of those two and a false one about a released binary, and the release is the
   half a reader can check.
+- **Amended 2026-09-26 (#1028):** §4.2 states the read half of `writes` — what a
+  calculator puts in `.yidam/computed/` and how a reader reaches it. `writes` governed the
+  executor from the first commit and governed nothing else; two calculators wrote there for
+  weeks and no retrieval surface could see a word of it.
 - **Downstream reference case:** none yet. The first consumer is `examples/streamflow`, by
   construction — see "Why the first thing built is not the manifest".
 
@@ -498,6 +502,81 @@ No `.yidam/` config file has ever been a parity function. The ten are document a
 runner that reads it. RFC-0018 established that a new surface is a CLI surface and not a fourth
 parity function, and RFC-0024 followed it and declared *"no parity-surface change"* in its header.
 Admitting this one would mean three implementations that must agree, of a file no SDK consumes.
+
+### 4.2 — What a calculator writes is read back by declaration
+
+*Amended 2026-09-26 (#1028).*
+
+`writes` is load-bearing on the way **in** — §4 says so, and the executor refuses a step that wrote
+outside its declaration. It was nothing at all on the way **out**. `examples/streamflow` declared
+two calculators writing `.yidam/computed/**`, both ran, both committed, and no surface in the CLI
+opened the directory: `paths.rs` had no helper for it, `doctor` did not ask about it, and `embed`
+walked past it. A computed answer could be produced, receipted and reviewed, and still not reach a
+search. That is the failure shape in "Why the first thing built is not the manifest", arrived at
+from the other end — not a surface with no consumer, but a **product** with no consumer.
+
+**A file declares its own readability rather than being guessed at.** A top-level
+`format_version: 1` and a `signals:` list whose rows each carry a `node:`:
+
+```yaml
+format_version: 1
+method:
+  rule: |
+    A derived assertion travels only as far as the weakest claim beneath it.
+signals:
+  - node: gage/canyon-outlet
+    travels_as: open
+    downgraded: true
+```
+
+Every other key in a row is a signal about that node. Everything outside `signals:` is not read —
+`method:` above is a calculator's account of itself, and a summary table beside it stays legal. A
+file carrying no `format_version` is **listed and not read**, so a calculator whose output is a
+report rather than a table is visible in `doctor` and silently ignored by `embed`, instead of
+having to be either renamed or parsed on a guess.
+
+Guessing was the alternative, and it was tried first: streamflow's disclosure calculator wrote a
+`tiers:` block, and a reader inferring structure from shape read its three tier names as three
+nodes. A wrong answer that parses is worse here than no answer, because the signal it invents is
+attached to a node reference nothing else in the corpus uses.
+
+**A row is keyed in the reference grammar (RFC-0032) and in nothing else.** `gage/canyon-outlet`,
+`node/gage/canyon-outlet`, or the absolute form naming this corpus. The alternatives were a
+class-scoped id and a bare filename, and the reason to refuse both is that either one is a second
+permanent name for a node the corpus already names one way. A revision pin is refused rather than
+accepted and ignored: a signal computed at a past commit is not a signal about the node as it
+stands, and ignoring the pin would attach it as though it were.
+
+**A signal name is repository-wide, and a collision is refused naming both files.** The rejected
+alternative is a per-file namespace, which sounds safer and is worse: it makes a calculator's
+filename load-bearing, so renaming the file renames every signal, and it gives each signal a second
+permanent name at the one place — a query filter — where a short one is the whole value. Two files
+claiming `tier` is one word meaning two things; `doctor` says so and names them.
+
+**Validation is against the manifest, not against the directory.** A computed file is attributed to
+the capability whose `writes` covers its path, and a file no declaration covers is reported. That
+follows §6.1 exactly — the correspondence is declared, never inferred — and it is what makes
+"which calculator asserted this, and has it run since its inputs moved" answerable from the
+committed record rather than from a filename convention.
+
+**Freshness is the receipt, read back.** §6 says freshness is `due`'s clocks and not a second
+mechanism; this adds no third one. `doctor` reads the receipt committed at HEAD, recomputes the
+input state from the working tree, and reports a step whose inputs have moved. It reads the receipt
+from **HEAD** and not from disk for a reason found by running the command: §5's executor touches
+neither the working tree nor the index, so between a run and the `git restore` that syncs a
+checkout, a receipt on disk is the *previous* one. Reading disk made `doctor` answer *it has never
+run against this corpus* in exactly the window where a run had just happened — and the honest answer
+in that window is the other one: the result stands, the files are at HEAD and not in your checkout.
+
+**Where a signal surfaces, and where it deliberately does not.** `yidam embed` attaches a node's
+signals to its embedding record as a `signals` object, **absent** where there is none — additive, so
+an index already built stays valid and a corpus computing nothing is byte-identical to before.
+Signals are not folded into the embedded text: a boolean concatenated into prose is a token the
+model has no use for and a fact a filter can no longer read. `doctor` gains a `computed` question
+and `status --format json` the counts. What is **not** here is an index column, and that is
+deliberate rather than pending: #1029 owns the local index schema, and `index-push` builds its
+remote metadata from the local rows rather than from the embedding JSON, so filterable metadata
+follows that decision instead of duplicating it.
 
 ### 5 — The executor writes the way `propose` already writes
 
