@@ -56,13 +56,29 @@ fn ci_yml() -> String {
     code_only(&read(".github/workflows/ci.yml"), "#")
 }
 
-/// Every `cargo nextest run …` command line in `mise.toml`.
+/// Does this command line run the suite through nextest?
+///
+/// Two spellings, and for three years this file only knew one. `cargo llvm-cov … nextest` is
+/// the same runner with counters, and since #1013 it is the *only* thing that executes the
+/// CLI suite in `ci (cli)` — so a scan for `cargo nextest run` alone would have stopped
+/// covering the run that writes the JUnit every summary in that job renders.
+/// `nextest` as a whole token, because every one of these lines also carries
+/// `--config-file .config/nextest.toml`. A `contains("nextest")` is therefore true of
+/// `cargo llvm-cov --no-report test --config-file .config/nextest.toml` — a line that runs the
+/// suite through *cargo test*, writes no JUnit, and would have read here as a nextest run. Found
+/// by mutating the subcommand away and watching this stay green.
+fn runs_nextest(line: &str) -> bool {
+    line.contains("cargo nextest run")
+        || (line.contains("llvm-cov") && line.split_whitespace().any(|token| token == "nextest"))
+}
+
+/// Every command line in `mise.toml` that runs the suite through nextest, instrumented or not.
 fn nextest_lines() -> Vec<String> {
     let text = mise_toml();
     let found: Vec<String> = text
         .lines()
         .map(str::trim)
-        .filter(|l| l.contains("cargo nextest run"))
+        .filter(|l| runs_nextest(l))
         .map(|l| {
             l.trim_matches(|c| c == '"' || c == ',' || c == ' ')
                 .to_string()
@@ -70,10 +86,19 @@ fn nextest_lines() -> Vec<String> {
         .collect();
     assert!(
         !found.is_empty(),
-        "no `cargo nextest run` in mise.toml. Either the gates went back to `cargo test`, \
+        "no nextest invocation in mise.toml. Either the gates went back to `cargo test`, \
          which writes no JUnit and leaves every summary step with nothing to render, or this \
          parser is reading the wrong thing — and both make every assertion below vacuous."
     );
+    // Both spellings are present, and each is a separate hole when it goes missing: the plain
+    // one is the local gate and the instrumented one is what CI runs.
+    for spelling in ["cargo nextest run", "llvm-cov"] {
+        assert!(
+            found.iter().any(|l| l.contains(spelling)),
+            "no nextest line in mise.toml contains `{spelling}`; whichever assertion below \
+             was meant to cover that form now covers nothing. Lines found: {found:?}"
+        );
+    }
     found
 }
 
@@ -195,7 +220,7 @@ fn every_job_that_runs_tests_also_renders_a_summary() {
     let test_tasks: Vec<String> = mise_toml()
         .split("[tasks.")
         .skip(1)
-        .filter(|block| block.contains("cargo nextest run") || block.contains("npm run test"))
+        .filter(|block| block.lines().any(runs_nextest) || block.contains("npm run test"))
         .filter_map(|block| block.lines().next())
         .map(|l| l.trim_end_matches(']').to_string())
         .collect();
