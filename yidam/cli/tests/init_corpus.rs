@@ -45,9 +45,27 @@ fn run(dir: &Path, args: &[&str]) -> Run {
 }
 
 /// A git repository with nothing in it — the state `init` is for, and the only one.
+///
+/// The identity is configured here rather than inherited. A developer's machine has one and a
+/// runner does not, so for as long as only the developer ran this, the fixture was reading the
+/// host's `user.name` — and `the_catalog_directory_survives_a_commit`, the one test in this
+/// file that commits, passed locally and failed on CI with *"Author identity unknown"*. Every
+/// other committing fixture in this suite sets it the same way, and `src/git/fixture.rs` does
+/// on the library side.
+///
+/// It is deliberately not set once in `common::git::spawn` as an environment variable, which
+/// would close this for every fixture at once: `mcp_act_tier.rs` asserts that a commit's
+/// author and committer *differ* — the split RFC-0029 §2.2 rests on — and an inherited
+/// identity there would flatten the two into one name.
 fn empty_repo() -> tempfile::TempDir {
     let tmp = tempfile::tempdir().unwrap();
-    common::git::git(tmp.path(), &["init", "-q"]);
+    for args in [
+        vec!["init", "-q"],
+        vec!["config", "user.email", "example@yidam.test"],
+        vec!["config", "user.name", "Example"],
+    ] {
+        common::git::git(tmp.path(), &args);
+    }
     tmp
 }
 
