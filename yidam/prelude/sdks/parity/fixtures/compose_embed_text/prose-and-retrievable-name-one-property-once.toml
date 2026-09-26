@@ -1,0 +1,15 @@
+function = "compose_embed_text"
+description = "Prose is already retrievable, so a class need not flag both — and a property that is flagged both is emitted once rather than twice, which is what the qualified key makes exact"
+
+[input]
+content = """
+class: measure
+properties:
+  method: How it was computed.
+"""
+prose_keys = ["description"]
+prose_properties = ["method"]
+retrievable_properties = ["method"]
+
+[expected]
+text = "How it was computed."

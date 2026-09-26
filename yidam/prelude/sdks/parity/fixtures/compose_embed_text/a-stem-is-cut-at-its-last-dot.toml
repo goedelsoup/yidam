@@ -1,0 +1,18 @@
+function = "compose_embed_text"
+description = "The stem rule, written out rather than delegated to a path library: the segment after the last slash, cut at its LAST dot unless that dot is the first character, with hyphens read as spaces. A naive split on the first dot answers `plan` where the contract says `plan.v2`, and passes every single-extension fixture"
+
+[input]
+content = """
+class: plan
+label: Revision two
+links:
+  - target: ../plan/plan.v2.yml
+  - target: ../note/no-extension
+  - target: ../note/.hidden
+"""
+prose_keys = ["description"]
+prose_properties = []
+retrievable_properties = []
+
+[expected]
+text = "Revision two Related: plan.v2, no extension, .hidden."

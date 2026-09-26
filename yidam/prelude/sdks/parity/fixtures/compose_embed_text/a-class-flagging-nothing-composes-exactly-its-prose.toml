@@ -1,0 +1,18 @@
+function = "compose_embed_text"
+description = "Absent means false — the same node with nothing flagged composes what every corpus written before the flag existed composed, so adopting the field does not silently re-embed a corpus that never used it"
+
+[input]
+content = """
+class: gage
+label: Tailwater gage
+description: The station below the impoundment.
+properties:
+  parameter: "00060"
+  units: cubic feet per second
+"""
+prose_keys = ["description"]
+prose_properties = []
+retrievable_properties = []
+
+[expected]
+text = "Tailwater gage The station below the impoundment."

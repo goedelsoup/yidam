@@ -1,0 +1,20 @@
+function = "compose_embed_text"
+description = "Both lists are taken in the order the caller resolved them and the two are never interleaved — prose first, then the flagged properties. Re-sorting either here would make what a node is embedded as depend on a rule nobody wrote down"
+
+[input]
+content = """
+class: study
+label: Panel study
+summary: Second.
+description: First.
+findings: Third.
+properties:
+  station: "09380000"
+  basin: "14"
+"""
+prose_keys = ["description", "summary", "findings"]
+prose_properties = []
+retrievable_properties = ["station", "basin"]
+
+[expected]
+text = "Panel study First.\nSecond.\nThird.\n09380000\n14"

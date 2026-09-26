@@ -1,0 +1,19 @@
+function = "compose_embed_text"
+description = "#717 — a property flagged `retrievable` is in the node's embedding although it is not prose, and a property nobody flagged is not; an identifier and a unit are the strings a query is most likely to be typed in"
+
+[input]
+content = """
+class: gage
+label: Tailwater gage
+description: The station below the impoundment.
+properties:
+  parameter: "00060"
+  units: cubic feet per second
+  claim_tag: inference
+"""
+prose_keys = ["description"]
+prose_properties = []
+retrievable_properties = ["parameter", "units"]
+
+[expected]
+text = "Tailwater gage The station below the impoundment.\n00060\ncubic feet per second"

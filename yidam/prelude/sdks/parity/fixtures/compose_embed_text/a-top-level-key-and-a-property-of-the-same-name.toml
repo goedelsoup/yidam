@@ -1,0 +1,16 @@
+function = "compose_embed_text"
+description = "Nothing forbids a corpus writing a top-level `parameter` and a property `parameter`; they are two things, and the de-duplication against prose must not collide them"
+
+[input]
+content = """
+class: measure
+parameter: at the top
+properties:
+  parameter: "00060"
+"""
+prose_keys = ["description", "parameter"]
+prose_properties = []
+retrievable_properties = ["parameter"]
+
+[expected]
+text = "at the top\n00060"

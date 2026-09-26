@@ -1,0 +1,20 @@
+function = "compose_embed_text"
+description = "The three parts in order — label, then everything the node says, then the names of the things it points at — joined by single spaces"
+
+[input]
+content = """
+class: gage
+label: Tailwater gage
+description: The station below the impoundment.
+links:
+  - target: ../reach/lower-canyon.yml
+    relationship: measures
+  - target: ../facility/impoundment.yml
+    relationship: below
+"""
+prose_keys = ["description"]
+prose_properties = []
+retrievable_properties = []
+
+[expected]
+text = "Tailwater gage The station below the impoundment. Related: lower canyon, impoundment."

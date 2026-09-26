@@ -1,0 +1,18 @@
+function = "compose_embed_text"
+description = "A flagged property the node omits, writes blank, or writes as a list yields nothing rather than an empty line in the vector — a value holding a list is a real state and not something to guess a rendering for"
+
+[input]
+content = """
+class: measure
+description: Only this.
+properties:
+  codes:
+    - "00060"
+  blank: "   "
+"""
+prose_keys = ["description"]
+prose_properties = []
+retrievable_properties = ["codes", "blank", "never-written"]
+
+[expected]
+text = "Only this."

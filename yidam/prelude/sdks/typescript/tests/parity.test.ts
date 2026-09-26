@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { parse } from 'smol-toml'
 import { describe, it, expect } from 'vitest'
 import { parseInstance, instanceToJson } from '../src/corpus.ts'
+import { composeEmbedText, type EmbedFields } from '../src/embed.ts'
 import { classifyCommit, isRecognizedVerb } from '../src/git.ts'
 import { findReachable, findCitations, type GraphEdge } from '../src/graph.ts'
 import { scanMarkers, updateRegen } from '../src/markers.ts'
@@ -274,6 +275,37 @@ describe('parity: a rendered reference parses back to itself', () => {
       const want = referenceOf(inp)
       const rendered = renderReference(want)
       expect(parseReference(rendered)).toEqual(want)
+    })
+  }
+})
+
+// ── compose_embed_text ────────────────────────────────────────────────────────
+//
+// All three field lists are required of every fixture, and that is deliberate. `EmbedFields`
+// exists as a named shape rather than three positional arrays so a caller cannot ask for one
+// axis and silently miss another — the mistake this repository's own embedder made until #746
+// and again until #717 — and a fixture format where an absent list meant "empty" would let the
+// same omission back in one layer out.
+
+describe('parity: compose_embed_text', () => {
+  const fixtures = loadFixtures('compose_embed_text')
+  it('has fixtures', () => expect(fixtures.length).toBeGreaterThan(0))
+
+  for (const fx of fixtures) {
+    const inp = fx['input'] as Record<string, unknown>
+    const exp = fx['expected'] as Record<string, string>
+    it(fx['description'] as string, () => {
+      const list = (key: string): string[] => {
+        const value = inp[key]
+        if (!Array.isArray(value)) throw new Error(`[input] declares no \`${key}\``)
+        return value as string[]
+      }
+      const fields: EmbedFields = {
+        prose_keys: list('prose_keys'),
+        prose_properties: list('prose_properties'),
+        retrievable_properties: list('retrievable_properties'),
+      }
+      expect(composeEmbedText(parseInstance(inp['content'] as string), fields)).toBe(exp['text'])
     })
   }
 })

@@ -476,6 +476,15 @@ pub fn load_seeds(dir: &Path) -> Result<Vec<SamudayaSeed>>
 pub fn parse_markers(text: &str) -> Vec<Marker>
 pub fn update_regen(text: &str, command: &str, new_content: &str) -> String
 
+// yidam_core::prose — what a node says, given the keys its class declared
+pub const ALWAYS: &str = "description";
+pub fn of<'a>(inst: &'a CorpusInstance, keys: &[String], properties: &[String]) -> Vec<(String, &'a str)>
+pub fn text(inst: &CorpusInstance, keys: &[String], properties: &[String]) -> String
+
+// yidam_core::embed — what a node is embedded as
+pub struct EmbedFields { pub prose_keys, pub prose_properties, pub retrievable_properties }
+pub fn compose_embed_text(inst: &CorpusInstance, fields: &EmbedFields) -> String
+
 // yidam_core::index
 pub struct IndexStatus { pub backend, pub model, pub indexed, pub stale, pub p50, pub p95 }
 pub struct ScoredNode { pub node: CorpusNode, pub score: f32 }
@@ -532,6 +541,15 @@ export type Marker = TemplateMarker | RegenMarker
 export function parseMarkers(text: string): Marker[]
 export function updateRegen(text: string, command: string, newContent: string): string
 export function templateSections(text: string): TemplateMarker[]
+
+// @yidam/core/prose — what a node says, given the keys its class declared
+export const ALWAYS = 'description'
+export function proseOf(inst: CorpusInstance, keys: string[], properties: string[]): [string, string][]
+export function proseText(inst: CorpusInstance, keys: string[], properties: string[]): string
+
+// @yidam/core/embed — what a node is embedded as
+export interface EmbedFields { prose_keys, prose_properties, retrievable_properties }
+export function composeEmbedText(inst: CorpusInstance, fields: EmbedFields): string
 
 // @yidam/core/agent
 // The distinctive TypeScript layer: semantic context assembly
@@ -601,15 +619,30 @@ export function exportFeed<T>(
 
 ## Python SDK (`python/`)
 
-*The machine learning layer. Where nodes become vectors and corpus becomes a searchable space.*
+*The parity surface in Python, and the runner that holds an embedding runtime to the same
+config the index was built under.*
 
 **Package**: `yidam-core` — not published. Same reasoning as the TypeScript SDK above;
 PyPI was considered and reversed. See VERSIONING.md, Layer 2.
 
-Python is where the corpus is transformed. This SDK does not merely provide bindings to the
-Rust model — it is the primary implementation of the feature engineering pipeline and the
-index construction layer. LanceDB is easier to operate from Python; embedding models live
-here by ecosystem gravity.
+**This section used to promise a machine-learning layer, and RFC-0007 retracted it (#1031).**
+It typed `yidam_core.features`, `yidam_core.index` and `yidam_core.pipeline` — `embed_node`,
+`embed_corpus`, `build_index`, `update_index`, `query`, `index_status`, `sync_index` — and
+assigned Python ownership of embedding and index construction: *"the only place raw text →
+vectors happens"*, *"Rust can query but Python builds"*. None of it was ever written, and a
+promise in a README is what the first downstream consumer builds against: BOSC read this
+section, found the hole, and wrote 285 lines of LanceDB and sentence-transformers itself —
+including its own answer to *which fields of a node carry meaning*, which is the judgement the
+two implementations then disagreed on.
+
+What replaced the promise is smaller and is real. The half that had to be shared was never the
+model, it was the **text** — and that is `compose_embed_text`, a parity function all three SDKs
+implement identically (see [the parity surface](#the-parity-surface)). Building an index stays
+in Rust, where the weights are: `yidam index-build`, `yidam index-verify`, `yidam retrieve`.
+The retraction is measured rather than assumed — across 180 derived-repo sessions,
+`index-build` was invoked 0 times and 0 of 16 corpora hold a local `.yidam/index/` — and
+RFC-0007's open questions record what a future Python index layer would have to answer first,
+so the day it is wanted the question is waiting rather than rediscovered.
 
 ### API surface
 
@@ -620,75 +653,53 @@ def instance_to_json(inst: CorpusInstance) -> dict: ...
 # `CorpusInstance.cls`, because `class` is a Python keyword. The wire name is `class`.
 
 # yidam_core.git
-def classify_commit(message: str) -> CommitEvent: ...
+def classify_commit(commit_hash: str, message: str) -> CommitEvent: ...
+def is_recognized_verb(word: str) -> bool: ...
+
+# yidam_core.graph
+def find_reachable(edges: list[GraphEdge], start: str) -> list[str]: ...
+def find_citations(edges: list[GraphEdge], target: str) -> list[str]: ...
 
 # yidam_core.markers
-def parse_markers(text: str) -> list[Marker]: ...
+def parse_markers(text: str) -> MarkerScan: ...
 def update_regen(text: str, command: str, new_content: str) -> str: ...
 
-# yidam_core.features — the Python-native layer
-def embed_node(
-    node: CorpusNode,
-    model: str,               # e.g. "sentence-transformers/all-MiniLM-L6-v2"
-    include_claims: bool = True,
-) -> np.ndarray: ...
+# yidam_core.ontology
+def compile_class_schema(text: str) -> dict: ...
 
-def embed_corpus(
-    graph: list[CorpusNode],
-    model: str,
-    batch_size: int = 64,
-) -> EmbeddingSet: ...
+# yidam_core.uri
+def parse_reference(text: str) -> Reference | None: ...
+def render_reference(ref: Reference) -> str: ...
+def reference_conforms(ref: Reference) -> bool: ...
 
-class EmbeddingSet:
-    nodes: list[CorpusNode]
-    vectors: np.ndarray       # shape: (n_nodes, embedding_dim)
-    model: str
-    embedded_at: datetime
+# yidam_core.prose — what a node says, given the keys its class declared
+ALWAYS = "description"
+def of(inst, keys: list[str], properties: list[str]) -> list[tuple[str, str]]: ...
+def text(inst, keys: list[str], properties: list[str]) -> str: ...
 
-# yidam_core.index — LanceDB integration
-def build_index(
-    embeddings: EmbeddingSet,
-    index_path: str,
-) -> None: ...
+# yidam_core.embed — what a node is embedded as
+@dataclass
+class EmbedFields:
+    prose_keys: list[str]
+    prose_properties: list[str]
+    retrievable_properties: list[str]
 
-def update_index(
-    new_nodes: list[CorpusNode],
-    index_path: str,
-    model: str,
-) -> IndexUpdateResult: ...
-
-def query(
-    client: lancedb.LanceTable,
-    query: str,
-    model: str,
-    k: int = 12,
-) -> list[ScoredNode]: ...
-
-def index_status(index_path: str) -> IndexStatus: ...
-
-# yidam_core.pipeline — batch corpus operations
-# Higher-level: coordinate embed + index + status in one pass
-def sync_index(
-    corpus_root: str,
-    index_path: str,
-    model: str,
-    force: bool = False,
-) -> SyncResult: ...
+def compose_embed_text(inst, fields: EmbedFields) -> str: ...
 ```
 
 ### Key dependencies
-- `sentence-transformers` — local embedding generation (no API call required)
-- `lancedb` — embedded vector database (same db, Python client)
-- `numpy` — vector operations
-- `marko` or `mistletoe` — markdown parsing (for parity surface)
-- `tomli` / `tomllib` — parity fixture I/O
+- `pyyaml` — the one runtime dependency; the ontology compiler and the instance parser read YAML
+- `tomllib` — parity fixture I/O (standard library since 3.11)
+- `sentence-transformers` — the optional `embed` extra, scoped to
+  `tests/parity/test_embed_config.py`. An embedding runtime is a *test subject* here, not a
+  capability the package offers.
 
 ### What Python owns that others don't
-- `embed_node` / `embed_corpus` — the only place raw text → vectors happens
-- `build_index` / `update_index` — index lifecycle; Rust can query but Python builds
-- `sync_index` — the high-level pipeline: detect stale nodes, embed, update, report
-- Statistical analysis over extracted values (assessment phases, hypothesis testing)
-- `scikit-learn` integration for structured feature vectors from calculated domain data
+Nothing, and that is the point of the retraction above. Python is a peer implementation of the
+parity surface, held to the same fixtures as Rust and TypeScript. Its one asymmetry is the
+`embed_config` runner: a Python embedding runtime is the one that can most easily be pointed at
+weights other than the index's, so it is the one the fixture exists to catch — the
+degrade-don't-re-embed doctrine, checked where it is most likely to be violated.
 
 ---
 
