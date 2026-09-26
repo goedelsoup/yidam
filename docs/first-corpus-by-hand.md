@@ -15,6 +15,11 @@ talking.
 **What is not here.** No `.yidam.toml`, no REGEN blocks, no lint baseline, no decision
 records. Each is optional, and each is easier to add once you have something to add it to.
 
+**If you want the skeleton without typing it,** run `yidam init` in a git repository. It
+writes this same shape with placeholders, and every placeholder says what to replace it with.
+This page is then the explanation of what it produced: the keys, and why each one is there.
+Read it either way — the command saves the typing, not the understanding.
+
 ---
 
 ## What a corpus is, as files
@@ -94,9 +99,9 @@ Three things are being decided here, and only the first looks like a decision.
 `in` on the concept. So the link is written in the gauge's file, and the concept gets it
 without being edited. Declaring it `out` on both would let two files disagree.
 
-**A property typed `claim` is an evidence tag**, not a string that happens to hold one. It is
-what makes a claim countable. Untyped, the tag is prose about the standing rather than the
-standing.
+**A property typed `claim` is an evidence tag**, not a string that happens to hold one. The
+declaration is what makes the bare value `verified` count. Untyped, it is an ordinary string.
+A bracketed `[verified]` in the prose is counted either way.
 
 **An edge you do not declare is a broken link.** That is the whole of what a class is for.
 `relates-to` between two concepts is licensed, and anything else fails the gate.

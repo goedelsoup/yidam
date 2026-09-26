@@ -156,8 +156,10 @@ pub fn require_yidam_repo(root: &Path) -> Result<()> {
     if in_git {
         anyhow::bail!(
             "not a yidam repository: {} has no .yidam/ directory\n  \
-             This is a git repository, but not one yidam bootstrapped. Derive one with \
-             `yidam clone <target>`, or overlay this one with `yidam overlay .`.",
+             This is a git repository, but not one yidam bootstrapped. Write the smallest \
+             corpus here with `yidam init`, then edit what it wrote. (`yidam clone` and \
+             `yidam overlay` copy the template out of a yidam checkout, so they only run \
+             from one — which is why they are not the first suggestion.)",
             root.display()
         )
     }

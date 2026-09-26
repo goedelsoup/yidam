@@ -32,6 +32,7 @@ pub(crate) mod graph;
 // caught this on a pull request does not exist: PR CI never compiles `--features index`.
 pub(crate) mod index_build;
 mod index_verify;
+mod init;
 // `vector-read`, not `index`: pushing an index decodes one and never builds one, so it needs
 // neither lancedb nor protoc. `s3-vectors` is the transport, and it is in the default set.
 #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
@@ -103,6 +104,7 @@ pub use index_build::index_build;
 #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
 pub use index_push::index_push;
 pub use index_verify::index_verify;
+pub use init::{init, DEFAULT_CLASSES};
 pub use kuten::{run as run_kuten, KutenCommand};
 pub use lint::{
     citation_label_not_cited, citation_range_stated_twice, collect_line_citations,

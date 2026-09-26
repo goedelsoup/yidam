@@ -42,8 +42,9 @@
 //! existence and no-duplicate gates already cover it. Its order is [`GROUPS`]' own, which
 //! is why that order is by what a reader wants first.
 //!
-//! A short list is only worth having while it is short, and nothing about printing thirteen
-//! rows resists a fourteenth. [`tests::the_short_help_stays_short`] is the resistance.
+//! A short list is only worth having while it is short, and nothing about printing fourteen
+//! rows resists a fifteenth. [`tests::the_short_help_stays_short`] is the resistance, and it
+//! is now at its ceiling: the next command to claim a row has to say which comes off.
 
 use std::fmt::Write as _;
 
@@ -281,7 +282,18 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         title: "Deriving and maintaining a repository",
-        commands: &[w("clone").short(), w("overlay"), w("backfill"), w("tonpa")],
+        // `init` before `clone`, because it is the one of the two that works where the
+        // reader is standing. `clone` and `overlay` copy the template out of the checkout
+        // the shell is in, so in somebody's own project neither does anything (#913,
+        // #1033) — and that was the whole of #1035: the three routes to a first corpus
+        // were two commands that only run here and a documentation page.
+        commands: &[
+            w("init").short(),
+            w("clone").short(),
+            w("overlay"),
+            w("backfill"),
+            w("tonpa"),
+        ],
     },
 ];
 
