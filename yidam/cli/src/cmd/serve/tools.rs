@@ -388,6 +388,15 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
         .ok_or("missing required argument: query")?;
     let k = args["k"].as_u64().unwrap_or(5).max(1) as usize;
     let class_filter = args["class"].as_str();
+    // A predicate over declared date and number properties, in `query`'s grammar (#1029).
+    // Read before anything runs and checked after the names are: a `where` naming an
+    // undeclared property is the caller being wrong in the same way a `class` naming an
+    // undeclared class is, and is reported the same way, under `query`'s code for it.
+    let where_text = match &args["where"] {
+        Value::Null => None,
+        Value::String(text) => Some(text.as_str()),
+        _ => return Err("where must be a string".to_string()),
+    };
 
     // Validated BEFORE anything is searched. A filter naming no declared class cannot produce
     // a true negative, so running the search and reporting the emptiness would be reporting a
@@ -430,26 +439,84 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
             }
         }
     }
+    let bound = match where_text {
+        None => None,
+        Some(text) => match super::bound::Bound::parse(state, text, class_filter) {
+            Ok(bound) => Some(bound),
+            Err(rejection) => {
+                return Ok(body(
+                    state.retrieval.degraded_reason(),
+                    Vec::new(),
+                    Some(rejection.to_json()),
+                    None,
+                    false,
+                ))
+            }
+        },
+    };
 
     #[cfg(feature = "vector-read")]
     {
-        // One filter, whichever backend answers it. The class test is the whole of what this
-        // tool filters on, and it is the pushable half — a remote index applies it during the
-        // search rather than after, so `k` counts rows the caller asked for either way. There
-        // is no residual here; `retrieve` returns what the index holds.
-        let filter = crate::retrieval::Filter::class(class_filter);
+        // One filter, whichever backend answers it. The class test is the pushable half — a
+        // remote index applies it during the search rather than after, so `k` counts rows
+        // the caller asked for either way. A `where` narrows the classes the same way
+        // (`query`'s `*` rule) and adds the residual: the comparison over the row's
+        // `properties` column, applied before the `k` cut so that `k` still counts rows the
+        // caller asked for (#1029).
+        let filter = match &bound {
+            Some(bound) => crate::retrieval::Filter::classes(bound.classes()),
+            None => crate::retrieval::Filter::class(class_filter),
+        };
+        // How many rows the class half admitted and how many the predicate did — the
+        // denominator `predicate-unsatisfied` reports. A `Cell` because `search` takes the
+        // residual as `Fn`, and counting is the whole reason it is not `|_| true` any more.
+        let evaluated = std::cell::Cell::new(0usize);
+        let admitted = std::cell::Cell::new(0usize);
         #[cfg_attr(not(feature = "s3-vectors"), allow(unused_mut))]
         let mut spanned = false;
         let searched = match &state.retrieval {
-            Retrieval::Vector(index) => Some(crate::retrieval::vector::search(
-                index,
-                query,
-                k,
-                &filter,
-                |_| true,
-            )?),
+            Retrieval::Vector(index) => {
+                if bound.is_some() && !index.properties_indexed {
+                    return Ok(body(
+                        None,
+                        Vec::new(),
+                        Some(super::bound::unindexed().to_json()),
+                        None,
+                        false,
+                    ));
+                }
+                Some(crate::retrieval::vector::search(
+                    index,
+                    query,
+                    k,
+                    &filter,
+                    |hit| match &bound {
+                        Some(bound) => {
+                            evaluated.set(evaluated.get() + 1);
+                            let holds = bound.admits_row(&hit.class, hit.properties.as_deref());
+                            if holds {
+                                admitted.set(admitted.get() + 1);
+                            }
+                            holds
+                        }
+                        None => true,
+                    },
+                )?)
+            }
             #[cfg(feature = "s3-vectors")]
             Retrieval::Remote(remote) => {
+                // A remote index carries no `properties` column — `index_push` does not
+                // forward it, deliberately — so a `where` is refused rather than answered
+                // over rows it cannot read (#1029).
+                if bound.is_some() {
+                    return Ok(body(
+                        None,
+                        Vec::new(),
+                        Some(super::bound::remote().to_json()),
+                        None,
+                        false,
+                    ));
+                }
                 // This corpus and the ones named, which is the only place a search can reach
                 // past the repository it was asked in (#835). A local index holds one corpus
                 // by construction, so the arm above cannot span whatever it was asked — and
@@ -482,6 +549,7 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
                         query,
                         k,
                         class_filter,
+                        bound.as_ref().map(|b| (b, where_text.unwrap_or_default())),
                         Some(crate::retrieval::STALE_CONTRACT),
                     ))
                 }
@@ -492,14 +560,21 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
                         query,
                         k,
                         class_filter,
+                        bound.as_ref().map(|b| (b, where_text.unwrap_or_default())),
                         Some(crate::retrieval::REMOTE_UNAVAILABLE),
                     ))
                 }
             };
             let results: Vec<Value> = hits.iter().map(|r| vector_result(state, r)).collect();
-            let absent = results
-                .is_empty()
-                .then(|| super::absence::diagnose(state, query, class_filter, true).to_json());
+            let absent = results.is_empty().then(|| match where_text {
+                // The class half admitted rows and the predicate refused every one: a fact
+                // about the values, reported as one. With nothing admitted at all the
+                // predicate was never asked, and the class diagnosis is the true one.
+                Some(text) if evaluated.get() > 0 && admitted.get() == 0 => {
+                    super::absence::predicate_unsatisfied(text, evaluated.get()).to_json()
+                }
+                _ => super::absence::diagnose(state, query, class_filter, true).to_json(),
+            });
             return Ok(body(None, results, None, absent, spanned));
         }
     }
@@ -508,6 +583,7 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
         query,
         k,
         class_filter,
+        bound.as_ref().map(|b| (b, where_text.unwrap_or_default())),
         state.retrieval.degraded_reason(),
     ))
 }
@@ -644,6 +720,7 @@ fn keyword_retrieve(
     query: &str,
     k: usize,
     class_filter: Option<&str>,
+    bound: Option<(&super::bound::Bound, &str)>,
     reason: Option<&'static str>,
 ) -> Value {
     // Local nodes first, then every installed dependency's. Retrieval is the one surface a
@@ -659,11 +736,25 @@ fn keyword_retrieve(
     // mean. The first pass composes every candidate's text and the second scores it. The
     // fraction this replaced needed only the node in front of it, which is exactly why it
     // could not order an answer (#1026).
+    // The `where` runs here as a candidate filter, before the scoring — the same place the
+    // vector arm applies it (before the `k` cut) and for the same reason: `k` counts rows
+    // the caller asked for. It reads the node the query evaluator reads (#1029).
+    let mut evaluated = 0usize;
     let candidates: Vec<(&super::Node, String)> = state
         .nodes
         .iter()
         .chain(state.dep_nodes.iter())
         .filter(|n| class_filter.is_none_or(|c| n.class == c))
+        .filter(|n| match bound {
+            Some((bound, _)) => match bound.admits_node(state, n) {
+                Some(holds) => {
+                    evaluated += 1;
+                    holds
+                }
+                None => false,
+            },
+            None => true,
+        })
         .map(|n| {
             let haystack = format!("{} {} {}", n.label, n.description, n.content).to_lowercase();
             (n, haystack)
@@ -716,9 +807,19 @@ fn keyword_retrieve(
         })
         .collect();
 
-    let absent = results
-        .is_empty()
-        .then(|| super::absence::diagnose(state, query, class_filter, false).to_json());
+    let absent = results.is_empty().then(|| match bound {
+        // The predicate was asked of every candidate the class half admitted and refused
+        // them all. See the vector arm: a fact about the values, reported as one.
+        Some((_, text)) if evaluated > 0 && candidates.is_empty() => {
+            super::absence::predicate_unsatisfied(text, evaluated).to_json()
+        }
+        // The predicate admitted candidates and the words matched none of them. The count
+        // is the candidates', not the class's: those are the nodes that were searched.
+        Some(_) if !candidates.is_empty() && !crate::retrieval::terms(query).is_empty() => {
+            super::absence::no_term_match(candidates.len()).to_json()
+        }
+        _ => super::absence::diagnose(state, query, class_filter, false).to_json(),
+    });
     // Never `across`: this path reads nodes out of memory, and a corpus sharing a vector
     // index has none here to read.
     body(reason, results, None, absent, false)
@@ -1350,6 +1451,7 @@ mod tests {
             score: 0.5,
             truncated: false,
             corpus: corpus.map(str::to_string),
+            properties: None,
         }
     }
 
@@ -1685,6 +1787,7 @@ mod tests {
             score: 0.5,
             truncated,
             corpus: None,
+            properties: None,
         };
 
         let whole = vector_result(&state, &row(false));

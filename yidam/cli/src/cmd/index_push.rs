@@ -260,7 +260,31 @@ mod tests {
             label: "A label".to_string(),
             text: text.to_string(),
             vector: vec![0.5, -0.5],
+            properties: None,
         }
+    }
+
+    /// The `properties` column stays home (#1029).
+    ///
+    /// A row's typed properties are carried by the local index for `retrieve --where`, and
+    /// deliberately not forwarded to the remote one: the remote `retrieve` rejects a `where`
+    /// as `where-remote`, and that rejection is honest only while nothing here writes the
+    /// column into the metadata. Forward it and the rejection becomes a lie about an index
+    /// that could have answered; this test is what makes forwarding it a decision rather than
+    /// a drift.
+    #[test]
+    fn the_properties_column_is_not_forwarded() {
+        let mut with = row("corpus/tenure/a.yml", "text a");
+        with.properties = Some(r#"{"began":"1893"}"#.to_string());
+        let (vectors, _) = to_vectors(&[with], "corpus", "abc").unwrap();
+        let metadata = vectors[0].metadata.as_object().unwrap();
+        assert!(
+            !metadata.contains_key("properties")
+                && !metadata
+                    .values()
+                    .any(|v| v.as_str().is_some_and(|s| s.contains("began"))),
+            "{metadata:?}"
+        );
     }
 
     /// Every row becomes one vector, keyed under the corpus, carrying the commit.

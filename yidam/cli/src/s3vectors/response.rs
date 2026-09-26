@@ -255,6 +255,9 @@ pub fn decode_query(corpora: &Corpora, body: &Value) -> Result<Page, String> {
             // is the one that cannot disagree with where the row actually lives; metadata is
             // a copy, and a copy is the thing that drifts.
             corpus: corpora.foreign(corpus),
+            // Never carried: the push writes no `properties` metadata, by decision — see
+            // `index_push::to_vectors`. A `where` against this backend is refused upstream.
+            properties: None,
         });
     }
 
@@ -546,6 +549,7 @@ mod tests {
             score,
             truncated: false,
             corpus: None,
+            properties: None,
         }
     }
 

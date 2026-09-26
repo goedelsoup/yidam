@@ -28,6 +28,39 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `retrieve` takes a `where`, and the index carries the properties it reads
+
+**`yidam retrieve --where '<predicate>'` (#1029, RFC-0041).** The text inside a `query` step's
+`[...]`, verbatim: `--where 'began<=1893,ended>?1893'`. Same grammar, same check, same
+comparison, applied before the `k` cut. It returns the rows `query` would, ranked.
+The MCP `retrieve` tool takes the same string as `where`. A predicate that cannot be asked is
+rejected with `query`'s code. An empty answer the predicate caused is `predicate-unsatisfied`.
+
+**What changes for you: re-embed and re-index.** The index gains a `properties` column holding
+each row's declared `date` and `number` values. An index built before this reads as it did, and
+`retrieve` without a `where` is unchanged over it. A `where` against it is refused as
+`where-unindexed`. The repair is the two commands you already run:
+
+```sh
+yidam embed && yidam index-build
+```
+
+The same re-index repairs #1047. Every `corpus.arrow` before this held the first ten rows of
+its corpus, whatever `meta.json` said. The export read them back through a query with
+lancedb's default limit. `retrieve` on a local index and the web shell read that file. A
+`class-unindexed` answer over a class the corpus holds was this.
+
+The embedding record gains a `properties` object, absent where a node has no ordered property.
+A corpus without one writes the records it wrote before. The SQLite export gains a
+`properties` column. `meta.json` lists the index's `columns`.
+
+**A remote index does not carry the column.** `index-push` leaves it behind on purpose, and a
+server backed by one refuses a `where` as `where-remote`. Keyword search answers one in every
+build.
+
+**MCP contract 0.25.0 → 0.26.0.** `retrieve` gains an optional `where`. A client built against
+0.25.0 never sends one and sees the response it saw.
+
 ### A property can be a number, and a number can be ordered
 
 **`type: number` exists (#1030, RFC-0040).** Declare it on a class property, and write the

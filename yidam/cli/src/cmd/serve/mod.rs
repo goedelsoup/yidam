@@ -18,6 +18,7 @@
 //! one command a collaborator cannot install.
 
 mod absence;
+pub(crate) mod bound;
 #[cfg(feature = "serve-http")]
 pub(crate) mod http;
 mod record;

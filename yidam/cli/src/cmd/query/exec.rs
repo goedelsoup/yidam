@@ -74,6 +74,14 @@ pub fn id_of(node: &Node, corpus_dir: &str) -> String {
         .to_string()
 }
 
+/// A node's values for one property, as the evaluator reads them — see [`scalars`].
+///
+/// For `retrieve --where`'s keyword arm, which evaluates the same predicate over the same
+/// file `query` reads, and must read it the same way (#1029).
+pub(crate) fn node_scalars(node: &Node, name: &str) -> Vec<String> {
+    property(node, name).map(scalars).unwrap_or_default()
+}
+
 fn property<'a>(node: &'a Node, name: &str) -> Option<&'a serde_yaml::Value> {
     node.inst
         .properties
@@ -136,6 +144,18 @@ fn compare_numbers(left: &str, right: &str) -> Option<std::cmp::Ordering> {
 
 /// Whether one predicate holds of one node, given the property's declared type.
 ///
+/// The node's half of [`pred_holds_over`]: read the property off the YAML, and hand its
+/// scalars to the rule. Split (#1029) so that `retrieve --where` can ask the same question of
+/// an index row, whose values arrive as JSON rather than YAML — one rule for both surfaces,
+/// which is what makes a `query` and a `retrieve --where` over the same predicate agree row
+/// for row rather than agreeing today.
+fn pred_holds(node: &Node, pred: &Pred, declared: Option<&str>) -> bool {
+    let values = property(node, &pred.prop).map(scalars).unwrap_or_default();
+    pred_holds_over(&values, pred, declared)
+}
+
+/// Whether one predicate holds of a property's values, given the property's declared type.
+///
 /// **An absent property never matches, for any operator including `!=`** — unless the
 /// predicate wrote `?`. A reach with no `claim_tag` is not in `reach[claim_tag!=maybe]`. The
 /// alternative — three-valued logic everywhere — buys nothing here and makes `!=` mean two
@@ -146,8 +166,13 @@ fn compare_numbers(left: &str, right: &str) -> Option<std::cmp::Ordering> {
 /// orderings read the value: numerically on a `number`, by date on a `date`, and as text
 /// otherwise — including when the check recorded nothing, which is every rule that existed
 /// before `number` did. The value itself is never sniffed: `7` is a legal `string`.
-fn pred_holds(node: &Node, pred: &Pred, declared: Option<&str>) -> bool {
-    let values = property(node, &pred.prop).map(scalars).unwrap_or_default();
+///
+/// `values` are the property's scalars as text, however they were stored — a sequence
+/// contributes one entry per element, and an empty list is the absence condition. Text and
+/// not YAML, because the two callers hold the value in two formats and neither format is
+/// what the rule is about: `1893` compares the same whether it came off a corpus file or out
+/// of an index column.
+pub(crate) fn pred_holds_over(values: &[String], pred: &Pred, declared: Option<&str>) -> bool {
     // **Absence is one condition and not two.** A property the node omits, one written
     // `null`, and one written as an empty list all carry no value, and the rule above already
     // treated the three identically by falling out of this same guard. `?` and `prop?` read
@@ -205,6 +230,22 @@ fn pred_holds(node: &Node, pred: &Pred, declared: Option<&str>) -> bool {
         // or `claim_tag: [open, verified]` would satisfy `claim_tag != open`.
         Op::Ne => values.iter().all(matches_one),
         _ => values.iter().any(matches_one),
+    }
+}
+
+/// The scalars of a property as an index row carries it — see [`crate::cmd::embed::EmbedRecord::properties`].
+///
+/// The JSON twin of [`scalars`], and deliberately the same shape of answer: a list contributes
+/// one entry per element, a number its shortest spelling, and anything else nothing. `null`
+/// contributes nothing, which is what makes a row that recorded `ended: null` and a row that
+/// never recorded `ended` the same absence — the one condition `pred_holds_over` reads.
+pub(crate) fn json_scalars(value: &serde_json::Value) -> Vec<String> {
+    match value {
+        serde_json::Value::Array(items) => items.iter().flat_map(json_scalars).collect(),
+        serde_json::Value::String(s) => vec![s.clone()],
+        serde_json::Value::Bool(b) => vec![b.to_string()],
+        serde_json::Value::Number(n) => vec![n.to_string()],
+        _ => vec![],
     }
 }
 

@@ -71,6 +71,7 @@ re-deriving it.
 | [0038](0038-rules-and-evidence.md) | G8 | A rule is separable from the essay that justifies it | Draft |
 | [0039](0039-occasion-scoped-read.md) | G9 | A read is scoped to the occasion, not to the repository | Draft |
 | [0040](0040-numeric-property-type.md) | G10 | A numeric property type | Draft |
+| [0041](0041-typed-property-columns.md) | G11 | Typed property columns, and a predicate on a ranked answer (`retrieve --where`) | Draft |
 
 ## Reading order
 

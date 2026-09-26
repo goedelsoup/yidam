@@ -499,6 +499,11 @@ enum Command {
         /// --dry-run` lists the corpora an index holds
         #[arg(long, value_delimiter = ',', value_name = "NAME")]
         corpora: Vec<String>,
+        /// Keep only rows whose declared date or number properties satisfy a predicate, in
+        /// `query`'s filter grammar: `began<=1893,ended>?1893`. Rejected as `query` would
+        /// reject it, and only answerable over an index built with typed property columns
+        #[arg(long = "where", value_name = "PREDICATES")]
+        r#where: Option<String>,
         #[command(flatten)]
         format: FormatArg,
     },
@@ -1402,6 +1407,7 @@ fn run() -> Result<()> {
             k,
             class,
             corpora,
+            r#where,
             format,
         } => yidam::retrieve(
             root.as_deref(),
@@ -1410,6 +1416,7 @@ fn run() -> Result<()> {
                 k,
                 class,
                 corpora,
+                r#where,
                 format: format.value,
             },
         ),

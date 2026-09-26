@@ -28,6 +28,11 @@ pub(crate) struct IndexState {
     pub embedder: RefCell<Option<fastembed::TextEmbedding>>,
     /// The witness verdict, computed once beside the embedder and reused after.
     pub space: RefCell<Option<crate::embed_config::Verdict>>,
+    /// Whether the index carries the `properties` column (#1029). An index built before the
+    /// column existed decodes with every row's `properties` as `None`, which a `where` cannot
+    /// tell from "no ordered property" — so the question is asked of the schema, once, and a
+    /// `where` against an index without the column is rejected rather than answered empty.
+    pub properties_indexed: bool,
 }
 
 /// The top `k` rows the filter admits, by cosine similarity, highest first.
@@ -127,6 +132,7 @@ pub(crate) fn search(
             // scan can return is this repository's own — which is what `None` says. Spanning
             // corpora is a property of a shared *bucket*, and this backend has none to share.
             corpus: None,
+            properties: r.properties.clone(),
         })
         .collect();
 

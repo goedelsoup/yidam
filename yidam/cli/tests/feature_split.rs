@@ -41,6 +41,7 @@ const READ_PATH: &[&str] = &[
     "src/model.rs",
     "src/cmd/serve/mod.rs",
     "src/cmd/serve/tools.rs",
+    "src/cmd/serve/bound.rs",
     "src/cmd/serve/resources.rs",
     "src/cmd/query/anchor.rs",
     "src/cmd/export.rs",

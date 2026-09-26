@@ -326,7 +326,7 @@ The server spawns the pinned binary per request and parses the envelope. Nothing
 |---|---|
 | `GET /` and the app's pages | Astro, server-rendered on `@astrojs/node` |
 | `GET /api/handshake` | `format_version` plus the CLI's version, commit and feature list — the fields [`report::YidamBlock::current()`](../../yidam/cli/src/report.rs#L48) assembles |
-| `GET /api/corpus` | `yidam graph --format json`, whose nodes and resolved edges come from [`model::corpus_nodes()`](../../yidam/cli/src/model.rs#L465) — the function `serve`, `graphml` and `rdf` already share |
+| `GET /api/corpus` | `yidam graph --format json`, whose nodes and resolved edges come from [`model::corpus_nodes()`](../../yidam/cli/src/model.rs#L497) — the function `serve`, `graphml` and `rdf` already share |
 | `GET /api/reports` | `lint` and `graph-check` as the RFC-0001 envelope, byte-identical to `--format json` |
 | `GET /api/overlay` (SSE) | Diagnostics from a supervised `yidam serve --lsp` — see below |
 | `POST /api/act/propose`, `POST /api/act/cycle` | The two tools of RFC-0029's `act` tier, through `yidam serve --mcp` — one stdio connection per request, three lines down and two back ([`act.ts:129`](../../yidam/editors/web/src/lib/act.ts#L129)). `?dry_run=true` is the tool's own argument; `force` has no field to arrive in. Landed 2026-09-22 (#608) |
@@ -727,7 +727,7 @@ does not propose to move it.
   palette rather than the editor's theme API.
 - ~~**The design system's React components have never been hydrated.**~~ **Answered 2026-09-06:
   they survive.** No `client:*` directive appeared on any quality page —
-  [`astro.config.mjs:259-260`](../../yidam/web/docs/astro.config.mjs#L259-L260): *"this is a
+  [`astro.config.mjs:260-261`](../../yidam/web/docs/astro.config.mjs#L260-L261): *"this is a
   build-time renderer: React produces HTML and none of it is shipped to a reader."* This surface
   is now the first consumer to ship them to a browser, and the spike was run rather than
   reasoned about: `mise run edit-dev` against the reports golden corpus, driven with headless

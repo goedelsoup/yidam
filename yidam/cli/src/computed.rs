@@ -86,6 +86,7 @@ const RESERVED: &[&str] = &[
     "commit",
     "kind",
     "signals",
+    "properties",
     // A remote vector's metadata, and the column an index writes beside them.
     crate::s3vectors::META_KEY_CORPUS,
     crate::s3vectors::META_KEY_TEXT_TRUNCATED,
@@ -694,6 +695,7 @@ verb   = "compute"
             commit: "abc".into(),
             kind: "node".into(),
             signals: BTreeMap::from([("travels_as".to_string(), Value::Bool(true))]),
+            properties: BTreeMap::from([("began".to_string(), Value::from("1893"))]),
         };
         let json = serde_json::to_value(&record).unwrap();
         for key in json.as_object().unwrap().keys() {
