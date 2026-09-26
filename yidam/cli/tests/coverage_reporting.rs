@@ -92,25 +92,100 @@ fn the_reported_feature_set_is_the_one_the_gate_builds() {
     }
 }
 
+/// Does this workflow name that task — as a whole token, not as a substring?
+///
+/// `contains` is the wrong test and quietly the wrong answer: `coverage` is a substring of
+/// `coverage-full`, so a workflow that runs only the full-feature task would read as running
+/// the light one. That is how the check this serves went vacuous in the first place.
+fn names(yml: &str, task: &str) -> bool {
+    yml.split(|c: char| c.is_whitespace() || c == '\'' || c == '"' || c == '`')
+        .any(|token| token == task)
+}
+
 /// The gate that produces an LCOV is the gate that renders one.
 ///
 /// Two halves that fail in opposite directions and both in silence: a job that measures
 /// coverage and does not pass it to the summary throws the measurement away, and a job that
 /// asks for a coverage section without producing an LCOV fails on a missing file for a
 /// reason that has nothing to do with the tests.
+///
+/// The producing side is *discovered* rather than named, because it moved. This asked
+/// `ci.yml.contains("mise run coverage")` until #1013, when the light gate stopped running
+/// that task and ran `ci-cli-cov` instead — and the assertion did not notice, because
+/// `mise run coverage-full` two jobs away contains the string it was looking for. A check
+/// whose subject can be deleted while a *different* job keeps it green is a check that has
+/// stopped having a subject. So: every `.lcov` path a summary step asks for must be written
+/// by some task in `mise.toml`, and that task must be one this workflow runs.
 #[test]
 fn a_job_that_measures_coverage_reports_it_and_the_reverse() {
     let yml = code_only(&read(".github/workflows/ci.yml"));
-    let measures = yml.contains("mise run coverage");
-    let renders = yml.contains("lcov:");
+    let mise: toml::Table = read("mise.toml").parse().expect("mise.toml parses");
+
+    // Which task writes which LCOV, read off the `--output-path` the task itself passes.
+    let mut writers: Vec<(String, String)> = Vec::new();
+    let tasks = mise
+        .get("tasks")
+        .and_then(toml::Value::as_table)
+        .expect("mise.toml declares tasks");
+    for (name, task) in tasks {
+        let steps = match task.get("run") {
+            Some(toml::Value::String(one)) => vec![one.clone()],
+            Some(toml::Value::Array(many)) => many
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect(),
+            _ => continue,
+        };
+        for step in steps {
+            let mut args = step.split_whitespace();
+            while let Some(arg) = args.next() {
+                if arg == "--output-path" {
+                    if let Some(path) = args.next().filter(|p| p.ends_with(".lcov")) {
+                        writers.push((path.to_string(), name.clone()));
+                    }
+                }
+            }
+        }
+    }
     assert!(
-        measures,
-        "no job runs `mise run coverage`; nothing produces the LCOV the summary reads"
+        !writers.is_empty(),
+        "no task in mise.toml writes an LCOV; nothing can produce the file a summary reads"
     );
+
+    // Which LCOVs the workflow's summary steps ask for. The value is a `${{ … }}` expression,
+    // so the paths are taken as the quoted tokens rather than as the whole line.
+    let asked: BTreeSet<String> = yml
+        .lines()
+        .filter(|l| l.trim_start().starts_with("lcov:"))
+        .flat_map(|l| {
+            l.split(|c: char| c.is_whitespace() || c == '\'' || c == '"')
+                .filter(|t| t.ends_with(".lcov"))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .collect();
     assert!(
-        renders,
-        "coverage is measured and never handed to the summary — the measurement is discarded"
+        !asked.is_empty(),
+        "no summary step in ci.yml is handed an LCOV — coverage is measured and discarded, \
+         which is the half of this that fails in silence"
     );
+
+    for path in &asked {
+        let producers: Vec<&(String, String)> =
+            writers.iter().filter(|(out, _)| out == path).collect();
+        assert!(
+            !producers.is_empty(),
+            "a summary step asks for `{path}` and no mise task writes it. The step then fails \
+             on a missing file for a reason that has nothing to do with the tests. Tasks that \
+             write an LCOV: {writers:?}"
+        );
+        assert!(
+            producers.iter().any(|(_, task)| names(&yml, task)),
+            "`{path}` is written by {:?} and ci.yml runs none of them — the number the \
+             summary renders would be whatever an earlier run happened to leave on disk",
+            producers.iter().map(|(_, t)| t).collect::<Vec<_>>()
+        );
+    }
 
     // And the reporter must be given everything it needs to tell unmeasured from untested.
     for required in ["src:", "features:", "--diff", "--src", "--features"] {
@@ -168,9 +243,14 @@ fn task_run(mise: &toml::Table, name: &str) -> Vec<String> {
 
 /// The full-feature run renders its report exactly the way the light one does.
 ///
-/// `coverage` runs on every pull request, so its rendering step is proven by every green
+/// `ci-cli-cov` runs on every pull request, so its rendering step is proven by every green
 /// gate. `coverage-full` runs on main and the weekly schedule only — nothing executes it
 /// before a merge, and an error in it is discovered afterwards, by main going red.
+///
+/// It was `coverage` that ran on every pull request until #1013 folded the light gate's two
+/// runs of the suite into one. The oracle has to be the task a green PR actually proves, so
+/// this names that one; `coverage` is still held to the same lines by
+/// `the_instrumented_gate_is_the_local_gate_with_its_suite_measured` below.
 ///
 /// This makes the proven step the oracle for the unproven one. The two measure different
 /// feature sets, which is the whole point of the pair, but that difference belongs to the
@@ -218,14 +298,99 @@ fn the_full_feature_run_renders_its_report_the_way_the_proven_one_does() {
         out.join(" ")
     };
 
-    let light = render("coverage");
+    let light = render("ci-cli-cov");
     let full = render("coverage-full");
     assert_eq!(
         shape(&light),
         shape(&full),
-        "the two coverage tasks render differently.\n  coverage:      {light}\n  \
+        "the two coverage tasks render differently.\n  ci-cli-cov:    {light}\n  \
          coverage-full: {full}\n\nOnly `--output-path` may differ. Feature selection belongs \
          to the `--no-report nextest` step; `llvm-cov report` rejects it, and because nothing \
          runs `coverage-full` before a merge, the rejection is found on main."
+    );
+}
+
+/// The gate CI runs is the gate a contributor runs, with its suite measured.
+///
+/// #1013: `ci (cli)` ran `ci-cli` and then `coverage`, which compiled and executed the same
+/// 2,757 tests twice — 139s of a 338s job, on the pull-request critical path, for a second
+/// uninstrumented run of a suite the instrumented one had just finished faster. It now runs
+/// `ci-cli-cov`: the same gate with the plain run replaced by the measured one.
+///
+/// Which leaves two command lines that must not drift apart, in the direction that is
+/// invisible. `ci-cli` is what `mise run ci` runs before a push, and it is what every guard
+/// that reads "the CLI gate" out of `mise.toml` reads — so a flag added there and not here
+/// would leave the pushed-to gate checking something CI does not, and nothing would say so
+/// until a merge. `lint_registry.rs::ci_cli_denies_warnings_over_the_library` is exactly that
+/// shape: it greps `mise.toml` for the `-D warnings` clippy line, and a copy of that line in
+/// either task satisfies it.
+///
+/// So the relationship is asserted rather than described: `ci-cli-cov` is `ci-cli` with its
+/// one `cargo nextest run` line replaced by `coverage`'s two. Nothing else added, nothing
+/// dropped, and no third spelling of the instrumented run to keep in step with the first.
+#[test]
+fn the_instrumented_gate_is_the_local_gate_with_its_suite_measured() {
+    let mise: toml::Table = read("mise.toml").parse().expect("mise.toml parses");
+
+    let local = task_run(&mise, "ci-cli");
+    let measured = task_run(&mise, "coverage");
+    let ci = task_run(&mise, "ci-cli-cov");
+
+    let plain: Vec<&String> = local
+        .iter()
+        .filter(|c| c.contains("cargo nextest run"))
+        .collect();
+    assert_eq!(
+        plain.len(),
+        1,
+        "`ci-cli` runs {} plain nextest commands and this test substitutes one: {plain:?}",
+        plain.len()
+    );
+    assert!(
+        measured.iter().any(|c| c.contains("llvm-cov")) && measured.len() >= 2,
+        "`coverage` no longer looks like an instrumented run and a substitution built from \
+         it would put something else in the gate: {measured:?}"
+    );
+
+    let expected: Vec<String> = local
+        .iter()
+        .flat_map(|cmd| {
+            if cmd.contains("cargo nextest run") {
+                measured.clone()
+            } else {
+                vec![cmd.clone()]
+            }
+        })
+        .collect();
+
+    assert_eq!(
+        ci,
+        expected,
+        "`ci-cli-cov` is not `ci-cli` with its test run measured.\n\n  ci-cli-cov runs:\n    \
+         {}\n\n  ci-cli + coverage is:\n    {}\n\nThe two are one gate spelled twice: `ci-cli` \
+         is what a contributor runs before pushing and `ci-cli-cov` is what CI runs, so a \
+         difference here is a check one of them is not doing — found, if at all, after a merge.",
+        ci.join("\n    "),
+        expected.join("\n    ")
+    );
+
+    // And the tool that runs it has to be provisioned where it runs.
+    let tools = |task: &str| {
+        mise.get("tasks")
+            .and_then(|t| t.get(task))
+            .and_then(|t| t.get("tools"))
+            .cloned()
+    };
+    assert!(
+        tools("coverage").is_some(),
+        "`coverage` pins no tools, so the equality below would be satisfied by `ci-cli-cov` \
+         pinning none either — and the gate would run whatever `cargo llvm-cov` the runner has"
+    );
+    assert_eq!(
+        tools("ci-cli-cov"),
+        tools("coverage"),
+        "`ci-cli-cov` runs `cargo llvm-cov` and does not pin it the way `coverage` does. \
+         mise provisions a task's tools per task, so the gate would fail on `no such command` \
+         — or, worse, on whatever version happened to be installed."
     );
 }

@@ -48,6 +48,9 @@ mise run test-cli rename_         # only the tests whose name contains this
 Anything after the task name reaches `cargo nextest`. The command itself is `ci-cli`'s own,
 held to it by a gate, so a filtered run is the gate on a subset.
 
+CI runs `ci-cli-cov`, not `ci-cli`: the same steps, with the test run measured for coverage
+instead of run twice. A gate holds the two equal, so `mise run ci` is still the gate you get.
+
 Two things `mise run ci` does *not* cover, and both have bitten:
 
 ```sh

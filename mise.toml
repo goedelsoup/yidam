@@ -526,6 +526,13 @@ description = "Line coverage over the CLI workspace, as LCOV, under the light de
 tools = { "github:taiki-e/cargo-llvm-cov" = "v0.9.0" }
 # `--no-report` then `report`, rather than one command: the run and the rendering are
 # separate so the same profile data can produce LCOV here and whatever P7 wants later.
+#
+# Hand-run since #1013: `ci (cli)` no longer invokes this task, it runs `ci-cli-cov`, which
+# carries these two lines as the measured half of the CLI gate. The copy is not free-standing —
+# `coverage_reporting.rs::the_instrumented_gate_is_the_local_gate_with_its_suite_measured`
+# requires `ci-cli-cov` to be `ci-cli` with its nextest line replaced by exactly these, so an
+# edit here lands in the gate or turns that test red. What CI stopped doing is *proving* this
+# task on every pull request, which is why the full-feature oracle now names `ci-cli-cov`.
 run = [
   "cargo llvm-cov --no-report nextest --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml",
   "cargo llvm-cov report --lcov --output-path yidam/cli/target/coverage.lcov --manifest-path yidam/cli/Cargo.toml",
@@ -654,6 +661,46 @@ run = [
   "cargo test --doc --manifest-path yidam/cli/Cargo.toml --locked",
 ]
 
+# What `ci (cli)` runs: `ci-cli`, with the suite executed once — instrumented — rather than
+# twice (#1013).
+#
+# The job ran `mise run ci-cli` and then `mise run coverage`, which is the same 2,757 tests
+# compiled and executed twice. On run 36182337501 that was 1m11s compile + 52.6s run plain,
+# then 1m14s + 51.3s instrumented: 139s of a 338s job, 41% of it, on the pull-request
+# critical path. The instrumented build is the same code with counters, and it was the
+# *faster* of the two runs in both heavy jobs (51.3s vs 52.6s here, 85.8s vs 95.5s in
+# `cli-full`), so the uninstrumented execution bought no signal and no speed.
+#
+# `ci-cli` above keeps its plain run rather than being replaced, because it is also the local
+# gate (`mise run ci`) and `cargo llvm-cov` builds into `target/llvm-cov-target` — a second
+# full set of test binaries on a contributor's machine, for a number CI computes anyway. The
+# two are held together rather than left to drift: `coverage_reporting.rs` requires this task
+# to be `ci-cli` with its nextest line replaced by `coverage`'s two, so a flag added to one and
+# not the other is red here instead of a gate that quietly stopped checking something in CI.
+#
+# ── the JUnit path does not move, and #1013 expected it to ────────────────
+#
+# The concern raised was that `cargo-llvm-cov` redirects `CARGO_TARGET_DIR` to
+# `target/llvm-cov-target`, so the summary step's `yidam/cli/target/nextest/ci/junit.xml`
+# would be the *plain* run's file and would go stale once that run was deleted. It does not:
+# nextest anchors its store to the workspace root's `target/`, not to the build target dir.
+# Measured against the pinned cargo-llvm-cov v0.9.0 and nextest 0.9.143, on a one-test crate
+# so the answer was not buried in a five-minute build: `cargo llvm-cov nextest` put its
+# objects in `target/llvm-cov-target/debug` and its JUnit in `target/nextest/ci/junit.xml`,
+# and a plain run under `CARGO_TARGET_DIR=…/alt` built into `alt/debug` and still wrote
+# `target/nextest/ci/junit.xml`. So both runs always wrote the same file, the instrumented one
+# overwrote the plain one, and the summary has been reading the coverage run all along.
+[tasks.ci-cli-cov]
+description = "`ci (cli)`: the CLI gate with its suite run once, under coverage instrumentation."
+tools = { "github:taiki-e/cargo-llvm-cov" = "v0.9.0" }
+run = [
+  "cargo fmt --all --manifest-path yidam/cli/Cargo.toml -- --check",
+  "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-targets --locked -- -D warnings",
+  "cargo llvm-cov --no-report nextest --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml",
+  "cargo llvm-cov report --lcov --output-path yidam/cli/target/coverage.lcov --manifest-path yidam/cli/Cargo.toml",
+  "cargo test --doc --manifest-path yidam/cli/Cargo.toml --locked",
+]
+
 # The two clippy legs of `ci-cli-full`, without its tests — the part of that job that a pull
 # request can afford (#922).
 #
@@ -703,13 +750,26 @@ description = "Full-feature CI for the yidam CLI (all optional features, and the
 # yidam/cli/Cargo.toml; #482 was it being recorded only here, against an unrelated task.
 #
 # It runs first because it is the cheaper of the two and fails faster.
+#
+# ── there is no plain `--all-features` test run, and that is #1013 ────────
+#
+# `coverage-full`, two steps later in the same job, runs `cargo llvm-cov nextest
+# --all-features` — exactly this feature set, exactly these tests. Running them here as well
+# cost a second codegen-and-link of all 59 test binaries with lancedb, arrow and ort in each:
+# on main run 36175381600 that was 5m51s of compile and 95.5s of run, ≈7.4 minutes of a
+# 23.5-minute job, for a second execution of the same 2,764 tests. The instrumented run was
+# the faster of the two (85.8s against 95.5s), so what the deletion gives up is only the
+# uninstrumented *execution* — a test sensitive to binary size or timing would notice, and
+# nothing in this suite is. The `vector-read` leg keeps its plain run because there is no
+# coverage run to fold it into: `coverage-full` is `--all-features`, which is the combination
+# the paragraph above says this leg exists *not* to be — fastembed and arrow with lancedb
+# rather than without. Deleting its plain run would delete the only build that proves #442's.
 run = [
   "cargo fmt --all --manifest-path yidam/cli/Cargo.toml -- --check",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --features vector-read --locked -- -D warnings",
   "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --features vector-read --locked",
   "cargo test --doc --manifest-path yidam/cli/Cargo.toml --features vector-read --locked",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-features --locked -- -D warnings",
-  "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --all-features --locked",
   "cargo test --doc --manifest-path yidam/cli/Cargo.toml --all-features --locked",
 ]
 
