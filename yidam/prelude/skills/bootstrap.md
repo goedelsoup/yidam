@@ -908,6 +908,13 @@ yet:
 mise run yidam-build
 ```
 
+**If that fails, defer the gate rather than stall here.** `mise` may be absent, and a pin no
+release was built for compiles instead, needing a toolchain mise may be unable to provision.
+Run it once. Do not install mise or a toolchain by hand, and do not stop to ask the user to:
+skip the four commands below — all four are the binary under another name — and hand the gate
+over in step 9's **Gate** line.
+[why](bootstrap.evidence.md#gate-deferred)
+
 **Then run the gate, in this order.** Each answers a different question and the order is the
 order a failure is cheapest to fix in:
 
@@ -938,20 +945,25 @@ belongs to, or write a `fix:` commit if the genesis commit has already been push
 [why](bootstrap.evidence.md#fix-while-warm)
 
 Do not ask the user to run any of this manually. A bootstrap that hands over a repository
-whose gate it has never run has not finished; it has stopped.
+whose gate it has never run has not finished; it has stopped. One that could not install the
+binary and says so in step 9 has finished with a stated gap, which is allowed.
 
 ### 9. Report
 
 Do not begin this step until the genesis commit, both `consume:` commits, the `vendor:`
-commit, and the step 8.5 gate run are all done. If any is unresolved, finish it before
-proceeding. Step 9 opens by stating the gate result — a handoff that says the repository is
-ready is a claim, and this is the one place it can be checked.
+commit, and the step 8.5 gate run are all done — or, the gate alone, deferred because the
+binary would not install. If any is merely unresolved, finish it before proceeding. Step 9
+opens by stating the gate result — a handoff that says the repository is ready is a claim, and
+this is the one place it can be checked.
 
 Output a structured handoff with seven sections:
 
 **Gate** — one line: the result of the step 8.5 run. Name the commands, say whether each
 passed, and name any finding left open and why. "Green as of `<sha>`" is checkable; "the
-repository is ready" is not.
+repository is ready" is not. If the gate was deferred, this line says so instead of claiming a
+result: what was missing, `mise run yidam-build` and then the four commands as the user's
+first action, and that no lint baseline exists and the REGEN blocks are still the scaffold's,
+so the first push fails `yidam regen --check` until it is run.
 
 **Ontology** — the class definitions written. One line per class; list the outgoing edges.
 

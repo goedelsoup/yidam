@@ -250,6 +250,25 @@ between a repository that works and one that merely exists, and it is answerable
 commands. A bootstrap that hands over a repository whose gate it has never run has not finished;
 it has stopped.
 
+## gate-deferred
+
+The gate is four commands and one binary, and the binary is where a bootstrap is most likely to
+stop. `mise run yidam-build` needs mise, and then either a release built for this platform at
+this pin or a Rust toolchain to compile one — and most pins carry no release, so most bootstraps
+compile. It is also the last thing the protocol asks for: it fails after the ontology dialogue,
+the seeding and the genesis commit, with the expensive and unrepeatable part already done and
+the agent holding context no later session gets back. Spending that context on provisioning a
+toolchain, or handing the protocol back to the user mid-step to provision one, turns a finished
+corpus into an interrupted bootstrap.
+
+A repository whose gate has not run is a worse repository, not an invalid one. The commits are
+real, the corpus is real, and the four commands are still four commands whenever the binary
+arrives. What makes the untested state dangerous is silence about it: the first push fails
+`yidam regen --check` on generated content nobody wrote, which reads as a broken template
+rather than as the one command that was deferred. So the deferral is a named handover item, and
+the gate line in step 9 — the one place the handoff makes a checkable claim — is where it
+cannot be left out.
+
 ## regen-cannot-be-skipped
 
 The `<!-- REGEN: ... -->` blocks are generated from a corpus that did not exist when the template
