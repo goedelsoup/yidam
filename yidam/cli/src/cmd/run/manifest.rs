@@ -41,34 +41,96 @@ use crate::kuten::{Register, Registers};
 /// Where the manifest lives, relative to the corpus root.
 pub const MANIFEST: &str = ".yidam/capabilities.toml";
 
-/// What a capability is.
+/// What a capability is — the three the published taxonomy names, and no fourth.
 ///
-/// Both arms are declarable today and only one is executable — see [`Kind::executable`]. A
-/// corpus that declares a connector gets a manifest that parses and a step that refuses by
-/// name, rather than a parse error blaming the wrong thing.
+/// `guidelines/directories.md` and `docs/domain-computer.md` both type the domain computer as
+/// three kinds. For as long as this enum had two, the third was a vocabulary a corpus could
+/// read and could not write. `cmd/build.rs` exists because a crate index that cannot say which
+/// capability a crate implements "is describing the scaffold rather than the thing it scaffolds",
+/// and it reads that from the manifest — so a crate implementing feature engineering had two
+/// options, an em dash forever or a declaration that said `calculator` and was false.
+///
+/// All three are declarable and only one is executable — see [`Kind::unrunnable_because`], which
+/// answers both halves at once. That split
+/// is `Connector`'s precedent, and its doc comment states the reason it is the right shape:
+/// *"a refusal naming the issue is a better answer than a manifest that cannot express the
+/// other kind at all."* A corpus that declares a featurizer gets a manifest that parses, a row
+/// in the crate index that names the capability, and a step that refuses by name.
+///
+/// # The spelling is frozen
+///
+/// `kind = "featurizer"` — the agent noun, which is the form the other two arms already take, so
+/// all three inherit `rename_all` and no arm is a special case. This is a value a corpus commits,
+/// so the alternatives are worth recording as rejected rather than unconsidered. `"feature"` and
+/// `"features"` name the output rather than the thing that produces it, and a manifest entry is a
+/// thing that runs. `"feature-engineering"` is the taxonomy's own words and was the first choice
+/// for that reason; what it costs is a value that no longer lowercases from its own variant, an
+/// arm carrying an explicit rename, and a hyphen a corpus author has to remember in a field where
+/// the neighbouring values have none.
+///
+/// What that choice costs instead is a value a reader cannot derive from the document: the
+/// taxonomy's section is headed *Feature engineering* and the value is `featurizer`. Nothing in
+/// the document bridges that on its own, so `guidelines/directories.md` names the value beside the
+/// definition — the same sentence a corpus author is reading when they need it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     Connector,
     Calculator,
+    Featurizer,
 }
 
 impl Kind {
+    /// Every kind, so a test that must cover the taxonomy is held to the taxonomy rather than to
+    /// a list somebody remembered to extend — the guard-list shape #448 found, and the shape the
+    /// two-arm enum #1027 reported was an instance of.
+    ///
+    /// `#[cfg(test)]` because nothing in the binary enumerates the kinds: a declaration names
+    /// one, and serde's own "unknown variant" message is what lists them to a corpus that named
+    /// none of them. A `pub const` no shipped path reads would be a surface with no consumer,
+    /// which `-D warnings` says out loud and this repository has filed against itself before.
+    #[cfg(test)]
+    pub const ALL: [Self; 3] = [Self::Connector, Self::Calculator, Self::Featurizer];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Connector => "connector",
             Self::Calculator => "calculator",
+            Self::Featurizer => "featurizer",
         }
     }
 
-    /// Whether this binary can invoke it.
+    /// Why this binary does not invoke it — `None` for the one it does.
     ///
-    /// A connector re-runs against an external source, which is a network capability and a
-    /// credential path; `vault/mod.rs` already sets the rule those inherit. #471 is the
-    /// calculator slice and says so, and a refusal naming the issue is a better answer than
-    /// a manifest that cannot express the other kind at all.
-    pub fn executable(self) -> bool {
-        matches!(self, Self::Calculator)
+    /// This is also the predicate: `None` *is* "this binary invokes it", and #471 is the
+    /// calculator slice that makes that one kind. A separate `executable()` alongside it read
+    /// well and could disagree with it, and the caller that wants the reason wants the predicate
+    /// in the same breath — [`super::plan_and_write`] collects each refused step with the
+    /// sentence that refused it, so the two cannot come apart and neither can be `None` where
+    /// the other says it should not be.
+    ///
+    /// Per kind rather than one sentence, because the two unrunnable kinds are unrunnable for
+    /// unrelated reasons, and the reasons are not even the same *sort* of reason. A connector's
+    /// is a decision: it reaches a network and a credential path, and `vault/mod.rs` already set
+    /// the rule those inherit. A featurizer's is an absence: nobody has built the slice. Saying
+    /// so is the point — a refusal that gave the connector's sentence for a featurizer would
+    /// send its author to read about credentials it does not need.
+    ///
+    /// The one thing the two share is the shape of the answer: a named refusal, not a shell
+    /// failure.
+    pub fn unrunnable_because(self) -> Option<&'static str> {
+        match self {
+            Self::Calculator => None,
+            Self::Connector => Some(
+                "A connector re-runs against an external source, which is a network capability \
+                 and a credential path, and `vault/mod.rs` sets the rule those inherit",
+            ),
+            Self::Featurizer => Some(
+                "Feature engineering is declarable and nothing invokes it yet: #471 built the \
+                 calculator slice, and epic #1025 records the third kind as having no executor at \
+                 all, so there is nothing for this manifest to withhold a permission from",
+            ),
+        }
     }
 }
 
@@ -425,7 +487,101 @@ verb   = "compute"
         let c = m.get("low-flow").unwrap();
         assert_eq!(c.kind, Kind::Calculator);
         assert_eq!(c.verb, "compute");
-        assert!(c.kind.executable());
+        assert!(c.kind.unrunnable_because().is_none());
+    }
+
+    /// Every kind the taxonomy names parses, and each is spelled the way `as_str` says it is.
+    ///
+    /// Driven from [`Kind::ALL`] rather than from three literals, so a fourth arm is covered the
+    /// day it is added instead of the day somebody remembers this test. The round trip is the
+    /// assertion that matters: `as_str` is what the crate index prints and what a receipt
+    /// carries, and serde is what a corpus's manifest is read with, so the two disagreeing
+    /// would mean a corpus could declare a value no report could name.
+    #[test]
+    fn every_kind_parses_under_its_own_spelling() {
+        for kind in Kind::ALL {
+            let text = CALC.replace(
+                r#"kind   = "calculator""#,
+                &format!(r#"kind   = "{}""#, kind.as_str()),
+            );
+            assert!(
+                text != CALC || kind == Kind::Calculator,
+                "`{}` did not substitute, so this asserts nothing",
+                kind.as_str()
+            );
+            let m = Manifest::parse(&text, &corpus_only())
+                .unwrap_or_else(|e| panic!("`{}` does not parse: {e}", kind.as_str()));
+            assert_eq!(m.get("low-flow").unwrap().kind, kind);
+        }
+    }
+
+    /// Feature engineering is declarable, it is not executable, and it says which it is.
+    ///
+    /// The whole of #1027: the arm parses, so a corpus can write the third kind the published
+    /// taxonomy names and `crates-index` can name it; and it refuses by name rather than
+    /// failing in a shell, which is `Connector`'s precedent applied unchanged.
+    #[test]
+    fn a_featurizer_is_declarable_and_not_executable() {
+        let text = CALC.replace(r#"kind   = "calculator""#, r#"kind   = "featurizer""#);
+        let m = Manifest::parse(&text, &corpus_only()).unwrap();
+        let c = m.get("low-flow").unwrap();
+        assert_eq!(c.kind, Kind::Featurizer);
+        assert!(c.kind.unrunnable_because().is_some());
+        // The kind does not touch the route. A featurizer declaring `compute` advances the
+        // branch exactly as a calculator does, because `route` reads the verb and nothing else
+        // — see [`routes_are_a_total_function_of_the_verb`].
+        assert_eq!(c.route(), Route::Branch);
+    }
+
+    /// The frozen spelling, asserted as the literal a corpus commits.
+    ///
+    /// `Kind::ALL` covers the round trip; this covers the *choice*. A rename here is a migration
+    /// of every committed manifest, so it should cost a deliberate edit to this line rather than
+    /// riding along with a refactor of the variant's name.
+    #[test]
+    fn the_third_kind_is_spelled_featurizer() {
+        assert_eq!(Kind::Featurizer.as_str(), "featurizer");
+        for rejected in [
+            "feature",
+            "features",
+            "feature-engineering",
+            "featureengineering",
+        ] {
+            let text = CALC.replace(
+                r#"kind   = "calculator""#,
+                &format!(r#"kind   = "{rejected}""#),
+            );
+            assert!(
+                Manifest::parse(&text, &corpus_only()).is_err(),
+                "`{rejected}` parses, so the spelling is not frozen"
+            );
+        }
+    }
+
+    /// Every kind this binary cannot invoke carries its own reason, and exactly one carries none.
+    ///
+    /// Two assertions in one because the defect they are against is one defect: a refusal that
+    /// hands a featurizer's author the connector's sentence about credentials. Distinctness is
+    /// asserted per kind rather than as a count of reasons, because two kinds sharing a sentence
+    /// and a third going quiet both leave the same total.
+    #[test]
+    fn each_unrunnable_kind_has_its_own_reason() {
+        let mut reasons: Vec<&str> = Vec::new();
+        for kind in Kind::ALL {
+            if let Some(why) = kind.unrunnable_because() {
+                assert!(
+                    !reasons.contains(&why),
+                    "`{}` repeats another kind's reason",
+                    kind.as_str()
+                );
+                reasons.push(why);
+            }
+        }
+        assert_eq!(
+            reasons.len() + 1,
+            Kind::ALL.len(),
+            "more or fewer than one kind is invoked, so the refusal pre-pass is not the whole rule"
+        );
     }
 
     /// An epistemic verb loads, and what it buys is a destination rather than a permission.

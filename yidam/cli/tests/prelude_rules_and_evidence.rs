@@ -108,7 +108,7 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// trade is 354 words against the vocabulary the other 17,332 assume.
 ///
 /// **The form does not reach #933's ~3,000 on its own, and the remaining weight says why.**
-/// `directories.md` is the largest file left on the read at 7,295 words, and what is left in it
+/// `directories.md` is the largest file left on the read at 7,717 words, and what is left in it
 /// after the essays moved is reference — what belongs in each of twenty directories, the catalog
 /// frontmatter shape, the capability manifest shape, the authorship table. That is rule, not
 /// essay, so no further splitting retires it. Getting under 3,000 needs a different move: a read
@@ -126,7 +126,17 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// what happens to a file that declares no version — which is the category the paragraph above
 /// says no further splitting retires. Its three arguments are 364 further words in
 /// `directories.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a `[why]` link.
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_047), ("sadhana/root/AGENTS.md", 23_412)];
+///
+/// **Both raised by a further 61 when the third capability type became declarable (#1027).** The
+/// same file again: `directories.md` went from 7,656 words to 7,717, and both routes move by 61
+/// for the reason the paragraph above gives — equal deltas are what say one shared file grew. The
+/// 61 words are two rules, and the second is the price of the frozen spelling: 36 say that all
+/// three kinds are declarable and that a run invokes calculators only, and 25 say that feature
+/// engineering declares `kind = "featurizer"`. A corpus author can lowercase *connector* and
+/// *calculator* into a manifest and cannot derive `featurizer` from *Feature engineering*, so the
+/// value has to be written down where the type is defined. The argument for both is 107 further
+/// words in `directories.evidence.md`, charged to [`PAIR_FLOOR`].
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_108), ("sadhana/root/AGENTS.md", 23_473)];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
 ///
@@ -168,7 +178,16 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_047), ("sadhana/root/A
 /// exactly, so nothing else on the path moved. A bootstrapping agent is charged for it because
 /// the directory is one a scaffold may create and a run does write: the alternative is finding
 /// out what `.yidam/computed/` is from a `doctor` warning.
-const BOOTSTRAP_CEILING: usize = 26_924;
+///
+/// **Raised again to 26,985 when the third capability type became declarable (#1027).** The delta
+/// is **61 further words in `directories.md`** — 7,656 to 7,717, and 26,924 + 61 is this figure
+/// exactly, so nothing else on the path moved under the same edit. The document typed the domain
+/// computer as three kinds while the manifest comment beside its own example offered two, and a
+/// derived repository could only find out which was true by reading `manifest.rs`, of which it has
+/// no copy. 36 of the 61 are that rule and 25 are the declared value, which `featurizer` does not
+/// lowercase out of *Feature engineering* the way the other two do. The 107 further words of
+/// argument are in `directories.evidence.md` and charged to [`PAIR_FLOOR`].
+const BOOTSTRAP_CEILING: usize = 26_985;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -208,10 +227,16 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// measurement and carried no slack. The two halves are near enough to equal on purpose: each
 /// of the three rules the section states is a decision with a declined alternative, and the
 /// alternative is what the evidence half is for.
+///
+/// **`directories.md` re-measured to 11,854 for #1027.** 168 further words arrived — 61 in the
+/// rules half, 107 in the evidence half — and 11,686 + 168 is this figure exactly, so the pair
+/// carried no slack before this edit and carries none after it. The rules half is 7,717 and the
+/// evidence half 4,137, read out of [`a_split_pair_does_not_shrink`]'s own message rather than
+/// added up by hand.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_399),
     ("yidam/prelude/GRAPH.md", 8_818),
-    ("yidam/prelude/guidelines/directories.md", 11_686),
+    ("yidam/prelude/guidelines/directories.md", 11_854),
     ("yidam/prelude/skills/bootstrap.md", 10_433),
 ];
 

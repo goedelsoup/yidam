@@ -77,7 +77,8 @@ calculators by what they compute (`lowflow`, `curve-number`, `et`).
 learning. Takes structured corpus data (nodes, edges, extracted values) and produces
 embeddings, feature vectors, or derived signals. Feature engineering bridges the corpus and the
 index layer; it is distinct from calculators because its outputs are optimized for retrieval
-quality, not domain correctness.
+quality, not domain correctness. A crate implementing it declares `kind = "featurizer"`, which
+is the only one of the three whose declared value is not its own name lowercased.
 
 **The index layer:** A vector index (e.g., LanceDB) over corpus embeddings enables semantic
 retrieval. The index is not the corpus; it is a derived representation of it. Maintaining an
@@ -625,7 +626,7 @@ actually perform. [why](directories.evidence.md#capabilities-provenance-invented
 
 ```toml
 [capability.travel-tier]
-kind   = "calculator"          # or `connector`
+kind   = "calculator"          # or `connector`, `featurizer`
 run    = ["sh", ".yidam/capabilities/travel-tier.sh"]
 reads  = [".yidam/corpus/**", ".yidam/capabilities/**"]
 writes = [".yidam/computed/**"]
@@ -639,6 +640,10 @@ writes = [".yidam/computed/**"]
 verb   = "compute"
 after  = ["travel-tier"]       # optional
 ```
+
+**All three capability types are declarable and `yidam run` invokes calculators only.** A
+connector or a featurizer parses, plans, and is refused by name before anything runs, with the
+reason particular to its kind. [why](directories.evidence.md#declarable-not-executable)
 
 `yidam run travel-tier` then checks the declared `reads` out of `HEAD` into a scratch directory,
 invokes the step there, and lands what it wrote — plus a receipt — as one commit. `yidam run`
