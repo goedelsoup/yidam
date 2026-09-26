@@ -28,6 +28,54 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `yidam serve --mcp` can say whether a corpus has ever been read
+
+**`serve --mcp` wrote nothing at all before this (#719).** Not a log, not a counter, not a cache.
+Thirteen tools dispatched, returned, and the process forgot. So this repository could say who
+asserted every node, and when, and under what review. It could not say whether any node had ever
+been **read**.
+
+**One key turns the other side on**, in the corpus's own `.yidam/config.toml`:
+
+```toml
+[serve]
+record = true
+```
+
+With it, one line goes to `.yidam/record/calls.jsonl` per `tools/call`, over either transport:
+
+```json
+{"at":1758758400,"commit":"2bb499a","tool":"retrieve",
+ "args_digest":"sha256:9f3a…","outcome":"ok","results":3,
+ "degraded":true,"rejected":false,"ms":12}
+```
+
+That makes four questions answerable that were not. Which queries came back empty — previously
+discarded, and the most direct evidence of what a corpus is missing. Whether the degraded keyword
+path served real traffic. `retrieve` always reported `degraded` per call, and nothing aggregated
+it. So *this corpus has answered from keyword search for a month* was not a statement anyone could
+make. Whether anything ever acted on a clock. And how much of the read surface is used at all.
+
+**Nothing changes for a corpus that does not write the key**, which is every corpus today. Absent,
+the server writes nothing, exactly as before.
+
+**Your query text is never recorded.** A digest of the arguments and nothing else, on both
+transports. Over `--http` a server answers callers it cannot authenticate. The record must not
+become a file of their questions. The digest is stable, so the same call digests alike.
+
+**`.yidam/record/` must be gitignored.** A server that declared `record` refuses to start until it
+is. A derived repository gets the entry from the template's own `.gitignore`. A repository that has
+diverged needs the line added. The check asks `git check-ignore`, so `.git/info/exclude` or a
+global ignore file satisfies it too. The rule is `vault materialize`'s. The reason is related: this
+project's protocols prescribe `git add -A`, and a tracked record dirties the tree after every
+served session.
+
+**The file is a staging buffer, not the record of last resort.** *The history is the graph*, and
+folding this into a `refresh:`-class commit is a scheduled run. `git commit-tree` on the read path
+would make the cheapest tool call the most expensive thing the server does. A record of what was
+retrieved is **operational** under RFC-0026. So it needs no new authority concept and no author.
+That fold is not built yet (#1018), and neither is a report over it (#1019).
+
 ### `yidam overlay` copies what git tracks
 
 **Each subtree `overlay` copies is now the tracked set under it (#984).** `yidam/`, `sadhana/`

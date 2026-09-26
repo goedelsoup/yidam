@@ -27,6 +27,14 @@
 # person or a connector has a real file with a real name. `materialize` refuses to
 # write until this entry exists.
 .yidam/vault/
+
+# What `yidam serve` was asked, one line per tool call, under `[serve] record`. A
+# staging buffer and not the record of last resort: the history is the graph, and
+# folding this into a `refresh:` commit is a scheduled run rather than something a
+# tool call does. Tracked, it would dirty the working tree after every session
+# anyone served — and this repository's protocols prescribe `git add -A`. `serve`
+# refuses to open it until this entry exists, on `materialize`'s precedent above.
+.yidam/record/
 target/
 # `cargo --target-dir` output under any name. `target/` alone missed `target-pin/`, which a
 # `git add -A` then swept 567 build artifacts out of.

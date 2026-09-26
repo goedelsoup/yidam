@@ -100,6 +100,21 @@
 # quietly downgrading it.
 # act = true
 
+# Whether a server started against this corpus appends a line per `tools/call` to
+# `.yidam/record/calls.jsonl`: which tool, a digest of its arguments, how many rows came back,
+# whether the answer was degraded, and the commit it answered from. Never the query text — over
+# `--http` a server answers callers it cannot authenticate, and a plaintext record would be a
+# file of their questions accumulating in a working tree. `false` is the default, on the
+# precedent `[due]` and `ttl_days` set: the corpus declares and nothing is compiled in.
+#
+# Not `act` under another name. `act` declares what the server may write *into the graph* and
+# carries an identity gate because the history it writes is testimony. This is an operational
+# record of what the server was asked, and needs no author. `.yidam/record/` must be gitignored
+# — the template ships it so — and `serve` refuses to start until it is, because this
+# repository's protocols prescribe `git add -A` and a tracked record dirties the tree after
+# every served session.
+# record = true
+
 # ── retrieval ─────────────────────────────────────────────────────────────────
 
 [index]

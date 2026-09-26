@@ -867,3 +867,214 @@ fn serve_refuses_a_non_corpus_and_still_admits_an_empty_one() {
         "the empty corpus is served, and served as empty"
     );
 }
+
+// ── the consumption record (#719) ─────────────────────────────────────────────
+//
+// This repository could say, for every node, who asserted it and when, and could not say
+// whether any node had ever been read. These cases are the closing evidence: a server that
+// served N calls and exited leaves a record with N entries, each naming the corpus commit it
+// answered from.
+
+/// A fixture that has declared `[serve] record`, and gitignores what the record writes to.
+///
+/// Both files, because `serve` refuses to open the record in a tree where git would offer to
+/// commit it — `absent_gitignore_refuses_the_server` is the case for the other arm.
+fn recording_repo() -> tempfile::TempDir {
+    let repo = make_fixture_repo();
+    std::fs::write(
+        repo.path().join(".yidam/config.toml"),
+        "[serve]\nrecord = true\n",
+    )
+    .unwrap();
+    std::fs::write(repo.path().join(".gitignore"), ".yidam/record/\n").unwrap();
+    repo
+}
+
+/// Every line of the record, parsed.
+///
+/// Reading it at all is the point: before #719 there was no file to read, and so no answer to
+/// "has this corpus ever been queried" that did not come from someone's memory.
+fn record_lines(root: &Path) -> Vec<Value> {
+    let path = root.join(".yidam/record/calls.jsonl");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("reading {} ({e})", path.display()));
+    text.lines()
+        .map(|l| serde_json::from_str(l).expect("each record line is one JSON object"))
+        .collect()
+}
+
+/// The head commit as every other `serve` surface spells it, which every record entry names.
+///
+/// `--short`, because the record carries `ServerState::commit` — the same value the banner
+/// prints, the handshake reports and `stale_index` compares. A record with a second spelling of
+/// the commit would be one file in this server disagreeing with every other about which corpus
+/// answered.
+fn head(root: &Path) -> String {
+    common::git::out(root, &["rev-parse", "--short", "HEAD"])
+}
+
+#[test]
+fn a_recording_server_leaves_one_entry_per_tool_call() {
+    let repo = recording_repo();
+    let commit = head(repo.path());
+    {
+        let mut client = McpClient::spawn(repo.path());
+        client.initialize();
+        client.tool_json("retrieve", json!({"query": "knowledge graph", "k": 3}));
+        client.tool_json("list_nodes", json!({}));
+        client.tool_json("open_questions", json!({}));
+    }
+
+    let lines = record_lines(repo.path());
+    assert_eq!(
+        lines.len(),
+        3,
+        "three tool calls, and the record does not have three entries:\n{lines:#?}"
+    );
+    let tools: Vec<&str> = lines.iter().map(|l| l["tool"].as_str().unwrap()).collect();
+    assert_eq!(tools, ["retrieve", "list_nodes", "open_questions"]);
+
+    for line in &lines {
+        // A reading is attributable to a corpus state the way every other claim here is.
+        assert_eq!(
+            line["commit"], commit,
+            "an entry does not name the corpus commit it was served from:\n{line}"
+        );
+        assert_eq!(line["outcome"], "ok");
+        assert!(line["at"].as_u64().unwrap() > 0, "no timestamp: {line}");
+        assert!(line["ms"].is_u64(), "no latency: {line}");
+        // NEVER THE WORDS. A corpus served over `--http` is answering callers it cannot
+        // authenticate, and the digest is what keeps their questions out of the working tree.
+        let digest = line["args_digest"].as_str().unwrap();
+        assert!(digest.starts_with("sha256:"), "{line}");
+        assert!(
+            !line.to_string().contains("knowledge graph"),
+            "the query text reached the record:\n{line}"
+        );
+    }
+
+    // The degraded keyword path served real traffic, and now something says so. The fixture
+    // has no vector index, so `retrieve` reports it per call — and this is the aggregate that
+    // was not previously anyone's to make.
+    let retrieve = &lines[0];
+    assert_eq!(retrieve["degraded"], true, "{retrieve}");
+    assert_eq!(retrieve["rejected"], false, "{retrieve}");
+    assert!(
+        retrieve["results"].as_u64().unwrap() > 0,
+        "the row count is not recorded:\n{retrieve}"
+    );
+    // A tool whose response carries no `degraded` key records null rather than false: a reader
+    // testing the key must not have to tell "not degraded" from "not applicable".
+    assert!(lines[1]["degraded"].is_null(), "{}", lines[1]);
+}
+
+/// The mutation the write site is built against: record only the `Ok` arm and this goes red.
+///
+/// The failure path is the one that answers *which queries returned nothing* — the most direct
+/// empirical evidence of what a corpus is missing — so it is the path whose coverage is worth
+/// pinning. Both refusals here are recorded, and neither reaches the `Ok` arm at all: one is a
+/// name the contract does not carry, the other a required argument that is absent.
+#[test]
+fn a_refusal_is_recorded() {
+    let repo = recording_repo();
+    {
+        let mut client = McpClient::spawn(repo.path());
+        client.initialize();
+        for (name, args) in [
+            ("no_such_tool", json!({})),
+            // `retrieve` without its required `query`.
+            ("retrieve", json!({})),
+        ] {
+            let result = client.request("tools/call", json!({"name": name, "arguments": args}));
+            assert_eq!(
+                result["isError"], true,
+                "{name} was expected to refuse: {result}"
+            );
+        }
+    }
+
+    let lines = record_lines(repo.path());
+    assert_eq!(lines.len(), 2, "a refusal is a reading:\n{lines:#?}");
+    for line in &lines {
+        assert_eq!(
+            line["outcome"], "error",
+            "a refusal is recorded as a success:\n{line}"
+        );
+        // Nothing was returned, and the record says so with null rather than 0 — "no rows"
+        // and "no answer to read rows out of" are different facts about the same call.
+        assert!(line["results"].is_null(), "{line}");
+        assert!(line["degraded"].is_null(), "{line}");
+    }
+}
+
+/// An empty answer is recorded as an answer, which is the question the record exists for.
+#[test]
+fn a_query_that_returned_nothing_is_recorded_as_zero_rows() {
+    let repo = recording_repo();
+    {
+        let mut client = McpClient::spawn(repo.path());
+        client.initialize();
+        // One token and a nonsense one: the keyword fallback scores by the fraction of query
+        // terms hit, so a sentence of ordinary words matches rows on "this" and "corpus" and
+        // would not be the empty answer this case is about.
+        client.tool_json("retrieve", json!({"query": "zzqqxxwv"}));
+    }
+    let line = &record_lines(repo.path())[0];
+    assert_eq!(line["outcome"], "ok", "{line}");
+    assert_eq!(line["results"], 0, "{line}");
+    // A REJECTION IS NOT AN ABSENCE. This query is well-formed and the corpus is quiet; a
+    // record that collapsed the two would put a caller's typo in the same bucket as a hole.
+    assert_eq!(line["rejected"], false, "{line}");
+}
+
+/// The default, which is every server this repository shipped before #719.
+#[test]
+fn a_corpus_that_declares_nothing_is_not_recorded() {
+    let repo = make_fixture_repo();
+    {
+        let mut client = McpClient::spawn(repo.path());
+        client.initialize();
+        client.tool_json("list_nodes", json!({}));
+    }
+    assert!(
+        !repo.path().join(".yidam/record").exists(),
+        "a corpus that declared no record has one"
+    );
+}
+
+/// A server told to record into a tree where git would commit the record refuses to start.
+///
+/// `vault materialize`'s rule, and the same reason it is a refusal rather than a warning: this
+/// repository's protocols prescribe `git add -A`, so a record in a tracked path is a working
+/// tree that is dirty after every session anyone served.
+#[test]
+fn a_committable_record_refuses_the_server() {
+    let repo = make_fixture_repo();
+    std::fs::write(
+        repo.path().join(".yidam/config.toml"),
+        "[serve]\nrecord = true\n",
+    )
+    .unwrap();
+    // No `.gitignore`, which is the whole of the defect.
+
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .args(["serve", "--mcp"])
+        .current_dir(repo.path())
+        .stdin(Stdio::null())
+        .output()
+        .expect("spawning yidam serve --mcp");
+    assert!(!out.status.success(), "the server started anyway");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains(".yidam/record"),
+        "the refusal does not name the path:\n{stderr}"
+    );
+    assert!(
+        stderr.contains(".gitignore"),
+        "the refusal names no repair:\n{stderr}"
+    );
+    assert!(
+        !repo.path().join(".yidam/record").exists(),
+        "the directory was created by a server that then refused to use it"
+    );
+}
