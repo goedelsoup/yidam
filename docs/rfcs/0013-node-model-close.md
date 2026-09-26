@@ -84,7 +84,7 @@ instances, never authors Markdown corpus nodes ([`0002:97-99`](0002-node-model-u
 
 `project_markdown` drops `#anchor`; the instance link schema does **not** grow an anchor field. A node
 is atomic — decompose past a screen, and "One concept per file; one file per concept"
-([`directories.md:339-342`](../../yidam/prelude/guidelines/directories.md#L339-L342)) — so an
+([`directories.md:341-344`](../../yidam/prelude/guidelines/directories.md#L341-L344)) — so an
 intra-node anchor is a Markdown-document affordance with nothing to bind to in a node graph. A link
 that needs to target a sub-part is a signal to make that sub-part its own node.
 *(Position — the one most likely to draw pushback; flagged below.)*

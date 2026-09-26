@@ -275,6 +275,15 @@ A commit saying `compute: low-flow through August`, written by a person after in
 calculator by hand, is an account written after the fact and checkable against nothing. The
 manifest is what makes the same subject line a claim something verified.
 
+## declarable-not-executable
+
+Two of the three kinds load and are turned away, and the reasons are not the same sort of reason.
+A connector's is a decision: it reaches a network and a credential path, and the vault rules
+already govern those. A featurizer's is an absence: the slice has not been built. Either way a
+declaration that parses and refuses by name beats a manifest that cannot express the kind at all,
+which is what the taxonomy's third type had for as long as the enum behind it had two arms — a
+crate implementing it was indistinguishable, in every report, from a crate implementing nothing.
+
 ## reads-writes-load-bearing
 
 Both are decidable before the step runs rather than after it has produced a tree. A check applied

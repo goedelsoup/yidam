@@ -21,7 +21,7 @@ mod common;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use common::{examples, Example};
+use common::{examples, kind_spellings, Example};
 
 /// One capability, in the two fields this file needs of it.
 #[derive(serde::Deserialize, Default)]
@@ -591,53 +591,85 @@ fn a_dry_run_writes_nothing_at_all() {
     }
 }
 
-/// A plan holding a step this binary cannot invoke is refused before any of it runs.
+/// Every kind is declarable, and one this binary cannot invoke is refused before any of it runs.
 ///
-/// The failure this is against is a partial run: a connector declared behind two calculators
-/// would land two commits and then refuse, leaving the corpus advanced by a run that never had
-/// a chance of finishing. So the refusal is a pre-pass, and the evidence is that HEAD did not
-/// move — not merely that the exit code was nonzero.
+/// Two properties, over every kind rather than over the one that was unrunnable when this was
+/// written (#1027).
+///
+/// **Declarable.** The manifest parses whatever kind it names. A kind the enum lacked did not
+/// get a named refusal, it got a parse error against the whole file — and a corpus reading a
+/// published taxonomy of three cannot tell that from a typo. So the refusal must not be a parse
+/// failure, and this asserts which one it is.
+///
+/// **Refused before anything runs.** The failure that is against is a partial run: a step this
+/// binary cannot invoke, declared behind two calculators, would land two commits and then
+/// refuse, leaving the corpus advanced by a run that never had a chance of finishing. So the
+/// evidence is that HEAD did not move — not merely that the exit code was nonzero.
+///
+/// Which kinds are executable is the binary's answer, not this test's. A kind that runs is
+/// held to having run; a kind that is refused is held to a refusal naming the step and the
+/// kind. The day feature engineering becomes executable, this test moves with it.
 #[test]
-fn a_plan_holding_a_connector_is_refused_before_anything_runs() {
+fn every_kind_is_declarable_and_an_unrunnable_one_is_refused_before_anything_runs() {
     for name in examples() {
-        let e = Example::materialize(&name);
-        let caps = declared(&e.path());
-        // The last step in the plan, so there is something ahead of it that would otherwise
-        // have run and committed before the refusal was reached.
-        let Some(step) = caps
-            .iter()
-            .find(|(_, c)| !c.after.is_empty())
-            .map(|(s, _)| s.clone())
-            .or_else(|| caps.keys().next().cloned())
-        else {
-            continue;
-        };
+        for kind in kind_spellings() {
+            let e = Example::materialize(&name);
+            let caps = declared(&e.path());
+            // The last step in the plan, so there is something ahead of it that would otherwise
+            // have run and committed before the refusal was reached.
+            let Some(step) = caps
+                .iter()
+                .find(|(_, c)| !c.after.is_empty())
+                .map(|(s, _)| s.clone())
+                .or_else(|| caps.keys().next().cloned())
+            else {
+                continue;
+            };
 
-        let manifest = e.path().join(".yidam/capabilities.toml");
-        let text = std::fs::read_to_string(&manifest).unwrap();
-        let head = format!("[capability.{step}]");
-        let at = text.find(&head).expect("the step is declared");
-        let rest = &text[at + head.len()..];
-        let end = at + head.len() + rest.find("\n[").unwrap_or(rest.len());
-        let table = text[at..end].replace(r#"kind   = "calculator""#, r#"kind   = "connector""#);
-        assert!(
-            table.contains("connector"),
-            "the kind was not mutated, so this asserts nothing"
-        );
-        std::fs::write(&manifest, format!("{}{table}{}", &text[..at], &text[end..])).unwrap();
+            let manifest = e.path().join(".yidam/capabilities.toml");
+            let text = std::fs::read_to_string(&manifest).unwrap();
+            let head = format!("[capability.{step}]");
+            let at = text.find(&head).expect("the step is declared");
+            let rest = &text[at + head.len()..];
+            let end = at + head.len() + rest.find("\n[").unwrap_or(rest.len());
+            let table =
+                text[at..end].replace(r#"kind   = "calculator""#, &format!(r#"kind   = "{kind}""#));
+            assert!(
+                table.contains(&format!(r#""{kind}""#)),
+                "the kind was not mutated to `{kind}`, so this asserts nothing"
+            );
+            std::fs::write(&manifest, format!("{}{table}{}", &text[..at], &text[end..])).unwrap();
 
-        let before = git(&e.path(), &["rev-parse", "HEAD"]);
-        let (out, err, code) = e.run(&["run"]);
-        assert_ne!(code, 0, "a connector was invoked in {name}:\n{out}");
-        assert!(
-            err.contains("calculators only") && err.contains(step.as_str()),
-            "the refusal does not name the step or why:\n{err}"
-        );
-        assert_eq!(
-            git(&e.path(), &["rev-parse", "HEAD"]),
-            before,
-            "a plan that could not finish landed a commit anyway in {name}"
-        );
+            let before = git(&e.path(), &["rev-parse", "HEAD"]);
+            let (out, err, code) = e.run(&["run"]);
+
+            // Declarable, whichever way the run went: a kind the enum does not know fails in
+            // serde, against the file, without ever reaching the plan.
+            assert!(
+                !err.contains("unknown variant") && !err.contains("parsing .yidam/capabilities"),
+                "`{kind}` is not declarable — the manifest did not parse in {name}:\n{err}"
+            );
+
+            if code == 0 {
+                assert_ne!(
+                    git(&e.path(), &["rev-parse", "HEAD"]),
+                    before,
+                    "`{kind}` succeeded without landing anything in {name}:\n{out}"
+                );
+                continue;
+            }
+            assert!(
+                err.contains("calculators only")
+                    && err.contains(step.as_str())
+                    && err.contains(kind.as_str()),
+                "the refusal of `{kind}` does not name the step, the kind, or why:\n{err}"
+            );
+            assert_eq!(
+                git(&e.path(), &["rev-parse", "HEAD"]),
+                before,
+                "a plan that could not finish landed a commit anyway in {name}"
+            );
+        }
     }
 }
 
