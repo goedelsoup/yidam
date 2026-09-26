@@ -1,7 +1,7 @@
 {
   "name": "yidam",
-  "version": "0.1.0",
-  "description": "Reach a yidam corpus from Claude Code: thirteen MCP tools over the corpus, and six skills that call them at the point each decision is made.",
+  "version": "0.2.0",
+  "description": "Reach a yidam corpus from Claude Code: thirteen MCP tools over the corpus, and seven skills that call them at the point each decision is made.",
   "author": {
     "name": "goedelsoup",
     "url": "https://github.com/goedelsoup"

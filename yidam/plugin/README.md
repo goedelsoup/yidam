@@ -14,11 +14,12 @@ the surface RFC-0005 froze: thirteen read tools over the corpus, two more at the
 that a corpus has to ask for, a capability block that declares its holes at connect time, and
 an `absence` field on every empty answer saying which kind of nothing it is.
 
-**Six skills**, in [`skills/`](skills/) — one per decision the corpus constrains, and one for
-the decision of what to do next:
+**Seven skills**, in [`skills/`](skills/) — one per decision the corpus constrains, one for
+the decision of what to do next, and one for the project that is not a corpus yet:
 
 | Skill | Fires before | Calls |
 |---|---|---|
+| `starting-a-corpus` | there being a corpus at all | nothing — the server is not running yet |
 | `starting-a-session` | choosing what to work on | `cycle`, `propose` |
 | `writing-a-corpus-commit` | a commit subject | `check_subject` |
 | `tagging-a-claim` | an evidence tag | `claim_tags` |
@@ -43,6 +44,15 @@ reach for.
 `bootstrap.md`, the prelude's only skill, does not travel. It is an agent prompt for an
 **empty** repository, and this plugin installs into one that already exists.
 
+`starting-a-corpus` is the one skill that fires where the server does not. It is not a copy
+of `bootstrap.md` and does not try to be one: it asks the three ontology questions, writes the
+six files the smallest corpus is, runs the gates over them, and hands off to the dialogue for
+the growing. The reason it exists is #950 — the plugin could serve a corpus and could not
+cause one to exist, and the refusal it left a reader holding named two commands that only work
+from inside a template checkout. `claude_plugin.rs` holds both halves: every skill's
+description has to say which of the two states it fires in, and the launcher's refusal has to
+name a skill rather than a command that needs a checkout.
+
 ## What it does not carry
 
 **A binary.** Install `yidam` from any channel in
@@ -54,7 +64,8 @@ The launcher also refuses a directory with no `.yidam/`. A plugin is installed o
 Claude Code starts its servers in every project, so that is the ordinary case rather than the
 odd one. `serve` refuses it too, as of #549 — checking here is what lets the message be about
 the plugin, and what avoids starting a 50 MB binary in every non-corpus project to be told
-no.
+no. The refusal names the repair, and the repair it names works from any directory: the
+`starting-a-corpus` skill, and the page that skill follows.
 
 ## Releasing
 

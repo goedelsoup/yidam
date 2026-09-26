@@ -15,6 +15,11 @@
 #      is the one that can say it in terms of the plugin, and it avoids starting a 50 MB
 #      binary in every non-corpus project to be told no.
 #
+#      It used to name `yidam clone` and `yidam overlay`, which is where #950 came in:
+#      both derive from the checkout the shell is standing in, so neither does anything
+#      for the person reading the message. The message now names the two repairs that
+#      work from any directory — the `starting-a-corpus` skill, and the page it follows.
+#
 # Everything here writes to stderr. stdout carries JSON-RPC frames and a stray line on it
 # corrupts the protocol.
 set -eu
@@ -36,8 +41,10 @@ cd "$root"
 # and nothing in it yet, and an empty corpus is not an absent one.
 [ -d .yidam ] || die \
     "yidam: $root is not a yidam corpus (no .yidam/ directory)." \
-    "  The yidam MCP server serves one derived repository. Derive one with" \
-    "  \`yidam clone <target>\`, or overlay this repository with \`yidam overlay .\`." \
+    "  Ask the agent to \"make this a yidam corpus\". The plugin ships a" \
+    "  starting-a-corpus skill for exactly this, and it works from any directory:" \
+    "  the smallest corpus is six files you write in an editor." \
+    "  By hand, that is https://goedelsoup.github.io/yidam/first-corpus-by-hand/" \
     "  If this project is not a corpus, disable the yidam plugin for it."
 
 # YIDAM_BIN first, so a build that is not on PATH — `.local/bin/yidam` from
