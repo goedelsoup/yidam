@@ -61,7 +61,11 @@ fn the_reported_feature_set_is_the_one_the_gate_builds() {
 
     let labels: Vec<BTreeSet<String>> = yml
         .lines()
-        .filter_map(|l| l.split("features:").nth(1))
+        // The `features:` KEY, not the substring: `list-features:` is a different input —
+        // the feature flags the summary's test listing is built with (#1014) — and it can
+        // legitimately name a non-default set. Matching it here would fail this test for a
+        // line it is not about.
+        .filter_map(|l| l.trim().strip_prefix("features:"))
         .filter(|v| v.contains(','))
         .map(|v| {
             v.split('\'')

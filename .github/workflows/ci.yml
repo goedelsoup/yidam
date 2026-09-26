@@ -126,6 +126,12 @@ jobs:
           # and the manifest and requires them equal. (It used to say `light_build.rs`,
           # which never read this file.)
           features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch' || '' }}
+          # No `list-features`: both rows ran their suite under the default set, and that is
+          # what an unqualified listing resolves. The `cli` row's run is the instrumented one
+          # (`ci-cli-cov`), so its listing is taken against `llvm-cov-target` rather than
+          # compiling a second, uninstrumented copy of a build the job already has — 56s of
+          # this job on main run 36243035789, on the pull-request critical path (#1014).
+          instrumented: ${{ matrix.workspace == 'cli' && 'true' || '' }}
 
   domains:
     # #590: `cargo fmt --all` in a derived repo reaches these crates too, by path, because
@@ -623,6 +629,15 @@ jobs:
           manifest: yidam/cli/Cargo.toml
           artifact: test-results-cli-full
           json: "true"
+          # The feature set this gate's JUnit came from, and the tree it was built in. Both
+          # were absent until #1014, which made the listing a fifth build configuration in a
+          # job that already compiles four — 1m17s on main run 36243035789 — enumerating the
+          # DEFAULT-feature suite beside the `--all-features` results it is a census of. The
+          # two are held together by
+          # `ci_reporting.rs::the_listing_is_of_the_build_whose_results_it_censuses`, which
+          # reads them off `coverage-full`'s nextest line rather than trusting this block.
+          list-features: --all-features
+          instrumented: "true"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
