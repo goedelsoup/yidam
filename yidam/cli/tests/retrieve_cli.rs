@@ -163,7 +163,14 @@ fn a_where_keeps_only_the_rows_whose_typed_properties_satisfy_it() {
 
     // The complement, to pin that the number was compared as a number and not as text —
     // `"6" > "10"` lexically, and a lexical server returns the tailwater here.
-    let (stdout, _, _) = e.run(&["retrieve", "reach", "--where", "length_km<10", "--format", "json"]);
+    let (stdout, _, _) = e.run(&[
+        "retrieve",
+        "reach",
+        "--where",
+        "length_km<10",
+        "--format",
+        "json",
+    ]);
     let p = payload(&stdout);
     let ids: Vec<&str> = p["results"]
         .as_array()
@@ -202,7 +209,11 @@ fn a_where_that_cannot_be_asked_is_rejected_as_query_would_reject_it() {
     ] {
         let (stdout, _, exit) = e.run(&["retrieve", "reach", "--where", text, "--format", "json"]);
         assert_eq!(exit, 1, "{text}: {stdout}");
-        assert_eq!(payload(&stdout)["rejected"]["code"], code, "{text}: {stdout}");
+        assert_eq!(
+            payload(&stdout)["rejected"]["code"],
+            code,
+            "{text}: {stdout}"
+        );
     }
 }
 
@@ -212,7 +223,14 @@ fn a_where_that_cannot_be_asked_is_rejected_as_query_would_reject_it() {
 #[test]
 fn a_where_nothing_satisfies_is_its_own_kind_of_empty() {
     let e = Example::materialize("streamflow");
-    let (stdout, _, code) = e.run(&["retrieve", "reach", "--where", "length_km>100", "--format", "json"]);
+    let (stdout, _, code) = e.run(&[
+        "retrieve",
+        "reach",
+        "--where",
+        "length_km>100",
+        "--format",
+        "json",
+    ]);
     assert_eq!(code, 0, "{stdout}");
     let p = payload(&stdout);
     assert_eq!(p["absence"]["code"], "predicate-unsatisfied", "{stdout}");
@@ -224,7 +242,14 @@ fn a_where_nothing_satisfies_is_its_own_kind_of_empty() {
 #[test]
 fn a_where_narrows_what_no_term_match_counts() {
     let e = Example::materialize("streamflow");
-    let (stdout, _, code) = e.run(&["retrieve", "xylophone", "--where", "length_km>0", "--format", "json"]);
+    let (stdout, _, code) = e.run(&[
+        "retrieve",
+        "xylophone",
+        "--where",
+        "length_km>0",
+        "--format",
+        "json",
+    ]);
     assert_eq!(code, 0, "{stdout}");
     let p = payload(&stdout);
     assert_eq!(p["absence"]["code"], "no-term-match", "{stdout}");
@@ -288,8 +313,14 @@ fn a_where_against_an_index_without_the_column_is_where_unindexed() {
     )
     .unwrap();
 
-    let (stdout, _, code) =
-        e.run(&["retrieve", "reach", "--where", "length_km>10", "--format", "json"]);
+    let (stdout, _, code) = e.run(&[
+        "retrieve",
+        "reach",
+        "--where",
+        "length_km>10",
+        "--format",
+        "json",
+    ]);
     assert_eq!(code, 1, "{stdout}");
     let p = payload(&stdout);
     assert_eq!(p["rejected"]["code"], "where-unindexed", "{stdout}");

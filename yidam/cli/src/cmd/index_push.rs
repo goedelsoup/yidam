@@ -280,7 +280,9 @@ mod tests {
         let metadata = vectors[0].metadata.as_object().unwrap();
         assert!(
             !metadata.contains_key("properties")
-                && !metadata.values().any(|v| v.as_str().is_some_and(|s| s.contains("began"))),
+                && !metadata
+                    .values()
+                    .any(|v| v.as_str().is_some_and(|s| s.contains("began"))),
             "{metadata:?}"
         );
     }

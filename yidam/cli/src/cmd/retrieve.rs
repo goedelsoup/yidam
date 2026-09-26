@@ -74,7 +74,10 @@ pub fn retrieve(root: Option<&std::path::Path>, query: &str, opts: Options) -> R
     // is an error to a caller).
     let rejected = payload["rejected"].is_object();
     crate::report::gate(&root, opts.format, payload, !rejected, |p| {
-        print!("{}", render(query, opts.r#where.as_deref(), p, &state.corpus_aliases))
+        print!(
+            "{}",
+            render(query, opts.r#where.as_deref(), p, &state.corpus_aliases)
+        )
     })
 }
 

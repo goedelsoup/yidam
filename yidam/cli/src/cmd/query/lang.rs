@@ -318,10 +318,7 @@ pub fn parse_where(raw: &str) -> Result<Vec<Pred>, ParseError> {
         .strip_prefix('[')
         .and_then(|r| r.strip_suffix(']'))
         .unwrap_or(raw);
-    parse_filter(raw, 0).map_err(|e| ParseError {
-        token: None,
-        ..e
-    })
+    parse_filter(raw, 0).map_err(|e| ParseError { token: None, ..e })
 }
 
 fn parse_filter(raw: &str, token: usize) -> Result<Vec<Pred>, ParseError> {

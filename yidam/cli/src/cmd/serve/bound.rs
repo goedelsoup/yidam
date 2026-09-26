@@ -117,18 +117,23 @@ impl Bound {
             message: format!("`where` did not parse: {}", e.message),
         })?;
         let graph = &state.graph;
-        let local = Scope::check(&preds, class, &graph.classes, &graph.universal, &graph.nodes)
-            .map_err(|r| Rejection {
-                code: r.code.as_str(),
-                message: r.message,
-            })?;
+        let local = Scope::check(
+            &preds,
+            class,
+            &graph.classes,
+            &graph.universal,
+            &graph.nodes,
+        )
+        .map_err(|r| Rejection {
+            code: r.code.as_str(),
+            message: r.message,
+        })?;
         let foreign = state
             .graph_across
             .iter()
             .flat_map(|g| g.across.iter())
             .map(|f| {
-                let scope =
-                    Scope::check(&preds, class, &f.classes, &f.universal, &f.nodes).ok();
+                let scope = Scope::check(&preds, class, &f.classes, &f.universal, &f.nodes).ok();
                 (f.package.clone(), scope)
             })
             .collect();
@@ -159,10 +164,7 @@ impl Bound {
             .unwrap_or(serde_json::Value::Null);
         self.local
             .admits(class, &self.preds, |prop| {
-                object
-                    .get(prop)
-                    .map(exec::json_scalars)
-                    .unwrap_or_default()
+                object.get(prop).map(exec::json_scalars).unwrap_or_default()
             })
             .unwrap_or(false)
     }
@@ -180,7 +182,11 @@ impl Bound {
         view: &crate::model::NodeView,
     ) -> Option<bool> {
         let (scope, nodes, corpus_dir) = match &view.origin {
-            None => (Some(&self.local), &state.graph.nodes, &state.graph.corpus_dir),
+            None => (
+                Some(&self.local),
+                &state.graph.nodes,
+                &state.graph.corpus_dir,
+            ),
             Some(pkg) => {
                 let foreign = state
                     .graph_across
