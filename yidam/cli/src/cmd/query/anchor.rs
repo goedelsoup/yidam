@@ -36,6 +36,10 @@ use crate::retrieval::Retrieval;
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Entry {
     pub node: String,
+    /// Narrowed on the way out, so this report reads the same on both surfaces that publish
+    /// it. See [`crate::retrieval::serialize_score`] for what diverged and why #1026 is what
+    /// found it.
+    #[serde(serialize_with = "crate::retrieval::serialize_score")]
     pub score: f32,
 }
 
@@ -274,6 +278,14 @@ fn search_index(
 }
 
 /// The fallback: the same scorer `retrieve` degrades to, over the step's candidate classes.
+///
+/// Composed first and scored second, because BM25 reads the *set* — `retrieval::Bm25::over`
+/// says why, and says why the set here is the right one to read. It is the step's candidate
+/// classes, where `retrieve`'s also reaches installed dependencies, so the same term carries
+/// a different weight in the two arms. That follows from the candidate sets differing, and
+/// they differ for the reason the remote arm above already gives: an anchor is an entry, and
+/// the contract has it enter locally because the response says `scope: "local"`. A wider set
+/// would weight a term by documents the answer can never contain.
 fn keyword_entries(
     text: &str,
     classes: &[String],
@@ -281,9 +293,8 @@ fn keyword_entries(
     nodes: &[Node],
     corpus_dir: &str,
 ) -> (Vec<Entry>, Vec<String>) {
-    let terms = crate::retrieval::terms(text);
     let mut read = Vec::new();
-    let mut scored: Vec<Entry> = Vec::new();
+    let mut candidates: Vec<(String, String)> = Vec::new();
     for node in nodes.iter().filter(|n| classes.contains(&class_of(n))) {
         let id = id_of(node, corpus_dir);
         // Charged whether it scores or not. Rejecting a node still means having read it, and
@@ -299,10 +310,18 @@ fn keyword_entries(
             node.text
         )
         .to_lowercase();
-        if let Some(score) = crate::retrieval::keyword_score(&terms, &haystack) {
-            scored.push(Entry { node: id, score });
-        }
+        candidates.push((id, haystack));
     }
+    let bm25 = crate::retrieval::Bm25::over(text, candidates.iter().map(|(_, h)| h.as_str()));
+    let mut scored: Vec<Entry> = candidates
+        .iter()
+        .filter_map(|(id, haystack)| {
+            bm25.score(haystack).map(|score| Entry {
+                node: id.clone(),
+                score,
+            })
+        })
+        .collect();
     // Ties break on the id: corpus order would do here, but an anchor's entries are the one
     // ordering in this surface that is *not* corpus order, and two orderings that agree only
     // by accident is how a golden starts pinning the filesystem.
@@ -320,6 +339,34 @@ mod tests {
     use super::*;
     use crate::corpus::Overlay;
     use crate::walk::walk_corpus_instances;
+
+    /// The score reads the same whether this report is written as text or built as a value.
+    ///
+    /// `yidam query --format json` takes the first path and the MCP `query` tool takes the
+    /// second, and an `f32` widened to an `f64` by [`serde_json::to_value`] carries digits the
+    /// text form does not print. The two surfaces then publish different numbers for one
+    /// score. The score here is a real one — the BM25 weight of `embedding space` over the
+    /// MCP fixture corpus — chosen because a fraction with a small denominator is exact in
+    /// both widths and would pass this test with the narrowing removed.
+    ///
+    /// Asserted as the *pair* agreeing rather than against a literal, so this stays a test of
+    /// the property and not of whichever digits today's scorer happens to produce.
+    #[test]
+    fn a_score_reads_the_same_as_text_and_as_a_value() {
+        let entry = Entry {
+            node: "concept/embedding-space.yml".to_string(),
+            score: 2.588_180_3,
+        };
+        let as_text: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&entry).unwrap()).unwrap();
+        let as_value = serde_json::to_value(&entry).unwrap();
+        assert_eq!(
+            as_text, as_value,
+            "the CLI writes text and the MCP tool builds a value; they must agree"
+        );
+        // And the number is still the one that was computed, not a rounding of it.
+        assert_eq!(as_value["score"].as_f64().unwrap() as f32, entry.score);
+    }
 
     /// Degrading records the frozen reason AND its repair, together.
     ///

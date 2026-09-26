@@ -11,7 +11,7 @@
 //!
 //! One path's *quality*, not any command. [`vector`] is the only module that names
 //! `fastembed`; everything here compiles in the default build. Without it both `retrieve`
-//! and an anchored query fall through to [`keyword_score`] and say so.
+//! and an anchored query fall through to [`Bm25`] and say so.
 
 #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
 pub(crate) mod remote;
@@ -591,7 +591,16 @@ pub(crate) fn terms(query: &str) -> Vec<String> {
         .collect()
 }
 
-/// The fraction of `terms` present in `haystack`, or `None` when none are.
+/// BM25's two free parameters, at the values the retrieval literature settled on.
+///
+/// Not configurable, and that is a decision rather than an omission. Tuning `k1` and `b`
+/// means tuning against a graded goal set, and the one goal set this repository has is
+/// `bench`'s — which refuses to run at all when the flat arm would be keyword search. A knob
+/// with no way to measure a turn of it is a knob that gets turned by taste.
+const BM25_K1: f32 = 1.2;
+const BM25_B: f32 = 0.75;
+
+/// BM25 over the set of nodes being scanned.
 ///
 /// One scorer, shared by `retrieve`'s fallback and an anchored query's. They were the same
 /// three lines written twice, and the second copy is the one that would have quietly stopped
@@ -599,20 +608,142 @@ pub(crate) fn terms(query: &str) -> Vec<String> {
 /// anchored arm against a flat one and a scoring difference between them would be read as a
 /// result.
 ///
-/// `haystack` is expected already lowercased; the caller builds it once per node and this is
-/// called once per node, so lowercasing here would be the same work in a worse place.
-pub(crate) fn keyword_score(terms: &[String], haystack: &str) -> Option<f32> {
-    if terms.is_empty() {
-        return None;
+/// **Why it is a type and not a function.** Its predecessor scored the fraction of query
+/// terms a node contained, which needs nothing but the node in front of it. The consequence
+/// was not that ranking was poor — it was that there was *no* ranking: every node holding all
+/// of the query's terms scored exactly `1.0`, the tie broke on the qualified id, and a
+/// two-term query over a corpus where forty nodes mentioned both terms returned the first `k`
+/// **alphabetically** (#1026). Term frequency, inverse document frequency and length
+/// normalization are all statements about the *set*, so the set has to be seen before any one
+/// member of it can be scored.
+pub(crate) struct Bm25 {
+    /// One entry per query term that at least one document holds, with that term's inverse
+    /// document frequency over the scanned set.
+    ///
+    /// A term no document holds is dropped here rather than carried at zero: it cannot move
+    /// an ordering, and dropping it keeps [`Bm25::score`]'s inner loop over the terms that
+    /// can.
+    terms: Vec<(String, f32)>,
+    /// Mean document length in whitespace tokens, and never zero — see [`Bm25::over`].
+    mean_len: f32,
+}
+
+impl Bm25 {
+    /// Collect the statistics of a scanned set.
+    ///
+    /// `docs` is the composed, lowercased text of **every** candidate the caller will scan,
+    /// including the ones that will match nothing. Document frequency and mean length are
+    /// properties of the set and not of the hits; taken over the hits alone every term looks
+    /// common and every document looks long, which is the ordering this replaces.
+    ///
+    /// **The two callers scan different sets, and their IDF therefore differs.** `retrieve`
+    /// reaches installed dependencies and an anchor does not — the asymmetry is deliberate
+    /// and argued at each call site. Computing IDF over whichever set is scanned is the
+    /// intended reading rather than a drift: IDF measures how much a term discriminates
+    /// *within the collection the answer is drawn from*, and an anchor cannot return a
+    /// dependency's node however common the term is over there. A statistic taken over a
+    /// wider set than the answer would weight a term by documents that can never come back.
+    pub(crate) fn over<'a>(query: &str, docs: impl IntoIterator<Item = &'a str>) -> Self {
+        let query_terms = terms(query);
+        let mut df = vec![0usize; query_terms.len()];
+        let mut n = 0usize;
+        let mut total_len = 0usize;
+        // One pass. Both statistics come off the same walk, and a second walk would mean
+        // either cloning the iterator or holding the composed text twice.
+        for doc in docs {
+            n += 1;
+            total_len += doc.split_whitespace().count();
+            for (i, term) in query_terms.iter().enumerate() {
+                if doc.contains(term.as_str()) {
+                    df[i] += 1;
+                }
+            }
+        }
+        let terms = query_terms
+            .into_iter()
+            .zip(df)
+            .filter(|(_, df)| *df > 0)
+            .map(|(term, df)| {
+                // THE `+1` VARIANT, and it is a behaviour rather than a preference. The
+                // textbook `ln((n - df + 0.5) / (df + 0.5))` goes negative once a term is in
+                // more than half the set, so a node holding a common term would score *below*
+                // a node holding nothing of the query and could drop out of an answer it used
+                // to be in. This form is positive everywhere, which is what makes the set a
+                // query returns exactly the set term-presence returned — only the order moves.
+                let idf = 1.0 + (n as f32 - df as f32 + 0.5) / (df as f32 + 0.5);
+                (term, idf.ln())
+            })
+            .collect();
+        // A set with no documents, or one whose documents are all empty, has no mean to
+        // normalize against. `1.0` keeps the division defined; nothing in such a set can
+        // score anyway, since an empty document contains no non-empty term and `terms` above
+        // is then empty.
+        let mean_len = match total_len {
+            0 => 1.0,
+            total => total as f32 / n as f32,
+        };
+        Self { terms, mean_len }
     }
-    let hits = terms
-        .iter()
-        .filter(|t| haystack.contains(t.as_str()))
-        .count();
-    match hits {
-        0 => None,
-        n => Some(n as f32 / terms.len() as f32),
+
+    /// One document's score, or `None` when it holds none of the query's terms.
+    ///
+    /// `haystack` is expected already lowercased and is expected to be one of the documents
+    /// [`Bm25::over`] was given — the caller builds it once per node and this is called once
+    /// per node, so lowercasing here would be the same work in a worse place.
+    pub(crate) fn score(&self, haystack: &str) -> Option<f32> {
+        let len = haystack.split_whitespace().count() as f32;
+        // The length penalty, computed once: at `b = 0.75` a document three times the mean
+        // length needs two and a half occurrences of a term to score what one occurrence
+        // scores in a document at the mean, and twice the mean needs one and three quarters.
+        let norm = BM25_K1 * (1.0 - BM25_B + BM25_B * len / self.mean_len);
+        let mut total = 0.0;
+        let mut hit = false;
+        for (term, idf) in &self.terms {
+            // Occurrences as a SUBSTRING, which is what `contains` matched and is deliberately
+            // unchanged: the set of nodes a query returns is the set it returned before, and
+            // only the order is new. Matching on a token boundary instead would be a recall
+            // change — it would stop `graph` finding `graphs` — and that is a separate
+            // question from whether the answer can be ordered.
+            let tf = haystack.matches(term.as_str()).count() as f32;
+            if tf == 0.0 {
+                continue;
+            }
+            hit = true;
+            // Saturating in `tf`: the tenth occurrence of a term says far less than the
+            // second, and the fraction above approaches `k1 + 1` rather than growing without
+            // bound. That is the half a raw term count gets wrong, and the length penalty is
+            // the other half.
+            total += idf * (tf * (BM25_K1 + 1.0)) / (tf + norm);
+        }
+        hit.then_some(total)
     }
+}
+
+/// Serialize a score as the `f64` its own shortest text denotes, so both surfaces publish the
+/// same number.
+///
+/// `yidam query` writes its report as JSON **text**, where serde_json formats an `f32` at
+/// `f32` width: `2.5881803`. The MCP `query` tool builds a [`serde_json::Value`] instead,
+/// where every number is an `f64`, and the same score arrives widened to
+/// `2.5881803035736084`. Two surfaces then publish visibly different numbers for a score they
+/// computed identically, on the same corpus, in the same process.
+///
+/// Narrowing here — parsing the `f32`'s own shortest representation back as an `f64` — makes
+/// them agree, because it is the number the CLI's text already denotes. Neither surface loses
+/// a digit it had: an `f32` has no more.
+///
+/// #1026 found this rather than caused it. Every keyword score used to be a fraction with a
+/// small denominator, so the parity test between the two surfaces compared `0.75` against
+/// `0.75` for two years and never reached a score whose digits mattered. The cosine arm would
+/// have shown it, and `--features vector-read` is not in the PR matrix.
+pub(crate) fn serialize_score<S>(score: &f32, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    // `to_string` is the shortest text that round-trips to this `f32`, and `f64` parses every
+    // form of it — including `inf` and `NaN`, which stay whatever each serializer already did
+    // with them rather than becoming a second behaviour here.
+    serializer.serialize_f64(score.to_string().parse().unwrap_or(f64::NAN))
 }
 
 #[cfg(test)]
@@ -673,15 +804,130 @@ mod tests {
         }
     }
 
+    // ── ranking ───────────────────────────────────────────────────────────────
+
+    /// A fixture whose alphabetical order is **not** its ranking, which is the point.
+    ///
+    /// Four documents: two hold every query term and differ in both length and term
+    /// frequency, one holds only the common term, and one holds nothing. The fourth is not
+    /// padding — document frequency and mean length are properties of the set, so a fixture
+    /// containing only its own hits would give `dam` the same weight as `hydropeaking` and
+    /// make every document look short.
+    ///
+    /// The ids are chosen so that the predecessor's answer and BM25's disagree. Under term
+    /// presence `a-long-review` and `z-short-note` both score exactly `1.0`, the tie breaks on
+    /// the id, and the long one comes back first.
+    const DOCS: &[(&str, &str)] = &[
+        (
+            "a-long-review",
+            "a review of the literature on sub-daily discharge variation below hydroelectric \
+             facilities, a phenomenon named hydropeaking, covering the regulatory history, the \
+             measurement record, the statistical summaries in common use, the ecological \
+             response studies, the mitigation trials, and the open questions that remain after \
+             forty years of work on rivers where a dam is present",
+        ),
+        (
+            "b-dam-history",
+            "the dam was built in 1957 and raised in 1974, and the reservoir behind it stores \
+             two seasons of runoff",
+        ),
+        (
+            "c-low-flow",
+            "seven-day low flow with a ten-year recurrence interval, computed from the gauge \
+             record",
+        ),
+        (
+            "z-short-note",
+            "hydropeaking at the dam: hydropeaking is the diel cycle",
+        ),
+    ];
+
+    /// Every document in the fixture, in the shape [`Bm25::over`] takes.
+    fn texts() -> impl Iterator<Item = &'static str> {
+        DOCS.iter().map(|(_, text)| *text)
+    }
+
+    /// The ordering both call sites produce: score descending, then the id.
+    ///
+    /// The tie-break is reproduced here rather than approximated, because it is what makes
+    /// these tests falsifiable. A scorer that returned a constant would leave this sorting
+    /// alphabetically — which is what it did before #1026 — so the assertions below go red
+    /// under a constant and would not under a membership check.
+    fn ranked(query: &str, docs: &'static [(&'static str, &'static str)]) -> Vec<&'static str> {
+        let bm25 = Bm25::over(query, docs.iter().map(|(_, text)| *text));
+        let mut scored: Vec<(&'static str, f32)> = docs
+            .iter()
+            .filter_map(|(id, text)| bm25.score(text).map(|score| (*id, score)))
+            .collect();
+        scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+        scored.into_iter().map(|(id, _)| id).collect()
+    }
+
+    /// **The defect #1026 names.** The whole returned order, not membership.
+    ///
+    /// A short note that is *about* hydropeaking at a dam outranks a long review that merely
+    /// mentions both — length normalization and saturating term frequency, which is the half
+    /// a fraction of terms hit cannot express. Asserting membership here would pass against
+    /// the scorer this replaced, and so would asserting a score: its defect was that its
+    /// scores were *equal*.
     #[test]
-    fn a_score_is_the_fraction_of_terms_hit() {
-        let t = terms("Knowledge Graph");
+    fn a_short_node_about_the_query_outranks_a_long_one_that_mentions_it() {
         assert_eq!(
-            keyword_score(&t, "a knowledge graph of typed nodes"),
-            Some(1.0)
+            ranked("hydropeaking dam", DOCS),
+            vec!["z-short-note", "a-long-review", "b-dam-history"],
         );
-        assert_eq!(keyword_score(&t, "a graph of typed nodes"), Some(0.5));
-        assert_eq!(keyword_score(&t, "nothing in common"), None);
+    }
+
+    /// A rare term is worth more than a common one, which is the other half.
+    ///
+    /// `dam` is in three of the four documents and `hydropeaking` in two, so a document
+    /// holding only the rarer term outranks one holding only the commoner. Under term
+    /// presence both hold one of two terms, both score `0.5`, and the answer is again
+    /// alphabetical — `b-dam-history` first.
+    #[test]
+    fn the_rarer_term_carries_the_more_weight() {
+        let bm25 = Bm25::over("hydropeaking dam", texts());
+        let rare = bm25.score(DOCS[3].1).unwrap();
+        let common = bm25.score(DOCS[1].1).unwrap();
+        assert!(
+            rare > common,
+            "a document holding the rare term scored {rare}, one holding the common term \
+             {common}"
+        );
+    }
+
+    /// **The set that comes back is the set that came back before.** Only the order is new.
+    ///
+    /// The textbook IDF, `ln((n - df + 0.5) / (df + 0.5))`, goes negative once a term is in
+    /// more than half the set — so a node holding a term every other node holds would score
+    /// below a node holding nothing of the query, and would drop out of an answer it used to
+    /// be in. This pins the `+1` variant by its consequence rather than by its formula.
+    #[test]
+    fn a_term_every_document_holds_still_scores_above_holding_nothing() {
+        let docs = ["flow in a channel", "flow over a weir", "flow at a gauge"];
+        let bm25 = Bm25::over("flow", docs);
+        for doc in docs {
+            let score = bm25.score(doc);
+            assert!(
+                score.is_some_and(|s| s > 0.0),
+                "a document holding the query's only term scored {score:?}"
+            );
+        }
+        // And nothing else changed about membership: no term, no row.
+        assert_eq!(bm25.score("nothing in common"), None);
+    }
+
+    /// A set with nothing in it is no score rather than a `NaN`.
+    ///
+    /// Reachable: every `--class` filter that admits no node, and every step whose candidate
+    /// classes are empty. It is the arithmetic case — mean document length is a divisor, and
+    /// a set with no length at all would hand a caller a `NaN` to sort by.
+    #[test]
+    fn a_set_with_no_length_is_no_score_rather_than_a_nan() {
+        let empty = Bm25::over("hydropeaking", std::iter::empty());
+        assert_eq!(empty.score("hydropeaking at the dam"), None);
+        let blank = Bm25::over("hydropeaking", ["", ""]);
+        assert_eq!(blank.score("hydropeaking at the dam"), None);
     }
 
     /// **What `vector-read` exists to make true.** A build with no `lancedb` and no protoc
@@ -781,7 +1027,9 @@ mod tests {
     /// anchored path from having to remember it separately.
     #[test]
     fn an_empty_query_matches_nothing() {
-        assert_eq!(keyword_score(&[], "anything at all"), None);
+        assert_eq!(Bm25::over("", texts()).score("anything at all"), None);
+        // Whitespace is not a term either, and `terms` is what decides that.
+        assert_eq!(Bm25::over("   ", texts()).score("anything at all"), None);
     }
 
     fn row(path: &str, class: &str) -> Hit {

@@ -1185,9 +1185,10 @@ fn a_query_that_returned_nothing_is_recorded_as_zero_rows() {
     {
         let mut client = McpClient::spawn(repo.path());
         client.initialize();
-        // One token and a nonsense one: the keyword fallback scores by the fraction of query
-        // terms hit, so a sentence of ordinary words matches rows on "this" and "corpus" and
-        // would not be the empty answer this case is about.
+        // One token and a nonsense one: the keyword fallback matches a term as a substring,
+        // so a sentence of ordinary words matches rows on "this" and "corpus" and would not
+        // be the empty answer this case is about. BM25 changed the order of a non-empty
+        // answer and not which queries have one (#1026).
         client.tool_json("retrieve", json!({"query": "zzqqxxwv"}));
     }
     let line = &record_lines(repo.path())[0];

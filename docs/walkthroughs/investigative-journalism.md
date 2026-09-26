@@ -121,14 +121,14 @@ $ yidam query 'finding~"consent order was not described" -supported-by-> documen
 2 result(s)
   Annual report, Item 3 — Legal Proceedings  ()
   Inspection file — records-request response  ()
-  anchored on finding/undisclosed-consent-order.yml (1.00) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
+  anchored on finding/undisclosed-consent-order.yml (5.03) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
 2 step(s), 2 edge(s) walked, 6 of 12 node(s) read, ~28 token(s)
 
 $ yidam query 'finding~"consent order was not described" -supported-by-> document -obtained-from-> entity' --select label
 2 result(s)
   Ostreza Freight Holdings  ()
   State Transport Board  ()
-  anchored on finding/undisclosed-consent-order.yml (1.00) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
+  anchored on finding/undisclosed-consent-order.yml (5.03) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
 3 step(s), 4 edge(s) walked, 8 of 12 node(s) read, ~18 token(s)
 ```
 
@@ -141,13 +141,13 @@ Now the same two questions of the other one:
 $ yidam query 'finding~"Maintenance was deferred" -supported-by-> document' --select label
 1 result(s)
   Internal maintenance memo  ()
-  anchored on finding/deferred-maintenance.yml (1.00) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
+  anchored on finding/deferred-maintenance.yml (3.65) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
 2 step(s), 1 edge(s) walked, 5 of 12 node(s) read, ~9 token(s)
 
 $ yidam query 'finding~"Maintenance was deferred" -supported-by-> document -obtained-from-> entity' --select label
 1 result(s)
   Ostreza Freight Holdings  ()
-  anchored on finding/deferred-maintenance.yml (1.00) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
+  anchored on finding/deferred-maintenance.yml (3.65) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
 3 step(s), 2 edge(s) walked, 6 of 12 node(s) read, ~9 token(s)
 ```
 

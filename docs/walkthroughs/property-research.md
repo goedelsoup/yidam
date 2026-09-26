@@ -167,7 +167,7 @@ grantee. Where the chain holds, you get the previous link:
 $ yidam query 'party~"Harlan Voss" <-grantee- instrument' --select label
 1 result(s)
   1974 quitclaim deed — Calloway to Voss  ()
-  anchored on party/harlan-voss.yml (1.00) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
+  anchored on party/harlan-voss.yml (4.86) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
 2 step(s), 1 edge(s) walked, 7 of 12 node(s) read, ~13 token(s)
 ```
 
@@ -176,7 +176,7 @@ Where it breaks, you get this:
 ```console
 $ yidam query 'party~"Ruth Calloway" <-grantee- instrument' --select label
 0 result(s)
-  anchored on party/ruth-calloway.yml (1.00) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
+  anchored on party/ruth-calloway.yml (3.25) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
   [absent] step 2: `grantee` is authored in this corpus, by `instrument`, and none of the 1 node(s) that reached the previous step has one pointing at it. The relationship is in use; it is not in use here. (no-edge-from-here)
 2 step(s), 0 edge(s) walked, 6 of 12 node(s) read, ~0 token(s)
 ```

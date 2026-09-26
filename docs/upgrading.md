@@ -28,6 +28,28 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### The keyword arm can rank
+
+**`retrieve` without a vector index now ranks by BM25 (#1026).** It scored the fraction of query
+terms a node held. Every node holding all of them scored exactly `1.0`. The tie broke on the node
+id. So a two-term query over forty matching nodes returned the first `k` alphabetically.
+
+**This is the only retrieval a released binary performs.** `--features vector-read` is not in the
+release matrix. So the shipped channel degrades to keyword search, and that arm could not order its
+answers.
+
+**What changes for you.** The same nodes come back. Only the order is new. A short node about your
+query now outranks a long one that merely mentions it. A rare term outweighs a common one.
+
+**A degraded `score` is no longer a fraction of one.** BM25 is unbounded. Across the walkthrough
+corpora in this repository the anchor score now lands between 3 and 6. Every one of them used to
+read exactly `1.00`. Nothing dropped out: the IDF is the `+1` variant, which stays positive even
+for a term every node holds.
+
+**An anchored `query` ranks the same way**, over the step's candidate classes. `retrieve` also
+reaches installed dependencies, so the same term can weigh differently in the two arms. That
+follows from the candidate sets, which differ on purpose.
+
 ### `yidam serve --mcp` can say whether a corpus has ever been read
 
 **`serve --mcp` wrote nothing at all before this (#719).** Not a log, not a counter, not a cache.

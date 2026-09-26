@@ -118,7 +118,7 @@ $ yidam query 'contributing-factor~"Retries with no budget" <-has-factor- incide
   SEV1 — checkout saturation during a cache expiry  ()  properties.occurred=2026-03-14
   SEV2 — session store evicting under sustained load  ()  properties.occurred=2026-05-02
   SEV1 — a tier-3 service took down a tier-1 path  ()  properties.occurred=2026-06-08
-  anchored on contributing-factor/unbounded-retry.yml (1.00) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
+  anchored on contributing-factor/unbounded-retry.yml (4.04) — keyword search, not similarity (no_index); run `yidam embed && yidam index-build` to build one
 2 step(s), 3 edge(s) walked, 6 of 13 node(s) read, ~74 token(s)
 ```
 
