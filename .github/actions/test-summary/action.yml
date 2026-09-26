@@ -58,6 +58,25 @@ inputs:
       their summary counts only what their runner reports.
     required: false
     default: ""
+  list-features:
+    description: >
+      The cargo feature flags the run under summary was built with, verbatim —
+      `--all-features`, `--features vector-read`, or empty for the default set. The listing
+      is a *build*, so leaving this unset does not mean "unspecified": it means the default
+      set, and a gate that ran anything else then censuses a population that never ran
+      (#1014). `ci_reporting.rs::the_listing_is_of_the_build_whose_results_it_censuses` reads
+      this against the nextest line that wrote the JUnit.
+    required: false
+    default: ""
+  instrumented:
+    description: >
+      `true` when the JUnit came from a `cargo llvm-cov … nextest` run, so the listing is
+      taken against that run's target directory instead of compiling a second tree. Measured:
+      pointing `CARGO_TARGET_DIR` at `<target>/llvm-cov-target` makes the listing a freshness
+      check rather than a build — the instrumented binaries are reused intact, and a *wrong*
+      feature set still rebuilds, so this is not a way to paper over `list-features`.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -81,13 +100,40 @@ runs:
     # entirely — a binary whose every test is ignored writes `tests="0"` with no children —
     # so a census built on the XML alone reports zero skipped for a suite that ran nothing.
     # This is not decoration; it is half the census.
+    #
+    # ── it is a build, and it must be the build that ran (#1014) ─────────────
+    #
+    # `nextest list` enumerates by executing each test binary with `--list`, so it compiles
+    # whatever feature set it resolves. Unqualified, that is the DEFAULT set — which for
+    # `ci (cli · full features)` is a population the job never ran: 1m17s of codegen on main
+    # run 36243035789 to census a different suite from the `--all-features` one whose JUnit
+    # the summary renders. The light row paid the same 56s for a build it already had.
+    #
+    # So the listing states its feature set and, when the run was instrumented, is taken
+    # against that run's target directory. Both were measured rather than read off the docs:
+    # with `CARGO_TARGET_DIR` at `<target>/llvm-cov-target` cargo finds the instrumented
+    # binaries fresh and the step compiles nothing; with the wrong feature set it rebuilds —
+    # which is the negative control that keeps this from being a way to skip `list-features`.
     - name: List the tests, including the ignored ones
       if: always() && inputs.manifest != ''
       shell: bash
+      env:
+        # Unquoted below on purpose: this is a flag list, and bash is the shell here.
+        FEATURES: ${{ inputs.list-features }}
       run: |
+        if [ "${{ inputs.instrumented }}" = "true" ]; then
+          target="$(mise exec -- cargo metadata --no-deps --format-version 1 \
+            --manifest-path "${{ inputs.manifest }}" | jq -r .target_directory)"
+          export CARGO_TARGET_DIR="${target}/llvm-cov-target"
+          # Those binaries carry counters, so running them with `--list` writes a .profraw
+          # wherever it lands. The LCOV this gate publishes was rendered by an earlier step
+          # and nothing here may add to its profile set — or to the working tree.
+          export LLVM_PROFILE_FILE="${RUNNER_TEMP}/list-%p-%8m.profraw"
+        fi
         mise exec -- cargo nextest list \
           --config-file .config/nextest.toml \
           --manifest-path "${{ inputs.manifest }}" \
+          $FEATURES \
           --message-format json > "${RUNNER_TEMP}/nextest-list.json"
 
     # `-U0`, so a hunk's range is exactly the added lines. With context the range covers

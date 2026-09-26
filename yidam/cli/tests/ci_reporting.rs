@@ -1071,3 +1071,314 @@ fn the_feature_check_borrows_the_full_feature_cache() {
          whatever one job sets, the other has to set too."
     );
 }
+
+// ── the listing is a build, and it has to be the one that ran ────────────────
+//
+// #1014. `nextest list` enumerates by executing each test binary with `--list`, so the
+// summary action's listing step compiles whatever feature set it resolves. Unqualified that
+// is the *default* set — and `ci (cli · full features)` renders a census of `--all-features`
+// results beside a listing of a suite that never ran, having spent 1m17s compiling it.
+//
+// Both halves of the fix are strings in a workflow, which is the shape `coverage_reporting.rs`
+// already says can be right the day it is written and wrong six months later with nothing
+// going red. So neither is trusted: both are read back off the nextest line in `mise.toml`
+// that wrote the JUnit the summary renders.
+
+/// One row of a job's `strategy.matrix.include`, or a single empty row for a job without one.
+///
+/// The `ci` job is two gates in one body — a plain harness run and an instrumented CLI one —
+/// and the inputs under test are exactly the ones that differ between them. Checking the
+/// unexpanded text would check neither row.
+fn matrix_rows(body: &str) -> Vec<std::collections::BTreeMap<String, String>> {
+    let mut rows: Vec<std::collections::BTreeMap<String, String>> = Vec::new();
+    let mut inside = false;
+    let mut indent = 0usize;
+    for line in body.lines() {
+        let depth = line.len() - line.trim_start().len();
+        if line.trim() == "include:" {
+            inside = true;
+            indent = depth;
+            continue;
+        }
+        if !inside || line.trim().is_empty() {
+            continue;
+        }
+        if depth <= indent {
+            break;
+        }
+        let trimmed = line.trim();
+        let (entry, fresh) = match trimmed.strip_prefix("- ") {
+            Some(rest) => (rest, true),
+            None => (trimmed, false),
+        };
+        if fresh {
+            rows.push(std::collections::BTreeMap::new());
+        }
+        if let (Some(row), Some((key, value))) = (rows.last_mut(), entry.split_once(':')) {
+            row.insert(key.trim().to_string(), value.trim().to_string());
+        }
+    }
+    if rows.is_empty() {
+        rows.push(std::collections::BTreeMap::new());
+    }
+    rows
+}
+
+/// A `${{ … }}` expression, for the two forms this workflow uses.
+///
+/// Anything else panics rather than resolving to something plausible: a third form quietly
+/// evaluating to the empty string is how this assertion would stop having a subject.
+fn eval(expr: &str, row: &std::collections::BTreeMap<String, String>) -> String {
+    let literal = |s: &str| s.trim().trim_matches('\'').to_string();
+    let lookup = |key: &str| -> String {
+        row.get(key.trim())
+            .cloned()
+            .unwrap_or_else(|| panic!("`matrix.{key}` is used in ci.yml and no row defines it"))
+    };
+    if let Some(key) = expr.strip_prefix("matrix.") {
+        if !key.contains(' ') {
+            return lookup(key);
+        }
+    }
+    let unsupported = || -> ! {
+        panic!(
+            "ci.yml uses the expression `{expr}`, which this test cannot evaluate. It knows \
+             `matrix.key` and `matrix.key == 'v' && 'a' || 'b'`; a third form resolving to \
+             something plausible would leave the gates below compared against a guess."
+        )
+    };
+    let Some((condition, arms)) = expr.split_once("&&") else {
+        unsupported()
+    };
+    let Some((then, otherwise)) = arms.split_once("||") else {
+        unsupported()
+    };
+    let Some((lhs, rhs)) = condition.split_once("==") else {
+        unsupported()
+    };
+    let Some(key) = lhs.trim().strip_prefix("matrix.") else {
+        unsupported()
+    };
+    if lookup(key) == literal(rhs) {
+        literal(then)
+    } else {
+        literal(otherwise)
+    }
+}
+
+/// `value` with every `${{ … }}` resolved against one matrix row.
+fn expand(value: &str, row: &std::collections::BTreeMap<String, String>) -> String {
+    let mut out = value.to_string();
+    while let Some(start) = out.find("${{") {
+        let end = out[start..]
+            .find("}}")
+            .map(|offset| start + offset + 2)
+            .unwrap_or_else(|| panic!("unterminated `${{{{` in {value:?}"));
+        let resolved = eval(out[start + 3..end - 2].trim(), row);
+        out.replace_range(start..end, &resolved);
+    }
+    out
+}
+
+/// The `with:` block of every `test-summary` step in a job body, one map per step.
+fn summary_steps(body: &str) -> Vec<std::collections::BTreeMap<String, String>> {
+    let lines: Vec<&str> = body.lines().collect();
+    let mut steps = Vec::new();
+    for (start, line) in lines.iter().enumerate() {
+        if !line.contains("uses: ./.github/actions/test-summary") {
+            continue;
+        }
+        let step_indent = line.len() - line.trim_start().len();
+        let mut with = std::collections::BTreeMap::new();
+        let mut with_indent = None;
+        for next in &lines[start + 1..] {
+            if next.trim().is_empty() {
+                continue;
+            }
+            let depth = next.len() - next.trim_start().len();
+            if depth <= step_indent {
+                break;
+            }
+            match with_indent {
+                None if next.trim() == "with:" => with_indent = Some(depth),
+                Some(outer) if depth > outer => {
+                    if let Some((key, value)) = next.trim().split_once(':') {
+                        with.insert(key.trim().to_string(), value.trim().to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+        steps.push(with);
+    }
+    steps
+}
+
+/// The cargo feature flags a command line selects, normalised so two spellings compare equal.
+fn feature_flags(command: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut tokens = command.split_whitespace();
+    while let Some(token) = tokens.next() {
+        match token {
+            "--all-features" | "--no-default-features" => out.push(token.to_string()),
+            "--features" => {
+                let value = tokens
+                    .next()
+                    .unwrap_or_else(|| panic!("`--features` with no value in `{command}`"));
+                out.push(format!("--features {value}"));
+            }
+            _ => {
+                if let Some(value) = token.strip_prefix("--features=") {
+                    out.push(format!("--features {value}"));
+                }
+            }
+        }
+    }
+    out.sort();
+    out.join(" ")
+}
+
+/// Every gate's listing is of the build whose results it is a census of.
+///
+/// The listing supplies the `#[ignore]`d half of the census, and it is produced by compiling
+/// and running the test binaries — so an unqualified `nextest list` beside an
+/// `--all-features` run enumerates a different suite, and pays a fresh codegen to do it.
+/// Both facts are read off the **last** nextest line among the tasks the job runs, because
+/// that is the one that leaves `target/nextest/ci/junit.xml` behind — the same rule the
+/// summary step's own note in `ci.yml` states, asserted here rather than described. A task's
+/// `depends` run before its own commands, so the last one is always in what `task_commands`
+/// returns.
+#[test]
+fn the_listing_is_of_the_build_whose_results_it_censuses() {
+    let mut checked = 0usize;
+    let mut seen_instrumented = false;
+    let mut seen_plain = false;
+    let mut seen_non_default_features = false;
+
+    for (job, body) in ci_jobs() {
+        for row in matrix_rows(&body) {
+            for with in summary_steps(&body) {
+                let value = |key: &str| -> String {
+                    with.get(key)
+                        .map(|raw| expand(raw, &row))
+                        .unwrap_or_default()
+                        .trim_matches('"')
+                        .to_string()
+                };
+                let manifest = value("manifest");
+                if manifest.is_empty() {
+                    // Not a cargo gate, or a cargo gate that deliberately censuses only what
+                    // its runner reported. Either way there is no listing to be wrong.
+                    continue;
+                }
+
+                // The tasks this job runs, in order, with the matrix resolved.
+                let commands: Vec<String> = body
+                    .lines()
+                    .filter(|l| l.contains("mise run "))
+                    .map(|l| expand(l, &row))
+                    .filter_map(|l| {
+                        l.split_once("mise run ")
+                            .and_then(|(_, rest)| rest.split_whitespace().next())
+                            .map(str::to_string)
+                    })
+                    .flat_map(|task| task_commands(&task))
+                    .collect();
+                let run = commands
+                    .iter()
+                    .filter(|c| runs_nextest(c))
+                    .next_back()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "`{job}` renders a summary with `manifest: {manifest}` and runs no \
+                             nextest command. Either the gate stopped running the suite it \
+                             reports on, or the tasks it runs are no longer discoverable from \
+                             its `mise run` lines — and this assertion then covers nothing. \
+                             Commands found: {commands:?}"
+                        )
+                    });
+
+                let expected = feature_flags(run);
+                let declared = feature_flags(&format!("cargo {}", value("list-features")));
+                assert_eq!(
+                    declared,
+                    expected,
+                    "`{job}` censuses the run `{run}` and lists with `list-features: {}`. \
+                     A listing is a build: it compiles the feature set it is given and \
+                     enumerates *that* suite, so these two disagreeing means the summary's \
+                     skipped-test half describes a population the gate never ran — and pays \
+                     a whole extra codegen to say it.",
+                    value("list-features"),
+                );
+
+                let instrumented = run.contains("llvm-cov");
+                assert_eq!(
+                    value("instrumented") == "true",
+                    instrumented,
+                    "`{job}` runs `{run}` and passes `instrumented: {}`. The flag is what \
+                     points the listing at that run's `llvm-cov-target`; wrong in one \
+                     direction it compiles a second tree of the same feature set, and wrong \
+                     in the other it looks for an instrumented build that was never made.",
+                    value("instrumented"),
+                );
+
+                checked += 1;
+                seen_instrumented |= instrumented;
+                seen_plain |= !instrumented;
+                seen_non_default_features |= !expected.is_empty();
+            }
+        }
+    }
+
+    // Each of these is a distinct way for the scan above to have looked at nothing: a parser
+    // that finds no steps, one blind to the instrumented rows, one blind to the plain rows,
+    // and one that never meets a gate whose feature set is not the default — the only case
+    // where the two halves can disagree at all.
+    assert!(checked >= 4, "only {checked} gate listings were reached");
+    assert!(seen_instrumented, "no instrumented gate was reached");
+    assert!(seen_plain, "no plain gate was reached");
+    assert!(
+        seen_non_default_features,
+        "every gate reached runs the default feature set, so this test has not once compared \
+         a listing against a run that selects features — which is the case #1014 was"
+    );
+
+    // The inputs above are only worth checking if the action still reads them. Both are
+    // passed to a `run:` block rather than to another action, so a rename or a deletion
+    // leaves every gate green and every listing back on the default set — the exact state
+    // #1014 found. Comments stripped first: the step's own note names both inputs while
+    // explaining them, and prose must not answer for the code.
+    let action = code_only(&read(".github/actions/test-summary/action.yml"), "#");
+    let list_step = action
+        .split("- name: List the tests")
+        .nth(1)
+        .expect("the summary action has no listing step; the census lost its ignored half")
+        .split("\n    - name:")
+        .next()
+        .unwrap_or_default();
+    for used in [
+        "inputs.list-features",
+        "$FEATURES",
+        "inputs.instrumented",
+        "CARGO_TARGET_DIR",
+    ] {
+        assert!(
+            list_step.contains(used),
+            "the listing step no longer uses `{used}`, so what ci.yml passes it is checked              above and thrown away below:\n{list_step}"
+        );
+    }
+
+    // And every `test-summary` step in the file was parsed into one of the maps above. A
+    // `with:` block this parser walked past is a gate exempted in silence.
+    let declared = ci_yml()
+        .matches("uses: ./.github/actions/test-summary")
+        .count();
+    let parsed: usize = ci_jobs()
+        .iter()
+        .map(|(_, body)| summary_steps(body).len())
+        .sum();
+    assert_eq!(
+        parsed, declared,
+        "ci.yml has {declared} summary steps and this test parsed {parsed}"
+    );
+}
