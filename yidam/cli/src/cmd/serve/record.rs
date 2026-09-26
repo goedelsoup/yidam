@@ -56,8 +56,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use anyhow::{Result, bail};
-use serde_json::{Value, json};
+use anyhow::{bail, Result};
+use serde_json::{json, Value};
 
 /// The file every `tools/call` appends one line to, relative to the corpus root.
 ///
@@ -334,7 +334,10 @@ mod tests {
     #[test]
     fn a_row_count_reads_whichever_key_the_tool_used() {
         assert_eq!(results(&json!({"results": [1, 2, 3]})), Some(3));
-        assert_eq!(results(&json!({"id": "concept/x", "neighbors": []})), Some(0));
+        assert_eq!(
+            results(&json!({"id": "concept/x", "neighbors": []})),
+            Some(0)
+        );
         assert_eq!(results(&json!({"nodes": [1]})), Some(1));
         assert_eq!(
             results(&json!({"claims": [1, 2], "returned": 2, "total": 9})),
@@ -422,7 +425,13 @@ mod tests {
             "ms",
         ];
         for outcome in [ok(json!({"nodes": []})), Err("refused".to_string())] {
-            let e = entry("abc1234", "list_nodes", &json!({}), &outcome, Duration::ZERO);
+            let e = entry(
+                "abc1234",
+                "list_nodes",
+                &json!({}),
+                &outcome,
+                Duration::ZERO,
+            );
             let keys: Vec<&str> = e.as_object().unwrap().keys().map(String::as_str).collect();
             for key in expected {
                 assert!(keys.contains(&key), "{key} is absent from {e}");

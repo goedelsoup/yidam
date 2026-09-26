@@ -985,8 +985,7 @@ fn a_refusal_is_recorded() {
             // `retrieve` without its required `query`.
             ("retrieve", json!({})),
         ] {
-            let result =
-                client.request("tools/call", json!({"name": name, "arguments": args}));
+            let result = client.request("tools/call", json!({"name": name, "arguments": args}));
             assert_eq!(
                 result["isError"], true,
                 "{name} was expected to refuse: {result}"
