@@ -59,8 +59,16 @@ jobs:
         include:
           - workspace: harness
             path: yidam/tests/harness
+            task: ci-harness
+          # `ci-cli-cov`, not `ci-cli`: the same gate with its suite executed once, under
+          # coverage instrumentation, rather than once plain and once instrumented (#1013).
+          # `ci-cli` is still what `mise run ci` runs locally, and mise.toml holds the two
+          # equal. The task name is spelled here because a job that runs the CLI suite has
+          # requirements — `fetch-depth: 0`, a summary step — that guards check by looking
+          # for it in this job's body.
           - workspace: cli
             path: yidam/cli
+            task: ci-cli-cov
     name: ci (${{ matrix.workspace }})
     runs-on: ubuntu-latest
     steps:
@@ -90,12 +98,18 @@ jobs:
             ${{ matrix.path }}
             yidam/tests/harness
           key: ${{ matrix.workspace }}
-      - run: mise run ci-${{ matrix.workspace }}
-      # Coverage on the CLI row only. The harness is 82 tests over a test harness; the
-      # instrumented rebuild would cost more than the number is worth there.
-      - name: Measure coverage
-        if: matrix.workspace == 'cli'
-        run: mise run coverage
+      # One step, and for the CLI row one compile and one test run: coverage is not a second
+      # pass over the suite here, it is how the suite is run. The harness row stays
+      # uninstrumented — 82 tests over a test harness, where the instrumented rebuild would
+      # cost more than the number is worth.
+      #
+      # The JUnit the summary below reads is written by whichever nextest ran last, and
+      # nextest's store dir is anchored to the workspace root's `target/` rather than to
+      # `CARGO_TARGET_DIR` — so an instrumented run whose objects go to
+      # `target/llvm-cov-target/debug` still writes `target/nextest/ci/junit.xml`, and this
+      # path did not move when the plain run went away. Measured, not read off the docs; the
+      # note on `[tasks.ci-cli-cov]` in mise.toml has the experiment.
+      - run: mise run ${{ matrix.task }}
       - uses: ./.github/actions/test-summary
         if: always()
         with:
@@ -539,14 +553,6 @@ jobs:
       # through the wrapper now, and `ci_reporting.rs` asserts that rather than trusting it.
       - name: Full-feature build and tests, with a resource sampler
         run: .github/scripts/with-sampler.sh mise run ci-cli-full
-      - uses: ./.github/actions/test-summary
-        if: always()
-        with:
-          gate: ci (cli · full features)
-          junit: yidam/cli/target/nextest/ci/junit.xml
-          manifest: yidam/cli/Cargo.toml
-          artifact: test-results-cli-full
-          json: "true"
       # #264: "Run it in CI against `examples/streamflow`." It lives here rather than in the
       # light gate because `bench` refuses to measure against keyword search, and the vector
       # arm of `retrieve` is `--features index`. So the benchmark runs where the full build
@@ -594,6 +600,29 @@ jobs:
       # so the last `[res]` line to reach the log survives precisely the failure it explains.
       - name: Coverage (full features), with a resource sampler
         run: .github/scripts/with-sampler.sh mise run coverage-full
+      # Last, not straight after the tests, and the order is what makes the number right.
+      #
+      # This step reads whichever nextest wrote `target/nextest/ci/junit.xml` most recently,
+      # and nextest's store is anchored to the workspace root's `target/` — an instrumented
+      # run redirects its *objects* to `target/llvm-cov-target/debug` and its JUnit not at all
+      # (measured; see `[tasks.ci-cli-cov]` in mise.toml). Sitting straight after the tests, this
+      # step used to read the plain `--all-features` run, because that was the last nextest
+      # `ci-cli-full` invoked. #1013 deleted that run, which left `coverage-full` as the only
+      # thing that executes that feature set — two steps further down, after the benchmark.
+      # Left where it was, the step would have quietly changed this gate's number from the
+      # `--all-features` suite to the `vector-read` leg, the last nextest `ci-cli-full` now runs.
+      #
+      # `if: always()` and the two steps above having no such condition is the rest of it: a
+      # failure in `ci-cli-full` skips them, and this still renders the `vector-read` leg's
+      # JUnit — the one that failed — rather than nothing.
+      - uses: ./.github/actions/test-summary
+        if: always()
+        with:
+          gate: ci (cli · full features)
+          junit: yidam/cli/target/nextest/ci/junit.xml
+          manifest: yidam/cli/Cargo.toml
+          artifact: test-results-cli-full
+          json: "true"
       - uses: actions/upload-artifact@v7
         if: always()
         with:

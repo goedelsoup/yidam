@@ -674,7 +674,18 @@ fn no_upgrade_note_is_filed_under_a_release_that_already_shipped() {
 /// it rather than by someone remembering to add it here.
 #[test]
 fn every_job_that_runs_the_cli_suite_checks_out_tags_and_history() {
-    let workflow = read(".github/workflows/ci.yml");
+    // Comments stripped first. Every one of these jobs explains itself at length, and three of
+    // them — `parity`, `quality`, `series` — mention a coverage run or a test task in prose while
+    // running neither: `quality`'s note that a run "died afterwards on a coverage flag" is enough
+    // to match a task called `coverage`. Prose about the code must not answer for the code.
+    let workflow: String = read(".github/workflows/ci.yml")
+        .lines()
+        .map(|line| match line.split_once('#') {
+            Some((before, _)) if before.trim().is_empty() || before.ends_with(' ') => before,
+            _ => line,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
     // Split into jobs on the two-space-indented `<name>:` that opens one.
     let mut jobs: Vec<(String, String)> = Vec::new();
@@ -703,23 +714,67 @@ fn every_job_that_runs_the_cli_suite_checks_out_tags_and_history() {
         jobs.len()
     );
 
-    // What counts as running the suite: the mise tasks that invoke nextest over this crate, and
-    // `cargo mutants`, which runs it as its baseline.
-    let runs_suite = |body: &str| {
-        [
-            "mise run ci-cli",
-            "ci-cli-full",
-            "cargo mutants",
-            "coverage-full",
-        ]
+    // What counts as running the suite: the mise tasks that invoke nextest over this crate, read
+    // out of `mise.toml`, plus `cargo mutants`, which runs it as its baseline from a command line
+    // this workflow spells itself.
+    //
+    // This was a list of four needles, and the doc comment above already claimed the population
+    // was discovered. #1013 is what the difference costs: the light gate's step changed from
+    // `mise run ci-cli` to a task named through the matrix, `mise run ci-cli-full` and
+    // `coverage-full` still matched in the job next door, the floor of two was still cleared —
+    // and `ci (cli)`, which runs the suite and needs the history, had silently dropped out of
+    // the set being checked.
+    let mise: toml::Table = read("mise.toml").parse().expect("mise.toml parses");
+    let suite_tasks: Vec<String> = mise
+        .get("tasks")
+        .and_then(toml::Value::as_table)
+        .expect("mise.toml declares tasks")
         .iter()
-        .any(|needle| body.contains(needle))
+        .filter(|(_, task)| {
+            let steps = match task.get("run") {
+                Some(toml::Value::String(one)) => vec![one.as_str().to_string()],
+                Some(toml::Value::Array(many)) => many
+                    .iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            steps.iter().any(|step| {
+                // `nextest` as a token: every such line also passes
+                // `--config-file .config/nextest.toml`, so a substring test is true of a line
+                // that runs `cargo test` under llvm-cov instead.
+                step.contains("yidam/cli/Cargo.toml")
+                    && (step.contains("cargo nextest run")
+                        || (step.contains("llvm-cov")
+                            && step.split_whitespace().any(|token| token == "nextest")))
+            })
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+    assert!(
+        suite_tasks.len() >= 3,
+        "only {suite_tasks:?} look like tasks that run the CLI suite; the light gate, the \
+         full-feature gate and the coverage runs are each one, so this is reading the wrong thing \
+         and every job below would pass by not being looked at"
+    );
+
+    // Whole tokens, never substrings: `mise run coverage-full` must not answer for a job that
+    // runs `coverage`, and `ci-cli` must not answer for `ci-cli-cov`. A job "runs" a task when it
+    // names it — as a step, or as the matrix value a step expands to.
+    let names = |body: &str, task: &str| {
+        body.split(|c: char| c.is_whitespace() || c == '\'' || c == '"' || c == '`')
+            .any(|token| token == task)
     };
+    let runs_suite =
+        |body: &str| body.contains("cargo mutants") || suite_tasks.iter().any(|t| names(body, t));
 
     let suite_jobs: Vec<&(String, String)> = jobs.iter().filter(|(_, b)| runs_suite(b)).collect();
+    // Three, and three is what this repository has: `ci (cli)`, `ci (cli · full features)` and
+    // `ci (mutants)`. No slack — a floor with room in it is a budget for a scanner going blind.
     assert!(
-        suite_jobs.len() >= 2,
-        "expected at least two jobs running the CLI suite, found {}: {:?}",
+        suite_jobs.len() >= 3,
+        "expected three jobs running the CLI suite, found {}: {:?}. Tasks searched for: \
+         {suite_tasks:?}",
         suite_jobs.len(),
         suite_jobs.iter().map(|(n, _)| n).collect::<Vec<_>>()
     );
