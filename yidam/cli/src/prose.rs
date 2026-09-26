@@ -51,7 +51,10 @@ use std::path::Path;
 use crate::parse::CorpusInstance;
 
 /// The prose keys every node carries whatever anything declares.
-pub const ALWAYS: &str = "description";
+///
+/// Re-exported rather than restated: the reading half of this module is
+/// [`yidam_core::prose`], and a second `"description"` here is a second thing to change.
+pub use yidam_core::prose::ALWAYS;
 
 /// Which top-level keys hold prose, per class.
 ///
@@ -236,44 +239,23 @@ impl ProseFields {
 /// `<class>.ont.yml`, and an SDK that decided it would be answering a question the ontology
 /// owns.
 ///
-/// Reads `description` off its own field, other top-level keys out of
-/// [`CorpusInstance::extra`], and flagged properties out of `properties`, so a caller cannot
-/// get a different answer depending on which key it asked about. A declared key the node does
-/// not carry, or carries as something other than a string, yields nothing: a `findings:`
-/// holding a list is a real state and not prose, and guessing at a rendering for it would put
-/// words in the corpus's mouth.
-///
-/// Property keys come back qualified — `properties.method` — because a corpus may write a
-/// top-level `method` and a property `method`, and a caller rendering the name in a finding
-/// must be able to say which one it means.
+/// **The reading is [`yidam_core::prose::of`]'s and this is the resolution in front of it.**
+/// Everything above — the two files, the union, [`ALWAYS`], the per-class fallback — is a
+/// question about a corpus on disk. What a node yields *given* the answer is the same question
+/// in three languages, and it became a parity function when `compose_embed_text` needed it too
+/// (RFC-0007). So the field selection, the qualification of property keys as
+/// `properties.method`, and the rule that a declared key the node does not carry as a string
+/// yields nothing all live there, once.
 pub fn of<'a>(
     inst: &'a CorpusInstance,
     fields: &ProseFields,
     class: &str,
 ) -> Vec<(String, &'a str)> {
-    let mut out: Vec<(String, &'a str)> = fields
-        .for_class(class)
-        .iter()
-        .filter_map(|key| {
-            let value = match key.as_str() {
-                ALWAYS => inst.description.as_deref(),
-                other => inst.extra.get(other).and_then(serde_yaml::Value::as_str),
-            }?;
-            (!value.trim().is_empty()).then_some((key.clone(), value))
-        })
-        .collect();
-
-    let props = inst.properties.as_ref();
-    out.extend(
-        fields
-            .properties_for_class(class)
-            .iter()
-            .filter_map(|name| {
-                let value = props?.get(name.as_str())?.as_str()?;
-                (!value.trim().is_empty()).then_some((format!("properties.{name}"), value))
-            }),
-    );
-    out
+    yidam_core::prose::of(
+        inst,
+        fields.for_class(class),
+        fields.properties_for_class(class),
+    )
 }
 
 /// The node's prose as one block, the declared fields joined in order.
@@ -281,11 +263,11 @@ pub fn of<'a>(
 /// What a reader of the whole node reads, which is what a length ceiling and an embedding are
 /// both about.
 pub fn text(inst: &CorpusInstance, fields: &ProseFields, class: &str) -> String {
-    of(inst, fields, class)
-        .into_iter()
-        .map(|(_, v)| v.trim_end().to_string())
-        .collect::<Vec<_>>()
-        .join("\n")
+    yidam_core::prose::text(
+        inst,
+        fields.for_class(class),
+        fields.properties_for_class(class),
+    )
 }
 
 #[cfg(test)]

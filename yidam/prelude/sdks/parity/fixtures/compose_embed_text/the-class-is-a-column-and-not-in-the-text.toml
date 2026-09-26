@@ -1,0 +1,15 @@
+function = "compose_embed_text"
+description = "The class is beside the vector and never inside it. RFC-0007 was filed about two assemblers and this is one of the two places they disagreed: folding the class in puts one identical phrase in every vector of a class, which pulls the class toward a point and tells no member of it from any other"
+
+[input]
+content = """
+class: hypothesis
+label: Winter releases shift the hydrograph
+description: Stated in the 1994 review and not tested since.
+"""
+prose_keys = ["description"]
+prose_properties = []
+retrievable_properties = []
+
+[expected]
+text = "Winter releases shift the hydrograph Stated in the 1994 review and not tested since."

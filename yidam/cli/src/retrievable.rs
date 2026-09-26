@@ -87,7 +87,6 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::parse::CorpusInstance;
 use crate::prose::ProseFields;
 
 /// Which of a class's properties are worth retrieving on, per class.
@@ -192,62 +191,34 @@ impl Retrievable {
     }
 }
 
-/// Everything about this node that belongs in its embedding: its prose, then the properties
-/// flagged `retrievable` that prose did not already carry.
+/// The three field lists `class` declared, in the shape the SDK's assembler takes.
 ///
 /// **Takes both declarations**, for the reason [`crate::prose::of`] takes the whole
 /// [`ProseFields`] and the class: a caller asking one and forgetting the other is the mistake
 /// the shape is built to prevent, and it is the exact mistake #717 found `embed` making.
+/// [`yidam_core::embed::EmbedFields`] carries the same guarantee one layer out, which is why
+/// this returns it rather than a tuple.
 ///
-/// Property keys come back qualified — `properties.parameter` — so a caller rendering the
-/// name can say which of a top-level `parameter` and a property `parameter` it means. That
-/// qualification is also what makes the de-duplication against prose exact rather than a
-/// guess: a property flagged `prose: true` and `retrievable: true` arrives under one key from
-/// both sides and is emitted once.
-///
-/// A flagged property the node does not carry, or carries as something other than a string,
-/// yields nothing — the rule [`crate::prose::of`] keeps, and for its reason: a value holding
-/// a list is a real state, not something to guess a rendering for.
-pub fn of<'a>(
-    inst: &'a CorpusInstance,
+/// This is the whole of what the CLI contributes to composing a node's embedding: resolving
+/// `<class>.ont.yml` and `universal.yml` into three lists. What is done with them is
+/// [`yidam_core::embed::compose_embed_text`], because a second assembler over one corpus is a
+/// second vector space (RFC-0007).
+pub fn fields(
     prose: &ProseFields,
     retrievable: &Retrievable,
     class: &str,
-) -> Vec<(String, &'a str)> {
-    let mut out = crate::prose::of(inst, prose, class);
-    let already: std::collections::BTreeSet<String> = out.iter().map(|(k, _)| k.clone()).collect();
-
-    let props = inst.properties.as_ref();
-    out.extend(retrievable.for_class(class).iter().filter_map(|name| {
-        let key = format!("properties.{name}");
-        if already.contains(&key) {
-            return None;
-        }
-        let value = props?.get(name.as_str())?.as_str()?;
-        (!value.trim().is_empty()).then_some((key, value))
-    }));
-    out
-}
-
-/// The node's retrievable text as one block, in the order [`of`] returns it.
-///
-/// What `embed` composes the node's vector from, beside its label and its edge names.
-pub fn text(
-    inst: &CorpusInstance,
-    prose: &ProseFields,
-    retrievable: &Retrievable,
-    class: &str,
-) -> String {
-    of(inst, prose, retrievable, class)
-        .into_iter()
-        .map(|(_, v)| v.trim_end().to_string())
-        .collect::<Vec<_>>()
-        .join("\n")
+) -> yidam_core::embed::EmbedFields {
+    yidam_core::embed::EmbedFields {
+        prose_keys: prose.for_class(class).to_vec(),
+        prose_properties: prose.properties_for_class(class).to_vec(),
+        retrievable_properties: retrievable.for_class(class).to_vec(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parse::CorpusInstance;
 
     fn retrievable(classes: &[(&str, &str)]) -> Retrievable {
         Retrievable::from_declarations(classes.iter().map(|(name, text)| Declaration {
@@ -296,88 +267,49 @@ mod tests {
         \x20 units: cubic feet per second\n\
         \x20 claim_tag: inference\n";
 
-    /// #717 in one assertion. Both declared strings are in the node's embedding target, and
+    /// #717 in one assertion. Both declared strings are in the class's retrievable list, and
     /// the property nobody flagged is not.
+    ///
+    /// Asserted on the list rather than on composed text, because composing is
+    /// [`yidam_core::embed`]'s and is fixtured there. What is this module's is which names
+    /// come out of the declaration, and in what order — the class's, not sorted.
     #[test]
-    fn a_flagged_property_reaches_the_embedding() {
-        let t = text(
-            &inst(NODE),
+    fn the_flagged_properties_reach_the_field_list_in_declaration_order() {
+        let f = fields(
             &prose_fields(&[("gage", &[], &[])]),
             &retrievable(&[("gage", GAGE)]),
             "gage",
         );
-        assert!(t.contains("00060"), "the parameter code: {t:?}");
-        assert!(t.contains("cubic feet per second"), "the units: {t:?}");
-        assert!(
-            !t.contains("inference"),
-            "claim_tag was not flagged, and is constant across the corpus: {t:?}"
-        );
-    }
-
-    /// The order: prose first, then the properties in the order the class declared them.
-    #[test]
-    fn properties_follow_the_prose_in_declaration_order() {
+        assert_eq!(f.retrievable_properties, ["parameter", "units"]);
         assert_eq!(
-            of(
-                &inst(NODE),
-                &prose_fields(&[("gage", &[], &[])]),
-                &retrievable(&[("gage", GAGE)]),
-                "gage",
-            ),
-            [
-                (
-                    "description".to_string(),
-                    "The station below the impoundment."
-                ),
-                ("properties.parameter".to_string(), "00060"),
-                ("properties.units".to_string(), "cubic feet per second"),
-            ]
+            f.prose_keys,
+            ["description"],
+            "the retrievable axis must not widen the prose one"
         );
     }
 
     /// Every corpus written before this field existed, which is the reason absent means
-    /// false: identical to what [`crate::prose::text`] alone produces.
+    /// false: a class that flagged nothing asks for exactly what prose asks for.
     #[test]
-    fn a_class_flagging_nothing_composes_exactly_its_prose() {
+    fn a_class_flagging_nothing_asks_for_exactly_its_prose() {
         let p = prose_fields(&[("gage", &[], &[])]);
-        let node = inst(NODE);
-        assert_eq!(
-            text(&node, &p, &Retrievable::default(), "gage"),
-            crate::prose::text(&node, &p, "gage")
-        );
-        assert_eq!(
-            text(
-                &node,
-                &p,
-                &retrievable(&[("gage", "class: gage\n")]),
-                "gage"
-            ),
-            crate::prose::text(&node, &p, "gage")
-        );
-    }
-
-    /// Prose is already retrievable, and a property flagged both is emitted once.
-    #[test]
-    fn a_property_flagged_prose_and_retrievable_appears_once() {
-        let both = "class: measure\n\
-            properties:\n\
-            \x20 - name: method\n\
-            \x20   prose: true\n\
-            \x20   retrievable: true\n";
-        let node = inst("class: measure\nproperties:\n  method: How it was computed.\n");
-        assert_eq!(
-            of(
-                &node,
-                &prose_fields(&[("measure", &[], &["method"])]),
-                &retrievable(&[("measure", both)]),
-                "measure",
-            ),
-            [("properties.method".to_string(), "How it was computed.")]
-        );
+        for r in [
+            Retrievable::default(),
+            retrievable(&[("gage", "class: gage\n")]),
+        ] {
+            let f = fields(&p, &r, "gage");
+            assert!(f.retrievable_properties.is_empty());
+            assert_eq!(f.prose_keys, p.for_class("gage"));
+            assert_eq!(f.prose_properties, p.properties_for_class("gage"));
+        }
     }
 
     /// The implication runs one way. A prose property is retrievable without being flagged;
     /// a retrievable property is not thereby prose, so nothing reading prose sees it.
+    ///
+    /// The two axes arrive on `EmbedFields` as two lists and the union is taken inside the
+    /// assembler, which is what lets `node-too-long` and `missing-description` keep asking
+    /// the narrower question off the same declaration.
     #[test]
     fn retrievable_does_not_make_a_property_prose() {
         let p = prose_fields(&[("gage", &[], &[])]);
@@ -390,11 +322,51 @@ mod tests {
             )],
             "node-too-long and missing-description must not see the parameter code"
         );
-        assert!(text(&node, &p, &retrievable(&[("gage", GAGE)]), "gage").contains("00060"));
+
+        let f = fields(&p, &retrievable(&[("gage", GAGE)]), "gage");
+        assert!(f.prose_properties.is_empty());
+        assert_eq!(
+            yidam_core::embed::of(&node, &f),
+            [
+                (
+                    "description".to_string(),
+                    "The station below the impoundment."
+                ),
+                ("properties.parameter".to_string(), "00060"),
+                ("properties.units".to_string(), "cubic feet per second"),
+            ]
+        );
     }
 
-    /// A top-level key and a property of the same name are told apart, so the
-    /// de-duplication against prose cannot collide them.
+    /// A property flagged both arrives on both lists, and the assembler emits it once.
+    ///
+    /// The de-duplication is [`yidam_core::embed::of`]'s and is fixtured there; what is
+    /// asserted here is that this module hands it both flags rather than resolving the
+    /// overlap itself and leaving the SDK a case it never sees.
+    #[test]
+    fn a_property_flagged_prose_and_retrievable_reaches_both_lists() {
+        let both = "class: measure\n\
+            properties:\n\
+            \x20 - name: method\n\
+            \x20   prose: true\n\
+            \x20   retrievable: true\n";
+        let f = fields(
+            &prose_fields(&[("measure", &[], &["method"])]),
+            &retrievable(&[("measure", both)]),
+            "measure",
+        );
+        assert_eq!(f.prose_properties, ["method"]);
+        assert_eq!(f.retrievable_properties, ["method"]);
+
+        let node = inst("class: measure\nproperties:\n  method: How it was computed.\n");
+        assert_eq!(
+            yidam_core::embed::of(&node, &f),
+            [("properties.method".to_string(), "How it was computed.")]
+        );
+    }
+
+    /// A top-level key and a property of the same name stay two declarations, so the
+    /// de-duplication one layer out cannot collide them.
     #[test]
     fn a_top_level_key_and_a_property_of_the_same_name_are_told_apart() {
         let ont = "class: measure\n\
@@ -402,51 +374,13 @@ mod tests {
             properties:\n\
             \x20 - name: parameter\n\
             \x20   retrievable: true\n";
-        let node =
-            inst("class: measure\nparameter: at the top\nproperties:\n  parameter: \"00060\"\n");
-        assert_eq!(
-            of(
-                &node,
-                &prose_fields(&[("measure", &["parameter"], &[])]),
-                &retrievable(&[("measure", ont)]),
-                "measure",
-            ),
-            [
-                ("parameter".to_string(), "at the top"),
-                ("properties.parameter".to_string(), "00060"),
-            ]
-        );
-    }
-
-    /// A flagged property holding something other than a string yields nothing, for the
-    /// reason a prose key holding a list does: it is a real state, not text.
-    #[test]
-    fn a_flagged_property_that_is_not_a_string_yields_nothing() {
-        let ont = "class: measure\nproperties:\n  - name: codes\n    retrievable: true\n";
-        let node = inst("class: measure\nproperties:\n  codes:\n    - \"00060\"\n");
-        assert!(of(
-            &node,
+        let f = fields(
             &prose_fields(&[("measure", &["parameter"], &[])]),
             &retrievable(&[("measure", ont)]),
             "measure",
-        )
-        .is_empty());
-    }
-
-    /// A flagged property the node does not carry is not an empty line in the vector.
-    #[test]
-    fn a_flagged_property_the_node_omits_yields_nothing() {
-        let ont = "class: gage\nproperties:\n  - name: parameter\n    retrievable: true\n";
-        let node = inst("class: gage\ndescription: Only this.\n");
-        assert_eq!(
-            text(
-                &node,
-                &prose_fields(&[("gage", &[], &[])]),
-                &retrievable(&[("gage", ont)]),
-                "gage",
-            ),
-            "Only this."
         );
+        assert_eq!(f.prose_keys, ["description", "parameter"]);
+        assert_eq!(f.retrievable_properties, ["parameter"]);
     }
 
     /// There is no universal property: a class nothing declared flags nothing, and cannot

@@ -41,9 +41,9 @@ pub struct EmbedOptions {
     /// It exists because the question RFC-0033 §8 left open — whether the 40 KB metadata
     /// ceiling is comfortable for real corpora — can only be answered by the thing that
     /// composes the text, and the corpora worth asking it of are not ours to write into.
-    /// `text` is not a field: it is [`compose_text`] over a label, every declared prose
-    /// field and the edge names, or [`compose_source_text`] over a catalog entry's whole
-    /// markdown body. A grep under-measures both.
+    /// `text` is not a field: it is [`yidam_core::embed::compose_embed_text`] over a label,
+    /// every declared prose field and the edge names, or [`compose_source_text`] over a
+    /// catalog entry's whole markdown body. A grep under-measures both.
     pub dry_run: bool,
 }
 
@@ -186,33 +186,6 @@ fn compose_source_text(
     let body = body.trim();
     if !body.is_empty() {
         parts.push(body.to_string());
-    }
-    parts.join(" ")
-}
-
-/// Compose the embedding target text for a corpus instance.
-/// Combines label, description, and relationship hints into a single string.
-fn compose_text(label: &str, description: &str, links: &[crate::parse::CorpusLink]) -> String {
-    let relationships: Vec<String> = links
-        .iter()
-        .filter_map(|l| l.target.as_deref())
-        .filter(|t| !t.ends_with(".ont.yml"))
-        .filter_map(|t| {
-            std::path::Path::new(t)
-                .file_stem()
-                .map(|n| n.to_string_lossy().replace('-', " "))
-        })
-        .collect();
-
-    let mut parts: Vec<String> = Vec::new();
-    if !label.is_empty() {
-        parts.push(label.to_string());
-    }
-    if !description.is_empty() {
-        parts.push(description.to_string());
-    }
-    if !relationships.is_empty() {
-        parts.push(format!("Related: {}.", relationships.join(", ")));
     }
     parts.join(" ")
 }
@@ -476,19 +449,26 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
         // true of `properties.method`, a block scalar on 341 nodes across 214 KB in the
         // measured corpora, none of which was in any embedding.
         //
-        // Since #717 it is `retrievable::text` and not `prose::text`, because this is the one
-        // reader for which prose was nearly the right question and not the same one. A gage's
+        // Since #717 the retrievable axis is asked for too, because this is the one reader
+        // for which prose was nearly the right question and not the same one. A gage's
         // `parameter: "00060"` and `units: cubic feet per second` are not prose — flagging
         // them as prose would make `node-too-long` count the code and `missing-description`
         // accept it — and they are exactly the strings a query is typed in. `prose::text` is
-        // still what the two checks read, and the union of the two axes is taken there rather
-        // than here, so this callsite cannot ask for one and silently miss the other.
+        // still what the two checks read, and the union of the two axes is taken inside the
+        // assembler, so this callsite cannot ask for one and silently miss the other.
         //
         // Node text is what an index is built from, so a corpus that flags a property must
         // re-embed. That is the change rather than a side effect of it.
-        let description = crate::retrievable::text(inst, &prose_fields, &retrievable, &class);
-        let links = inst.links.as_deref().unwrap_or(&[]);
-        let text = compose_text(&label, &description, links);
+        //
+        // Composed by the SDK and not here (#1031, RFC-0007). This repository composed
+        // `label · prose · Related: <stems>.` and a downstream consumer composed something
+        // else over the same corpus, which is two vector spaces from one set of weights and
+        // no way to tell which was right. All this file now decides is which fields go in;
+        // `compose_embed_text` is a parity function held to a shared fixture.
+        let text = yidam_core::embed::compose_embed_text(
+            inst,
+            &crate::retrievable::fields(&prose_fields, &retrievable, &class),
+        );
 
         let record = EmbedRecord {
             path: node.rel.clone(),
@@ -699,15 +679,25 @@ mod tests {
 
     /// Node composition is unchanged — this is a scope change, not a re-embedding of the
     /// corpus, and an altered node text would silently invalidate every existing index.
+    ///
+    /// Kept after the assembler moved to the SDK (#1031), and asserted through this file's
+    /// own callsite rather than against `compose_embed_text` directly: the parity fixtures
+    /// pin what the function composes, and what this file has to keep is that it is still
+    /// the function being called with all three axes.
     #[test]
     fn node_text_composition_is_unchanged() {
-        let links = vec![crate::parse::CorpusLink {
-            target: Some("person/matt-huffman.yml".into()),
-            relationship: Some("mentions".into()),
-            ..Default::default()
-        }];
+        let inst = crate::parse::parse_instance(
+            "label: A label\ndescription: A description.\nlinks:\n  - target: person/matt-huffman.yml\n",
+        );
         assert_eq!(
-            compose_text("A label", "A description.", &links),
+            yidam_core::embed::compose_embed_text(
+                &inst,
+                &crate::retrievable::fields(
+                    &crate::prose::ProseFields::default(),
+                    &crate::retrievable::Retrievable::default(),
+                    "note",
+                ),
+            ),
             "A label A description. Related: matt huffman."
         );
     }

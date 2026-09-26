@@ -2,7 +2,7 @@ import json
 import tomllib
 from pathlib import Path
 
-from yidam_core import corpus, git, graph, markers, ontology, uri
+from yidam_core import corpus, embed, git, graph, markers, ontology, uri
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent / "parity" / "fixtures"
 
@@ -198,3 +198,26 @@ def test_every_rendered_reference_parses_back_to_itself():
         want = _reference(fx["input"])
         rendered = uri.render_reference(want)
         assert uri.parse_reference(rendered) == want, f"round trip via {rendered!r}"
+
+
+def test_parity_compose_embed_text():
+    """All three field lists are required of every fixture, and that is deliberate.
+
+    ``EmbedFields`` exists as a named shape rather than three positional lists so a caller
+    cannot ask for one axis and silently miss another — the mistake this repository's own
+    embedder made until #746 and again until #717 — and a fixture format where an absent list
+    meant "empty" would let the same omission back in one layer out.
+    """
+    fixtures = load_fixtures("compose_embed_text")
+    assert fixtures, "no compose_embed_text fixtures"
+    for fx in fixtures:
+        inp = fx["input"]
+        for key in ("prose_keys", "prose_properties", "retrievable_properties"):
+            assert key in inp, f"{fx['description']}: [input] declares no `{key}`"
+        fields = embed.EmbedFields(
+            prose_keys=inp["prose_keys"],
+            prose_properties=inp["prose_properties"],
+            retrievable_properties=inp["retrievable_properties"],
+        )
+        got = embed.compose_embed_text(corpus.parse_instance(inp["content"]), fields)
+        assert got == fx["expected"]["text"], fx["description"]

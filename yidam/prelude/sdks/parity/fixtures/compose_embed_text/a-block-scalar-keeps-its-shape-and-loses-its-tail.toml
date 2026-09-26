@@ -1,0 +1,20 @@
+function = "compose_embed_text"
+description = "A declared key holding a block scalar is trimmed at its end only: the newline YAML adds goes, and the author's own line breaks and indentation stay. Three hundred and forty-one nodes across the measured corpora write a block scalar in a property"
+
+[input]
+content = """
+class: measure
+label: Discharge
+description: |
+  First line.
+  Second line.
+properties:
+  method: |
+    Computed from stage.
+"""
+prose_keys = ["description"]
+prose_properties = ["method"]
+retrievable_properties = []
+
+[expected]
+text = "Discharge First line.\nSecond line.\nComputed from stage."

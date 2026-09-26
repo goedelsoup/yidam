@@ -1,41 +1,66 @@
 # RFC-0007 — The Python SDK index/feature layer
 
-- **Status:** Accepted
+- **Status:** Implemented
 - **Track:** I7
 - **Relates to:** RFC-0002 (node-model unification), RFC-0005 (MCP tool contract), RFC-0006 (correctness reconciliation), RFC-0003 (feature-gated builds)
-- **Versioning layers touched:** SDK + parity (`yidam-core` minor bump; the `embed_config` parity runner)
+- **Versioning layers touched:** SDK + parity (`yidam-core` minor bump; the `embed_config` and `compose_embed_text` parity runners)
 - **Downstream reference case:** Project BOSC (watermark-directory)
 
-> **Status corrected 2026-09-17 (#718): one ask of three shipped, and the header said all
-> three had.** This read `Implemented` on the strength of the third of
-> [#129](https://github.com/goedelsoup/yidam/issues/129) that landed. `Accepted` is what the
-> state actually is — "agreed, implementation may begin" — and the open questions below are
-> open.
+> **Status 2026-09-26 (#1031): two asks of three ship, the third is retracted, and this now
+> reads `Implemented` on an amended scope.** The scope is amended in this block and nowhere
+> else — the sections below are the document as filed, and rewriting them would erase what was
+> actually proposed.
 >
 > **Ask 1, the runtime-verifiable embed contract, shipped and is good.**
 > [`embed_config.rs`](../../yidam/cli/src/embed_config.rs) and `yidam index-verify`
 > ([`cmd/index_verify.rs`](../../yidam/cli/src/cmd/index_verify.rs)) exist, the `verification`
-> block exists, and the silent-drift failure #129 described is now detectable — #536 later
-> exercised exactly that path.
+> block exists, and the silent-drift failure [#129](https://github.com/goedelsoup/yidam/issues/129)
+> described is now detectable — #536 later exercised exactly that path.
 >
-> **Asks 2 and 3 did not.** There is no `features.py`, `index.py` or `pipeline.py`:
-> `yidam_core` is `corpus`, `git`, `graph`, `markers`, `ontology`, `uri`, and
-> `pyproject.toml` declares `dependencies = ["pyyaml>=6"]` — no LanceDB, and
-> `sentence-transformers` only as an optional `embed` extra scoped to the parity runner. So
-> `embed_node` / `embed_corpus` as one canonical text assembly, and `build_index` / `query` /
-> `index_status`, are both still ahead.
+> **Ask 2, one canonical text assembly, shipped — in a different shape than the Proposal
+> names.** It is `compose_embed_text`, a parity function in all three SDKs held to twelve
+> fixtures in `prelude/sdks/parity/fixtures/compose_embed_text/`. Two departures from the
+> Proposal, both deliberate:
 >
-> The Summary and Problem sections below are written in the present tense of the day this was
-> filed and are still accurate about the code. What has changed is the reconciliation story:
-> ask 1 built the contract the other two were to be interchangeable *under*, which is why it
-> was ordered first.
+> - **It is not "mirroring BOSC's proven shape (label · description · class · salient-meta)".**
+>   The class stays a *column*, as the Rust reference always had it: folded into the text it
+>   puts one identical phrase in every vector of a class, which pulls the class toward a point
+>   and distinguishes no member of it from any other.
+> - **`_meta_bits` is answered by the ontology, not by a curated list.** The judgement BOSC was
+>   making by hand — *which fields carry meaning* — is now two declarations a class writes.
+>   `prose: true` (#746) says which keys and properties a node's substance is in, and
+>   `retrievable: true` (#717) says which identifiers and codes belong in an embedding without
+>   being prose: a gage's `parameter: "00060"` is what a query is typed in and is not something
+>   `node-too-long` should count. `compose_embed_text` takes both lists and unions them. So the
+>   answer to "which fields" is per corpus and written down in that corpus, rather than curated
+>   once in whichever consumer got there first.
 >
-> **The other half of the promise is unretracted.** `sdks/README.md` still types the full
-> surface under "the machine learning layer" and still assigns it ownership — "`embed_node` /
-> `embed_corpus` — the only place raw text → vectors happens". Under `Accepted` that reads as
-> a plan rather than a lie, which is the difference this correction buys; if items 2–3 are
-> ever declared out of scope, that README is the other half of *that* change and the four open
-> questions below need "not pursued, because —" rather than silence.
+> **It is one assembler and not the whole embedder.** Composing the text is the half that needs
+> no model to check, and it is the half the two implementations disagreed on. Turning that text
+> into a vector stays where the weights are.
+>
+> **Ask 3, `build_index` / `update_index` / `query` / `index_status` in Python, is retracted —
+> not deferred.** It was filed to spare the next consumer a 285-line re-implementation, and the
+> measurement since says the next consumer is not arriving: across **180 derived-repo sessions**
+> and **62,048** `yidam`-bearing shell invocations, `index-build` was run **0** times and
+> `retrieve` **0** times, and **0 of 16** corpora hold a local `.yidam/index/`. A second
+> implementation of an index nobody builds is not a cost avoided, it is a second thing to keep
+> in step with `embed.config.json`. The reconciliation subtlety below is unresolved because
+> nothing now depends on resolving it; it is written down so the day a Python index is wanted
+> the question is waiting rather than rediscovered. See **Open questions** for each.
+>
+> **`sdks/README.md` was the other half of this change, and is trimmed with it.** It typed the
+> full `features` / `index` / `pipeline` surface under "the machine learning layer" and assigned
+> Python ownership of it — "`embed_node` / `embed_corpus` — the only place raw text → vectors
+> happens", "Rust can query but Python builds". Under `Accepted` that read as a plan; retracting
+> ask 3 without trimming it would leave it a claim. The line citations in the Summary and
+> Problem below point into the untrimmed README and are as-of-filing.
+>
+> **This header has been wrong once before, in the other direction.** It read `Implemented` on
+> the strength of ask 1 alone until #718 corrected it to `Accepted` on 2026-09-17. That
+> correction is why this one names each ask and its evidence rather than moving a word: a
+> status is a claim about three deliverables, and a document that states it without stating
+> them can be wrong for a year with every gate green.
 
 ## Summary
 
@@ -209,14 +234,43 @@ silent-drift gap.
 
 ## Open questions
 
-- Should the canonical embed-text assembler be a **ninth parity function** (held to a fixture
-  alongside `parse_node` et al.), or a lower-tier convention? It is the exact seam where Rust
-  `compose_text` and BOSC `node_text` already diverged, which argues for parity.
-- Path (1) vs (2) of the reconciliation: is loading quantized ONNX from Python (optimum) cheap
-  enough to make same-space the default, or is fp32 + declared `[known_delta]` the pragmatic
-  answer? This depends on RFC-0006's `index-verify` landing first.
-- `embed_node` takes a `CorpusNode` in the spec but both real embedders run on the YAML instance
-  model — which node type it accepts cannot be decided here; it is downstream of **RFC-0002**.
-- Does `update_index` need true incremental LanceDB upserts, or is BOSC's rebuild-whole posture
-  (`yidam_index.py:169-174`) the right default for corpora this size, with incremental as an
-  opt-in?
+Answered 2026-09-26 (#1031). Each is kept with its answer rather than deleted: a question that
+turns out not to matter is worth the same sentence as one that does, and "not pursued, because
+—" is the part a later reader cannot reconstruct.
+
+- **Should the canonical embed-text assembler be a parity function, or a lower-tier
+  convention?** *A parity function.* The argument in the question was the right one — it is the
+  exact seam where two implementations already diverged — and a convention is what the seam
+  already had. It is `compose_embed_text`, in the table in
+  [`parity/README.md`](../../yidam/prelude/sdks/parity/README.md), implemented in all three
+  SDKs and held to twelve fixtures.
+
+  The question said "**ninth** parity function", and that count was stale when it was written.
+  The table is the count now, deliberately: a number beside a list is a second copy of the
+  list's length with nothing keeping it honest.
+
+  One boundary the fixture draws that the question did not anticipate: *resolving* which fields
+  a class declared is not in the surface. Walking `<class>.ont.yml` and `universal.yml` is a
+  question about a corpus on disk and the CLI answers it; what all three SDKs must agree on is
+  what a node composes to once it is answered.
+
+- **Path (1) vs (2) of the reconciliation — quantized ONNX from Python, or fp32 with a declared
+  `[known_delta]`?** *Not pursued, because ask 3 is retracted and nothing now builds an index
+  from Python.* The section stands as written: the constraint is real, the two paths are still
+  the two paths, and `index-verify` — which the question said this depended on — landed and is
+  what surfaces a mismatch. The invariant it protects is unchanged and is enforced:
+  **no index claims compatibility it does not have.** The day a second embedder exists, this is
+  the first question it has to answer, and it is answerable then with a measurement rather than
+  now with a guess.
+
+- **`embed_node` takes a `CorpusNode` in the spec but both real embedders run on the YAML
+  instance model.** *Settled, as the question said it would be: downstream of RFC-0002, which
+  landed.* There is one node model, and `compose_embed_text` takes a `CorpusInstance`.
+  `include_claims` went with the Markdown model and has no successor — what a node says is the
+  declared prose, and whether a claim is in it is the class's `prose:` declaration to make.
+
+- **Does `update_index` need true incremental LanceDB upserts, or is rebuild-whole the right
+  default?** *Not pursued, with ask 3.* Rebuild-whole is what `yidam index-build` does and, at
+  0 invocations across the measured population, no corpus has yet made the cost of it visible.
+  The question to ask first is not incremental-versus-whole but whether an index is being built
+  at all.

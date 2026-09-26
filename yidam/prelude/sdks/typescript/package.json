@@ -1,15 +1,17 @@
 {
   "name": "@yidam/core",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Yidam corpus types and parity surface — TypeScript reference implementation",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./corpus": "./src/corpus.ts",
+    "./embed": "./src/embed.ts",
     "./git": "./src/git.ts",
     "./graph": "./src/graph.ts",
     "./markers": "./src/markers.ts",
     "./ontology": "./src/ontology.ts",
+    "./prose": "./src/prose.ts",
     "./uri": "./src/uri.ts"
   },
   "scripts": {

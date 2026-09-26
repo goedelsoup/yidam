@@ -1,0 +1,13 @@
+function = "compose_embed_text"
+description = "An empty composition is the empty string, not a stray separator — each of the three parts is omitted when it is empty, and a node carrying only its class says nothing at all"
+
+[input]
+content = """
+class: gage
+"""
+prose_keys = ["description"]
+prose_properties = []
+retrievable_properties = ["parameter"]
+
+[expected]
+text = ""

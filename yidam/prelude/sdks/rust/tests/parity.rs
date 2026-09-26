@@ -1,4 +1,4 @@
-use yidam_core::{corpus, git, graph, markers, ontology, uri};
+use yidam_core::{corpus, embed, git, graph, markers, ontology, uri};
 
 fn fixture_dir(function: &str) -> std::path::PathBuf {
     // CARGO_MANIFEST_DIR = prelude/sdks/rust/
@@ -405,5 +405,50 @@ fn every_rendered_reference_parses_back_to_itself() {
         let got = uri::parse_reference(&rendered)
             .unwrap_or_else(|| panic!("{rendered:?} did not parse back"));
         assert_eq!(got, want, "round trip via {rendered:?}");
+    }
+}
+
+// ── compose_embed_text ────────────────────────────────────────────────────────
+//
+// All three field lists are required of every fixture, and that is deliberate.
+// `EmbedFields` exists as a struct rather than three positional slices so a caller cannot ask
+// for one axis and silently miss another — the mistake this repository's own embedder made
+// until #746 and again until #717 — and a fixture format where an absent list meant "empty"
+// would let the same omission back in one layer out.
+
+#[test]
+fn parity_compose_embed_text() {
+    let fixtures = load_fixtures("compose_embed_text");
+    assert!(!fixtures.is_empty(), "no compose_embed_text fixtures found");
+
+    for fx in &fixtures {
+        let description = fx["description"].as_str().unwrap_or("");
+        let input = &fx["input"];
+
+        let list = |key: &str| -> Vec<String> {
+            input[key]
+                .as_array()
+                .unwrap_or_else(|| panic!("{description}: [input] declares no `{key}`"))
+                .iter()
+                .map(|v| {
+                    v.as_str()
+                        .expect("a field name that is not a string")
+                        .to_string()
+                })
+                .collect()
+        };
+
+        let inst = corpus::parse_instance(input["content"].as_str().unwrap());
+        let fields = embed::EmbedFields {
+            prose_keys: list("prose_keys"),
+            prose_properties: list("prose_properties"),
+            retrievable_properties: list("retrievable_properties"),
+        };
+
+        assert_eq!(
+            embed::compose_embed_text(&inst, &fields),
+            fx["expected"]["text"].as_str().unwrap(),
+            "{description}"
+        );
     }
 }

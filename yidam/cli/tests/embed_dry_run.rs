@@ -3,9 +3,10 @@
 //! It exists because RFC-0033 §8's last open row — whether the 40 KB per-vector metadata
 //! ceiling is comfortable for real corpora — could only be answered by running the functions
 //! that *compose* the text over corpora that are not ours to write into. `text` is not a
-//! field: for a node it is `compose_text` over `prose::text`, which reaches nested keys and
-//! flagged properties, and for a catalog source it is the whole markdown body. A grep
-//! under-measures both, and the plain `embed` leaves `.yidam/embeddings/` behind.
+//! field: for a node it is `yidam_core::embed::compose_embed_text` over the class's declared
+//! prose keys, prose properties and retrievable properties, and for a catalog source it is the
+//! whole markdown body. A grep under-measures both, and the plain `embed` leaves
+//! `.yidam/embeddings/` behind.
 //!
 //! Two properties make the resulting number worth quoting, and each has a test here:
 //!

@@ -1,0 +1,18 @@
+function = "compose_embed_text"
+description = "A class definition is the contract an instance is written under, not a thing it relates to — every instance of a class carries the same one, so admitting it would add one constant phrase to every vector in the class and distinguish nothing"
+
+[input]
+content = """
+class: gage
+label: Tailwater gage
+links:
+  - target: ../gage.ont.yml
+    relationship: instance-of
+  - target: ../reach/lower-canyon.yml
+"""
+prose_keys = ["description"]
+prose_properties = []
+retrievable_properties = []
+
+[expected]
+text = "Tailwater gage Related: lower canyon."
