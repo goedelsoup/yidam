@@ -180,6 +180,15 @@ pub struct DueConfig {
     /// [due]
     /// index_after = 25
     /// ```
+    ///
+    /// **Declarable in every build, and acted on by one.** `index-build` is behind the `index`
+    /// feature and the released binary does not carry it, so a corpus that declares this and
+    /// installs the default build cannot discharge the clock. `due` says so on the row rather
+    /// than reporting it as owed — see [`crate::cmd::due::State::Unbuildable`] — because the
+    /// alternative is what #1061 found: a permanently red clock, and two repositories that
+    /// silenced it rather than repaired anything. The key is still read in every build, for
+    /// [`IndexConfig::remote`]'s reason: this is a corpus's declaration about itself, it lives
+    /// in a committed file, and a build that cannot act on one should read it and say so.
     pub index_after: Option<usize>,
     /// Clocks this corpus decided it does not want, each naming the record that argues it.
     ///

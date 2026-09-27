@@ -434,9 +434,10 @@
               "ok",
               "undeclared",
               "declined",
-              "unmeasurable"
+              "unmeasurable",
+              "unbuildable"
             ],
-            "description": "`due` is not a defect. A corpus with three expired sources is owed, not unhealthy \u2014 `doctor` is the report that answers whether anything is wrong. `undeclared` means this corpus set no interval, so the clock can never come due; `declined` means it set none deliberately, having decided against the thing the clock measures, and `record` names where it argued that; `unmeasurable` means it set one and there is nothing to measure against, which is a gap in bookkeeping rather than a stale subject. A consumer MUST NOT render `declined` as `undeclared`: the first is a decision and the second is its absence."
+            "description": "`due` is not a defect. A corpus with three expired sources is owed, not unhealthy \u2014 `doctor` is the report that answers whether anything is wrong. `undeclared` means this corpus set no interval, so the clock can never come due; `declined` means it set none deliberately, having decided against the thing the clock measures, and `record` names where it argued that; `unmeasurable` means it set one and there is nothing to measure against, which is a gap in bookkeeping rather than a stale subject. A consumer MUST NOT render `declined` as `undeclared`: the first is a decision and the second is its absence. `unbuildable` is the one state that is a fact about the BINARY rather than about the corpus: the act that would discharge the clock is compiled out of this build, so the clock has no subject here whatever the corpus declared. Only the `index` clock can reach it \u2014 `index-build` is behind a feature the released binary does not carry, and every other clock measures something a `reports` build can both read and discharge. It is NOT `due`, and the difference is whether the row can ever change: a clock nothing available to the reader can discharge reads red on every run forever, which is the state two derived repositories met before this one existed (#1061) \u2014 one declined the clock to silence it and one wrote a comment into its config explaining the row. Its `remedy` is an install rather than a corpus act, and a consumer MUST NOT count it as owed. A light build holding an index pulled from elsewhere is NOT in this state: reading a `meta.json` needs no feature, so the staleness verdict there is the real one."
           },
           "interval": {
             "type": [
@@ -2342,9 +2343,10 @@
               "ok",
               "undeclared",
               "declined",
-              "unmeasurable"
+              "unmeasurable",
+              "unbuildable"
             ],
-            "description": "`due` is not a defect. A corpus with three expired sources is owed, not unhealthy \u2014 `doctor` is the report that answers whether anything is wrong. `undeclared` means this corpus set no interval, so the clock can never come due; `declined` means it set none deliberately, having decided against the thing the clock measures, and `record` names where it argued that; `unmeasurable` means it set one and there is nothing to measure against, which is a gap in bookkeeping rather than a stale subject. A consumer MUST NOT render `declined` as `undeclared`: the first is a decision and the second is its absence."
+            "description": "`due` is not a defect. A corpus with three expired sources is owed, not unhealthy \u2014 `doctor` is the report that answers whether anything is wrong. `undeclared` means this corpus set no interval, so the clock can never come due; `declined` means it set none deliberately, having decided against the thing the clock measures, and `record` names where it argued that; `unmeasurable` means it set one and there is nothing to measure against, which is a gap in bookkeeping rather than a stale subject. A consumer MUST NOT render `declined` as `undeclared`: the first is a decision and the second is its absence. `unbuildable` is the one state that is a fact about the BINARY rather than about the corpus: the act that would discharge the clock is compiled out of this build, so the clock has no subject here whatever the corpus declared. Only the `index` clock can reach it \u2014 `index-build` is behind a feature the released binary does not carry, and every other clock measures something a `reports` build can both read and discharge. It is NOT `due`, and the difference is whether the row can ever change: a clock nothing available to the reader can discharge reads red on every run forever, which is the state two derived repositories met before this one existed (#1061) \u2014 one declined the clock to silence it and one wrote a comment into its config explaining the row. Its `remedy` is an install rather than a corpus act, and a consumer MUST NOT count it as owed. A light build holding an index pulled from elsewhere is NOT in this state: reading a `meta.json` needs no feature, so the staleness verdict there is the real one."
           },
           "interval": {
             "type": [
