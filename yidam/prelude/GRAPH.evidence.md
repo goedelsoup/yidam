@@ -53,6 +53,36 @@ One corpus declares a claim property named `attestation_standing`; its `techniqu
 unsettled. That is the field working exactly as designed, on a node that is plainly not a
 question.
 
+## claim-property-undeclared
+
+A standing written into a property the class did not declare `type: claim` is read by nothing —
+not `yidam status`, not `open-questions`, not the `due` questions clock, not the MCP `claims`
+resource. The declaration is what makes it reachable, and the corpus gets no signal that it is
+missing.
+
+Run over the sixteen corpora and 2,770 nodes, the check reports **18 findings in 3 corpora**,
+which are three `(class, property)` pairs:
+
+| Corpus | Property | Nodes | Values |
+|---|---|---|---|
+| `bitrecover-bitwipe` | `question.claim_tag` | 11 | `verified` 5, `inference` 5, `open` 1 |
+| `allen-recorder` | `parcel.status` | 3 | `verified` |
+| `hegeomai` | `inquiry.status` | 4 | `open` |
+
+**It never gates, because the repair differs by row.** The first is a claim field by name,
+vocabulary and intent, and wants the declaration. The third holds `narrowing` and `answered` on
+its other nodes: that is a question's lifecycle, not an evidence standing, and declaring it
+`type: claim` would make the corpus assert something it did not — renaming the property is the
+fix. Deciding which a word is remains the judgement Article V refuses to delegate, so both fixes
+are named and neither is imposed.
+
+**Bare spellings only.** A bracketed `[open]` is already counted wherever it sits, because the
+prose scan reads the file's bytes. Measured with the same walk and the bracket test inverted,
+every such value in the population is the literal `[open]` standing in for a value the corpus
+does not have yet — **4 of them, in `precinct.registered_voters`, `precinct.polling_location`,
+`election.margin` and `election.turnout`** — and reporting those would be telling two corpora to
+declare a turnout figure as a claim.
+
 ## date-precision
 
 What `property-type` catches in a date field is prose, and `1985` is not prose: it is the

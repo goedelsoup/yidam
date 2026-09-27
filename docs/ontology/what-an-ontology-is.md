@@ -63,6 +63,12 @@ class is arguing something that needs counting, the argument belongs in a node.
 a finding. A property typed `claim` marks a field whose value *is* an evidence tag rather than
 prose mentioning one.
 
+The declaration is what makes the value readable. A standing written into a field no class
+typed `claim` is counted by nothing — not `status`, not `open-questions`, not the questions
+clock. `claim-property-undeclared` reports that at `Info` rather than gating, because the
+repair is sometimes to rename the property instead. A `status` holding `open`, `narrowing`
+and `answered` is a lifecycle, not an evidence standing.
+
 **`edges`** are the relationships instances may bear, from whichever end authors them. An edge to
 a class file or into the catalog is a citation, not a relationship, and is not read here.
 

@@ -616,6 +616,86 @@ pub fn count_structural(text: &str, fields: &[String]) -> ClaimCounts {
     counts
 }
 
+/// Keys holding a value that spells a standing, in fields the class did **not** declare
+/// `type: claim`.
+///
+/// The inverse of [`count_structural`], over the same document with the same reach, and that is
+/// the whole point of it: a pair returned here is a claim this corpus wrote that the counter
+/// would begin counting the moment the declaration existed, and counts as nothing until it does.
+/// `(key, value)` per occurrence, in document order.
+///
+/// **One walk, inverted, rather than a second reading.** Writing this as its own traversal is
+/// how a finding and a count come to disagree about which fields a declaration reaches — and the
+/// reach is not obvious: [`structural_values`] recurses to any depth and skips
+/// [`LINKS_KEY`], because a link's standing belongs to an edge and
+/// [`crate::cmd::lint::edge_claims`] grades it there.
+///
+/// **Bare spellings only, and the exclusion is the measurement.** A bracketed `[open]` in an
+/// undeclared field is already counted — the prose arm scans the file's bytes and a bracket is
+/// what it looks for — so it is visible, wherever it sits. A bare `open` is read by nothing.
+/// The exclusion was measured by running this walk with the bracket test inverted over the
+/// sixteen committed corpora: **4 values, in 4 class properties of 2 corpora**, and every one
+/// of the four is the literal string `[open]` standing in for a value the corpus does not have
+/// yet — `precinct.registered_voters`, `precinct.polling_location`, `election.margin`,
+/// `election.turnout`. Reporting those would be telling two corpora to declare a turnout figure
+/// as a claim. (A seventeenth repository, `watermark-directory`, gitignores its whole `.yidam/`
+/// tree and is outside the population; its uncommitted corpus holds 107 more, and 105 of them
+/// are one genuinely undeclared claim field — `record.claim_standings` — which is evidence for
+/// the check and not against the exclusion, since those are bracketed and therefore counted.)
+pub fn undeclared_structural_tags(text: &str, declared: &[String]) -> Vec<(String, String)> {
+    let Ok(doc) = serde_yaml::from_str::<serde_yaml::Value>(text) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    undeclared_tags_in(&doc, declared, &mut out);
+    out
+}
+
+fn undeclared_tags_in(
+    value: &serde_yaml::Value,
+    declared: &[String],
+    out: &mut Vec<(String, String)>,
+) {
+    match value {
+        serde_yaml::Value::Mapping(map) => {
+            for (k, v) in map {
+                let key = k.as_str().unwrap_or_default();
+                // `links:` and `yidam:` are the two blocks a node carries that are not the
+                // corpus speaking: an edge's standing belongs to the edge, and a carried
+                // finding's `standing: open` was written by `yidam propose` and is counted
+                // as nothing the corpus claims. Telling a corpus to declare `standing` as a
+                // claim property because a tool wrote one into its node would be this walk's
+                // worst finding.
+                if key == LINKS_KEY
+                    || key == crate::findings::CONTAINER
+                    || declared.iter().any(|f| f == key)
+                {
+                    continue;
+                }
+                let scalars: Vec<&str> = match v {
+                    serde_yaml::Value::String(s) => vec![s.as_str()],
+                    serde_yaml::Value::Sequence(items) => {
+                        items.iter().filter_map(serde_yaml::Value::as_str).collect()
+                    }
+                    _ => Vec::new(),
+                };
+                for s in scalars {
+                    if !s.trim().starts_with('[') && parse_tag(s).is_some() {
+                        out.push((key.to_string(), s.trim().to_string()));
+                    }
+                }
+                undeclared_tags_in(v, declared, out);
+            }
+        }
+        serde_yaml::Value::Sequence(items) => {
+            for item in items {
+                undeclared_tags_in(item, declared, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 // ── an edge is a claim, and this is what reads its standing ───────────────────
 //
 // `lint/edge_claims.rs` grades an edge's `claim_tag` and stops there: two checks, and no

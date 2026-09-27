@@ -142,19 +142,63 @@ fn due_changes_nothing_on_disk() {
     assert!(r.stdout.contains("due   "), "{}", r.stdout);
 }
 
-/// Four clocks due, and it still exits zero. The reading this report exists to prevent is
-/// that a number in it is a defect.
+/// Every clock this binary can discharge is due, and it still exits zero. The reading this
+/// report exists to prevent is that a number in it is a defect.
+///
+/// Three or four by build, and the difference is the whole of #1061: the index clock is
+/// discharged by `yidam index-build`, which is behind the `index` feature, so in a binary
+/// without it the row is [`unbuildable`] rather than due. The expected count is written as a
+/// `cfg!` rather than loosened to `>= 3` because the point of the assertion is that the
+/// fixture owes on *everything available*, and a floor would pass on a build that had
+/// quietly stopped measuring one.
+///
+/// [`unbuildable`]: the_index_clock_in_a_build_that_cannot_make_one
 #[test]
 fn a_repository_that_owes_on_every_clock_still_exits_zero() {
     let tmp = stage();
     let v = json(tmp.path());
     assert_eq!(v["format_version"], "1");
-    assert_eq!(v["due"], 4, "{}", serde_json::to_string_pretty(&v).unwrap());
+    let expected = if cfg!(feature = "index") { 4 } else { 3 };
+    assert_eq!(
+        v["due"],
+        expected,
+        "{}",
+        serde_json::to_string_pretty(&v).unwrap()
+    );
     assert_eq!(v["passed"], true);
     assert_eq!(run(tmp.path(), &["due"]).code, 0);
 
     // `--strict` is the only thing that changes that.
     assert_eq!(run(tmp.path(), &["due", "--strict"]).code, 1);
+}
+
+/// The row the released binary shows for a clock it cannot discharge (#1061).
+///
+/// Asserted end to end, and through the shipped `--format json`, because this is the surface
+/// the two derived repositories that met the defect were reading. Both reached the same row by
+/// following the report's own advice, and one silenced the clock over it.
+#[test]
+#[cfg_attr(feature = "index", ignore = "this build can build an index")]
+fn the_index_clock_in_a_build_that_cannot_make_one() {
+    let tmp = stage();
+    let v = json(tmp.path());
+    let index = v["clocks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "index")
+        .expect("the clock is reported, not dropped");
+
+    assert_eq!(index["state"], "unbuildable", "{index}");
+    assert_eq!(index["overdue"], 0, "{index}");
+    // The remedy is an install, and the report says which one rather than naming a feature and
+    // leaving the reader to work out that it is missing.
+    let remedy = index["remedy"].as_str().unwrap_or_default();
+    assert!(remedy.contains("--features index"), "{index}");
+
+    // And the text rendering carries it to the reader who never asks for json.
+    let out = run(tmp.path(), &["due"]).stdout;
+    assert!(out.contains("--features index"), "{out}");
 }
 
 /// The set of clocks, keyed the way a consumer keys on them.

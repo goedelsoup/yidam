@@ -161,11 +161,24 @@ fn the_refusal_agrees_with_the_check_that_gates() {
     // it, so retyping the field that already holds one is allowed…
     let (ok, _) = c.run(&["migrate", "retype", "gage", "claim_tag", "string"]);
     assert!(ok, "a claim token is a valid string");
-    assert!(c.gate_is_clean());
+
+    // …and it costs the corpus the count, which `claim-property-undeclared` is what says so.
+    // The value is still `inference` and nothing reads it as a claim any more, because the
+    // class no longer types the field `claim`. The finding is `Info`, so the gate is still
+    // clean — the migration is allowed, and the consequence is not silent. (#1069)
+    let (gate_ok, out) = c.run(&["lint"]);
+    assert!(gate_ok, "an Info finding must not gate:\n{out}");
+    let (_, warned) = c.run(&["lint", "--warn"]);
+    assert!(
+        warned.contains("claim-property-undeclared"),
+        "retyping away from `claim` stopped the counting and nothing said so:\n{warned}"
+    );
 
     // …and back again, because it is still one of the three tokens.
     let (ok, _) = c.run(&["migrate", "retype", "gage", "claim_tag", "claim"]);
     assert!(ok);
+    // The declaration is back, so the finding is gone: it was reporting the gap and not the
+    // value, and the value never moved.
     assert!(c.gate_is_clean());
 }
 
