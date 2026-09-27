@@ -7,7 +7,7 @@
   - RFC-0018 (the query surface, which this adopts verbatim as the generator's argument rather than coining a second way to name a set)
   - RFC-0035 (class extent — a `coverage:` declaration is a claim about how many there should be; this is a claim about how many there are)
   - RFC-0001 (the report contract — `count` is a report with a `--format json` shape like the rest)
-- **Versioning layers touched:** template `v0.8.0` → `v0.9.0` (the REGEN marker format gains a form, which VERSIONING.md's Layer 1 table calls major, and §"Migration" argues it is right to) / SDK parity (`scan_markers` and `update_regen` in all three SDKs, the `graph.dfy` model, four new fixtures) / `yidam-core` minor (a new public field on `Marker::Regen`'s sibling type; no existing signature changes) / CLI surface (one new command, one new generator). No MCP contract change, no bootstrap-protocol change, no migration of corpus content.
+- **Versioning layers touched:** template `v0.8.0` → `v0.9.0` (the REGEN marker format gains a form, which VERSIONING.md's Layer 1 table calls major, and §"Migration" argues it is right to) / SDK parity (`scan_markers` and `update_regen` in all three SDKs, the `graph.dfy` model, nine new fixtures) / `yidam-core` minor (a new public field on `Marker::Regen`'s sibling type; no existing signature changes) / CLI surface (one new command, one new generator). No MCP contract change, no bootstrap-protocol change, no migration of corpus content.
 - **Downstream reference case:** `matt-huffman`'s `crates/corpus/tests/roadmap.rs` and `demi-moore`'s `crates/demi-feed/tests/readme.rs` — two repositories that built the same gate independently, and each of whose header states the limit this RFC removes.
 
 ## Summary
