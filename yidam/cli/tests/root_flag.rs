@@ -82,6 +82,7 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
         Tell::Envelope,
     ),
     ("cohort", &[CORPUS, "--format", "json"], Tell::Envelope),
+    ("count", &["concept", "--format", "json"], Tell::Envelope),
     ("corpus-index", &["--format", "json"], Tell::Envelope),
     ("crates-index", &[], Tell::Writes("crates/README.md")),
     ("cycle", &["--format", "json"], Tell::Envelope),

@@ -2665,6 +2665,33 @@
     "changed_by_override": {
       "type": "integer",
       "description": "`policy test` only. Tests that failed against a rule `.yidam/policy/` replaced. A strict subset of the failures and **not** part of `failed`, so the two never double-count: `failed` is what is broken, this is what the corpus changed on purpose."
+    },
+    "query": {
+      "type": "string",
+      "description": "`count` only. The query as it was given, echoed. A number is only readable against the question it answers, and the consumer holding it — a REGEN block, a report on disk — is rarely the caller that chose the argument."
+    },
+    "matched": {
+      "type": ["integer", "null"],
+      "description": "`count` only. How many nodes satisfied the query's final step — the whole traversal, not a projected page: `--limit` bounds what is shown and never what is counted. **Null, never 0, when `rejected` is present.** A query that could not run has not counted zero of anything, and a consumer that cannot tell a diagnosis from a measurement would publish the diagnosis as a figure."
+    },
+    "rejected": {
+      "type": ["object", "null"],
+      "description": "`count` only. Why the query could not typecheck against this corpus, or null when it ran. Present-and-null rather than absent, so a consumer testing for the key cannot read `accepted` off a binary too old to say.",
+      "required": ["code", "message"],
+      "properties": {
+        "step": {
+          "type": ["integer", "null"],
+          "description": "Which step of the path the rejection is about, zero-based; null for a rejection about the query as a whole rather than one of its steps."
+        },
+        "code": {
+          "type": "string",
+          "description": "The rejection's stable identifier — `unknown-class`, `parse`, `unlicensed-hop` and the rest. A plain string rather than an enum on purpose: that vocabulary is frozen in `mcp/tools.json`, and a copy here would be a fourth place to forget."
+        },
+        "message": {
+          "type": "string",
+          "description": "The diagnosis in prose, naming what was wrong and, where the corpus affords one, the nearest name it does declare."
+        }
+      }
     }
   }
 }

@@ -28,6 +28,38 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### A REGEN block written on one line stays on one line
+
+**The marker contract (#1094, RFC-0043).** `update_regen` wrote every block the same way. A
+newline after the open tag, the content, a newline before the close tag. A block written inside
+a sentence came back as four lines, the sentence broken across them. That is the shape
+RFC-0043's `count` generator needs, and the reason no generator writes one today. A block whose
+body holds no newline is now written back without newlines. It stays where its author put it.
+
+**What changes for you: nothing, unless you had already written one.** No generator emits an
+inline block today, so no existing document changes shape. If you hand-wrote one and watched
+`yidam regen` unwrap it, it will now survive. A value holding a newline of its own still goes
+back in block form. It cannot fit on the line. A body that did not match its form would be
+rewritten on the next run.
+
+### `update_regen` finds the block `scan_markers` sees
+
+**The marker contract (#1094).** The two halves of the contract located a block differently.
+`scan_markers` required the open tag to begin its line. `update_regen` searched the bytes and
+took the first *prefix* match. Three consequences, all silent:
+
+- A block in the middle of a line was invisible to the reader and rewritten by the writer.
+- A block at column 0 whose close tag sat alone on a line swallowed the *next* block too.
+- `update_regen` matched a command that merely began with the one asked for.
+
+There is now one locator. `update_regen` asks `scan_markers` for every block. It updates each
+one whose command is *equal* to the one requested — every one, not the first.
+
+**What changes for you: a document with two blocks for the same generator now updates both.**
+That was the intent all along. The old behaviour updated the first and left the rest stale.
+`regen --check` then reported drift the command could not clear. A command that is a prefix of
+another generator's name no longer matches it.
+
 ### `regen --check` reports a block no generator writes
 
 **`yidam regen --check` (#1062).** A REGEN block whose command names no generator used to be
@@ -42,6 +74,33 @@ that name.
 Only commands beginning `yidam` are judged, so a block your own tooling refreshes is
 untouched. Measured across twenty-two repositories carrying REGEN blocks, the check found
 none, so most upgrades will see no change.
+
+### `yidam count` — a number in prose, checked against the graph
+
+**New command and new REGEN generator (#1071, RFC-0043).** `yidam count <query>` prints how
+many nodes a query matches. With no query it is the generator `yidam regen` runs: it refreshes
+every `<!-- REGEN: yidam count <query> -->` block in the tracked markdown set. Inline, so the
+number sits inside its sentence. A figure published in prose is now checked by
+`yidam regen --check` instead of remembered.
+
+**What changes for you: nothing until you write a block.** No existing document has one. To
+adopt it, replace a hand-counted figure with a block and run `yidam regen`:
+
+```markdown
+The map has <!-- REGEN: yidam count district -->44<!-- /REGEN --> districts.
+```
+
+Two things are worth knowing before you do.
+
+A query that does not typecheck **refuses its block and fails the run**. It does not write a
+`0`. A query that cannot run has not counted zero of anything. The block keeps what it holds,
+and the error names the file, the query and the diagnostic. Under `--format json` the run emits
+no report at all, so read the exit code.
+
+A block naming no query — `<!-- REGEN: yidam count -->` — is reported as *unclaimed*, not
+written. No run can fill it. That verdict's wording changed with this release. It used to say
+the command named a generator that does not exist. It now says the command is one no generator
+writes, which is the true statement for this block.
 
 ### `migrate retype` requotes an instance instead of refusing it
 

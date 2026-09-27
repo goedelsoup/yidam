@@ -184,6 +184,13 @@ pub const GROUPS: &[Group] = &[
             r("query").short(),
             r("pack"),
             r("estimate"),
+            // Beside `query` and `estimate` rather than under the README generators, though
+            // it is `w` and one of them. What the generators write is a block they own at a
+            // path they know; what this writes is a number inside somebody's sentence, and
+            // the query that produces it is the reason a reader is here. `w` because the
+            // default form — `yidam count`, no query — is the refresh: with a query it reads
+            // and prints, which is the arm its long help leads with.
+            w("count"),
             r("diff"),
             // Beside `diff` rather than with the gates: it reads a code diff the way `diff`
             // reads a corpus one, and it cannot fail. A command filed under "exit nonzero on

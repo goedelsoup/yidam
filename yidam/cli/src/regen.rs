@@ -71,7 +71,20 @@ pub struct Unclaimed {
 /// [`yidam_core::markers::parse_markers`] and not a reader of its own. A second scanner would
 /// be a second answer to *where does a block begin*, which is the argument
 /// `malformed_regen_block` already makes one module over.
-pub fn unclaimed_in(text: &str, known: &[&str]) -> Vec<String> {
+///
+/// **Two ways to be claimed, because since RFC-0043 there are two shapes of command.**
+/// `known` holds the generators whose command is their name and nothing else, matched whole.
+/// `parameterised` holds the ones whose command carries an argument — `count` — matched as a
+/// name followed by a **space** and something. The separator is the whole of the rule: without
+/// it `yidam counterexamples` would be claimed by `count`, and `yidam status-quo` by `status`,
+/// which is the prefix-versus-equality confusion #1094 removed from `update_regen`.
+///
+/// A parameterised generator's **bare** name is claimed by neither, deliberately. `count`
+/// exists, and no run of it can ever write `<!-- REGEN: yidam count -->`, because that block
+/// names no query. Reporting it is this gate's entire purpose; the caller keeps the bare name
+/// out of `known` — see `regen::claimable` — so that registering a parameterised generator
+/// cannot turn a reported block into a silent one.
+pub fn unclaimed_in(text: &str, known: &[&str], parameterised: &[&str]) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
     for marker in yidam_core::markers::parse_markers(&crate::markdown::mask_code(text)) {
         let yidam_core::markers::Marker::Regen { command, .. } = marker else {
@@ -80,9 +93,14 @@ pub fn unclaimed_in(text: &str, known: &[&str]) -> Vec<String> {
         let Some(name) = command.strip_prefix("yidam ") else {
             continue;
         };
+        let claimed = known.contains(&name)
+            || parameterised.iter().any(|p| {
+                name.strip_prefix(p)
+                    .is_some_and(|rest| rest.starts_with(' '))
+            });
         // Deduped the way `record` dedupes: two blocks in one file naming the same missing
         // generator are one thing to fix.
-        if known.contains(&name) || found.iter().any(|f| f == name) {
+        if claimed || found.iter().any(|f| f == name) {
             continue;
         }
         found.push(name.to_string());
@@ -271,6 +289,13 @@ Fields: node count, open questions.\n\
     /// The generator names this crate ships, as the scanner's callers pass them.
     const KNOWN: &[&str] = &["status", "corpus-index", "vault-status"];
 
+    /// The generators whose command carries an argument, as `regen::claimable` splits them.
+    ///
+    /// `count` is in this list and **not** in [`KNOWN`], which is the partition the caller
+    /// makes and the reason `a_parameterised_generator_needs_its_argument` has an arm for the
+    /// bare name.
+    const PARAMETERISED: &[&str] = &["count"];
+
     fn block(command: &str) -> String {
         format!("<!-- REGEN: {command}\n-->\n_placeholder_\n<!-- /REGEN -->\n")
     }
@@ -281,8 +306,11 @@ Fields: node count, open questions.\n\
     /// the second one on its own.
     #[test]
     fn a_name_no_generator_carries_is_reported() {
-        assert_eq!(unclaimed_in(&block("yidam statsu"), KNOWN), ["statsu"]);
-        assert!(unclaimed_in(&block("yidam status"), KNOWN).is_empty());
+        assert_eq!(
+            unclaimed_in(&block("yidam statsu"), KNOWN, PARAMETERISED),
+            ["statsu"]
+        );
+        assert!(unclaimed_in(&block("yidam status"), KNOWN, PARAMETERISED).is_empty());
     }
 
     /// `update_regen` matches its open tag by **prefix**, so a name that merely extends a
@@ -292,7 +320,7 @@ Fields: node count, open questions.\n\
     #[test]
     fn a_name_that_extends_a_real_one_is_not_that_generator() {
         assert_eq!(
-            unclaimed_in(&block("yidam status-quo"), KNOWN),
+            unclaimed_in(&block("yidam status-quo"), KNOWN, PARAMETERISED),
             ["status-quo"]
         );
     }
@@ -303,8 +331,10 @@ Fields: node count, open questions.\n\
     /// would call a working repository broken, and no remedy yidam could print would be true.
     #[test]
     fn a_block_belonging_to_another_program_is_left_alone() {
-        assert!(unclaimed_in(&block("edfund-connect claim-totals"), KNOWN).is_empty());
-        assert!(unclaimed_in(&block("edfund-connect status"), KNOWN).is_empty());
+        assert!(
+            unclaimed_in(&block("edfund-connect claim-totals"), KNOWN, PARAMETERISED).is_empty()
+        );
+        assert!(unclaimed_in(&block("edfund-connect status"), KNOWN, PARAMETERISED).is_empty());
     }
 
     /// A block a document *shows* is not a block the repository *has*.
@@ -314,10 +344,13 @@ Fields: node count, open questions.\n\
             "Like so:\n\n```markdown\n{}```\n",
             block("yidam demo-index")
         );
-        assert!(unclaimed_in(&fenced, KNOWN).is_empty(), "{fenced}");
+        assert!(
+            unclaimed_in(&fenced, KNOWN, PARAMETERISED).is_empty(),
+            "{fenced}"
+        );
 
         let spanned = "The `<!-- REGEN: yidam demo-index -->` marker is filled by nothing.\n";
-        assert!(unclaimed_in(spanned, KNOWN).is_empty());
+        assert!(unclaimed_in(spanned, KNOWN, PARAMETERISED).is_empty());
     }
 
     /// One thing to fix is reported once, and two are reported twice.
@@ -327,7 +360,10 @@ Fields: node count, open questions.\n\
     #[test]
     fn repeats_collapse_and_distinct_names_do_not() {
         let text = block("yidam statsu") + &block("yidam statsu") + &block("yidam corpus-idx");
-        assert_eq!(unclaimed_in(&text, KNOWN), ["statsu", "corpus-idx"]);
+        assert_eq!(
+            unclaimed_in(&text, KNOWN, PARAMETERISED),
+            ["statsu", "corpus-idx"]
+        );
     }
 
     /// A malformed block is still a block nothing writes.
@@ -337,7 +373,56 @@ Fields: node count, open questions.\n\
     #[test]
     fn a_malformed_block_is_still_scanned_for_its_name() {
         let no_close = "<!-- REGEN: yidam statsu\n-->\n_placeholder_\n";
-        assert_eq!(unclaimed_in(no_close, KNOWN), ["statsu"]);
+        assert_eq!(unclaimed_in(no_close, KNOWN, PARAMETERISED), ["statsu"]);
+    }
+
+    /// A parameterised generator claims its name **with** an argument and not without one.
+    ///
+    /// Four arms, and each is a different way for the rule to be wrong. Matching the bare
+    /// name would silence a block no run can ever write. Not matching the argument form would
+    /// report every `count` block in the corpus. Matching without the separator would give
+    /// `count` a block that says `counterexamples`. And an argument form whose *name* is not
+    /// parameterised is still nobody's.
+    #[test]
+    fn a_parameterised_generator_needs_its_argument() {
+        // No query: a real generator, and no run of it writes this block.
+        assert_eq!(
+            unclaimed_in(&block("yidam count"), KNOWN, PARAMETERISED),
+            ["count"]
+        );
+        // A query: claimed.
+        assert!(unclaimed_in(&block("yidam count district"), KNOWN, PARAMETERISED).is_empty());
+        assert!(unclaimed_in(
+            &block("yidam count district[party=R] -has-> person"),
+            KNOWN,
+            PARAMETERISED
+        )
+        .is_empty());
+        // The separator is the rule: no space, no claim.
+        assert_eq!(
+            unclaimed_in(&block("yidam counterexamples"), KNOWN, PARAMETERISED),
+            ["counterexamples"]
+        );
+        // An argument on a name that takes none is still unclaimed, under its whole command.
+        assert_eq!(
+            unclaimed_in(&block("yidam status please"), KNOWN, PARAMETERISED),
+            ["status please"]
+        );
+    }
+
+    /// An empty `parameterised` changes nothing.
+    ///
+    /// The regression arm for every caller that has no parameterised generator — and the one
+    /// that fails if the prefix test is ever written so that an empty prefix matches, which
+    /// would claim every block in every document.
+    #[test]
+    fn no_parameterised_generators_is_the_old_behaviour() {
+        assert_eq!(unclaimed_in(&block("yidam count"), KNOWN, &[]), ["count"]);
+        assert_eq!(
+            unclaimed_in(&block("yidam count district"), KNOWN, &[]),
+            ["count district"]
+        );
+        assert!(unclaimed_in(&block("yidam status"), KNOWN, &[]).is_empty());
     }
 
     #[test]
