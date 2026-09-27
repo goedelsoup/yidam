@@ -674,11 +674,14 @@ fn enumerate(items: &[String], noun: &str) -> String {
     }
 }
 
-/// Are the REGEN blocks current?
+/// Are the REGEN blocks current, and does a generator answer for each of them?
 ///
 /// Borrows `regen --check`'s non-writing mode rather than reimplementing the generator
 /// list. That is the whole reason [`crate::cmd::stale_blocks`] exists as a
 /// function: a second list would be the third one that command was written to prevent.
+/// [`crate::cmd::unclaimed_blocks`] is the other half and is borrowed for the same reason —
+/// it reads the same `GENERATORS` list the gate does, so what `doctor` calls a generator and
+/// what the gate calls one cannot drift.
 ///
 /// It cannot borrow the *refusal*, though, and should not. `yidam regen` bails in a shallow clone
 /// because a gate that cannot compute its verdict may not return one; `doctor` is the report the
@@ -690,6 +693,29 @@ fn check_regen(root: &std::path::Path) -> Answer {
             "cannot be checked in a shallow clone: `genesis` reads the repository's first \
              commit, which a truncated history does not have",
             Some("git fetch --unshallow, or fetch-depth: 0 in CI"),
+        );
+    }
+    // Both halves of the gate's question, or this report says a repository is fine while
+    // `regen --check` fails it — which is the disagreement `stale_blocks` exists to avoid on
+    // the other half.
+    let unclaimed = match crate::cmd::unclaimed_blocks(root) {
+        Ok(u) => u,
+        Err(e) => return Answer::fail(format!("could not be computed: {e:#}"), None),
+    };
+    if !unclaimed.is_empty() {
+        let names: Vec<String> = unclaimed
+            .iter()
+            .map(|u| format!("{} (yidam {})", u.file, u.generator))
+            .collect();
+        return Answer::fail(
+            format!(
+                "{} block(s) name a generator that does not exist, so nothing writes them: {}",
+                unclaimed.len(),
+                names.join(", ")
+            ),
+            Some(
+                "correct the name or delete the block — `yidam regen --check` lists the generators",
+            ),
         );
     }
     match crate::cmd::stale_blocks(Some(root)) {

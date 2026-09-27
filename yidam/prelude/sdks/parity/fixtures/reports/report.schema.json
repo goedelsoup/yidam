@@ -1678,6 +1678,27 @@
         }
       }
     },
+    "unclaimed": {
+      "type": "array",
+      "description": "`regen --check` only. REGEN blocks whose command names no generator this binary has, so nothing writes them and `yidam regen` cannot make them current. Empty when `passed`. Read off the tracked markdown rather than off the generator list \u2014 a block nothing is pushed into is a block nothing records, which is how a misspelled marker name stayed green (#1062). Only `yidam `-prefixed commands are judged: the marker namespace is open and a derived repository's own binary writes its own blocks.",
+      "items": {
+        "type": "object",
+        "required": [
+          "file",
+          "generator"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Repository-relative path of the file holding the block."
+          },
+          "generator": {
+            "type": "string",
+            "description": "The `<name>` in `<!-- REGEN: yidam <name> -->`, with the `yidam ` stripped."
+          }
+        }
+      }
+    },
     "verdict": {
       "enum": [
         "match",

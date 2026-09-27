@@ -88,18 +88,49 @@ pub struct RegenReport {
     pub passed: bool,
     /// The blocks that do not. Empty when `passed`.
     pub stale: Vec<crate::regen::Stale>,
+    /// The blocks no generator answers for. Empty when `passed`.
+    ///
+    /// A second list rather than more rows in `stale`, because the two verdicts have
+    /// different remedies and `stale`'s is printed as an instruction. `yidam regen` fixes a
+    /// stale block; it cannot fix a block it has no generator for, and a gate whose
+    /// prescribed remedy does not clear it is the unsatisfiable gate
+    /// [`require_whole_history`] refuses for the same reason.
+    pub unclaimed: Vec<crate::regen::Unclaimed>,
 }
 
 pub(crate) fn render_regen_check(r: &RegenReport) -> String {
     if r.passed {
         return "Every REGEN block is current.".to_string();
     }
-    let mut out = format!("{} REGEN block(s) stale:\n", r.stale.len());
-    for s in &r.stale {
-        let _ = writeln!(out, "  {}  ({})", s.file, s.generator);
+    let mut out = String::new();
+    if !r.stale.is_empty() {
+        let _ = writeln!(out, "{} REGEN block(s) stale:", r.stale.len());
+        for s in &r.stale {
+            let _ = writeln!(out, "  {}  ({})", s.file, s.generator);
+        }
+        out.push_str("\nRun `yidam regen` and commit the result as a `regen:` commit.\n");
     }
-    out.push_str("\nRun `yidam regen` and commit the result as a `regen:` commit.");
-    out
+    if !r.unclaimed.is_empty() {
+        if !r.stale.is_empty() {
+            out.push('\n');
+        }
+        let _ = writeln!(
+            out,
+            "{} REGEN block(s) name a generator that does not exist:",
+            r.unclaimed.len()
+        );
+        for u in &r.unclaimed {
+            let _ = writeln!(out, "  {}  (yidam {})", u.file, u.generator);
+        }
+        let _ = writeln!(
+            out,
+            "\nNo generator carries those names, so `yidam regen` never writes these blocks \
+             and they keep whatever they hold. Correct the name or delete the block.\n\
+             The generators are: {}",
+            generator_names().join(", ")
+        );
+    }
+    out.trim_end().to_string()
 }
 
 /// Which REGEN blocks are not what their generators produce. **Writes nothing.**
@@ -124,6 +155,52 @@ pub(crate) fn stale_blocks(root: Option<&std::path::Path>) -> Result<Vec<crate::
     Ok(crate::regen::end_check())
 }
 
+/// Which REGEN blocks name a generator that does not exist. **Writes nothing.**
+///
+/// The other half of [`stale_blocks`], and it runs the other way round. That one asks each
+/// generator what its block should hold; this one asks each document what it claims a
+/// generator for. Neither question finds the other's answer: a block nothing is pushed into
+/// is a block nothing records, which is how `<!-- REGEN: yidam statsu -->` survived
+/// `yidam regen` and was called current by `yidam regen --check` (#1062).
+///
+/// **The tracked set, and markdown within it.** `git ls-files` rather than a walk, for the
+/// reason [`crate::cmd::tracked`] gives at length: a list of what to skip grows one entry per
+/// accident, and the entry is always written after the accident. It also lands the walk on
+/// the right population — this gate answers about the commit, so an uncommitted document is
+/// not yet a block this repository has. The prose walk `lint` uses would have been the near
+/// miss: it reads `.yidam/`, `docs/` and the root `README.md`, and five generators write
+/// outside all three (`crates/`, `packages/`, `web/`, `AGENTS.md`, `PRACTICE.md`).
+///
+/// [`crate::cmd::tracked::list`] and not [`crate::cmd::tracked::paths`]: the latter refuses
+/// an empty tracked set, because a *copy* from one is a copy of nothing. A read from one is
+/// a read of nothing, which is a fine thing to report. Borrowing the refusal made this gate
+/// tell an initialised-but-uncommitted derived repository to run somewhere else.
+pub(crate) fn unclaimed_blocks(root: &std::path::Path) -> Result<Vec<crate::regen::Unclaimed>> {
+    let known = generator_names();
+    let mut found = Vec::new();
+    for rel in super::tracked::list(root)? {
+        if !rel.ends_with(".md") {
+            continue;
+        }
+        let path = root.join(&rel);
+        // Tracked and not in the worktree — a deleted file staged but not committed. There
+        // is nothing to read and nothing to say about it.
+        if !path.exists() {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).with_context(|| format!("reading {rel}"))?;
+        found.extend(
+            crate::regen::unclaimed_in(&text, &known)
+                .into_iter()
+                .map(|generator| crate::regen::Unclaimed {
+                    file: rel.clone(),
+                    generator,
+                }),
+        );
+    }
+    Ok(found)
+}
+
 /// Refresh every REGEN block, or — with `check` — report which ones would change.
 ///
 /// `--check` runs the same [`GENERATORS`] list, which is the whole point: a check that
@@ -137,7 +214,8 @@ pub fn regen(
     require_whole_history(&resolved)?;
     if check {
         let stale = stale_blocks(root)?;
-        return report_check(&resolved, stale, format);
+        let unclaimed = unclaimed_blocks(&resolved)?;
+        return report_check(&resolved, stale, unclaimed, format);
     }
     for (name, run) in GENERATORS {
         println!("── {name}");
@@ -184,11 +262,13 @@ fn require_whole_history(root: &std::path::Path) -> Result<()> {
 fn report_check(
     root: &std::path::Path,
     stale: Vec<crate::regen::Stale>,
+    unclaimed: Vec<crate::regen::Unclaimed>,
     format: crate::report::Format,
 ) -> Result<()> {
     let report = RegenReport {
-        passed: stale.is_empty(),
+        passed: stale.is_empty() && unclaimed.is_empty(),
         stale,
+        unclaimed,
     };
     let passed = report.passed;
     // The root is the caller's, not `repo_root()`'s. It was the latter until #918, which is

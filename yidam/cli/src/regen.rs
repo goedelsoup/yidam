@@ -5,10 +5,89 @@ use std::sync::Mutex;
 /// A REGEN block whose committed content is not what its generator produces.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Stale {
-    /// Repository-relative path of the file holding the block.
+    /// The file holding the block, as its generator opened it.
+    ///
+    /// Which means it carries whatever `--root` was spelled as: `README.md` run from inside
+    /// the repository, `../other/README.md` from outside it. [`Unclaimed::file`] is always
+    /// repository-relative, and says why.
     pub file: String,
     /// The generator whose block it is — the `<command>` in `<!-- REGEN: <command> -->`.
     pub generator: String,
+}
+
+/// A REGEN block whose command names no generator this binary has.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Unclaimed {
+    /// Repository-relative path of the file holding the block.
+    ///
+    /// Always relative, which [`Stale::file`] is not. That one is the path its generator was
+    /// handed; this one comes from `git ls-files --full-name`, which answers about the
+    /// repository rather than about the directory the command was run from. The envelope's
+    /// `root` names what it is relative to.
+    pub file: String,
+    /// The `<name>` in `<!-- REGEN: yidam <name> -->`, with the `yidam ` stripped.
+    pub generator: String,
+}
+
+/// The `yidam ` commands in `text` that name no generator in `known`.
+///
+/// **Nothing else asks this question, and that is the defect.** Every other part of the
+/// contract is *pushed*: a generator names a file and a command, [`update_regen`] finds that
+/// command's open tag or returns the text unchanged, and [`record`] logs the block when the
+/// two disagree. A block whose command no generator carries is never anybody's tag, so it is
+/// never found, never recorded, and never written — it keeps its genesis placeholder through
+/// every `yidam regen` and every gate. Measured on the reporting fixture at `3111beb`: a
+/// `<!-- REGEN: yidam statsu -->` block survived `yidam regen` unchanged and
+/// `yidam regen --check` printed *"Every REGEN block is current."* So this is the one thing
+/// in the contract that has to be *pulled* — read off the document rather than off the list.
+///
+/// **Only the `yidam ` prefix, because the marker namespace is not yidam's.** The name after
+/// `<!-- REGEN:` is whatever program writes the block, and a derived repository's own binary
+/// writes its own: `ohio-education-funding` carries fourteen blocks under thirteen distinct
+/// `edfund-connect <name>` commands — `repository-overview`, `claim-totals`,
+/// `connector-registry` and ten more — none of which is a yidam generator and every one of
+/// which is refreshed by a command yidam has never heard of. Judging those would report a
+/// working repository as broken, with no remedy yidam could print that would be true.
+/// `yidam` answers for its own prefix and for nothing else, which is also why the prefix is
+/// load-bearing enough to be worth stating: every `update_file_regen` call site in this crate
+/// passes `"yidam <name>"`.
+///
+/// **Masked first.** A document explaining the marker syntax shows blocks it does not own,
+/// and [`crate::markdown::mask_code`] is this repository's one answer to *shown versus said*.
+/// [`crate::cmd::lint::checks::malformed_regen_block`] is a `Warn` rather than an `Error`
+/// precisely because it does not mask and so cannot tell the two apart; this is a gate, so it
+/// masks.
+///
+/// Measured across the 22 repositories on disk carrying REGEN blocks, 2026-09-27: 235 blocks
+/// open with `<!-- REGEN: yidam ` at the start of a line, of which 20 sit inside a code
+/// fence and 215 are scanned. The 20 are one document — `yidam/prelude/sdks/README.md`,
+/// which explains the marker format and is vendored into every derived repository — and it
+/// shows `corpus-index`, a real generator, so masking changes no verdict today. It is here
+/// for the day somebody documents the syntax with a name that is not.
+///
+/// The same run says the gate reddens nothing on adoption: **zero** of those 215 blocks names
+/// a generator that does not exist.
+///
+/// [`yidam_core::markers::parse_markers`] and not a reader of its own. A second scanner would
+/// be a second answer to *where does a block begin*, which is the argument
+/// `malformed_regen_block` already makes one module over.
+pub fn unclaimed_in(text: &str, known: &[&str]) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for marker in yidam_core::markers::parse_markers(&crate::markdown::mask_code(text)) {
+        let yidam_core::markers::Marker::Regen { command, .. } = marker else {
+            continue;
+        };
+        let Some(name) = command.strip_prefix("yidam ") else {
+            continue;
+        };
+        // Deduped the way `record` dedupes: two blocks in one file naming the same missing
+        // generator are one thing to fix.
+        if known.contains(&name) || found.iter().any(|f| f == name) {
+            continue;
+        }
+        found.push(name.to_string());
+    }
+    found
 }
 
 /// Check mode, and what it found.
@@ -187,6 +266,78 @@ Fields: node count, open questions.\n\
                 .expect("expected.content"),
             "the CLI writes a different document than the three SDKs are held to"
         );
+    }
+
+    /// The generator names this crate ships, as the scanner's callers pass them.
+    const KNOWN: &[&str] = &["status", "corpus-index", "vault-status"];
+
+    fn block(command: &str) -> String {
+        format!("<!-- REGEN: {command}\n-->\n_placeholder_\n<!-- /REGEN -->\n")
+    }
+
+    /// A name outside the list is reported; a name inside it is not.
+    ///
+    /// Both arms, because a scanner that has stopped matching REGEN open tags at all passes
+    /// the second one on its own.
+    #[test]
+    fn a_name_no_generator_carries_is_reported() {
+        assert_eq!(unclaimed_in(&block("yidam statsu"), KNOWN), ["statsu"]);
+        assert!(unclaimed_in(&block("yidam status"), KNOWN).is_empty());
+    }
+
+    /// `update_regen` matches its open tag by **prefix**, so a name that merely extends a
+    /// real one is the worse half of this defect: `yidam status-quo` sitting above the real
+    /// block is found by `status`'s own write and filled with `status`'s content. Either way
+    /// nobody declared it.
+    #[test]
+    fn a_name_that_extends_a_real_one_is_not_that_generator() {
+        assert_eq!(
+            unclaimed_in(&block("yidam status-quo"), KNOWN),
+            ["status-quo"]
+        );
+    }
+
+    /// Another program's blocks are not yidam's to judge.
+    ///
+    /// `ohio-education-funding` writes twelve of these with its own binary. Reporting them
+    /// would call a working repository broken, and no remedy yidam could print would be true.
+    #[test]
+    fn a_block_belonging_to_another_program_is_left_alone() {
+        assert!(unclaimed_in(&block("edfund-connect claim-totals"), KNOWN).is_empty());
+        assert!(unclaimed_in(&block("edfund-connect status"), KNOWN).is_empty());
+    }
+
+    /// A block a document *shows* is not a block the repository *has*.
+    #[test]
+    fn a_shown_block_is_not_a_said_one() {
+        let fenced = format!(
+            "Like so:\n\n```markdown\n{}```\n",
+            block("yidam demo-index")
+        );
+        assert!(unclaimed_in(&fenced, KNOWN).is_empty(), "{fenced}");
+
+        let spanned = "The `<!-- REGEN: yidam demo-index -->` marker is filled by nothing.\n";
+        assert!(unclaimed_in(spanned, KNOWN).is_empty());
+    }
+
+    /// One thing to fix is reported once, and two are reported twice.
+    ///
+    /// The second half is the one that matters: a dedupe keyed on the file rather than the
+    /// name would collapse two different mistakes into one line.
+    #[test]
+    fn repeats_collapse_and_distinct_names_do_not() {
+        let text = block("yidam statsu") + &block("yidam statsu") + &block("yidam corpus-idx");
+        assert_eq!(unclaimed_in(&text, KNOWN), ["statsu", "corpus-idx"]);
+    }
+
+    /// A malformed block is still a block nothing writes.
+    ///
+    /// `malformed-regen-block` reports the damage; the name is this scanner's business, and
+    /// a block that is both damaged and misnamed must not fall between them.
+    #[test]
+    fn a_malformed_block_is_still_scanned_for_its_name() {
+        let no_close = "<!-- REGEN: yidam statsu\n-->\n_placeholder_\n";
+        assert_eq!(unclaimed_in(no_close, KNOWN), ["statsu"]);
     }
 
     #[test]

@@ -299,12 +299,21 @@ That is their purpose, and it is why every one carries a `*`.
 | `packages-index` * | The domain-computer packages in `packages/`, each with the capability that runs it *(no flags)* |
 | `bundle-status` * | Freshness of `.yidam/bundle.yiz` against the corpus it was built from *(no flags)* |
 
-Three more generators are filed by what they report, not by the fact that they generate:
-[`vault-status`](#artifacts), [`decisions-log`](#the-corpus-and-its-history) and
-[`kuten`](#the-practice). `yidam regen` runs all thirteen.
+Four more generators are filed by what they report, not by the fact that they generate.
+They are [`vault-status`](#artifacts), [`decisions-log`](#the-corpus-and-its-history),
+[`kuten`](#the-practice) and [`practice`](#the-practice). `yidam regen` runs all fourteen.
 
 In a derived repository a stale REGEN block is a failing build. Run `mise run regen` before
 committing; `yidam regen --check` is what CI runs.
+
+**A block naming a generator that does not exist is a failing build too.** No generator
+answers for it, so `yidam regen` never writes it and it keeps whatever it holds. A typo in a
+marker name would otherwise turn a generated block into a hand-maintained one, silently.
+`yidam regen --check` names the file, the command and every generator there is. Correct the
+name, or delete the block.
+
+Only `yidam` commands are judged. A block another program refreshes is left alone, and so is
+one a page only shows inside a code fence.
 
 **A gated block holds only what every checkout of the commit agrees on.** The tree is all they
 share. So a block may not report anything read from outside it.
