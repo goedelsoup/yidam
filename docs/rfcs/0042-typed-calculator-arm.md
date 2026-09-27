@@ -20,7 +20,7 @@
 
 A calculator is a shell command. RFC-0026 said so on purpose, and the executor's own doc comment
 gives the reason — *"a vertical slice that needed a build system to demonstrate would be
-demonstrating the build system"* ([`invoke`](../../yidam/cli/src/cmd/run/exec.rs#L155-L170)). What
+demonstrating the build system"* ([`invoke`](../../yidam/cli/src/cmd/run/exec.rs#L215-L227)). What
 it costs is that the property `docs/domain-computer.md` states about the whole kind is
 unenforceable. This RFC proposes a **second arm** on the same manifest field — a script in an
 embedded, statically typed, effect-tracked language, `run = { gluon = "…" }` beside
@@ -53,7 +53,7 @@ and the title changed with it. Nothing about the cost measurement or the decisio
 > — [`Calculators`](../domain-computer.md#L16-L21)
 
 Three of those four are unenforced. `materialize` checks out the declared `reads` into a scratch
-tree, [`invoke`](../../yidam/cli/src/cmd/run/exec.rs#L155-L170) spawns `run[0]` in it with four
+tree, [`invoke`](../../yidam/cli/src/cmd/run/exec.rs#L215-L227) spawns `run[0]` in it with five
 environment variables, and the executor afterwards refuses a step that wrote outside `writes`.
 That is a real guarantee about **writes** and about nothing else. A calculator may read the
 clock, resolve a hostname, open a socket, or read any path on the machine outside its scratch

@@ -22,6 +22,13 @@
 # what puts it in the input state, so editing a calculator makes its step stale and re-runs
 # it. A capability that left it out is refused by name rather than failing in the shell.
 #
+# `travel-tier` declares `.yidam/corpus/**`, so it is handed `$YIDAM_GRAPH`: the corpus as
+# `yidam` parsed it, with every link already resolved. That is what lets its script be the chain
+# rule and nothing else — it used to carry a YAML regex and its own link resolver, which were a
+# second answer to a question `yidam` answers, and no gate compared them. `disclosure-envelope`
+# declares no corpus path and is handed no graph, which is the point of it: the second step of a
+# pipeline reads the first step's answer.
+#
 # Why the result is a file and not a property on the nodes: `decisions/base-flow-index-
 # carries-its-method.yml` settled that here already. A derived quantity carries its method
 # and never becomes a class property, because a property on a node reads as a fact about the

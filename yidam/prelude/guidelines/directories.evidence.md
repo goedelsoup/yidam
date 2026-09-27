@@ -296,6 +296,20 @@ It is not a formality. The step stands in the scratch tree and nowhere else, so 
 there is what puts it in the input state — and a calculator whose script was not declared would
 compute a new answer while its receipt said nothing had changed.
 
+## resolved-corpus-is-handed-over
+
+One parser and one link resolver, or as many as there are calculators. The second is not a style
+preference: `yidam graph`, `yidam lint` and every consumer of a corpus answer *what does this link
+point at* through one function, and a shell calculator that answered it again in awk was the only
+place in the system where that question had two implementations and no test comparing them.
+
+## resolved-corpus-in-the-input-state
+
+The same argument as the script itself. A run and a `doctor` must agree about what a step read, so
+the digest of the resolved corpus goes in the input state and both sides compute it with the same
+function — two builders would disagree the day one of them changed, and every step would read as
+stale forever.
+
 ## after-epistemic
 
 What a step declaring an epistemic verb writes lands on a proposal branch and is not in the tree a

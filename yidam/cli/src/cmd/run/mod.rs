@@ -67,6 +67,8 @@
 pub mod exec;
 pub mod manifest;
 pub mod receipt;
+/// The resolved corpus a step is handed beside its bytes (#1080).
+pub mod resolved;
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -359,8 +361,14 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
         }
 
         let inputs = exec::materialize(root, &full, cap)?;
-        let input_state =
-            Receipt::input_state(cap, &manifest_sha256, &config_sha256, &inputs.files)?;
+        let resolved_digest = inputs.resolved.as_ref().map(|r| r.sha256.clone());
+        let input_state = Receipt::input_state(
+            cap,
+            &manifest_sha256,
+            &config_sha256,
+            &inputs.files,
+            resolved_digest.as_deref(),
+        )?;
         let verdict = freshness(root, cap, &parent, &receipt_path, &input_state, today);
 
         let mut report = StepReport {
@@ -408,6 +416,7 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
                 config_sha256: config_sha256.clone(),
                 reads: cap.reads.clone(),
                 files: inputs.files.clone(),
+                resolved_graph_sha256: resolved_digest.clone(),
             },
             writes: cap.writes.clone(),
             outputs: produced
@@ -607,6 +616,8 @@ pub(crate) fn standing(root: &Path) -> Result<Vec<Standing>> {
     let config_sha256 = digest_of(root, ".yidam/config.toml");
     let today = crate::dates::today_days();
     let tracked = tracked_paths(root);
+    let held: BTreeSet<&str> = tracked.iter().map(String::as_str).collect();
+    let read = crate::corpus::Corpus::open(root);
 
     let mut out = Vec::new();
     for name in m.plan(None)? {
@@ -617,7 +628,23 @@ pub(crate) fn standing(root: &Path) -> Result<Vec<Standing>> {
             .as_deref()
             .and_then(Receipt::landed);
         let files = resolve_reads(root, cap, &tracked);
-        let input_state = Receipt::input_state(cap, &manifest_sha256, &config_sha256, &files)?;
+        // The same document the run would hand this step, built by the same function over the
+        // working tree — see [`resolved::build`] for why it must be the same function and not a
+        // second reading. `read` is opened once outside the loop: every step asks about the
+        // same corpus, and `Corpus` caches its walk.
+        let resolved_digest = resolved::build(
+            &read,
+            &|p| cap.reads.iter().any(|g| crate::kuten::glob_covers(g, p)),
+            &|p| held.contains(p),
+        )
+        .map(|text| sha256(text.as_bytes()));
+        let input_state = Receipt::input_state(
+            cap,
+            &manifest_sha256,
+            &config_sha256,
+            &files,
+            resolved_digest.as_deref(),
+        )?;
 
         let verdict = match &landed {
             None => Verdict::Stale("it has never run against this corpus".to_string()),

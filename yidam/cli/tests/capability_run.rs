@@ -28,6 +28,8 @@ use common::{examples, kind_spellings, Example};
 struct Declared {
     #[serde(default)]
     after: Vec<String>,
+    #[serde(default)]
+    reads: Vec<String>,
 }
 
 /// The capabilities an example declares, read from its manifest.
@@ -958,5 +960,198 @@ fn a_manifest_that_tries_to_declare_a_destination_does_not_run() {
                  executor does not read:\n{out}{err}"
             );
         }
+    }
+}
+
+// ── the resolved corpus (#1080) ───────────────────────────────────────────────
+
+/// A step is handed the CLI's answer, and that answer is the one the CLI gives everywhere.
+///
+/// Built by mutation for the reason the `writes` test above gives: the capability is the one
+/// the example actually declares, with its `run` swapped for a script that copies what it was
+/// handed. Asserting against a fixture manifest would be asserting about a corpus invented to
+/// satisfy the assertion.
+///
+/// The three lines this checks are the three #1080 counted in `travel-tier.sh`: the node's
+/// class arrives parsed rather than regexed out of the YAML, a relative link target arrives
+/// resolved rather than re-resolved in `awk`, and the records arrive in corpus order rather
+/// than in whatever order a `find` produced.
+#[test]
+fn a_step_is_handed_the_resolved_corpus_it_would_otherwise_re_derive() {
+    let mut covered = 0;
+    for (example, step) in every_capability() {
+        let e = Example::materialize(&example);
+        let copy = ".yidam/capabilities/copy-graph.sh";
+        std::fs::write(
+            e.path().join(copy),
+            "set -eu\nmkdir -p \"$YIDAM_OUT/.yidam/computed\"\n\
+             if [ -n \"${YIDAM_GRAPH:-}\" ]; then\n\
+             \x20 cp \"$YIDAM_GRAPH\" \"$YIDAM_OUT/.yidam/computed/graph.tsv\"\n\
+             else\n\
+             \x20 printf 'absent\\n' > \"$YIDAM_OUT/.yidam/computed/graph.tsv\"\n\
+             fi\n",
+        )
+        .expect("writing the probe");
+        let manifest = e.path().join(".yidam/capabilities.toml");
+        let text = std::fs::read_to_string(&manifest).expect("the manifest");
+        std::fs::write(
+            &manifest,
+            text.replace(
+                &format!("run    = [\"sh\", \".yidam/capabilities/{step}.sh\"]"),
+                &format!("run    = [\"sh\", \"{copy}\"]"),
+            ),
+        )
+        .expect("rewriting the manifest");
+        git(&e.path(), &["add", "-A"]);
+        git(&e.path(), &["commit", "-m", "scaffold: a probe step"]);
+
+        let (out, err, code) = e.run(&["run", &step]);
+        assert_eq!(code, 0, "{out}{err}");
+        let doc = git(&e.path(), &["show", "HEAD:.yidam/computed/graph.tsv"]);
+
+        let row = |kind: &str| -> Vec<Vec<String>> {
+            doc.lines()
+                .filter(|l| l.split('\t').next() == Some(kind))
+                .map(|l| l.split('\t').map(str::to_string).collect())
+                .collect()
+        };
+
+        // A step whose `reads` admit no corpus node is handed none, and that is the contract
+        // the test below asserts. Counted so this one cannot go quiet by covering only those.
+        if doc.trim() == "absent" {
+            continue;
+        }
+        covered += 1;
+
+        let nodes = row("node");
+        assert!(
+            !nodes.is_empty(),
+            "{example} handed `{step}` a resolved corpus with no nodes in it:\n{doc}"
+        );
+        assert!(
+            nodes.iter().all(|n| !n[2].is_empty()),
+            "a node arrived with no class, so the step would still have to read the file:\n{doc}"
+        );
+        assert!(
+            nodes.windows(2).all(|w| w[0][1] <= w[1][1]),
+            "the records are not in corpus order, so a consumer still needs a `sort`:\n{doc}"
+        );
+
+        // Resolution is the CLI's, so a target written relative to its own file arrives as a
+        // path from the repository root — which is the awk `function resolve(base, t)` this
+        // change exists to delete.
+        let links = row("link");
+        assert!(
+            !links.is_empty(),
+            "{example}'s corpus has no links, so this assertion covers nothing:\n{doc}"
+        );
+        assert!(
+            links
+                .iter()
+                .all(|l| l[5].is_empty() || l[5].starts_with(".yidam/")),
+            "a link target arrived unresolved, relative to the file that wrote it:\n{doc}"
+        );
+    }
+    assert!(
+        covered > 0,
+        "no declared capability reads the corpus, so this test asserted nothing"
+    );
+}
+
+/// A step whose `reads` admit no corpus node is handed no resolved corpus.
+///
+/// An empty document and *a corpus with nothing in it* are different answers, and a step
+/// should not have to tell them apart. Asserted through the variable's absence, which is the
+/// contract `guidelines/directories.md` states, rather than through an empty file.
+#[test]
+fn a_step_that_reads_no_corpus_is_handed_no_resolved_corpus() {
+    // The step that *does* read the corpus, with its corpus glob taken away. Picked by what it
+    // declares rather than by position: taking the first capability took a step that reads no
+    // corpus already, and the `reads` rewrite below then landed on a different entry — the one
+    // it came `after` — so the run asserted nothing about the step it named.
+    let (example, step) = every_capability()
+        .into_iter()
+        .find(|(name, step)| {
+            let e = Example::materialize(name);
+            declared(&e.path())[step]
+                .reads
+                .iter()
+                .any(|g| g.starts_with(".yidam/corpus"))
+        })
+        .expect("no declared capability reads the corpus, so this test asserted nothing");
+    let e = Example::materialize(&example);
+    let probe = ".yidam/capabilities/probe.sh";
+    std::fs::write(
+        e.path().join(probe),
+        "set -eu\nmkdir -p \"$YIDAM_OUT/.yidam/computed\"\n\
+         printf '%s\\n' \"${YIDAM_GRAPH:-absent}\" > \"$YIDAM_OUT/.yidam/computed/probe.txt\"\n",
+    )
+    .expect("writing the probe");
+    let manifest = e.path().join(".yidam/capabilities.toml");
+    let text = std::fs::read_to_string(&manifest).expect("the manifest");
+    std::fs::write(
+        &manifest,
+        text.replace(
+            &format!("run    = [\"sh\", \".yidam/capabilities/{step}.sh\"]"),
+            &format!("run    = [\"sh\", \"{probe}\"]"),
+        )
+        .replacen(
+            "reads  = [\".yidam/corpus/**\", \".yidam/capabilities/**\"]",
+            "reads  = [\".yidam/capabilities/**\"]",
+            1,
+        ),
+    )
+    .expect("rewriting the manifest");
+    git(&e.path(), &["add", "-A"]);
+    git(&e.path(), &["commit", "-m", "scaffold: a probe step"]);
+
+    let (out, err, code) = e.run(&["run", &step]);
+    assert_eq!(code, 0, "{out}{err}");
+    assert_eq!(
+        git(&e.path(), &["show", "HEAD:.yidam/computed/probe.txt"]).trim(),
+        "absent",
+        "a step reading no corpus was still handed a resolved one"
+    );
+}
+
+/// The run and `doctor` must build the resolved corpus the same way, or nothing is ever fresh.
+///
+/// Its digest is part of the input state, and the two sides compute it from different places
+/// by design — the run from a scratch tree checked out of a commit, `doctor` from the working
+/// tree filtered by the declaration. A single mismatch in either the node set or the rendering
+/// makes every step report stale forever, and it would read as a freshness bug rather than as
+/// the hashing one it is. This is the test that would say so.
+#[test]
+fn the_run_and_the_doctor_agree_about_the_resolved_corpus() {
+    for (example, step) in every_capability() {
+        let e = Example::materialize(&example);
+        assert_eq!(e.run(&["run", &step]).2, 0);
+        // A run commits and leaves the checkout alone, so the outputs are at HEAD and not on
+        // disk. `doctor` says so as a separate finding; syncing first is what gets the
+        // freshness answer rather than that one.
+        git(
+            &e.path(),
+            &[
+                "restore",
+                "--source=HEAD",
+                "--worktree",
+                "--staged",
+                "--",
+                ".yidam/",
+            ],
+        );
+
+        let (out, err, _) = e.run(&["doctor", "--format", "json"]);
+        let v: serde_json::Value =
+            serde_json::from_str(&out).unwrap_or_else(|x| panic!("not JSON: {x}\n{out}{err}"));
+        let text = serde_json::to_string(&v).expect("re-serialising");
+        assert!(
+            !text.contains(
+                "what it reads, or what it declares, is not what its receipt was \
+                            computed from"
+            ),
+            "{example} reports `{step}` stale immediately after running it, so the run and \
+             `doctor` do not agree about the resolved corpus:\n{out}"
+        );
     }
 }

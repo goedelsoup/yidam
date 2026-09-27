@@ -14,7 +14,7 @@
 //! declared cannot quietly depend on a file it did not name, so the declaration is checked by
 //! the run rather than by review.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -67,6 +67,61 @@ impl Drop for Scratch {
 pub struct Inputs {
     pub dir: Scratch,
     pub files: Vec<File>,
+    /// Where the resolved corpus was written, and its digest (#1080).
+    ///
+    /// **Its own scratch directory, and not a file inside [`Self::dir`].** The input tree
+    /// holding *exactly* what `reads` resolves to is the property the whole arrangement
+    /// exists for, and a file the run put there would be one the step was given and did not
+    /// declare — visible to a `find`, indistinguishable from an input, and a thing the next
+    /// reader of this module would have to be told about. The step reaches it by the name it
+    /// is handed, `$YIDAM_GRAPH`, which is the same contract the other four variables are.
+    ///
+    /// `None` where the declared `reads` admit no corpus node: a connector against an
+    /// external source is given no resolved corpus rather than an empty one, because an empty
+    /// document and *a corpus with nothing in it* are different answers and a step should not
+    /// have to tell them apart.
+    pub resolved: Option<ResolvedCorpus>,
+}
+
+/// The resolved corpus as it was handed over.
+pub struct ResolvedCorpus {
+    /// Kept so the directory outlives the step: dropping it removes the file. Underscored
+    /// because nothing reads it and that is the point — it is a lifetime and not a value.
+    _dir: Scratch,
+    pub path: PathBuf,
+    /// Recorded in the receipt, so a run states what it actually read and not only which
+    /// bytes it read it from — see [`super::receipt::Input::resolved_graph_sha256`].
+    pub sha256: String,
+}
+
+impl ResolvedCorpus {
+    /// Build it from the materialized tree, checking existence against the whole commit.
+    ///
+    /// The nodes come from the scratch tree, so the document is bounded by `reads` without a
+    /// second filter that could fall out of step with the first. Existence is asked of
+    /// `tracked` — every path the commit holds — for the reason
+    /// [`super::resolved::render`] gives: a link out of this step's view is not a broken
+    /// edge, and answering it from the sliced tree would say it was.
+    fn build(dir: &Scratch, tracked: &[&str]) -> Result<Option<Self>> {
+        let read = crate::corpus::Corpus::open(dir.path());
+        let held: BTreeSet<&str> = tracked.iter().copied().collect();
+        // `keep` is everything: the tree this reads *is* the declaration resolved, so a second
+        // filter here would be a second reading of `reads` that could fall out of step with
+        // the `checkout-index` above.
+        let Some(text) = super::resolved::build(&read, &|_| true, &|p| held.contains(p)) else {
+            return Ok(None);
+        };
+
+        let out = Scratch::new("graph")?;
+        let path = out.path().join("corpus.tsv");
+        std::fs::write(&path, text.as_bytes())
+            .with_context(|| format!("writing the resolved corpus to {}", path.display()))?;
+        Ok(Some(Self {
+            _dir: out,
+            path,
+            sha256: sha256(text.as_bytes()),
+        }))
+    }
 }
 
 /// Check the declared `reads` out of `commit` into a scratch directory.
@@ -143,7 +198,12 @@ pub fn materialize(root: &Path, commit: &str, cap: &Capability) -> Result<Inputs
             path,
         });
     }
-    Ok(Inputs { dir, files })
+    let resolved = ResolvedCorpus::build(&dir, &tracked)?;
+    Ok(Inputs {
+        dir,
+        files,
+        resolved,
+    })
 }
 
 /// What a step wrote, and what it said while doing it.
@@ -154,20 +214,35 @@ pub struct Produced {
 
 /// Invoke the capability, standing in its input tree, writing into a scratch output tree.
 ///
-/// The contract is four environment variables and a working directory, and it is deliberately
+/// The contract is five environment variables and a working directory, and it is deliberately
 /// small enough to implement in a shell script — the first calculator is one, because a
 /// vertical slice that needed a build system to demonstrate would be demonstrating the build
 /// system.
+///
+/// `YIDAM_GRAPH` is the fifth (#1080), and it is the only one that is sometimes absent: it
+/// names the resolved corpus, and a step whose `reads` admit no corpus node is handed no
+/// resolved corpus at all. A script that wants it tests for it — `[ -n "${YIDAM_GRAPH:-}" ]`
+/// — rather than assuming the file is there, which is the same shape as the other four and is
+/// what the manifest doc states.
 pub fn invoke(cap: &Capability, inputs: &Inputs, step: &str, commit: &str) -> Result<Produced> {
     let out = Scratch::new("out")?;
-    let status = Command::new(&cap.run[0])
+    let mut command = Command::new(&cap.run[0]);
+    command
         .args(&cap.run[1..])
         .current_dir(inputs.dir.path())
         .env("YIDAM_IN", inputs.dir.path())
         .env("YIDAM_OUT", out.path())
         .env("YIDAM_STEP", step)
         .env("YIDAM_INPUT_COMMIT", commit)
-        .stdin(Stdio::null())
+        .stdin(Stdio::null());
+    // Removed and not merely left unset, because the process inherits this environment: a
+    // `YIDAM_GRAPH` the caller happened to export would otherwise point a step at a file this
+    // run did not write, which is the one thing the isolation exists to make impossible.
+    match &inputs.resolved {
+        Some(r) => command.env("YIDAM_GRAPH", &r.path),
+        None => command.env_remove("YIDAM_GRAPH"),
+    };
+    let status = command
         .output()
         .with_context(|| format!("invoking `{}`", cap.run.join(" ")))?;
 

@@ -61,6 +61,19 @@ pub struct Input {
     pub reads: Vec<String>,
     /// What it was actually given — the declaration resolved against the commit.
     pub files: Vec<File>,
+    /// The digest of the resolved corpus the step was handed, where it was handed one (#1080).
+    ///
+    /// **In the input state, and not only recorded here.** The document is a function of
+    /// [`Self::files`] *and of the CLI's own parser and link resolver*, and the second half is
+    /// in nothing else this digest covers. Without it, changing `resolve_target` would leave
+    /// every committed answer looking fresh while the thing every calculator actually read had
+    /// moved underneath it — which is the failure a receipt exists to make impossible, not a
+    /// refinement of it.
+    ///
+    /// `None` for a step whose `reads` admit no corpus node. Skipped when absent so that a
+    /// connector's receipt is the bytes it was before this field existed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_graph_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -104,6 +117,11 @@ struct Identity<'a> {
     config_sha256: &'a str,
     reads: &'a [String],
     files: &'a [File],
+    /// Absent for a step that was handed no resolved corpus, and absent rather than empty: a
+    /// `None` and a digest-of-nothing are different histories, and serializing the second for
+    /// the first would move every existing connector's input state for no reason.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolved_graph_sha256: Option<&'a str>,
     writes: &'a [String],
 }
 
@@ -130,6 +148,7 @@ impl Receipt {
         manifest_sha256: &str,
         config_sha256: &str,
         files: &[File],
+        resolved_graph_sha256: Option<&str>,
     ) -> Result<String> {
         let id = Identity {
             kind: cap.kind.as_str(),
@@ -139,6 +158,7 @@ impl Receipt {
             config_sha256,
             reads: &cap.reads,
             files,
+            resolved_graph_sha256,
             writes: &cap.writes,
         };
         Ok(sha256(
@@ -231,6 +251,7 @@ mod tests {
                     path: ".yidam/corpus/a.yml".into(),
                     sha256: sha256(b"a"),
                 }],
+                Some(&sha256(b"graph")),
             )
             .unwrap(),
             input: Input {
@@ -242,6 +263,7 @@ mod tests {
                     path: ".yidam/corpus/a.yml".into(),
                     sha256: sha256(b"a"),
                 }],
+                resolved_graph_sha256: Some(sha256(b"graph")),
             },
             writes: vec![".yidam/computed/**".into()],
             outputs: vec![File {
@@ -290,6 +312,7 @@ mod tests {
             &edited.input.manifest_sha256,
             &edited.input.config_sha256,
             &edited.input.files,
+            edited.input.resolved_graph_sha256.as_deref(),
         )
         .unwrap();
         assert_ne!(receipt().input_state, restated);
