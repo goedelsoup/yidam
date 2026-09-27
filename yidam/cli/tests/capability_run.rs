@@ -1207,7 +1207,41 @@ fn with_typed_step(example: &str) -> (Example, String) {
     .expect("declaring the calculator");
     git(&e.path(), &["add", "-A"]);
     git(&e.path(), &["commit", "-m", "scaffold: a typed calculator"]);
+    agrees_about_the_arm(&e);
     (e, step.to_string())
+}
+
+/// Assert the binary under test was built with the same feature set as this harness.
+///
+/// Not paranoia — a measured failure. `CARGO_BIN_EXE_yidam` is the uplifted path
+/// `target/debug/yidam`, and cargo copies an artifact there only when it rebuilds it. Alternating
+/// feature sets against one target directory therefore leaves a binary from the *previous* run
+/// standing while cargo calls this run's fingerprint fresh, and both typed tests then fail on a
+/// refusal that is correct for the binary they actually ran. That reads as a defect in the arm and
+/// is a defect in the build, so it is worth one assertion that says which.
+///
+/// Asked of the binary rather than of the filesystem: the report's envelope names the features it
+/// was compiled with, which is the same question from the only side that can answer it.
+fn agrees_about_the_arm(e: &Example) {
+    let (out, err, _) = e.run(&["lint", "--format", "json"]);
+    let report: serde_json::Value =
+        serde_json::from_str(&out).unwrap_or_else(|x| panic!("not JSON: {x}\n{out}{err}"));
+    let features = report["yidam"]["features"]
+        .as_array()
+        .expect("the report envelope names the features")
+        .iter()
+        .filter_map(|f| f.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        features.contains(&"calculators-gluon"),
+        cfg!(feature = "calculators-gluon"),
+        "the binary under test reports {features:?} and this harness was compiled with \
+         calculators-gluon = {}. They are the same package, so this is a stale artifact at \
+         `target/debug/yidam`: cargo uplifts a binary only when it rebuilds it, and alternating \
+         feature sets against one target directory leaves the previous run's copy in place. \
+         `touch yidam/cli/src/lib.rs` and run again",
+        cfg!(feature = "calculators-gluon")
+    );
 }
 
 /// The example every typed test below runs in: the one that declares a capability at all.

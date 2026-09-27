@@ -68,9 +68,11 @@ impl YidamBlock {
         if cfg!(feature = "export-graph") {
             features.push("export-graph".to_string());
         }
-        // Reported although nothing invokes it yet: the block is how a consumer tells "this
-        // build cannot do that" from "that failed", and a build that links the arm's 71 packages
-        // and does not say so under-claims by the largest feature here.
+        // The block is how a consumer tells "this build cannot do that" from "that failed", and a
+        // build that links the arm's 71 packages and does not say so under-claims by the largest
+        // feature here. Since #1091 it is also the answer to a question asked of the binary: a
+        // manifest declaring `run = { gluon = … }` parses in every build, so *whether this one
+        // would invoke it* is a fact only the binary has, and `capability_run.rs` reads it here.
         if cfg!(feature = "calculators-gluon") {
             features.push("calculators-gluon".to_string());
         }
