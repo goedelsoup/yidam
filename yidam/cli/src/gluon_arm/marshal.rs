@@ -38,7 +38,14 @@ use crate::corpus::{Class, Node as CorpusNode};
 #[derive(Debug, Clone, PartialEq, Getable, Pushable, VmType)]
 pub enum Value {
     Text(String),
-    Int(i32),
+    /// `i64`, because gluon's `Int` is, and the marshalling in between is not checked.
+    ///
+    /// `gluon_vm`'s `int_impls!` gives every integer width `Type = VmInt` and converts with a
+    /// cast, so an `i32` here would take `Int 3000000000` back from a script as `705032704` —
+    /// silently, and in the one direction a receipt cannot catch. It also matches
+    /// [`crate::computed`], whose `scalar` keeps a signal integer at `i64`; narrowing here and
+    /// widening there would make a calculator's answer depend on which side read it.
+    Int(i64),
     Number(f64),
     Flag(bool),
     /// A key written with no value.
@@ -145,11 +152,34 @@ pub struct Computed {
 /// `.yidam/corpus/<class>/<name>.yml` as `<class>/<name>`.
 #[allow(dead_code)]
 fn id_of(rel: &str) -> String {
-    rel.strip_prefix(".yidam/corpus/")
-        .unwrap_or(rel)
-        .strip_suffix(".yml")
-        .unwrap_or(rel)
-        .to_string()
+    // Each fallback is to the value that reached *that* step, not to the argument. Chaining
+    // both onto `rel` throws the prefix away again whenever the suffix does not match, which
+    // is a wrong id rather than an error — the one failure shape the module note is about.
+    let rel = rel.strip_prefix(".yidam/corpus/").unwrap_or(rel);
+    rel.strip_suffix(".yml").unwrap_or(rel).to_string()
+}
+
+/// A property key as the instance wrote it.
+///
+/// `properties:` is an untyped mapping, so YAML will hand back a key that is not a string:
+/// `2024:` is a number and `true:` is a bool. Reading those through `as_str()` made them the
+/// empty string, which is a key the ontology cannot have declared and two such keys colliding
+/// with each other — the silent loss [`Value::Unrepresentable`] exists to refuse. Every scalar
+/// is rendered as written, and the shapes that are not scalars are rendered rather than dropped.
+#[allow(dead_code)]
+fn key_of(k: &serde_yaml::Value) -> String {
+    match k {
+        serde_yaml::Value::String(s) => s.clone(),
+        serde_yaml::Value::Bool(b) => b.to_string(),
+        serde_yaml::Value::Number(n) => n.to_string(),
+        serde_yaml::Value::Null => "~".to_string(),
+        // A sequence or a mapping used as a key. Legal YAML, not something an ontology declares,
+        // and still better named than blank: the calculator that meets one should be able to
+        // print what it met.
+        other => serde_yaml::to_string(other)
+            .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "))
+            .unwrap_or_else(|e| format!("<unreadable key: {e}>")),
+    }
 }
 
 /// One YAML value as far as [`Value`] can read it. See the module note.
@@ -159,16 +189,14 @@ fn value_of(v: &serde_yaml::Value) -> Value {
         serde_yaml::Value::Null => Value::Empty,
         serde_yaml::Value::Bool(b) => Value::Flag(*b),
         serde_yaml::Value::String(s) => Value::Text(s.clone()),
-        // `i32` and not `i64`, because gluon's `Int` is what the script will see and widening
-        // here would make a value that typechecks and then does not fit. A number outside the
-        // range is a `Number`, which is lossy and says so, rather than a wrap that does not.
-        serde_yaml::Value::Number(n) => {
-            match (n.as_i64().and_then(|i| i32::try_from(i).ok()), n.as_f64()) {
-                (Some(i), _) => Value::Int(i),
-                (None, Some(f)) => Value::Number(f),
-                _ => Value::Unrepresentable,
-            }
-        }
+        // An integer stays an integer at the width gluon actually uses. A number too large for
+        // even that — YAML admits a `u64` past `i64::MAX` — is a `Number`, which is lossy and
+        // says so, rather than a wrap that does not.
+        serde_yaml::Value::Number(n) => match (n.as_i64(), n.as_f64()) {
+            (Some(i), _) => Value::Int(i),
+            (None, Some(f)) => Value::Number(f),
+            _ => Value::Unrepresentable,
+        },
         _ => Value::Unrepresentable,
     }
 }
@@ -194,7 +222,7 @@ pub(crate) fn project(nodes: &[CorpusNode], classes: &[Class]) -> Corpus {
                     .iter()
                     .flatten()
                     .map(|(k, v)| Property {
-                        key: k.as_str().unwrap_or_default().to_string(),
+                        key: key_of(k),
                         value: value_of(v),
                     })
                     .collect(),
@@ -318,5 +346,54 @@ mod tests {
             ("miles", "number", true)
         );
         assert!(p[1].prose);
+    }
+
+    #[test]
+    fn a_rel_that_is_not_a_yml_keeps_its_prefix_stripped() {
+        // Chaining both fallbacks onto the argument made a path the second strip missed come
+        // back whole — a wrong id rather than an error, under which a calculator's answer is
+        // filed against a node nothing can find.
+        assert_eq!(id_of(".yidam/corpus/gage/one.yml"), "gage/one");
+        assert_eq!(id_of(".yidam/corpus/gage/one.yaml"), "gage/one.yaml");
+        assert_eq!(id_of("gage/one.yml"), "gage/one");
+        assert_eq!(id_of("gage/one"), "gage/one");
+    }
+
+    #[test]
+    fn a_key_yaml_did_not_read_as_a_string_is_still_named() {
+        // `properties:` is untyped, so YAML hands back a number for `2024:` and a bool for
+        // `true:`. Read through `as_str()` both were the empty string, which collides them with
+        // each other and with any other unreadable key.
+        let nodes = [node(
+            ".yidam/corpus/gage/one.yml",
+            "class: gage\nproperties:\n  2024: a year\n  true: a flag\n  1.5: a ratio\n  \
+             ? [a, b]\n  : a sequence\n",
+        )];
+        let c = project(&nodes, &[]);
+        let keys: Vec<&str> = c.nodes[0]
+            .properties
+            .iter()
+            .map(|p| p.key.as_str())
+            .collect();
+        assert_eq!(keys.len(), 4, "a key was dropped: {keys:?}");
+        assert!(
+            keys.iter().all(|k| !k.is_empty()),
+            "a key collapsed to the empty string: {keys:?}"
+        );
+        assert_eq!(&keys[..3], &["2024", "true", "1.5"]);
+    }
+
+    #[test]
+    fn an_integer_wider_than_i32_is_an_integer() {
+        let nodes = [node(
+            ".yidam/corpus/gage/one.yml",
+            "class: gage\nproperties:\n  big: 3000000000\n  huge: 18446744073709551615\n",
+        )];
+        let c = project(&nodes, &[]);
+        let got: Vec<&Value> = c.nodes[0].properties.iter().map(|p| &p.value).collect();
+        // The first fits `i64` and stays exact. The second is a `u64` past `i64::MAX`, which no
+        // integer gluon has can hold, so it is a `Number` — lossy, and saying so.
+        assert_eq!(got[0], &Value::Int(3_000_000_000));
+        assert!(matches!(got[1], Value::Number(_)), "{:?}", got[1]);
     }
 }

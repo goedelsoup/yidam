@@ -288,10 +288,11 @@ oxttl = { version = "0.2", optional = true }
 # nothing here needs it: the corpus is marshalled through the `VmType`/`Pushable`/`Getable`
 # derives as structural record types, which registers no type and needs no source generation.
 #
-# `gluon_codegen` is a separate crate and a separate version line (0.18.1 is the latest for
-# 0.18.4's gluon), which is why it is named rather than reached through a gluon feature.
+# `gluon_codegen` carries the derives and is not re-exported by any gluon feature, which is why
+# it is named here rather than reached through one. It tracks gluon's version line — the caret
+# resolves it to 0.18.4 beside gluon itself.
 gluon = { version = "0.18.4", default-features = false, optional = true }
-gluon_codegen = { version = "0.18.1", optional = true }
+gluon_codegen = { version = "0.18.4", optional = true }
 
 # ── `tonpa` — bundle dependency manager (async network fetch). ────────────
 #

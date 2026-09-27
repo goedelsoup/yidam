@@ -390,6 +390,25 @@ mod engine {
         );
     }
 
+    /// The scan walks characters, and a multi-byte one before a `!` does not take the process.
+    ///
+    /// `refuse_macros` is the first thing `prepare` does, so a byte index landing inside a
+    /// character here aborts on script *text* — a refusal scan that panics has refused nothing
+    /// and told nobody. A calculator may hold any text in a string literal.
+    #[test]
+    fn a_multibyte_character_before_a_bang_is_read_and_not_sliced() {
+        // Refused — a false positive, and the safe direction: `a!` is the macro shape, and the
+        // scan does not know it is inside a string. What matters is that it *returns*.
+        assert!(entry::refuse_macros("\\c -> { signals = [], m = \"¡Hola!\" }").is_err());
+        // Not refused, and the character before the `!` is multi-byte in both.
+        assert!(entry::refuse_macros("\\c -> { signals = [], m = \"café — !\" }").is_ok());
+        assert!(entry::refuse_macros("\\c -> { signals = [], m = \"日本!\" }").is_ok());
+        // And a name reached past a multi-byte delimiter is still named in full.
+        let err = entry::refuse_macros("-- ¡\nlet d = import! std.debug in d")
+            .expect_err("an import is an import whatever precedes it");
+        assert!(err.to_string().contains("`import!`"), "{err}");
+    }
+
     /// The scan has no false negatives: every spelling that actually imports contains `import!`.
     ///
     /// This is the soundness of a lexical rule, and it is checked against the engine rather than
@@ -433,6 +452,46 @@ mod engine {
             "the refusal does not name the budget: {msg}"
         );
         assert!(msg.contains("budget"), "{msg}");
+    }
+
+    /// The budget also stops a script that loops before the entry point is ever applied.
+    ///
+    /// `run_expr` does not only compile: it evaluates the module's top level. A script that
+    /// loops there never reaches `f.call`, and reporting that as a compile failure would tell a
+    /// calculator author the wrong thing about their own script — and hide the one refusal in
+    /// this arm a corpus can act on.
+    #[test]
+    fn the_budget_stops_a_calculator_that_loops_before_it_is_called() {
+        let looping = "rec let go n = go (n + 1) in let x = go 0 in \\c -> { signals = [] }";
+        let err = gluon_arm::evaluate("toploop", looping, corpus(&[]), 5_000)
+            .expect_err("a top-level loop must be refused rather than waited for");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("5000"),
+            "the refusal does not name the budget: {msg}"
+        );
+        assert!(msg.contains("budget"), "{msg}");
+    }
+
+    /// An integer the script returns comes back at the width it was written.
+    ///
+    /// `gluon_vm` converts every integer width through `VmInt` with a cast, so a narrower Rust
+    /// type here would take `Int 3000000000` back as `705032704` — silently, in the direction a
+    /// receipt cannot check, and against `computed::scalar`, which keeps signal integers wide.
+    #[test]
+    fn an_integer_wider_than_i32_survives_the_round_trip() {
+        let out = gluon_arm::evaluate(
+            "wide",
+            "\\c -> { signals = [{ node = \"gage/one\", values = \
+             [{ name = \"n\", value = Int 3000000000 }] }] }",
+            corpus(&[]),
+            budget::DEFAULT_CALLS,
+        )
+        .expect("a calculator returning a wide integer runs");
+        assert_eq!(
+            out.computed.signals[0].values[0].value,
+            Value::Int(3_000_000_000)
+        );
     }
 
     /// The default budget is headroom and not a limit anything real meets.

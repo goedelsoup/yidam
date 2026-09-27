@@ -53,7 +53,7 @@ pub mod budget;
 pub mod entry;
 pub mod marshal;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use gluon::vm::api::OwnedFunction;
 use gluon::ThreadExt;
 
@@ -160,10 +160,13 @@ pub fn evaluate(name: &str, script: &str, corpus: Corpus, calls: usize) -> Resul
     entry::typecheck(&vm, name, &source)?;
 
     let budget = budget::Budget::install(&vm, calls);
-    let (mut f, _) = vm
-        .run_expr::<OwnedFunction<fn(Corpus) -> Computed>>(name, &source)
-        .with_context(|| format!("compiling {name}"))?;
-    let computed = f.call(corpus).map_err(|e| {
+
+    // Both paths ask the budget, because both can exhaust it. `run_expr` does not only compile:
+    // it evaluates the module's top level, so `rec let go n = go (n + 1) in let x = go 0 in …`
+    // never reaches the call. Reporting that as `compiling {name}` would tell a calculator
+    // author the wrong thing about their own script, and would hide the only refusal in this
+    // arm that a corpus can do something about.
+    let refuse = |stage: &str, e: &dyn std::fmt::Display| {
         if budget.exhausted() {
             anyhow::anyhow!(
                 "{name} was stopped after {} calls, which is its budget.\n  \
@@ -172,9 +175,14 @@ pub fn evaluate(name: &str, script: &str, corpus: Corpus, calls: usize) -> Resul
                 budget.limit()
             )
         } else {
-            anyhow::anyhow!("{name} failed after {} calls: {e}", budget.spent())
+            anyhow::anyhow!("{name} failed {stage} after {} calls: {e}", budget.spent())
         }
-    })?;
+    };
+
+    let (mut f, _) = vm
+        .run_expr::<OwnedFunction<fn(Corpus) -> Computed>>(name, &source)
+        .map_err(|e| refuse("while being loaded", &e))?;
+    let computed = f.call(corpus).map_err(|e| refuse("while running", &e))?;
     Ok(Outcome {
         computed,
         calls: budget.spent(),

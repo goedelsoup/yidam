@@ -42,18 +42,25 @@ use super::marshal::{Computed, Corpus};
 /// defines one — so there is no legitimate use of that shape in an expression, and the rule
 /// costs a calculator author nothing they would otherwise have written.
 pub fn refuse_macros(src: &str) -> Result<()> {
-    let bytes = src.as_bytes();
     for (i, c) in src.char_indices() {
         if c != '!' || i == 0 {
             continue;
         }
-        let prev = bytes[i - 1];
-        if !(prev.is_ascii_alphanumeric() || prev == b'_') {
+        // Walked as chars rather than bytes throughout. A calculator may hold any text in a
+        // string literal, and the scan runs before anything else in `prepare` — so a byte index
+        // landing inside a multi-byte character would take the process down on a script whose
+        // only crime is a `¡` before an exclamation mark, which is the one outcome a refusal
+        // scan must not have.
+        let mut back = src[..i].char_indices().rev();
+        let Some((_, prev)) = back.next() else {
+            continue;
+        };
+        if !(prev.is_ascii_alphanumeric() || prev == '_') {
             continue;
         }
-        let start = src[..i]
-            .rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-            .map_or(0, |b| b + 1);
+        let start = back
+            .find(|(_, c)| !(c.is_ascii_alphanumeric() || *c == '_'))
+            .map_or(0, |(b, c)| b + c.len_utf8());
         let name = &src[start..i];
         let line = src[..i].matches('\n').count() + 1;
         bail!(
