@@ -48,6 +48,12 @@ pub mod embed_config;
 pub mod embedding;
 mod findings;
 pub mod git;
+/// The typed calculator arm (RFC-0042), behind `calculators-gluon` and outside the default set.
+///
+/// Engine only — nothing in `run` or `regen` reaches it. The module note explains why the arm's
+/// purity needs two mechanisms rather than the one the RFC argued for.
+#[cfg(feature = "calculators-gluon")]
+pub mod gluon_arm;
 /// What a corpus declares its practice is aimed at (RFC-0028). Public so the guards over
 /// the shipped profiles can parse them the way the binary does, rather than a second way.
 pub mod kuten;
