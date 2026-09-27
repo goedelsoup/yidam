@@ -186,11 +186,16 @@ git fetch --unshallow                        # locally
 # in CI: actions/checkout with fetch-depth: 0
 ```
 
-## A REGEN block names a generator that does not exist
+## A REGEN block names a command no generator writes
 
-**`1 REGEN block(s) name a generator that does not exist`.** The name in the marker matches no
-generator, so nothing ever writes that block. It holds whatever was last typed into it, and
-`yidam regen` leaves it alone. A misspelling is the usual cause — `statsu` for `status`.
+**`1 REGEN block(s) name a command no generator writes`.** No generator writes that block, so
+it holds whatever was last typed into it and `yidam regen` leaves it alone. A misspelling is
+the usual cause — `statsu` for `status`.
+
+The other cause is a generator whose command takes an argument, given none. `count` is the one:
+`<!-- REGEN: yidam count -->` names no query, so no run can fill it. The block wanted is
+`<!-- REGEN: yidam count <query> -->`, and the list below shows each generator in the form it is
+written.
 
 The check names the file, the command and the generators there are:
 
@@ -198,8 +203,8 @@ The check names the file, the command and the generators there are:
 yidam regen --check
 ```
 
-Correct the name, or delete the block. `yidam regen` cannot clear this one — there is nothing
-to run.
+Correct the command, or delete the block. `yidam regen` cannot clear this one — there is
+nothing to run.
 
 Only commands beginning `yidam` are judged. A block your own tooling refreshes is left alone,
 as is one a document shows inside a code fence.

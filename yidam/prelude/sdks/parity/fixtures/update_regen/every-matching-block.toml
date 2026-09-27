@@ -1,0 +1,18 @@
+function = "update_regen"
+description = "Every block with the command is written, not only the first. A second block asking the same question used to stay stale forever, and `regen --check` could not report it: a block nothing writes is a block nothing compares"
+
+[input]
+command = "a"
+new_content = "44"
+content = """
+There are <!-- REGEN: a -->43<!-- /REGEN --> districts.
+
+Of those <!-- REGEN: a -->43<!-- /REGEN -->, one is vacant.
+"""
+
+[expected]
+content = """
+There are <!-- REGEN: a -->44<!-- /REGEN --> districts.
+
+Of those <!-- REGEN: a -->44<!-- /REGEN -->, one is vacant.
+"""

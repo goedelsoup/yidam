@@ -56,11 +56,70 @@ class MalformedBlock:
 
 
 @dataclass
+class RegenSpan:
+    """Where a well-formed REGEN block sits in the text.
+
+    So that a writer does not have to look for it a second time. The offsets are **code
+    point** indices, because this is Python. They are not a parity contract and no fixture
+    asserts one: the Rust SDK counts bytes and the TypeScript SDK UTF-16 code units, so a
+    single number here is three different claims about any document holding a character
+    outside ASCII — the trap ``find_reachable``'s sort order already fell into. What the
+    fixtures grade is what the scan and the writer *do*. See RFC-0043.
+
+    Only blocks the scan read to the end get one. A block whose open tag never closed, or
+    whose ``<!-- /REGEN -->`` never arrived, has no extent to write into, and
+    :func:`update_regen` left such a block alone before this type existed.
+    """
+
+    #: The command on the open tag, as the scan read it — stripped.
+    command: str
+    #: Index of the ``<`` that opens the block.
+    open: int
+    #: Index just past the ``-->`` that ends the open tag. The body starts here.
+    body: int
+    #: Index of the ``<`` in this block's ``<!-- /REGEN -->``. The body ends here.
+    close: int
+    #: Whether the body holds no newline — the whole block sits on one line.
+    #:
+    #: The rule RFC-0043 states, applied to the text rather than to how the block was found:
+    #: ``-->44<!-- /REGEN -->`` and ``--><!-- /REGEN -->`` are inline, and a body of ``\n`` —
+    #: the shape a cleared section has — is not.
+    inline: bool
+
+
+@dataclass
 class Scan:
-    """What one pass over the text found: the markers, and the blocks that are malformed."""
+    """What one pass over the text found: the markers, the blocks that are malformed, and
+    where the well-formed ones are."""
 
     markers: list[Marker]
     malformed: list[MalformedBlock]
+    #: One per well-formed REGEN block, in document order. :func:`update_regen` is defined
+    #: over this and nothing else, which is what makes the reader and the writer agree about
+    #: what a block is (#1094).
+    regen: list[RegenSpan]
+
+
+_REGEN_OPEN = "<!-- REGEN:"
+_REGEN_CLOSE = "<!-- /REGEN -->"
+_ARROW = "-->"
+
+
+def _lines_with_offsets(text: str) -> list[tuple[int, str]]:
+    """``str.splitlines()``, keeping each line's index into the original text.
+
+    Built on ``keepends=True`` rather than on a running ``len(line) + 1`` because
+    ``splitlines`` breaks on more than ``\n`` — ``\r\n`` is two characters and ``\u2028``
+    is one — and the offsets have to survive every separator it recognises, not just the
+    one this repository writes.
+    """
+    out: list[tuple[int, str]] = []
+    at = 0
+    for raw in text.splitlines(keepends=True):
+        parts = raw.splitlines()
+        out.append((at, parts[0] if parts else ""))
+        at += len(raw)
+    return out
 
 
 def _opens_a_regen(line: str) -> bool:
@@ -80,39 +139,87 @@ def scan_markers(text: str) -> Scan:
     """
     markers: list[Marker] = []
     malformed: list[MalformedBlock] = []
-    lines = text.splitlines()
+    regen: list[RegenSpan] = []
+    lines = _lines_with_offsets(text)
     i = 0
 
     while i < len(lines):
-        stripped = lines[i].strip()
+        line_at, line = lines[i]
+        stripped = line.strip()
 
         if stripped.startswith("<!-- TEMPLATE:"):
             rest = stripped[len("<!-- TEMPLATE:"):]
-            if rest.endswith("-->"):
+            if rest.endswith(_ARROW):
                 markers.append(TemplateMarker(instruction=rest[:-3].strip()))
             i += 1
             continue
 
-        if not stripped.startswith("<!-- REGEN:"):
+        # Every block this line opens *and closes*, left to right — the inline form. A line
+        # may carry more than one, and a block found here is finished: nothing below runs
+        # for it. `col` walks past each one so the next search starts after its close tag
+        # rather than inside its body.
+        col = 0
+        block_open: int | None = None
+        while True:
+            rel = line.find(_REGEN_OPEN, col)
+            if rel == -1:
+                break
+            after_open = rel + len(_REGEN_OPEN)
+            arrow_at = line.find(_ARROW, after_open)
+            if arrow_at == -1:
+                block_open = rel
+                break
+            body_col = arrow_at + len(_ARROW)
+            close_col = line.find(_REGEN_CLOSE, body_col)
+            if close_col == -1:
+                block_open = rel
+                break
+            inline_command = line[after_open:arrow_at].strip()
+            regen.append(
+                RegenSpan(
+                    command=inline_command,
+                    open=line_at + rel,
+                    body=line_at + body_col,
+                    close=line_at + close_col,
+                    inline=True,
+                )
+            )
+            markers.append(
+                RegenMarker(command=inline_command, content=line[body_col:close_col].strip())
+            )
+            col = close_col + len(_REGEN_CLOSE)
+
+        # What is left is an open tag with no close beside it — the block form, which is
+        # only a block when it starts its line. A `<!-- REGEN:` in the middle of a sentence
+        # with no close tag after it is prose, and was prose before this function learned
+        # the inline form; reading it as a block would make it swallow the rest of the file.
+        if block_open is None or line[:block_open].strip() != "":
             i += 1
             continue
 
-        rest = stripped[len("<!-- REGEN:"):]
+        open_col = block_open
+        rest = line[open_col + len(_REGEN_OPEN):]
         rest_stripped = rest.strip()
         open_line = i
         fault: Fault | None = None
+        body_at: int | None = None
 
-        if rest_stripped.endswith("-->"):
+        if rest_stripped.endswith(_ARROW):
+            # Single-line open tag. The arrow is the last thing on the line by that test, so
+            # the body starts where the line's own trailing whitespace does.
             command = rest_stripped[:-3].strip()
+            body_at = line_at + len(line.rstrip())
             i += 1
         else:
             command = rest.strip()
             i += 1
             arrow_found = False
             while i < len(lines):
-                t = lines[i].strip()
+                at, raw = lines[i]
+                t = raw.strip()
                 i += 1
-                if t == "-->" or t.endswith("-->"):
+                if t == _ARROW or t.endswith(_ARROW):
+                    body_at = at + len(raw.rstrip())
                     arrow_found = True
                     break
             if not arrow_found:
@@ -120,10 +227,13 @@ def scan_markers(text: str) -> Scan:
 
         content_start = i
         content_end = len(lines)
+        close_at: int | None = None
         closed = False
         while i < len(lines):
-            if lines[i].strip() == "<!-- /REGEN -->":
+            at, raw = lines[i]
+            if raw.strip() == _REGEN_CLOSE:
                 content_end = i
+                close_at = at + (len(raw) - len(raw.lstrip()))
                 i += 1
                 closed = True
                 break
@@ -131,7 +241,7 @@ def scan_markers(text: str) -> Scan:
         if fault is None:
             if not closed:
                 fault = Fault.CLOSE_TAG_MISSING
-            elif any(_opens_a_regen(line) for line in lines[content_start:content_end]):
+            elif any(_opens_a_regen(raw) for _, raw in lines[content_start:content_end]):
                 fault = Fault.CLOSED_ON_ANOTHERS_TAG
 
         if fault is not None:
@@ -145,40 +255,75 @@ def scan_markers(text: str) -> Scan:
                     line=open_line + 1,
                     fault=fault,
                     swallowed_lines=len(swallowed),
-                    swallowed_markers=sum(1 for line in swallowed if _opens_a_marker(line)),
+                    swallowed_markers=sum(1 for _, raw in swallowed if _opens_a_marker(raw)),
                 )
             )
 
-        content = "\n".join(lines[content_start:content_end]).strip()
+        # An extent, but only for a block with two ends. OpenArrowMissing has no body to
+        # start, and CloseTagMissing none to end; update_regen returned such a file unchanged
+        # when it did its own searching, and it returns it unchanged now.
+        if body_at is not None and close_at is not None:
+            regen.append(
+                RegenSpan(
+                    command=command,
+                    open=line_at + open_col,
+                    body=body_at,
+                    close=close_at,
+                    inline="\n" not in text[body_at:close_at],
+                )
+            )
+
+        content = "\n".join(raw for _, raw in lines[content_start:content_end]).strip()
         markers.append(RegenMarker(command=command, content=content))
 
-    return Scan(markers=markers, malformed=malformed)
+    return Scan(markers=markers, malformed=malformed, regen=regen)
 
 
 def parse_markers(text: str) -> list[Marker]:
     return scan_markers(text).markers
 
 
-def update_regen(text: str, command: str, new_content: str) -> str:
-    open_tag = f"<!-- REGEN: {command}"
-    close_tag = "<!-- /REGEN -->"
+def _regen_body(new_content: str, inline: bool) -> str:
+    """The body to write between a block's markers.
 
-    open_pos = text.find(open_tag)
-    if open_pos == -1:
-        return text
+    An inline block keeps its line: the author wrote it that way and no regeneration
+    second-guesses them. Every other block is bracketed by newlines, and the empty case is
+    collapsed so that clearing a section does not leave a blank line between the markers.
 
-    after_open = open_pos + len(open_tag)
-    arrow_rel = text[after_open:].find("-->")
-    if arrow_rel == -1:
-        return text
-
-    content_start = after_open + arrow_rel + 3
-    close_rel = text[content_start:].find(close_tag)
-    if close_rel == -1:
-        return text
-
-    close_abs = content_start + close_rel
+    Both conditions are read, not just ``inline``: writing a multi-line value into a
+    one-line block would leave a document whose form no longer matches its body, and the
+    next run would read it as a block-form block and rewrite it differently. Deciding on
+    both is what makes a second run a no-op.
+    """
+    if inline and "\n" not in new_content:
+        return new_content
     if new_content == "":
-        # Clear the body without leaving a blank line between the markers.
-        return f"{text[:content_start]}\n{text[close_abs:]}"
-    return f"{text[:content_start]}\n{new_content}\n{text[close_abs:]}"
+        return "\n"
+    return f"\n{new_content}\n"
+
+
+def update_regen(text: str, command: str, new_content: str) -> str:
+    """Replace the body of every REGEN block named ``command``.
+
+    Defined over :func:`scan_markers`, which is the point: before #1094 this searched the
+    text itself, and the two searches disagreed. A block the scan cannot read is a block this
+    leaves alone, and a block it reads inline stays inline.
+
+    Two things changed with the second search's removal, and both close a defect rather than
+    open a feature. The command matches **exactly**, where the old prefix search let
+    ``yidam status`` claim a ``yidam status-quo`` block (#1058). And **every** block with the
+    command is rewritten, where the old search rewrote the first and left a second copy of
+    the same figure stale with nothing to report it.
+    """
+    spans = [s for s in scan_markers(text).regen if s.command == command]
+    if not spans:
+        return text
+
+    out: list[str] = []
+    cursor = 0
+    for span in spans:
+        out.append(text[cursor:span.body])
+        out.append(_regen_body(new_content, span.inline))
+        cursor = span.close
+    out.append(text[cursor:])
+    return "".join(out)

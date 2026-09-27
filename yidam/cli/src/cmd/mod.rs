@@ -7,6 +7,10 @@ pub(crate) mod check_diff;
 mod clone;
 pub(crate) mod cohort;
 pub(crate) mod corpus;
+// `pub(crate)` so `regen.rs` can name `count::NAME` and `count::COMMAND_PREFIX`. The generator
+// is the only one whose command carries an argument, and both facts about that shape — the
+// name `PARAMETERISED` holds and the prefix `unclaimed_in` matches — are spelled there once.
+pub(crate) mod count;
 pub(crate) mod cycle;
 pub(crate) mod decisions;
 mod diff;
@@ -90,6 +94,7 @@ pub use check_diff::check_diff;
 pub use clone::{clone, NOT_INHERITED, TEMPLATE_MARKERS};
 pub use cohort::{cohort, Norm as PreludeNorm, Options as CohortOptions, NORMS as PRELUDE_NORMS};
 pub use corpus::{corpus_index, graph_check, open_questions};
+pub use count::count;
 pub use cycle::cycle;
 pub use decisions::decisions_log;
 pub use diff::diff_corpus;

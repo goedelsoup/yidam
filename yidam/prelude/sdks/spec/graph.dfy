@@ -205,6 +205,18 @@ module YidamGraph {
     ensures forall i :: 0 <= i < |RegenOpen|  ==> RegenOpen[i]  != '\n'
   {}
 
+  // The close tag begins again nowhere inside itself: '<' occurs in it once, at the front.
+  //
+  // This is what rules out an inline body whose tail, run together with the block's own close
+  // tag, spells a close tag across the seam — the one way `ContainsNo(newContent, RegenClose)`
+  // could be true of the content and false of the document it lands in. The block form never
+  // needed it: its body is bracketed by newlines and neither tag holds one.
+  lemma CloseTagHasOneAngle()
+    ensures |RegenClose| == 15
+    ensures RegenClose[0] == '<'
+    ensures forall m :: 0 < m < |RegenClose| ==> RegenClose[m] != '<'
+  {}
+
   // The four offsets, in the order the implementation computes them.
   datatype Span = Span(open: nat, arrow: nat, body: nat, close: nat)
 
@@ -278,31 +290,98 @@ module YidamGraph {
     }
   }
 
-  // The body the implementation writes. The empty case is not a special case for tidiness —
-  // `update_regen` collapses it so that clearing a section does not leave a blank line
-  // between the markers, and a model that wrote "\n\n" would not be a model of it.
-  function RegenBody(newContent: string): string {
-    if newContent == "" then "\n" else "\n" + newContent + "\n"
+  predicate NoNewline(s: string) { forall i :: 0 <= i < |s| ==> s[i] != '\n' }
+
+  // The form a block was written in. RFC-0043 states the rule over the body's *text* rather
+  // than over how the scan came to find the block, so that a cleared block-form section —
+  // `-->\n<!-- /REGEN -->` — still reads as the block form it is.
+  predicate InlineAt(text: string, sp: Span)
+    requires sp.body <= sp.close <= |text|
+  { NoNewline(text[sp.body..sp.close]) }
+
+  // The body the implementation writes. Two special cases, and neither is tidiness.
+  //
+  // The empty case is collapsed so that clearing a block-form section does not leave a blank
+  // line between the markers; a model that wrote "\n\n" would not be a model of it. The
+  // inline case writes the content bare, which is what keeps a block in the middle of a
+  // sentence in the middle of that sentence.
+  //
+  // `inline` alone does not decide the second one. A value holding a newline cannot be
+  // written on one line, and writing it there anyway would leave a document whose body no
+  // longer matches the form it declares — the *next* run would read that body as block form
+  // and rewrite it. Reading both is what makes the idempotency clause of `UpdateRegenSpec`
+  // true with no side condition on `newContent`.
+  function RegenBody(newContent: string, inline: bool): string {
+    if inline && NoNewline(newContent) then newContent
+    else if newContent == "" then "\n"
+    else "\n" + newContent + "\n"
   }
 
   function UpdateRegen(text: string, command: string, newContent: string): string
   {
     match RegenSpan(text, command)
       case None => text
-      case Some(sp) => text[..sp.body] + RegenBody(newContent) + text[sp.close..]
+      case Some(sp) =>
+        text[..sp.body] + RegenBody(newContent, InlineAt(text, sp)) + text[sp.close..]
   }
 
   // Nothing in the freshly written body matches the close tag, provided the caller did not
   // write one into `newContent` — which is the precondition the spec below carries, and which
   // the axiom it replaces did not.
-  lemma CloseTagNotInBody(result: string, nc: string, cs: nat)
-    requires cs + |RegenBody(nc)| <= |result|
-    requires result[cs..cs + |RegenBody(nc)|] == RegenBody(nc)
+  //
+  // Two shapes, because RFC-0043 gave the body two, and they fail differently. A block-form
+  // body is bracketed by newlines and neither tag holds one, so nothing can straddle either
+  // end and the precondition covers the inside. An inline body is the caller's string bare,
+  // butted against the block's own close tag: the inside is still the precondition's
+  // business, but the *seam* is new, and it is safe only because the close tag does not begin
+  // again inside itself.
+  lemma CloseTagNotInBody(result: string, nc: string, cs: nat, inline: bool)
+    requires cs + |RegenBody(nc, inline)| <= |result|
+    requires result[cs..cs + |RegenBody(nc, inline)|] == RegenBody(nc, inline)
     requires ContainsNo(nc, RegenClose)
-    ensures forall j :: cs <= j < cs + |RegenBody(nc)| ==> !SubstringAt(result, RegenClose, j)
+    // The block's own close tag is what follows the body. In the block form this is not used;
+    // in the inline form it is the other half of the seam.
+    requires SubstringAt(result, RegenClose, cs + |RegenBody(nc, inline)|)
+    ensures forall j :: cs <= j < cs + |RegenBody(nc, inline)| ==>
+      !SubstringAt(result, RegenClose, j)
   {
     TagShapes();
-    var body := RegenBody(nc);
+    if inline && NoNewline(nc) {
+      CloseTagHasOneAngle();
+      assert RegenBody(nc, inline) == nc;
+      forall m | 0 <= m < |nc| ensures result[cs + m] == nc[m] {
+        assert result[cs..cs + |nc|][m] == nc[m];
+      }
+      forall j | cs <= j < cs + |nc|
+        ensures !SubstringAt(result, RegenClose, j)
+      {
+        if SubstringAt(result, RegenClose, j) {
+          if j + |RegenClose| <= cs + |nc| {
+            // Wholly inside `nc`, which the precondition says holds no close tag.
+            var k := j - cs;
+            forall i | 0 <= i < |RegenClose| ensures nc[k + i] == RegenClose[i] {
+              assert result[j..j + |RegenClose|][i] == RegenClose[i];
+            }
+            SliceIsLiteral(nc, k, k + |RegenClose|, RegenClose);
+            assert SubstringAt(nc, RegenClose, k);
+          } else {
+            // Straddling the seam. The character at the seam is the close tag's first, by the
+            // tag that follows the body; and it is the close tag's `m`th, by the match at `j`.
+            // A tag with one '<' cannot have both.
+            var m := cs + |nc| - j;
+            assert 0 < m < |RegenClose|;
+            assert result[cs + |nc|] == RegenClose[m] by {
+              assert result[j..j + |RegenClose|][m] == RegenClose[m];
+            }
+            assert result[cs + |nc|] == RegenClose[0] by {
+              assert result[cs + |nc|..cs + |nc| + |RegenClose|][0] == RegenClose[0];
+            }
+          }
+        }
+      }
+      return;
+    }
+    var body := RegenBody(nc, inline);
     assert result[cs] == '\n' by { assert result[cs..cs + |body|][0] == body[0]; }
     assert result[cs + |body| - 1] == '\n' by {
       assert result[cs..cs + |body|][|body| - 1] == body[|body| - 1];
@@ -349,7 +428,7 @@ module YidamGraph {
     ensures
       var sp     := RegenSpan(text, command).value;
       var result := UpdateRegen(text, command, newContent);
-      var body   := RegenBody(newContent);
+      var body   := RegenBody(newContent, InlineAt(text, sp));
       // (1) Frame: the text before the body and from the close tag on is byte-for-byte equal.
       && result[..sp.body] == text[..sp.body]
       && result[sp.body + |body|..] == text[sp.close..]
@@ -364,7 +443,7 @@ module YidamGraph {
     RegenSpanFindsEveryBlock(text, command);
     TagShapes();
     var sp     := RegenSpan(text, command).value;
-    var body   := RegenBody(newContent);
+    var body   := RegenBody(newContent, InlineAt(text, sp));
     var result := UpdateRegen(text, command, newContent);
     assert result == text[..sp.body] + body + text[sp.close..];
 
@@ -377,21 +456,35 @@ module YidamGraph {
     FindAgreesOnSharedPrefix(text, result, RegenOpen + command, 0, sp.body);
     FindAgreesOnSharedPrefix(text, result, RegenArrow, sp.open + |RegenOpen + command|, sp.body);
 
-    // The close tag: nothing in the body matches, and the close tag `text` already had is the
-    // first thing after it.
-    CloseTagNotInBody(result, newContent, sp.body);
-    FindSkips(result, RegenClose, sp.body, sp.body + |body|);
+    // The close tag: the one `text` already had is the first thing after the body, and
+    // nothing in the body matches. In that order now — the body's last character is no longer
+    // always a newline, so the inline half of `CloseTagNotInBody` reasons about the seam and
+    // needs the tag beyond it.
     assert SubstringAt(result, RegenClose, sp.body + |body|) by {
       assert result[sp.body + |body|..][..|RegenClose|] == text[sp.close..][..|RegenClose|];
       assert text[sp.close..][..|RegenClose|] == text[sp.close..sp.close + |RegenClose|];
     }
+    CloseTagNotInBody(result, newContent, sp.body, InlineAt(text, sp));
+    FindSkips(result, RegenClose, sp.body, sp.body + |body|);
     assert FindFrom(result, RegenClose, sp.body + |body|) == Some(sp.body + |body|);
     assert RegenSpan(result, command)
         == Some(Span(sp.open, sp.arrow, sp.body, sp.body + |body|));
     RegenSpanFindsEveryBlock(result, command);
 
     // Idempotency falls out of (2): the second run splits at the same body start and the new
-    // close, and re-lays the identical three pieces.
+    // close, and re-lays the identical three pieces. What it re-lays is `RegenBody` applied
+    // to the form it reads back out of `result`, so that form has to come out the same — and
+    // this is the clause the two-condition `RegenBody` is for. Had it written a multi-line
+    // value into an inline block, the second run would read block form where the first read
+    // inline, and lay down a different body.
+    assert RegenBody(newContent, NoNewline(body)) == body by {
+      if InlineAt(text, sp) && NoNewline(newContent) {
+        assert body == newContent;
+      } else {
+        assert |body| > 0 && body[0] == '\n';
+        assert !NoNewline(body);
+      }
+    }
     assert UpdateRegen(result, command, newContent)
         == result[..sp.body] + body + result[sp.body + |body|..];
   }
@@ -414,13 +507,14 @@ module YidamGraph {
     forall i | 0 <= i <= |"new"| ensures !SubstringAt("new", RegenClose, i) {}
   }
 
-  // `update_regen` collapses the empty body: clearing a section leaves the two markers on
-  // consecutive lines rather than with a blank line between them. Nothing above pins that —
-  // the spec is written in terms of `RegenBody`, so a model that wrote "\n\n" would satisfy
-  // every clause of it. This is what fails if `RegenBody` stops special-casing the empty
-  // string, and it is the only thing that does.
+  // `update_regen` collapses the empty body: clearing a block-form section leaves the two
+  // markers on consecutive lines rather than with a blank line between them. Nothing above
+  // pins that — the spec is written in terms of `RegenBody`, so a model that wrote "\n\n"
+  // would satisfy every clause of it. This is what fails if `RegenBody` stops special-casing
+  // the empty string, and it is the only thing that does.
   lemma ClearingASectionLeavesNoBlankLine(text: string, command: string)
     requires RegenSpan(text, command).Some?
+    requires !InlineAt(text, RegenSpan(text, command).value)
     ensures var sp := RegenSpan(text, command).value;
             && UpdateRegen(text, command, "") == text[..sp.body] + "\n" + text[sp.close..]
             && UpdateRegen(text, command, "") != text[..sp.body] + "\n\n" + text[sp.close..]
@@ -428,6 +522,154 @@ module YidamGraph {
     var sp := RegenSpan(text, command).value;
     assert |text[..sp.body] + "\n" + text[sp.close..]|
         != |text[..sp.body] + "\n\n" + text[sp.close..]|;
+  }
+
+  // The same question asked of the other form, and it has the other answer: clearing an
+  // inline block writes nothing between its markers at all — not even the newline the block
+  // form collapses to. An inline block sits inside a sentence, and a newline there would
+  // break the sentence, which is the defect RFC-0043 is about in its smallest form.
+  //
+  // The precondition above and the precondition here partition the blocks a text has: every
+  // block is one form or the other, and neither lemma is about the empty set of them.
+  // `AnInlineBlockIsNotAnEmptyCase` supplies the witness this one needs.
+  lemma ClearingAnInlineSectionWritesNothing(text: string, command: string)
+    requires RegenSpan(text, command).Some?
+    requires InlineAt(text, RegenSpan(text, command).value)
+    ensures var sp := RegenSpan(text, command).value;
+            UpdateRegen(text, command, "") == text[..sp.body] + text[sp.close..]
+  {
+    var sp := RegenSpan(text, command).value;
+    assert RegenBody("", true) == "";
+  }
+
+  // `ClearingAnInlineSectionWritesNothing` is about something. One document, with the
+  // offsets worked out, so that `InlineAt` is not a precondition nothing satisfies.
+  //
+  // The block starts at offset 0 on purpose: it is what keeps the three `FindFrom` calls to
+  // a handful of unrollings each rather than a scan across a sentence.
+  lemma AnInlineBlockIsNotAnEmptyCase()
+    ensures var text := "<!-- REGEN: n -->44<!-- /REGEN -->";
+            && RegenSpan(text, "n") == Some(Span(0, 14, 17, 19))
+            && InlineAt(text, Span(0, 14, 17, 19))
+            && UpdateRegen(text, "n", "43") == "<!-- REGEN: n -->43<!-- /REGEN -->"
+  {
+    var text := "<!-- REGEN: n -->44<!-- /REGEN -->";
+    assert RegenOpen + "n" == "<!-- REGEN: n";
+    SliceIsLiteral(text, 0, 13, "<!-- REGEN: n");
+    assert FindFrom(text, RegenOpen + "n", 0) == Some(0);
+
+    // The arrow: not at 13 (that is the space before it), so at 14.
+    assert !SubstringAt(text, RegenArrow, 13) by { assert text[13..16][0] == ' '; }
+    SliceIsLiteral(text, 14, 17, "-->");
+    assert FindFrom(text, RegenArrow, 13) == Some(14);
+
+    // The close tag: not at 17 or 18 (the digits), so at 19.
+    assert !SubstringAt(text, RegenClose, 17) by { assert text[17..32][0] == '4'; }
+    assert !SubstringAt(text, RegenClose, 18) by { assert text[18..33][0] == '4'; }
+    SliceIsLiteral(text, 19, 34, "<!-- /REGEN -->");
+    assert FindFrom(text, RegenClose, 17) == Some(19);
+
+    assert RegenSpan(text, "n") == Some(Span(0, 14, 17, 19));
+    assert text[17..19] == "44" by { SliceIsLiteral(text, 17, 19, "44"); }
+    assert InlineAt(text, Span(0, 14, 17, 19));
+    assert RegenBody("43", true) == "43";
+    assert UpdateRegen(text, "n", "43") == text[..17] + "43" + text[19..];
+    SliceIsLiteral(text, 0, 17, "<!-- REGEN: n -->");
+    assert text[19..] == "<!-- /REGEN -->" by { SliceIsLiteral(text, 19, 34, "<!-- /REGEN -->"); }
+  }
+
+  // ── what this model does not yet say ──────────────────────────────────────────
+  //
+  // RFC-0043 moved `update_regen` onto the scan's own reading of a block: the command is the
+  // text between the open tag and its arrow, trimmed, and compared **whole**. `RegenSpan`
+  // above is still a prefix search of its own, and it still stops at the first hit. So two
+  // differences from the implementation remain, and they are stated here rather than left to
+  // be found:
+  //
+  //   1. **Prefix, not equality.** Asked for `a`, the model answers with a block whose
+  //      command is `ab`. The implementation answers with nothing, and on a document that
+  //      also holds an `a` block it answers with that one. The lemma below is the smallest
+  //      form of it — a divergence, not an approximation, and nothing about it is silent.
+  //   2. **The first block, not every one.** `update_regen` rewrites every block with the
+  //      command; `UpdateRegen` rewrites the first. Where a command names one block the two
+  //      agree, and a document where it names two is the clobber #1058 reported.
+  //
+  // Closing both is one change — `RegenSpan` becomes a selection over a modelled scan rather
+  // than a search beside it, which is the shape `scan_markers` now has and the shape
+  // RFC-0043 argues for. The definition is the cheap half. The expensive half is
+  // `UpdateRegenSpec`'s re-scan clause, which then needs an induction showing that the scan
+  // of the result reproduces every block below the edit before it reaches the edited one.
+  //
+  // It was not urgent while a command named a generator: no two generator names in
+  // `cmd/regen.rs` stand in the relation clause 1 needs. `count` is what ends that — its
+  // command carries a query, so `yidam count district` is a prefix of
+  // `yidam count district-at-large`, and the document clause 1 describes becomes one a
+  // corpus can write by accident.
+  //
+  // **The code closes both; this model does not.** An earlier draft of this comment said the
+  // model had to reach the scan before `count` shipped. That overstated it. #1094 made
+  // `update_regen` match a command by *equality* over the one scan, which closes clause 1,
+  // and write *every* match, which closes clause 2 — so `count` ships on an implementation
+  // where neither hazard is reachable. `tests/count.rs` holds both as cases:
+  // `a_query_that_prefixes_another_does_not_clobber_it` and
+  // `two_blocks_asking_the_same_question_are_both_written`. What remains is that this model
+  // still describes the search the code no longer performs, which makes it a weaker
+  // statement about `UpdateRegen` than the code deserves — a debt, not a blocker.
+  //
+  // Tracked as #1097.
+  lemma TheModelsLocatorIsStillAPrefixSearch()
+    ensures var text := "<!-- REGEN: ab -->1<!-- /REGEN -->";
+            // Asked for `a`, the model locates the one block this document has …
+            && RegenSpan(text, "a") == Some(Span(0, 15, 18, 19))
+            // … and that block's command, the text between the tag and the arrow, is `ab`.
+            && text[12..14] == "ab"
+  {
+    var text := "<!-- REGEN: ab -->1<!-- /REGEN -->";
+    assert RegenOpen + "a" == "<!-- REGEN: a";
+    SliceIsLiteral(text, 0, 13, "<!-- REGEN: a");
+    assert FindFrom(text, RegenOpen + "a", 0) == Some(0);
+
+    // The arrow: offsets 13 and 14 are the `b` and the space after it.
+    assert !SubstringAt(text, RegenArrow, 13) by { assert text[13..16][0] == 'b'; }
+    assert !SubstringAt(text, RegenArrow, 14) by { assert text[14..17][0] == ' '; }
+    SliceIsLiteral(text, 15, 18, "-->");
+    assert FindFrom(text, RegenArrow, 13) == Some(15);
+
+    // The close tag: offset 18 is the body.
+    assert !SubstringAt(text, RegenClose, 18) by { assert text[18..33][0] == '1'; }
+    SliceIsLiteral(text, 19, 34, "<!-- /REGEN -->");
+    assert FindFrom(text, RegenClose, 18) == Some(19);
+
+    assert RegenSpan(text, "a") == Some(Span(0, 15, 18, 19));
+    SliceIsLiteral(text, 12, 14, "ab");
+  }
+
+  // Where the one block in `RegenBlockCountWasTheWrongInstrument`'s document sits, and which
+  // form it is in. Separate from the lemma it serves: pinning a span is a dozen facts about
+  // one string literal, and proved in place they crowd out the facts that lemma is about.
+  lemma TheOneBlockIsBlockForm()
+    ensures var text := "<!-- REGEN: a -->\n\n<!-- /REGEN -->";
+            && RegenSpan(text, "a") == Some(Span(0, 14, 17, 19))
+            && !InlineAt(text, Span(0, 14, 17, 19))
+  {
+    var text := "<!-- REGEN: a -->\n\n<!-- /REGEN -->";
+    assert RegenOpen + "a" == "<!-- REGEN: a";
+    SliceIsLiteral(text, 0, 13, "<!-- REGEN: a");
+    assert FindFrom(text, RegenOpen + "a", 0) == Some(0);
+
+    // The arrow: offset 13 is the space before it, so the first match is at 14.
+    assert !SubstringAt(text, RegenArrow, 13) by { assert text[13..16][0] == ' '; }
+    SliceIsLiteral(text, 14, 17, "-->");
+    assert FindFrom(text, RegenArrow, 13) == Some(14);
+
+    // The close tag: offsets 17 and 18 are the body's two newlines, so the first match is 19.
+    assert !SubstringAt(text, RegenClose, 17) by { assert text[17..32][0] == '\n'; }
+    assert !SubstringAt(text, RegenClose, 18) by { assert text[18..33][0] == '\n'; }
+    SliceIsLiteral(text, 19, 34, "<!-- /REGEN -->");
+    assert FindFrom(text, RegenClose, 17) == Some(19);
+
+    assert RegenSpan(text, "a") == Some(Span(0, 14, 17, 19));
+    assert !InlineAt(text, Span(0, 14, 17, 19)) by { assert text[17..19][0] == '\n'; }
   }
 
   // Clause (3) of the axiom — "No REGEN blocks created or destroyed", over an axiomatized
@@ -474,11 +716,17 @@ module YidamGraph {
       }
     }
     UpdateRegenSpec(text, "a", nc);
+    // The block is block form — its body is the two newlines between the tags — so the body
+    // written is the wrapped one, which is what the offsets below count on. Without that,
+    // `InlineAt(text, sp)` is an unknown and `RegenBody` could be either shape.
+    TheOneBlockIsBlockForm();
     var sp := RegenSpan(text, "a").value;
+    assert sp == Span(0, 14, 17, 19);
+    assert !InlineAt(text, sp);
     var result := UpdateRegen(text, "a", nc);
-    assert result[sp.body..sp.body + |RegenBody(nc)|] == RegenBody(nc);
+    assert result[sp.body..sp.body + |RegenBody(nc, false)|] == RegenBody(nc, false);
     assert result[sp.body + 1..sp.body + 1 + |nc|] == nc by {
-      assert forall i {:trigger RegenBody(nc)[1 + i]} :: 0 <= i < |nc| ==>
+      assert forall i {:trigger RegenBody(nc, false)[1 + i]} :: 0 <= i < |nc| ==>
         result[sp.body + 1 + i] == nc[i];
       SliceIsLiteral(result, sp.body + 1, sp.body + 1 + |nc|, nc);
     }
@@ -490,7 +738,7 @@ module YidamGraph {
       SliceIsLiteral(nc, 14, 17, "-->");
       SliceIsLiteral(result, sp.body + 15, sp.body + 18, "-->");
     }
-    assert SubstringAt(result, RegenClose, sp.body + |RegenBody(nc)|);
+    assert SubstringAt(result, RegenClose, sp.body + |RegenBody(nc, false)|);
     assert HasRegenFor(result, "b");
   }
   // ── classify_commit — totality ────────────────────────────────────────────────

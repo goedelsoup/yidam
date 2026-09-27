@@ -13,7 +13,7 @@ which is what #873 was.
 
 Three conventions run through the whole surface.
 
-**A `*` means the command rewrites files in the repository it is run against.** Thirty-three
+**A `*` means the command rewrites files in the repository it is run against.** Thirty-four
 do. That was previously visible only in each command's long help, where you had to already
 suspect it to go looking. That is the wrong way round for a tool people point at a checkout
 they only meant to inspect.
@@ -348,6 +348,7 @@ the read-only overview.
 | `query <query>` | A typed path over the resolved graph |
 | `pack <query>` | A query's full answer filled to a token budget, with an account of what did not fit |
 | `estimate <query>` | What a query would cost before you run it |
+| `count [query]` * | How many nodes a query matches. With no query, refreshes every `<!-- REGEN: yidam count <query> -->` block in the tracked markdown set — the form `regen` runs ([RFC-0043](rfcs/0043-inline-regen-and-count.md)) |
 | `diff <range>` | Node and edge changes between two git refs |
 | `check-diff [range]` | What a code diff names that the ontology does not ([RFC-0021](rfcs/0021-diff-alignment.md)). Defaults to the merge-base with `main` — this branch's work |
 | `log [range]` | Commit history classified as testimony or pipeline work. `--epistemic`, `--operational` |

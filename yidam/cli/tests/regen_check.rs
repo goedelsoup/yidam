@@ -497,8 +497,11 @@ fn a_block_naming_no_generator_is_reported_and_gates() {
 
     let r = run(tmp.path(), &["regen", "--check"]);
     assert_eq!(r.code, 1, "{}", r.stdout);
+    // Reworded when `count` was registered (#1071): the list this heading introduces now
+    // contains a generator that *does* exist and still does not write this block, so the old
+    // wording contradicted the remedy printed two lines under it.
     assert!(
-        r.stdout.contains("name a generator that does not exist"),
+        r.stdout.contains("name a command no generator writes"),
         "{}",
         r.stdout
     );
@@ -510,7 +513,7 @@ fn a_block_naming_no_generator_is_reported_and_gates() {
     // The remedy has to be one that clears the gate. `yidam regen` is not it, and saying so
     // is half the finding.
     assert!(
-        r.stdout.contains("Correct the name or delete the block"),
+        r.stdout.contains("Correct the command or delete the block"),
         "{}",
         r.stdout
     );
