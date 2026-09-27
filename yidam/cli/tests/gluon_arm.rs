@@ -157,7 +157,9 @@ fn only_the_arm_names_the_engine() {
 mod engine {
     use gluon::vm::api::VmType;
     use gluon::{new_vm, ThreadExt};
-    use yidam::gluon_arm::marshal::{Computed, Corpus, Link, NodeView, Property, Value};
+    use yidam::gluon_arm::marshal::{
+        Computed, Corpus, Link, NodeView, Property, Row, Signal, Value,
+    };
     use yidam::gluon_arm::{self, budget, entry, EXCLUDED, PRELUDE_MODULES, PRELUDE_TYPES};
 
     /// Whitespace-insensitive, so a rendered type's line breaks do not decide a comparison.
@@ -205,7 +207,35 @@ mod engine {
                 })
                 .collect(),
             classes: Vec::new(),
+            signals: Vec::new(),
         }
+    }
+
+    /// One row of what a previous step committed, as `marshal::project` carries it (#1105).
+    fn told(node: &str, values: &[(&str, Value)]) -> Row {
+        Row {
+            node: node.to_string(),
+            values: values
+                .iter()
+                .map(|(name, value)| Signal {
+                    name: (*name).to_string(),
+                    value: value.clone(),
+                })
+                .collect(),
+        }
+    }
+
+    /// The signal a row carries under `name`, or a panic naming what was there instead.
+    fn signal(row: &Row, name: &str) -> Value {
+        row.values
+            .iter()
+            .find(|s| s.name == name)
+            .unwrap_or_else(|| {
+                let had: Vec<&str> = row.values.iter().map(|s| s.name.as_str()).collect();
+                panic!("no `{name}` on `{}`; it carries {had:?}", row.node)
+            })
+            .value
+            .clone()
     }
 
     /// Typecheck a script body the way [`gluon_arm::evaluate`] would, and say only whether it
@@ -596,6 +626,156 @@ mod engine {
         )
         .expect("matching on a resolved link is what the chain rule is written with");
         assert_eq!(out.computed.signals[0].values[0].value, Value::Int(1));
+    }
+
+    /// A pipeline's second stage: a calculator computes from what a previous step committed.
+    ///
+    /// This is `examples/streamflow`'s `disclosure-envelope` rule, which RFC-0042 named as the
+    /// half of its reference case that could not be ported (#1105). It places every node at the
+    /// tier `travel-tier` computed for it and says how far that tier reaches, and the whole of
+    /// its input is `c.signals` — the rule is a function of another capability's answer.
+    ///
+    /// `nodes` is **empty on purpose**, and that is the point of the test rather than a shortcut.
+    /// `disclosure-envelope` declares `reads = [".yidam/computed/travel-tier.yml", …]` and no
+    /// corpus path, so the tree it stands in holds no node and the projection has none to carry.
+    /// A second stage's signals are therefore about nodes it cannot see, which is why they are a
+    /// field on `Corpus` and not one on `NodeView` — see `marshal`'s module note.
+    ///
+    /// The script is a raw string so the gluon reads as gluon. Line 1 is `\c ->` and nothing
+    /// else, because `gluon_arm::prelude` is concatenated onto the front of it.
+    #[test]
+    fn a_second_stage_computes_from_a_previous_step_s_signal() {
+        let mut c = corpus(&[]);
+        c.signals = vec![
+            told(
+                "gage/canyon-outlet",
+                &[
+                    ("travels_as", Value::Text("open".into())),
+                    ("downgraded", Value::Flag(true)),
+                ],
+            ),
+            told(
+                "gage/high-bridge",
+                &[
+                    ("travels_as", Value::Text("verified".into())),
+                    ("downgraded", Value::Flag(false)),
+                ],
+            ),
+        ];
+        let script = r#"\c ->
+    let reach tier =
+        if tier == "verified" then "public material"
+        else if tier == "inference" then "attributed memos and backgrounders"
+        else "this repository only"
+
+    let travels row =
+        foldable.foldl
+            (\acc s ->
+                if s.name == "travels_as" then
+                    match s.value with
+                    | Text t -> t
+                    | _ -> acc
+                else acc)
+            "unmarked"
+            row.values
+
+    let leaves row = travels row == "verified" || travels row == "inference"
+
+    { signals =
+          array.functor.map
+              (\r -> { node = r.node, values = [{ name = "reaches", value = Text (reach (travels r)) }] })
+              c.signals,
+      summary =
+          [{ name = "nodes", value = Int (array.len c.signals) },
+           { name = "leaves_the_repository"
+           , value = Int (foldable.foldl (\n r -> if leaves r then n + 1 else n) 0 c.signals) }] }
+"#;
+        let out = gluon_arm::evaluate("envelope", script, c, budget::DEFAULT_CALLS)
+            .expect("a second stage is a calculator");
+        let placed: Vec<(&str, Value)> = out
+            .computed
+            .signals
+            .iter()
+            .map(|r| (r.node.as_str(), signal(r, "reaches")))
+            .collect();
+        assert_eq!(
+            placed,
+            vec![
+                (
+                    "gage/canyon-outlet",
+                    Value::Text("this repository only".into())
+                ),
+                ("gage/high-bridge", Value::Text("public material".into())),
+            ],
+            "the rule partitions the corpus by the answer the step before it committed"
+        );
+        // The summary is a bare `Vec<Signal>` and `signal` wants a row, so it borrows one. The
+        // name is only ever read back out of a panic message.
+        let summary = Row {
+            node: "summary".to_string(),
+            values: out.computed.summary.clone(),
+        };
+        assert_eq!(signal(&summary, "nodes"), Value::Int(2));
+        assert_eq!(signal(&summary, "leaves_the_repository"), Value::Int(1));
+    }
+
+    /// A calculator joins a signal onto the node it is about, with no map and no import.
+    ///
+    /// The join is the script's own and it is one comparison: `Row::node` and `NodeView::id` are
+    /// the same reference form, which is what `marshal`'s note means by the field being cheap to
+    /// use where the nodes *are* in scope. A rule that reads both — the corpus and what it was
+    /// already told about it — is the third stage of a pipeline, and nothing else was needed for
+    /// it.
+    #[test]
+    fn a_signal_joins_onto_the_node_it_is_about() {
+        let mut c = corpus(&[("gage/canyon-outlet", 12.5), ("gage/high-bridge", 3.0)]);
+        c.signals = vec![told(
+            "gage/high-bridge",
+            &[("travels_as", Value::Text("verified".into()))],
+        )];
+        let script = r#"\c ->
+    // Annotated, and not for documentation. `r.node == id` on an `id` whose type inference has
+    // left open sends gluon looking for an `Eq` instance it cannot pick, and the error it reports
+    // names `Eq (Array (Array a))` and says nothing about the comparison that caused it.
+    let tier_of : String -> String = \id ->
+        foldable.foldl
+            (\acc r ->
+                if r.node == id then
+                    foldable.foldl
+                        (\inner s ->
+                            if s.name == "travels_as" then
+                                match s.value with
+                                | Text t -> t
+                                | _ -> inner
+                            else inner)
+                        acc
+                        r.values
+                else acc)
+            "unmarked"
+            c.signals
+
+    { signals =
+          array.functor.map
+              (\n -> { node = n.id, values = [{ name = "stands_at", value = Text (tier_of n.id) }] })
+              c.nodes,
+      summary = [] }
+"#;
+        let out = gluon_arm::evaluate("join", script, c, budget::DEFAULT_CALLS)
+            .expect("joining a signal onto its node is a calculator");
+        let rows: Vec<(&str, Value)> = out
+            .computed
+            .signals
+            .iter()
+            .map(|r| (r.node.as_str(), signal(r, "stands_at")))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("gage/canyon-outlet", Value::Text("unmarked".into())),
+                ("gage/high-bridge", Value::Text("verified".into())),
+            ],
+            "a node with no signal is not a node with an empty one"
+        );
     }
 
     /// The default budget is headroom and not a limit anything real meets.

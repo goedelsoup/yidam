@@ -29,9 +29,34 @@
 //! `Int` and `Float` are separate constructors because [`crate::computed`] keeps them separate:
 //! its `scalar` reads an integer as an integer, and a `Value` that carried only `Float` would
 //! turn every `tier: 3` a calculator emits into `3.0` — a narrowing nothing would report.
+//!
+//! # A pipeline's second stage, and why its signals are not on the nodes
+//!
+//! [`Corpus::signals`] is what a calculator has already been told by the calculators that ran
+//! before it (#1105). Without it the arm reached exactly the calculators that read only the
+//! graph: `examples/streamflow`'s `disclosure-envelope` declares
+//! `reads = [".yidam/computed/travel-tier.yml"]` and its whole job is to partition the corpus by
+//! an answer another capability committed, so a typed entry point handed no signals had no input
+//! for the rule it would compute.
+//!
+//! It is a field on [`Corpus`] and not one on [`NodeView`], and the reason is the declaration
+//! rather than taste. The tree a step stands in holds exactly what its `reads` resolve to, so a
+//! second stage that reads one computed file and no corpus path is handed signals about nodes
+//! that are *not* in `nodes` — which is the case this field exists for. Attaching them to the
+//! node would mean a typed calculator could only reach a previous step's answer by also
+//! declaring `.yidam/corpus/**`, so the typed arm would need a **wider** declaration than the
+//! shell arm to express the same rule. That is backwards for an arm whose whole claim is that
+//! `reads` bounds the value exactly.
+//!
+//! The join a calculator wants is therefore its own, and it is cheap: [`Row::node`] and
+//! [`NodeView::id`] are the same reference form, so a script that wants both matches one against
+//! the other. [`Row`] and [`Signal`] again, not a second pair of record types — a calculator
+//! reads signals in the shape it writes them, which is what makes two stages of a pipeline
+//! composable at all.
 
 use gluon_codegen::{Getable, Pushable, VmType};
 
+use crate::computed::Signals;
 use crate::corpus::{Class, Edges, Node as CorpusNode};
 
 /// One property value, as far as a type can read it. See the module note.
@@ -130,13 +155,6 @@ pub struct NodeView {
     pub malformed: bool,
 }
 
-/// What the entry point is applied to.
-#[derive(Debug, Clone, Getable, Pushable, VmType)]
-pub struct Corpus {
-    pub nodes: Vec<NodeView>,
-    pub classes: Vec<ClassView>,
-}
-
 /// One signal a row carries.
 #[derive(Debug, Clone, Getable, Pushable, VmType)]
 pub struct Signal {
@@ -149,6 +167,25 @@ pub struct Signal {
 pub struct Row {
     pub node: String,
     pub values: Vec<Signal>,
+}
+
+/// What the entry point is applied to.
+#[derive(Debug, Clone, Getable, Pushable, VmType)]
+pub struct Corpus {
+    pub nodes: Vec<NodeView>,
+    pub classes: Vec<ClassView>,
+    /// What the calculators that ran before this one committed, as
+    /// [`crate::computed::Signals`] reads it back.
+    ///
+    /// The same [`Row`] the entry point returns, so a stage of a pipeline reads its input in the
+    /// shape the stage before it wrote — see the module note for why this is here and not on
+    /// [`NodeView`], and for the join a calculator does itself.
+    ///
+    /// Bounded by the step's `reads` and by nothing else: a calculator that declares no
+    /// `.yidam/computed/` path is handed `[]`, which is the same answer as a corpus where nothing
+    /// has been computed. A script cannot tell those apart and does not need to — in both, there
+    /// is nothing it was told.
+    pub signals: Vec<Row>,
 }
 
 /// What the entry point returns.
@@ -214,6 +251,33 @@ fn key_of(k: &serde_yaml::Value) -> String {
     }
 }
 
+/// One committed signal as far as [`Value`] can read it.
+///
+/// A second function beside [`value_of`] because it reads a different thing: a property is YAML as
+/// the instance wrote it, and a signal has already been through
+/// [`crate::computed::Signals`]'s own reading of the table. That reader admits four shapes and
+/// refuses the rest — it reports a row declaring `null`, a list or a mapping as a problem and
+/// carries no value for it — so the four arms below are the whole of what can arrive here.
+///
+/// The last arm is therefore unreachable rather than a case, and it is `Unrepresentable` and not
+/// a `panic!` or a silent drop for the reason [`Value`] exists at all: a calculator that cannot
+/// see the whole of its input has to be *told*, and a constructor it can match on is how. If a
+/// later reader admits a shape this one cannot type, a script sees the constructor that says so
+/// instead of a signal that quietly is not there.
+fn signal_read(v: &serde_json::Value) -> Value {
+    match v {
+        serde_json::Value::String(s) => Value::Text(s.clone()),
+        serde_json::Value::Bool(b) => Value::Flag(*b),
+        serde_json::Value::Number(n) => match (n.as_i64(), n.as_f64()) {
+            (Some(i), _) => Value::Int(i),
+            (None, Some(f)) => Value::Number(f),
+            _ => Value::Unrepresentable,
+        },
+        serde_json::Value::Null => Value::Empty,
+        _ => Value::Unrepresentable,
+    }
+}
+
 /// One YAML value as far as [`Value`] can read it. See the module note.
 fn value_of(v: &serde_yaml::Value) -> Value {
     match v {
@@ -237,7 +301,15 @@ fn value_of(v: &serde_yaml::Value) -> Value {
 /// Takes the already-parsed nodes and classes rather than a root path: this arm exists because
 /// the CLI *already holds* the corpus, and a projection that re-read it from disk would give a
 /// calculator a second, later reading of the tree than the one the receipt attests to.
-pub(crate) fn project(nodes: &[CorpusNode], classes: &[Class], edges: &Edges) -> Corpus {
+///
+/// `signals` is the same: [`Signals::in_reads`] over the tree the step stands in, read once by
+/// the caller. See [`Corpus::signals`] for what a calculator does with it.
+pub(crate) fn project(
+    nodes: &[CorpusNode],
+    classes: &[Class],
+    edges: &Edges,
+    signals: &Signals,
+) -> Corpus {
     Corpus {
         nodes: nodes
             .iter()
@@ -296,6 +368,19 @@ pub(crate) fn project(nodes: &[CorpusNode], classes: &[Class], edges: &Edges) ->
                         kind: p.r#type.clone(),
                         required: p.required,
                         prose: p.prose,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        signals: signals
+            .by_reference()
+            .map(|(node, values)| Row {
+                node: node.to_string(),
+                values: values
+                    .iter()
+                    .map(|(name, v)| Signal {
+                        name: name.clone(),
+                        value: signal_read(v),
                     })
                     .collect(),
             })
@@ -510,7 +595,7 @@ mod tests {
     /// parsed, and a test that handed over some other graph would be projecting a corpus that
     /// does not exist.
     fn projected(nodes: &[CorpusNode], classes: &[Class]) -> Corpus {
-        project(nodes, classes, &Edges::build(nodes))
+        project(nodes, classes, &Edges::build(nodes), &Signals::default())
     }
 
     /// A node as the corpus reader would hand it over: parsed from its own bytes.

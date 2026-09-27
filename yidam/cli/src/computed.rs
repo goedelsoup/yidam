@@ -124,13 +124,15 @@ pub struct ComputedFile {
 pub struct Signals {
     /// Every `*.yml` under `.yidam/computed/`, in byte order.
     pub files: Vec<ComputedFile>,
-    /// Signals by the repository-relative path of the node they describe.
+    /// Signals by the reference of the node they describe — `<class>/<name>`.
     ///
-    /// Keyed on the node's path rather than on its reference because that is what every
-    /// consumer already holds — [`crate::corpus::Node::rel`], an index row's `path`, a remote
-    /// vector's key. The reference is what the *file* is written in; resolving it once, here,
-    /// is what keeps that grammar out of every consumer.
-    by_node: BTreeMap<String, BTreeMap<String, Value>>,
+    /// One map, keyed the way the *file* writes it, and the two consumers take the two halves of
+    /// that one parse. [`crate::cmd::embed`] holds [`crate::corpus::Node::rel`] and asks through
+    /// [`Self::for_node`], which converts. The typed calculator arm's projection reads the
+    /// references straight, because `marshal::NodeView::id` is one. Keeping the path form here
+    /// instead would send that projection back through RFC-0032's grammar to recover a string
+    /// this module had already parsed out.
+    by_reference: BTreeMap<String, BTreeMap<String, Value>>,
     /// What could not be read, one sentence each, in the order the files were read.
     ///
     /// Accumulated rather than returned as an error. A malformed computed file is not a reason
@@ -156,6 +158,32 @@ struct Table {
     signals: Option<Vec<serde_yaml::Mapping>>,
 }
 
+/// Which kind of tree a read is over, and therefore which questions it may ask of it.
+///
+/// Two of this module's refusals are about the *surroundings* of a computed file rather than
+/// about the file: whether some capability's `writes` covers it, and whether the nodes its rows
+/// key on are there. Both are questions about a corpus, and both are the right questions when a
+/// corpus is what is in front of you — this module's note argues each at length, and `doctor`
+/// exists to ask them.
+///
+/// A step of a run does not stand in a corpus. It stands in a scratch tree holding exactly what
+/// its `reads` resolve to — the mechanism RFC-0026 refuses an undeclared read with.
+/// `examples/streamflow`'s `disclosure-envelope` declares one computed file, no corpus path and
+/// no manifest, so in that tree both questions have the same answer for every row, and it is an
+/// answer about the declaration doing its job rather than about anything being wrong. Asked
+/// there, they would report a broken corpus and carry no signals — which is how a typed second
+/// stage would come to compute over an empty table and commit a plausible, wrong file (#1105).
+///
+/// So this is not a strictness dial. It is which of two trees is being read, and each question
+/// below is asked of the tree it is a question about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tree {
+    /// A corpus, with its manifest and its nodes. What `doctor`, `embed` and `status` read.
+    Corpus,
+    /// The `reads`-bounded tree a step of a run stands in.
+    Reads,
+}
+
 impl Signals {
     /// Read every computed file at `root`, resolving each against the capability manifest.
     ///
@@ -163,6 +191,20 @@ impl Signals {
     /// answers empty; everything else that can go wrong is a [`Signals::problems`] entry, so a
     /// caller gets both the signals that *did* read and the account of the ones that did not.
     pub fn load(root: &Path) -> Self {
+        Self::read(root, Tree::Corpus)
+    }
+
+    /// Read the computed files a step's `reads` put in the tree it stands in.
+    ///
+    /// Every refusal that is about a computed file, and none of the two that are about a corpus
+    /// it is not in — this module's `Tree` carries the argument.
+    /// `gluon_arm::marshal::project` is the caller, which is how a pipeline's second stage can be
+    /// typed at all (#1105).
+    pub fn in_reads(root: &Path) -> Self {
+        Self::read(root, Tree::Reads)
+    }
+
+    fn read(root: &Path, tree: Tree) -> Self {
         let mut out = Self::default();
         let dir = yidam_computed_dir(root);
         if !dir.is_dir() {
@@ -202,7 +244,7 @@ impl Signals {
                 .filter(|(_, writes)| writes.iter().any(|g| glob_covers(g, &rel)))
                 .map(|(name, _)| name.clone())
                 .collect();
-            if declared_by.is_empty() {
+            if declared_by.is_empty() && tree == Tree::Corpus {
                 out.problems.push(format!(
                     "{rel} is not covered by any capability's `writes`, so nothing in \
                      {MANIFEST} is accountable for it"
@@ -273,7 +315,7 @@ impl Signals {
                     ));
                     continue;
                 };
-                let Some(node_path) = node_path(&node) else {
+                let Some(reference) = node_reference(&node) else {
                     out.problems.push(format!(
                         "{rel} row {} keys on `{node}`, which is not a node in this corpus in \
                          RFC-0032's grammar",
@@ -281,7 +323,8 @@ impl Signals {
                     ));
                     continue;
                 };
-                if !root.join(&node_path).is_file() {
+                let node_path = node_file(&reference);
+                if tree == Tree::Corpus && !root.join(&node_path).is_file() {
                     out.problems.push(format!(
                         "{rel} row {} keys on `{node}`, and this corpus holds no {node_path}",
                         i + 1
@@ -327,8 +370,8 @@ impl Signals {
                         continue;
                     };
                     claimed.insert(name.to_string(), rel.clone());
-                    out.by_node
-                        .entry(node_path.clone())
+                    out.by_reference
+                        .entry(reference.clone())
                         .or_default()
                         .insert(name.to_string(), value);
                 }
@@ -346,18 +389,29 @@ impl Signals {
 
     /// The signals about one node, by its repository-relative path. Empty where there are none.
     pub fn for_node(&self, rel: &str) -> BTreeMap<String, Value> {
-        self.by_node.get(rel).cloned().unwrap_or_default()
+        node_id(rel)
+            .and_then(|id| self.by_reference.get(id))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Every node that carries a signal, by reference and in byte order, with its signals.
+    ///
+    /// Byte order over both, which is what makes a projection of this a function of the files
+    /// and not of the run: a `BTreeMap` all the way down.
+    pub fn by_reference(&self) -> impl Iterator<Item = (&str, &BTreeMap<String, Value>)> {
+        self.by_reference.iter().map(|(k, v)| (k.as_str(), v))
     }
 
     /// How many nodes carry at least one signal.
     pub fn nodes(&self) -> usize {
-        self.by_node.len()
+        self.by_reference.len()
     }
 
     /// Every signal name in the corpus, in byte order.
     pub fn names(&self) -> Vec<String> {
         let mut names: Vec<String> = self
-            .by_node
+            .by_reference
             .values()
             .flat_map(|m| m.keys().cloned())
             .collect();
@@ -367,7 +421,7 @@ impl Signals {
     }
 }
 
-/// The repository-relative node file a reference names, or `None` where it names no node here.
+/// The node reference a row's `node:` names, or `None` where it names no node in this corpus.
 ///
 /// Refuses three things, each for its own reason. A kind other than `Node`: a signal is about a
 /// node, and a catalog entry or a crate has no embedding for one to reach. A naming corpus: the
@@ -375,7 +429,7 @@ impl Signals {
 /// revision pin: `x@abc` and `x` denote the same node in two states (RFC-0032 §4.3), and a
 /// signal keyed at a past commit would be attached to the node as it stands now — which is the
 /// one reading that is certainly wrong.
-fn node_path(reference: &str) -> Option<String> {
+fn node_reference(reference: &str) -> Option<String> {
     let r = yidam_core::uri::parse_reference(reference)?;
     if r.kind != yidam_core::uri::Kind::Node || r.corpus.is_some() || r.rev.is_some() {
         return None;
@@ -383,7 +437,23 @@ fn node_path(reference: &str) -> Option<String> {
     if r.fragment.is_some() || r.segments().len() != 2 {
         return None;
     }
-    Some(format!(".yidam/corpus/{}.yml", r.path))
+    Some(r.path.to_string())
+}
+
+/// The repository-relative file a node reference names.
+///
+/// The inverse of [`node_id`], and the two are a pair on purpose: `<class>/<name>` and
+/// `.yidam/corpus/<class>/<name>.yml` are one fact in two spellings, and every other module in
+/// this CLI holds one or the other. Spelling the conversion once here is what keeps a third
+/// reading of it from appearing in a consumer.
+fn node_file(reference: &str) -> String {
+    format!(".yidam/corpus/{reference}.yml")
+}
+
+/// The node reference a repository-relative corpus file is written as, or `None` for a path that
+/// is not one.
+fn node_id(rel: &str) -> Option<&str> {
+    rel.strip_prefix(".yidam/corpus/")?.strip_suffix(".yml")
 }
 
 /// A YAML scalar as a JSON one, or `None` for a sequence or a mapping.
@@ -485,35 +555,91 @@ signals:
         assert_eq!(s.nodes(), 1);
     }
 
+    /// A step's own tree is not a corpus, so `in_reads` carries a row the corpus check drops.
+    ///
+    /// This is the pipeline case, and the reason [`Tree`] has two variants (#1105).
+    /// `examples/streamflow`'s `disclosure-envelope` declares
+    /// `reads = [".yidam/computed/travel-tier.yml", …]` and no corpus path, so the tree it is
+    /// invoked in holds the answer it computes from and no node at all. Under [`Signals::load`]
+    /// every row of that answer keys on a node that is not there: one problem per row about a
+    /// corpus nobody asked for, and no signals. A typed second stage would compute over an empty
+    /// table and commit a plausible, wrong file.
+    ///
+    /// Both halves are asserted, because each is the other's control: the two questions have to
+    /// still be asked of the tree they are questions about.
+    #[test]
+    fn a_reads_bounded_tree_carries_its_signals_and_a_corpus_is_still_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(".yidam/computed")).unwrap();
+        std::fs::write(root.join(".yidam/computed/travel-tier.yml"), TRAVEL_TIER).unwrap();
+
+        let told = Signals::in_reads(root);
+        assert_eq!(told.problems, Vec::<String>::new());
+        let rows: Vec<(&str, Vec<&str>)> = told
+            .by_reference()
+            .map(|(node, values)| (node, values.keys().map(String::as_str).collect()))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![("gage/canyon-outlet", vec!["downgraded", "travels_as"])],
+            "a second stage is handed the signals its `reads` put in the tree"
+        );
+
+        let read = Signals::load(root);
+        assert_eq!(read.nodes(), 0);
+        let p = read.problems.join("\n");
+        assert!(
+            p.contains("this corpus holds no .yidam/corpus/gage/canyon-outlet.yml"),
+            "the corpus-membership check is still the reading `doctor` gets: {p}"
+        );
+    }
+
     /// The full grammar, not a second form invented here.
     #[test]
     fn the_absolute_form_of_the_grammar_reaches_the_same_node() {
-        assert_eq!(
-            node_path("node/gage/canyon-outlet").as_deref(),
-            Some(".yidam/corpus/gage/canyon-outlet.yml")
-        );
-        assert_eq!(
-            node_path("yidam://corpus/node/gage/canyon-outlet").as_deref(),
-            Some(".yidam/corpus/gage/canyon-outlet.yml")
-        );
+        for written in [
+            "node/gage/canyon-outlet",
+            "yidam://corpus/node/gage/canyon-outlet",
+        ] {
+            assert_eq!(
+                node_reference(written).as_deref(),
+                Some("gage/canyon-outlet"),
+                "`{written}` is the grammar's own form of one node"
+            );
+        }
+    }
+
+    /// The two spellings of one node are each other's inverse, over the form a file writes.
+    ///
+    /// The pair is what lets one map serve both consumers — see [`Signals::by_reference`] — so a
+    /// change to either half that did not round-trip would make `for_node` answer empty for
+    /// every node, which is indistinguishable from a corpus that computed nothing.
+    #[test]
+    fn a_reference_and_the_file_it_names_round_trip() {
+        let reference = node_reference("gage/canyon-outlet").expect("a node reference");
+        let file = node_file(&reference);
+        assert_eq!(file, ".yidam/corpus/gage/canyon-outlet.yml");
+        assert_eq!(node_id(&file), Some("gage/canyon-outlet"));
+        assert_eq!(node_id("docs/cli-reference.md"), None);
     }
 
     /// A signal lands on a node in *this* corpus's embedding, and a foreign name has none.
     #[test]
     fn a_reference_naming_another_corpus_is_not_a_node_here() {
-        assert!(node_path("yidam://streamflow/node/gage/canyon-outlet").is_none());
+        assert!(node_reference("yidam://streamflow/node/gage/canyon-outlet").is_none());
     }
 
     /// `x@abc` and `x` are the same node in two states; a signal attached at a past commit
     /// would be read as a signal about the node as it stands.
     #[test]
     fn a_revision_pin_is_refused_rather_than_ignored() {
-        assert!(node_path("gage/canyon-outlet@abc1234").is_none());
+        assert!(node_reference("gage/canyon-outlet@abc1234").is_none());
     }
 
     #[test]
     fn a_catalog_reference_is_not_a_node() {
-        assert!(node_path("catalog/usgs-nwis").is_none());
+        assert!(node_reference("catalog/usgs-nwis").is_none());
     }
 
     /// The collision names both files, because either one of them is the one to change and a
