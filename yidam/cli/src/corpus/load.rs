@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::parse::parse_frontmatter;
+use crate::parse::parse_frontmatter_reporting;
 
 use super::{Class, Node, Overlay, Source};
 
@@ -31,7 +31,7 @@ pub fn load_sources(root: &Path, paths: &[PathBuf], overlay: &Overlay) -> Vec<So
         .iter()
         .map(|p| {
             let text = overlay.read(p);
-            let fm = parse_frontmatter(&text);
+            let (fm, malformed) = parse_frontmatter_reporting(&text);
             Source {
                 rel: rel_of(root, p),
                 path: p.clone(),
@@ -44,6 +44,7 @@ pub fn load_sources(root: &Path, paths: &[PathBuf], overlay: &Overlay) -> Vec<So
                 retrieved: fm.retrieved,
                 ttl_days: fm.ttl_days,
                 artifacts: fm.artifacts.unwrap_or_default(),
+                malformed,
             }
         })
         .collect()

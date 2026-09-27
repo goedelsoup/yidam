@@ -34,16 +34,20 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use crate::paths::{yidam_catalog_dir, yidam_corpus_dir};
+use crate::paths::{yidam_catalog_dir, yidam_corpus_dir, yidam_decisions_dir};
 use crate::walk::{walk_corpus_instances, walk_md_files, walk_ont_files};
 
-use super::{load_classes, load_nodes, load_sources, Class, Edges, Node, Overlay, Source};
+use super::{
+    load_classes, load_decisions, load_nodes, load_sources, Class, DecisionRecord, Edges, Node,
+    Overlay, Source,
+};
 
 /// One repository's corpus: its nodes, its classes, its sources, and the graph between them.
 pub struct Corpus {
     root: PathBuf,
     dir: PathBuf,
     catalog_dir: PathBuf,
+    decisions_dir: PathBuf,
     overlay: Overlay,
     instance_paths: OnceLock<Vec<PathBuf>>,
     ont_paths: OnceLock<Vec<PathBuf>>,
@@ -51,6 +55,7 @@ pub struct Corpus {
     nodes: OnceLock<Vec<Node>>,
     classes: OnceLock<Vec<Class>>,
     sources: OnceLock<Vec<Source>>,
+    decisions: OnceLock<Vec<DecisionRecord>>,
     edges: OnceLock<Edges>,
 }
 
@@ -71,6 +76,7 @@ impl Corpus {
         Self {
             dir: yidam_corpus_dir(root),
             catalog_dir: yidam_catalog_dir(root),
+            decisions_dir: yidam_decisions_dir(root),
             root: root.to_path_buf(),
             overlay,
             instance_paths: OnceLock::new(),
@@ -79,6 +85,7 @@ impl Corpus {
             nodes: OnceLock::new(),
             classes: OnceLock::new(),
             sources: OnceLock::new(),
+            decisions: OnceLock::new(),
             edges: OnceLock::new(),
         }
     }
@@ -130,6 +137,16 @@ impl Corpus {
     pub fn sources(&self) -> &[Source] {
         self.sources
             .get_or_init(|| load_sources(&self.root, self.catalog_paths(), &self.overlay))
+    }
+
+    /// Every decision record, in the walk's order.
+    ///
+    /// Read from disk rather than through the overlay: the editor's buffers are instance and
+    /// class files, and a decision record is not one of the documents `serve --lsp` offers
+    /// completion or diagnostics for. When it is, this is the one line that changes.
+    pub fn decisions(&self) -> &[DecisionRecord] {
+        self.decisions
+            .get_or_init(|| load_decisions(&self.root, &self.decisions_dir))
     }
 
     /// The graph over [`Self::nodes`], resolved once.
@@ -196,6 +213,11 @@ mod tests {
             "class: gauge\nlabel: G\n",
         );
         write(root, ".yidam/catalog/s.md", "---\nobtained: true\n---\n");
+        write(
+            root,
+            ".yidam/decisions/d1.yml",
+            "id: d1\nsummary: chose A\n",
+        );
         t
     }
 
@@ -241,6 +263,65 @@ mod tests {
         assert!(c.ont_paths.get().is_none());
         assert!(c.catalog_paths.get().is_none());
         assert!(c.nodes.get().is_none());
+        assert!(c.decisions.get().is_none());
+    }
+
+    /// A decision record is the fourth thing a repository is written in, and until #1056 it was
+    /// the one nothing held a model for — `cmd/decisions.rs` parsed it with
+    /// `unwrap_or_default()` and threw the failure away.
+    #[test]
+    fn a_decision_record_is_a_record_of_the_corpus() {
+        let t = fixture();
+        let c = Corpus::open(t.path());
+        assert_eq!(c.decisions().len(), 1);
+        let d = &c.decisions()[0];
+        assert_eq!(d.id(), "d1");
+        assert_eq!(d.rel, ".yidam/decisions/d1.yml");
+        assert_eq!(d.malformed, None);
+    }
+
+    /// The reason the record carries its parse outcome: read as an empty `Decision`, a record
+    /// that governed a phase is named by its file stem and summarised with an em dash, which is
+    /// exactly how a record nobody filled in renders.
+    #[test]
+    fn a_decision_that_does_not_parse_says_so() {
+        let t = fixture();
+        write(t.path(), ".yidam/decisions/d2.yml", "summary: \"unclosed\n");
+        let c = Corpus::open(t.path());
+        let d = c
+            .decisions()
+            .iter()
+            .find(|d| d.rel.ends_with("d2.yml"))
+            .expect("the walk finds it");
+        assert!(d.malformed.is_some());
+        assert_eq!(
+            d.id(),
+            "d2",
+            "the stem, which is all an empty record leaves"
+        );
+    }
+
+    /// The other half: a catalog entry whose header does not parse.
+    #[test]
+    fn a_catalog_entry_that_does_not_parse_says_so() {
+        let t = fixture();
+        write(
+            t.path(),
+            ".yidam/catalog/bad.md",
+            "---\nttl_days: \"30\n---\n",
+        );
+        let c = Corpus::open(t.path());
+        let s = c
+            .sources()
+            .iter()
+            .find(|s| s.rel.ends_with("bad.md"))
+            .expect("the walk finds it");
+        assert!(s.malformed.is_some());
+        assert_eq!(s.ttl_days, None);
+        assert!(c
+            .sources()
+            .iter()
+            .all(|s| s.rel.ends_with("bad.md") || s.malformed.is_none()));
     }
 
     /// Asking for edges loads nodes and nothing else — the laziness the module note claims,
@@ -254,6 +335,7 @@ mod tests {
         assert!(c.classes.get().is_none());
         assert!(c.sources.get().is_none());
         assert!(c.catalog_paths.get().is_none());
+        assert!(c.decisions.get().is_none());
     }
 
     #[test]
@@ -300,6 +382,7 @@ mod tests {
         assert!(c.nodes().is_empty());
         assert!(c.classes().is_empty());
         assert!(c.sources().is_empty());
+        assert!(c.decisions().is_empty());
         assert!(c.edges().out(0).is_empty());
     }
 }

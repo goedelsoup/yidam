@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use crate::authorship::{Authorship, Region};
-use crate::corpus::{Class, Corpus, Edges, Node, Overlay, Source};
+use crate::corpus::{Class, Corpus, DecisionRecord, Edges, Node, Overlay, Source};
 
 use super::{
     attest, checks, citations, commitments, edge_claims, independence, line_citations, lineage,
@@ -153,6 +153,11 @@ impl<'a> Input<'a> {
 
     pub(crate) fn sources(&self) -> &'a [Source] {
         self.corpus.sources()
+    }
+
+    /// Every decision record, for the one check whose subject is whether they parse.
+    pub(crate) fn decisions(&self) -> &'a [DecisionRecord] {
+        self.corpus.decisions()
     }
 
     pub(crate) fn edges(&self) -> &'a Edges {

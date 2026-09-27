@@ -68,16 +68,16 @@ at depth 2 and all of it at depth 3.
 ### E1 typed the graph and no traversal reads the types
 
 `.ont.yml` now declares, and lint now enforces: the class an instance belongs to
-([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L473), Error), the properties it may
-and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L921),
-[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1094)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1378)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1448)), and which class
+([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L501), Error), the properties it may
+and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L949),
+[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1122)), the type of each value
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1406)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1476)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1515), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1543), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
-([`checks.rs:1458-1459`](../../yidam/cli/src/cmd/lint/checks.rs#L1458-L1459)):
+([`checks.rs:1486-1487`](../../yidam/cli/src/cmd/lint/checks.rs#L1486-L1487)):
 
 > a relationship in no declaration is worth seeing, because **a traversal that walks by
 > relationship will not find it**
@@ -291,7 +291,7 @@ relationship the class does not declare resolves as:
 
 The first row is load-bearing and is easy to omit. `unlicensed_edge` short-circuits on an empty
 edge list **before** it consults the policy
-([`checks.rs:1414-1415`](../../yidam/cli/src/cmd/lint/checks.rs#L1414-L1415)):
+([`checks.rs:1442-1443`](../../yidam/cli/src/cmd/lint/checks.rs#L1442-L1443)):
 
 ```rust
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
