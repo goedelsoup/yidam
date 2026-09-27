@@ -83,11 +83,25 @@ fn the_arm_is_outside_the_default_set() {
     );
 }
 
-/// Nothing outside `src/gluon_arm/` names gluon.
+/// Nothing outside `src/gluon_arm/` reaches into the gluon crate.
 ///
 /// The feature can only be honest if the code behind it is in one place. A `use gluon::…` in a
 /// module that is not gated compiles in the default build or does not compile at all, and the
 /// second is how a feature stops being optional. Held over the tree rather than over a list.
+///
+/// # The engine and the arm's name are different things (#1091)
+///
+/// This scanned for the *word* until the manifest could declare the arm. A corpus now writes
+/// `run = { gluon = "…" }`, so `gluon` is a key in `.yidam/capabilities.toml` and appears in
+/// `cmd/run/manifest.rs` — in the variant, in its field, and in every refusal that quotes the
+/// declaration back. None of that links a package: the shape and its validation are ungated
+/// deliberately, because the released binary is the one that reads a manifest declaring an arm it
+/// cannot run, and a build that could not parse the declaration would refuse the whole manifest
+/// over a step it was never going to invoke.
+///
+/// So the scan asks about a path into the crate — `gluon::`, `use gluon`, `gluon_codegen` — which is
+/// what the paragraph above was always arguing about. It is still over the tree and not over a list,
+/// and it is narrower in exactly one way: a manifest keyword is no longer an engine reference.
 #[test]
 fn only_the_arm_names_the_engine() {
     let src = repo_root().join("yidam/cli/src");
@@ -111,25 +125,28 @@ fn only_the_arm_names_the_engine() {
         for (i, line) in text.lines().enumerate() {
             // Code only: `lib.rs` has to be able to say the word in the doc comment that
             // explains why the module is gated.
-            // The feature's own name contains the word, and so does the module declaration
-            // `lib.rs` has to make. Neither names the crate; masking them is what leaves the
-            // scan about the engine rather than about the string.
+            // The module declaration `lib.rs` makes is `gluon_arm`, which is a path into this
+            // crate and not into the engine, so it is masked before the question is asked.
             let code = line
                 .split("//")
                 .next()
                 .unwrap_or("")
-                .replace("calculators-gluon", "<feature>")
                 .replace("gluon_arm", "<module>");
-            if code.contains("gluon") {
+            if ["gluon::", "use gluon", "gluon_codegen"]
+                .iter()
+                .any(|p| code.contains(p))
+            {
                 strays.push(format!("  src/{rel}:{}: {}", i + 1, line.trim()));
             }
         }
     }
     assert!(
         strays.is_empty(),
-        "gluon is named in code outside `src/gluon_arm/`:\n{}\n\n\
+        "the gluon crate is reached from code outside `src/gluon_arm/`:\n{}\n\n\
          Every use of the engine belongs behind `calculators-gluon` in one module, or the \
-         feature is not what decides whether the default build links 71 packages.",
+         feature is not what decides whether the default build links 71 packages.\n\
+         Declaring the arm is not using it: `run = {{ gluon = … }}` is manifest vocabulary and is \
+         parsed in every build.",
         strays.join("\n")
     );
 }

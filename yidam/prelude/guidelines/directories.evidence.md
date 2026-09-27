@@ -445,3 +445,12 @@ gap; that same repository spent four commits the same day removing the verb, on 
 reasoning that no gap existed in the prelude *it* could see. Both were right about their own
 evidence. Neither could see the other, and the derived repo ended further from upstream than it
 started.
+
+## typed-arm-outside-the-default-build
+
+The engine resolves 71 marginal packages against the policy engine's 8, for +6.8 MB on a binary
+whose whole argument is that it is small enough to download. The hermeticity case that ungated the
+policy engine does not transfer: a build that cannot evaluate policy cannot refuse anything, while a
+build that cannot run a typed calculator refuses that step by name and commits nothing. So the
+manifest still parses in every build — a corpus declaring the arm is not a malformed corpus — and
+the refusal names the feature rather than reading as a broken manifest.

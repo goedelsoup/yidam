@@ -20,7 +20,7 @@
 
 A calculator is a shell command. RFC-0026 said so on purpose, and the executor's own doc comment
 gives the reason — *"a vertical slice that needed a build system to demonstrate would be
-demonstrating the build system"* ([`invoke`](../../yidam/cli/src/cmd/run/exec.rs#L215-L227)). What
+demonstrating the build system"* ([`process`](../../yidam/cli/src/cmd/run/exec.rs#L276-L288)). What
 it costs is that the property `docs/domain-computer.md` states about the whole kind is
 unenforceable. This RFC proposes a **second arm** on the same manifest field — a script in an
 embedded, statically typed, effect-tracked language, `run = { gluon = "…" }` beside
@@ -53,7 +53,7 @@ and the title changed with it. Nothing about the cost measurement or the decisio
 > — [`Calculators`](../domain-computer.md#L16-L21)
 
 Three of those four are unenforced. `materialize` checks out the declared `reads` into a scratch
-tree, [`invoke`](../../yidam/cli/src/cmd/run/exec.rs#L215-L227) spawns `run[0]` in it with five
+tree, [`process`](../../yidam/cli/src/cmd/run/exec.rs#L276-L288) spawns `run[0]` in it with five
 environment variables, and the executor afterwards refuses a step that wrote outside `writes`.
 That is a real guarantee about **writes** and about nothing else. A calculator may read the
 clock, resolve a hostname, open a socket, or read any path on the machine outside its scratch
@@ -160,7 +160,7 @@ claim about composition, not an audit of the host's registrations.
 So the guarantee lives in two mechanisms, and the scope is the primary one:
 
 - **A closed prelude.** The script is evaluated with a fixed prefix binding fifteen named pure
-  modules — [`PRELUDE_MODULES`](../../yidam/cli/src/gluon_arm/mod.rs#L74-L77) — and any macro
+  modules — [`PRELUDE_MODULES`](../../yidam/cli/src/gluon_arm/mod.rs#L82-L85) — and any macro
   invocation *in the script* is refused lexically by
   [`refuse_macros`](../../yidam/cli/src/gluon_arm/entry.rs#L44-L46). Since gluon reaches a native
   module only through `import!`, a script that cannot invoke a macro can only use the names the
@@ -173,7 +173,7 @@ So the guarantee lives in two mechanisms, and the scope is the primary one:
   signature and reports the type it found beside the type it wanted.
 
 A gluon calculator that so much as names `std.fs` still does not compile — but for the first
-reason, not the second. [`EXCLUDED`](../../yidam/cli/src/gluon_arm/mod.rs#L85-L89) records each
+reason, not the second. [`EXCLUDED`](../../yidam/cli/src/gluon_arm/mod.rs#L93-L97) records each
 module that is deliberately unreachable beside the reason, `debug` among them, and the reason
 given there is this subsection in one line. The claim that survives review is therefore weaker
 than the earlier draft's and *stronger* than a denylist's, and it is the one the module doc now
@@ -204,10 +204,17 @@ writes = [".yidam/computed/**"]
 verb   = "compute"
 ```
 
-Serde-untagged on [`run`](../../yidam/cli/src/cmd/run/manifest.rs#L172-L178), so the sequence form
-parses byte-identically to today and no existing manifest changes. The table form takes exactly
-one key, and an unknown key is refused at load with the arms named — the manifest's
+A sum on [`run`](../../yidam/cli/src/cmd/run/manifest.rs#L203-L226), so the sequence form parses
+byte-identically to today and no existing manifest changes. The table form takes `gluon` and an
+optional `calls`, and an unknown key is refused at load with the arms named — the manifest's
 `deny_unknown_fields` rule applied to a field that now has a shape rather than a type.
+
+**Implemented with a hand-written `Deserialize` rather than `#[serde(untagged)]`, which is where
+this section was wrong.** Untagged reads the shape correctly and reports `data did not match any
+variant of untagged enum Run` when it does not, naming neither the field nor what was wrong with
+it. A manifest is a file a person writes by hand, and the two arms are told apart by *array versus
+table* — a distinction an error message can state. Serialization stays derived-untagged, so a
+receipt already committed for a shell step keeps its exact bytes.
 
 Everything else on the declaration is unchanged and keeps its present meaning: `writes` still
 bounds what may be committed, `after` still orders the graph, `verb` still decides where the
@@ -221,12 +228,18 @@ transfer. That argument was *a build that cannot evaluate policy is a build that
 — the light binary must be able to apply a rule, so the engine that applies rules belongs in it.
 A light build that cannot run a gluon calculator is in no such position: it refuses the step by
 name, commits nothing, and says which feature would run it, which is exactly what
-[`unrunnable_because`](../../yidam/cli/src/cmd/run/manifest.rs#L121-L135) already does for a
+[`Kind::unrunnable_because`](../../yidam/cli/src/cmd/run/manifest.rs#L121-L135) already does for a
 connector and a featurizer.
 
 That is a third case on an existing mechanism rather than a new one, with one difference worth
 stating: a connector's refusal is a decision and a featurizer's is an absence, and this one is
-neither — it is a property of the build in hand. So the sentence names the feature, and the
+neither — it is a property of the build in hand. Which is why the predicate gained a **sibling**
+rather than a third arm. `Kind::unrunnable_because` is a property of the taxonomy and the same in
+every build; [`Run::unrunnable_because`](../../yidam/cli/src/cmd/run/manifest.rs#L383-L397) is a
+property of this binary; and only the whole declaration knows it has to ask both, so
+[`Capability::unrunnable_because`](../../yidam/cli/src/cmd/run/manifest.rs#L480-L491) asks the kind
+first. A featurizer declaring a `.glu` is refused for being a featurizer, because no build has that
+executor and the feature is not the thing its author can act on. So the sentence names the feature, and the
 manifest still **parses** in a light build, because a corpus that declares a gluon calculator is
 not a malformed corpus. Refusing to parse would make `yidam lint` and `yidam graph` fail on a
 repository whose only sin is a capability this binary cannot invoke.
@@ -295,7 +308,7 @@ manifest. The reverse is the same move — a corpus that abandons the arm rewrit
 because the arm changes how a number is computed and not what the computed file looks like.
 
 The one thing that is not backward-compatible is a **corpus** carrying a gluon arm and a
-**consumer** on the released light binary. That is the case `unrunnable_because` answers, and the
+**consumer** on the released light binary. That is the case `Capability::unrunnable_because` answers, and the
 answer is a named refusal with nothing committed. A corpus that wants to be runnable by the
 downloaded binary writes the shell arm; the manifest is the place that choice is visible, which
 is the property RFC-0026 built it for.
@@ -344,18 +357,36 @@ subsection above for the measurement that settled which is which.
 
 1. **Does 71 clear the bar at all?** This RFC does not assert that it does. The decision rule
    above is the form the answer should take, and the answer belongs in review, not here.
-2. **Sliced or whole.** Whether the marshalled corpus is cut to the declared `reads` or always
-   whole. It must be answered identically here and in #1080, and whichever way it goes,
-   `guidelines/directories.md` states it beside the field.
-3. **The budget's value, and whether a corpus may raise it.** A call budget a declaration can
-   set is a knob that makes a hanging run a corpus's own decision; a fixed one is a number in
-   the binary that one repository's judgement imposes on every other — the sentence RFC-0024
-   quotes four times.
-4. **What the receipt records about the script.** The shell arm gets this for free: the script
-   is a file under `reads`, so editing a calculator makes its step stale. A marshalled arm reads
-   no tree, so the script's own hash has to reach the input state some other way, or editing a
-   calculator silently leaves its answer standing.
-5. **Whether a typechecked-but-failing script is a different refusal.** A script that typechecks
+2. ~~**Sliced or whole.**~~ **Answered in #1091: sliced, the same slice #1080 hands a shell step.**
+   The typed arm marshals the corpus out of the materialized input tree rather than out of the
+   reader the CLI holds, so `reads` bounds what a calculator can see in both arms by construction
+   rather than by two rules that have to agree. `guidelines/directories.md` states it beside the
+   field, once, for both.
+3. ~~**The budget's value, and whether a corpus may raise it.**~~ **Answered in #1091: declarable,
+   with the binary's default where it is absent.** `run = { gluon = "…", calls = N }`, and the
+   argument is `ageing_days`': a number compiled in is one corpus's judgement arriving in another
+   that never agreed to it, and a calculator over ten thousand nodes and one over ten are not the
+   same computation. `calls` sits **inside** the table rather than beside it, which buys two things
+   for free — it is part of `run`, so it is already in the input state and a changed budget re-runs
+   the step, and declaring it on a sequence arm is refused by the same rule that refuses any other
+   unknown key. The default is resolved where it is spent and not at parse time, because it lives
+   behind the feature and a light build must still validate the declaration.
+4. ~~**What the receipt records about the script.**~~ **Answered in #1091: both mechanisms, not
+   either.** The manifest refuses a typed declaration whose `reads` do not cover its own `.glu`, so
+   the script is in `files` and the shell arm's rule holds unchanged; *and* the receipt carries a
+   `script_sha256`, taken from those resolved inputs. The second is deliberately redundant, which is
+   the point of it: the input state should not *depend* on the coverage rule staying in place, and a
+   receipt that names the program it ran is readable without reconstructing which of many files was
+   the program. It is one function — `Receipt::script_sha256(cap, files)` — because `run` resolves
+   its inputs from a commit and `doctor` from the working tree, and two independent digests of the
+   same script would report a typed step stale forever. That is #1080's "one builder, one answer"
+   repeated one field along.
+5. **Whether a typechecked-but-failing script is a different refusal.** **Partly answered in
+   #1091, and the rest is #1099.** As implemented, all three refusals below are **step** failures:
+   they happen where the script is evaluated, so a corpus declaring a calculator that does not
+   typecheck has a manifest that parses and a step that fails by name. Whether `yidam lint` should
+   find the second and third before anything runs is #1099, and the constraint on it is the one the
+   last paragraph here states. A script that typechecks
    and then returns a `Computed` the corpus cannot accept is a step failure, and a script that
    does not typecheck is arguably a manifest failure — found before anything runs, like a cycle
    in `after`. There are now *three* refusals to place, not two: the macro scan refuses before
@@ -365,7 +396,7 @@ subsection above for the measurement that settled which is which.
 
    If they are manifest failures, `yidam lint` could typecheck every declared gluon calculator
    without invoking one — but it would have to build the prelude *the same way the runner does*,
-   from the same [`PRELUDE_MODULES`](../../yidam/cli/src/gluon_arm/mod.rs#L74-L77), or lint and
+   from the same [`PRELUDE_MODULES`](../../yidam/cli/src/gluon_arm/mod.rs#L82-L85), or lint and
    run disagree about what a calculator may say. A second opinion about a script's vocabulary is
    worse than no gate: it either passes something `run` refuses, or refuses something `run` would
    have accepted. That is a gate this RFC has not designed, and the constraint on it is the one

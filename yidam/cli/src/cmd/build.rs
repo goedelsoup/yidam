@@ -129,7 +129,7 @@ fn claimed_by(m: &Manifest, root: &Path, manifest_path: &Path, name: &str) -> Ve
     m.capability
         .iter()
         .filter(|(_, cap)| {
-            cap.run.iter().any(|arg| {
+            cap.run.file_candidates().iter().any(|arg| {
                 arg == name
                     || (!dir.is_empty() && (arg == &dir || arg.starts_with(&format!("{dir}/"))))
             })

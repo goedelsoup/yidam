@@ -28,6 +28,31 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### A capability may declare a typed calculator
+
+**`.yidam/capabilities.toml` (#1091, RFC-0042).** `run` takes a second shape. A table naming one
+gluon script sits beside the sequence it has always taken:
+
+```toml
+run = { gluon = ".yidam/capabilities/travel-tier.glu", calls = 2000000 }
+```
+
+The script's entry point is declared `Corpus -> Computed`. It is applied in this process. So a typed
+calculator gets no scratch tree, no child process, and none of the five environment variables.
+
+**What changes for you: nothing, unless you write the new form.** Every existing `run = ["sh", …]`
+parses and runs as before. A receipt already committed for one keeps its bytes.
+
+Two things are worth knowing before you write the table form. A typed calculator must declare its
+own `.glu` under `reads`, the same rule the shell arm has. A declaration that does not is refused by
+name. The script's digest goes in the receipt and in the input state, so editing a calculator makes
+its step stale.
+
+The arm is also behind `--features calculators-gluon`, which is **outside** the default set. The
+binary `install.sh` downloads parses the declaration and plans it. It then declines that step by
+name, and says which feature would run it. A corpus that wants the downloaded binary to run it
+writes the sequence form.
+
 ### `regen --check` reports a block no generator writes
 
 **`yidam regen --check` (#1062).** A REGEN block whose command names no generator used to be

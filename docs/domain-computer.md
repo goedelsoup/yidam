@@ -19,6 +19,13 @@ single connector source, invoke the connector inline rather than deferring.
 - No network, no filesystem; same input always produces same output
 - Named by what they compute: `lowflow`, `curve-number`, `et`
 - The right home for domain-specific math
+- Written as a command, or as a typed function of the corpus
+  ([RFC-0042](rfcs/0042-typed-calculator-arm.md))
+- The first two properties above are a norm for a command. For a typed calculator they are a
+  refusal. Its entry point is declared `Corpus -> Computed`. It is applied in process. The names an
+  effect would need are not bound
+- That arm sits behind a cargo feature outside the default set. A build without it declines the step
+  by name
 
 ## Feature engineering
 
