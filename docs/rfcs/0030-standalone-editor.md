@@ -727,7 +727,7 @@ does not propose to move it.
   palette rather than the editor's theme API.
 - ~~**The design system's React components have never been hydrated.**~~ **Answered 2026-09-06:
   they survive.** No `client:*` directive appeared on any quality page —
-  [`astro.config.mjs:260-261`](../../yidam/web/docs/astro.config.mjs#L260-L261): *"this is a
+  [`astro.config.mjs:261-262`](../../yidam/web/docs/astro.config.mjs#L261-L262): *"this is a
   build-time renderer: React produces HTML and none of it is shipped to a reader."* This surface
   is now the first consumer to ship them to a browser, and the spike was run rather than
   reasoned about: `mise run edit-dev` against the reports golden corpus, driven with headless
