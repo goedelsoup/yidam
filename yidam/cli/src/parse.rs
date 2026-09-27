@@ -102,7 +102,12 @@ pub struct CatalogArtifact {
 }
 
 /// Where an obtained artifact came from.
-#[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
+///
+/// `PartialEq` because "the same source, fetched again" is a question asked of this value and
+/// nothing else: `catalog fetch` carries an operator's licensing and routing decisions onto a
+/// new record only from a prior record naming the *same* origin. A hand-rolled comparison at
+/// that call site would be one the type could not keep honest if a third variant arrived.
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum ArtifactOrigin {
     /// An index into the entry's own `location` list — `from: 0` is the first location.

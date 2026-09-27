@@ -868,9 +868,25 @@ It never uploads. Bytes land in the machine-wide cache. Sending them is `vault p
 consults `redistributable`. That is a decision a person makes after looking at what arrived.
 
 The record carries the digest, the size, the media type the server declared, the date, and the
-location. It omits two fields deliberately. `vault:` is left out because routing is
-`.yidam/config.toml`'s decision, and freezing it per record would make that routing dead.
-`redistributable:` is left out because it is a licensing fact, and no HTTP 200 establishes one.
+location. On a **first** capture it omits two fields deliberately. `vault:` is left out because
+routing is `.yidam/config.toml`'s decision, and freezing it per record would make that routing
+dead. `redistributable:` is left out because it is a licensing fact, and no HTTP 200 establishes
+one.
+
+On a **re-capture** of a location the entry already holds a record for, both are carried forward
+from that record. They are your statements, not the command's. Carrying one reproduces a
+decision you made about that source. Inventing one would assert a licence on the strength of a
+response code.
+
+Only the latest record for that location is consulted. Change your answer and every edition
+after it inherits the new one. A record that says nothing carries nothing forward.
+
+The `refresh:` commit body names each field it carried and the digest it came from. So a licence
+appearing on a new record is reviewable as continued rather than established.
+
+Without this, one licensing decision had to be re-entered by hand per edition. `vault push`
+refused every re-capture of a source you had already cleared. A `vault: none` hold-back lapsed
+the same way, routing new bytes to a store you kept the previous edition out of.
 
 Re-running is free. A fetch that finds bytes the entry already records writes nothing and
 commits nothing. That is what makes it safe to put on a `ttl_days` clock. A source that
