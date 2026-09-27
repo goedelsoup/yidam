@@ -61,8 +61,8 @@ districts" against a graph holding 44.
 
 That is exactly right, and it is a fact about the marker format rather than about `regen`. A
 REGEN block is line-shaped. Its open tag must begin a line, its close tag must be the whole of
-another, and [`update_regen`](../../yidam/prelude/sdks/rust/src/markers.rs#L194-L198) writes a
-body bracketed by newlines. A block can therefore hold a table row, a list, a paragraph or a
+another, and [`update_regen`](../../yidam/prelude/sdks/rust/src/markers.rs) wrote a body
+bracketed by newlines. A block can therefore hold a table row, a list, a paragraph or a
 whole section — and cannot hold the word *44* between *has* and *districts*.
 
 ### Writing the form anyway is destructive, and silent
@@ -73,7 +73,7 @@ This is the part that was not known when #1071 was filed. Run at `1dc8063`, agai
 - `scan_markers` returns **no marker at all**. Its open-tag test is anchored to the start of a
   line, and this one does not start one:
 
-  ([`markers.rs:110-113`](../../yidam/prelude/sdks/rust/src/markers.rs#L110-L113)):
+  (in [`markers.rs`](../../yidam/prelude/sdks/rust/src/markers.rs), at `1dc8063`):
 
   ```rust
         let Some(rest) = trimmed.strip_prefix("<!-- REGEN:") else {
@@ -97,21 +97,21 @@ the one visible symptom, and it would report it about the wrong thing.
 
 ### Two scanners, two answers
 
-The bug above is not two bugs. `scan_markers` is line-anchored and
-[`update_regen`](../../yidam/prelude/sdks/rust/src/markers.rs#L194-L198) is byte-anchored, and
-they have never been held to each other. Every existing document happens to satisfy both, so the
+The bug above is not two bugs. `scan_markers` was line-anchored and
+[`update_regen`](../../yidam/prelude/sdks/rust/src/markers.rs) byte-anchored, and nothing held
+them to each other. Every existing document happens to satisfy both, so the
 disagreement has cost nothing; the first document that does not is the one this RFC wants to
 write.
 
-The published contract already promises the thing that would have caught it.
-`yidam/prelude/sdks/README.md` says of `parse_markers`: *"Return them in document order with
-their spans."* No span is returned. `Marker::Regen` carries a command and a content string and
+The published contract already promised the thing that would have caught it. Of
+`parse_markers`, `yidam/prelude/sdks/README.md` said: *"Return them in document order with
+their spans."* No span was returned. `Marker::Regen` carries a command and a content string and
 nothing that locates them, which is why a second, independent locator had to exist for the
 writer.
 
 The model has that second locator and does not have the first. `RegenSpan` computes a block's
 four offsets by byte search, and
-[`RegenSpanFindsEveryBlock`](../../yidam/prelude/sdks/spec/graph.dfy#L255-L256) proves it finds
+[`RegenSpanFindsEveryBlock`](../../yidam/prelude/sdks/spec/graph.dfy#L267-L268) proves it finds
 every block that exists:
 
 ```dafny
@@ -177,17 +177,27 @@ the day this lands, because RFC-0018 and RFC-0040 already defined them.
 
 The form is not a flag on the call. It is read off the block:
 
-> **A REGEN block whose body contains no newline is written back without newlines. Every other
-> block is written back as it is today.**
+> **A REGEN block whose body contains no newline is written back without newlines, unless the
+> content being written has a newline of its own. Every other block is written back as it is
+> today.**
 
 `<!-- REGEN: a -->44<!-- /REGEN -->` has the body `44` and stays on its line.
 `<!-- REGEN: a --><!-- /REGEN -->` has the body `""` and stays on its line, which is what a
 hand-authored empty block looks like. `<!-- REGEN: a -->\n<!-- /REGEN -->` — the shape
 `update_regen` writes when it clears a section — has the body `"\n"` and keeps the block form,
 so the `empty-new-content` fixture is unchanged and so is `ClearingASectionLeavesNoBlankLine`.
-In the model this is one conditional in
-[`RegenBody`](../../yidam/prelude/sdks/spec/graph.dfy#L284-L286), which takes the existing body
-as a second argument and returns it unwrapped when it holds no newline.
+In the model this is two conditions in
+[`RegenBody`](../../yidam/prelude/sdks/spec/graph.dfy#L314-L318), which takes the block's form
+as a second argument and returns the content unwrapped only when the block was inline *and* the
+content will fit there.
+
+The `unless` is not a hedge, and it was not in the first draft of this section. A value holding
+a newline cannot be written on one line; writing it there anyway leaves a document whose body no
+longer matches the form it declares, and the *next* run reads that body as block form and
+rewrites it — so `regen --check` reports drift it caused itself. Deciding on the content as well
+as on the block is what keeps a second call a no-op. The idempotency clause of `UpdateRegenSpec`
+is what says so: with the newline test removed the model stops verifying, which is how the
+condition was found.
 
 The rule has the property that matters for a document people edit: the author decides, once, by
 writing the block, and no later regeneration second-guesses them.
@@ -214,11 +224,23 @@ own. Three things follow, and all three are defects closing rather than features
    finds `yidam count district[party=R]`.
 2. It rewrites **every** block with that command, where it rewrote the first.
 3. It and `scan_markers` can no longer disagree about what a block is, because there is one
-   answer. In the model, `RegenSpan` becomes a selection over the scan rather than a second
-   search, and *the two agree* stops being a lemma nobody can write and starts being the
-   definition.
+   answer.
 
 (1) and (2) are behaviour changes to a proved function, and §"Migration" states what they cost.
+
+(3) lands in the code and not yet in the model, and this RFC says so rather than leaving it to
+be found. `RegenSpan` is still a prefix search of its own that stops at the first hit, so on a
+document holding a block for `ab` the model, asked for `a`, answers with that block where
+`update_regen` answers with nothing.
+[`TheModelsLocatorIsStillAPrefixSearch`](../../yidam/prelude/sdks/spec/graph.dfy#L610-L615) is
+that document, proved, so the divergence is a checked statement in the file rather than a
+comment. Closing it is one change — `RegenSpan` becomes a selection over a modelled scan, and
+*the two agree* stops being a lemma nobody can write and starts being the definition — and the
+cost is not the definition but `UpdateRegenSpec`'s re-scan clause, which then needs an induction
+showing the scan of the result reproduces every block below the edit. It is tracked as #1097,
+and it is not optional past `count`: `count`'s command carries a query, so `yidam count district`
+is a prefix of `yidam count district-at-large` and the document above becomes one a corpus can
+write by accident.
 
 ### `count` is pull-shaped, and the guard says so
 
@@ -336,6 +358,13 @@ flag. Not answered here; the two helpers are the evidence that it has to be answ
 renamed out of the ontology is neither: `yidam regen` cannot fix it and the name is a real
 generator. A third list, or `unclaimed` widened, or `rename` taught to rewrite a query — three
 answers, none obviously right.
+
+**When the model reaches the scan.** §"One scanner" clause 3 landed in the code and not in the
+model, and #1097 carries the rest: `RegenSpan` becoming a selection over a modelled `RegenScan`,
+and `UpdateRegenSpec` gaining the induction that says the scan of the result reproduces every
+block below the edit. What is not settled is whether that has to be *complete* before `count`, or
+only before `count` is documented as accepting a query with another query's command as a prefix.
+The lemma names the hazard; it does not price the proof, and the price is the whole question.
 
 **Whether a block should be able to state its own expectation.** `<!-- REGEN: yidam count
 district -->44<!-- /REGEN -->` publishes a number and asserts nothing about it. RFC-0035's

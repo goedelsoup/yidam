@@ -28,6 +28,38 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### A REGEN block written on one line stays on one line
+
+**The marker contract (#1094, RFC-0043).** `update_regen` wrote every block the same way. A
+newline after the open tag, the content, a newline before the close tag. A block written inside
+a sentence came back as four lines, the sentence broken across them. That is the shape
+RFC-0043's `count` generator needs, and the reason no generator writes one today. A block whose
+body holds no newline is now written back without newlines. It stays where its author put it.
+
+**What changes for you: nothing, unless you had already written one.** No generator emits an
+inline block today, so no existing document changes shape. If you hand-wrote one and watched
+`yidam regen` unwrap it, it will now survive. A value holding a newline of its own still goes
+back in block form. It cannot fit on the line. A body that did not match its form would be
+rewritten on the next run.
+
+### `update_regen` finds the block `scan_markers` sees
+
+**The marker contract (#1094).** The two halves of the contract located a block differently.
+`scan_markers` required the open tag to begin its line. `update_regen` searched the bytes and
+took the first *prefix* match. Three consequences, all silent:
+
+- A block in the middle of a line was invisible to the reader and rewritten by the writer.
+- A block at column 0 whose close tag sat alone on a line swallowed the *next* block too.
+- `update_regen` matched a command that merely began with the one asked for.
+
+There is now one locator. `update_regen` asks `scan_markers` for every block. It updates each
+one whose command is *equal* to the one requested — every one, not the first.
+
+**What changes for you: a document with two blocks for the same generator now updates both.**
+That was the intent all along. The old behaviour updated the first and left the rest stale.
+`regen --check` then reported drift the command could not clear. A command that is a prefix of
+another generator's name no longer matches it.
+
 ### `regen --check` reports a block no generator writes
 
 **`yidam regen --check` (#1062).** A REGEN block whose command names no generator used to be

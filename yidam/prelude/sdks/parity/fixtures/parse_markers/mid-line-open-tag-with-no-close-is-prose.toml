@@ -1,0 +1,10 @@
+function = "parse_markers"
+description = "An open tag in the middle of a line with no close tag beside it is prose, as it was before the inline form existed — reading it as a block would make it swallow the rest of the file"
+
+expected = []
+
+[input]
+content = """
+The open tag is <!-- REGEN: a --> and that is all.
+more prose
+"""

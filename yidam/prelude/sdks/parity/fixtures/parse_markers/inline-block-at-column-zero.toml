@@ -1,0 +1,21 @@
+function = "parse_markers"
+description = "An inline block starting its line does not swallow the block below it — the silent half of #1094, where the scan ran past this block's close tag to the next block's open tag and reported no fault"
+
+[input]
+content = """
+<!-- REGEN: a -->1<!-- /REGEN -->
+
+<!-- REGEN: b -->
+body
+<!-- /REGEN -->
+"""
+
+[[expected]]
+kind = "Regen"
+command = "a"
+content = "1"
+
+[[expected]]
+kind = "Regen"
+command = "b"
+content = "body"

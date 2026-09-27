@@ -1,0 +1,19 @@
+function = "update_regen"
+description = "A value that will not fit on one line is written in block form even into an inline block, so that the document's form matches its body and a second run is a no-op"
+
+[input]
+command = "yidam count district"
+new_content = """
+one
+two"""
+content = """
+Ohio has <!-- REGEN: yidam count district -->43<!-- /REGEN --> districts.
+"""
+
+[expected]
+content = """
+Ohio has <!-- REGEN: yidam count district -->
+one
+two
+<!-- /REGEN --> districts.
+"""

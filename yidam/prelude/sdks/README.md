@@ -265,14 +265,27 @@ classify_commit(message: string) -> CommitEvent
   Unknown verbs are treated as Epistemic.
 
 parse_markers(text: string) -> Marker[]
-  Find all <!-- TEMPLATE ... --> and <!-- REGEN: cmd --> ... <!-- /REGEN --> blocks.
-  Return them in document order with their spans.
+  Every TEMPLATE marker and every REGEN block, in document order.
+  A REGEN block may stand on its own lines or sit inside one: an open tag whose arrow
+  is followed, on the same line, by the block's own close tag ends there, and a line
+  may carry more than one. The rest of the line is prose and stays prose.
+  scan_markers is this plus two more channels — each well-formed block's extent, and
+  the blocks that are malformed. An extent is an offset, and an offset is not a parity
+  contract: Rust counts bytes, JavaScript UTF-16 code units, Python code points. No
+  fixture asserts one. See RFC-0043.
 
 update_regen(text: string, command: string, new_content: string) -> string
-  Replace the content between <!-- REGEN: command --> and <!-- /REGEN --> with new_content.
+  Replace the body of every REGEN block whose command is exactly `command` — exactly,
+  so that a command does not claim a block whose command merely begins with it.
+  Defined over scan_markers' extents rather than a search of its own, so the writer and
+  the reader cannot disagree about where a block is or whether there is one.
   Leaves all other text — including other REGEN sections — unchanged exactly.
+  A block written on one line is written back on one line, and one spread over several
+  keeps its newlines. New content that will not fit on one line goes back in block form
+  whichever the block was, which is what keeps the next call a no-op.
   Idempotent: calling it twice with the same new_content returns the same string.
-  Empty new_content clears the body with no blank line left between the markers.
+  Empty new_content clears the body: no blank line between block-form markers, and
+  nothing at all between the markers of an inline block.
 
 find_reachable(edges: GraphEdge[], node_path: string) -> string[]
   All nodes reachable from node_path following directed edges (BFS).
@@ -368,9 +381,10 @@ sibling's open tag, closes on the sibling's close tag, and returns one well-form
 block with a marker quietly gone. `TheSwallowedBlockIsReported` and
 `ABlockThatClosesOnAnothersTagIsReported` prove both of the model.
 
-`parse_markers` is `scan_markers` without the second channel and keeps its signature: the
-marker sequence is the frozen contract and did not change. `yidam lint`'s
-`malformed-regen-block` is the first consumer either has had in this repository.
+`parse_markers` is `scan_markers` without the other two channels and keeps its signature:
+the marker sequence is the frozen contract and did not change. `yidam lint`'s
+`malformed-regen-block` is the first consumer either has had in this repository, and
+`update_regen` — rewritten over the extents in RFC-0043 — is the second.
 
 Grounding is stated over *lines*, not raw substrings. The version that said a marker's
 command appears in the source after `"<!-- REGEN: "` is false of the parser, which trims:

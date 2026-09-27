@@ -1,0 +1,14 @@
+function = "update_regen"
+description = "Clearing an inline block empties it without turning one line into three; the block form's empty case still collapses to no blank line, which `empty-new-content` grades"
+
+[input]
+command = "a"
+new_content = ""
+content = """
+x <!-- REGEN: a -->44<!-- /REGEN --> y
+"""
+
+[expected]
+content = """
+x <!-- REGEN: a --><!-- /REGEN --> y
+"""
