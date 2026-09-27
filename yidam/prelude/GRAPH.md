@@ -415,14 +415,15 @@ edge is licensed depends on where its target resolves and no schema can see that
 |---|---|
 | `migrate class <old> <new>` | the class file, its directory, every instance's `class:`, the `instance-of` edge into the class file, and every edge declaring the class at either end |
 | `migrate property <class> <old> <new>` | the declaration, and the key on every instance carrying it |
-| `migrate retype <class> <prop> <type>` | the declaration — and **refuses** if any instance's value would not satisfy the new type |
+| `migrate retype <class> <prop> <type>` | the declaration, plus any instance value it can requote — and **refuses** the rest |
 | `migrate edge <class> <rel> <target>` | the declaration at both ends, plus a report of the instances now in violation |
 
 `--dry-run` prints the plan and writes nothing.
 
-**A retype is refused rather than guessed.** The predicate that decides is the one
-`property-type` gates on, so a migration that succeeds leaves a corpus `yidam lint` still
-accepts.
+**A retype is refused rather than guessed** — except a requote, which is the same value
+written the other way: `"24"` unquotes under `number`, `24` gains quotes under `string`. The
+predicate that decides is the one `property-type` gates on, so a migration that succeeds leaves
+a corpus `yidam lint` still accepts.
 
 **An edge re-target reports what it cannot decide.** Which instances should now point elsewhere
 is a question about the corpus, not about the ontology. The migration names every one of them;

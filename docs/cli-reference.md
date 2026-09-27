@@ -481,10 +481,15 @@ record of what they touched.
 |---|---|
 | `class` | Rename a class: its definition, its directory, and every edge that named it |
 | `property` | Rename a declared property on a class and on every instance carrying it |
-| `retype` | Change a declared property's type; refuses when an instance would not satisfy it |
+| `retype` | Change a declared property's type; requotes an instance value where only the quoting differs, refuses the rest |
 | `edge` | Point a declared relationship at a different class, at both ends |
 | `references` | Lift every reference written inside an evidence tag into the node's `references:` field |
 | `findings` | Lift every paragraph an earlier `propose` spliced into prose into a `yidam:` record |
+
+`retype` converts an instance value where the two types differ only in how the value is
+written. A `number` is an unquoted YAML number. So retyping to `number` unquotes `"24"`, and
+retyping to `string` quotes a bare `24`. Each is a repair `property-type` already names. A value
+holding no number — `about 24`, `~24` — is refused, and the refusal says what it tried.
 
 `references` and `findings` are the two that migrate data rather than the ontology over it.
 

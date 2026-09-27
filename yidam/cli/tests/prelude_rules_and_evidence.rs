@@ -142,7 +142,13 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// sentence saying a number is unquoted and its unit is on the class — and the equality of the
 /// two deltas is again the control: `GRAPH.md` is on both lists. Its argument is 87 further
 /// words in `GRAPH.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a `[why]` link.
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_136), ("sadhana/root/AGENTS.md", 23_501)];
+///
+/// **Both raised by a further 21 when a retype learned to requote (#1044).** 18,136 → 18,157 and
+/// 23,501 → 23,522. The delta is **21 words in that one file** — the clause saying `"24"` unquotes
+/// under `number` — and the two deltas are equal again because `GRAPH.md` is on both lists. The
+/// clause is worth its words to every session: the sentence above it read *refused rather than
+/// guessed* without exception, which is what sent an author to edit the instances by hand.
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_157), ("sadhana/root/AGENTS.md", 23_522)];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
 ///
@@ -197,7 +203,12 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_136), ("sadhana/root/A
 /// **Raised to 27,013 when `GRAPH.md` gained the `number` rule (#1030, RFC-0040).** The delta is
 /// **28 words in `GRAPH.md`**, the same 28 the two recurring routes moved by, and 26,985 + 28 is
 /// this figure exactly, so nothing else on the path moved.
-const BOOTSTRAP_CEILING: usize = 27_013;
+///
+/// **Raised to 27,034 when a retype learned to requote (#1044).** The delta is **21 words in
+/// `GRAPH.md`**, the same 21 the two recurring routes moved by, and 27,013 + 21 is this figure
+/// exactly, so nothing else on the path moved. The 81 further words of argument are in
+/// `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
+const BOOTSTRAP_CEILING: usize = 27_034;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -232,6 +243,12 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// so it is closed here rather than carried forward, and the two halves of the move are stated
 /// separately so a later reader can tell them apart.
 ///
+/// **`GRAPH.md` re-measured to 9,037 for #1044.** 102 words arrived — 21 in the rules half, 81 in
+/// the evidence half — and the floor moves by 219, because 117 had been standing as slack: the
+/// #1030 raise moved [`READ_CEILING`] and [`BOOTSTRAP_CEILING`] for a change to `GRAPH.md` and
+/// left this number where it was, and the 87 words of argument it names were never charged here.
+/// Closed rather than carried forward, for the reason the `bootstrap.md` note gives.
+///
 /// **`directories.md` re-measured to 11,686 for #1028.** 725 words arrived — 361 in the rules
 /// half, 364 in the evidence half — and the floor moves by all of it, because 10,961 was the
 /// measurement and carried no slack. The two halves are near enough to equal on purpose: each
@@ -245,7 +262,7 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// added up by hand.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_399),
-    ("yidam/prelude/GRAPH.md", 8_818),
+    ("yidam/prelude/GRAPH.md", 9_037),
     ("yidam/prelude/guidelines/directories.md", 11_854),
     ("yidam/prelude/skills/bootstrap.md", 10_433),
 ];

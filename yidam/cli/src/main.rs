@@ -1119,7 +1119,7 @@ enum MigrateCommand {
         /// What it becomes
         new: String,
     },
-    /// Change a declared property's type; refuses when an instance would not satisfy it
+    /// Change a declared property's type; requotes an instance value where only the quoting differs, refuses the rest
     Retype {
         /// The class that declares it
         class: String,

@@ -247,6 +247,12 @@ trip `edge-target-class`. That is a strong incentive to leave a definition wrong
 `last spring` has no mechanical conversion, and writing it back unchanged while reporting success
 would leave the corpus in a state its own gate rejects.
 
+Requoting is not one of the guesses, and refusing it was asking the author to carry out an
+instruction by hand. `property-type` tells a `number` holding `"24"` to *unquote it* and a
+`string` holding a bare `24` to *quote it*; a scalar has exactly one other spelling, so there is
+nothing to choose between. What stays refused is a value with no number in it to unquote —
+`about 24` keeps prose the number cannot carry, and `~24` keeps an approximation.
+
 The migration record carries the mechanical half and `.yidam/decisions/` the argument, because a
 record that also had to carry the reasoning would make `decisions-log` a list of two different
 kinds of thing.
