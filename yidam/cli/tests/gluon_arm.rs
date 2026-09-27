@@ -679,4 +679,71 @@ mod engine {
             "`Computed` exposes the table's contract version to the script: {rendered}"
         );
     }
+
+    // ── a panic out of gluon's compiler ───────────────────────────────────────
+
+    /// A `.glu` that panics gluon's own compiler is refused by name rather than aborting the run.
+    ///
+    /// Found while authoring `examples/streamflow/.yidam/capabilities/travel-tier-typed.glu`. The
+    /// script below is the shape that file's `in` exists to avoid: gluon's layout draws `n` into
+    /// the recursive group, it typechecks, and `gluon_vm::compiler` then reaches `ice!` at
+    /// *Expected record as last expression of recursive binding*, which is `panic!`.
+    ///
+    /// The refusal names the step, because a capability's implementation is corpus data and a
+    /// shell calculator that is nonsense gets a step named. It does not carry gluon's invitation to
+    /// file a bug against gluon, because a corpus author is not who that invitation is for. And
+    /// `evaluate` *returns* — an abort leaves the branch where it was with nothing said about which
+    /// capability was at fault.
+    ///
+    /// The binding is used in `summary` on purpose. Gluon drops an unused one before the compiler
+    /// sees it, so a script that only writes the mistake does not reach the panic; the script has
+    /// to read the drawn-in binding as well.
+    #[test]
+    fn a_script_that_panics_the_compiler_is_refused_and_not_left_to_abort() {
+        let missing_in = "\\c ->\n    \
+                          rec let count n = if n == 0 then 0 else count (n - 1)\n    \
+                          let n = count 1\n    \
+                          { signals = [], summary = [{ name = \"n\", value = Int n }] }";
+        let err = gluon_arm::evaluate("tier", missing_in, corpus(&[]), budget::DEFAULT_CALLS)
+            .expect_err("a script that panics the compiler must be refused, not run");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("tier"),
+            "the refusal does not name the step, so a transcript cannot say which capability \
+             was at fault: {msg}"
+        );
+        assert!(
+            msg.contains("panicked gluon's compiler"),
+            "the refusal does not say the panic was gluon's: {msg}"
+        );
+        assert!(
+            msg.contains("recursive binding `n`"),
+            "the refusal drops the binding gluon named, which is the part that locates the \
+             mistake: {msg}"
+        );
+        assert!(
+            !msg.contains("gluon-lang/gluon/issues"),
+            "the refusal still asks a corpus author to file a bug against a third-party \
+             compiler: {msg}"
+        );
+        // Several kilobytes of typed AST with pointer addresses in it is what `ice!` formats, and
+        // it would bury the sentence it is attached to.
+        assert!(
+            msg.len() < 2_000,
+            "the refusal is {} bytes, so gluon's AST dump is in it: {msg}",
+            msg.len()
+        );
+
+        // The containment is on the compile path and not only on evaluation: the panic above
+        // happens while `run_expr` compiles, before the entry point is ever applied. A calculator
+        // on the other side of it still runs, so the boundary is a boundary and not a wall.
+        let out = gluon_arm::evaluate(
+            "after",
+            "\\c -> { signals = [], summary = [{ name = \"nodes\", value = Int 0 }] }",
+            corpus(&[]),
+            budget::DEFAULT_CALLS,
+        )
+        .expect("a calculator after a contained panic runs");
+        assert_eq!(out.computed.summary.len(), 1);
+    }
 }

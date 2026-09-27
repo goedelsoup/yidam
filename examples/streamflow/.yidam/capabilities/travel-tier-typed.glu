@@ -161,9 +161,13 @@
     //
     // The `in` is not optional, and its absence is not a type error. Without it gluon's layout
     // draws the next `let` into the recursive group, and its compiler then panics on a binding it
-    // cannot see a record in — an internal error naming `final`, from inside gluon, with nothing
-    // in it about this file. Every other binding here runs on layout alone; this one is written
-    // out because the failure it prevents is unreadable.
+    // cannot see a record in — an internal error naming `final`, from inside gluon. Every other
+    // binding here runs on layout alone; this one is written out because the failure it prevents
+    // is one no amount of reading this file explains.
+    //
+    // Since #1106 that panic is contained: the run refuses this capability by name and exits
+    // non-zero rather than aborting, and the refusal says the panic was gluon's. It is still a
+    // failure with nothing useful in it, so the `in` stays.
     rec let settle state =
         let round = relax state
         if round.changed then settle round.state else round.state
