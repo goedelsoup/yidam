@@ -343,31 +343,40 @@ fn the_pages_deployment_is_identified_by_more_than_the_commit() {
          resolved below, so what this test grades is not what Pages is sent"
     );
 
-    // Resolved rather than assumed: the jq argument names a shell variable, and that
-    // variable is an `env:` entry. A check that found `github.run_id` somewhere in the step
-    // would pass on a run id the request never carries — which is exactly how the
-    // `GITHUB_SHA` override passed for six weeks.
-    let binding = script
+    // Resolved rather than assumed, and resolved through the indirection: the payload builder
+    // fills the jq argument from its own parameter, so which value Pages is sent is decided by
+    // the call and not by the line that names the field. A check that found `github.run_id`
+    // somewhere in the step would pass on a run id the request never carries — which is
+    // exactly how the `GITHUB_SHA` override passed for six weeks.
+    assert!(
+        script.contains(r#"--arg pages_build_version "$1""#),
+        "the deploy step's payload no longer takes its build version as its first argument, \
+         so the attempts read below are not what fills `pages_build_version`."
+    );
+    let attempts: Vec<String> = script
         .lines()
-        .map(str::trim)
-        .find_map(|l| l.strip_prefix("--arg pages_build_version "))
-        .unwrap_or_else(|| {
-            panic!(
-                "the deploy step builds no `pages_build_version` argument. It has to send \
-                 one: the default is the bare commit, and a tag shares its commit with the \
-                 push it was cut from."
-            )
-        });
-    let name = binding
-        .trim_end_matches('\\')
-        .trim()
-        .trim_matches('"')
-        .trim_start_matches('$')
-        .trim_matches(|c| c == '{' || c == '}');
-    let version = step["env"][name].as_str().unwrap_or_else(|| {
+        .filter_map(|l| l.split_once("payload \""))
+        .map(|(_, rest)| {
+            rest.split('"')
+                .next()
+                .expect("split always yields a first field")
+                .trim()
+                .trim_start_matches('$')
+                .trim_matches(|c| c == '{' || c == '}')
+                .to_string()
+        })
+        .collect();
+    let (first, fallbacks) = attempts.split_first().unwrap_or_else(|| {
         panic!(
-            "the deploy step fills `pages_build_version` from `${name}`, which its `env:` \
-             does not declare. Whatever the request carries, it is not this."
+            "the deploy step builds no `pages_build_version` argument. It has to send one: \
+             the default is the bare commit, and a tag shares its commit with the push it \
+             was cut from."
+        )
+    });
+    let version = step["env"][first.as_str()].as_str().unwrap_or_else(|| {
+        panic!(
+            "the deploy step's first attempt sends `${first}`, which the step's `env:` does \
+             not declare. Whatever the request carries, it is not this."
         )
     });
     assert!(
@@ -376,6 +385,48 @@ fn the_pages_deployment_is_identified_by_more_than_the_commit() {
          deploys of the same commit — a release tag and the push it was cut from, or a \
          `workflow_dispatch` redeploy — and only the run distinguishes those."
     );
+
+    // A second attempt is allowed, and only a second. Pages refuses one of the two values this
+    // payload carries and will not say which of them it cannot find (#1085); the only run that
+    // can discriminate them is a run on `main`, because the `github-pages` environment admits
+    // `main` and `cli/v*` and nothing else. The conditions are that the run-scoped version is
+    // what Pages is offered first,
+    // and that falling back to the commit is announced — a deployment identified by the bare
+    // commit is the defect this step exists for, and a reader of an otherwise green run would
+    // have no way to learn that it had happened.
+    assert!(
+        fallbacks.len() <= 1,
+        "the deploy step attempts the deployment {} times: {attempts:?}. Two is a probe; \
+         more is a step guessing, and every attempt after the first sends a build version \
+         that is not scoped to this run.",
+        attempts.len()
+    );
+    if let Some(fallback) = fallbacks.first() {
+        assert_eq!(
+            fallback, "GITHUB_SHA",
+            "the deploy step falls back to `${fallback}`. The point of a second attempt is to \
+             learn whether Pages refuses the run-scoped version specifically, and only the \
+             bare commit — the value it accepted until #992 — answers that."
+        );
+        // Graded on what the warning says, phrase by phrase, rather than on there being one.
+        // The step prints five `::warning::` lines and any single one of them satisfies a
+        // check for the marker, so deleting the line that says what Pages refused would pass
+        // a step that had stopped reporting it.
+        let warned = script
+            .lines()
+            .filter(|l| l.contains("::warning::"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        for phrase in ["refused", "publishes nothing"] {
+            assert!(
+                warned.contains(phrase),
+                "the deploy step falls back to the bare commit and its warning never says \
+                 `{phrase}`. The fallback reintroduces #992 — two deploys of one commit, the \
+                 second accepted and publishing nothing — so the warning has to say both what \
+                 Pages would not take and what accepting the commit costs. Warned: {warned:?}"
+            );
+        }
+    }
 
     // The route that looked like it worked, held shut. It is the obvious thing to reach for
     // again, the runner accepts it without complaint, and the log prints the declaration
@@ -453,10 +504,11 @@ fn no_request_the_deploy_makes_can_fail_anonymously() {
         .collect();
     assert_eq!(
         labels.len(),
-        3,
-        "the deploy step makes {} labelled requests, not the three it is written around \
-         (the artifact, the deployment, the poll). A request added without a label fails \
-         the way #1085 did; one removed leaves this count lying. Found: {labels:?}",
+        4,
+        "the deploy step makes {} labelled requests, not the four it is written around (the \
+         artifact, the deployment, the deployment again under a build version Pages will \
+         take, the poll). A request added without a label fails the way #1085 did; one \
+         removed leaves this count lying. Found: {labels:?}",
         labels.len()
     );
     for label in &labels {

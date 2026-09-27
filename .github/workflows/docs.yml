@@ -425,9 +425,12 @@ jobs:
       # is the action's cancellation handling: cancelling this run leaves the Pages
       # deployment to reach its own terminal state rather than cancelling it.
       #
-      # If Pages ever refuses a build version that is not a bare sha, this step fails at the
-      # request rather than after it — loudly, before the check below — and the fix is to
-      # send a value it accepts, never to go back to sending the sha alone.
+      # It did refuse something. Every run from the one that shipped this step to #1085's
+      # fix failed at the request — `{"message":"Not Found"}`, naming nothing — and the site
+      # went twenty-five merges without publishing. The step now attempts the request twice
+      # to find out which of its two values Pages will not take, and a fallback to the bare
+      # commit is a warning rather than a silent return to the defect this step exists for.
+      # Whichever attempt Pages accepts, the other stops being sent.
       - name: Deploy to GitHub Pages
         id: deployment
         env:
@@ -478,7 +481,7 @@ jobs:
             exit 1
           fi
           artifact_id=$(jq '.artifacts[0].id' <<<"$artifacts")
-          echo "     artifact id ${artifact_id}"
+          echo "     $(jq -c '.artifacts[0] | {id, name, expired, size_in_bytes}' <<<"$artifacts")"
 
           # Pages authorises the deployment with an OIDC token, which is what this job's
           # `id-token: write` permission mints. Masked because it is a bearer credential and
@@ -504,17 +507,53 @@ jobs:
           }
           echo "     token minted, ${#id_token} characters"
 
-          echo "POST pages/deployments"
-          echo "     artifact_id ${artifact_id}, pages_build_version ${BUILD_VERSION}"
-          created=$(jq -nc \
+          # ── which value Pages is refusing (#1085) ────────────────────────────────
+          #
+          # Pages answers a refused deployment with `{"message":"Not Found"}` and names
+          # nothing it could not find, and the two candidates are the two values in the
+          # payload: the artifact id (REST's, where `actions/deploy-pages` uses the results
+          # service's) and the build version. A malformed build version is documented as 400
+          # or 422, which points at the artifact — but the run that would settle it is this
+          # one, because the `github-pages` environment admits only `main` and `cli/v*` and
+          # this job therefore has no rehearsal on a branch.
+          #
+          # So the request is made twice, in an order, and both answers reach the log. The
+          # run-scoped version is tried first because it is the one #992 needs. If Pages
+          # takes the bare commit after refusing it, the build version is the cause and the
+          # artifact id is exonerated; if it refuses both, the reverse. Either way the site
+          # publishes, which it has not done since 2026-09-25.
+          payload() {
+            jq -nc \
               --argjson artifact_id "$artifact_id" \
-              --arg pages_build_version "$BUILD_VERSION" \
+              --arg pages_build_version "$1" \
               --arg oidc_token "$id_token" \
               '{artifact_id: $artifact_id,
                 pages_build_version: $pages_build_version,
-                oidc_token: $oidc_token}' \
-            | request "creating the Pages deployment" \
-                -X POST "repos/${GITHUB_REPOSITORY}/pages/deployments" --input -)
+                oidc_token: $oidc_token}'
+          }
+
+          echo "POST pages/deployments"
+          echo "     artifact_id ${artifact_id}, pages_build_version ${BUILD_VERSION}"
+          if created=$(payload "$BUILD_VERSION" \
+            | request "creating the Pages deployment with a build version scoped to this run" \
+                -X POST "repos/${GITHUB_REPOSITORY}/pages/deployments" --input -); then
+            sent=$BUILD_VERSION
+            echo "     Pages accepted the run-scoped build version"
+          else
+            echo "::warning::Pages refused the run-scoped build version, so this deployment"
+            echo "::warning::is identified by the bare commit instead. A release tag and the"
+            echo "::warning::push it was cut from share a commit; the second such deployment"
+            echo "::warning::is accepted and publishes nothing, which is #992. The check"
+            echo "::warning::after this step is what catches that, on a tag."
+            echo "POST pages/deployments"
+            echo "     artifact_id ${artifact_id}, pages_build_version ${GITHUB_SHA}"
+            created=$(payload "$GITHUB_SHA" \
+              | request "creating the Pages deployment with the bare commit as its build version" \
+                  -X POST "repos/${GITHUB_REPOSITORY}/pages/deployments" --input -)
+            sent=$GITHUB_SHA
+            echo "     Pages accepted the bare commit, so the run-scoped version is what it"
+            echo "     refused — and the artifact id, which both attempts carried, is not."
+          fi
           echo "     Pages answered: ${created}"
 
           # Pages hands the build version back as the deployment's id. Read *that*, and not
@@ -526,7 +565,7 @@ jobs:
           [ -n "$id" ] || { echo "::error::Pages returned no deployment id"; exit 1; }
           page_url=$(jq -r '.page_url // ""' <<<"$created")
           [ -n "$page_url" ] || { echo "::error::Pages returned no page_url"; exit 1; }
-          echo "requested build version:      ${BUILD_VERSION}"
+          echo "build version Pages was sent: ${sent}"
           echo "Pages recorded deployment id: ${id}"
           echo "page_url=${page_url}" >> "$GITHUB_OUTPUT"
 
