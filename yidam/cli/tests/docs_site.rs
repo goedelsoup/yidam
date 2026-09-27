@@ -396,6 +396,93 @@ fn the_pages_deployment_is_identified_by_more_than_the_commit() {
     }
 }
 
+/// A request that fails anonymously cannot be diagnosed from the log it failed in.
+///
+/// The deploy step makes three requests and, before #1085, printed nothing before the first
+/// of them — so twenty-five consecutive failures carried one line, `gh: Not Found (HTTP
+/// 404)`, belonging to an unidentified one of the three while the site went a day without
+/// publishing. What this grades is not that the step logs *something*. It is that no request
+/// can fail without naming itself, which holds only while every call goes through one
+/// labelled call site.
+///
+/// `script_of` strips the comments first, so the argument this workflow makes about its own
+/// requests cannot answer for the requests.
+#[test]
+fn no_request_the_deploy_makes_can_fail_anonymously() {
+    let script = script_of(&deploy_step());
+
+    // One call site, and it is the helper's. A second bare `gh api` is a second anonymous
+    // 404: `gh` writes its diagnosis to stderr and exits 1, and `set -e` then ends the step
+    // with that message detached from the call that produced it.
+    let calls: Vec<&str> = script
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.contains("gh api"))
+        .collect();
+    assert_eq!(
+        calls,
+        vec![r#"if ! body=$(gh api "$@" 2>&1); then"#],
+        "the deploy step's `gh api` calls are not the single labelled one. Every extra call \
+         site is a request that can fail with a message the log cannot attribute to it."
+    );
+
+    // Captured, and then printed where a reader is. `2>&1` above puts the API's own answer
+    // in `body` — which is where it says *which* resource it could not find; `>&2` puts it
+    // in the log rather than in the caller's `$(…)`, which would capture it as data.
+    for fragment in [
+        r#"echo "::error::${label} failed""#,
+        r#"echo "${body}""#,
+        "} >&2",
+        "return 1",
+    ] {
+        assert!(
+            script.contains(fragment),
+            "the deploy step's request helper is missing `{fragment}`. Without it a failed \
+             request says nothing, says it where nobody reads, or is swallowed and the step \
+             continues with an empty body."
+        );
+    }
+
+    // Every request, named. A count rather than a floor: the defect is a *new* request added
+    // without a label, and a floor of three passes that.
+    let labels: Vec<&str> = script
+        .lines()
+        .filter_map(|l| l.split_once(r#"request ""#))
+        .filter_map(|(_, rest)| rest.split_once('"'))
+        .map(|(label, _)| label)
+        .collect();
+    assert_eq!(
+        labels.len(),
+        3,
+        "the deploy step makes {} labelled requests, not the three it is written around \
+         (the artifact, the deployment, the poll). A request added without a label fails \
+         the way #1085 did; one removed leaves this count lying. Found: {labels:?}",
+        labels.len()
+    );
+    for label in &labels {
+        assert!(
+            label.split_whitespace().count() > 2,
+            "`{label}` does not name a request well enough to find it in a step that makes \
+             three. The label is the whole of what the log will carry."
+        );
+    }
+
+    // The one request that is not `gh api`. Its two variables exist only in a job granted
+    // `id-token: write`; read blind under `set -u`, a job without it ends on a variable
+    // name instead of on the reason, and that reason is a one-line fix in this file.
+    for fragment in [
+        "${ACTIONS_ID_TOKEN_REQUEST_URL:-}",
+        "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}",
+    ] {
+        assert!(
+            script.contains(fragment),
+            "the deploy step reads `{fragment}` without checking it. The OIDC request is \
+             the one call here that is not `gh api`, and it is the one that stops existing \
+             when a permission is dropped."
+        );
+    }
+}
+
 /// What the deploy claims and what the site serves are checked against each other.
 ///
 /// The defect above was silent for exactly one reason: "Reported success!" describes the

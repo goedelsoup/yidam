@@ -438,10 +438,37 @@ jobs:
         run: |
           set -euo pipefail
 
+          # ── every request this step makes names itself (#1085) ───────────────────
+          #
+          # `gh` writes its own diagnosis to stderr and exits 1, and `set -e` then ends the
+          # step with that message detached from the call that produced it. This step made
+          # three requests and printed nothing before the first, so for twenty-five
+          # consecutive runs the entire log was `gh: Not Found (HTTP 404)` — belonging to an
+          # unidentified one of them, while the site went a day without publishing.
+          #
+          # Every call goes through here instead. The label and the response body reach the
+          # log together, and the body is where the API says which resource it could not
+          # find. `>&2` is load-bearing: the caller reads this function through `$(…)`, so a
+          # label printed to stdout would be captured as data and reach nobody.
+          request() {
+            local label=$1
+            shift
+            local body
+            if ! body=$(gh api "$@" 2>&1); then
+              {
+                echo "::error::${label} failed"
+                echo "${body}"
+              } >&2
+              return 1
+            fi
+            printf '%s' "$body"
+          }
+
           # The artifact `upload-pages-artifact` left in this run. The action asks the
           # Actions results service for it by name; this is the REST spelling of the same
           # question, and it is what the `actions: read` permission above is for.
-          artifacts=$(gh api \
+          echo "GET  runs/${GITHUB_RUN_ID}/artifacts?name=github-pages"
+          artifacts=$(request "listing this run's github-pages artifact" \
             "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?name=github-pages")
           found=$(jq '.artifacts | length' <<<"$artifacts")
           if [ "$found" != "1" ]; then
@@ -451,15 +478,34 @@ jobs:
             exit 1
           fi
           artifact_id=$(jq '.artifacts[0].id' <<<"$artifacts")
+          echo "     artifact id ${artifact_id}"
 
           # Pages authorises the deployment with an OIDC token, which is what this job's
           # `id-token: write` permission mints. Masked because it is a bearer credential and
           # everything below prints freely.
+          #
+          # Both variables are checked rather than read blind. A job granted no
+          # `id-token: write` has neither, and under `set -u` the step would end on the name
+          # of a variable instead of on the reason it is missing.
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] ||
+             [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "::error::this job was granted no id-token: write, so there is no OIDC"
+            echo "::error::request to mint the token Pages authorises a deployment with."
+            exit 1
+          fi
+          echo "GET  the OIDC token for this job"
           id_token=$(curl -fsS \
             -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}" | jq -r '.value')
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}" | jq -r '.value // ""')
           echo "::add-mask::${id_token}"
+          [ -n "$id_token" ] || {
+            echo "::error::the OIDC request returned a response with no token in it."
+            exit 1
+          }
+          echo "     token minted, ${#id_token} characters"
 
+          echo "POST pages/deployments"
+          echo "     artifact_id ${artifact_id}, pages_build_version ${BUILD_VERSION}"
           created=$(jq -nc \
               --argjson artifact_id "$artifact_id" \
               --arg pages_build_version "$BUILD_VERSION" \
@@ -467,7 +513,9 @@ jobs:
               '{artifact_id: $artifact_id,
                 pages_build_version: $pages_build_version,
                 oidc_token: $oidc_token}' \
-            | gh api -X POST "repos/${GITHUB_REPOSITORY}/pages/deployments" --input -)
+            | request "creating the Pages deployment" \
+                -X POST "repos/${GITHUB_REPOSITORY}/pages/deployments" --input -)
+          echo "     Pages answered: ${created}"
 
           # Pages hands the build version back as the deployment's id. Read *that*, and not
           # the value this step declared: the server's copy is the only line here that is
@@ -486,7 +534,8 @@ jobs:
           # spelling; the four failures below are terminal and everything else is progress.
           for _ in $(seq 1 60); do
             sleep 10
-            status=$(gh api "repos/${GITHUB_REPOSITORY}/pages/deployments/${id}" \
+            status=$(request "polling deployment ${id}" \
+              "repos/${GITHUB_REPOSITORY}/pages/deployments/${id}" \
               --jq '.status' || echo 'unknown_status')
             echo "  status: ${status}"
             case "${status}" in
