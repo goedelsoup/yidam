@@ -1,4 +1,4 @@
-# RFC-0042 — A calculator whose purity is a typecheck, not a norm
+# RFC-0042 — A calculator whose purity is a closed scope and a typecheck, not a norm
 
 - **Status:** Draft
 - **Track:** I31
@@ -24,14 +24,22 @@ demonstrating the build system"* ([`invoke`](../../yidam/cli/src/cmd/run/exec.rs
 it costs is that the property `docs/domain-computer.md` states about the whole kind is
 unenforceable. This RFC proposes a **second arm** on the same manifest field — a script in an
 embedded, statically typed, effect-tracked language, `run = { gluon = "…" }` beside
-`run = ["sh", …]` — where a calculator's purity is the declared type of its entry point and the
-refusal comes at typecheck rather than after the tree is written. It is behind a cargo feature
+`run = ["sh", …]` — where a calculator's purity is a closed scope plus the declared type of its
+entry point, and the refusal comes before the script runs rather than after the tree is written. It is behind a cargo feature
 outside the default set, and a build that cannot run one refuses it by name.
 
 The RFC is `Draft` because the measurement does not obviously pass. RFC-0024 chose `regorus` at
 **8 marginal packages**; gluon 0.18.4 costs **71** and about **+6.8 MB** on a 15 MB binary. Those
 numbers are recorded below so that nobody re-measures them, and so that the decision is made
 against them rather than against the design's appeal.
+
+**Amended after implementation (#1087).** The engine landed in #1088, and building it disproved
+this RFC's central claim in its original form: the entry point's type is *necessary and not
+sufficient*, because `std.debug.trace` is declared `a -> ()` and prints to stdout. The mechanism
+that closes it is a closed prelude — an allowlist of fifteen pure `std` modules plus a lexical
+refusal of every macro invocation — with the typecheck beside it. What survives is a weaker claim
+than *purity is a typecheck* and a stronger one than a denylist's; the section below states it,
+and the title changed with it. Nothing about the cost measurement or the decision rule changed.
 
 ## Problem
 
@@ -124,26 +132,52 @@ about gluon.** With default features off, `VmBuilder::build` still registers `st
 `std.process`, `std.env`, `std.thread` and `std.channel` unconditionally. They are not
 `cfg`-gated the way `regex`, `web` and `random` are, and no feature combination removes them.
 
-What closes the gap instead is the type system. Every one of those primitives returns `IO<_>`,
-and gluon's standard library offers no pure escape from `IO` — no `unsafePerformIO`, no
-`runIO` reachable from a script. So a calculator whose entry point is declared
-`Corpus -> Computed`, and **not** `Corpus -> IO Computed`, cannot perform an effect, and the
-refusal arrives at typecheck. That is earlier than the eval-time refusal RFC-0024 records as
-Rego's sharp edge: Rego says *could not find function `http.send`* when the offending line is
-reached, and a policy whose network call sits on an untaken branch passes every test. A gluon
-calculator that so much as names `std.fs` does not compile.
+Every one of those primitives routes its effect through `IO<_>`, and gluon's standard library
+offers no pure escape from `IO` — no `unsafePerformIO`, no `runIO` reachable from a script. So a
+calculator whose entry point is declared `Corpus -> Computed`, and **not**
+`Corpus -> IO Computed`, cannot perform *those* effects, and the refusal arrives at typecheck.
+That is earlier than the eval-time refusal RFC-0024 records as Rego's sharp edge: Rego says
+*could not find function `http.send`* when the offending line is reached, and a policy whose
+network call sits on an untaken branch passes every test.
 
-It is the weaker property in exactly the way RFC-0024 defined weakness, and the honest statement
-of it is that the guarantee lives in **the declared type of the entry point**, optionally
-narrowed by a custom `Importer` denylist, and not in `Cargo.toml`. The module doc carries the
-same sentence `policy/` carries about its allowlist: this is not the mechanism, it is when you
-find out. Two things follow, and both are load-bearing:
+#### The type is necessary and not sufficient, which building it is how we found out
 
-- the entry point's type is checked by the CLI, not taken on trust from the script — the host
-  resolves the declared signature and refuses a script whose entry point is `IO`-typed, with the
-  type it found and the type it wanted;
-- the `Importer` denylist is a defence in depth and is stated as such. A reviewer who relies on
-  it alone has misread this section.
+An earlier draft of this section said the entry point's type was **the** mechanism, with a
+denylist `Importer` as defence in depth. That is wrong, and the correction is the most useful
+thing #1088 produced (#1087).
+
+`std.debug.trace` is declared `a -> ()`. It is registered unconditionally, like the six above,
+and it is `println!` to stdout. So a function whose declared type is *exactly* a calculator's can
+perform an effect and typecheck — `\c -> { signals = [], x = debug.trace c }` has no `IO`
+anywhere in it. For this CLI stdout is where `--format json` goes, which makes it the worst of
+the effects on offer rather than a harmless one.
+
+The general statement is the one to carry forward: **`IO` tracks the effects gluon routes through
+`IO`.** It does not track an effect a primitive declared its way out of, and nothing in the type
+system says a registered primitive told the truth about its own signature. A type system is a
+claim about composition, not an audit of the host's registrations.
+
+So the guarantee lives in two mechanisms, and the scope is the primary one:
+
+- **A closed prelude.** The script is evaluated with a fixed prefix binding fifteen named pure
+  modules — [`PRELUDE_MODULES`](../../yidam/cli/src/gluon_arm/mod.rs#L74-L77) — and any macro
+  invocation *in the script* is refused lexically by
+  [`refuse_macros`](../../yidam/cli/src/gluon_arm/entry.rs#L44-L46). Since gluon reaches a native
+  module only through `import!`, a script that cannot invoke a macro can only use the names the
+  prelude bound. **Closed by default:** a module nobody listed is an undefined variable, so a
+  module a future gluon registers is out of reach on the day it is added rather than on the day
+  somebody remembers to deny it.
+- **The entry point's typecheck**, which still refuses every effect routed through `IO`, and which
+  is what catches a script that is wrong about its own shape rather than about its effects. It is
+  checked by the CLI and not taken on trust from the script: the host resolves the declared
+  signature and reports the type it found beside the type it wanted.
+
+A gluon calculator that so much as names `std.fs` still does not compile — but for the first
+reason, not the second. [`EXCLUDED`](../../yidam/cli/src/gluon_arm/mod.rs#L85-L89) records each
+module that is deliberately unreachable beside the reason, `debug` among them, and the reason
+given there is this subsection in one line. The claim that survives review is therefore weaker
+than the earlier draft's and *stronger* than a denylist's, and it is the one the module doc now
+carries.
 
 ### What the numbers do not settle, and the decision rule
 
@@ -290,9 +324,21 @@ the aarch64 cross-compile.
 first regardless. It removes the awk, and it leaves the purity norm exactly as unenforceable as
 it is today.
 
-**A denylist `Importer` as the primary mechanism.** Considered and rejected as primary: it is a
-list somebody maintains, which is the guard-list shape this repository has filed against itself
-before. It stays as defence in depth, and the entry point's type is the mechanism.
+**A denylist `Importer`, or a denylist of module names in any form.** Rejected, and implementing
+the arm turned this from a preference into the decisive reason. A denylist is a list somebody
+maintains, which is the guard-list shape this repository has filed against itself before — and
+worse here, because the module it would have missed is the one that matters. `std.debug` is
+pure-typed; anybody deriving a denylist from *which modules perform effects* leaves it off.
+
+What replaced it is an **allowlist**, which is the same shape turned around and is not the same
+failure mode. Fifteen names is a list somebody maintains too, but it is closed by default: the
+cost of forgetting an entry is a calculator author who cannot use `std.json` until somebody adds
+it, and the cost of forgetting an entry on a denylist is a script that reaches the network. The
+list is also small enough to justify item by item, which the RFC-0024 allowlist argument turns
+on, and a test holds it disjoint from the excluded set so the two cannot drift into agreeing.
+
+The entry point's type remains beside it, and is necessary rather than sufficient — see the
+subsection above for the measurement that settled which is which.
 
 ## Open questions
 
@@ -312,8 +358,18 @@ before. It stays as defence in depth, and the entry point's type is the mechanis
 5. **Whether a typechecked-but-failing script is a different refusal.** A script that typechecks
    and then returns a `Computed` the corpus cannot accept is a step failure, and a script that
    does not typecheck is arguably a manifest failure — found before anything runs, like a cycle
-   in `after`. If it is the latter, `yidam lint` could typecheck every declared gluon calculator
-   without invoking one, and that is a gate this RFC has not designed.
+   in `after`. There are now *three* refusals to place, not two: the macro scan refuses before
+   any gluon runs, an unbound name is refused by the typechecker although it is a scope failure
+   rather than a type failure, and a wrong shape is a type failure. A reader deciding which are
+   manifest failures should know that the middle one reads as a type error in the output today.
+
+   If they are manifest failures, `yidam lint` could typecheck every declared gluon calculator
+   without invoking one — but it would have to build the prelude *the same way the runner does*,
+   from the same [`PRELUDE_MODULES`](../../yidam/cli/src/gluon_arm/mod.rs#L74-L77), or lint and
+   run disagree about what a calculator may say. A second opinion about a script's vocabulary is
+   worse than no gate: it either passes something `run` refuses, or refuses something `run` would
+   have accepted. That is a gate this RFC has not designed, and the constraint on it is the one
+   this paragraph states.
 6. **Upstream health.** Three years dormant, then two releases in two months. One maintainer's
    renewed attention is not a maintenance guarantee, and an embedded language is harder to
    replace than a policy engine. Vendoring is not an answer at this closure size.
