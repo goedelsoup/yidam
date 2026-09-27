@@ -9,7 +9,7 @@
 
 pub mod git;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -594,6 +594,80 @@ impl Example {
             dir,
             name: name.to_string(),
         }
+    }
+
+    /// [`Example::materialize`], with every step this build cannot invoke struck from the manifest.
+    ///
+    /// **For the suites that run a whole plan.** `yidam run` with no step named resolves the
+    /// entire manifest and refuses all of it if any one step is unrunnable, deliberately: a plan
+    /// holding a step this binary declines is a plan that would half advance the corpus, so it is
+    /// stopped before anything runs rather than skipped past. Since #1102 `examples/streamflow`
+    /// ships RFC-0042's reference case — a calculator declared `run = { gluon = … }` — so a build
+    /// without `calculators-gluon` cannot run that example's plan at all.
+    ///
+    /// So the plan those suites run is the runnable part of the manifest, and the amendment is a
+    /// commit like any other: the corpus they measure is a real corpus and not a materialized tree
+    /// with an uncommitted edit in it. In a build carrying the feature nothing is struck and
+    /// nothing is committed, and `capability_run.rs`'s
+    /// `a_typed_capability_is_shipped_and_is_run_in_one_build_and_declined_in_the_other` is what
+    /// holds that to the build rather than to this function's discretion.
+    ///
+    /// By text surgery on the section rather than by re-serializing the TOML, because these
+    /// manifests carry more prose than declaration and a round trip would drop all of it —
+    /// including the comments saying why each step reads what it reads, which is the part a failure
+    /// in one of these suites is read alongside.
+    ///
+    /// Typed-ness is read off the *shape* of `run` — a table rather than an array — which is the
+    /// same distinction the CLI's own `Run` deserializer draws. Deserializing that type instead
+    /// would skip exactly the declarations it got wrong, and it is `pub(crate)` to `yidam` anyway.
+    pub fn materialize_runnable(name: &str) -> Self {
+        #[derive(serde::Deserialize, Default)]
+        struct Manifest {
+            #[serde(default)]
+            capability: BTreeMap<String, Declaration>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Declaration {
+            run: toml::Value,
+        }
+
+        let e = Self::materialize(name);
+        let manifest = e.path().join(".yidam/capabilities.toml");
+        let Ok(text) = std::fs::read_to_string(&manifest) else {
+            return e;
+        };
+        let caps = toml::from_str::<Manifest>(&text)
+            .unwrap_or_else(|x| panic!("{name}'s capability manifest does not parse: {x}"))
+            .capability;
+
+        let mut kept = text.clone();
+        for (step, d) in &caps {
+            let typed = matches!(d.run, toml::Value::Table(_));
+            if !typed || cfg!(feature = "calculators-gluon") {
+                continue;
+            }
+            let header = format!("[capability.{step}]");
+            let at = kept.find(&header).unwrap_or_else(|| {
+                panic!("`{step}` is declared in {name} and `{header}` is not in its manifest")
+            });
+            // To the next section header at column 0, or to the end. Searched from past this one,
+            // so a manifest whose last entry is the struck one ends the slice at EOF.
+            let end = kept[at + header.len()..]
+                .find("\n[")
+                .map(|i| at + header.len() + i + 1)
+                .unwrap_or(kept.len());
+            kept = format!("{}{}", &kept[..at], &kept[end..]);
+        }
+        if kept == text {
+            return e;
+        }
+        std::fs::write(&manifest, kept).expect("striking the unrunnable steps");
+        git::out(&e.path(), &["add", "-A"]);
+        git::out(
+            &e.path(),
+            &["commit", "-m", "scaffold: the plan this build can run"],
+        );
+        e
     }
 
     pub fn path(&self) -> PathBuf {

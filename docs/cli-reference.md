@@ -641,6 +641,12 @@ The script's entry point is declared `Corpus -> Computed`. It is applied to the 
 this process. There is no scratch tree and no child process, so none of the five variables is set.
 A calculator that cannot perform an effect needs no sandbox to stand in.
 
+`Computed` is a record of two fields and both are required. `signals` is the table below, one row
+per node. `summary` is what the calculator counted about the run as a whole. It is
+written under a top-level `summary:`, not against any node. A calculator that summarizes nothing writes
+`summary = []` and the key is left out of the document. Gluon records are exact, so a script that
+omits either field is refused as not a calculator.
+
 It must still declare its own script under `reads`. A declaration that does not is refused by name,
 because the script's digest belongs in the input state. That digest goes in the receipt too. So
 editing a typed calculator makes its step stale, exactly as it does for the shell arm.

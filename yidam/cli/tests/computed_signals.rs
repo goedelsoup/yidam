@@ -168,7 +168,7 @@ fn a_calculator_writes_a_signal_table_for_these_tests_to_run() {
          under `examples/*/.yidam/` is invisible to `Example::materialize`"
     );
     for name in computing {
-        let e = Example::materialize(&name);
+        let e = Example::materialize_runnable(&name);
         run_and_take(&e, &name);
         assert!(
             !declared_signal_names(&e.path()).is_empty(),
@@ -187,7 +187,7 @@ fn a_calculator_writes_a_signal_table_for_these_tests_to_run() {
 #[test]
 fn a_signal_a_calculator_computed_reaches_the_embedding_record() {
     for name in corpora_that_compute() {
-        let e = Example::materialize(&name);
+        let e = Example::materialize_runnable(&name);
         run_and_take(&e, &name);
         let declared = declared_signal_names(&e.path());
 
@@ -237,7 +237,7 @@ fn a_signal_a_calculator_computed_reaches_the_embedding_record() {
 #[test]
 fn a_record_with_no_signal_carries_no_signal_field() {
     for name in corpora_that_compute() {
-        let e = Example::materialize(&name);
+        let e = Example::materialize_runnable(&name);
         run_and_take(&e, &name);
         let (out, err, code) = e.run(&["embed"]);
         assert_eq!(code, 0, "`yidam embed` failed in {name}:\n{out}{err}");
@@ -267,7 +267,7 @@ fn a_record_with_no_signal_carries_no_signal_field() {
 #[test]
 fn doctor_reports_a_computed_answer_whose_inputs_moved() {
     for name in corpora_that_compute() {
-        let e = Example::materialize(&name);
+        let e = Example::materialize_runnable(&name);
         run_and_take(&e, &name);
         assert_eq!(
             check(&e, "computed")["verdict"],
@@ -305,7 +305,7 @@ fn doctor_reports_a_computed_answer_whose_inputs_moved() {
 #[test]
 fn a_run_that_has_not_reached_the_checkout_is_not_reported_as_never_having_run() {
     for name in corpora_that_compute() {
-        let e = Example::materialize(&name);
+        let e = Example::materialize_runnable(&name);
         let (out, err, code) = e.run(&["run"]);
         assert_eq!(code, 0, "`yidam run` failed in {name}:\n{out}{err}");
         assert!(
