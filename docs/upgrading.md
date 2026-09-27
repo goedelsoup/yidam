@@ -28,6 +28,29 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### A re-fetched artifact record keeps the `redistributable:` the entry already carried
+
+**`yidam catalog-fetch` (#1074).** A record's `vault:` and `redistributable:` are decisions a
+person makes. A fetch left both blank on every record it wrote. That is right for a first
+capture: nothing an HTTP 200 establishes is a licence. It was wrong for a re-capture. A source
+you had cleared produced a new record silent on the question. `vault push` then refused the new
+bytes, and one licensing decision had to be re-entered by hand per edition.
+
+Both fields are now carried forward from the entry's latest record for that same location. The
+`refresh:` commit body names each field it carried and the digest it came from. A licence on a
+new record is reviewable as continued rather than established.
+
+**What changes for you: a re-capture may now arrive already cleared.** The assertion is still
+yours. The command reproduces the record you wrote and never invents one. A first capture is
+unchanged and still records neither field. Only the latest record for a location is consulted.
+Change your answer and every edition after it inherits the new one.
+
+**Entries whose latest record the old command wrote need one edit.** That record is silent, and
+a silent record carries nothing forward. Nothing here can tell a silence you intended from one
+the command left, so it does not guess. Put `redistributable:` on the newest record for that
+location once, and `vault:` if you had one. It carries from there. A record with no `from:` names
+no location and is never a source for a carry. Those are written by hand or by a bulk importer.
+
 ### A REGEN block written on one line stays on one line
 
 **The marker contract (#1094, RFC-0043).** `update_regen` wrote every block the same way. A
