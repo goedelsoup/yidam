@@ -42,10 +42,53 @@ use std::path::Path;
 
 use common::{examples, Example};
 
-/// One capability, as declared: what it is, and the argv it is invoked through.
+/// How a capability is invoked, in the two shapes a manifest may spell it.
+///
+/// Both arms, because both name an implementation this file has to resolve. The typed arm
+/// (RFC-0042) names one file and no program: the argv's `sh` is what the shell arm needs and what
+/// a script applied in-process does not. Read as an untagged enum rather than as a `toml::Value`
+/// so that a third shape is a parse failure here rather than a capability this file skips — which
+/// is the same reason the CLI's own `Run` refuses a table declaring neither.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum Invocation {
+    /// `run = ["sh", ".yidam/capabilities/x.sh"]`
+    Argv(Vec<String>),
+    /// `run = { gluon = ".yidam/capabilities/x.glu", calls = … }`
+    Typed {
+        gluon: String,
+        #[serde(default)]
+        #[allow(dead_code)]
+        calls: Option<u64>,
+    },
+}
+
+/// One capability, as declared: what it is, and how it is invoked.
 #[derive(serde::Deserialize)]
 struct Declared {
-    run: Vec<String>,
+    run: Invocation,
+}
+
+impl Declared {
+    /// The tokens of the invocation, whichever arm it is.
+    ///
+    /// A typed declaration has exactly one, and it is a path — which is why the two path rules
+    /// below need no arm of their own: a script that names no tracked file is dangling under the
+    /// same test that catches a renamed `.sh`.
+    fn tokens(&self) -> Vec<&str> {
+        match &self.run {
+            Invocation::Argv(argv) => argv.iter().map(String::as_str).collect(),
+            Invocation::Typed { gluon, .. } => vec![gluon.as_str()],
+        }
+    }
+
+    /// The invocation as a failure message should quote it back.
+    fn spelled(&self) -> String {
+        match &self.run {
+            Invocation::Argv(argv) => argv.join(" "),
+            Invocation::Typed { gluon, .. } => format!("{{ gluon = \"{gluon}\" }}"),
+        }
+    }
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -88,9 +131,8 @@ fn tracked(corpus: &Path) -> BTreeSet<String> {
 /// repository and not a rule about which arguments are paths. `sh`, `cargo`, `-p` and `--` are
 /// excluded because no file is called any of those, and nothing here had to decide that.
 fn implementation_paths<'a>(cap: &'a Declared, tracked: &BTreeSet<String>) -> Vec<&'a str> {
-    cap.run
-        .iter()
-        .map(String::as_str)
+    cap.tokens()
+        .into_iter()
         .filter(|arg| tracked.contains(*arg))
         .collect()
 }
@@ -101,9 +143,8 @@ fn implementation_paths<'a>(cap: &'a Declared, tracked: &BTreeSet<String>) -> Ve
 /// rather than a silence: a token holding a `/` is a path by construction — no program on
 /// `PATH` is spelled with one — so one that names no tracked file names nothing.
 fn dangling_paths<'a>(cap: &'a Declared, tracked: &BTreeSet<String>) -> Vec<&'a str> {
-    cap.run
-        .iter()
-        .map(String::as_str)
+    cap.tokens()
+        .into_iter()
         .filter(|arg| arg.contains('/') && !arg.starts_with('-') && !tracked.contains(*arg))
         .collect()
 }
@@ -162,7 +203,7 @@ fn every_declared_capability_resolves_to_something_this_repository_holds() {
             "`{step}` in {example} is invoked as `{}`, and {} names no file this repository \
              tracks.\n  A declaration pointing at nothing is a capability that cannot run, \
              and it fails at invocation rather than at review.",
-            cap.run.join(" "),
+            cap.spelled(),
             dangling.join(", ")
         );
         assert!(
@@ -171,7 +212,7 @@ fn every_declared_capability_resolves_to_something_this_repository_holds() {
              repository.\n  An example capability implemented somewhere else cannot be run \
              by `capability_run.rs`, which invokes every declared capability against a \
              materialized copy of the corpus and nothing beyond it.",
-            cap.run.join(" ")
+            cap.spelled()
         );
     }
 }

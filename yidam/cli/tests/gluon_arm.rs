@@ -157,7 +157,7 @@ fn only_the_arm_names_the_engine() {
 mod engine {
     use gluon::vm::api::VmType;
     use gluon::{new_vm, ThreadExt};
-    use yidam::gluon_arm::marshal::{Computed, Corpus, NodeView, Property, Value};
+    use yidam::gluon_arm::marshal::{Computed, Corpus, Link, NodeView, Property, Value};
     use yidam::gluon_arm::{self, budget, entry, EXCLUDED, PRELUDE_MODULES, PRELUDE_TYPES};
 
     /// Whitespace-insensitive, so a rendered type's line breaks do not decide a comparison.
@@ -293,7 +293,8 @@ mod engine {
             "Unrepresentable",
         ] {
             let script = format!(
-                "\\c -> {{ signals = [{{ node = \"a/b\", values = [{{ name = \"n\", value = {ctor} }}] }}] }}"
+                "\\c -> {{ signals = [{{ node = \"a/b\", values = [{{ name = \"n\", value = {ctor} }}] }}], \
+                 summary = [] }}"
             );
             accepts(&script)
                 .unwrap_or_else(|e| panic!("the prelude's `{ctor}` is not `marshal::Value`: {e}"));
@@ -305,10 +306,12 @@ mod engine {
     /// A calculator is accepted, and every shape of performed effect is refused at typecheck.
     #[test]
     fn the_entry_type_refuses_an_effect_in_a_pure_position() {
-        accepts("\\c -> { signals = [] }").expect("a pure calculator is a calculator");
+        accepts("\\c -> { signals = [], summary = [] }")
+            .expect("a pure calculator is a calculator");
         accepts(
             "\\c -> { signals = array.functor.map \
-             (\\n -> { node = n.id, values = [{ name = \"class\", value = Text n.class }] }) c.nodes }",
+             (\\n -> { node = n.id, values = [{ name = \"class\", value = Text n.class }] }) c.nodes, \
+             summary = [] }",
         )
         .expect("reading the corpus is what a calculator is for");
 
@@ -316,10 +319,10 @@ mod engine {
         // the type. The name is the mechanism that works; the type is the one RFC-0042 argued
         // for, and `the_one_pure_typed_effect_is_out_of_reach` below is why it needed help.
         for bad in [
-            "\\c -> { signals = [], extra = 1 }",
-            "\\c -> { signals = 1 }",
+            "\\c -> { signals = [], summary = [], extra = 1 }",
+            "\\c -> { signals = 1, summary = [] }",
             "\\c -> 1",
-            "\\c -> { signals = [{ node = 1, values = [] }] }",
+            "\\c -> { signals = [{ node = 1, values = [] }], summary = [] }",
         ] {
             assert!(
                 accepts(bad).is_err(),
@@ -337,15 +340,15 @@ mod engine {
     #[test]
     fn the_one_pure_typed_effect_is_out_of_reach() {
         // The name is not bound.
-        let err = accepts("\\c -> { signals = [], x = debug.trace 1 }")
+        let err = accepts("\\c -> { signals = [], summary = [], x = debug.trace 1 }")
             .expect_err("`debug` must not be in a calculator's scope");
         assert!(err.contains("debug"), "{err}");
 
         // And it cannot be brought into scope, because that takes a macro.
         for reach in [
-            "let debug = import! std.debug in \\c -> { signals = [] }",
-            "let d = import! std.debug.prim in \\c -> { signals = [] }",
-            "let io = import! std.io in \\c -> { signals = [] }",
+            "let debug = import! std.debug in \\c -> { signals = [], summary = [] }",
+            "let d = import! std.debug.prim in \\c -> { signals = [], summary = [] }",
+            "let io = import! std.io in \\c -> { signals = [], summary = [] }",
         ] {
             let err = accepts(reach).expect_err("a calculator may not import");
             assert!(
@@ -356,7 +359,7 @@ mod engine {
 
         // Nor reached as a variable path: a registered global is not a name in scope. Measured
         // on gluon 0.18.4 — `std.debug.prim.trace "x"` is *Undefined variable `std`*.
-        let err = accepts("\\c -> { signals = [], x = std.debug.prim.trace 1 }")
+        let err = accepts("\\c -> { signals = [], summary = [], x = std.debug.prim.trace 1 }")
             .expect_err("a registered global is not a variable");
         assert!(err.contains('`'), "{err}");
     }
@@ -365,13 +368,13 @@ mod engine {
     #[test]
     fn no_excluded_module_can_be_reached() {
         for (m, why) in EXCLUDED {
-            let bound = accepts(&format!("\\c -> {{ signals = [], x = {m} }}"));
+            let bound = accepts(&format!("\\c -> {{ signals = [], summary = [], x = {m} }}"));
             assert!(
                 bound.is_err(),
                 "`{m}` is bound in a calculator's scope ({why})"
             );
             let imported = accepts(&format!(
-                "let {m} = import! std.{m} in \\c -> {{ signals = [] }}"
+                "let {m} = import! std.{m} in \\c -> {{ signals = [], summary = [] }}"
             ));
             let err = imported.expect_err(&format!("`std.{m}` was importable ({why})"));
             assert!(err.contains("macro"), "{err}");
@@ -383,8 +386,10 @@ mod engine {
     /// A macro invocation is refused, and the refusal says which one and where.
     #[test]
     fn a_macro_invocation_is_refused_with_its_line() {
-        let err = entry::refuse_macros("\\c ->\n  let d = import! std.debug\n  { signals = [] }")
-            .expect_err("an import is a macro invocation");
+        let err = entry::refuse_macros(
+            "\\c ->\n  let d = import! std.debug\n  { signals = [], summary = [] }",
+        )
+        .expect_err("an import is a macro invocation");
         let msg = err.to_string();
         assert!(
             msg.contains("line 2"),
@@ -398,11 +403,11 @@ mod engine {
             "only `import!` is refused, so the rule is a denylist after all"
         );
         assert!(
-            entry::refuse_macros("\\c -> { signals = [], x = 1 != 2 }").is_ok(),
+            entry::refuse_macros("\\c -> { signals = [], summary = [], x = 1 != 2 }").is_ok(),
             "`!=` is not a macro invocation"
         );
         assert!(
-            entry::refuse_macros("\\c -> { signals = [] }").is_ok(),
+            entry::refuse_macros("\\c -> { signals = [], summary = [] }").is_ok(),
             "a calculator with no macro must pass"
         );
     }
@@ -416,10 +421,16 @@ mod engine {
     fn a_multibyte_character_before_a_bang_is_read_and_not_sliced() {
         // Refused — a false positive, and the safe direction: `a!` is the macro shape, and the
         // scan does not know it is inside a string. What matters is that it *returns*.
-        assert!(entry::refuse_macros("\\c -> { signals = [], m = \"¡Hola!\" }").is_err());
+        assert!(
+            entry::refuse_macros("\\c -> { signals = [], summary = [], m = \"¡Hola!\" }").is_err()
+        );
         // Not refused, and the character before the `!` is multi-byte in both.
-        assert!(entry::refuse_macros("\\c -> { signals = [], m = \"café — !\" }").is_ok());
-        assert!(entry::refuse_macros("\\c -> { signals = [], m = \"日本!\" }").is_ok());
+        assert!(
+            entry::refuse_macros("\\c -> { signals = [], summary = [], m = \"café — !\" }").is_ok()
+        );
+        assert!(
+            entry::refuse_macros("\\c -> { signals = [], summary = [], m = \"日本!\" }").is_ok()
+        );
         // And a name reached past a multi-byte delimiter is still named in full.
         let err = entry::refuse_macros("-- ¡\nlet d = import! std.debug in d")
             .expect_err("an import is an import whatever precedes it");
@@ -460,7 +471,7 @@ mod engine {
         // One line and explicit `in`: this test is about the budget, and a script whose
         // parse depends on layout would fail it for the wrong reason. A gluon script cannot
         // loop without calling something, which is why counting calls bounds it at all.
-        let looping = "\\c -> rec let go n = go (n + 1) in { signals = go 0 }";
+        let looping = "\\c -> rec let go n = go (n + 1) in { signals = go 0, summary = [] }";
         let err = gluon_arm::evaluate("loop", looping, corpus(&[]), 5_000)
             .expect_err("an endless calculator must be refused rather than waited for");
         let msg = err.to_string();
@@ -479,7 +490,8 @@ mod engine {
     /// this arm a corpus can act on.
     #[test]
     fn the_budget_stops_a_calculator_that_loops_before_it_is_called() {
-        let looping = "rec let go n = go (n + 1) in let x = go 0 in \\c -> { signals = [] }";
+        let looping =
+            "rec let go n = go (n + 1) in let x = go 0 in \\c -> { signals = [], summary = [] }";
         let err = gluon_arm::evaluate("toploop", looping, corpus(&[]), 5_000)
             .expect_err("a top-level loop must be refused rather than waited for");
         let msg = err.to_string();
@@ -500,7 +512,7 @@ mod engine {
         let out = gluon_arm::evaluate(
             "wide",
             "\\c -> { signals = [{ node = \"gage/one\", values = \
-             [{ name = \"n\", value = Int 3000000000 }] }] }",
+             [{ name = \"n\", value = Int 3000000000 }] }], summary = [] }",
             corpus(&[]),
             budget::DEFAULT_CALLS,
         )
@@ -511,6 +523,81 @@ mod engine {
         );
     }
 
+    /// A count about the whole run comes back beside the table, and the field is not optional.
+    ///
+    /// `summary` is a field of the entry point's return type, so a script that omits it does not
+    /// typecheck — gluon's records are exact, which is the same property
+    /// [`the_entry_type_refuses_an_effect_in_a_pure_position`] relies on to refuse an `extra` one.
+    /// That is a cost worth stating: a calculator with nothing to count writes `summary = []`
+    /// rather than leaving the field out, and there is no shape of optional record field in gluon
+    /// that would let it. What it buys is that the block cannot be forgotten silently.
+    #[test]
+    fn a_count_about_the_run_comes_back_and_cannot_be_left_out() {
+        let out = gluon_arm::evaluate(
+            "counted",
+            "\\c -> { signals = [], summary = [{ name = \"nodes\", \
+             value = Int (array.len c.nodes) }] }",
+            corpus(&[("gage/one", 1.0), ("gage/two", 2.0)]),
+            budget::DEFAULT_CALLS,
+        )
+        .expect("a calculator counting its own input runs");
+        assert_eq!(out.computed.summary.len(), 1);
+        assert_eq!(out.computed.summary[0].name, "nodes");
+        assert_eq!(out.computed.summary[0].value, Value::Int(2));
+
+        let err = gluon_arm::evaluate(
+            "no-summary",
+            "\\c -> { signals = [] }",
+            corpus(&[]),
+            budget::DEFAULT_CALLS,
+        )
+        .expect_err("a record missing a field is not the entry point's type");
+        assert!(
+            err.to_string().contains("is not a calculator"),
+            "a script omitting `summary` was refused for some other reason: {err}"
+        );
+    }
+
+    /// A script reads a link's resolved target by matching on it, with no import to do it.
+    ///
+    /// The field is an `Option String` (see [`Link::resolved`]), so a calculator that
+    /// wants the chain rule has to be able to spell `Some` and `None`. Neither is in
+    /// [`PRELUDE_MODULES`] — they come from gluon's own implicit prelude — and this is the check
+    /// that the closed scope leaves them reachable. If a gluon upgrade ever stops binding them,
+    /// the answer is a `type Option` in [`PRELUDE_TYPES`] and not a script that imports.
+    #[test]
+    fn a_script_matches_a_resolved_link_with_no_import() {
+        let mut c = corpus(&[("reach/lower-canyon", 1.0)]);
+        c.nodes[0].links = vec![
+            Link {
+                target: "../reach.ont.yml".into(),
+                relationship: "instance-of".into(),
+                resolved: None,
+            },
+            Link {
+                target: "../gage/valley-bridge.yml".into(),
+                relationship: "measured-by".into(),
+                resolved: Some("gage/valley-bridge".into()),
+            },
+        ];
+        let out = gluon_arm::evaluate(
+            "reach",
+            "\\c ->\n  \
+             let landed l =\n    \
+             match l.resolved with\n    \
+             | Some id -> 1\n    \
+             | None -> 0\n  \
+             let count n = foldable.foldl (\\acc l -> acc + landed l) 0 n.links\n  \
+             { signals = array.functor.map (\\n -> { node = n.id, \
+             values = [{ name = \"links_in_corpus\", value = Int (count n) }] }) c.nodes, \
+             summary = [] }",
+            c,
+            budget::DEFAULT_CALLS,
+        )
+        .expect("matching on a resolved link is what the chain rule is written with");
+        assert_eq!(out.computed.signals[0].values[0].value, Value::Int(1));
+    }
+
     /// The default budget is headroom and not a limit anything real meets.
     #[test]
     fn a_real_calculator_costs_a_fraction_of_the_budget() {
@@ -518,7 +605,8 @@ mod engine {
                       | Number x -> x\n        | _ -> 0.0\n    \
                       let total n = foldable.foldl (\\acc p -> acc + miles p) 0.0 n.properties\n    \
                       { signals = array.functor.map (\\n -> { node = n.id, values = \
-                      [{ name = \"tier\", value = Text (if total n > 10.0 then \"far\" else \"near\") }] }) c.nodes }";
+                      [{ name = \"tier\", value = Text (if total n > 10.0 then \"far\" else \"near\") }] }) c.nodes, \
+                      summary = [] }";
         let out = gluon_arm::evaluate(
             "tier",
             script,
@@ -568,7 +656,8 @@ mod engine {
     fn a_type_error_is_reported_at_the_script_s_own_line() {
         let p = gluon_arm::prelude();
         assert!(!p.contains('\n'), "the prelude spans lines:\n{p}");
-        let err = accepts("\\c ->\n  { signals = nope }").expect_err("`nope` is undefined");
+        let err =
+            accepts("\\c ->\n  { signals = nope, summary = [] }").expect_err("`nope` is undefined");
         let msg = err.to_string();
         assert!(
             msg.contains(":2:"),
@@ -589,5 +678,72 @@ mod engine {
             !rendered.contains("format_version"),
             "`Computed` exposes the table's contract version to the script: {rendered}"
         );
+    }
+
+    // ── a panic out of gluon's compiler ───────────────────────────────────────
+
+    /// A `.glu` that panics gluon's own compiler is refused by name rather than aborting the run.
+    ///
+    /// Found while authoring `examples/streamflow/.yidam/capabilities/travel-tier-typed.glu`. The
+    /// script below is the shape that file's `in` exists to avoid: gluon's layout draws `n` into
+    /// the recursive group, it typechecks, and `gluon_vm::compiler` then reaches `ice!` at
+    /// *Expected record as last expression of recursive binding*, which is `panic!`.
+    ///
+    /// The refusal names the step, because a capability's implementation is corpus data and a
+    /// shell calculator that is nonsense gets a step named. It does not carry gluon's invitation to
+    /// file a bug against gluon, because a corpus author is not who that invitation is for. And
+    /// `evaluate` *returns* — an abort leaves the branch where it was with nothing said about which
+    /// capability was at fault.
+    ///
+    /// The binding is used in `summary` on purpose. Gluon drops an unused one before the compiler
+    /// sees it, so a script that only writes the mistake does not reach the panic; the script has
+    /// to read the drawn-in binding as well.
+    #[test]
+    fn a_script_that_panics_the_compiler_is_refused_and_not_left_to_abort() {
+        let missing_in = "\\c ->\n    \
+                          rec let count n = if n == 0 then 0 else count (n - 1)\n    \
+                          let n = count 1\n    \
+                          { signals = [], summary = [{ name = \"n\", value = Int n }] }";
+        let err = gluon_arm::evaluate("tier", missing_in, corpus(&[]), budget::DEFAULT_CALLS)
+            .expect_err("a script that panics the compiler must be refused, not run");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("tier"),
+            "the refusal does not name the step, so a transcript cannot say which capability \
+             was at fault: {msg}"
+        );
+        assert!(
+            msg.contains("panicked gluon's compiler"),
+            "the refusal does not say the panic was gluon's: {msg}"
+        );
+        assert!(
+            msg.contains("recursive binding `n`"),
+            "the refusal drops the binding gluon named, which is the part that locates the \
+             mistake: {msg}"
+        );
+        assert!(
+            !msg.contains("gluon-lang/gluon/issues"),
+            "the refusal still asks a corpus author to file a bug against a third-party \
+             compiler: {msg}"
+        );
+        // Several kilobytes of typed AST with pointer addresses in it is what `ice!` formats, and
+        // it would bury the sentence it is attached to.
+        assert!(
+            msg.len() < 2_000,
+            "the refusal is {} bytes, so gluon's AST dump is in it: {msg}",
+            msg.len()
+        );
+
+        // The containment is on the compile path and not only on evaluation: the panic above
+        // happens while `run_expr` compiles, before the entry point is ever applied. A calculator
+        // on the other side of it still runs, so the boundary is a boundary and not a wall.
+        let out = gluon_arm::evaluate(
+            "after",
+            "\\c -> { signals = [], summary = [{ name = \"nodes\", value = Int 0 }] }",
+            corpus(&[]),
+            budget::DEFAULT_CALLS,
+        )
+        .expect("a calculator after a contained panic runs");
+        assert_eq!(out.computed.summary.len(), 1);
     }
 }

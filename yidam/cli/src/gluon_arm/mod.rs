@@ -59,6 +59,7 @@
 
 pub mod budget;
 pub mod entry;
+pub mod ice;
 pub mod marshal;
 
 use anyhow::Result;
@@ -159,13 +160,21 @@ pub struct Outcome {
 /// budget, and only then run. Nothing about the script's *contents* is inspected beyond the
 /// macro rule — everything else it is not allowed to do, it is not allowed to do because the
 /// type refuses it or because the name is not bound.
+///
+/// Every step that enters the engine goes through [`ice::contain`], because gluon's own `ice!`
+/// macro is `panic!` and a `.glu` can reach it — see that module for the script that does. The
+/// boundary is around the compile and not only around the call: the measured panic happens while
+/// `run_expr` compiles, before any evaluation, so a guard on `f.call` would never see it.
+///
 /// `corpus` is the projected value and not the reader, so that this function's signature is a
 /// public one — and so that a test can hand over a corpus it constructed rather than one it had
 /// to write to disk. [`marshal::project`] is the bridge from the reader the CLI holds.
 pub fn evaluate(name: &str, script: &str, corpus: Corpus, calls: usize) -> Result<Outcome> {
     let source = prepare(script)?;
     let vm = gluon::new_vm();
-    entry::typecheck(&vm, name, &source)?;
+    ice::contain(name, "while being typechecked", || {
+        entry::typecheck(&vm, name, &source)
+    })?;
 
     let budget = budget::Budget::install(&vm, calls);
 
@@ -187,10 +196,13 @@ pub fn evaluate(name: &str, script: &str, corpus: Corpus, calls: usize) -> Resul
         }
     };
 
-    let (mut f, _) = vm
-        .run_expr::<OwnedFunction<fn(Corpus) -> Computed>>(name, &source)
-        .map_err(|e| refuse("while being loaded", &e))?;
-    let computed = f.call(corpus).map_err(|e| refuse("while running", &e))?;
+    let (mut f, _) = ice::contain(name, "while being loaded", || {
+        vm.run_expr::<OwnedFunction<fn(Corpus) -> Computed>>(name, &source)
+            .map_err(|e| refuse("while being loaded", &e))
+    })?;
+    let computed = ice::contain(name, "while running", || {
+        f.call(corpus).map_err(|e| refuse("while running", &e))
+    })?;
     Ok(Outcome {
         computed,
         calls: budget.spent(),

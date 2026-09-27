@@ -10,9 +10,14 @@
 - **Versioning layers touched:** template (`guidelines/directories.md` and `docs/domain-computer.md`
   gain the second arm's field) / tooling (`yidam` CLI, behind a cargo feature **outside** the
   default set) — no parity-surface change, no MCP contract change, no bootstrap-protocol change
-- **Downstream reference case:** `examples/streamflow`'s two calculators — 190 lines of `sh` and
-  `awk` in `travel-tier.sh` and 108 in `disclosure-envelope.sh`, most of which is not the rule
-  either one computes
+- **Downstream reference case:** `examples/streamflow`'s calculators — 170 lines of `sh` and `awk`
+  in `travel-tier.sh` and 110 in `disclosure-envelope.sh`, most of which is not the rule either one
+  computes. **Landed in #1102 as `travel-tier-typed.glu`**, a third capability declaring
+  `run = { gluon = … }` beside the shell one and computing the same chain fixed point. It commits
+  the rule's intermediate facts — `weakest_beneath` and `chain_depth` — rather than the tier, because
+  a signal name is corpus-wide and two computed files may not claim one. `disclosure-envelope.sh`
+  was **not** ported and cannot be: it is a pipeline's second stage and reads the first's computed
+  signals, which the typed arm's projection does not carry (#1105)
 - **Specifies:** #1079. Depends on nothing; #1080 is the gluon-independent half of the same
   finding and lands first if it lands at all
 
@@ -148,8 +153,8 @@ thing #1088 produced (#1087).
 
 `std.debug.trace` is declared `a -> ()`. It is registered unconditionally, like the six above,
 and it is `println!` to stdout. So a function whose declared type is *exactly* a calculator's can
-perform an effect and typecheck — `\c -> { signals = [], x = debug.trace c }` has no `IO`
-anywhere in it. For this CLI stdout is where `--format json` goes, which makes it the worst of
+perform an effect and typecheck — `\c -> let noise = debug.trace c in { signals = [], summary = [] }`
+has the calculator's exact type and no `IO` anywhere in it. For this CLI stdout is where `--format json` goes, which makes it the worst of
 the effects on offer rather than a harmless one.
 
 The general statement is the one to carry forward: **`IO` tracks the effects gluon routes through

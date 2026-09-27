@@ -166,8 +166,15 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// is behind a feature outside the default set, so an agent that cannot tell the two forms apart
 /// cannot read a refusal naming one. The 100 further words of argument are in
 /// `directories.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a `[why]` link.
+///
+/// **Both raised by 57 when the typed arm gained streamflow's chain rule (#1102).** 18,676 →
+/// 18,733 and 24,041 → 24,098. The delta is **57 words in `directories.md`**, measured here
+/// rather than quoted: `3bcf2ed3` moved the numbers without a note, and this paragraph is that
+/// note written after the fact so the next raise is not reading a baseline that appeared from
+/// nowhere.
+///
 /// **Both raised by a further 48 when `GRAPH.md` gained `claim-property-undeclared` (#1069).**
-/// 18,676 → 18,724 and 24,041 → 24,089. The delta is **48 words in that one file** — the table
+/// 18,733 → 18,781 and 24,098 → 24,146. The delta is **48 words in that one file** — the table
 /// row and the two sentences saying a standing in an undeclared property is counted by nothing
 /// and that the check never gates — and the equality of the two deltas is the control again.
 /// Both routes were at their ceilings, and the second only looks untouched at a glance: the
@@ -175,7 +182,10 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// further words in `GRAPH.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a
 /// `[why]` link.
 ///
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_724), ("sadhana/root/AGENTS.md", 24_089)];
+/// Both figures are the measurement taken on the merged tree, not the two branches' deltas
+/// added: 57 and 48 landed in different files, and a ceiling with no slack cannot be arrived at
+/// by arithmetic on a number nobody re-ran.
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_781), ("sadhana/root/AGENTS.md", 24_146)];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
 ///
@@ -245,12 +255,17 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_724), ("sadhana/root/A
 /// words in `directories.md`**, the same 209 the two recurring routes moved by, and 27,344 + 209 is
 /// this figure exactly, so nothing else on the path moved. The 100 further words of argument are in
 /// `directories.evidence.md` and charged to [`PAIR_FLOOR`].
-/// **Raised to 27,601 when `GRAPH.md` gained `claim-property-undeclared` (#1069).** The delta is
-/// **48 words in `GRAPH.md`**, the same 48 the two recurring routes moved by, and 27,553 + 48 is
+///
+/// **Raised to 27,610 when the typed arm gained streamflow's chain rule (#1102).** The delta is
+/// **57 words in `directories.md`**, the same 57 the two recurring routes moved by, and 27,553 +
+/// 57 is this figure exactly. Recorded here after the fact: `3bcf2ed3` raised the number without
+/// a note.
+///
+/// **Raised to 27,658 when `GRAPH.md` gained `claim-property-undeclared` (#1069).** The delta is
+/// **48 words in `GRAPH.md`**, the same 48 the two recurring routes moved by, and 27,610 + 48 is
 /// this figure exactly, so nothing else on the path moved. The 280 further words of argument are
 /// in `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
-///
-const BOOTSTRAP_CEILING: usize = 27_601;
+const BOOTSTRAP_CEILING: usize = 27_658;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
