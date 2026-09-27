@@ -72,6 +72,7 @@ re-deriving it.
 | [0039](0039-occasion-scoped-read.md) | G9 | A read is scoped to the occasion, not to the repository | Draft |
 | [0040](0040-numeric-property-type.md) | G10 | A numeric property type | Draft |
 | [0041](0041-typed-property-columns.md) | G11 | Typed property columns, and a predicate on a ranked answer (`retrieve --where`) | Draft |
+| [0042](0042-typed-calculator-arm.md) | I31 | A calculator whose purity is a typecheck, not a norm — a typed, effect-tracked arm on the capability manifest | Draft |
 
 ## Reading order
 
