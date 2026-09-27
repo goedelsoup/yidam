@@ -583,7 +583,14 @@ verb   = "compute"
 
 `yidam run travel-tier` checks the declared `reads` out of `HEAD` into a scratch directory. It
 invokes the step there, with `$YIDAM_IN`, `$YIDAM_OUT`, `$YIDAM_STEP` and `$YIDAM_INPUT_COMMIT`
-set. What the step wrote lands as one commit on the current branch. A receipt lands with it, at
+set. A step whose `reads` admit a corpus node gets a fifth, `$YIDAM_GRAPH`. It names a file
+holding the corpus as `yidam` parsed it. Classes, labels, properties, and every link with its
+target already resolved. So a calculator writes no parser of its own.
+
+That file is sliced to what the step reads. Its digest is part of the input state. Changing how
+`yidam` resolves a link therefore makes every calculator's step stale. A step that reads no corpus
+node is handed no `$YIDAM_GRAPH`. The name is removed from the environment rather than left empty,
+so a script can test for it. What the step wrote lands as one commit on the current branch. A receipt lands with it, at
 `.yidam/runs/<step>.yml`, naming the input commit and every digest.
 
 Both declarations are load-bearing. The step sees what `reads` resolves to and nothing else. It

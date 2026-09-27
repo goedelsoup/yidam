@@ -661,6 +661,34 @@ nowhere else, **a capability must declare its own implementation**. Both entries
 input state — so editing a calculator is what makes its step stale.
 [why](directories.evidence.md#capability-declares-its-own-implementation)
 
+### `$YIDAM_GRAPH` — the corpus already parsed, and already resolved
+
+The step is invoked with four names in its environment — `$YIDAM_IN`, `$YIDAM_OUT`, `$YIDAM_STEP`
+and `$YIDAM_INPUT_COMMIT` — and, when its `reads` admit any corpus node, a fifth: `$YIDAM_GRAPH`
+names a file holding the corpus as `yidam` itself parsed it. Node classes, labels and properties,
+and every link with its target already resolved to a repository-relative path.
+
+**A step that is handed bytes parses them, and a second parser is a second answer.** The reason
+this is in the contract rather than left to each calculator is that the alternative is not
+hypothetical: `travel-tier` used to carry a regex over node YAML and an awk re-implementation of
+link resolution, neither of which anything compared against `yidam`'s own, and either of which
+could disagree with `yidam graph` about the same corpus without any gate noticing.
+[why](directories.evidence.md#resolved-corpus-is-handed-over)
+
+**It is sliced to what the step reads, and `exists` is not.** The file describes exactly the nodes
+the step's `reads` admit, so it grants no view the scratch tree does not already grant. But
+whether a link's target *is there in the repository* is answered against the whole input commit,
+because a target outside the slice is not missing — it is merely not this step's business, and a
+calculator told otherwise would report every link out of its own subtree as broken.
+
+**Its digest is part of the input state.** Changing how `yidam` resolves a link changes what every
+calculator reads, so it makes their steps stale, exactly as editing a calculator's own script
+does. [why](directories.evidence.md#resolved-corpus-in-the-input-state)
+
+A step whose `reads` admit no corpus node is handed no `$YIDAM_GRAPH` and the name is removed from
+the environment rather than left empty, so a script may test for it. `disclosure-envelope` above
+is such a step: it reads the first step's answer, not the first step's inputs.
+
 ### `after` — what must be up to date first
 
 `after` names steps this one waits for. It is resolved rather than advisory: a run plans the

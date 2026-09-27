@@ -18,13 +18,15 @@
 #
 # It reproduces no observation and invents no value. Every number here is a partition of a
 # file already committed, which is why it is recomputed rather than written once.
+#
+# It is handed no `$YIDAM_GRAPH` and wants none (#1080). Its `reads` admit one computed file
+# and no corpus node, so the executor has no resolved corpus to hand it — which is the point:
+# a second step of a pipeline reads the first step's answer, not the first step's inputs. The
+# `LC_ALL=C` that used to open this script is gone with it. It guarded the ordering of per-tier
+# `members:` lists this script no longer emits, and what is left reads one file in the order
+# that file is written, which no locale has an opinion about.
 
 set -eu
-
-# Byte ordering, so the member lists are a property of the corpus and not of the locale the
-# run happened to start in.
-LC_ALL=C
-export LC_ALL
 
 out="$YIDAM_OUT/.yidam/computed"
 mkdir -p "$out"

@@ -148,7 +148,16 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// under `number` — and the two deltas are equal again because `GRAPH.md` is on both lists. The
 /// clause is worth its words to every session: the sentence above it read *refused rather than
 /// guessed* without exception, which is what sent an author to edit the instances by hand.
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_157), ("sadhana/root/AGENTS.md", 23_522)];
+///
+/// **Both raised by 310 when a step learned it is handed a resolved corpus (#1080).** 18,157 →
+/// 18,467 and 23,522 → 23,832. The delta is **310 words in `directories.md`** — the `$YIDAM_GRAPH`
+/// section — and the equality of the two deltas is the control: `directories.md` is on both
+/// routes. A session is charged for it because the alternative is what #1080 found — two
+/// calculators each carrying a parser and a link resolver for a corpus the executor had already
+/// parsed for them, and no gate able to notice when they disagreed with it. The 131 further words
+/// of argument are in `directories.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a
+/// `[why]` link.
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_467), ("sadhana/root/AGENTS.md", 23_832)];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
 ///
@@ -208,7 +217,12 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_157), ("sadhana/root/A
 /// `GRAPH.md`**, the same 21 the two recurring routes moved by, and 27,013 + 21 is this figure
 /// exactly, so nothing else on the path moved. The 81 further words of argument are in
 /// `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
-const BOOTSTRAP_CEILING: usize = 27_034;
+///
+/// **Raised to 27,344 when a step learned it is handed a resolved corpus (#1080).** The delta is
+/// **310 words in `directories.md`**, the same 310 the `AGENTS.md` route moved by, and 27,034 +
+/// 310 is this figure exactly, so nothing else on the path moved. The 131 further words of
+/// argument are in `directories.evidence.md` and charged to [`PAIR_FLOOR`].
+const BOOTSTRAP_CEILING: usize = 27_344;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -260,10 +274,18 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// carried no slack before this edit and carries none after it. The rules half is 7,717 and the
 /// evidence half 4,137, read out of [`a_split_pair_does_not_shrink`]'s own message rather than
 /// added up by hand.
+///
+/// **`directories.md` re-measured to 12,295 for #1080.** 441 further words arrived — 310 in the
+/// rules half and 131 in the evidence half — and 11,854 + 441 is this figure exactly, so the pair
+/// carried no slack before this edit and carries none after it. The rules half is 8,027 and the
+/// evidence half 4,268. The split is more lopsided than the #1028 one because the section states
+/// one rule with three consequences rather than three rules: what the file is, that it is sliced,
+/// and that its digest is in the input state. The evidence half carries the two decisions — why
+/// one resolver rather than one per calculator, and why one builder rather than two.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_399),
     ("yidam/prelude/GRAPH.md", 9_037),
-    ("yidam/prelude/guidelines/directories.md", 11_854),
+    ("yidam/prelude/guidelines/directories.md", 12_295),
     ("yidam/prelude/skills/bootstrap.md", 10_433),
 ];
 
