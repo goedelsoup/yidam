@@ -165,7 +165,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         check.escalate_after = escalate_after;
     }
 
-    suppress_unparsed(&mut all, corpus.nodes(), corpus.classes());
+    suppress_unparsed(&mut all, &corpus);
     all
 }
 
@@ -256,7 +256,7 @@ const ROSTER: &[Entry] = &[
     Entry {
         id: checks::MALFORMED_YAML,
         asked: Asked::Always,
-        run: |i| checks::malformed_yaml(i.nodes(), i.classes()),
+        run: |i| checks::malformed_yaml(i.nodes(), i.classes(), i.sources(), i.decisions()),
     },
     Entry {
         id: "missing-class",
@@ -636,20 +636,41 @@ const ROSTER: &[Entry] = &[
 /// It also cannot fall behind the registry. A check added next year is covered without knowing
 /// this function exists, which a per-check `if malformed { continue }` in thirty-seven places
 /// could not promise for long.
-fn suppress_unparsed(
-    all: &mut [Check],
-    nodes: &[crate::corpus::Node],
-    classes: &[crate::corpus::Class],
-) {
-    let unparsed: HashSet<&str> = nodes
+///
+/// **All four records, since #1056.** The catalog and decision arms are the same argument on
+/// files that had no model when this was written: an entry whose header did not parse carries
+/// no `retrieved:` and no `ttl_days:`, so `catalog-expired` and `catalog-uncited` would each
+/// report what they made of the absence, and the only finding worth reading would be the one
+/// saying nobody read the file.
+fn suppress_unparsed(all: &mut [Check], corpus: &crate::corpus::Corpus) {
+    // Takes the corpus rather than the four slices: the set below has to be every record
+    // `malformed-yaml` can report, and a fifth record type added to that check and not to this
+    // one would put #676's contradictory findings straight back on the new kind of file.
+    let unparsed: HashSet<&str> = corpus
+        .nodes()
         .iter()
         .filter(|n| n.malformed.is_some())
         .map(|n| n.rel.as_str())
         .chain(
-            classes
+            corpus
+                .classes()
                 .iter()
                 .filter(|c| c.malformed.is_some())
                 .map(|c| c.rel.as_str()),
+        )
+        .chain(
+            corpus
+                .sources()
+                .iter()
+                .filter(|s| s.malformed.is_some())
+                .map(|s| s.rel.as_str()),
+        )
+        .chain(
+            corpus
+                .decisions()
+                .iter()
+                .filter(|d| d.malformed.is_some())
+                .map(|d| d.rel.as_str()),
         )
         .collect();
     if unparsed.is_empty() {
@@ -1484,6 +1505,97 @@ decision := {"allow": true, "deny": []}
         let dangling = check(&all, "dangling-edge");
         assert_eq!(dangling.violations.len(), 1, "{:?}", dangling.violations);
         assert!(dangling.violations[0].node.ends_with("beta.yml"));
+    }
+
+    /// **The catalog arm: an entry's own TTL, lost to one unclosed quote, now reported.**
+    ///
+    /// The measured case from #1056. The entry declares a 30-day TTL and `obtained: false`,
+    /// and one unclosed quote turns both into a `Frontmatter::default()` — so the entry reads
+    /// as obtained, governed by nothing, and cited by nothing, which is the state a corpus
+    /// carried for its whole history with nothing able to say so. `catalog-artifact-malformed`
+    /// cannot reach it: an entry whose header did not parse declares no `artifacts:`.
+    ///
+    /// The sound arm is what makes this a regression test rather than a tautology — without it
+    /// the case would pass against a TTL check that never fired on the fixture at all.
+    #[test]
+    fn a_catalog_entry_that_does_not_parse_gets_one_finding_and_no_others() {
+        let rel = ".yidam/catalog/gauge-feed.md";
+        let header = |ttl: &str| {
+            format!("---\nobtained: false\nttl_days: {ttl}\nretrieved: 2001-01-01\n---\nBody.\n")
+        };
+
+        let sound = clean_repo();
+        fs::create_dir_all(sound.path().join(".yidam/catalog")).unwrap();
+        fs::write(sound.path().join(rel), header("30")).unwrap();
+        let all = run_checks(sound.path(), &Options::default());
+        assert!(check(&all, "malformed-yaml").passed());
+        assert!(
+            check(&all, "catalog-expired")
+                .violations
+                .iter()
+                .any(|v| v.node.ends_with("gauge-feed.md")),
+            "the sound arm must have a finding to lose"
+        );
+
+        // The same entry with one unclosed quote in `ttl_days:`.
+        let tmp = clean_repo();
+        fs::create_dir_all(tmp.path().join(".yidam/catalog")).unwrap();
+        fs::write(tmp.path().join(rel), header("\"30")).unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+
+        let c = check(&all, "malformed-yaml");
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert_eq!(c.violations[0].node, rel);
+        assert!(errors(&all) > 0, "an entry nobody can read must gate");
+
+        let elsewhere: Vec<(&str, &str)> = all
+            .iter()
+            .filter(|c| c.id != checks::MALFORMED_YAML)
+            .flat_map(|c| c.violations.iter().map(move |v| (c.id, v.node.as_str())))
+            .filter(|(_, node)| node.starts_with(rel))
+            .collect();
+        assert!(
+            elsewhere.is_empty(),
+            "an entry nobody could read is described by these too: {elsewhere:?}"
+        );
+    }
+
+    /// **The decision arm, and the one where nothing was reported at all.**
+    ///
+    /// A decision record that governed a phase read as a `Decision` with no `id:` and no
+    /// `summary:`. `yidam decisions` then names it by its file stem and summarises it with an
+    /// em dash — which is exactly how it renders a record nobody has filled in — and no check
+    /// read decisions, so the whole report was silent. This is the finding that was missing.
+    #[test]
+    fn a_decision_record_that_does_not_parse_is_reported() {
+        let rel = ".yidam/decisions/phase-two.yml";
+
+        let sound = clean_repo();
+        fs::create_dir_all(sound.path().join(".yidam/decisions")).unwrap();
+        fs::write(
+            sound.path().join(rel),
+            "id: phase-two\nsummary: Narrowed the scope to one watershed.\n",
+        )
+        .unwrap();
+        assert!(check(
+            &run_checks(sound.path(), &Options::default()),
+            "malformed-yaml"
+        )
+        .passed());
+
+        let tmp = clean_repo();
+        fs::create_dir_all(tmp.path().join(".yidam/decisions")).unwrap();
+        fs::write(
+            tmp.path().join(rel),
+            "id: phase-two\nsummary: \"Narrowed the scope to one watershed.\n",
+        )
+        .unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+
+        let c = check(&all, "malformed-yaml");
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert_eq!(c.violations[0].node, rel);
+        assert!(errors(&all) > 0, "a decision nobody can read must gate");
     }
 
     /// A file with nothing in it has not contradicted anything.
