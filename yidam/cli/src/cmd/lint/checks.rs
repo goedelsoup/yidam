@@ -1752,6 +1752,103 @@ pub fn class_claim_uncounted(classes: &[Class]) -> Check {
     )
 }
 
+/// A property whose value spells a standing, in a class that did not declare it `type: claim`.
+///
+/// **The gap #1069 arrived through.** A derived corpus reported 56 open questions as nodes
+/// against a `due` questions clock that saw 8, and the issue asked for the counter to match a
+/// bare `open` under any key. The frozen `open_questions` contract refuses that by name, and for
+/// a reason a fifth key in the same corpus demonstrates: `status: open` on a ballot measure is a
+/// legislative stage, and a scan that read it as an unsettled claim would make every corpus in
+/// the population assert things it did not. **The ontology declares the field or the arm reads
+/// nothing** — so what was missing is not a wider scan. It is that a corpus which wrote a
+/// standing into an undeclared field was told by nothing at all.
+///
+/// The finding is one declaration away from being counted, and says so:
+/// [`crate::claims::undeclared_structural_tags`] is [`crate::claims::count_structural`]'s own
+/// walk inverted, so every pair reported here is a claim the counters would pick up the moment
+/// the class declared the field — in `status`, in `open-questions`, in the questions clock, in
+/// the MCP `claims` resource, at once.
+///
+/// **Info, and not a gate, because the fix is not always the declaration.** Run by this binary
+/// over the sixteen corpora in eighteen derived repositories — 2,770 tracked instance nodes —
+/// it reports **18 findings in 3 corpora**, and those 18 are three `(class, property)` pairs
+/// that split three ways. One is unambiguous: `bitrecover-bitwipe`'s `question` class carries
+/// `claim_tag` on 11 nodes holding exactly `verified` (5), `inference` (5) and `open` (1), and
+/// its `question.ont.yml` declares no such property — a claim field by name, by vocabulary and
+/// by intent, undeclared, counted nowhere. One is a corpus that grades its own transcription:
+/// `allen-recorder`'s `parcel.status` holds a bare `verified` on 3 nodes. And one is neither:
+/// `hegeomai`'s `inquiry.status` holds `open` on 4 nodes and `narrowing` and `answered` on
+/// others, which is a question's lifecycle and not an evidence standing. Declaring that one
+/// `type: claim` would be wrong; renaming it is the repair. A check that gated could not tell
+/// the three apart, and deciding which a word is remains the judgement Article V refuses to
+/// delegate — so both fixes are named and neither is imposed.
+///
+/// Bracketed values are not reported; [`crate::claims::undeclared_structural_tags`] says why, and
+/// the reason is that they are already counted.
+pub fn claim_property_undeclared(nodes: &[Node], classes: &[Class]) -> Check {
+    let by_name = classes_by_name(classes);
+    let mut violations = Vec::new();
+    for n in nodes {
+        let class_name = class_of(n);
+        let Some(class) = by_name.get(class_name.as_str()) else {
+            continue;
+        };
+        let declared: Vec<String> = class
+            .properties
+            .iter()
+            .filter(|p| p.r#type == crate::claims::CLAIM_PROPERTY_TYPE)
+            .map(|p| p.name.clone())
+            .collect();
+        for (key, value) in crate::claims::undeclared_structural_tags(&n.text, &declared) {
+            violations.push(
+                Violation::new(
+                    &n.rel,
+                    format!(
+                        "`{key}: {}` spells a standing, and `{}` does not declare `{key}` \
+                         as `type: claim` — so it is counted as no claim at all. Declare it, \
+                         or rename the property if the word is a workflow state rather than a \
+                         standing",
+                        elide_value(&value),
+                        class.rel
+                    ),
+                )
+                .at(Severity::Info),
+            );
+        }
+    }
+    Check::new(
+        "claim-property-undeclared",
+        "Property spelling a standing that its class did not declare `type: claim`",
+        Severity::Info,
+        "A claim in a node's field is counted when the class declares that field \
+         `type: claim`, and is read by nothing when it does not — not by `status`, not by \
+         `open-questions`, not by the `due` questions clock, not by the MCP `claims` \
+         resource. The corpus wrote the standing; the declaration is what makes it \
+         reachable. This reports bare spellings only: a bracketed `[open]` is already \
+         counted wherever it sits, because the prose scan reads the file's bytes, and every \
+         bracketed value measured in an undeclared field is a placeholder for a value the \
+         corpus does not have yet rather than a claim. It is Info because the right repair \
+         is not always the declaration: a `status` holding `open`, `narrowing` and \
+         `answered` is a lifecycle and not an evidence standing, and declaring that one \
+         `type: claim` would make the corpus assert something it did not. The finding names \
+         both fixes and imposes neither.",
+        violations,
+    )
+}
+
+/// A value shortened to its first line and 60 characters, so a finding stays one line.
+///
+/// A claim-spelling value can be a qualified tag running to a paragraph — `verified for the
+/// counts and the two roll joins; …` — and a finding that reproduced one would push the
+/// declaration it is asking for off the reader's screen.
+fn elide_value(value: &str) -> String {
+    let first = value.lines().next().unwrap_or_default().trim();
+    match first.char_indices().nth(60) {
+        Some((i, _)) => format!("{}…", &first[..i]),
+        None => first.to_string(),
+    }
+}
+
 /// `(line, text)` for each bracketed near miss, in the form `claim-tag-malformed` reports.
 ///
 /// **A test helper now, and only that.** The check iterates
@@ -4156,6 +4253,203 @@ mod tests {
         );
         let c = class_claim_uncounted(&classes);
         assert_eq!(c.severity, Severity::Info);
+        assert!(!c.violations.iter().any(|v| c.gates(v)));
+    }
+
+    // ── claim-property-undeclared (#1069) ─────────────────────────────────────
+
+    /// The shape #1069 is really about, from the corpus that has it.
+    ///
+    /// `bitrecover-bitwipe` carries `claim_tag` on 11 `question` nodes holding exactly the three
+    /// standings, and its `question.ont.yml` declares no such property. Every counter in this
+    /// repository reads that as no claim.
+    #[test]
+    fn a_standing_in_a_property_no_class_declared_as_a_claim_is_reported() {
+        let (_d, classes) = loaded_class(
+            "question",
+            "class: question\ndescription: A thing asked.\nproperties:\n  - name: claim_tag\n    type: string\n",
+        );
+        let nodes = vec![node(
+            ".yidam/corpus/question/whether-it-wipes.yml",
+            "class: question\nlabel: Whether it wipes\nclaim_tag: open\n",
+        )];
+        let c = claim_property_undeclared(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        let d = &c.violations[0].detail;
+        assert!(d.contains("`claim_tag: open`"), "{d}");
+        assert!(d.contains("type: claim"), "{d}");
+        // And the other repair, because for one of the three measured rows it is the right one.
+        assert!(d.contains("rename"), "{d}");
+    }
+
+    /// The declaration is what silences it, and silencing it is the counter starting to read.
+    ///
+    /// The two halves of the same fact: this check's population is exactly
+    /// `count_structural`'s blind spot, so a class that declares the field moves the node out of
+    /// here and into the count in one edit. Asserted together, because a check whose finding
+    /// could be cleared without the counter gaining anything would be advice for its own sake.
+    #[test]
+    fn declaring_the_property_clears_the_finding_and_starts_the_count() {
+        let body = "class: question\nlabel: Whether it wipes\nclaim_tag: open\n";
+        let nodes = vec![node(".yidam/corpus/question/w.yml", body)];
+
+        let (_d, undeclared) = loaded_class(
+            "question",
+            "class: question\ndescription: A thing asked.\nproperties:\n  - name: claim_tag\n    type: string\n",
+        );
+        assert_eq!(
+            claim_property_undeclared(&nodes, &undeclared)
+                .violations
+                .len(),
+            1
+        );
+        assert_eq!(
+            crate::claims::count_structural(body, &["claim_tag".to_string()]).open,
+            1,
+            "the counter must be the thing the declaration turns on"
+        );
+
+        let (_d2, declared) = loaded_class(
+            "question",
+            "class: question\ndescription: A thing asked.\nproperties:\n  - name: claim_tag\n    type: claim\n",
+        );
+        assert!(claim_property_undeclared(&nodes, &declared).passed());
+    }
+
+    /// A bracketed value is not reported, because it is already counted.
+    ///
+    /// Both halves asserted in one test, since the second is the whole reason for the first.
+    /// `registered_voters: "[open]"` is the measured shape — a placeholder for a value the
+    /// corpus does not have — and telling `demi-moore` to declare a voter count as a claim
+    /// field would be this check's only false positive across the population.
+    #[test]
+    fn a_bracketed_placeholder_is_left_to_the_prose_scan_that_already_counts_it() {
+        let (_d, classes) = loaded_class(
+            "precinct",
+            "class: precinct\ndescription: A voting precinct.\nproperties:\n  - name: registered_voters\n    type: string\n",
+        );
+        let body = "class: precinct\nlabel: Bath 1\nregistered_voters: \"[open]\"\n";
+        let nodes = vec![node(".yidam/corpus/precinct/bath-1.yml", body)];
+        assert!(
+            claim_property_undeclared(&nodes, &classes).passed(),
+            "{:?}",
+            claim_property_undeclared(&nodes, &classes).violations
+        );
+        // Visible already, which is what makes the exclusion safe rather than a gap. No
+        // declared field is passed because the class declares none — the shape this check
+        // reports — and the text scan reaches the bracketed bytes regardless.
+        assert_eq!(crate::claims::count_in_node(body, &[]).open, 1);
+    }
+
+    /// A link's standing belongs to its edge, and `edge-claims` grades it there.
+    #[test]
+    fn a_links_claim_tag_is_not_this_checks_finding() {
+        let (_d, classes) = loaded_class("concept", "class: concept\ndescription: An idea.\n");
+        let nodes = vec![node(
+            ".yidam/corpus/concept/a.yml",
+            "class: concept\nlabel: A\nlinks:\n  - target: ../concept/b.yml\n    relationship: reads\n    claim_tag: inference\n",
+        )];
+        assert!(claim_property_undeclared(&nodes, &classes).passed());
+    }
+
+    /// A carried finding's `standing: open` was written by the tool, not the corpus.
+    ///
+    /// `yidam propose` writes `yidam.findings[].standing: open` into a node, and the
+    /// `carried-findings` section of `GRAPH.evidence.md` is explicit that the block is counted
+    /// as nothing the corpus claims. A `migrate` test caught this walk reporting it before the
+    /// skip existed: telling a corpus to declare `standing` as a claim property because a tool
+    /// wrote one into its node would be this check's worst finding.
+    #[test]
+    fn a_carried_finding_the_tool_wrote_is_not_this_checks_finding() {
+        let (_d, classes) = loaded_class("concept", "class: concept\ndescription: An idea.\n");
+        let nodes = vec![node(
+            ".yidam/corpus/concept/a.yml",
+            "class: concept\nlabel: A\nyidam:\n  findings:\n    - id: 7f3a1c94b2e1\n      check: orphan-in\n      opened_at: 4f2a1c9\n      detail: nothing links to this node\n      standing: open\n",
+        )];
+        let c = claim_property_undeclared(&nodes, &classes);
+        assert!(c.passed(), "{:?}", c.violations);
+    }
+
+    /// A word that merely starts with a standing is not a standing.
+    ///
+    /// Measured, and not hypothetical: `allen-county-ohio` writes `event_type: opening` and
+    /// `parameter: open highway-rail grade crossings`, and a check that read `starts_with` would
+    /// report both. It does not read `starts_with` — it asks `claims::parse_tag`, the same reader
+    /// the counter uses — and this holds it to that.
+    #[test]
+    fn a_word_that_only_begins_with_a_standing_is_not_one() {
+        let (_d, classes) = loaded_class("event", "class: event\ndescription: A thing done.\n");
+        for value in [
+            "opening",
+            "open highway-rail grade crossings",
+            "verified — all three rows checked against the image by the repository owner",
+            "verified for the counts; the code expansions are inference from behaviour",
+        ] {
+            let nodes = vec![node(
+                ".yidam/corpus/event/e.yml",
+                &format!("class: event\nlabel: E\nevent_type: \"{value}\"\n"),
+            )];
+            let c = claim_property_undeclared(&nodes, &classes);
+            assert!(c.passed(), "reported {value:?}: {:?}", c.violations);
+        }
+    }
+
+    /// It reaches a nested key, because the counter it inverts does.
+    #[test]
+    fn a_standing_nested_under_properties_is_reached() {
+        let (_d, classes) = loaded_class("parcel", "class: parcel\ndescription: A parcel.\n");
+        let nodes = vec![node(
+            ".yidam/corpus/parcel/p.yml",
+            "class: parcel\nlabel: P\nproperties:\n  status: verified\n",
+        )];
+        let c = claim_property_undeclared(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert!(c.violations[0].detail.contains("`status: verified`"));
+    }
+
+    /// A class this corpus does not define is not reported against.
+    ///
+    /// `unknown-class` is that finding, and reading a missing declaration as *declares no claim
+    /// field* would report every node of an undefined class here as well.
+    #[test]
+    fn a_node_of_an_undefined_class_is_left_to_unknown_class() {
+        let (_d, classes) = loaded_class("concept", "class: concept\ndescription: An idea.\n");
+        let nodes = vec![node(
+            ".yidam/corpus/mystery/m.yml",
+            "class: mystery\nlabel: M\nstatus: open\n",
+        )];
+        assert!(claim_property_undeclared(&nodes, &classes).passed());
+    }
+
+    /// A paragraph-long qualified standing is reported on one line.
+    #[test]
+    fn a_long_value_is_elided_rather_than_reproduced() {
+        let (_d, classes) = loaded_class("parcel", "class: parcel\ndescription: A parcel.\n");
+        let nodes = vec![node(
+            ".yidam/corpus/parcel/p.yml",
+            "class: parcel\nlabel: P\nstatus: >-\n  verified for the host-parcel majority \
+             and the two roll joins and the clock comparison and the ground filtering\n",
+        )];
+        let c = claim_property_undeclared(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        let d = &c.violations[0].detail;
+        assert!(d.lines().count() == 1, "{d}");
+        assert!(d.contains('\u{2026}'), "{d}");
+    }
+
+    /// Info, and gates on nothing. The measured population includes one row whose right repair
+    /// is a rename, and a gate could not tell it from the two whose repair is the declaration.
+    #[test]
+    fn the_undeclared_claim_property_never_gates() {
+        let (_d, classes) =
+            loaded_class("question", "class: question\ndescription: A thing asked.\n");
+        let nodes = vec![node(
+            ".yidam/corpus/question/w.yml",
+            "class: question\nlabel: W\nclaim_tag: open\n",
+        )];
+        let c = claim_property_undeclared(&nodes, &classes);
+        assert_eq!(c.severity, Severity::Info);
+        assert!(!c.violations.is_empty());
         assert!(!c.violations.iter().any(|v| c.gates(v)));
     }
 

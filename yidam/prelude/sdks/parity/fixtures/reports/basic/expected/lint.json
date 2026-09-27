@@ -424,6 +424,14 @@
       "violations": []
     },
     {
+      "id": "claim-property-undeclared",
+      "title": "Property spelling a standing that its class did not declare `type: claim`",
+      "severity": "info",
+      "rationale": "A claim in a node's field is counted when the class declares that field `type: claim`, and is read by nothing when it does not — not by `status`, not by `open-questions`, not by the `due` questions clock, not by the MCP `claims` resource. The corpus wrote the standing; the declaration is what makes it reachable. This reports bare spellings only: a bracketed `[open]` is already counted wherever it sits, because the prose scan reads the file's bytes, and every bracketed value measured in an undeclared field is a placeholder for a value the corpus does not have yet rather than a claim. It is Info because the right repair is not always the declaration: a `status` holding `open`, `narrowing` and `answered` is a lifecycle and not an evidence standing, and declaring that one `type: claim` would make the corpus assert something it did not. The finding names both fixes and imposes neither.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "foundational-field-misspelled",
       "title": "Class declares foundational alignment in a field nothing reads",
       "severity": "error",

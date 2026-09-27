@@ -96,6 +96,11 @@ against it:
 | `unlicensed-edge` | a relationship the class does not declare | only under `edge_policy: exhaustive` |
 | `edge-target-class` | an edge resolving to a node of the wrong class | yes |
 | `missing-property` | a declared property the instance omits | only where the class says `required: true` |
+| `claim-property-undeclared` | a value spelling a standing in a property the class did not declare `type: claim` | no |
+
+A standing in an undeclared property is counted by nothing. `claim-property-undeclared` never
+gates, because the repair is sometimes to rename the property rather than declare it.
+[why](GRAPH.evidence.md#claim-property-undeclared)
 
 `edge-target-class` is the one no other check could produce: `dangling-edge` catches an edge to
 nothing, and an edge to the *wrong* thing resolves, traverses, and exports, and is simply false.

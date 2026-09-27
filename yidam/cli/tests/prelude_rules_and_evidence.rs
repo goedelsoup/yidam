@@ -166,7 +166,16 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// is behind a feature outside the default set, so an agent that cannot tell the two forms apart
 /// cannot read a refusal naming one. The 100 further words of argument are in
 /// `directories.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a `[why]` link.
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_676), ("sadhana/root/AGENTS.md", 24_041)];
+/// **Both raised by a further 48 when `GRAPH.md` gained `claim-property-undeclared` (#1069).**
+/// 18,676 → 18,724 and 24,041 → 24,089. The delta is **48 words in that one file** — the table
+/// row and the two sentences saying a standing in an undeclared property is counted by nothing
+/// and that the check never gates — and the equality of the two deltas is the control again.
+/// Both routes were at their ceilings, and the second only looks untouched at a glance: the
+/// loop asserts per route and stops at the first, so `AGENTS.md` hid it. Its argument is 280
+/// further words in `GRAPH.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a
+/// `[why]` link.
+///
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_724), ("sadhana/root/AGENTS.md", 24_089)];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
 ///
@@ -236,7 +245,12 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_676), ("sadhana/root/A
 /// words in `directories.md`**, the same 209 the two recurring routes moved by, and 27,344 + 209 is
 /// this figure exactly, so nothing else on the path moved. The 100 further words of argument are in
 /// `directories.evidence.md` and charged to [`PAIR_FLOOR`].
-const BOOTSTRAP_CEILING: usize = 27_553;
+/// **Raised to 27,601 when `GRAPH.md` gained `claim-property-undeclared` (#1069).** The delta is
+/// **48 words in `GRAPH.md`**, the same 48 the two recurring routes moved by, and 27,553 + 48 is
+/// this figure exactly, so nothing else on the path moved. The 280 further words of argument are
+/// in `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
+///
+const BOOTSTRAP_CEILING: usize = 27_601;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -304,9 +318,16 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// one field's second shape and its three consequences: the script is still declared, the budget is
 /// declarable, and the arm is not in the downloaded binary. The evidence half carries the one
 /// decision — why the arm stays outside the default set when the policy engine did not.
+/// **`GRAPH.md` re-measured to 9,365 for #1069.** 328 words arrived — 48 in the rules half and
+/// 280 in the evidence half — and 9,037 + 328 is this figure exactly, so the pair carried no
+/// slack before this edit and carries none after it. The rules half is 5,498 and the evidence
+/// half 3,867. The split is lopsided because the rule is one line and the reason for it is a
+/// measurement: the evidence half carries the per-corpus table of what the check found, and the
+/// argument for why a finding whose repair is sometimes a rename must not gate.
+///
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_399),
-    ("yidam/prelude/GRAPH.md", 9_037),
+    ("yidam/prelude/GRAPH.md", 9_365),
     ("yidam/prelude/guidelines/directories.md", 12_604),
     ("yidam/prelude/skills/bootstrap.md", 10_433),
 ];

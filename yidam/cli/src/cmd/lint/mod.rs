@@ -459,6 +459,11 @@ const ROSTER: &[Entry] = &[
         run: |i| checks::class_claim_uncounted(i.classes()),
     },
     Entry {
+        id: "claim-property-undeclared",
+        asked: Asked::Always,
+        run: |i| checks::claim_property_undeclared(i.nodes(), i.classes()),
+    },
+    Entry {
         id: "foundational-field-misspelled",
         asked: Asked::Always,
         run: |i| checks::foundational_field_misspelled(i.classes()),
