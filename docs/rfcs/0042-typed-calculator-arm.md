@@ -15,9 +15,13 @@
   computes. **Landed in #1102 as `travel-tier-typed.glu`**, a third capability declaring
   `run = { gluon = … }` beside the shell one and computing the same chain fixed point. It commits
   the rule's intermediate facts — `weakest_beneath` and `chain_depth` — rather than the tier, because
-  a signal name is corpus-wide and two computed files may not claim one. `disclosure-envelope.sh`
-  was **not** ported and cannot be: it is a pipeline's second stage and reads the first's computed
-  signals, which the typed arm's projection does not carry (#1105)
+  a signal name is corpus-wide and two computed files may not claim one. `disclosure-envelope.sh` is
+  the pipeline's second stage and reads the first's computed signals; **#1105 put them in the
+  projection**, as a `signals` field on `Corpus` carrying what the step's `reads` resolve to, and
+  `a_second_stage_computes_from_a_previous_step_s_signal` in `tests/gluon_arm.rs` is that rule in
+  the typed arm. It is not declared beside the shell one, for the same reason the tier is not:
+  the whole of its output is `reaches`, and unlike the chain rule it has no intermediate fact left
+  to commit under another name
 - **Specifies:** #1079. Depends on nothing; #1080 is the gluon-independent half of the same
   finding and lands first if it lands at all
 
@@ -270,6 +274,17 @@ two arms diverge.
 
 A step that genuinely needs bytes — prose, a binary, a file the resolved form does not carry —
 declares the shell arm. That is not a fallback, it is the arm that fits.
+
+**The value carries what previous steps computed, too (#1105).** As implemented the projection was
+`nodes` and `classes` alone, which made the arm's reach *calculators that read only the graph* — a
+pipeline's second stage was outside it, because a typed entry point handed no signals had no input
+for the rule it would compute. `Corpus` gained a `signals` field: the `.yidam/computed/` files the
+step's `reads` resolve to, read back through `computed::Signals` and carried as the same rows the
+entry point returns. It is a field on `Corpus` rather than on each node deliberately — the tree a
+step stands in holds only what it declared, so a second stage that reads one computed file and no
+corpus path is handed signals about nodes that are not in `nodes`. Attaching them to the node would
+have made the typed arm need a wider declaration than the shell arm for the same rule, which is
+backwards for an arm whose claim is that `reads` bounds the value exactly.
 
 ### A budget through the VM hook
 

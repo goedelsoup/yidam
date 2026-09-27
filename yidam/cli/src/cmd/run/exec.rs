@@ -403,8 +403,13 @@ mod typed {
         // about one corpus: `reads` bounds the value exactly as it bounds the directory, with no
         // second reading of the declaration that could fall out of step with the first.
         let read = crate::corpus::Corpus::open(inputs.dir.path());
-        let corpus = marshal::project(read.nodes(), read.classes(), read.edges());
+        // `in_reads` and not `load`: the tree holds what this step declared and not the corpus,
+        // so whether a signal's node file is there is a question about the declaration rather
+        // than about the table. `crate::computed::Tree` carries that argument.
+        let signals = crate::computed::Signals::in_reads(inputs.dir.path());
+        let corpus = marshal::project(read.nodes(), read.classes(), read.edges(), &signals);
         let nodes = corpus.nodes.len();
+        let told = corpus.signals.len();
 
         let budget = calls.unwrap_or(budget::DEFAULT_CALLS);
         let outcome = crate::gluon_arm::evaluate(step, &script.text, corpus, budget)?;
@@ -417,8 +422,12 @@ mod typed {
         // calculator's own account arrives on. Not written into the committed file: the number of
         // calls a VM charged is a fact about this gluon and not about the corpus, and a committed
         // file carrying it would churn on an upgrade that computed the identical answer.
+        // `told` is on this line because a second stage that was handed nothing is the failure
+        // this arm's projection exists to make visible: a calculator whose input is a previous
+        // step's answer and whose `reads` do not resolve to it computes over `[]` and commits a
+        // plausible, empty table. The number a person reads has to say which happened.
         let stderr = format!(
-            "{step}: {nodes} nodes, {} signal rows, {} of {budget} calls",
+            "{step}: {nodes} nodes, {told} signal rows read, {} written, {} of {budget} calls",
             outcome.computed.signals.len(),
             outcome.calls
         );

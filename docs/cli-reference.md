@@ -641,6 +641,22 @@ The script's entry point is declared `Corpus -> Computed`. It is applied to the 
 this process. There is no scratch tree and no child process, so none of the five variables is set.
 A calculator that cannot perform an effect needs no sandbox to stand in.
 
+`Corpus` is a record of three fields. `nodes` is every corpus node its `reads` cover, with each
+node's properties, its links and where each link resolves. `classes` is the ontology. `signals` is
+what the calculators before it committed. It is read back from the `.yidam/computed/` files its
+`reads` cover. One row per node, in the shape the entry point returns.
+
+That third field is what lets a pipeline's second stage be typed. A calculator whose input is
+another capability's answer declares that file under `reads`, and is handed it. One that declares no
+computed path is handed an empty `signals`. So is one in a corpus where nothing has been computed,
+and a script cannot tell those apart.
+
+A row's `node` is a reference — `gage/canyon-outlet` — and so is a node's `id`. A script that wants
+both matches one against the other. The signals are not attached to the nodes, and the reason is the
+declaration. A second stage may read a computed file and no corpus path. Its signals are then about
+nodes that are not in `nodes`. Attaching them would mean the typed arm needed a *wider* declaration
+than the shell arm to compute the same rule.
+
 `Computed` is a record of two fields and both are required. `signals` is the table below, one row
 per node. `summary` is what the calculator counted about the run as a whole. It is
 written under a top-level `summary:`, not against any node. A calculator that summarizes nothing writes
