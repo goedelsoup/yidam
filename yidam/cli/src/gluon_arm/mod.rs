@@ -1,4 +1,4 @@
-//! The typed calculator arm (RFC-0042) — a calculator whose purity is a typecheck.
+//! The typed calculator arm (RFC-0042) — a calculator whose purity is a closed scope and a typecheck.
 //!
 //! **Engine only.** Nothing in `run`, `regen` or the manifest reaches this module yet, and that
 //! is deliberate: RFC-0042 is `Draft`, and its own decision rule is that the arm fails *"on the
