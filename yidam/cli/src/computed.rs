@@ -181,6 +181,11 @@ enum Tree {
     /// A corpus, with its manifest and its nodes. What `doctor`, `embed` and `status` read.
     Corpus,
     /// The `reads`-bounded tree a step of a run stands in.
+    ///
+    /// Only [`Signals::in_reads`] constructs it, and only the typed calculator arm calls that, so
+    /// the light build has nothing that stands in such a tree. The variant is compiled there
+    /// anyway rather than gated, for the reason [`Signals::in_reads`] gives.
+    #[cfg_attr(not(feature = "calculators-gluon"), allow(dead_code))]
     Reads,
 }
 
@@ -200,6 +205,12 @@ impl Signals {
     /// it is not in — this module's `Tree` carries the argument.
     /// `gluon_arm::marshal::project` is the caller, which is how a pipeline's second stage can be
     /// typed at all (#1105).
+    ///
+    /// `allow(dead_code)` in the light build and not `cfg`, because what this reads is the
+    /// signal-table contract and that does not depend on which calculator arms a binary carries.
+    /// Gated, the tests below asserting a `reads`-bounded tree against a corpus would only run in
+    /// the build CI compiles after a merge — the same argument `retrieval`'s freeze constants make.
+    #[cfg_attr(not(feature = "calculators-gluon"), allow(dead_code))]
     pub fn in_reads(root: &Path) -> Self {
         Self::read(root, Tree::Reads)
     }
@@ -399,6 +410,10 @@ impl Signals {
     ///
     /// Byte order over both, which is what makes a projection of this a function of the files
     /// and not of the run: a `BTreeMap` all the way down.
+    ///
+    /// Read by the typed arm's projection alone, so the light build has no caller — see
+    /// [`Signals::in_reads`] for why it is compiled there regardless.
+    #[cfg_attr(not(feature = "calculators-gluon"), allow(dead_code))]
     pub fn by_reference(&self) -> impl Iterator<Item = (&str, &BTreeMap<String, Value>)> {
         self.by_reference.iter().map(|(k, v)| (k.as_str(), v))
     }
