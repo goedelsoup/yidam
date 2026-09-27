@@ -26,7 +26,7 @@
 use anyhow::{Context, Result};
 use serde::Serialize;
 
-use super::manifest::Capability;
+use super::manifest::{Capability, Run};
 
 /// The receipt record's version. Bumped when a consumer that understood the previous version
 /// would mis-read this one — see the module doc for why it exists before any consumer does.
@@ -74,6 +74,24 @@ pub struct Input {
     /// connector's receipt is the bytes it was before this field existed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolved_graph_sha256: Option<String>,
+    /// The digest of the script a typed calculator applied, where the step is one (RFC-0042).
+    ///
+    /// **Redundant today, and here deliberately.** `validate_gluon` refuses a declaration whose
+    /// `reads` do not cover its `.glu`, so the script is one of [`Self::files`] and its digest is
+    /// already in the input state by that route. What this field buys is that the input state does
+    /// not *depend* on that rule still being in place: a digest that is only right because a
+    /// second check is enforcing it somewhere else is one a later relaxation of that check breaks
+    /// in silence, and the thing it would break is every committed answer looking fresh while the
+    /// program that produced it had changed.
+    ///
+    /// It also makes the receipt readable without resolving a glob. `resolved_graph_sha256` is
+    /// here on the same argument one layer over — a run should state what it read, not only which
+    /// bytes it read it from.
+    ///
+    /// `None` for the shell arm, where the program is an argv and the file it names is an input
+    /// like any other.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub script_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -82,8 +100,13 @@ pub struct Receipt {
     pub step: String,
     pub kind: &'static str,
     pub verb: String,
-    /// argv as declared, so a reader can see what was invoked without the manifest.
-    pub run: Vec<String>,
+    /// The `run` as declared, so a reader can see what was invoked without the manifest.
+    ///
+    /// Serialized untagged, so an argv capability's receipt is the sequence it always was and a
+    /// typed one's is the table the manifest holds — see [`Run`]. A receipt is a record of a
+    /// declaration, and rewriting it into some third spelling would make the two files disagree
+    /// about what ran.
+    pub run: Run,
     /// The digest of everything that determines this result — see [`Receipt::input_state`].
     pub input_state: String,
     pub input: Input,
@@ -112,7 +135,7 @@ pub struct Receipt {
 struct Identity<'a> {
     kind: &'a str,
     verb: &'a str,
-    run: &'a [String],
+    run: &'a Run,
     manifest_sha256: &'a str,
     config_sha256: &'a str,
     reads: &'a [String],
@@ -122,6 +145,9 @@ struct Identity<'a> {
     /// the first would move every existing connector's input state for no reason.
     #[serde(skip_serializing_if = "Option::is_none")]
     resolved_graph_sha256: Option<&'a str>,
+    /// The program, for the arm whose program is not in `run`. See [`Input::script_sha256`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    script_sha256: Option<&'a str>,
     writes: &'a [String],
 }
 
@@ -149,6 +175,7 @@ impl Receipt {
         config_sha256: &str,
         files: &[File],
         resolved_graph_sha256: Option<&str>,
+        script_sha256: Option<&str>,
     ) -> Result<String> {
         let id = Identity {
             kind: cap.kind.as_str(),
@@ -159,6 +186,7 @@ impl Receipt {
             reads: &cap.reads,
             files,
             resolved_graph_sha256,
+            script_sha256,
             writes: &cap.writes,
         };
         Ok(sha256(
@@ -166,6 +194,29 @@ impl Receipt {
                 .context("serializing the input state")?
                 .as_bytes(),
         ))
+    }
+
+    /// The digest of a typed calculator's program, out of the inputs the step resolved to.
+    ///
+    /// **From `files` rather than from the file, and both callers use this.** `validate_gluon`
+    /// refuses a declaration whose `reads` do not cover its `.glu`, so the program is one of the
+    /// resolved inputs and its digest has already been taken — by `run` out of the commit, by
+    /// `doctor` out of the working tree. Digesting the file a second time here would give the two
+    /// commands two answers about one step the moment the tree is dirty, and the symptom would be a
+    /// typed calculator that `doctor` reports stale forever while `run` says it is up to date.
+    ///
+    /// That is #1080's lesson repeated one field along: the input state is only an equality check
+    /// if every producer of it is the same function.
+    ///
+    /// `None` for the shell arm, and `None` for a typed one whose script is somehow not among its
+    /// inputs — which `validate_gluon` has already refused, so it is the conservative answer to a
+    /// question that cannot be asked rather than a case.
+    pub fn script_sha256(cap: &Capability, files: &[File]) -> Option<String> {
+        let (script, _) = cap.run.gluon()?;
+        files
+            .iter()
+            .find(|f| f.path == script)
+            .map(|f| f.sha256.clone())
     }
 
     /// The `input_state` of the receipt already committed at a parent, if there is one.
@@ -227,7 +278,7 @@ mod tests {
     fn capability() -> Capability {
         Capability {
             kind: super::super::manifest::Kind::Calculator,
-            run: vec!["sh".into(), "x.sh".into()],
+            run: Run::Argv(vec!["sh".into(), "x.sh".into()]),
             reads: vec![".yidam/corpus/**".into()],
             writes: vec![".yidam/computed/**".into()],
             verb: "compute".into(),
@@ -242,7 +293,7 @@ mod tests {
             step: "low-flow".into(),
             kind: "calculator",
             verb: "compute".into(),
-            run: vec!["sh".into(), "x.sh".into()],
+            run: Run::Argv(vec!["sh".into(), "x.sh".into()]),
             input_state: Receipt::input_state(
                 &capability(),
                 &sha256(b"manifest"),
@@ -252,6 +303,7 @@ mod tests {
                     sha256: sha256(b"a"),
                 }],
                 Some(&sha256(b"graph")),
+                None,
             )
             .unwrap(),
             input: Input {
@@ -264,6 +316,7 @@ mod tests {
                     sha256: sha256(b"a"),
                 }],
                 resolved_graph_sha256: Some(sha256(b"graph")),
+                script_sha256: None,
             },
             writes: vec![".yidam/computed/**".into()],
             outputs: vec![File {
@@ -313,6 +366,7 @@ mod tests {
             &edited.input.config_sha256,
             &edited.input.files,
             edited.input.resolved_graph_sha256.as_deref(),
+            edited.input.script_sha256.as_deref(),
         )
         .unwrap();
         assert_ne!(receipt().input_state, restated);
@@ -327,6 +381,108 @@ mod tests {
         );
         assert_eq!(Receipt::committed_state("not: a receipt"), None);
         assert_eq!(Receipt::committed_state("«"), None);
+    }
+
+    /// A typed calculator, for the two assertions below.
+    fn typed() -> (Capability, Vec<File>) {
+        let cap = Capability {
+            kind: super::super::manifest::Kind::Calculator,
+            run: Run::Gluon {
+                gluon: ".yidam/capabilities/x.glu".into(),
+                calls: None,
+            },
+            reads: vec![".yidam/corpus/**".into(), ".yidam/capabilities/**".into()],
+            writes: vec![".yidam/computed/**".into()],
+            verb: "compute".into(),
+            after: vec![],
+            ageing_days: None,
+        };
+        let files = vec![
+            File {
+                path: ".yidam/capabilities/x.glu".into(),
+                sha256: sha256(b"the script"),
+            },
+            File {
+                path: ".yidam/corpus/a.yml".into(),
+                sha256: sha256(b"a"),
+            },
+        ];
+        (cap, files)
+    }
+
+    /// The program's digest is taken from the inputs, not from the file, and only for the arm whose
+    /// program is not in `run`.
+    ///
+    /// The whole reason this is a function rather than two call sites: `run` and `doctor` resolve
+    /// their inputs from different trees — a commit and the working tree — and a typed step whose
+    /// digest each command took its own way would be reported stale forever by one of them.
+    #[test]
+    fn a_typed_step_takes_its_program_digest_from_its_resolved_inputs() {
+        let (cap, files) = typed();
+        assert_eq!(
+            Receipt::script_sha256(&cap, &files),
+            Some(sha256(b"the script"))
+        );
+        // The shell arm has no such field: its program is an argv, and the file that argv names is
+        // an input like any other.
+        assert_eq!(Receipt::script_sha256(&capability(), &files), None);
+    }
+
+    /// Editing a calculator re-runs it.
+    ///
+    /// The defect `script_sha256` is against, asserted where it can be seen. It holds twice over —
+    /// the script is covered by `reads` so it is one of `files` too — and that redundancy is the
+    /// point: the input state does not depend on the manifest rule that puts it there still being
+    /// enforced somewhere else.
+    #[test]
+    fn the_input_state_moves_when_the_calculator_script_does() {
+        let (cap, files) = typed();
+        let before = Receipt::input_state(
+            &cap,
+            &sha256(b"manifest"),
+            &sha256(b""),
+            &files,
+            None,
+            Receipt::script_sha256(&cap, &files).as_deref(),
+        )
+        .unwrap();
+        // Only the digest, and not the file list, so this asserts about the field rather than about
+        // `files` carrying the same fact.
+        let after = Receipt::input_state(
+            &cap,
+            &sha256(b"manifest"),
+            &sha256(b""),
+            &files,
+            None,
+            Some(&sha256(b"the script, revised")),
+        )
+        .unwrap();
+        assert_ne!(before, after);
+    }
+
+    /// And a shell capability's input state is the bytes it was before the field existed.
+    ///
+    /// `skip_serializing_if` on both sides, for the reason `resolved_graph_sha256` states: a `None`
+    /// and a digest-of-nothing are different histories, and serializing the second for the first
+    /// would move every already-committed step's identity for no reason.
+    #[test]
+    fn the_new_field_does_not_move_a_shell_capabilitys_input_state() {
+        let files = [File {
+            path: ".yidam/corpus/a.yml".into(),
+            sha256: sha256(b"a"),
+        }];
+        let state = Receipt::input_state(
+            &capability(),
+            &sha256(b"manifest"),
+            &sha256(b""),
+            &files,
+            Some(&sha256(b"graph")),
+            None,
+        )
+        .unwrap();
+        assert_eq!(state, receipt().input_state);
+        let y = receipt().to_yaml().unwrap();
+        assert!(!y.contains("script_sha256"), "{y}");
     }
 
     #[test]

@@ -1,10 +1,18 @@
 //! The typed calculator arm (RFC-0042) — a calculator whose purity is a closed scope and a typecheck.
 //!
-//! **Engine only.** Nothing in `run`, `regen` or the manifest reaches this module yet, and that
-//! is deliberate: RFC-0042 is `Draft`, and its own decision rule is that the arm fails *"on the
-//! first row of the table"* if it cannot be gated out of the default build. This is that row,
-//! proved, before a surface depends on it. What the arm needs from a surface — the `run = {
-//! gluon = … }` shape, the `unrunnable_because` sentence, the receipt — is not here.
+//! **Reached from the manifest since #1091.** [`crate::cmd::run::manifest::Run::Gluon`] is the
+//! declaration, [`crate::cmd::run::exec::invoke`] dispatches to it, and
+//! [`crate::cmd::run::receipt::Receipt::script_sha256`] puts the program in the input state. The
+//! engine landed first and alone on purpose: RFC-0042's own decision rule is that the arm fails
+//! *"on the first row of the table"* if it cannot be gated out of the default build, and that row
+//! was proved before any surface depended on it.
+//!
+//! The division of labour that gating leaves is worth stating, because it is the thing an obvious
+//! implementation gets backwards. This module is behind the feature; the *shape* of the
+//! declaration, its validation and its refusal are not. A light binary is the common reader of a
+//! manifest declaring an arm it cannot run — a corpus that declares one is not a malformed corpus
+//! — so it parses the table, refuses a script its `reads` do not cover, and declines the plan by
+//! name. Only evaluation is in here.
 //!
 //! # What the arm is for
 //!

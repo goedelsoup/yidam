@@ -660,8 +660,14 @@ fn every_kind_is_declarable_and_an_unrunnable_one_is_refused_before_anything_run
                 );
                 continue;
             }
+            // `does not invoke` rather than the `calculators only` this read until #1091. The
+            // pre-pass used to ask the kind alone, so "this binary invokes calculators only" was
+            // the whole rule; a calculator declarable in two arms made it false — the typed arm is
+            // a calculator this build may still decline. What the refusal owes a reader is
+            // unchanged and is what this asserts: the step, the part of the declaration that
+            // stopped it, and why.
             assert!(
-                err.contains("calculators only")
+                err.contains("does not invoke")
                     && err.contains(step.as_str())
                     && err.contains(kind.as_str()),
                 "the refusal of `{kind}` does not name the step, the kind, or why:\n{err}"
@@ -1154,4 +1160,250 @@ fn the_run_and_the_doctor_agree_about_the_resolved_corpus() {
              `doctor` do not agree about the resolved corpus:\n{out}"
         );
     }
+}
+
+// ── the typed arm (RFC-0042, #1091) ───────────────────────────────────────────
+//
+// Declared into an example rather than shipped by one. The arm is behind a non-default feature,
+// and `examples/streamflow`'s capabilities are run by every test above in the default build, so
+// a gluon capability committed there would be a step the released binary declines — the whole
+// suite would go red in the build that matters. What is portable is the *declaration*, so both
+// tests below write one into whatever the example already declares and assert from the build
+// they are compiled in.
+
+/// The script both tests declare: one signal per node, naming the class it is an instance of.
+///
+/// Deliberately the smallest thing that is still a function of the corpus. A calculator
+/// returning `{ signals = [] }` would commit a document with no rows, and a run that writes an
+/// empty answer is indistinguishable from one whose projection handed it nothing.
+const TYPED_SCRIPT: &str = "\\c -> { signals = array.functor.map \
+     (\\n -> { node = n.id, values = [{ name = \"class\", value = Text n.class }] }) c.nodes }";
+
+/// Declare a typed calculator in `example`'s manifest and commit it.
+///
+/// Returns the materialized example and the step's name. The `reads` cover
+/// `.yidam/capabilities/**`, which is what puts the script itself in the input state — the
+/// manifest refuses the declaration otherwise, and [`a_typed_step_is_stale_when_its_script_changes`]
+/// is what that rule buys.
+fn with_typed_step(example: &str) -> (Example, String) {
+    let e = Example::materialize(example);
+    let step = "class-of";
+    std::fs::write(
+        e.path().join(".yidam/capabilities/class-of.glu"),
+        format!("{TYPED_SCRIPT}\n"),
+    )
+    .expect("writing the calculator");
+    let manifest = e.path().join(".yidam/capabilities.toml");
+    let text = std::fs::read_to_string(&manifest).expect("the manifest");
+    std::fs::write(
+        &manifest,
+        format!(
+            "{text}\n[capability.{step}]\nkind   = \"calculator\"\n\
+             run    = {{ gluon = \".yidam/capabilities/class-of.glu\" }}\n\
+             reads  = [\".yidam/corpus/**\", \".yidam/capabilities/**\"]\n\
+             writes = [\".yidam/computed/**\"]\nverb   = \"compute\"\n"
+        ),
+    )
+    .expect("declaring the calculator");
+    git(&e.path(), &["add", "-A"]);
+    git(&e.path(), &["commit", "-m", "scaffold: a typed calculator"]);
+    agrees_about_the_arm(&e);
+    (e, step.to_string())
+}
+
+/// Assert the binary under test was built with the same feature set as this harness.
+///
+/// Not paranoia — a measured failure. `CARGO_BIN_EXE_yidam` is the uplifted path
+/// `target/debug/yidam`, and cargo copies an artifact there only when it rebuilds it. Alternating
+/// feature sets against one target directory therefore leaves a binary from the *previous* run
+/// standing while cargo calls this run's fingerprint fresh, and both typed tests then fail on a
+/// refusal that is correct for the binary they actually ran. That reads as a defect in the arm and
+/// is a defect in the build, so it is worth one assertion that says which.
+///
+/// Asked of the binary rather than of the filesystem: the report's envelope names the features it
+/// was compiled with, which is the same question from the only side that can answer it.
+fn agrees_about_the_arm(e: &Example) {
+    let (out, err, _) = e.run(&["lint", "--format", "json"]);
+    let report: serde_json::Value =
+        serde_json::from_str(&out).unwrap_or_else(|x| panic!("not JSON: {x}\n{out}{err}"));
+    let features = report["yidam"]["features"]
+        .as_array()
+        .expect("the report envelope names the features")
+        .iter()
+        .filter_map(|f| f.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        features.contains(&"calculators-gluon"),
+        cfg!(feature = "calculators-gluon"),
+        "the binary under test reports {features:?} and this harness was compiled with \
+         calculators-gluon = {}. They are the same package, so this is a stale artifact at \
+         `target/debug/yidam`: cargo uplifts a binary only when it rebuilds it, and alternating \
+         feature sets against one target directory leaves the previous run's copy in place. \
+         `touch yidam/cli/src/lib.rs` and run again",
+        cfg!(feature = "calculators-gluon")
+    );
+}
+
+/// The example every typed test below runs in: the one that declares a capability at all.
+///
+/// A manifest is appended to, so an example with none is an example where `.yidam/capabilities/`
+/// may not exist either. Discovered rather than named, and the `expect` is the guard.
+fn an_example_with_capabilities() -> String {
+    every_capability()
+        .into_iter()
+        .map(|(example, _)| example)
+        .next()
+        .expect("no example declares a capability, so the typed tests below assert nothing")
+}
+
+/// End to end: a declared gluon calculator runs, commits, and the reader of the contract reads
+/// back what it wrote.
+///
+/// The last clause is the one worth having. `marshal::render` is the first Rust writer of the
+/// `signals:` contract, and a document only this arm can read would be a second format wearing
+/// the first one's name — so the assertion is made through [`yidam lint`], which loads computed
+/// signals the way every other consumer does.
+#[cfg(feature = "calculators-gluon")]
+#[test]
+fn a_typed_calculator_runs_and_writes_what_the_reader_reads() {
+    let (e, step) = with_typed_step(&an_example_with_capabilities());
+    let before = git(&e.path(), &["rev-parse", "HEAD"]);
+
+    let (out, err, code) = e.run(&["run", &step]);
+    assert_eq!(code, 0, "`yidam run {step}` failed:\n{out}{err}");
+    assert_ne!(
+        git(&e.path(), &["rev-parse", "HEAD"]),
+        before,
+        "`{step}` landed no commit:\n{out}{err}"
+    );
+    assert!(
+        git(&e.path(), &["log", "-1", "--format=%s"]).starts_with("compute: "),
+        "a calculator's commit does not lead with its declared verb"
+    );
+
+    // Committed, and a function of the corpus: one row per node, each naming its class.
+    let doc = git(
+        &e.path(),
+        &["show", &format!("HEAD:.yidam/computed/{step}.yml")],
+    );
+    assert!(
+        doc.contains("format_version: 1") && doc.contains("arm: gluon"),
+        "the document does not say which contract or which arm wrote it:\n{doc}"
+    );
+    let rows = doc.matches("- node: ").count();
+    assert!(
+        rows > 0,
+        "the calculator wrote no rows, so the corpus it was applied to was empty:\n{doc}"
+    );
+
+    // The receipt carries the digest of the program, which is what makes an edited calculator a
+    // stale step rather than a silently reused answer.
+    let receipt = git(
+        &e.path(),
+        &["show", &format!("HEAD:.yidam/runs/{step}.yml")],
+    );
+    assert!(
+        receipt.contains("script_sha256:") && receipt.contains("gluon:"),
+        "the receipt does not record the program it ran:\n{receipt}"
+    );
+
+    // Read back by the consumer, not by this arm. `lint` loads the computed signals for every
+    // node it checks, and reports a document it cannot read as a problem of its own.
+    git(
+        &e.path(),
+        &[
+            "restore",
+            "--source=HEAD",
+            "--worktree",
+            "--staged",
+            "--",
+            ".yidam/",
+        ],
+    );
+    let (out, err, _) = e.run(&["lint", "--format", "json"]);
+    let report: serde_json::Value =
+        serde_json::from_str(&out).unwrap_or_else(|x| panic!("not JSON: {x}\n{out}{err}"));
+    let text = serde_json::to_string(&report).expect("re-serialising");
+    assert!(
+        !text.contains(&format!(".yidam/computed/{step}.yml")),
+        "the reader of the `signals:` contract reports the document this arm wrote:\n{out}"
+    );
+}
+
+/// An unchanged corpus and an unchanged program recompute nothing; an edited program re-runs.
+///
+/// Both halves in one test because each is the other's control: freshness that never re-runs and
+/// freshness that always re-runs both pass a one-sided assertion.
+#[cfg(feature = "calculators-gluon")]
+#[test]
+fn a_typed_step_is_stale_when_its_script_changes() {
+    let (e, step) = with_typed_step(&an_example_with_capabilities());
+    assert_eq!(e.run(&["run", &step]).2, 0);
+    let first = git(&e.path(), &["rev-parse", "HEAD"]);
+
+    let (out, err, code) = e.run(&["run", &step]);
+    assert_eq!(code, 0, "{out}{err}");
+    assert_eq!(
+        git(&e.path(), &["rev-parse", "HEAD"]),
+        first,
+        "a second run against an unchanged corpus and an unchanged program committed again"
+    );
+
+    // A different answer from the same corpus, so only the program moved.
+    std::fs::write(
+        e.path().join(".yidam/capabilities/class-of.glu"),
+        format!("{}\n", TYPED_SCRIPT.replace("\"class\"", "\"instance_of\"")),
+    )
+    .expect("editing the calculator");
+    git(&e.path(), &["add", "-A"]);
+    git(
+        &e.path(),
+        &["commit", "-m", "refine: what the signal is called"],
+    );
+
+    let (out, err, code) = e.run(&["run", &step]);
+    assert_eq!(code, 0, "{out}{err}");
+    let doc = git(
+        &e.path(),
+        &["show", &format!("HEAD:.yidam/computed/{step}.yml")],
+    );
+    assert!(
+        doc.contains("instance_of:"),
+        "an edited calculator did not re-run — its script is not in the input state:\n{doc}"
+    );
+}
+
+/// The light build declines the declaration by name, before anything runs and with nothing
+/// committed.
+///
+/// This is the half of #1091 that is easy to get wrong in a way no test in the gluon build can
+/// see: put the `Run` sum behind the feature and every assertion above still passes, while the
+/// released binary cannot parse a manifest that merely *mentions* a typed calculator. So the
+/// manifest has to parse here, the plan has to be refused here, and the refusal has to name the
+/// step and the arm.
+#[cfg(not(feature = "calculators-gluon"))]
+#[test]
+fn the_light_build_parses_a_typed_declaration_and_declines_the_plan() {
+    let (e, step) = with_typed_step(&an_example_with_capabilities());
+    let before = git(&e.path(), &["rev-parse", "HEAD"]);
+
+    let (out, err, code) = e.run(&["run", &step]);
+    assert_ne!(
+        code, 0,
+        "the light build ran a gluon calculator:\n{out}{err}"
+    );
+    assert!(
+        !err.contains("parsing .yidam/capabilities") && !err.contains("did not match any variant"),
+        "the declaration did not parse, so this build cannot read a manifest that declares a \
+         typed calculator at all:\n{err}"
+    );
+    assert!(
+        err.contains(step.as_str()) && err.contains("gluon") && err.contains("calculators-gluon"),
+        "the refusal does not name the step, the arm, or the feature that provides it:\n{err}"
+    );
+    assert_eq!(
+        git(&e.path(), &["rev-parse", "HEAD"]),
+        before,
+        "a plan that could not run landed a commit anyway"
+    );
 }

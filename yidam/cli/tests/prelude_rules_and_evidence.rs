@@ -157,7 +157,16 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// parsed for them, and no gate able to notice when they disagreed with it. The 131 further words
 /// of argument are in `directories.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a
 /// `[why]` link.
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_467), ("sadhana/root/AGENTS.md", 23_832)];
+///
+/// **Both raised by 209 when `run` gained its second arm (#1091, RFC-0042).** 18,467 → 18,676 and
+/// 23,832 → 24,041. The delta is **209 words in `directories.md`** — the section saying a typed
+/// calculator is the other shape of `run` — and the equality of the two deltas is again the
+/// control: `directories.md` is on both routes. A session is charged for it because the arm is a
+/// choice a corpus makes about who can run it: the declaration parses in every build and the arm
+/// is behind a feature outside the default set, so an agent that cannot tell the two forms apart
+/// cannot read a refusal naming one. The 100 further words of argument are in
+/// `directories.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a `[why]` link.
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_676), ("sadhana/root/AGENTS.md", 24_041)];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
 ///
@@ -222,7 +231,12 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_467), ("sadhana/root/A
 /// **310 words in `directories.md`**, the same 310 the `AGENTS.md` route moved by, and 27,034 +
 /// 310 is this figure exactly, so nothing else on the path moved. The 131 further words of
 /// argument are in `directories.evidence.md` and charged to [`PAIR_FLOOR`].
-const BOOTSTRAP_CEILING: usize = 27_344;
+///
+/// **Raised to 27,553 when `run` gained its second arm (#1091, RFC-0042).** The delta is **209
+/// words in `directories.md`**, the same 209 the two recurring routes moved by, and 27,344 + 209 is
+/// this figure exactly, so nothing else on the path moved. The 100 further words of argument are in
+/// `directories.evidence.md` and charged to [`PAIR_FLOOR`].
+const BOOTSTRAP_CEILING: usize = 27_553;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -282,10 +296,18 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// one rule with three consequences rather than three rules: what the file is, that it is sliced,
 /// and that its digest is in the input state. The evidence half carries the two decisions — why
 /// one resolver rather than one per calculator, and why one builder rather than two.
+///
+/// **`directories.md` re-measured to 12,604 for #1091.** 309 further words arrived — 209 in the
+/// rules half and 100 in the evidence half — and 12,295 + 309 is this figure exactly, so the pair
+/// carried no slack before this edit and carries none after it. The rules half is 8,236 and the
+/// evidence half 4,368. The split is lopsided the way the #1080 one is because the section states
+/// one field's second shape and its three consequences: the script is still declared, the budget is
+/// declarable, and the arm is not in the downloaded binary. The evidence half carries the one
+/// decision — why the arm stays outside the default set when the policy engine did not.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_399),
     ("yidam/prelude/GRAPH.md", 9_037),
-    ("yidam/prelude/guidelines/directories.md", 12_295),
+    ("yidam/prelude/guidelines/directories.md", 12_604),
     ("yidam/prelude/skills/bootstrap.md", 10_433),
 ];
 

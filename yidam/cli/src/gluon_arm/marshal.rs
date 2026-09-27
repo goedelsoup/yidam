@@ -144,13 +144,7 @@ pub struct Computed {
     pub signals: Vec<Row>,
 }
 
-// Dead in the library and not in the tests, which is exactly the scope RFC-0042's kill
-// criterion asks for: the engine is gated and finished, and nothing in `run` or `regen` calls
-// it yet. `tests/gluon_arm.rs` and the unit tests below are the only callers today; the surface
-// that will be the real one is a later change, and the day it lands these three lose the
-// attribute rather than gain a caller nobody asked for.
 /// `.yidam/corpus/<class>/<name>.yml` as `<class>/<name>`.
-#[allow(dead_code)]
 fn id_of(rel: &str) -> String {
     // Each fallback is to the value that reached *that* step, not to the argument. Chaining
     // both onto `rel` throws the prefix away again whenever the suffix does not match, which
@@ -166,7 +160,6 @@ fn id_of(rel: &str) -> String {
 /// empty string, which is a key the ontology cannot have declared and two such keys colliding
 /// with each other — the silent loss [`Value::Unrepresentable`] exists to refuse. Every scalar
 /// is rendered as written, and the shapes that are not scalars are rendered rather than dropped.
-#[allow(dead_code)]
 fn key_of(k: &serde_yaml::Value) -> String {
     match k {
         serde_yaml::Value::String(s) => s.clone(),
@@ -183,7 +176,6 @@ fn key_of(k: &serde_yaml::Value) -> String {
 }
 
 /// One YAML value as far as [`Value`] can read it. See the module note.
-#[allow(dead_code)]
 fn value_of(v: &serde_yaml::Value) -> Value {
     match v {
         serde_yaml::Value::Null => Value::Empty,
@@ -206,7 +198,6 @@ fn value_of(v: &serde_yaml::Value) -> Value {
 /// Takes the already-parsed nodes and classes rather than a root path: this arm exists because
 /// the CLI *already holds* the corpus, and a projection that re-read it from disk would give a
 /// calculator a second, later reading of the tree than the one the receipt attests to.
-#[allow(dead_code)]
 pub(crate) fn project(nodes: &[CorpusNode], classes: &[Class]) -> Corpus {
     Corpus {
         nodes: nodes
@@ -258,6 +249,149 @@ pub(crate) fn project(nodes: &[CorpusNode], classes: &[Class]) -> Corpus {
             })
             .collect(),
     }
+}
+
+/// What the entry point returned, as the `signals:` file [`crate::computed`] reads.
+///
+/// # The writer this contract never had
+///
+/// `.yidam/computed/*.yml` has been read by Rust and written only by shell since #471: the example's
+/// calculators `printf` the document, and [`crate::computed::Signals::load`] parses it. That was
+/// fine while every calculator was a process — a process can only hand back bytes, so the bytes
+/// were the interface. A typed calculator hands back a value, so this is where the document is
+/// produced, and it is the first time the producing side of the contract is in the binary that owns
+/// [`crate::computed::FORMAT_VERSION`].
+///
+/// Built as a [`serde_yaml::Value`] and serialized, rather than `write!` by line. The reader is
+/// `serde_yaml`, so the writer being anything else is two spellings of one format — and a signal
+/// whose value is `a: b` or `#` or an empty string is a quoting question a `printf` gets wrong once
+/// and then in every committed file.
+///
+/// # What is refused
+///
+/// Three shapes, and each is a committed file that would be silently wrong rather than absent:
+///
+/// - A row with no node. `signals:` is keyed by the node each row is about, and a row keyed by the
+///   empty string is a signal attached to nothing that reads as a signal attached to something.
+/// - Two rows for one node. The reader attaches a row to the node it names; two would make the
+///   answer depend on which came last, which is the script's iteration order and not the corpus's.
+/// - A [`Value::Unrepresentable`] in a signal. Inbound that constructor is load-bearing: it names a
+///   property shape no declared type describes, which is the thing a calculator must be able to see
+///   rather than have hidden. Outbound it says the script is emitting a value it cannot state.
+///   Rendering it as a string would make it a signal, and a search would find it.
+///
+/// A refusal here fails the step, so nothing is committed and nothing is merged — which is the
+/// whole difference between this and a `printf` that wrote the file anyway.
+pub(crate) fn render(step: &str, script: &str, computed: &Computed) -> anyhow::Result<String> {
+    use anyhow::bail;
+    use serde_yaml::{Mapping, Value as Yaml};
+
+    let mut rows = Vec::with_capacity(computed.signals.len());
+    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for row in &computed.signals {
+        if row.node.is_empty() {
+            bail!(
+                "`{step}` emitted a row with no `node`, and a `signals:` row is keyed by the node \
+                 it is about. A row keyed by nothing reads as a row about something."
+            );
+        }
+        if !seen.insert(row.node.as_str()) {
+            bail!(
+                "`{step}` emitted two rows for `{}`. The reader attaches a row to the node it \
+                 names, so two would make the answer depend on the order the script produced \
+                 them in.",
+                row.node
+            );
+        }
+        let mut m = Mapping::new();
+        m.insert(Yaml::from("node"), Yaml::from(row.node.clone()));
+        for signal in &row.values {
+            if signal.name.is_empty() {
+                bail!(
+                    "`{step}` emitted an unnamed signal on `{}`. A signal's name is what reaches a \
+                     search, and the empty one reaches nothing.",
+                    row.node
+                );
+            }
+            if signal.name == "node" {
+                bail!(
+                    "`{step}` emitted a signal named `node` on `{}`, which is the key the row is \
+                     already keyed by.",
+                    row.node
+                );
+            }
+            let value = match &signal.value {
+                Value::Text(s) => Yaml::from(s.clone()),
+                Value::Int(i) => Yaml::from(*i),
+                Value::Number(f) => Yaml::from(*f),
+                Value::Flag(b) => Yaml::from(*b),
+                // Both constructors are load-bearing *inbound* and meaningless outbound, and the
+                // reader agrees: `Signals::load`'s `scalar` reads neither a null nor a non-scalar as
+                // a signal, and reports the row as declaring "a list or a mapping" instead. Rendering
+                // either one would put a line in a committed file that the consumer of that file
+                // refuses — a document written by this binary and unreadable by it.
+                //
+                // Inbound, `Empty` is a property key written with no value and `Unrepresentable` is a
+                // shape no declared property type describes, and a calculator has to be able to see
+                // both rather than have them hidden. Outbound they say the script is emitting a
+                // signal it has no value for.
+                Value::Empty => bail!(
+                    "`{step}` emitted `{}` on `{}` as `Empty`, which is a signal with no value. \
+                     Inbound that constructor is a property key written with nothing after it; \
+                     outbound there is nothing for a reader to attach, and `Signals::load` refuses \
+                     the row rather than reading it. A calculator with nothing to say about a node \
+                     omits the signal.",
+                    signal.name,
+                    row.node
+                ),
+                Value::Unrepresentable => bail!(
+                    "`{step}` emitted `{}` on `{}` as `Unrepresentable`, which is the \
+                     constructor for a value that cannot be stated. It is how this arm reports a \
+                     property shape no declared type describes; a calculator returning one is \
+                     emitting a signal it has no value for, and writing it out as text would make \
+                     it findable as though it did.",
+                    signal.name,
+                    row.node
+                ),
+            };
+            if m.insert(Yaml::from(signal.name.clone()), value).is_some() {
+                bail!(
+                    "`{step}` emitted `{}` twice on `{}`.",
+                    signal.name,
+                    row.node
+                );
+            }
+        }
+        rows.push(Yaml::Mapping(m));
+    }
+
+    // `method:` and not a prose block. A shell calculator writes the rule it implements there,
+    // because the rule is in its comments and nowhere a reader can reach; a typed calculator's rule
+    // is the script, which is a tracked file with a name — so what this says is which file, and the
+    // reader who wants the rule reads it.
+    //
+    // No digest of the script here, though the receipt carries one. The receipt lands in the same
+    // commit, and a fact recorded twice in one tree is the shape `receipt`'s "No clock" note refuses.
+    let mut method = Mapping::new();
+    method.insert(Yaml::from("arm"), Yaml::from("gluon"));
+    method.insert(Yaml::from("script"), Yaml::from(script));
+
+    let mut root = Mapping::new();
+    // First, and by insertion order: `serde_yaml` preserves it, and `format_version` leading the
+    // file is what `receipt.rs`'s own test asserts about the other record format this crate writes.
+    root.insert(
+        Yaml::from("format_version"),
+        Yaml::from(crate::computed::FORMAT_VERSION),
+    );
+    root.insert(Yaml::from("method"), Yaml::Mapping(method));
+    root.insert(Yaml::from("signals"), Yaml::Sequence(rows));
+
+    let body = serde_yaml::to_string(&Yaml::Mapping(root))?;
+    Ok(format!(
+        "# Computed by the `{step}` calculator (RFC-0042's typed arm) and committed by `yidam run`.\n\
+         # Recomputed from the corpus; edit the corpus, not this file.\n\
+         {body}"
+    ))
 }
 
 #[cfg(test)]
@@ -395,5 +529,199 @@ mod tests {
         // integer gluon has can hold, so it is a `Number` — lossy, and saying so.
         assert_eq!(got[0], &Value::Int(3_000_000_000));
         assert!(matches!(got[1], Value::Number(_)), "{:?}", got[1]);
+    }
+
+    // ── render ───────────────────────────────────────────────────────────────
+
+    fn row(node: &str, values: &[(&str, Value)]) -> Row {
+        Row {
+            node: node.to_string(),
+            values: values
+                .iter()
+                .map(|(n, v)| Signal {
+                    name: (*n).to_string(),
+                    value: v.clone(),
+                })
+                .collect(),
+        }
+    }
+
+    /// A corpus holding `nodes`, a manifest declaring `step`, and `text` as what `step` computed.
+    ///
+    /// The whole fixture rather than the file alone, because [`crate::computed::Signals::load`]
+    /// resolves each row against the corpus and attributes each file to the capability that declares
+    /// writing it. A row keyed on a node that is not there is dropped and reported, so a test handed
+    /// only the document would assert that the reader ignores it.
+    fn read_back(step: &str, nodes: &[&str], text: &str) -> crate::computed::Signals {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(".yidam/computed")).unwrap();
+        std::fs::write(root.join(format!(".yidam/computed/{step}.yml")), text).unwrap();
+        for node in nodes {
+            let path = root.join(format!(".yidam/corpus/{node}.yml"));
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let class = node.split('/').next().unwrap_or_default();
+            std::fs::write(&path, format!("class: {class}\nlabel: {node}\n")).unwrap();
+        }
+        std::fs::write(
+            root.join(".yidam/capabilities.toml"),
+            format!(
+                "[capability.{step}]\nkind = \"calculator\"\n\
+                 run = {{ gluon = \".yidam/capabilities/{step}.glu\" }}\n\
+                 reads = [\".yidam/corpus/**\", \".yidam/capabilities/**\"]\n\
+                 writes = [\".yidam/computed/**\"]\nverb = \"compute\"\n"
+            ),
+        )
+        .unwrap();
+        let s = crate::computed::Signals::load(root);
+        assert!(s.problems.is_empty(), "{:?}\n{text}", s.problems);
+        s
+    }
+
+    /// The whole point of having a writer in the binary that owns the reader: the two agree.
+    ///
+    /// Written to a real directory and read back by [`crate::computed::Signals::load`], because that
+    /// is the consumer. A test that parsed the YAML itself would assert that `serde_yaml` round-trips,
+    /// which nobody doubted — what was in doubt is whether this document is the one the embedder,
+    /// `doctor` and `retrieve` can attach to a node.
+    #[test]
+    fn what_a_calculator_returns_is_read_back_by_the_reader_of_the_contract() {
+        let computed = Computed {
+            signals: vec![
+                row(
+                    "gage/canyon-outlet",
+                    &[
+                        ("travels_as", Value::Text("verified".into())),
+                        ("links", Value::Int(3)),
+                        ("q95", Value::Number(12.5)),
+                        ("downgraded", Value::Flag(false)),
+                    ],
+                ),
+                row(
+                    "gage/upper-fork",
+                    &[("travels_as", Value::Text("open".into()))],
+                ),
+            ],
+        };
+        let text = render(
+            "travel-tier",
+            ".yidam/capabilities/travel-tier.glu",
+            &computed,
+        )
+        .unwrap();
+        let s = read_back(
+            "travel-tier",
+            &["gage/canyon-outlet", "gage/upper-fork"],
+            &text,
+        );
+        assert_eq!(s.nodes(), 2, "{text}");
+        // Keyed by the repository-relative path, which is what `Signals` resolves the reference
+        // grammar to — see [`crate::computed::Signals::by_node`].
+        let got = s.for_node(".yidam/corpus/gage/canyon-outlet.yml");
+        assert_eq!(
+            got.get("travels_as").and_then(|v| v.as_str()),
+            Some("verified"),
+            "{text}"
+        );
+        // The integer stays an integer through both sides. `Value::Int` exists for this: a single
+        // `Number` constructor would have made `links: 3` read back as `3.0`.
+        assert_eq!(got.get("links").and_then(|v| v.as_i64()), Some(3), "{text}");
+        assert_eq!(got.get("downgraded").and_then(|v| v.as_bool()), Some(false));
+    }
+
+    /// The file says which version of the contract it is, and names its own method.
+    #[test]
+    fn the_document_leads_with_the_version_of_the_contract() {
+        let text = render(
+            "x",
+            ".yidam/capabilities/x.glu",
+            &Computed { signals: vec![] },
+        )
+        .unwrap();
+        let body: Vec<&str> = text.lines().filter(|l| !l.starts_with('#')).collect();
+        assert_eq!(body[0], "format_version: 1", "{text}");
+        assert!(text.contains("arm: gluon"), "{text}");
+        assert!(text.contains("script: .yidam/capabilities/x.glu"), "{text}");
+        // And not the script's digest, though the receipt carries one. Both land in the same commit,
+        // and a fact recorded twice in one tree is what `receipt`'s "No clock" note refuses.
+        assert!(!text.contains("sha256"), "{text}");
+    }
+
+    /// A value that needs quoting gets it, which is the argument for a serializer over a `printf`.
+    #[test]
+    fn a_signal_that_would_break_a_printf_is_quoted() {
+        let computed = Computed {
+            signals: vec![row(
+                "gage/one",
+                &[
+                    ("note", Value::Text("a: b # not a comment".into())),
+                    ("blank", Value::Text(String::new())),
+                ],
+            )],
+        };
+        let text = render("x", ".yidam/capabilities/x.glu", &computed).unwrap();
+        let s = read_back("x", &["gage/one"], &text);
+        assert_eq!(
+            s.for_node(".yidam/corpus/gage/one.yml")
+                .get("note")
+                .and_then(|v| v.as_str()),
+            Some("a: b # not a comment"),
+            "{text}"
+        );
+    }
+
+    /// Three outputs that would be silently wrong rather than absent, each refused by name.
+    ///
+    /// A refusal here fails the step, so nothing is committed — which is the whole difference between
+    /// this and a shell calculator that wrote the file anyway.
+    #[test]
+    fn a_document_that_would_be_silently_wrong_is_refused() {
+        let cases: [(Computed, &str); 6] = [
+            (
+                Computed {
+                    signals: vec![row("", &[("a", Value::Int(1))])],
+                },
+                "no `node`",
+            ),
+            (
+                Computed {
+                    signals: vec![
+                        row("gage/one", &[("a", Value::Int(1))]),
+                        row("gage/one", &[("a", Value::Int(2))]),
+                    ],
+                },
+                "two rows",
+            ),
+            (
+                Computed {
+                    signals: vec![row("gage/one", &[("", Value::Int(1))])],
+                },
+                "unnamed signal",
+            ),
+            (
+                Computed {
+                    signals: vec![row("gage/one", &[("node", Value::Int(1))])],
+                },
+                "already keyed by",
+            ),
+            (
+                Computed {
+                    signals: vec![row("gage/one", &[("a", Value::Unrepresentable)])],
+                },
+                "Unrepresentable",
+            ),
+            (
+                Computed {
+                    signals: vec![row("gage/one", &[("a", Value::Empty)])],
+                },
+                "signal with no value",
+            ),
+        ];
+        for (computed, wanted) in cases {
+            let e = render("x", ".yidam/capabilities/x.glu", &computed)
+                .unwrap_err()
+                .to_string();
+            assert!(e.contains(wanted), "expected {wanted:?} in: {e}");
+        }
     }
 }

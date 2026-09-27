@@ -661,6 +661,29 @@ nowhere else, **a capability must declare its own implementation**. Both entries
 input state — so editing a calculator is what makes its step stale.
 [why](directories.evidence.md#capability-declares-its-own-implementation)
 
+### `run` takes two arms, and the second one is a typed function
+
+A sequence is an argv, invoked as above. A table naming one script is a **typed calculator**: a
+`.glu` file whose entry point is declared `Corpus -> Computed`, applied to the resolved corpus in
+this process, with no scratch tree and no child process at all.
+
+```toml
+[capability.class-of]
+kind   = "calculator"
+run    = { gluon = ".yidam/capabilities/class-of.glu", calls = 2000000 }
+```
+
+**A typed calculator declares its own script under `reads` too**, and a declaration that does not
+is refused by name. The digest of the script goes in the receipt and in the input state, so editing
+one makes its step stale — the same rule as above, reached a different way rather than for free.
+`calls` caps how many calls the script may make; omitted, the binary's default applies, and a
+calculator that does not finish is a refusal and not a warning.
+
+**The arm is behind a cargo feature outside the default set.** The binary `install.sh` downloads
+reads this declaration, plans it, and then declines the step by name, saying which feature would
+run it. So the arm a capability is written in is a statement about who can run this repository.
+[why](directories.evidence.md#typed-arm-outside-the-default-build)
+
 ### `$YIDAM_GRAPH` — the corpus already parsed, and already resolved
 
 The step is invoked with four names in its environment — `$YIDAM_IN`, `$YIDAM_OUT`, `$YIDAM_STEP`

@@ -623,6 +623,35 @@ at all.
 One step per invocation: dependency order, freshness and `--dry-run` are not built yet.
 [RFC-0026](rfcs/0026-orchestrator-layer.md) has the argument for what a run may author.
 
+### The second arm: a calculator that is a typed function
+
+`run` takes a second shape. A table naming one script declares a **typed calculator**
+([RFC-0042](rfcs/0042-typed-calculator-arm.md)).
+
+```toml
+[capability.class-of]
+kind   = "calculator"
+run    = { gluon = ".yidam/capabilities/class-of.glu", calls = 2000000 }
+reads  = [".yidam/corpus/**", ".yidam/capabilities/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"
+```
+
+The script's entry point is declared `Corpus -> Computed`. It is applied to the resolved corpus in
+this process. There is no scratch tree and no child process, so none of the five variables is set.
+A calculator that cannot perform an effect needs no sandbox to stand in.
+
+It must still declare its own script under `reads`. A declaration that does not is refused by name,
+because the script's digest belongs in the input state. That digest goes in the receipt too. So
+editing a typed calculator makes its step stale, exactly as it does for the shell arm.
+
+`calls` caps how many calls the script may make. Omitted, the binary's default applies. A
+calculator that does not finish is refused rather than warned about.
+
+**The arm is outside the default build.** The downloaded binary parses this declaration and plans
+it. It then declines the step by name, and says which feature would run it. A corpus that wants the
+downloaded binary to run it writes the sequence form.
+
 ### What a run computes, and how it reaches a search
 
 A calculator writes into `.yidam/computed/`, which is committed. Nothing read it until #1028. A

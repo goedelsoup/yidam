@@ -78,7 +78,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::cmd::propose::write::{commit_tree, current_branch, git, head, short_of, TempIndex};
 use crate::paths::{repo_root, require_yidam_repo};
-use manifest::{Capability, Kind, Manifest, Route};
+use manifest::{Capability, Manifest, Route};
 use receipt::{sha256, File, Input, Receipt};
 
 /// The author every commit a run writes carries.
@@ -266,31 +266,31 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
     // two commits and then refuse, leaving a corpus half advanced by a run that never had a
     // chance of finishing.
     //
-    // The reason comes from the kind rather than from here. Two of the three are unrunnable and
-    // for unrelated reasons — see [`manifest::Kind::unrunnable_because`] — so a message written
-    // once, in the words of whichever kind was unrunnable when it was written, would send a
+    // The reason comes from the declaration rather than from here, and it quotes back the part of
+    // it that refused — see [`manifest::Capability::unrunnable_because`]. Three refusals share this
+    // site and they are unrelated: a connector reaches a network, nobody built a featurizer's
+    // executor, and a typed calculator needs a feature this build may not carry. A message written
+    // once, in the words of whichever one was unrunnable when it was written, would send a
     // featurizer's author to read about credentials.
     //
     // Each step is collected with its reason rather than with its name alone, so that the reason
-    // is the thing that put it in the list. Looking the kind back up at the bail site would make
-    // the reason an `Option` that cannot be `None` — a panic path, and an assertion about this
-    // filter restated a few lines below it.
-    let unrunnable: Vec<(&str, Kind, &'static str)> = plan
+    // is the thing that put it in the list. Looking the declaration back up at the bail site would
+    // make the reason an `Option` that cannot be `None` — a panic path, and an assertion about
+    // this filter restated a few lines below it.
+    let unrunnable: Vec<(&str, manifest::Unrunnable)> = plan
         .iter()
         .copied()
-        .filter_map(|n| {
-            let kind = m.get(n).ok()?.kind;
-            Some((n, kind, kind.unrunnable_because()?))
-        })
+        .filter_map(|n| Some((n, m.get(n).ok()?.unrunnable_because()?)))
         .collect();
-    if let Some((first, kind, reason)) = unrunnable.first() {
-        let names: Vec<&str> = unrunnable.iter().map(|(n, ..)| *n).collect();
+    if let Some((first, why)) = unrunnable.first() {
+        let names: Vec<&str> = unrunnable.iter().map(|(n, _)| *n).collect();
         bail!(
-            "`{first}` declares `kind = \"{}\"` and this binary invokes calculators only, so \
-             this plan cannot run.\n  \
-             {reason}.\n  \
+            "`{first}` declares `{}`, which this binary does not invoke, so this plan cannot \
+             run.\n  \
+             {}.\n  \
              In this plan: {}",
-            kind.as_str(),
+            why.declared,
+            why.because,
             names.join(", ")
         );
     }
@@ -362,12 +362,14 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
 
         let inputs = exec::materialize(root, &full, cap)?;
         let resolved_digest = inputs.resolved.as_ref().map(|r| r.sha256.clone());
+        let script_digest = Receipt::script_sha256(cap, &inputs.files);
         let input_state = Receipt::input_state(
             cap,
             &manifest_sha256,
             &config_sha256,
             &inputs.files,
             resolved_digest.as_deref(),
+            script_digest.as_deref(),
         )?;
         let verdict = freshness(root, cap, &parent, &receipt_path, &input_state, today);
 
@@ -417,6 +419,7 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
                 reads: cap.reads.clone(),
                 files: inputs.files.clone(),
                 resolved_graph_sha256: resolved_digest.clone(),
+                script_sha256: script_digest.clone(),
             },
             writes: cap.writes.clone(),
             outputs: produced
@@ -644,6 +647,7 @@ pub(crate) fn standing(root: &Path) -> Result<Vec<Standing>> {
             &config_sha256,
             &files,
             resolved_digest.as_deref(),
+            Receipt::script_sha256(cap, &files).as_deref(),
         )?;
 
         let verdict = match &landed {
@@ -925,7 +929,7 @@ fn message(
     let _ = writeln!(
         body,
         "`{}` ran against {short_parent}, reading what `{step}` declares it reads and nothing\nelse from the repository.\n",
-        cap.run.join(" ")
+        cap.run.shown()
     );
     for (path, bytes) in landing {
         let _ = writeln!(body, "  {path}  sha256:{}", &sha256(bytes)[..16]);
@@ -1403,7 +1407,7 @@ mod tests {
     fn no_line_of_a_commit_body_carries_stray_indentation() {
         let cap = Capability {
             kind: crate::cmd::run::manifest::Kind::Calculator,
-            run: vec!["true".into()],
+            run: manifest::Run::Argv(vec!["true".into()]),
             reads: vec![],
             writes: vec![".yidam/computed/**".into()],
             verb: "compute".into(),

@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::{bail, Context, Result};
 
-use super::manifest::Capability;
+use super::manifest::{Capability, Run};
 use super::receipt::{sha256, File};
 use crate::cmd::propose::write::{git, TempIndex};
 use crate::kuten::glob_covers;
@@ -81,6 +81,33 @@ pub struct Inputs {
     /// document and *a corpus with nothing in it* are different answers and a step should not
     /// have to tell them apart.
     pub resolved: Option<ResolvedCorpus>,
+    /// The script a typed calculator applies, read out of the input tree (RFC-0042).
+    ///
+    /// Read here rather than at invocation, out of the same tree every other input came from. A
+    /// typed calculator's program is an input like any other — [`super::manifest::validate_gluon`]
+    /// refuses a declaration that does not say so — and reading it anywhere but the materialized
+    /// tree would be the one file the step was handed that `reads` did not bound.
+    ///
+    /// No digest here: it is already in [`Self::files`], and
+    /// [`super::receipt::Receipt::script_sha256`] is where it is taken from, once, for both the run
+    /// and `doctor`.
+    ///
+    /// `None` for the shell arm, whose program is an argv the process resolves for itself.
+    ///
+    /// Behind the feature, unlike everything the *declaration* needs: the shape, the validation and
+    /// the refusal are ungated because a light build reads manifests that declare this arm — see
+    /// [`super::manifest::Run`] — but reading a program that build cannot evaluate is work with no
+    /// consumer, and a field nothing reads is the shape a warning is right about.
+    #[cfg(feature = "calculators-gluon")]
+    pub script: Option<Script>,
+}
+
+/// A typed calculator's program, as the run read it.
+#[cfg(feature = "calculators-gluon")]
+pub struct Script {
+    /// Repository-relative, as the manifest declared it.
+    pub path: String,
+    pub text: String,
 }
 
 /// The resolved corpus as it was handed over.
@@ -165,7 +192,7 @@ pub fn materialize(root: &Path, commit: &str, cap: &Capability) -> Result<Inputs
     // only when the commit itself holds a file by that name, so `cargo`, `-p` and `sh` are not
     // candidates and no rule about which arguments are paths has to be invented.
     let tracked: Vec<&str> = listed.split('\0').filter(|p| !p.is_empty()).collect();
-    for arg in &cap.run {
+    for arg in cap.run.file_candidates() {
         if tracked.contains(&arg.as_str()) && !wanted.iter().any(|w| w == arg) {
             bail!(
                 "`{arg}` is in this repository and is not in this capability's `reads` ({}).\n  \
@@ -199,10 +226,29 @@ pub fn materialize(root: &Path, commit: &str, cap: &Capability) -> Result<Inputs
         });
     }
     let resolved = ResolvedCorpus::build(&dir, &tracked)?;
+    #[cfg(feature = "calculators-gluon")]
+    let script = cap
+        .run
+        .gluon()
+        .map(|(path, _)| -> Result<Script> {
+            let text = std::fs::read_to_string(dir.path().join(path)).with_context(|| {
+                format!(
+                    "reading the calculator script {path} out of the materialized tree — it is \
+                     covered by this capability's `reads`, so it should be there"
+                )
+            })?;
+            Ok(Script {
+                path: path.to_string(),
+                text,
+            })
+        })
+        .transpose()?;
     Ok(Inputs {
         dir,
         files,
         resolved,
+        #[cfg(feature = "calculators-gluon")]
+        script,
     })
 }
 
@@ -212,7 +258,22 @@ pub struct Produced {
     pub stderr: String,
 }
 
-/// Invoke the capability, standing in its input tree, writing into a scratch output tree.
+/// Invoke the capability, by whichever arm it declared.
+///
+/// The two arms differ in what the step is handed and in nothing else the executor does: the same
+/// input tree is materialized, the same `writes` declaration is enforced against what came back,
+/// the same receipt is written. RFC-0042's claim is that the difference is *what the step could
+/// have read*, and that is where it lives — a process is handed a directory and can read the whole
+/// of it, a typed calculator is handed a value and there is nothing else.
+pub fn invoke(cap: &Capability, inputs: &Inputs, step: &str, commit: &str) -> Result<Produced> {
+    match &cap.run {
+        Run::Argv(argv) => process(argv, inputs, step, commit),
+        // The budget is resolved inside, where the default lives — see [`super::manifest::Run`].
+        Run::Gluon { calls, .. } => typed::evaluate(cap, inputs, step, *calls),
+    }
+}
+
+/// The shell arm: a process, standing in the input tree, writing into a scratch output tree.
 ///
 /// The contract is five environment variables and a working directory, and it is deliberately
 /// small enough to implement in a shell script — the first calculator is one, because a
@@ -224,11 +285,11 @@ pub struct Produced {
 /// resolved corpus at all. A script that wants it tests for it — `[ -n "${YIDAM_GRAPH:-}" ]`
 /// — rather than assuming the file is there, which is the same shape as the other four and is
 /// what the manifest doc states.
-pub fn invoke(cap: &Capability, inputs: &Inputs, step: &str, commit: &str) -> Result<Produced> {
+fn process(argv: &[String], inputs: &Inputs, step: &str, commit: &str) -> Result<Produced> {
     let out = Scratch::new("out")?;
-    let mut command = Command::new(&cap.run[0]);
+    let mut command = Command::new(&argv[0]);
     command
-        .args(&cap.run[1..])
+        .args(&argv[1..])
         .current_dir(inputs.dir.path())
         .env("YIDAM_IN", inputs.dir.path())
         .env("YIDAM_OUT", out.path())
@@ -244,13 +305,13 @@ pub fn invoke(cap: &Capability, inputs: &Inputs, step: &str, commit: &str) -> Re
     };
     let status = command
         .output()
-        .with_context(|| format!("invoking `{}`", cap.run.join(" ")))?;
+        .with_context(|| format!("invoking `{}`", argv.join(" ")))?;
 
     let stderr = String::from_utf8_lossy(&status.stderr).trim().to_string();
     if !status.status.success() {
         bail!(
             "`{}` exited {}{}",
-            cap.run.join(" "),
+            argv.join(" "),
             status
                 .status
                 .code()
@@ -304,4 +365,91 @@ pub fn check_declared(cap: &Capability, produced: &[(String, Vec<u8>)]) -> Resul
         undeclared.join(", "),
         cap.writes.join(", ")
     );
+}
+
+/// The typed arm (RFC-0042): a script applied to the corpus as a value, in this process.
+///
+/// # Two implementations, and the light one refuses rather than panics
+///
+/// `calculators-gluon` is outside the default set, so the real module is compiled out of the binary
+/// `install.sh` downloads. The plan pre-pass in [`super::plan_and_write`] refuses a typed step
+/// before anything is materialized — [`super::manifest::Run::unrunnable_because`] is where that
+/// answer comes from — so this function is unreachable in a light build.
+///
+/// It refuses anyway, rather than panicking. "Unreachable because a check two modules away is in
+/// place" is a claim about code that changes, and the cost of being wrong about it is a panic in a
+/// released binary instead of the sentence that check was already going to print. It asks the
+/// declaration for that sentence rather than repeating it, so the two cannot come apart.
+#[cfg(feature = "calculators-gluon")]
+mod typed {
+    use anyhow::{Context, Result};
+
+    use super::{Capability, Inputs, Produced};
+    use crate::gluon_arm::{budget, marshal};
+
+    pub fn evaluate(
+        _cap: &Capability,
+        inputs: &Inputs,
+        step: &str,
+        calls: Option<usize>,
+    ) -> Result<Produced> {
+        let script = inputs
+            .script
+            .as_ref()
+            .context("a typed calculator was invoked with no script read — see `materialize`")?;
+
+        // The corpus is read from the materialized tree, which is the tree `ResolvedCorpus` parses
+        // and the tree the shell arm's process stands in. That is what makes the two arms answer
+        // about one corpus: `reads` bounds the value exactly as it bounds the directory, with no
+        // second reading of the declaration that could fall out of step with the first.
+        let read = crate::corpus::Corpus::open(inputs.dir.path());
+        let corpus = marshal::project(read.nodes(), read.classes());
+        let nodes = corpus.nodes.len();
+
+        let budget = calls.unwrap_or(budget::DEFAULT_CALLS);
+        let outcome = crate::gluon_arm::evaluate(step, &script.text, corpus, budget)?;
+
+        let rel = format!(".yidam/computed/{step}.yml");
+        let text = marshal::render(step, &script.path, &outcome.computed)
+            .with_context(|| format!("rendering what `{step}` computed as {rel}"))?;
+
+        // The one line a run of this arm has to say about itself, on the channel a shell
+        // calculator's own account arrives on. Not written into the committed file: the number of
+        // calls a VM charged is a fact about this gluon and not about the corpus, and a committed
+        // file carrying it would churn on an upgrade that computed the identical answer.
+        let stderr = format!(
+            "{step}: {nodes} nodes, {} signal rows, {} of {budget} calls",
+            outcome.computed.signals.len(),
+            outcome.calls
+        );
+        Ok(Produced {
+            outputs: vec![(rel, text.into_bytes())],
+            stderr,
+        })
+    }
+}
+
+#[cfg(not(feature = "calculators-gluon"))]
+mod typed {
+    use anyhow::{bail, Result};
+
+    use super::{Capability, Inputs, Produced};
+
+    pub fn evaluate(
+        cap: &Capability,
+        _inputs: &Inputs,
+        step: &str,
+        _calls: Option<usize>,
+    ) -> Result<Produced> {
+        bail!(
+            "`{step}` declares `{}` and nothing was run.\n  {}.\n  \
+             A plan holding this step is refused before anything is materialized, so reaching here \
+             means that pre-pass was bypassed — which is a defect in this binary and not in the \
+             manifest.",
+            cap.run.declared(),
+            cap.unrunnable_because()
+                .map(|u| u.because)
+                .unwrap_or("the typed calculator arm is compiled out of this binary")
+        );
+    }
 }
