@@ -186,6 +186,24 @@ git fetch --unshallow                        # locally
 # in CI: actions/checkout with fetch-depth: 0
 ```
 
+## A REGEN block names a generator that does not exist
+
+**`1 REGEN block(s) name a generator that does not exist`.** The name in the marker matches no
+generator, so nothing ever writes that block. It holds whatever was last typed into it, and
+`yidam regen` leaves it alone. A misspelling is the usual cause — `statsu` for `status`.
+
+The check names the file, the command and the generators there are:
+
+```sh
+yidam regen --check
+```
+
+Correct the name, or delete the block. `yidam regen` cannot clear this one — there is nothing
+to run.
+
+Only commands beginning `yidam` are judged. A block your own tooling refreshes is left alone,
+as is one a document shows inside a code fence.
+
 ## The editor shows nothing, or disagrees with CI
 
 **Nothing at all.** The extension activates only on a workspace containing `.yidam.toml` or

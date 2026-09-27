@@ -187,32 +187,120 @@ fn exit_codes_are_identical_across_formats() {
     }
 }
 
-/// Every field the report emits is declared in the committed schema.
+/// Every path the report emits is declared in the committed schema.
 ///
 /// The golden matrix's own version of this check only sees fields that appear in a golden,
 /// and this report has none — see the module comment for why.
+///
+/// **Two arms, and item fields as well as top-level ones.** `unclaimed[]` is emitted only by a
+/// repository that holds a block naming no generator, so a version of this test that staged
+/// nothing would hold the array's declaration and neither of its members. It is exempted from
+/// the matrix's reachability roster for that reason — `report_goldens.rs`'s `UNREACHED` says
+/// why the shared fixture may not carry a broken marker — which makes this the only place the
+/// declaration is held against a real document (#1062).
 #[test]
 fn every_emitted_field_is_declared_in_the_schema() {
-    let tmp = stage();
-    let json = run(tmp.path(), &["regen", "--check", "--format", "json"]);
-    let doc: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
-
     let schema: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(fixture_dir().parent().unwrap().join("report.schema.json"))
             .unwrap(),
     )
     .unwrap();
-    let declared = schema["properties"].as_object().unwrap();
 
-    for key in doc.as_object().unwrap().keys() {
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for typo in [None, Some("statsu")] {
+        let tmp = stage();
+        if let Some(name) = typo {
+            let staged = format!(
+                "{}\n<!-- REGEN: yidam {name}\n-->\n_placeholder_\n<!-- /REGEN -->\n",
+                readme(tmp.path())
+            );
+            std::fs::write(tmp.path().join("README.md"), &staged).unwrap();
+            common::git::git_at(tmp.path(), &["add", "-A"], common::git::FIXTURE_DATE);
+        }
+        let json = run(tmp.path(), &["regen", "--check", "--format", "json"]);
+        let doc: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
+
+        let mut emitted = std::collections::BTreeSet::new();
+        paths_of(&doc, "", &mut emitted);
+        for path in &emitted {
+            assert!(
+                declares(&schema, path),
+                "`regen --check` emits `{path}`, which report.schema.json does not declare"
+            );
+        }
+        for required in schema["required"].as_array().unwrap() {
+            assert!(doc.get(required.as_str().unwrap()).is_some(), "{required}");
+        }
+        seen.extend(emitted);
+    }
+
+    // `declares` can say yes to everything and the loop above still passes — the failure
+    // this repository keeps finding in a scanner that looks at nothing. So it is asked about
+    // a top-level name and an item field the schema does not carry, at the same two depths.
+    for absent in ["nonesuch", "unclaimed[].nonesuch"] {
         assert!(
-            declared.contains_key(key),
-            "`regen --check` emits `{key}`, which report.schema.json does not declare"
+            !declares(&schema, absent),
+            "`{absent}` is not in the schema and the walk said it was, so the check above \
+             holds nothing"
         );
     }
-    for required in schema["required"].as_array().unwrap() {
-        assert!(doc.get(required.as_str().unwrap()).is_some(), "{required}");
+
+    // The walk descended, and the second arm produced a member rather than an empty array.
+    // Without this the assertion above is satisfied by a document with nothing in it, and by
+    // a `paths_of` that stops at the envelope.
+    for witness in ["stale", "unclaimed[].file", "unclaimed[].generator"] {
+        assert!(
+            seen.contains(witness),
+            "the runs never emitted `{witness}`, so this test describes the depth it stopped \
+             at rather than the contract: {seen:?}"
+        );
     }
+}
+
+/// Every path a document actually carries a value at, in the schema's own notation.
+fn paths_of(node: &serde_json::Value, path: &str, out: &mut std::collections::BTreeSet<String>) {
+    match node {
+        serde_json::Value::Object(map) => {
+            for (key, child) in map {
+                let here = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
+                out.insert(here.clone());
+                paths_of(child, &here, out);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                paths_of(item, &format!("{path}[]"), out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Does the schema declare `path`? Walks `properties` and `items` the way [`paths_of`] builds
+/// them, so the two notations are the same notation.
+fn declares(schema: &serde_json::Value, path: &str) -> bool {
+    let mut node = schema;
+    for segment in path.split('.') {
+        let (key, arrays) = match segment.split_once("[]") {
+            Some((key, rest)) => (key, rest.matches("[]").count() + 1),
+            None => (segment, 0),
+        };
+        node = match node.get("properties").and_then(|p| p.get(key)) {
+            Some(child) => child,
+            None => return false,
+        };
+        for _ in 0..arrays {
+            node = match node.get("items") {
+                Some(items) => items,
+                None => return false,
+            };
+        }
+    }
+    true
 }
 
 /// The gate's verdict does not move when a build artifact appears in the tree.
@@ -369,4 +457,272 @@ fn the_live_commands_still_report_what_the_block_no_longer_does() {
     let status: serde_json::Value =
         serde_json::from_str(&run(root, &["status", "--format", "json"]).stdout).unwrap();
     assert_eq!(status["index_present"], true);
+}
+
+/// A block whose name no generator carries is reported, and the gate says so (#1062).
+///
+/// **The defect was silence, not a wrong answer.** Every other part of this contract is
+/// pushed: a generator names a file and a command, and the block is recorded when the two
+/// disagree. A command no generator carries is never anybody's tag, so nothing reaches the
+/// block and nothing records it — measured on this fixture at `3111beb`, a
+/// `<!-- REGEN: yidam statsu -->` block survived `yidam regen` unchanged and
+/// `yidam regen --check` printed *"Every REGEN block is current."* A typo in a marker name
+/// turned a generated block into a hand-maintained one with nothing saying so.
+///
+/// Three arms, and the second and third are the ones that make the first mean anything:
+/// the block must not be *written* by anything either, and the gate must be satisfiable.
+#[test]
+fn a_block_naming_no_generator_is_reported_and_gates() {
+    let tmp = stage();
+    let staged = format!(
+        "{}\n## Typo\n\n<!-- REGEN: yidam statsu\n-->\n\
+         _Run `yidam regen` to populate._\n<!-- /REGEN -->\n",
+        readme(tmp.path())
+    );
+    std::fs::write(tmp.path().join("README.md"), &staged).unwrap();
+    common::git::git_at(tmp.path(), &["add", "-A"], common::git::FIXTURE_DATE);
+
+    assert_eq!(run(tmp.path(), &["regen"]).code, 0);
+    assert!(
+        readme(tmp.path()).contains("<!-- REGEN: yidam statsu"),
+        "the block was rewritten out of existence, which is not what happens: {}",
+        readme(tmp.path())
+    );
+    assert!(
+        readme(tmp.path()).contains("_Run `yidam regen` to populate._"),
+        "some generator wrote into a block that is not its own — `update_regen` matches its \
+         open tag by prefix, so this is the failure that looks like success:\n{}",
+        readme(tmp.path())
+    );
+
+    let r = run(tmp.path(), &["regen", "--check"]);
+    assert_eq!(r.code, 1, "{}", r.stdout);
+    assert!(
+        r.stdout.contains("name a generator that does not exist"),
+        "{}",
+        r.stdout
+    );
+    assert!(
+        r.stdout.contains("README.md  (yidam statsu)"),
+        "{}",
+        r.stdout
+    );
+    // The remedy has to be one that clears the gate. `yidam regen` is not it, and saying so
+    // is half the finding.
+    assert!(
+        r.stdout.contains("Correct the name or delete the block"),
+        "{}",
+        r.stdout
+    );
+    assert!(
+        r.stdout.contains("The generators are: status,"),
+        "the remedy names no generators, so a reader cannot tell what the name should be: {}",
+        r.stdout
+    );
+
+    let json = run(tmp.path(), &["regen", "--check", "--format", "json"]);
+    let doc: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
+    assert_eq!(doc["passed"], false);
+    assert_eq!(doc["unclaimed"][0]["file"], "README.md");
+    assert_eq!(doc["unclaimed"][0]["generator"], "statsu");
+
+    // Satisfiable, by the remedy the gate prescribes.
+    std::fs::write(
+        tmp.path().join("README.md"),
+        readme(tmp.path()).replace("yidam statsu", "yidam vault-status"),
+    )
+    .unwrap();
+    common::git::git_at(tmp.path(), &["add", "-A"], common::git::FIXTURE_DATE);
+    assert_eq!(run(tmp.path(), &["regen"]).code, 0);
+    let after = run(tmp.path(), &["regen", "--check"]);
+    assert_eq!(after.code, 0, "{}", after.stdout);
+}
+
+/// The marker namespace is not yidam's, and a block another program writes is not a finding.
+///
+/// `ohio-education-funding` carries fourteen blocks under thirteen `edfund-connect <name>`
+/// commands — `repository-overview`, `claim-totals`, `connector-registry` and ten more —
+/// each refreshed by its own domain binary. Judging a command yidam does not own would
+/// report a working repository as broken, with no remedy yidam could print that would be
+/// true.
+///
+/// The `yidam`-prefixed block beside it is the control: without it, a check that had stopped
+/// scanning altogether would pass this test.
+#[test]
+fn a_block_belonging_to_another_program_is_left_alone() {
+    let tmp = stage();
+    let staged = format!(
+        "{}\n<!-- REGEN: edfund-connect claim-totals\n-->\n_theirs_\n<!-- /REGEN -->\n\
+         <!-- REGEN: yidam statsu\n-->\n_ours, misspelled_\n<!-- /REGEN -->\n",
+        readme(tmp.path())
+    );
+    std::fs::write(tmp.path().join("README.md"), &staged).unwrap();
+    common::git::git_at(tmp.path(), &["add", "-A"], common::git::FIXTURE_DATE);
+
+    let json = run(tmp.path(), &["regen", "--check", "--format", "json"]);
+    let doc: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
+    let named: Vec<&str> = doc["unclaimed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| u["generator"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        named,
+        ["statsu"],
+        "the scan either missed the misspelling or claimed another program's block: {named:?}"
+    );
+}
+
+/// A block a document *shows* is not a block the repository *has*.
+///
+/// `malformed-regen-block` warns rather than errors for exactly this reason — it does not
+/// mask, so it cannot tell a documented example from a damaged file. This is a gate, so it
+/// masks, and the fenced example below is what that buys.
+#[test]
+fn a_documented_example_is_not_a_block() {
+    let tmp = stage();
+    let staged = format!(
+        "{}\n## How markers work\n\nWrite one like this:\n\n```markdown\n\
+         <!-- REGEN: yidam demo-index\n-->\n_placeholder_\n<!-- /REGEN -->\n```\n\n\
+         The inline form is `<!-- REGEN: yidam other-index -->`.\n",
+        readme(tmp.path())
+    );
+    std::fs::write(tmp.path().join("README.md"), &staged).unwrap();
+    common::git::git_at(tmp.path(), &["add", "-A"], common::git::FIXTURE_DATE);
+
+    let json = run(tmp.path(), &["regen", "--check", "--format", "json"]);
+    let doc: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
+    assert_eq!(
+        doc["unclaimed"].as_array().unwrap().len(),
+        0,
+        "a shown block was read as a said one: {}",
+        json.stdout
+    );
+}
+
+/// The scan reaches the files the generators reach, which the prose walk does not.
+///
+/// `lint`'s `regen_files()` reads `.yidam/`, `docs/` and the root `README.md`. Five
+/// generators write outside all three — `crates-index`, `packages-index`, `bundle-status`,
+/// `kuten` and `practice` — so a scan built on that walk would be blind to a misnamed block
+/// in any of them. `crates/README.md` and `AGENTS.md` are one of each.
+#[test]
+fn the_scan_reaches_beyond_the_prose_walk() {
+    let tmp = stage();
+    let root = tmp.path();
+    std::fs::create_dir_all(root.join("crates")).unwrap();
+    std::fs::write(
+        root.join("crates/README.md"),
+        "# crates\n\n<!-- REGEN: yidam crates-idx\n-->\n_x_\n<!-- /REGEN -->\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("AGENTS.md"),
+        "# agents\n\n<!-- REGEN: yidam kuten-block\n-->\n_x_\n<!-- /REGEN -->\n",
+    )
+    .unwrap();
+    common::git::git_at(root, &["add", "-A"], common::git::FIXTURE_DATE);
+
+    let json = run(root, &["regen", "--check", "--format", "json"]);
+    let doc: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
+    let files: Vec<&str> = doc["unclaimed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| u["file"].as_str().unwrap())
+        .collect();
+    assert!(
+        files.contains(&"crates/README.md") && files.contains(&"AGENTS.md"),
+        "the scan did not reach both files: {files:?}"
+    );
+}
+
+/// An untracked document is not yet a block this repository has.
+///
+/// The gate answers about the commit — the same argument
+/// [`a_built_index_or_bundle_does_not_move_the_gate`] makes about a build artifact. Stated
+/// as a test because it is a real boundary a reader will hit: a misnamed block goes red on
+/// `git add`, not on save.
+#[test]
+fn an_untracked_document_is_not_scanned() {
+    let tmp = stage();
+    std::fs::write(
+        tmp.path().join("DRAFT.md"),
+        "# draft\n\n<!-- REGEN: yidam statsu\n-->\n_x_\n<!-- /REGEN -->\n",
+    )
+    .unwrap();
+
+    let json = run(tmp.path(), &["regen", "--check", "--format", "json"]);
+    let doc: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
+    assert_eq!(doc["unclaimed"].as_array().unwrap().len(), 0);
+
+    common::git::git_at(tmp.path(), &["add", "-A"], common::git::FIXTURE_DATE);
+    let after = run(tmp.path(), &["regen", "--check", "--format", "json"]);
+    let doc: serde_json::Value = serde_json::from_str(&after.stdout).unwrap();
+    assert_eq!(doc["unclaimed"][0]["file"], "DRAFT.md");
+}
+
+/// `doctor` and the gate agree.
+///
+/// A report that calls a repository sound while the gate fails it is the disagreement
+/// `stale_blocks` was extracted to prevent, and a second half added to the gate and not to
+/// the report reopens it.
+#[test]
+fn doctor_reports_what_the_gate_gates_on() {
+    let tmp = stage();
+    let staged = format!(
+        "{}\n<!-- REGEN: yidam statsu\n-->\n_x_\n<!-- /REGEN -->\n",
+        readme(tmp.path())
+    );
+    std::fs::write(tmp.path().join("README.md"), &staged).unwrap();
+    common::git::git_at(tmp.path(), &["add", "-A"], common::git::FIXTURE_DATE);
+
+    let d = run(tmp.path(), &["doctor", "--format", "json"]);
+    let doc: serde_json::Value = serde_json::from_str(&d.stdout).unwrap();
+    let regen = doc["checks"]
+        .as_array()
+        .expect("doctor reports checks")
+        .iter()
+        .find(|c| c["id"] == "regen")
+        .expect("doctor has a regen check");
+    assert_eq!(regen["verdict"], "fail", "{}", d.stdout);
+    assert!(
+        regen["detail"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("yidam statsu"),
+        "{regen}"
+    );
+}
+
+/// A repository that tracks nothing is read, not refused.
+///
+/// The scan borrows the tracked set, and the accessor it first borrowed was the one
+/// `clone` and `overlay` copy from — which refuses an empty set, because a copy of nothing
+/// is not a template. A *read* of nothing is an answer. Measured against an initialised
+/// derived repository before its first commit, the gate printed *"cannot read the template
+/// … Run this from a git checkout of yidam"*, which is untrue of everywhere it was run.
+///
+/// It still reports the stale blocks, which is the half that says the command got past the
+/// scan rather than bailing before it.
+#[test]
+fn a_repository_with_nothing_committed_is_still_reported_on() {
+    let tmp = stage();
+    // Back to before the genesis commit, keeping the working tree.
+    std::fs::remove_dir_all(tmp.path().join(".git")).unwrap();
+    let git = |args: &[&str]| common::git::git_at(tmp.path(), args, common::git::FIXTURE_DATE);
+    git(&["init", "-q", "-b", "main"]);
+    git(&["config", "user.email", "fixture@yidam.test"]);
+    git(&["config", "user.name", "Fixture"]);
+
+    let r = run(tmp.path(), &["regen", "--check", "--format", "json"]);
+    let doc: serde_json::Value = serde_json::from_str(&r.stdout)
+        .unwrap_or_else(|e| panic!("the gate did not report at all ({e}): {}", r.stdout));
+    assert_eq!(doc["unclaimed"].as_array().unwrap().len(), 0);
+    assert!(
+        !doc["stale"].as_array().unwrap().is_empty(),
+        "the fixture's placeholder block went unreported, so the scan bailed early: {}",
+        r.stdout
+    );
 }

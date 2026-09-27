@@ -2268,6 +2268,17 @@ const UNREACHED: &[(&str, &str)] = &[
          scalar, an entry with no closing fence — and this corpus carries none",
     ),
     (
+        "unclaimed",
+        "`regen --check` only, and it is non-empty only when the repository holds a REGEN block \
+         naming a generator that does not exist \u{2014} a defect. This fixture is the parity \
+         corpus three SDK runners are graded against and the stage `doctor` reports on here, so \
+         a marker naming nothing would be a fact about a broken repository sitting in the one \
+         that is supposed to be correct, and it would flip `doctor`'s regen check to fail for \
+         every reader of this stage. Covered end to end in `regen_check.rs`, which stages the \
+         block, asserts the text and the JSON, and holds every emitted path \u{2014} both item \
+         fields included \u{2014} against this schema (#1062)",
+    ),
+    (
         "written",
         "null on `--dry-run` by declaration: the two states a consumer must not read as a write",
     ),

@@ -28,6 +28,21 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `regen --check` reports a block no generator writes
+
+**`yidam regen --check` (#1062).** A REGEN block whose command names no generator used to be
+skipped in silence. Nothing wrote it, nothing reported it, and the gate passed. It now fails,
+naming the file and the command.
+
+**What changes for you: a repository that passed may now go red.** The cause is a marker
+whose name is wrong, usually a typo. The block has been stale since it was written. Correct
+the name, or delete the block. `yidam regen` does not clear it, because no generator carries
+that name.
+
+Only commands beginning `yidam` are judged, so a block your own tooling refreshes is
+untouched. Measured across twenty-two repositories carrying REGEN blocks, the check found
+none, so most upgrades will see no change.
+
 ### `migrate retype` requotes an instance instead of refusing it
 
 **`yidam migrate retype` (#1044).** Retyping to `number` now unquotes an instance holding

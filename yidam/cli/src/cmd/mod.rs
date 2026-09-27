@@ -129,7 +129,7 @@ pub use regen::generator_names as regen_generator_names;
 // `doctor` asks the same question `regen --check` asks, through the same generator list.
 pub use migrate::{migrate, Operation as MigrateOperation};
 pub use policy::{run as run_policy, PolicyCommand};
-pub(crate) use regen::stale_blocks;
+pub(crate) use regen::{stale_blocks, unclaimed_blocks};
 pub use registry::{agents_index, skills_index};
 pub use rename::rename;
 pub use replay::replay;
