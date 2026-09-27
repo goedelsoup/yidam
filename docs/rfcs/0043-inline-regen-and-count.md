@@ -194,14 +194,21 @@ writing the block, and no later regeneration second-guesses them.
 
 ### One scanner
 
-`scan_markers` returns a byte span for every block it finds — the honest version of what
-`sdks/README.md` already promises, and the reader's counterpart to `RegenSpan` — and learns the
-inline form: an open tag whose `-->` is
-followed, on the same line, by the block's own `<!-- /REGEN -->` closes there, and the scan
-resumes after it, so a line may carry more than one block.
+`scan_markers` learns the inline form — an open tag whose `-->` is followed, on the same line,
+by the block's own `<!-- /REGEN -->` closes there, and the scan resumes after it, so a line may
+carry more than one block — and it records each block's extent as it goes, which is the reader's
+counterpart to `RegenSpan` and the honest version of what `sdks/README.md` already promises.
 
-`update_regen` is then respecified over those spans rather than over `str::find`. Three things
-follow, and all three are defects closing rather than features opening:
+An extent is an offset into the text, and an offset is **not** a parity contract. Rust counts
+bytes, JavaScript counts UTF-16 code units and Python counts code points, so a fixture asserting
+`open = 41` would assert three different things about one document the moment it held a
+character outside ASCII — which is the trap `find_reachable`'s sort order already fell into and
+`parity/README.md` already warns about. The extents are therefore each language's own, in that
+language's own unit, and no fixture asserts one. What the fixtures hold is behaviour: the marker
+sequence `parse_markers` returns, and the string `update_regen` writes.
+
+`update_regen` is then respecified over those extents rather than over a second search of its
+own. Three things follow, and all three are defects closing rather than features opening:
 
 1. It matches a command **exactly**, where it matched a prefix. `yidam count district` no longer
    finds `yidam count district[party=R]`.
