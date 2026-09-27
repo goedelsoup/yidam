@@ -271,6 +271,29 @@ sqlite-vec = { version = "0.1.9", optional = true }
 oxrdf = { version = "0.3", optional = true }
 oxttl = { version = "0.2", optional = true }
 
+# ── optional: `calculators-gluon` — the typed calculator arm (RFC-0042). ───
+#
+# A statically typed, effect-tracked embedded language, so that a calculator's purity is a
+# property the executor can check before it runs rather than a norm enforced only on what it
+# wrote. The RFC's measurement, reproduced by `cargo update` on this pin: **71 marginal
+# packages and +6.8 MB**, against the 8 packages RFC-0024 accepted for `regorus`. That is why
+# this one is not in the default set and `regorus` is — the argument there was that a build
+# which cannot evaluate policy cannot refuse, and a build that cannot run a gluon calculator
+# declines the step by name instead.
+#
+# `default-features = false` drops gluon's own `serde`, `regex`, `web` and `random` features.
+# Each of the last three registers an extern module in the VM, so switching one on would widen
+# what a script can reach — `gluon_arm`'s prelude is the gate, but a dependency that cannot
+# offer the module is one fewer thing the gate is load-bearing for. `serde` is off because
+# nothing here needs it: the corpus is marshalled through the `VmType`/`Pushable`/`Getable`
+# derives as structural record types, which registers no type and needs no source generation.
+#
+# `gluon_codegen` carries the derives and is not re-exported by any gluon feature, which is why
+# it is named here rather than reached through one. It tracks gluon's version line — the caret
+# resolves it to 0.18.4 beside gluon itself.
+gluon = { version = "0.18.4", default-features = false, optional = true }
+gluon_codegen = { version = "0.18.4", optional = true }
+
 # ── `tonpa` — bundle dependency manager (async network fetch). ────────────
 #
 # rustls rather than reqwest's default TLS, and `default-features = false` is
@@ -422,6 +445,22 @@ export-sqlite = [
 # that predicate. A capability that has to be added back by every consumer that needs it
 # is one the default set was choosing wrongly about.
 export-graph = ["dep:oxrdf", "dep:oxttl"]
+# The typed calculator arm (RFC-0042). **Outside the default set, deliberately**, and it is
+# the first feature here whose note argues for exclusion rather than inclusion.
+#
+# The reason `vault-s3`, `export-graph`, `serve-http` and `catalog-fetch` each give — anything
+# outside `default` ships code no pull request compiled — applies and is outweighed. Those four
+# cost between 0 and 9 packages; this costs **71 and +6.8 MB** on a 15 MB binary that
+# `install.sh` downloads and release.yml cross-compiles. RFC-0042 makes the exclusion its own
+# kill criterion: *"71 marginal packages and +6.8 MB are acceptable only outside the default
+# set … if anything in the default build ends up linking it, the proposal fails on the first row
+# of the table."* `tests/gluon_arm.rs` is that row, asserted.
+#
+# What the argument's force is spent on instead: `--all-features` is on every pull request
+# through `mise run check-features`, so this is compiled and clippy-clean per PR even though it
+# is not linked into the release. The gap the four notes describe is a gap in *compilation*, and
+# that is the half this closes.
+calculators-gluon = ["dep:gluon", "dep:gluon_codegen"]
 # `tonpa` bundle dependency manager — async network fetch via reqwest. In the
 # default set; see the note there and on the reqwest dependency above.
 tonpa = ["dep:reqwest", "dep:tokio"]
@@ -486,6 +525,7 @@ catalog-fetch = ["dep:reqwest", "dep:tokio"]
 # Everything — reproduces the pre-partition monolith (`cargo install --features full`).
 full = [
   "reports",
+  "calculators-gluon",
   "index",
   "export-sqlite",
   "export-graph",
