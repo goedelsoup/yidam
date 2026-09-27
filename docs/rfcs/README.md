@@ -73,7 +73,7 @@ re-deriving it.
 | [0040](0040-numeric-property-type.md) | G10 | A numeric property type | Draft |
 | [0041](0041-typed-property-columns.md) | G11 | Typed property columns, and a predicate on a ranked answer (`retrieve --where`) | Draft |
 | [0042](0042-typed-calculator-arm.md) | I31 | A calculator whose purity is a closed scope and a typecheck, not a norm — a typed, effect-tracked arm on the capability manifest | Draft |
-| [0043](0043-inline-regen-and-count.md) | I32 | A figure published twice, computed once — an inline REGEN block and the `count` generator | Draft |
+| [0043](0043-inline-regen-and-count.md) | I32 | A figure published twice, computed once — an inline REGEN block and the `count` generator | Implemented |
 
 ## Reading order
 

@@ -600,11 +600,21 @@ module YidamGraph {
   // `UpdateRegenSpec`'s re-scan clause, which then needs an induction showing that the scan
   // of the result reproduces every block below the edit before it reaches the edited one.
   //
-  // It is not urgent while a command names a generator: no two generator names in
+  // It was not urgent while a command named a generator: no two generator names in
   // `cmd/regen.rs` stand in the relation clause 1 needs. `count` is what ends that — its
   // command carries a query, so `yidam count district` is a prefix of
   // `yidam count district-at-large`, and the document clause 1 describes becomes one a
-  // corpus can write by accident. The model has to reach the scan before `count` ships.
+  // corpus can write by accident.
+  //
+  // **The code closes both; this model does not.** An earlier draft of this comment said the
+  // model had to reach the scan before `count` shipped. That overstated it. #1094 made
+  // `update_regen` match a command by *equality* over the one scan, which closes clause 1,
+  // and write *every* match, which closes clause 2 — so `count` ships on an implementation
+  // where neither hazard is reachable. `tests/count.rs` holds both as cases:
+  // `a_query_that_prefixes_another_does_not_clobber_it` and
+  // `two_blocks_asking_the_same_question_are_both_written`. What remains is that this model
+  // still describes the search the code no longer performs, which makes it a weaker
+  // statement about `UpdateRegen` than the code deserves — a debt, not a blocker.
   //
   // Tracked as #1097.
   lemma TheModelsLocatorIsStillAPrefixSearch()

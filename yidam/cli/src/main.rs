@@ -584,6 +584,26 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
+    /// Count what a query matches, and keep that number in prose current — `count district`
+    ///
+    /// A figure worth publishing twice — in the graph, where it is computed, and in a
+    /// sentence, where it is remembered — should be computed once. With a query, this prints
+    /// the number the graph holds. With none, it refreshes every
+    /// `<!-- REGEN: yidam count <query> -->44<!-- /REGEN -->` block in the tracked markdown
+    /// set, including the ones sitting mid-sentence, which is the form RFC-0043 added the
+    /// marker contract for.
+    ///
+    /// A query that does not typecheck refuses its block and exits 1. It never writes a `0`:
+    /// a query that cannot run has not counted zero of anything.
+    Count {
+        #[command(flatten)]
+        root: RootArg,
+        /// The query to count, in `yidam query`'s language. Omit it to refresh every `count`
+        /// block instead — the form `yidam regen` runs
+        query: Option<String>,
+        #[command(flatten)]
+        format: FormatArg,
+    },
     /// Report the corpus graph: nodes, resolved edges, and the classes that license them
     Graph {
         #[command(flatten)]
@@ -1456,6 +1476,11 @@ fn run() -> Result<()> {
             anchor_k,
             format.value,
         ),
+        Command::Count {
+            root,
+            query,
+            format,
+        } => yidam::count(root.as_deref(), query.as_deref(), format.value),
         Command::Graph { root, format } => yidam::graph(root.as_deref(), format.value),
         Command::Neighbors {
             root,

@@ -68,7 +68,58 @@ const GENERATORS: &[Generator] = &[
     // than authored (#287). A repository keeping no `PRACTICE.md` has opted out, and the
     // generator is its own no-op there, before `update_file_regen`'s.
     ("practice", super::practice::block),
+    // The one generator that is not handed its file. The other fourteen write a block at a
+    // path they know; this one reads the tracked markdown set for blocks whose command is
+    // `yidam count <query>` and answers each with a number (RFC-0043). A repository with no
+    // such block is its own no-op, which is every repository the day this lands.
+    (super::count::NAME, super::count::block),
 ];
+
+/// The generators whose command carries an argument, and what the argument is called.
+///
+/// One entry, and the shape is general because the reason is. Every other generator's command
+/// is its name and nothing else, so `unclaimed_in` can ask whether a block's command *is* a
+/// generator. `count`'s is `count <query>`: the bare name writes nothing, and the name plus an
+/// argument writes the block. Both halves matter.
+///
+/// Without the split, registering `count` would make `<!-- REGEN: yidam count -->` — a block
+/// naming no query, which no generator can ever write — go from correctly reported by #1062's
+/// gate to silently claimed by a generator that will never visit it. That is the exact defect
+/// that gate exists to close, so the name is kept out of the whole-match set and matched only
+/// with its separator.
+///
+/// The label is for the reader of a failed `--check`: [`render_regen_check`] prints the
+/// generators as `count <query>`, so a bare block's remedy is visible in the list rather than
+/// described in a sentence.
+const PARAMETERISED: &[(&str, &str)] = &[(super::count::NAME, "<query>")];
+
+/// The generator names `unclaimed_in` matches whole, and the prefixes it matches with an
+/// argument. See [`PARAMETERISED`].
+fn claimable() -> (Vec<&'static str>, Vec<&'static str>) {
+    let prefixes: Vec<&'static str> = PARAMETERISED.iter().map(|(name, _)| *name).collect();
+    let whole = generator_names()
+        .into_iter()
+        .filter(|name| !prefixes.contains(name))
+        .collect();
+    (whole, prefixes)
+}
+
+/// How each generator is spelled in the remedy a failed `--check` prints.
+///
+/// `count <query>` rather than `count`, because a reader whose block says `yidam count` has
+/// been told it names no generator this binary can write for, and the list is where they find
+/// out what is missing.
+fn generator_usages() -> Vec<String> {
+    generator_names()
+        .into_iter()
+        .map(
+            |name| match PARAMETERISED.iter().find(|(n, _)| *n == name) {
+                Some((_, argument)) => format!("{name} {argument}"),
+                None => name.to_string(),
+            },
+        )
+        .collect()
+}
 
 /// The names of every generator this command runs, in order.
 ///
@@ -116,18 +167,23 @@ pub(crate) fn render_regen_check(r: &RegenReport) -> String {
         }
         let _ = writeln!(
             out,
-            "{} REGEN block(s) name a generator that does not exist:",
+            "{} REGEN block(s) name a command no generator writes:",
             r.unclaimed.len()
         );
         for u in &r.unclaimed {
             let _ = writeln!(out, "  {}  (yidam {})", u.file, u.generator);
         }
+        // "a command no generator writes" rather than "a generator that does not exist",
+        // because since RFC-0043 those are two things. `yidam statsu` names nothing; `yidam
+        // count` names a generator that exists and cannot write a block with no query in it.
+        // The old wording contradicted itself on the second — it said `count` did not exist,
+        // above a list containing `count`.
         let _ = writeln!(
             out,
-            "\nNo generator carries those names, so `yidam regen` never writes these blocks \
-             and they keep whatever they hold. Correct the name or delete the block.\n\
+            "\n`yidam regen` writes no block for those, so they keep whatever they hold. \
+             Correct the command or delete the block.\n\
              The generators are: {}",
-            generator_names().join(", ")
+            generator_usages().join(", ")
         );
     }
     out.trim_end().to_string()
@@ -155,7 +211,7 @@ pub(crate) fn stale_blocks(root: Option<&std::path::Path>) -> Result<Vec<crate::
     Ok(crate::regen::end_check())
 }
 
-/// Which REGEN blocks name a generator that does not exist. **Writes nothing.**
+/// Which REGEN blocks name a command no generator writes. **Writes nothing.**
 ///
 /// The other half of [`stale_blocks`], and it runs the other way round. That one asks each
 /// generator what its block should hold; this one asks each document what it claims a
@@ -176,7 +232,7 @@ pub(crate) fn stale_blocks(root: Option<&std::path::Path>) -> Result<Vec<crate::
 /// a read of nothing, which is a fine thing to report. Borrowing the refusal made this gate
 /// tell an initialised-but-uncommitted derived repository to run somewhere else.
 pub(crate) fn unclaimed_blocks(root: &std::path::Path) -> Result<Vec<crate::regen::Unclaimed>> {
-    let known = generator_names();
+    let (known, parameterised) = claimable();
     let mut found = Vec::new();
     for rel in super::tracked::list(root)? {
         if !rel.ends_with(".md") {
@@ -190,7 +246,7 @@ pub(crate) fn unclaimed_blocks(root: &std::path::Path) -> Result<Vec<crate::rege
         }
         let text = std::fs::read_to_string(&path).with_context(|| format!("reading {rel}"))?;
         found.extend(
-            crate::regen::unclaimed_in(&text, &known)
+            crate::regen::unclaimed_in(&text, &known, &parameterised)
                 .into_iter()
                 .map(|generator| crate::regen::Unclaimed {
                     file: rel.clone(),
@@ -333,12 +389,47 @@ mod tests {
                     let rest = &window[start + 1..];
                     if let Some(end) = rest.find('"') {
                         named += 1;
-                        found.insert(rest[..end].trim_start_matches("yidam ").to_string());
+                        found.insert(generator_named_by(&rest[..end]).to_string());
                     }
                 }
             }
         }
         (found, call_sites, named)
+    }
+
+    /// The generator a `"yidam …"` literal names.
+    ///
+    /// Fourteen call sites spell their command whole — `"yidam status"` — and the name is
+    /// what follows the prefix. `count`'s cannot: its command carries a query the *document*
+    /// wrote, so the literal at the call site is a `format!` template, `"yidam count {}"`.
+    ///
+    /// The amendment RFC-0043 specifies is to read a brace-bearing literal as a **prefix**:
+    /// take what precedes the first `{` and require it, below, to be a listed generator. That
+    /// keeps the site inside this scan rather than exempt from it, which is the whole of what
+    /// the `named == call_sites` clause is for. A site naming neither — no literal, or a
+    /// template whose prefix is not a generator — still fails.
+    fn generator_named_by(literal: &str) -> &str {
+        let name = literal.trim_start_matches("yidam ");
+        match name.find('{') {
+            Some(brace) => name[..brace].trim_end(),
+            None => name,
+        }
+    }
+
+    /// The prefix rule reads a template as its generator, and reads nothing else differently.
+    ///
+    /// Written against the helper rather than against the scan, because the scan's answer is
+    /// the union over the crate: a bug that returned the empty string for every literal would
+    /// still leave `found` non-empty and `missing` empty as long as one site happened to
+    /// parse. This is the case-by-case version, including the two that must still fail.
+    #[test]
+    fn a_template_literal_names_its_generator() {
+        assert_eq!(generator_named_by("yidam status"), "status");
+        assert_eq!(generator_named_by("yidam open-questions"), "open-questions");
+        assert_eq!(generator_named_by("yidam count {}"), "count");
+        // Nothing before the brace is nothing named, and the assertion below rejects it.
+        assert_eq!(generator_named_by("yidam {}"), "");
+        assert!(!generator_names().contains(&""));
     }
 
     /// Every generator the crate has is one this command runs.
@@ -376,6 +467,50 @@ mod tests {
             "{missing:?} write REGEN blocks and are not in GENERATORS — `yidam regen` will \
              not populate them and `--check` will not report them stale"
         );
+    }
+
+    /// Every parameterised generator is a generator.
+    ///
+    /// [`PARAMETERISED`] subtracts from the set `unclaimed_in` matches whole, so an entry
+    /// naming nothing would remove nothing and quietly do so — and one naming a generator
+    /// that was later renamed would leave the old name matched-with-an-argument forever,
+    /// which is a block claimed by nothing.
+    #[test]
+    fn every_parameterised_generator_is_one() {
+        let listed = generator_names();
+        for (name, argument) in PARAMETERISED {
+            assert!(
+                listed.contains(name),
+                "`{name}` is parameterised and is not a generator: {listed:?}"
+            );
+            assert!(!argument.is_empty(), "`{name}`'s argument has no name");
+        }
+    }
+
+    /// The partition is a partition: every generator is in exactly one half.
+    #[test]
+    fn the_two_halves_cover_the_generators_once_each() {
+        let (whole, prefixes) = claimable();
+        let mut both: Vec<&str> = whole.iter().chain(prefixes.iter()).copied().collect();
+        both.sort_unstable();
+        let mut listed = generator_names();
+        listed.sort_unstable();
+        assert_eq!(both, listed);
+        assert!(
+            !whole.contains(&super::super::count::NAME),
+            "`count` is matched whole, so a block naming it with no query is claimed by a \
+             generator that cannot write one"
+        );
+        assert!(prefixes.contains(&super::super::count::NAME));
+    }
+
+    /// The remedy names the argument a parameterised generator needs.
+    #[test]
+    fn the_usage_list_shows_a_parameterised_generator_its_argument() {
+        let usages = generator_usages();
+        assert!(usages.contains(&"status".to_string()), "{usages:?}");
+        assert!(usages.contains(&"count <query>".to_string()), "{usages:?}");
+        assert_eq!(usages.len(), generator_names().len());
     }
 
     #[test]

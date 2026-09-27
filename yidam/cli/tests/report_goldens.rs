@@ -290,6 +290,17 @@ const COMMANDS: &[(&str, &[&str])] = &[
     ("open-questions", &["open-questions"]),
     ("corpus-index", &["corpus-index"]),
     ("catalog-audit", &["catalog-audit"]),
+    // A query expression, unlike the other three query-shaped commands in NO_REPORT. Those
+    // project rows, and a row golden over this fixture would pin the projection; `count`
+    // returns one integer, which is stable for a fixture whose corpus does not move.
+    ("count", &["count", "concept"]),
+    // The refused arm, as a second golden rather than as an `UNREACHED` excuse. Every other
+    // entry on that roster is unreachable because reaching it would mean *moving the fixture*
+    // — a class file that does not parse, a branch ahead of the baseline, a REGEN block
+    // naming nothing. This one needs no such thing: `count` reads, and a query naming a class
+    // the ontology does not declare is a different argument, not a different corpus. So the
+    // `rejected` family is held to the schema the same way every other field is.
+    ("count-refused", &["count", "nosuchclass"]),
     ("phases", &["phases"]),
     // `--every 0` so the golden holds every row: a sampled golden would pin the sampler
     // rather than the series, and would move whenever the fixture gained a commit.

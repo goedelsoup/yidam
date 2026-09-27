@@ -1,0 +1,18 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "query": "nosuchclass",
+  "matched": null,
+  "rejected": {
+    "step": 0,
+    "code": "unknown-class",
+    "message": "`nosuchclass` is not a class this corpus declares — declared classes: concept, gauge"
+  }
+}

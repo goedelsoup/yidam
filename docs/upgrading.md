@@ -75,6 +75,33 @@ Only commands beginning `yidam` are judged, so a block your own tooling refreshe
 untouched. Measured across twenty-two repositories carrying REGEN blocks, the check found
 none, so most upgrades will see no change.
 
+### `yidam count` — a number in prose, checked against the graph
+
+**New command and new REGEN generator (#1071, RFC-0043).** `yidam count <query>` prints how
+many nodes a query matches. With no query it is the generator `yidam regen` runs: it refreshes
+every `<!-- REGEN: yidam count <query> -->` block in the tracked markdown set. Inline, so the
+number sits inside its sentence. A figure published in prose is now checked by
+`yidam regen --check` instead of remembered.
+
+**What changes for you: nothing until you write a block.** No existing document has one. To
+adopt it, replace a hand-counted figure with a block and run `yidam regen`:
+
+```markdown
+The map has <!-- REGEN: yidam count district -->44<!-- /REGEN --> districts.
+```
+
+Two things are worth knowing before you do.
+
+A query that does not typecheck **refuses its block and fails the run**. It does not write a
+`0`. A query that cannot run has not counted zero of anything. The block keeps what it holds,
+and the error names the file, the query and the diagnostic. Under `--format json` the run emits
+no report at all, so read the exit code.
+
+A block naming no query — `<!-- REGEN: yidam count -->` — is reported as *unclaimed*, not
+written. No run can fill it. That verdict's wording changed with this release. It used to say
+the command named a generator that does not exist. It now says the command is one no generator
+writes, which is the true statement for this block.
+
 ### `migrate retype` requotes an instance instead of refusing it
 
 **`yidam migrate retype` (#1044).** Retyping to `number` now unquotes an instance holding

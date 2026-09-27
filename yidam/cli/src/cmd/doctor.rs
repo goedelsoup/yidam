@@ -709,12 +709,12 @@ fn check_regen(root: &std::path::Path) -> Answer {
             .collect();
         return Answer::fail(
             format!(
-                "{} block(s) name a generator that does not exist, so nothing writes them: {}",
+                "{} block(s) name a command no generator writes, so nothing writes them: {}",
                 unclaimed.len(),
                 names.join(", ")
             ),
             Some(
-                "correct the name or delete the block — `yidam regen --check` lists the generators",
+                "correct the command or delete the block — `yidam regen --check` lists the generators",
             ),
         );
     }

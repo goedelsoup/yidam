@@ -1,6 +1,6 @@
 # RFC-0043 — A figure published twice, computed once — an inline REGEN block and the `count` generator
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Commands:** `count`
 - **Track:** I32
 - **Relates to:**
@@ -130,7 +130,7 @@ it knows, under a command it spells as a literal. `count` cannot: its blocks are
 document put them, and its command carries the query, so the set of `(file, command)` pairs is a
 property of the tree and not of the source. Three things assume otherwise.
 
-- [`every_generator_in_the_crate_is_listed`](../../yidam/cli/src/cmd/regen.rs#L350-L368) requires
+- [`every_generator_in_the_crate_is_listed`](../../yidam/cli/src/cmd/regen.rs#L441-L470) requires
   every `update_file_regen` call site to name its generator with a `"yidam …"` literal, so that
   the guard can see which block each one writes. A computed command has no literal.
 - `update_regen` matches its open tag by **prefix**, so `yidam count district` finds and
@@ -232,37 +232,87 @@ own. Three things follow, and all three are defects closing rather than features
 be found. `RegenSpan` is still a prefix search of its own that stops at the first hit, so on a
 document holding a block for `ab` the model, asked for `a`, answers with that block where
 `update_regen` answers with nothing.
-[`TheModelsLocatorIsStillAPrefixSearch`](../../yidam/prelude/sdks/spec/graph.dfy#L610-L615) is
+[`TheModelsLocatorIsStillAPrefixSearch`](../../yidam/prelude/sdks/spec/graph.dfy#L620-L625) is
 that document, proved, so the divergence is a checked statement in the file rather than a
 comment. Closing it is one change — `RegenSpan` becomes a selection over a modelled scan, and
 *the two agree* stops being a lemma nobody can write and starts being the definition — and the
 cost is not the definition but `UpdateRegenSpec`'s re-scan clause, which then needs an induction
-showing the scan of the result reproduces every block below the edit. It is tracked as #1097,
-and it is not optional past `count`: `count`'s command carries a query, so `yidam count district`
-is a prefix of `yidam count district-at-large` and the document above becomes one a corpus can
-write by accident.
+showing the scan of the result reproduces every block below the edit. It is tracked as #1097.
+
+**It is a debt, not a blocker — corrected from an earlier draft.** This section first said the
+model was not optional past `count`, on the reasoning that `count`'s command carries a query, so
+`yidam count district` is a prefix of `yidam count district-at-large` and the document above
+becomes one a corpus can write by accident. The premise is right and the conclusion was not: the
+hazard is a property of the *old* locator, and clause (3) is what removed it. `update_regen`
+matches by equality over the one scan and writes every match, so on the implementation `count`
+ships against, neither the clobber nor the unwritten second block is reachable —
+`a_query_that_prefixes_another_does_not_clobber_it` and
+`two_blocks_asking_the_same_question_are_both_written` in `yidam/cli/tests/count.rs` are those
+two documents, run. What #1097 still buys is a model that says so; what it does not buy is
+safety `count` is waiting on.
 
 ### `count` is pull-shaped, and the guard says so
 
 `count` reads the tracked markdown set — `tracked::list`, for the reason
-[`unclaimed_blocks`](../../yidam/cli/src/cmd/regen.rs#L178) already gives at length — collects
+[`unclaimed_blocks`](../../yidam/cli/src/cmd/regen.rs#L234) already gives at length — collects
 every block whose command begins `yidam count `, runs each distinct query once, and writes each
 block through the single write point.
 
-[`every_generator_in_the_crate_is_listed`](../../yidam/cli/src/cmd/regen.rs#L350-L368) is
+[`every_generator_in_the_crate_is_listed`](../../yidam/cli/src/cmd/regen.rs#L441-L470) is
 amended, not exempted. Its `named == call_sites` clause exists so that the guard can see which
 block each call site writes; a call site whose command is computed is one the guard genuinely
 cannot read, and the honest amendment is to require that such a site name its generator's
-**prefix** as a literal — `"yidam count "` — and to assert that the prefix is itself a listed
-generator name. A site that names neither still fails. The floor clause is unchanged.
+**prefix** as a literal, and to assert that the prefix is itself a listed generator name. A site
+that names neither still fails. The floor clause is unchanged.
+
+**Revised on implementation.** The prefix a call site can spell is not `"yidam count "` but
+`format!("yidam count {}", argument)` — the command has to be built to be passed, and a site
+that spelled the bare prefix beside a computed command would be naming a string it does not
+use. So [`generator_named_by`](../../yidam/cli/src/cmd/regen.rs#L411-L417) reads a `"yidam …"`
+literal containing a `{` as a prefix and truncates at the brace: `"yidam count {}"` names
+`count`. The clause the RFC asked for is unchanged in effect — the site names its generator, and
+the guard can attribute the block — and the literal it reads is now one the code actually
+evaluates rather than one kept beside it to be read.
+
+### The bare form is a command no generator writes
+
+`<!-- REGEN: yidam count -->` names no query. No run can ever write it, and it is not `count`'s
+to guess at — but registering `count` in `GENERATORS` would have made
+[`unclaimed_in`](../../yidam/cli/src/regen.rs#L87-L101) match it whole and call it **claimed**.
+The block would then have gone from correctly reported by #1062's gate to silently accepted,
+which is the exact defect that gate exists to close, introduced by closing this one.
+
+So a generator carrying an argument is claimed a second way and not the first.
+[`PARAMETERISED`](../../yidam/cli/src/cmd/regen.rs#L94) lists `count` with its usage, and
+[`claimable`](../../yidam/cli/src/cmd/regen.rs#L98-L110) partitions the fifteen: fourteen are
+matched whole, `count` is matched only as its name followed by a space and an argument. **The
+separator is the rule.** Without it `yidam counterexamples` would be claimed by `count`, which is
+#1058's collision wearing a different hat.
+
+The verdict's wording changed with it. `unclaimed` used to read *"name a generator that does not
+exist"* and then print a list — self-contradictory the moment that list contains `count`, since
+the generator plainly exists and the block is still not one it writes. It now reads *"name a
+command no generator writes"*, and the list shows `count <query>` rather than `count`, so the
+remedy for the bare block is visible in the message that reports it.
 
 ### A query that does not typecheck
 
 `count` refuses the block, names the file, the query and the diagnostic, and exits 1 — the
 report-then-fail shape `regen`, `doctor` and `query` already have. It does not write a `0`: a
 query that cannot run has not counted zero of anything, and a gate whose failure mode is to
-publish a plausible number is worse than no gate. The block keeps whatever it holds, and
-`regen --check` says which block and why.
+publish a plausible number is worse than no gate. The block keeps whatever it holds, and it
+says which block and why. Every block is visited before the failure, so one bad query neither
+hides the next nor costs the rest of the document its refresh.
+
+**It fails as an error, not as a verdict — including under `--check`.** `regen` runs its
+generators with `.with_context(|| format!("running {name}"))?`, so any generator returning `Err`
+aborts the pass before a report is rendered; under `--format json` that means no RFC-0016 report
+at all, only the anyhow chain on stderr. This is pre-existing structural behaviour rather than
+something `count` introduces, but `count` is the first generator that can fail on **corpus
+content** rather than on I/O, so it is the first time the path is reachable in ordinary use. A
+machine consumer of `regen --check --format json` therefore has to read the exit code, not the
+absent `passed` field. Widening the report to carry a third verdict is the open question below,
+and this is the second reason to answer it.
 
 ## What this does not touch
 
@@ -312,7 +362,7 @@ precedent for a major in `0.x`.
 
 **The two `update_regen` behaviour changes.** Exact-command matching can only stop a write that
 was landing on the wrong block, and no generator name in this repository is a prefix of another —
-checked over [`generator_names`](../../yidam/cli/src/cmd/regen.rs#L81), the fifteen are pairwise
+checked over [`generator_names`](../../yidam/cli/src/cmd/regen.rs#L132), the fifteen are pairwise
 non-prefixing. Writing every match instead of the first can only write a block that was stale.
 Both are covered by new parity fixtures, and both are stated as postconditions in the model.
 
@@ -359,12 +409,21 @@ renamed out of the ontology is neither: `yidam regen` cannot fix it and the name
 generator. A third list, or `unclaimed` widened, or `rename` taught to rewrite a query — three
 answers, none obviously right.
 
+The implementation forces half an answer and leaves the other half open. `count` returns `Err`,
+which `regen` propagates before rendering anything — so under `--format json` the run emits no
+RFC-0016 report at all, and a machine consumer has to read the exit code rather than a missing
+`passed` field. That is honest (the pass did not complete) but it is not a verdict, and it is
+the shape every generator's I/O failure already had. Whichever of the three answers wins, it
+also has to say whether a content failure stays an error or becomes a third list inside a report
+that still renders.
+
 **When the model reaches the scan.** §"One scanner" clause 3 landed in the code and not in the
 model, and #1097 carries the rest: `RegenSpan` becoming a selection over a modelled `RegenScan`,
 and `UpdateRegenSpec` gaining the induction that says the scan of the result reproduces every
-block below the edit. What is not settled is whether that has to be *complete* before `count`, or
-only before `count` is documented as accepting a query with another query's command as a prefix.
-The lemma names the hazard; it does not price the proof, and the price is the whole question.
+block below the edit. It is not blocking — §"Two scanners, two answers" records why, and the two
+documents the lemma describes are integration cases that pass. What is not settled is the price:
+the lemma names the hazard and the definition is the cheap half, but nobody has costed the
+induction, and until somebody does, "when" has no answer to give.
 
 **Whether a block should be able to state its own expectation.** `<!-- REGEN: yidam count
 district -->44<!-- /REGEN -->` publishes a number and asserts nothing about it. RFC-0035's
