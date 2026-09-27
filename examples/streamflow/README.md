@@ -42,6 +42,7 @@ a fabricated record, and this one is meant to be copied.
   bench/goals.yml
   capabilities.toml
   capabilities/travel-tier.sh
+  capabilities/travel-tier-typed.glu
   capabilities/disclosure-envelope.sh
 ```
 
@@ -85,7 +86,7 @@ guard and not evidence for anything — the corpus is below the arithmetic floor
 the benchmark is about.
 
 **A calculator, and the commit it authors.**
-[`capabilities.toml`](.yidam/capabilities.toml) declares two. `travel-tier` computes how far
+[`capabilities.toml`](.yidam/capabilities.toml) declares three. `travel-tier` computes how far
 each node's assertions may travel — the minimum claim tag over the node and the transitive
 closure of its outgoing links. The prelude's own conduct guideline states that rule and states
 that it must be *computed rather than declared*, because a declared tier drifts the moment a
@@ -111,9 +112,35 @@ question an operator asks with the first answer in hand. It declares
 the ordering would invoke it against a tree with no input in it.
 
 So `yidam run disclosure-envelope` against this corpus lands `travel-tier` first and then reads
-what it wrote. Both capabilities also declare `.yidam/capabilities/**`, because a step stands in
+what it wrote. Every capability also declares `.yidam/capabilities/**`, because a step stands in
 a tree holding exactly what it declares and its own script is a file it depends on — which is
 also what makes editing a calculator change the input state and re-run its step.
+
+**The same rule in the other arm.**
+[`travel-tier-typed.glu`](.yidam/capabilities/travel-tier-typed.glu) is the third capability, and
+it is RFC-0042's downstream reference case: a calculator declared `run = { gluon = … }`, whose
+entry point is typed `Corpus -> Computed` and which runs in the CLI's own process with no scratch
+tree and no shell. It computes the same chain fixed point as `travel-tier.sh` — and agrees with it
+exactly, over the same eight nodes and the same five downgrades.
+
+What it commits is not the tier. A signal name is repository-wide, so two computed files may not
+both claim `travels_as`; this one commits the rule's intermediate facts instead —
+`weakest_beneath`, the node whose claim set the tier, and `chain_depth`, how many hops down that
+node is. `travel-tier.sh` says how far each node's assertions travel and cannot say why; between
+them the answer and its account are both in the corpus.
+
+Two arms over one rule rather than one arm replacing the other, and that is not a preference. The
+typed arm is behind a cargo feature outside the default set, so the binary `install.sh` downloads
+reads this declaration, plans it, and declines the step by name — and refuses the whole plan while
+it is in it, since a plan holding a step this binary cannot invoke is one that would half advance
+the corpus. A bare `yidam run` therefore needs a build carrying `--features calculators-gluon`;
+`yidam run travel-tier` and `yidam run disclosure-envelope` work in any build. The shell arm is
+what keeps the rule reachable everywhere, which is why it stays exactly as it is.
+
+`disclosure-envelope` is **not** portable to the typed arm and is worth saying so. It is a
+pipeline's second stage: it reads the first step's committed signals, and the corpus the typed arm
+is handed carries nodes, classes and resolved links but no previous step's answer. A second-stage
+calculator can only be a shell one until that changes.
 
 ## Running the gates
 

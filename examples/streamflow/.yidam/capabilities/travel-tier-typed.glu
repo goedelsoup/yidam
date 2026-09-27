@@ -1,0 +1,202 @@
+\corpus ->
+    // travel-tier-typed — the chain rule's intermediate facts, computed in the typed arm.
+    //
+    // RFC-0042's downstream reference case. `travel-tier.sh` beside this file computes the same
+    // fixed point in awk over `$YIDAM_GRAPH` and commits the tier itself; this one commits the
+    // two facts that account for it — which node beneath the assertion set its tier, and how far
+    // down that node is. Two arms over one rule, and the signal names do not collide, because a
+    // signal name is corpus-wide and `Signals::load` refuses a name two files declare.
+    //
+    // The shell arm stays exactly as it is. This is not a replacement: a capability declared
+    // `run = { gluon = ... }` is a step a light build declines by name, so the corpus keeps a
+    // route to the rule in every build, and the typed arm is the one whose purity is a closed
+    // prelude and a typecheck rather than a norm.
+    //
+    // ── two things about the source layout ───────────────────────────────────
+    //
+    // The comment you are reading is on line 2 and not line 1 on purpose. `gluon_arm::prelude`
+    // is concatenated onto the front of line 1 so that a type error's line number is the
+    // script's own; a `//` up there would comment out the prelude's own trailing `in`. For the
+    // same reason every line below is indented: line 1 opens the lambda at a column deep inside
+    // the prelude, and gluon's layout wants this block further right than that.
+    //
+    // Nothing below imports anything, and nothing can: a calculator script may invoke no macro,
+    // and the import macro is gluon's only route from a script to a native module. Every name
+    // below is one `gluon_arm::PRELUDE_MODULES` binds, plus `Some`, `None`, `True`, `False` and
+    // `LT` from gluon's own implicit prelude.
+    //
+    // That refusal is lexical, so it fires on the macro's spelling wherever it appears —
+    // including in a comment, which is how this paragraph came to be phrased the long way round.
+    // A refusal that parsed first and then looked would be the narrower rule and the weaker one:
+    // it would have to agree with gluon's parser about what a macro invocation is, and this one
+    // does not need to.
+
+    // ── the claim vocabulary, weakest first ──────────────────────────────────
+    //
+    // `unmarked` ranks below `open` deliberately, and for the reason `travel-tier.sh` states at
+    // length: a node that has not declared its evidence standing has not earned a stronger one,
+    // and where the evidence is silent the answer is the floor.
+    // Written out rather than inferred. `better` compares two of these, and `<` on a field whose
+    // type inference has left open sends gluon looking for an `Ord` instance it cannot pick — the
+    // error it reports names `Ord (Array a)` and says nothing about the comparison that caused it.
+    type Reading = { tier : Int, witness : String, depth : Int }
+
+    let rank : String -> Int = \tag ->
+        if tag == "verified" then 3
+        else if tag == "inference" then 2
+        else if tag == "open" then 1
+        else 0
+
+    // A tag outside the vocabulary is `unmarked` and not an error, which is what the shell arm's
+    // `if ($5 in rank)` does. The corpus's own `claim_tag` enum is what refuses a typo; a
+    // calculator that also refused it would be a second answer to that question.
+    let known tag =
+        tag == "unmarked" || tag == "open" || tag == "inference" || tag == "verified"
+
+    let declared node =
+        foldable.foldl
+            (\acc p ->
+                if p.key == "claim_tag" then
+                    match p.value with
+                    | Text s -> if known s then s else acc
+                    | _ -> acc
+                else acc)
+            "unmarked"
+            node.properties
+
+    // ── the supporting chain ─────────────────────────────────────────────────
+    //
+    // `instance-of` points at the class definition, which carries no claim and is beneath
+    // nothing. Every other outgoing link is part of the chain if it lands on a node here, and
+    // `Link.resolved` is what says whether it does: the projection zips each written `target:`
+    // with the answer `corpus::Edges` already computed, so this script resolves no path. That is
+    // #1080's argument, in the arm it was made for.
+    let chain node =
+        foldable.foldl
+            (\es link ->
+                if link.relationship == "instance-of" then es
+                else
+                    match link.resolved with
+                    | Some t -> array.append es [{ from = node.id, to = t }]
+                    | None -> es)
+            []
+            node.links
+
+    let edges = foldable.foldl (\acc node -> array.append acc (chain node)) [] corpus.nodes
+
+    // Counted rather than dropped in silence, for the reason the shell arm gives: a chain rule
+    // that quietly ignored part of a node's outgoing links would compute a tier that travels
+    // further than it should, which is the one direction this vocabulary exists to prevent.
+    let links_to_non_nodes =
+        foldable.foldl
+            (\acc node ->
+                acc
+                    + foldable.foldl
+                        (\k link ->
+                            if link.relationship == "instance-of" then k
+                            else
+                                match link.resolved with
+                                | Some _ -> k
+                                | None -> k + 1)
+                        0
+                        node.links)
+            0
+            corpus.nodes
+
+    // ── the fixed point ──────────────────────────────────────────────────────
+    //
+    // Each node carries the rank it may travel at, the node beneath it that set that rank, and
+    // how many hops down that node is. A node starts as its own witness at depth 0, so a node
+    // nothing downgrades reports itself — which is the truthful reading of *which node set this
+    // tier* and not a missing value.
+    let start =
+        foldable.foldl
+            (\m node ->
+                let here : Reading =
+                    { tier = rank (declared node), witness = node.id, depth = 0 }
+                map.insert node.id here m)
+            map.empty
+            corpus.nodes
+
+    // A strict lexicographic improvement on (tier, depth, witness). The tier is the rule; the
+    // other two are the tie-break that makes the answer a property of the corpus rather than of
+    // the order the edges arrived in. Strictness is also why this terminates: the measure falls
+    // on every accepted step and the space is finite.
+    // Annotated, and the annotation is load-bearing. Left to inference this is a function over
+    // any record with those three fields, and `<` on a field of unknown type sends gluon looking
+    // for an `Ord` instance it cannot pick — the error it reports is about `Ord (Array a)` and
+    // says nothing about the comparison. A calculator's own reading is a good place for a written
+    // type anyway.
+    let better : Reading -> Reading -> Bool = \cand cur ->
+        if cand.tier < cur.tier then True
+        else if cand.tier > cur.tier then False
+        else if cand.depth < cur.depth then True
+        else if cand.depth > cur.depth then False
+        // `cmp.(<)` and not `string.ord.compare ... == LT`: the prelude binds the `cmp` module but
+        // not `Ordering`'s constructors, so `LT` is undefined in a pattern here. The operator
+        // resolves `[Ord String]` from the same place `map.find` does and reads better anyway.
+        else cmp.(<) cand.witness cur.witness
+
+    let relax state =
+        foldable.foldl
+            (\acc edge ->
+                match map.find edge.to acc.state with
+                | None -> acc
+                | Some beneath ->
+                    match map.find edge.from acc.state with
+                    | None -> acc
+                    | Some here ->
+                        let cand : Reading =
+                            { tier = beneath.tier,
+                              witness = beneath.witness,
+                              depth = beneath.depth + 1 }
+                        if better cand here then
+                            { state = map.insert edge.from cand acc.state, changed = True }
+                        else acc)
+            { state = state, changed = False }
+            edges
+
+    // Relaxation rather than a traversal, because a corpus graph may hold cycles and a recursive
+    // walk down the links would not come back. The budget is the backstop, not the argument.
+    //
+    // The `in` is not optional, and its absence is not a type error. Without it gluon's layout
+    // draws the next `let` into the recursive group, and its compiler then panics on a binding it
+    // cannot see a record in — an internal error naming `final`, from inside gluon, with nothing
+    // in it about this file. Every other binding here runs on layout alone; this one is written
+    // out because the failure it prevents is unreadable.
+    rec let settle state =
+        let round = relax state
+        if round.changed then settle round.state else round.state
+    in
+
+    let final = settle start
+
+    // The fallback is unreachable — `settle` only ever replaces entries `start` put in, and
+    // `start` covers every node. It is written out rather than left as a `map.find` unwrap
+    // because there is no unwrap to reach for here: `Option` is a sum, and the second arm is what
+    // makes this total. It is also the answer that would be right if it ever did fire.
+    let reading node =
+        let alone : Reading = { tier = rank (declared node), witness = node.id, depth = 0 }
+        match map.find node.id final with
+        | Some s -> s
+        | None -> alone
+
+    let downgraded =
+        foldable.foldl
+            (\acc node -> if rank (declared node) > (reading node).tier then acc + 1 else acc)
+            0
+            corpus.nodes
+
+    { signals =
+        array.functor.map
+            (\node ->
+                let s = reading node
+                { node = node.id,
+                  values =
+                      [{ name = "weakest_beneath", value = Text s.witness },
+                       { name = "chain_depth", value = Int s.depth }] })
+            corpus.nodes,
+      summary =
+          [{ name = "nodes", value = Int (array.len corpus.nodes) },
+           { name = "downgraded", value = Int downgraded },
+           { name = "links_to_non_nodes", value = Int links_to_non_nodes }] }

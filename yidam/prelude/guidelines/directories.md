@@ -673,6 +673,11 @@ kind   = "calculator"
 run    = { gluon = ".yidam/capabilities/class-of.glu", calls = 2000000 }
 ```
 
+**Its entry point returns two fields and both are required**: `signals`, one row per node, and
+`summary`, what it counted about the run as a whole. A calculator that summarizes nothing returns an
+empty `summary` and no `summary:` key is written. Gluon records are exact, so omitting either is
+refused as not a calculator rather than defaulted.
+
 **A typed calculator declares its own script under `reads` too**, and a declaration that does not
 is refused by name. The digest of the script goes in the receipt and in the input state, so editing
 one makes its step stale — the same rule as above, reached a different way rather than for free.

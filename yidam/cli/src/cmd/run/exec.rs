@@ -403,7 +403,7 @@ mod typed {
         // about one corpus: `reads` bounds the value exactly as it bounds the directory, with no
         // second reading of the declaration that could fall out of step with the first.
         let read = crate::corpus::Corpus::open(inputs.dir.path());
-        let corpus = marshal::project(read.nodes(), read.classes());
+        let corpus = marshal::project(read.nodes(), read.classes(), read.edges());
         let nodes = corpus.nodes.len();
 
         let budget = calls.unwrap_or(budget::DEFAULT_CALLS);

@@ -23,13 +23,42 @@ use std::path::Path;
 
 use common::{examples, kind_spellings, Example};
 
-/// One capability, in the two fields this file needs of it.
+/// One capability, in the three fields this file needs of it.
 #[derive(serde::Deserialize, Default)]
 struct Declared {
     #[serde(default)]
     after: Vec<String>,
     #[serde(default)]
     reads: Vec<String>,
+    /// `run`, kept as TOML because all this file asks of it is which arm it is.
+    ///
+    /// Not [`yidam::cmd::run::manifest::Run`], deliberately. That type is the thing under test in
+    /// the typed section below, and a discovery function that decided what to run by deserializing
+    /// it would skip exactly the steps that type got wrong.
+    #[serde(default)]
+    run: Option<toml::Value>,
+}
+
+impl Declared {
+    /// Whether this step declares the typed arm — `run` as a table rather than as argv.
+    ///
+    /// The same distinction [`yidam::cmd::run::manifest::Run`]'s own deserializer draws, and drawn
+    /// here by the shape of the TOML for the reason its doc comment gives: array versus table is a
+    /// difference a reader can see.
+    fn typed(&self) -> bool {
+        matches!(self.run, Some(toml::Value::Table(_)))
+    }
+
+    /// Whether the binary under test can invoke this step at all.
+    ///
+    /// **This is what keeps `examples/streamflow`'s typed calculator out of the loops below in the
+    /// build that cannot run it**, and it is a filter rather than a per-test skip on purpose: every
+    /// loop in this file draws from one discovery function, so one answer here is one answer
+    /// everywhere. What that costs is a suite narrowed in the light build, which is why
+    /// [`a_typed_capability_is_shipped_and_is_run_in_one_build_and_declined_in_the_other`] exists.
+    fn runnable_here(&self) -> bool {
+        cfg!(feature = "calculators-gluon") || !self.typed()
+    }
 }
 
 /// The capabilities an example declares, read from its manifest.
@@ -47,16 +76,46 @@ fn declared(corpus: &Path) -> BTreeMap<String, Declared> {
         .capability
 }
 
-/// Every `(example, step)` this repository ships, materialized one corpus at a time.
-fn every_capability() -> Vec<(String, String)> {
+/// Every `(example, step, declaration)` this repository ships, materialized one corpus at a time.
+///
+/// Unfiltered — including the steps this build cannot run. Only the guard test wants those; every
+/// loop that invokes `yidam run` goes through [`every_capability`].
+fn every_declared_capability() -> Vec<(String, String, Declared)> {
     let mut all = Vec::new();
     for name in examples() {
         let e = Example::materialize(&name);
-        for step in declared(&e.path()).into_keys() {
-            all.push((name.clone(), step));
+        for (step, d) in declared(&e.path()) {
+            all.push((name.clone(), step, d));
         }
     }
     all
+}
+
+/// Every `(example, step)` this repository ships **that this build can invoke**.
+///
+/// See [`Declared::runnable_here`] for what is left out and what asserts that it was.
+fn every_capability() -> Vec<(String, String)> {
+    every_declared_capability()
+        .into_iter()
+        .filter(|(_, _, d)| d.runnable_here())
+        .map(|(example, step, _)| (example, step))
+        .collect()
+}
+
+/// Every `(example, step)` this build can invoke **whose `run` is an argv**.
+///
+/// For the two tests that assert about `$YIDAM_GRAPH` by swapping a step's script for a probe.
+/// That mutation is a string replacement on `run    = ["sh", …]`, so on a typed declaration it
+/// silently does nothing and the step runs its own calculator instead — which reads as the probe
+/// having written nothing. The typed arm is handed the same resolved corpus, but through
+/// `marshal::project` and not through an environment variable, so it is not what those tests are
+/// about; `marshal`'s own `a_link_arrives_resolved_and_a_target_that_is_no_node_says_so` is.
+fn every_argv_capability() -> Vec<(String, String)> {
+    every_declared_capability()
+        .into_iter()
+        .filter(|(_, _, d)| d.runnable_here() && !d.typed())
+        .map(|(example, step, _)| (example, step))
+        .collect()
 }
 
 /// Every `(example, step)` that nothing else declares itself `after`.
@@ -80,8 +139,11 @@ fn every_terminal_capability() -> Vec<(String, String)> {
             .values()
             .flat_map(|c| c.after.iter().map(String::as_str))
             .collect();
-        for step in caps.keys() {
-            if !waited_for.contains(step.as_str()) {
+        for (step, d) in &caps {
+            // `waited_for` is computed over every declaration and the filter applied after, so a
+            // step upstream of one this build cannot run is still upstream. The dependency graph
+            // is the corpus's and not this build's.
+            if !waited_for.contains(step.as_str()) && d.runnable_here() {
                 all.push((name.clone(), step.clone()));
             }
         }
@@ -431,7 +493,7 @@ fn a_step_that_writes_outside_its_declaration_is_refused_and_lands_nothing() {
 #[test]
 fn a_dependent_step_runs_against_the_commit_its_dependency_landed() {
     for name in examples() {
-        let e = Example::materialize(&name);
+        let e = Example::materialize_runnable(&name);
         let caps = declared(&e.path());
         let dependents: Vec<(&String, &String)> = caps
             .iter()
@@ -509,7 +571,7 @@ fn asking_for_a_dependent_step_runs_its_dependency_first() {
 #[test]
 fn the_report_says_which_steps_were_fresh_and_which_were_stale() {
     for name in examples() {
-        let e = Example::materialize(&name);
+        let e = Example::materialize_runnable(&name);
         if declared(&e.path()).is_empty() {
             continue;
         }
@@ -553,7 +615,7 @@ fn the_report_says_which_steps_were_fresh_and_which_were_stale() {
 #[test]
 fn a_dry_run_writes_nothing_at_all() {
     for name in examples() {
-        let e = Example::materialize(&name);
+        let e = Example::materialize_runnable(&name);
         if declared(&e.path()).is_empty() {
             continue;
         }
@@ -615,7 +677,7 @@ fn a_dry_run_writes_nothing_at_all() {
 fn every_kind_is_declarable_and_an_unrunnable_one_is_refused_before_anything_runs() {
     for name in examples() {
         for kind in kind_spellings() {
-            let e = Example::materialize(&name);
+            let e = Example::materialize_runnable(&name);
             let caps = declared(&e.path());
             // The last step in the plan, so there is something ahead of it that would otherwise
             // have run and committed before the refusal was reached.
@@ -689,7 +751,7 @@ fn every_kind_is_declarable_and_an_unrunnable_one_is_refused_before_anything_run
 #[test]
 fn a_cycle_in_the_manifest_is_refused_with_the_cycle_named() {
     for name in examples() {
-        let e = Example::materialize(&name);
+        let e = Example::materialize_runnable(&name);
         let caps = declared(&e.path());
         let Some((step, dep)) = caps
             .iter()
@@ -833,7 +895,7 @@ fn discard_proposals(e: &Example) {
 #[test]
 fn an_epistemic_run_lands_on_a_proposal_branch_and_the_branch_does_not_move() {
     for (example, step) in every_terminal_capability() {
-        let e = Example::materialize(&example);
+        let e = Example::materialize_runnable(&example);
         with_verb(&e, &step, "establish");
         settle(&e);
         discard_proposals(&e);
@@ -923,7 +985,7 @@ fn no_epistemic_verb_in_the_vocabulary_can_advance_the_branch() {
         "the epistemic family is empty, so the loop below runs zero times"
     );
     for verb in yidam_core::git::EPISTEMIC_VERBS {
-        let e = Example::materialize(&example);
+        let e = Example::materialize_runnable(&example);
         with_verb(&e, &step, verb);
         settle(&e);
         discard_proposals(&e);
@@ -985,7 +1047,7 @@ fn a_manifest_that_tries_to_declare_a_destination_does_not_run() {
 #[test]
 fn a_step_is_handed_the_resolved_corpus_it_would_otherwise_re_derive() {
     let mut covered = 0;
-    for (example, step) in every_capability() {
+    for (example, step) in every_argv_capability() {
         let e = Example::materialize(&example);
         let copy = ".yidam/capabilities/copy-graph.sh";
         std::fs::write(
@@ -1000,14 +1062,19 @@ fn a_step_is_handed_the_resolved_corpus_it_would_otherwise_re_derive() {
         .expect("writing the probe");
         let manifest = e.path().join(".yidam/capabilities.toml");
         let text = std::fs::read_to_string(&manifest).expect("the manifest");
-        std::fs::write(
-            &manifest,
-            text.replace(
-                &format!("run    = [\"sh\", \".yidam/capabilities/{step}.sh\"]"),
-                &format!("run    = [\"sh\", \"{copy}\"]"),
-            ),
-        )
-        .expect("rewriting the manifest");
+        // Asserted rather than assumed. A replacement that matched nothing leaves the step running
+        // its own script, and every assertion below then reads as the probe having been handed
+        // nothing — which is the reverse of what happened.
+        let rewritten = text.replace(
+            &format!("run    = [\"sh\", \".yidam/capabilities/{step}.sh\"]"),
+            &format!("run    = [\"sh\", \"{copy}\"]"),
+        );
+        assert_ne!(
+            rewritten, text,
+            "`{step}` in {example} does not spell its `run` the way this mutation looks for, so \
+             the probe was never installed"
+        );
+        std::fs::write(&manifest, rewritten).expect("rewriting the manifest");
         git(&e.path(), &["add", "-A"]);
         git(&e.path(), &["commit", "-m", "scaffold: a probe step"]);
 
@@ -1075,7 +1142,7 @@ fn a_step_that_reads_no_corpus_is_handed_no_resolved_corpus() {
     // declares rather than by position: taking the first capability took a step that reads no
     // corpus already, and the `reads` rewrite below then landed on a different entry — the one
     // it came `after` — so the run asserted nothing about the step it named.
-    let (example, step) = every_capability()
+    let (example, step) = every_argv_capability()
         .into_iter()
         .find(|(name, step)| {
             let e = Example::materialize(name);
@@ -1177,7 +1244,8 @@ fn the_run_and_the_doctor_agree_about_the_resolved_corpus() {
 /// returning `{ signals = [] }` would commit a document with no rows, and a run that writes an
 /// empty answer is indistinguishable from one whose projection handed it nothing.
 const TYPED_SCRIPT: &str = "\\c -> { signals = array.functor.map \
-     (\\n -> { node = n.id, values = [{ name = \"class\", value = Text n.class }] }) c.nodes }";
+     (\\n -> { node = n.id, values = [{ name = \"class\", value = Text n.class }] }) c.nodes, \
+     summary = [] }";
 
 /// Declare a typed calculator in `example`'s manifest and commit it.
 ///
@@ -1242,6 +1310,73 @@ fn agrees_about_the_arm(e: &Example) {
          `touch yidam/cli/src/lib.rs` and run again",
         cfg!(feature = "calculators-gluon")
     );
+}
+
+/// The repository ships the reference case, and no build quietly stops exercising it.
+///
+/// **This is the DoD's second bullet.** [`Declared::runnable_here`] narrows every loop above in the
+/// light build, and a narrowing nothing asserts is the failure shape this file's own note is about:
+/// the suite would go green by running less. So the typed capability is discovered here from the
+/// manifests — not named — and then each build says what it does with it. In the gluon build it is
+/// in [`every_capability`], which is to say every loop above ran it for real. In the light build it
+/// is not, and this test is what ran it instead: the plan is refused by name, and nothing is
+/// committed.
+///
+/// One test and not two, because the two halves are each other's control. A `runnable_here` stuck
+/// at `true` fails the light half; one stuck at `false` fails the gluon half.
+#[test]
+fn a_typed_capability_is_shipped_and_is_run_in_one_build_and_declined_in_the_other() {
+    let all = every_declared_capability();
+    let typed: Vec<(String, String)> = all
+        .iter()
+        .filter(|(_, _, d)| d.typed())
+        .map(|(e, s, _)| (e.clone(), s.clone()))
+        .collect();
+    assert!(
+        !typed.is_empty(),
+        "no example declares `run = {{ gluon = … }}`, so RFC-0042's downstream reference case is \
+         not in this repository and the typed arm is exercised only by declarations the tests \
+         below write themselves. Among {} declared capabilities",
+        all.len()
+    );
+
+    let runnable: BTreeSet<(String, String)> = every_capability().into_iter().collect();
+    for (example, step) in &typed {
+        let included = runnable.contains(&(example.clone(), step.clone()));
+        assert_eq!(
+            included,
+            cfg!(feature = "calculators-gluon"),
+            "`{step}` in {example} is a typed calculator and `every_capability` {} it in a build \
+             compiled with calculators-gluon = {}. The loops above draw from that function, so \
+             this is either a suite running a step the binary must decline or a suite silently \
+             skipping the reference case",
+            if included { "yields" } else { "omits" },
+            cfg!(feature = "calculators-gluon")
+        );
+    }
+
+    // What ran instead, in the build that omits them: the refusal itself, asked of the shipped
+    // declaration rather than of one this file wrote. `with_typed_step`'s `class-of` proves the
+    // refusal works; this proves it covers what the repository actually commits.
+    #[cfg(not(feature = "calculators-gluon"))]
+    for (example, step) in &typed {
+        let e = Example::materialize(example);
+        agrees_about_the_arm(&e);
+        let before = git(&e.path(), &["rev-parse", "HEAD"]);
+        let (out, err, code) = e.run(&["run", step]);
+        assert_ne!(code, 0, "this build ran `{step}` in {example}:\n{out}{err}");
+        assert!(
+            err.contains(step.as_str())
+                && err.contains("gluon")
+                && err.contains("calculators-gluon"),
+            "the refusal of `{step}` names neither the step, the arm, nor the feature:\n{err}"
+        );
+        assert_eq!(
+            git(&e.path(), &["rev-parse", "HEAD"]),
+            before,
+            "`{step}` could not run in {example} and landed a commit anyway"
+        );
+    }
 }
 
 /// The example every typed test below runs in: the one that declares a capability at all.
