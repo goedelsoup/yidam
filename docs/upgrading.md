@@ -28,6 +28,17 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `migrate retype` requotes an instance instead of refusing it
+
+**`yidam migrate retype` (#1044).** Retyping to `number` now unquotes an instance holding
+`"24"`. Retyping to `string` or `date` quotes a bare `24`. Both are repairs `property-type`
+already named, carried out on the instances and nowhere else.
+
+**What changes for you: the command writes where it used to refuse.** A retype across the
+quoting boundary used to exit nonzero. It now edits each instance value, and the corpus still
+passes its own gate. A value with no number in it still refuses, and names what it tried.
+`about 24` and `~24` are unchanged.
+
 ### `malformed-yaml` reads your catalog and your decisions
 
 **`yidam lint` now gates on a catalog entry or a decision record whose YAML does not parse

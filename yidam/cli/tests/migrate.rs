@@ -169,6 +169,83 @@ fn the_refusal_agrees_with_the_check_that_gates() {
     assert!(c.gate_is_clean());
 }
 
+/// #1044: the retype that was refused for asking an author to do it by hand first.
+///
+/// A `number` is an unquoted YAML number, so `reach.length_km: 24` retyped to `string` makes
+/// every instance a `property-type` violation — and back the other way, `"24"` retyped to
+/// `number` did too. Both of `property-type`'s messages name their own repair, *quote it* and
+/// *unquote it*, and this carries them out on the instances.
+///
+/// Run as a round trip because requoting is reversible: the two corpus files must come back
+/// byte for byte, which no assertion on one direction alone can say.
+#[test]
+fn a_retype_across_the_quoting_boundary_requotes_every_instance() {
+    let c = Corpus::new();
+    let instances = [
+        (".yidam/corpus/reach/lower-canyon.yml", "24"),
+        (".yidam/corpus/reach/tailwater.yml", "6"),
+    ];
+    let before: Vec<String> = instances.iter().map(|(f, _)| c.read(f)).collect();
+
+    let (ok, out) = c.run(&["migrate", "retype", "reach", "length_km", "string"]);
+    assert!(ok, "{out}");
+    assert!(c
+        .read(".yidam/corpus/reach.ont.yml")
+        .contains("type: string"));
+    for (file, n) in instances {
+        let text = c.read(file);
+        assert!(
+            text.contains(&format!("length_km: \"{n}\"")),
+            "{file} kept a bare number under a `string` declaration:\n{text}"
+        );
+    }
+    assert!(
+        c.gate_is_clean(),
+        "a performed retype left the corpus failing its own gate"
+    );
+
+    let (ok, out) = c.run(&["migrate", "retype", "reach", "length_km", "number"]);
+    assert!(ok, "{out}");
+    assert!(c
+        .read(".yidam/corpus/reach.ont.yml")
+        .contains("type: number"));
+    for ((file, _), original) in instances.iter().zip(&before) {
+        assert_eq!(&c.read(file), original, "{file} did not come back");
+    }
+    assert!(c.gate_is_clean());
+}
+
+/// The refusal #1044 asked to keep, and it is not the quoting that decides it.
+///
+/// `"00060"` unquoted is still text to YAML — the leading zero disqualifies it — so dropping
+/// the quotes would leave `property-type` reporting the instance it reported before. The
+/// candidate is parsed and put back through the gate's predicate, which is how a value that
+/// looks like a number and is not stays a refusal.
+#[test]
+fn a_value_that_only_looks_numeric_is_refused_by_name() {
+    let c = Corpus::new();
+    let (ok, out) = c.run(&["migrate", "retype", "gage", "parameter", "number"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("no mechanical conversion"), "{out}");
+    // The refusal names the instance and what was tried, because `property-type` on its own
+    // would tell the author to unquote a value the migration has just declined to unquote.
+    assert!(out.contains("canyon-outlet.yml"), "{out}");
+    assert!(out.contains("unquoting it gives `00060`"), "{out}");
+    assert!(out.contains("nothing was written"), "{out}");
+    assert!(!c.dirty(), "a blocked retype touched the tree");
+    assert!(c.gate_is_clean());
+}
+
+/// And the case the issue names: prose that mentions no number at all.
+#[test]
+fn prose_under_a_string_is_not_unquoted_into_a_number() {
+    let c = Corpus::new();
+    let (ok, out) = c.run(&["migrate", "retype", "reach", "regulated", "number"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("no mechanical conversion"), "{out}");
+    assert!(!c.dirty());
+}
+
 // ── class rename ──────────────────────────────────────────────────────────────
 
 /// The operation with the most ways to be subtly wrong, and all three of them were.

@@ -14,7 +14,7 @@
 //! |---|---|
 //! | class rename | the class file, its directory, every instance's `class:`, every edge `target:` at both ends, and every link that resolved into the directory |
 //! | property rename | the declaration, and the key on every instance carrying it |
-//! | property retype | the declaration — and it **refuses** when an instance's value would not satisfy the new type |
+//! | property retype | the declaration, plus every instance value the new type only rewrites the *quoting* of — and it **refuses** a value the new type cannot admit at all |
 //! | edge re-target | the declaration at both ends, plus a report of the instances now in violation |
 //!
 //! # What it refuses to guess
@@ -25,10 +25,20 @@
 //! state its own gate rejects while reporting success. So a retype that cannot be performed
 //! is `blocked`, listing the instances and their values, and **nothing is written**.
 //!
-//! The check that decides is [`crate::cmd::lint::checks::property_type_satisfied`] — the
+//! The check that decides is [`crate::cmd::lint::checks::property_type_violation`] — the
 //! same predicate `property-type` gates on, not a second reading of it. A migration that
 //! disagreed with the gate about what a valid value is would be a migration into a failing
 //! build.
+//!
+//! **Requoting is not guessing**, and it was refused along with the guesses until #1044. Two
+//! of `property-type`'s messages name their own repair: a `number` holding `"24"` is told to
+//! *unquote it*, and a `string` holding a bare `24` — or a `date` holding a bare `1985` — is
+//! told to *quote it*. Those are the same bytes written the other way, and a retype that
+//! refused them was asking an author to carry out an instruction character for character
+//! before it would run. So it performs them, on the instances and nowhere else, and verifies
+//! each one by parsing what it would write and putting that back through the gate's
+//! predicate. `about 24` and `~24` still refuse: there is no number in them to unquote, and
+//! the tilde was carrying a meaning the number cannot.
 //!
 //! # Line edits, not a YAML round-trip
 //!
@@ -225,11 +235,16 @@ fn ont_path(corpus: &Path, name: &str) -> PathBuf {
     corpus.join(format!("{name}.ont.yml"))
 }
 
-/// The value of a `key: value` line at any indent, with its byte range.
+/// The value of a `key: value` line at any indent **as written**, quotes and all, with its
+/// byte range.
 ///
 /// Deliberately not a YAML parse: this is used to rewrite one scalar in place, leaving
 /// every other byte of the file — comments, block scalars, key order — exactly as written.
-fn scalar_on(line: &str, key: &str) -> Option<(usize, usize, String)> {
+///
+/// [`scalar_on`] is this same reading with the quotes stripped off, which is what every
+/// rename here wants and the exact opposite of what a requote wants: the value *inside* the
+/// quotes of `"24"` is `24` already, so rewriting that span would write the same bytes back.
+fn raw_scalar_on(line: &str, key: &str) -> Option<(usize, usize, String)> {
     let trimmed = line.trim_start();
     let indent = line.len() - trimmed.len();
     let body = trimmed
@@ -246,16 +261,28 @@ fn scalar_on(line: &str, key: &str) -> Option<(usize, usize, String)> {
     if value.is_empty() {
         return None;
     }
-    let quoted = value.len() > 1
-        && ((value.starts_with('"') && value.ends_with('"'))
-            || (value.starts_with('\'') && value.ends_with('\'')));
-    let inner = if quoted {
-        &value[1..value.len() - 1]
-    } else {
-        value
-    };
-    let start = indent + body.0 + key.len() + 1 + lead + usize::from(quoted);
-    Some((start, start + inner.len(), inner.to_string()))
+    let start = indent + body.0 + key.len() + 1 + lead;
+    Some((start, start + value.len(), value.to_string()))
+}
+
+/// The value of a `key: value` line, inside its quotes where it has them.
+fn scalar_on(line: &str, key: &str) -> Option<(usize, usize, String)> {
+    let (start, end, value) = raw_scalar_on(line, key)?;
+    match unquoted(&value) {
+        Some(inner) => Some((start + 1, end - 1, inner.to_string())),
+        None => Some((start, end, value)),
+    }
+}
+
+/// The inside of a quoted scalar, or `None` when it carries no quotes.
+///
+/// The length test is not redundant: a lone `"` both starts and ends with one.
+fn unquoted(value: &str) -> Option<&str> {
+    let quote = value.chars().next()?;
+    if !matches!(quote, '"' | '\'') || value.len() < 2 || !value.ends_with(quote) {
+        return None;
+    }
+    Some(&value[1..value.len() - 1])
 }
 
 /// A mapping key line — `  <name>:` — with the key's byte range.
@@ -558,6 +585,115 @@ fn plan_property_rename(
     }
 }
 
+/// The line an instance writes a property's value on, and that value exactly as written.
+///
+/// Scoped to the top-level `properties:` block. A property's name can also be a key under
+/// `links:`, or inside another property's own mapping, and a value edit that landed on one of
+/// those would rewrite something the retype never named.
+fn property_value_line(text: &str, property: &str) -> Option<(usize, String)> {
+    let mut in_properties = false;
+    for (i, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if !line.starts_with(char::is_whitespace) {
+            in_properties = line.trim_end() == "properties:";
+            continue;
+        }
+        if !in_properties {
+            continue;
+        }
+        if let Some((_, _, written)) = raw_scalar_on(line, property) {
+            return Some((i + 1, written));
+        }
+    }
+    None
+}
+
+/// What a retype can do with one instance value.
+enum Requote {
+    /// The bytes to write in place of the ones there now.
+    Write(String),
+    /// The other spelling was tried and is no better, and this says what it would have been
+    /// and what is wrong with it.
+    ///
+    /// Worth a sentence of its own because `property-type`'s cannot serve here: its `number`
+    /// arm reads *unquote it* whether or not unquoting helps, so a refusal that printed only
+    /// the gate's finding would tell an author to do the thing this just declined to do.
+    Refused(String),
+    /// Nothing to try: no quotes to drop, and nothing a quote would change.
+    Nothing,
+}
+
+/// Write one value the other way, or say why that cannot be done.
+///
+/// The two conversions `property-type` already names in its own findings: *unquote it* for a
+/// `number` holding `"24"`, and *quote it* for a type that wants text holding a bare `24`. A
+/// scalar has exactly one other spelling, so there is nothing here to choose between — which
+/// is what separates this from the guesses the module note refuses.
+///
+/// The candidate is **parsed and re-checked** rather than reasoned about, and two things are
+/// asked of it:
+///
+/// 1. The new type admits it, by [`super::lint::checks::property_type_violation`] — the
+///    predicate that gates, for the reason the refusal in [`plan_property_retype`] gives.
+///    Whether dropping a pair of quotes produces a number is a question about YAML and not
+///    about quotes: serde_yaml reads `00060` and `1__0` as text, so unquoting either would
+///    leave `property-type` reporting the instance it reported before.
+/// 2. It still says what the corpus wrote. `"0x1A"` unquoted is the number **26** — serde_yaml
+///    reads bases the gate's own parser does not — and a retype that turned a code into 26
+///    while reporting success would be the invention this module exists to refuse.
+fn requote(new_type: &str, value: &serde_yaml::Value, written: &str) -> Requote {
+    use serde_yaml::Value;
+    // The line has to be the one this value was read from. `written` comes from a text scan
+    // and `value` from a parse of the whole document, and a key that is not the property's
+    // own — or a block scalar, whose value is not on this line at all — would offer bytes
+    // that say something else.
+    if serde_yaml::from_str::<Value>(written).ok().as_ref() != Some(value) {
+        return Requote::Nothing;
+    }
+    // Which way to write it is the *value's* shape and not the new type's: text in quotes has
+    // quotes to lose, and a number or a boolean has bytes to quote. A bare string has neither,
+    // which is why `cubic feet per second` retyped to `date` is refused rather than quoted —
+    // it is already text, and the quotes were never what was wrong with it.
+    let (candidate, verb) = match (value, unquoted(written)) {
+        (Value::String(_), Some(bare)) => (bare.to_string(), "unquoting"),
+        (Value::Number(_) | Value::Bool(_), None) => (format!("\"{written}\""), "quoting"),
+        _ => return Requote::Nothing,
+    };
+    let Ok(parsed) = serde_yaml::from_str::<Value>(&candidate) else {
+        return Requote::Nothing;
+    };
+    if super::lint::checks::property_type_violation(new_type, &parsed).is_some() {
+        return Requote::Refused(format!(
+            "{verb} it gives `{candidate}`, which `{new_type}` does not accept either"
+        ));
+    }
+    let reads_back = match (&parsed, &value) {
+        // Unquoted: the same quantity the text spelled, read by the parser the gate and
+        // `query`'s ordering share rather than by a third one.
+        (Value::Number(n), Value::String(text)) => {
+            let read = super::lint::checks::numeric_value(&n.to_string());
+            read.is_some() && read == super::lint::checks::numeric_value(text)
+        }
+        // Quoted: the bare bytes, now text — byte for byte, so `0x1A` becomes `"0x1A"` and
+        // never `"26"`. What the corpus wrote is what it meant.
+        (Value::String(s), _) => *s == written,
+        _ => false,
+    };
+    if !reads_back {
+        let read = serde_yaml::to_string(&parsed)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        return Requote::Refused(format!(
+            "{verb} it gives `{candidate}`, which YAML reads as `{read}` rather than as what \
+             is written"
+        ));
+    }
+    Requote::Write(candidate)
+}
+
 fn plan_property_retype(
     root: &Path,
     corpus: &Path,
@@ -583,9 +719,16 @@ fn plan_property_retype(
         return;
     }
 
-    // The refusal. Every instance's value is tested against the new type by the predicate
-    // `property-type` gates on — so a migration that succeeds leaves a corpus its own gate
-    // accepts, and one that would not is not performed at all.
+    // The refusal, and the one conversion that is not a guess. Every instance's value is
+    // tested against the new type by the predicate `property-type` gates on — so a migration
+    // that succeeds leaves a corpus its own gate accepts, and one that would not is not
+    // performed at all. A value the new type rejects only for how it is *written* is requoted
+    // instead; see [`requote`].
+    //
+    // Held back rather than pushed as they are found: an instance further down may have no
+    // conversion, and a retype that rewrote half a class before refusing would leave the
+    // corpus in a state neither type describes.
+    let mut values: Vec<(String, usize, String, String)> = Vec::new();
     for path in instances_of(corpus, class) {
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         let inst = crate::parse::parse_instance(&text);
@@ -596,11 +739,29 @@ fn plan_property_retype(
         else {
             continue;
         };
-        if let Some(why) = super::lint::checks::property_type_violation(new_type, value) {
-            report.blocked.push(format!(
-                "{}: `{property}` {why} — no mechanical conversion to `{new_type}`",
-                rel(root, &path)
-            ));
+        let Some(why) = super::lint::checks::property_type_violation(new_type, value) else {
+            continue;
+        };
+        let located = property_value_line(&text, property);
+        let outcome = located.as_ref().map_or(Requote::Nothing, |(_, written)| {
+            requote(new_type, value, written)
+        });
+        match (outcome, located) {
+            (Requote::Write(to), Some((line, from))) => {
+                values.push((rel(root, &path), line, from, to))
+            }
+            // The gate's finding, then what this tried. Both, because the finding is what a
+            // reader will search for and the clause is the part that says what to do next.
+            (outcome, _) => {
+                let clause = match outcome {
+                    Requote::Refused(why) => format!(": {why}"),
+                    _ => String::new(),
+                };
+                report.blocked.push(format!(
+                    "{}: `{property}` {why} — no mechanical conversion to `{new_type}`{clause}",
+                    rel(root, &path)
+                ));
+            }
         }
     }
     if !report.blocked.is_empty() {
@@ -632,6 +793,12 @@ fn plan_property_retype(
         report.blocked.push(format!(
             "`{class}.{property}` declares no `type:` to change — add one by hand"
         ));
+        return;
+    }
+    // After the declaration, never before it: the test above is asking whether the class file
+    // was rewritten, and an instance's edit would have answered it for something else.
+    for (file, line, from, to) in values {
+        push_edit(&mut report.edits, &file, line, &from, &to);
     }
 }
 
@@ -910,6 +1077,19 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
                 .iter()
                 .find_map(|key| scalar_on(line, key).filter(|(_, _, v)| *v == e.from))
                 .map(|(s, t, _)| (s, t))
+                .or_else(|| {
+                    // A retype's instance edits change the *quoting* of a value, on a key the
+                    // class names rather than one of the five above: `length_km: "24"` becomes
+                    // `length_km: 24`. The span is the value as written, quotes included —
+                    // `scalar_on` reports the value inside them, and rewriting that range puts
+                    // the same bytes back.
+                    let Operation::PropertyRetype { property, .. } = op else {
+                        return None;
+                    };
+                    raw_scalar_on(line, property)
+                        .filter(|(_, _, v)| *v == e.from)
+                        .map(|(s, t, _)| (s, t))
+                })
                 .or_else(|| mapping_key_on(line, &e.from));
             let Some((start, end)) = span else { continue };
             line.replace_range(start..end, &e.to);
@@ -1190,4 +1370,143 @@ pub fn migrate(op: Operation, dry_run: bool, format: crate::report::Format) -> R
         anyhow::bail!("migrate: blocked");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn yaml(text: &str) -> serde_yaml::Value {
+        serde_yaml::from_str(text).unwrap()
+    }
+
+    /// The conversion, or the clause explaining why there is none. `Nothing` reads as an empty
+    /// clause so one assertion covers all three outcomes.
+    fn tried(new_type: &str, written: &str) -> Result<String, String> {
+        match requote(new_type, &yaml(written), written) {
+            Requote::Write(to) => Ok(to),
+            Requote::Refused(why) => Err(why),
+            Requote::Nothing => Err(String::new()),
+        }
+    }
+
+    /// The split that made a requote expressible. A rename wants the value inside the quotes
+    /// and a requote wants the quotes themselves, and one reader with the stripping pulled out
+    /// is how the two cannot come to disagree about where a value starts.
+    #[test]
+    fn the_two_readings_of_one_line_differ_only_in_the_quotes() {
+        let line = "  length_km: \"24\"";
+        let (start, end, raw) = raw_scalar_on(line, "length_km").unwrap();
+        assert_eq!(raw, "\"24\"");
+        assert_eq!(&line[start..end], "\"24\"");
+        let (start, end, inner) = scalar_on(line, "length_km").unwrap();
+        assert_eq!(inner, "24");
+        assert_eq!(&line[start..end], "24");
+    }
+
+    /// A lone quote both opens and closes.
+    #[test]
+    fn a_one_character_value_is_not_a_quoted_one() {
+        assert_eq!(unquoted("\""), None);
+        assert_eq!(unquoted("'"), None);
+        assert_eq!(unquoted("\"\""), Some(""));
+        assert_eq!(unquoted("24"), None);
+    }
+
+    /// The finding in #1044: `property-type` says *unquote it*, and this carries that out.
+    #[test]
+    fn a_quoted_number_unquotes() {
+        assert_eq!(tried("number", "\"24\""), Ok("24".to_string()));
+        assert_eq!(tried("number", "'24.5'"), Ok("24.5".to_string()));
+        assert_eq!(tried("number", "\"-1e3\""), Ok("-1e3".to_string()));
+    }
+
+    /// The mirror the issue left to decide. `property-type`'s `string` arm says *quote it*, so
+    /// a retype that left the values bare would put the corpus in the same
+    /// one-violation-per-instance state from the other side.
+    #[test]
+    fn a_bare_value_a_type_wants_as_text_is_quoted() {
+        assert_eq!(tried("string", "24"), Ok("\"24\"".to_string()));
+        assert_eq!(tried("text", "true"), Ok("\"true\"".to_string()));
+        // A `date` refuses a bare year for the reason a `string` refuses a bare number, and
+        // 71 instances in one derived corpus write one.
+        assert_eq!(tried("date", "1985"), Ok("\"1985\"".to_string()));
+        // Byte for byte: serde_yaml reads `0x1A` as 26, and the corpus wrote the hex.
+        assert_eq!(tried("string", "0x1A"), Ok("\"0x1A\"".to_string()));
+    }
+
+    /// What stays a refusal. There is no number in `about 24` to unquote, and the tilde was
+    /// carrying a meaning the number cannot.
+    #[test]
+    fn prose_that_mentions_a_number_is_not_one() {
+        for written in ["\"about 24\"", "\"~24\"", "\"24 km\"", "\"\""] {
+            assert!(
+                tried("number", written).is_err(),
+                "{written} was converted to a number"
+            );
+        }
+    }
+
+    /// A bare string is already text. Quoting it changes nothing, and the quotes were never
+    /// what the `date` arm was complaining about — so this is `Nothing`, not a clause claiming
+    /// something was attempted.
+    #[test]
+    fn a_bare_string_the_new_type_rejects_has_nothing_to_try() {
+        assert_eq!(tried("date", "cubic feet per second"), Err(String::new()));
+    }
+
+    /// The first guard, and the reason it is a parse rather than an argument: dropping the
+    /// quotes is not the same thing as producing a number. `00060` is text to serde_yaml, so
+    /// unquoting it would leave `property-type` reporting the instance it reported before.
+    #[test]
+    fn an_unquoted_candidate_that_is_still_not_a_number_is_refused() {
+        assert_eq!(
+            tried("number", "\"00060\""),
+            Err("unquoting it gives `00060`, which `number` does not accept either".to_string())
+        );
+        // `1__0` likewise, and `.inf` is a number serde_yaml reads and the gate will not admit.
+        assert!(tried("number", "\"1__0\"").is_err());
+        assert!(tried("number", "\".inf\"").is_err());
+    }
+
+    /// The second guard. serde_yaml reads bases the gate's own parser does not, so unquoting
+    /// `"0x1A"` produces a valid number that is not the value the corpus wrote.
+    #[test]
+    fn an_unquoted_candidate_that_changes_the_value_is_refused() {
+        let why = tried("number", "\"0x1A\"").unwrap_err();
+        assert!(why.contains("reads as `26`"), "{why}");
+        assert!(tried("number", "\"0b101\"").is_err());
+    }
+
+    /// The line has to be the value's own. A key repeated deeper in the document offers bytes
+    /// that say something else, and rewriting those would corrupt a file the retype never named.
+    #[test]
+    fn a_line_that_does_not_read_back_as_the_value_is_refused() {
+        assert!(matches!(
+            requote("number", &yaml("\"24\""), "\"6\""),
+            Requote::Nothing
+        ));
+        // A block scalar keeps its value on the lines after this one.
+        assert!(matches!(
+            requote("string", &yaml("24"), "|"),
+            Requote::Nothing
+        ));
+    }
+
+    #[test]
+    fn the_value_line_is_the_one_under_properties() {
+        let text = "class: reach\nproperties:\n  length_km: 24\n  regulated: \"yes\"\nlinks:\n  - target: ../x.yml\n    length_km: 9\n";
+        assert_eq!(
+            property_value_line(text, "length_km"),
+            Some((3, "24".to_string()))
+        );
+        assert_eq!(property_value_line(text, "nonesuch"), None);
+    }
+
+    /// A property's name under `links:` and nowhere else is not a property value.
+    #[test]
+    fn a_key_outside_the_properties_block_is_not_read() {
+        let text = "class: reach\nlinks:\n  - target: ../x.yml\n    length_km: 9\n";
+        assert_eq!(property_value_line(text, "length_km"), None);
+    }
 }
