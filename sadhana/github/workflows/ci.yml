@@ -191,6 +191,7 @@ jobs:
       crates: ${{ steps.check.outputs.crates }}
       packages: ${{ steps.check.outputs.packages }}
       web: ${{ steps.check.outputs.web }}
+      watch: ${{ steps.check.outputs.watch }}
     steps:
       - uses: actions/checkout@v4
       - id: check
@@ -198,6 +199,7 @@ jobs:
           test -f crates/Cargo.toml     && echo "crates=true"   >> "$GITHUB_OUTPUT" || echo "crates=false"   >> "$GITHUB_OUTPUT"
           test -f packages/pyproject.toml && echo "packages=true" >> "$GITHUB_OUTPUT" || echo "packages=false" >> "$GITHUB_OUTPUT"
           test -f web/package.json      && echo "web=true"      >> "$GITHUB_OUTPUT" || echo "web=false"      >> "$GITHUB_OUTPUT"
+          test -f .github/watch/heartbeats.tsv && echo "watch=true" >> "$GITHUB_OUTPUT" || echo "watch=false" >> "$GITHUB_OUTPUT"
 
   corpus:
     name: corpus (graph gate)
@@ -470,6 +472,96 @@ jobs:
       # command answers the same question on a dirty tree.
       - name: REGEN blocks are current
         run: yidam regen --check
+
+  # ── The scheduled watch: it runs, and it can see ───────────────────────────
+  #
+  # Only once `.github/watch/heartbeats.tsv` exists; `watch.yml` explains arming.
+  # The ledger is written by that workflow and read here, because a gate that
+  # lives in the job it watches cannot report that the job stopped running.
+  #
+  # Two questions, and a green answer to one says nothing about the other:
+  #
+  #   silence — has any round run in MAX_SILENCE_DAYS? Measured from the newest
+  #             row or the `# armed:` date, whichever is later.
+  #   sight   — have the last MAX_BLIND_ROUNDS+1 rounds all been `unreachable`?
+  #             A watch that runs every night and reaches nothing passes the
+  #             first question every night.
+  #
+  # Seven and seven, not one and one: a host has a bad night and a scheduled job
+  # misses one, and a gate that fired on either would be switched off within a
+  # fortnight. A week of either is not weather.
+  #
+  # This job is not scoped to what a pull request touched. A blind watch turns
+  # every build red until somebody repairs the round or stops claiming to watch,
+  # which is the point. It is also only as frequent as CI: a repository nobody
+  # pushes to learns nothing from it.
+  watch:
+    name: watch (it runs, and it can see)
+    needs: detect
+    if: needs.detect.outputs.watch == 'true'
+    runs-on: ubuntu-latest
+    env:
+      MAX_BLIND_ROUNDS: 7
+      MAX_SILENCE_DAYS: 7
+    steps:
+      - uses: actions/checkout@v4
+      # `WATCH_TODAY` exists so this script can be run against a fixed day; CI
+      # never sets it.
+      - name: The ledger says the watch runs and sees
+        run: |
+          set -euo pipefail
+          today="${WATCH_TODAY:-$(date -u +%F)}"
+          awk -F'\t' -v today="$today" -v max_blind="$MAX_BLIND_ROUNDS" -v max_silence="$MAX_SILENCE_DAYS" '
+            function iso(d) { return d ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ }
+            # Days since a fixed epoch, so two ISO dates subtract. Portable awk: no mktime.
+            function day(d,  y, m, n) {
+              y = substr(d, 1, 4) + 0; m = substr(d, 6, 2) + 0; n = substr(d, 9, 2) + 0
+              if (m <= 2) { y -= 1; m += 12 }
+              return 365 * y + int(y / 4) - int(y / 100) + int(y / 400) + int((153 * (m - 3) + 2) / 5) + n
+            }
+            /^# armed:/ {
+              a = $0; sub(/^# armed:[ \t]*/, "", a); sub(/[ \t]+$/, "", a)
+              if (iso(a)) armed = a; else bad = bad sprintf("line %d: armed date \"%s\" is not YYYY-MM-DD\n", NR, a)
+              next
+            }
+            /^#/ || /^[ \t]*$/ || $1 == "date" { next }
+            {
+              if (!iso($1) || ($2 != "unchanged" && $2 != "changed" && $2 != "unreachable")) {
+                bad = bad sprintf("line %d: not a row this gate can read: %s\n", NR, $0)
+                next
+              }
+              rows++
+              if ($1 > newest) newest = $1
+              if ($2 == "unreachable") { if (run == 0) run_since = $1; run++ } else { run = 0; seen = 1 }
+            }
+            END {
+              if (bad != "") {
+                printf "%s", bad
+                print "A heartbeat this gate cannot read is not a heartbeat. Repair the ledger."
+                exit 1
+              }
+              since = newest; if (armed > since) since = armed
+              if (since == "") {
+                print "The ledger has no rounds and no `# armed: YYYY-MM-DD` line, so it asserts nothing."
+                exit 1
+              }
+              fail = 0
+              silent = day(today) - day(since)
+              if (silent > max_silence) {
+                printf "SILENT: no round for %d days, since %s; the window is %d. A watch that stopped running looks exactly like a source that went quiet.\n", silent, since, max_silence
+                fail = 1
+              }
+              if (run > max_blind && !seen) {
+                printf "NEVER SEEN: %d rounds since %s, and not one reached its source. Nothing here is evidence the watch would report a change.\n", run, run_since
+                fail = 1
+              } else if (run > max_blind) {
+                printf "BLIND: %d unreachable rounds in a row, since %s; the window is %d. Every row is fresh, and the source is not being observed.\n", run, run_since, max_blind
+                fail = 1
+              }
+              if (!fail) printf "watch ok: %d rounds, newest %s, %d day(s) ago; %d unreachable in a row.\n", rows, since, silent, run
+              exit fail
+            }
+          ' .github/watch/heartbeats.tsv
 
   crates:
     name: crates (domain computer)
