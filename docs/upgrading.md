@@ -28,6 +28,8 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+## cli/v0.16.0
+
 ### A multi-line value leaves an inline block that shares its line
 
 **The marker contract (#1137).** `update_regen` wrote a value that holds a newline in block
