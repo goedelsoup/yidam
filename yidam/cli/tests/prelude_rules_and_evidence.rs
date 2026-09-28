@@ -55,10 +55,10 @@
 //! and 8), which [`every_evidence_section_is_reached_by_a_rule`] admits and the reverse check
 //! does not need to forbid.
 //!
-//! # Two occasions, two ceilings
+//! # A bootstrap is an occasion too
 //!
-//! The recurring read is one occasion; a bootstrap is another, and the routes above exclude the
-//! skill on purpose. [`BOOTSTRAP_CEILING`] holds the second — the ten files between a fresh
+//! The recurring read is a set of occasions, one ceiling each (RFC-0039). A bootstrap is
+//! another occasion, and the routes exclude the skill on purpose. [`BOOTSTRAP_CEILING`] holds the second — the ten files between a fresh
 //! clone and a first node — because #933 set out to measure exactly that path, quoted a figure
 //! from four of its ten files, and the largest of the ten grew twice during the work that was
 //! meant to shrink it (#960).
@@ -80,7 +80,6 @@
 //! render, not to a reading of `github-slugger`'s source.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
 
 mod common;
 
@@ -99,132 +98,67 @@ const EVIDENCE_SUFFIX: &str = ".evidence.md";
 /// deleted, which is the failure the floor above is aimed at and this check localizes.
 const MIN_EVIDENCE_WORDS: usize = 25;
 
-/// Ceilings on the recurring read, by route, in words: **the measured post-split figure, with no
-/// slack.**
+/// Ceilings on the recurring read, by route and occasion, in words: **the measured figure, with
+/// no slack.**
 ///
-/// A ratchet. 24,019 and 29,326 before the split; 17,332 and 22,639 with all three files split,
-/// which is 6,687 words out of both routes. Set to the measurement rather than above it for the
-/// same reason the floor is: slack is the room a regression needs, and here the regression is an
-/// essay growing back into a rules file.
+/// A route used to be one list of whole files, and this was one ceiling per route. It was a
+/// ratchet from #954 to #1120: 24,019 and 29,326 words before the rules/evidence split, 17,332
+/// and 22,639 after it, and 18,836 and 24,260 at the last raise. Every raise on the way had to
+/// name the file and the words it bought, and the equality of the two routes' deltas was the
+/// control that nothing else had grown with it. That history is in `git log -p` on this file.
 ///
-/// **Raised to 17,686 and 22,993 when the glossary arrived (#957).** No-slack is what makes this
-/// number go red on a deliberate addition as readily as on a regression, so a raise has to say
-/// what it bought. Both routes rose by **exactly 354** — the 334-word `GLOSSARY.md` and the
-/// 20-word bullet that puts it on the list — and the equality across two routes with different
-/// read lists is the evidence that nothing else grew under cover of the same edit. Check that
-/// before raising this again: a raise whose delta is not attributable to a named file is a
-/// regression being waved through, which is precisely what a ratchet exists to make visible.
+/// The split could not reach #933's ~3,000 on its own. What was left in `directories.md` after
+/// its essays moved was reference, not essay, and no further splitting retires reference.
+/// RFC-0039 took the other move: a route names **occasions**, by the commit verb they end in,
+/// and each occasion names the **sections** it needs (#972). So a ceiling is per occasion. An
+/// occasion's read is the route file itself, plus *On every occasion*, plus that occasion's own
+/// list. A link with a `#` is charged from its heading to the next heading at the same level or
+/// higher; one without is charged the whole file. A section two lists share is charged once.
 ///
-/// **`sadhana/root/AGENTS.md` raised to 23,051 when the local gate grew the commit-vocabulary
-/// check (#938).** The delta is **58 words in that one file** — `git show HEAD:…` measured 1,515
-/// against 1,573 — and the evidence that nothing else rode along is that the *other* route did
-/// not move at all. That is the right control here and equality would have been the wrong one:
-/// the file is a derived repository's conduct doc and is on one of the two read lists, so a rise
-/// on both would mean something else had grown.
+/// **There is no ceiling on the union**, and that is deliberate. The union is the old whole-file
+/// read by another route, and a union ceiling would pass an edit that moved every word from one
+/// occasion's list into another's. Per occasion, the same edit turns two entries red, each
+/// naming its occasion.
 ///
-/// The glossary is also the one file here that reduces the *effective* read rather than adding
-/// to it — six of the files above use *rigpa*, *ma* and *tonpa* as though defined — so the
-/// trade is 354 words against the vocabulary the other 17,332 assume.
+/// **Measured at #973.** Against 18,836 and 24,260 for the whole-file read, the template's
+/// five occasions are 6,157 (write a node), 4,584 (run a phase), 4,310 (cross a corpus
+/// boundary), 4,564 (change a class) and 2,959 (retrieve). The core every occasion reads is
+/// 1,092 of it: the glossary, the identity, and three sections of `GRAPH.md`. Writing a node is
+/// the heaviest because it reads the whole class contract, 2,621 words, and the contract is rule
+/// all the way down: its lead alone is 327 and says nothing about properties.
 ///
-/// **The form does not reach #933's ~3,000 on its own, and the remaining weight says why.**
-/// `directories.md` is the largest file left on the read at 7,717 words, and what is left in it
-/// after the essays moved is reference — what belongs in each of twenty directories, the catalog
-/// frontmatter shape, the capability manifest shape, the authorship table. That is rule, not
-/// essay, so no further splitting retires it. Getting under 3,000 needs a different move: a read
-/// scoped to the occasion, where an agent about to write a node is handed the node conventions
-/// and not the vault routing table. That is a separate change to how a route is written, and
-/// this ceiling is what will hold it honest.
-/// **Both routes raised by 361 when `directories.md` documented `.yidam/computed/` (#1028).**
-/// 17,686 → 18,047 and 23,051 → 23,412. The delta is **361 words in that one file** — 7,295 to
-/// 7,656 — and here *equality of the two deltas* is the control, which is the opposite of the
-/// reading #938 needed: `directories.md` is on both read lists, so a raise of exactly the same
-/// size on each is what says one shared file grew and nothing local to either route rode along.
-/// A difference between them would be the thing to investigate.
+/// `sadhana/root/AGENTS.md` is exactly 1,194 words heavier on every occasion, because the route
+/// file itself is: 1,920 words against the template's 726. The equal difference is the control
+/// that the two routes read the same sections. The reference list at the bottom of each route
+/// is not charged. It is what an occasion *not* named here reads, and none of these do.
 ///
-/// The section is reference rather than essay — the shape of a signal table, how a row is keyed,
-/// what happens to a file that declares no version — which is the category the paragraph above
-/// says no further splitting retires. Its three arguments are 364 further words in
-/// `directories.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a `[why]` link.
-///
-/// **Both raised by a further 61 when the third capability type became declarable (#1027).** The
-/// same file again: `directories.md` went from 7,656 words to 7,717, and both routes move by 61
-/// for the reason the paragraph above gives — equal deltas are what say one shared file grew. The
-/// 61 words are two rules, and the second is the price of the frozen spelling: 36 say that all
-/// three kinds are declarable and that a run invokes calculators only, and 25 say that feature
-/// engineering declares `kind = "featurizer"`. A corpus author can lowercase *connector* and
-/// *calculator* into a manifest and cannot derive `featurizer` from *Feature engineering*, so the
-/// value has to be written down where the type is defined. The argument for both is 107 further
-/// words in `directories.evidence.md`, charged to [`PAIR_FLOOR`].
-///
-/// **Both raised by a further 28 when `GRAPH.md` gained the `number` rule (#1030, RFC-0040).**
-/// 18,108 → 18,136 and 23,473 → 23,501. The delta is **28 words in that one file** — the
-/// sentence saying a number is unquoted and its unit is on the class — and the equality of the
-/// two deltas is again the control: `GRAPH.md` is on both lists. Its argument is 87 further
-/// words in `GRAPH.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a `[why]` link.
-///
-/// **Both raised by a further 21 when a retype learned to requote (#1044).** 18,136 → 18,157 and
-/// 23,501 → 23,522. The delta is **21 words in that one file** — the clause saying `"24"` unquotes
-/// under `number` — and the two deltas are equal again because `GRAPH.md` is on both lists. The
-/// clause is worth its words to every session: the sentence above it read *refused rather than
-/// guessed* without exception, which is what sent an author to edit the instances by hand.
-///
-/// **Both raised by 310 when a step learned it is handed a resolved corpus (#1080).** 18,157 →
-/// 18,467 and 23,522 → 23,832. The delta is **310 words in `directories.md`** — the `$YIDAM_GRAPH`
-/// section — and the equality of the two deltas is the control: `directories.md` is on both
-/// routes. A session is charged for it because the alternative is what #1080 found — two
-/// calculators each carrying a parser and a link resolver for a corpus the executor had already
-/// parsed for them, and no gate able to notice when they disagreed with it. The 131 further words
-/// of argument are in `directories.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a
-/// `[why]` link.
-///
-/// **Both raised by 209 when `run` gained its second arm (#1091, RFC-0042).** 18,467 → 18,676 and
-/// 23,832 → 24,041. The delta is **209 words in `directories.md`** — the section saying a typed
-/// calculator is the other shape of `run` — and the equality of the two deltas is again the
-/// control: `directories.md` is on both routes. A session is charged for it because the arm is a
-/// choice a corpus makes about who can run it: the declaration parses in every build and the arm
-/// is behind a feature outside the default set, so an agent that cannot tell the two forms apart
-/// cannot read a refusal naming one. The 100 further words of argument are in
-/// `directories.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a `[why]` link.
-///
-/// **Both raised by 57 when the typed arm gained streamflow's chain rule (#1102).** 18,676 →
-/// 18,733 and 24,041 → 24,098. The delta is **57 words in `directories.md`**, measured here
-/// rather than quoted: `3bcf2ed3` moved the numbers without a note, and this paragraph is that
-/// note written after the fact so the next raise is not reading a baseline that appeared from
-/// nowhere.
-///
-/// **Both raised by a further 48 when `GRAPH.md` gained `claim-property-undeclared` (#1069).**
-/// 18,733 → 18,781 and 24,098 → 24,146. The delta is **48 words in that one file** — the table
-/// row and the two sentences saying a standing in an undeclared property is counted by nothing
-/// and that the check never gates — and the equality of the two deltas is the control again.
-/// Both routes were at their ceilings, and the second only looks untouched at a glance: the
-/// loop asserts per route and stops at the first, so `AGENTS.md` hid it. Its argument is 280
-/// further words in `GRAPH.evidence.md`, charged to [`PAIR_FLOOR`] and reached only by a
-/// `[why]` link.
-///
-/// Both figures are the measurement taken on the merged tree, not the two branches' deltas
-/// added: 57 and 48 landed in different files, and a ceiling with no slack cannot be arrived at
-/// by arithmetic on a number nobody re-ran.
-///
-/// **`sadhana/root/AGENTS.md` raised to 24,205 when `settle` learned to refresh the REGEN
-/// blocks (#1066).** The delta is **59 words in `PHASES.md`** — the sentence saying a stale or
-/// unclaimed block is not ready, and the one saying the `regen:` commit goes before the merge
-/// and why — and 24,146 + 59 is this figure exactly. `AGENTS.md` does not move: `PHASES.md` is
-/// on the derived-repository route and not on this repository's own, so the two routes parting
-/// by exactly the one file's growth is the control here.
-///
-/// **Both raised by a further 31 when `GRAPH.md` gained the `values:` rule (#1052, RFC-0044).**
-/// 18,781 → 18,812 and 24,205 → 24,236. The delta is **31 words in that one file** — the
-/// sentence saying a `string` that declares a set is closed to it, and that the match is
-/// exact — and the equality of the two deltas is again the control: `GRAPH.md` is on both
-/// lists. Its argument is 120 further words in `GRAPH.evidence.md`, charged to [`PAIR_FLOOR`]
-/// and reached only by a `[why]` link.
-///
-/// **Both raised by a further 24 when `GRAPH.md` gained `migrate value` (#1120).** 18,812 →
-/// 18,836 and 24,236 → 24,260. The delta is **24 words in that one file** — the row of the
-/// migrate table naming what a value rename touches — and the equality of the two deltas is
-/// again the control. No argument arrived in `GRAPH.evidence.md`: the reason a closed set needs
-/// a rename that does both halves at once is the one RFC-0044 already gives for closing it.
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_836), ("sadhana/root/AGENTS.md", 24_260)];
+/// The same raise discipline as before: a raise names the section and the words. Two occasions
+/// moving by the same delta is the sign of a shared section; one moving alone is the sign of
+/// a section on its list only.
+const READ_CEILING: &[(&str, &str, usize)] = &[
+    ("AGENTS.md", "Before you write or revise a node", 6_157),
+    ("AGENTS.md", "Before you run a phase", 4_584),
+    (
+        "AGENTS.md",
+        "Before a claim crosses a corpus boundary",
+        4_310,
+    ),
+    ("AGENTS.md", "Before you change a class", 4_564),
+    ("AGENTS.md", "Before you retrieve", 2_959),
+    (
+        "sadhana/root/AGENTS.md",
+        "Before you write or revise a node",
+        7_351,
+    ),
+    ("sadhana/root/AGENTS.md", "Before you run a phase", 5_778),
+    (
+        "sadhana/root/AGENTS.md",
+        "Before a claim crosses a corpus boundary",
+        5_504,
+    ),
+    ("sadhana/root/AGENTS.md", "Before you change a class", 5_758),
+    ("sadhana/root/AGENTS.md", "Before you retrieve", 4_153),
+];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
 ///
@@ -530,50 +464,132 @@ fn prescribing_section(route: &str) -> String {
     best
 }
 
-/// Every prelude file a route's read list names, resolved against the route's own directory.
+/// A prelude file and the `#fragment` a link names in it, `None` for the whole file.
+type Link = (String, Option<String>);
+
+/// An occasion, the words its read costs, and those words by file.
+type Cost = (String, usize, Vec<(String, usize)>);
+
+/// The heading under a route's prescribing section that every occasion reads.
+const ALWAYS: &str = "On every occasion";
+
+/// An occasion heading starts with this. `routes.rs` holds `routes.yml` to it.
+const OCCASION: &str = "Before ";
+
+/// Each `###` list in a route's prescribing section, as `(heading, [(prelude file, fragment)])`.
 ///
-/// This is what makes the ceiling a measurement rather than a restatement: adding a file to a
-/// route's read list moves the number, and so does growing a file already on it.
-fn route_cost(route: &str) -> (usize, Vec<(String, usize)>) {
-    let mut total = words(&read(route));
-    let mut parts = vec![(route.to_string(), total)];
-    let body = prescribing_section(route);
-    let mut seen = BTreeSet::new();
-    for (at, _) in body.match_indices("](") {
-        let rest = &body[at + 2..];
-        let Some(end) = rest.find(')') else { continue };
-        let target = rest[..end].split('#').next().unwrap_or("");
-        if !target.ends_with(".md") || target.starts_with("http") {
-            continue;
-        }
-        // Routes are written for where they install, so a derived route's
-        // `.yidam/.vendor/prelude/x` is this tree's `yidam/prelude/x`.
-        let rel = match target.split_once(".yidam/.vendor/prelude/") {
-            Some((_, tail)) => format!("yidam/prelude/{tail}"),
-            None => {
-                let dir = PathBuf::from(route)
-                    .parent()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                let joined = if dir.is_empty() {
-                    target.to_string()
-                } else {
-                    format!("{dir}/{target}")
-                };
-                match joined.split_once("yidam/prelude/") {
-                    Some((_, tail)) => format!("yidam/prelude/{tail}"),
-                    None => continue,
-                }
+/// Only [`ALWAYS`] and the [`OCCASION`] headings. The reference list is what an occasion not
+/// named here reads, and it is not charged to any occasion. A link that lands outside the
+/// prelude fails here rather than being skipped: a route whose link rotted would read cheaper
+/// than it is, and the ceiling would pass it.
+fn occasion_lists(route: &str) -> Vec<(String, Vec<Link>)> {
+    let installed = installed_prelude();
+    let mut lists: Vec<(String, Vec<Link>)> = Vec::new();
+    let mut charged = false;
+    for (n, raw) in prose_lines(&prescribing_section(route)) {
+        if let Some(heading) = raw.strip_prefix("### ") {
+            let heading = heading.trim();
+            charged = heading == ALWAYS || heading.starts_with(OCCASION);
+            if charged {
+                lists.push((heading.to_string(), Vec::new()));
             }
-        };
-        if !repo_root().join(&rel).is_file() || !seen.insert(rel.clone()) {
             continue;
         }
-        let w = words(&read(&rel));
-        total += w;
-        parts.push((rel, w));
+        if !charged {
+            continue;
+        }
+        let line = blank_code_spans(raw);
+        let mut j = 0;
+        while let Some(open) = line[j..].find("](") {
+            let at = j + open + 2;
+            let Some(close) = line[at..].find(')') else {
+                break;
+            };
+            let t = raw[at..at + close].trim();
+            j = at + close + 1;
+            let (path, fragment) = match t.split_once('#') {
+                Some((p, f)) => (p, Some(f.to_string())),
+                None => (t, None),
+            };
+            let file = prelude_target(route, path, &installed).unwrap_or_else(|| {
+                panic!(
+                    "{route}'s prescribing section, line {n}, links `{t}` under an occasion, \
+                     and it is not a prelude file. An occasion's read is measured from prelude \
+                     files, and this link would be charged nothing."
+                )
+            });
+            lists
+                .last_mut()
+                .expect("a charged line follows a charged heading")
+                .1
+                .push((file, fragment));
+        }
     }
-    (total, parts)
+    lists
+}
+
+/// The 0-based lines a link is charged: its section, or the whole file with no fragment.
+///
+/// A section runs from its heading to the next heading at the same level or higher, which is
+/// what the route tells the agent to read.
+fn section_lines(file: &str, fragment: Option<&str>) -> std::ops::Range<usize> {
+    let text = read(file);
+    let total = text.lines().count();
+    let Some(fragment) = fragment else {
+        return 0..total;
+    };
+    let heads = headings(&text);
+    let at = heads
+        .iter()
+        .position(|(_, _, slug)| slug == fragment)
+        .unwrap_or_else(|| panic!("{file} has no heading `#{fragment}`"));
+    let (line, level, _) = heads[at];
+    let end = heads[at + 1..]
+        .iter()
+        .find(|(_, l, _)| *l <= level)
+        .map_or(total, |(n, _, _)| n - 1);
+    line - 1..end
+}
+
+/// Each occasion of a route with the words its read costs, and those words by file.
+///
+/// The route file is charged whole, as it always was: the agent reads it to find its occasion.
+/// Within a prelude file the charged lines are a union, so a section on *On every occasion*
+/// and again on an occasion's own list is charged once.
+fn occasion_costs(route: &str) -> Vec<Cost> {
+    let lists = occasion_lists(route);
+    let always: Vec<Link> = lists
+        .iter()
+        .find(|(h, _)| h == ALWAYS)
+        .map(|(_, links)| links.clone())
+        .unwrap_or_else(|| panic!("{route} has no `### {ALWAYS}` list"));
+    let own = words(&read(route));
+    lists
+        .iter()
+        .filter(|(h, _)| h.starts_with(OCCASION))
+        .map(|(heading, links)| {
+            let mut lines: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
+            for (file, fragment) in always.iter().chain(links) {
+                lines
+                    .entry(file.clone())
+                    .or_default()
+                    .extend(section_lines(file, fragment.as_deref()));
+            }
+            let mut parts = vec![(route.to_string(), own)];
+            for (file, charged) in &lines {
+                let text = read(file);
+                let w = text
+                    .lines()
+                    .enumerate()
+                    .filter(|(i, _)| charged.contains(i))
+                    .map(|(_, l)| words(l))
+                    .sum();
+                parts.push((file.clone(), w));
+            }
+            let total = parts.iter().map(|(_, w)| w).sum();
+            (heading.clone(), total, parts)
+        })
+        .collect()
 }
 
 /// Every file on the bootstrap path, in read order, with its words.
@@ -747,13 +763,22 @@ fn installed_prelude() -> BTreeMap<String, String> {
 }
 
 /// `(level, slug)` for every ATX heading outside fenced code, in document order.
+fn heading_slugs(text: &str) -> Vec<(usize, String)> {
+    headings(text)
+        .into_iter()
+        .map(|(_, level, slug)| (level, slug))
+        .collect()
+}
+
+/// `(line, level, slug)` for every ATX heading outside fenced code, in document order, with
+/// lines numbered from 1.
 ///
 /// Every level goes through one slugger, as it does in Astro's `rehype-heading-ids`, so a
 /// second `## Dup` is `dup-1` and a `### Dup` after it is `dup-2`.
-fn heading_slugs(text: &str) -> Vec<(usize, String)> {
+fn headings(text: &str) -> Vec<(usize, usize, String)> {
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     let mut out = Vec::new();
-    for (_, line) in prose_lines(text) {
+    for (n, line) in prose_lines(text) {
         let level = line.chars().take_while(|&c| c == '#').count();
         let Some(rest) = line[level..].strip_prefix(' ') else {
             continue;
@@ -775,7 +800,7 @@ fn heading_slugs(text: &str) -> Vec<(usize, String)> {
         if result.ends_with('-') {
             result.pop();
         }
-        out.push((level, result));
+        out.push((n, level, result));
     }
     out
 }
@@ -1016,32 +1041,61 @@ fn the_scan_sees_the_known_routes() {
     }
 }
 
+/// Both directions, per occasion: an occasion a route names with no ceiling, and a ceiling
+/// naming an occasion the route no longer has. The second is how a renamed heading would
+/// otherwise leave its ceiling guarding nothing.
 #[test]
 fn every_route_has_a_ceiling() {
-    let ceilings: BTreeMap<&str, usize> = READ_CEILING.iter().copied().collect();
+    let ceilings: BTreeSet<(&str, &str)> = READ_CEILING.iter().map(|(r, o, _)| (*r, *o)).collect();
+    let mut named: BTreeSet<(String, String)> = BTreeSet::new();
     for route in routes() {
+        let occasions = occasion_costs(&route);
         assert!(
-            ceilings.contains_key(route.as_str()),
-            "{route} prescribes the conduct read and has no entry in READ_CEILING. A new \
-             recurring read is a cost somebody should have to write down."
+            !occasions.is_empty(),
+            "{route} prescribes the conduct read and names no `### {OCCASION}…` occasion. A \
+             route is a set of occasions (RFC-0039), and one with none is measured by nothing."
+        );
+        for (occasion, _, _) in occasions {
+            assert!(
+                ceilings.contains(&(route.as_str(), occasion.as_str())),
+                "{route} names the occasion `{occasion}` and READ_CEILING has no entry for it. \
+                 A new occasion is a cost somebody should have to write down."
+            );
+            named.insert((route.clone(), occasion));
+        }
+    }
+    for (route, occasion, _) in READ_CEILING {
+        assert!(
+            named.contains(&(route.to_string(), occasion.to_string())),
+            "READ_CEILING holds `{occasion}` for {route}, and {route} names no such occasion. \
+             The heading was renamed or removed, and this ceiling is guarding nothing."
         );
     }
 }
 
 #[test]
 fn the_recurring_read_stays_under_its_ceiling() {
-    for (route, ceiling) in READ_CEILING {
-        let (total, parts) = route_cost(route);
-        assert!(
-            total <= *ceiling,
-            "the recurring read at {route} is {total} words, over its {ceiling}-word \
-             ceiling.\n{}",
-            parts
+    let mut over = Vec::new();
+    for route in routes() {
+        for (occasion, total, parts) in occasion_costs(&route) {
+            let Some((_, _, ceiling)) = READ_CEILING
                 .iter()
-                .map(|(p, w)| format!("  {w:>7}  {p}\n"))
-                .collect::<String>()
-        );
+                .find(|(r, o, _)| *r == route && *o == occasion)
+            else {
+                continue; // every_route_has_a_ceiling's failure, not this one's
+            };
+            if total > *ceiling {
+                over.push(format!(
+                    "{route} `{occasion}` is {total} words, over its {ceiling}-word ceiling.\n{}",
+                    parts
+                        .iter()
+                        .map(|(p, w)| format!("  {w:>7}  {p}\n"))
+                        .collect::<String>()
+                ));
+            }
+        }
     }
+    assert!(over.is_empty(), "{}", over.join("\n"));
 }
 
 #[test]

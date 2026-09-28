@@ -28,6 +28,19 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `AGENTS.md` reads by occasion, and a new generator writes it
+
+**`yidam routes` (#972, RFC-0039).** A new derivation's `AGENTS.md` no longer lists every
+prelude file to read before acting. It carries a `<!-- REGEN: yidam routes -->` block instead:
+what every occasion reads, then one heading per occasion, each a list of section links. An
+occasion is named by the commit verb it ends in. The block is rendered from
+`.yidam/.vendor/prelude/routes.yml`, so a re-vendor brings the new routes and `regen --check`
+reports a stale block.
+
+An existing derivation's `AGENTS.md` has no markers, and a generator writes nothing where it
+finds none. So `yidam regen` leaves the file as it is, and the whole-file list keeps working.
+The command that installs the markers is #1135.
+
 ### The skills README no longer explains where `judge` went
 
 **`sadhana/skills/README.md` (#1077).** The scaffold's skills README ended with a paragraph

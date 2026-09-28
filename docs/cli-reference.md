@@ -306,10 +306,11 @@ That is their purpose, and it is why every one carries a `*`.
 | `packages-index` * | The domain-computer packages in `packages/`, each with the capability that runs it *(no flags)* |
 | `bundle-status` * | Freshness of `.yidam/bundle.yiz` against the corpus it was built from *(no flags)* |
 | `gates` * | The gate table: every `run:` step of every job in `.github/workflows/ci.yml`, in order *(no flags)* |
+| `routes` * | The reading routes in `AGENTS.md`, by occasion, from the vendored `routes.yml` *(no flags)* |
 
 Four more generators are filed by what they report, not by the fact that they generate.
 They are [`vault-status`](#artifacts), [`decisions-log`](#the-corpus-and-its-history),
-[`kuten`](#the-practice) and [`practice`](#the-practice). `yidam regen` runs all fifteen.
+[`kuten`](#the-practice) and [`practice`](#the-practice). `yidam regen` runs all sixteen.
 
 `gates` reads the workflow and nothing else. A derived repository's README used to say in a
 sentence which checks CI runs. The sentence could not follow the workflow. The table can.

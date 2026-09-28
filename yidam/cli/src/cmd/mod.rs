@@ -62,6 +62,7 @@ pub(crate) mod registry;
 mod rename;
 mod replay;
 mod retrieve;
+mod routes;
 pub(crate) mod run;
 mod samudaya_audit;
 mod sangha;
@@ -120,6 +121,7 @@ pub use lint::{
     Options as LintOptions, Relocation, Violation as LintViolation, LINT_SEVERITIES,
 };
 pub use lsp::serve_lsp;
+pub use routes::routes;
 
 pub use log::{log, Filter as LogFilter};
 pub use overlay::overlay;
