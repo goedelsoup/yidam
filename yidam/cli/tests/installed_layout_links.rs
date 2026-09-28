@@ -39,7 +39,10 @@ use std::path::Path;
 
 mod common;
 
-use common::{install_of, repo_root, ALWAYS_PRESENT, COLLECTIVE, DOMAIN_SELECTED, MAPPING};
+use common::{
+    blank_code_spans, install_of, repo_root, resolve, ALWAYS_PRESENT, COLLECTIVE, DOMAIN_SELECTED,
+    MAPPING,
+};
 
 /// Sections of an otherwise unconditional file that bootstrap deletes unless a condition
 /// holds: `(source file, opening heading, condition)`.
@@ -127,25 +130,6 @@ fn installed_tree(root: &Path, conditions: &BTreeSet<&str>) -> BTreeSet<String> 
     tree
 }
 
-/// Replace the contents of `` `…` `` spans with spaces, preserving byte offsets.
-fn blank_code_spans(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut in_code = false;
-    for c in line.chars() {
-        if c == '`' {
-            in_code = !in_code;
-            out.push(c);
-        } else if in_code {
-            for _ in 0..c.len_utf8() {
-                out.push(' ');
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
 /// Markdown link targets worth resolving, skipping fenced and inline code.
 fn targets(text: &str) -> Vec<(usize, String)> {
     let mut out = Vec::new();
@@ -188,25 +172,6 @@ fn targets(text: &str) -> Vec<(usize, String)> {
         }
     }
     out
-}
-
-/// Resolve `target` from `from_dir` lexically. `None` if it climbs above the root.
-fn resolve(from_dir: &str, target: &str) -> Option<String> {
-    let mut parts: Vec<&str> = if from_dir.is_empty() {
-        vec![]
-    } else {
-        from_dir.split('/').collect()
-    };
-    for part in target.split('/') {
-        match part {
-            "" | "." => {}
-            ".." => {
-                parts.pop()?;
-            }
-            p => parts.push(p),
-        }
-    }
-    Some(parts.join("/"))
 }
 
 #[test]

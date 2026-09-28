@@ -62,13 +62,32 @@
 //! clone and a first node — because #933 set out to measure exactly that path, quoted a figure
 //! from four of its ten files, and the largest of the ten grew twice during the work that was
 //! meant to shrink it (#960).
+//!
+//! # A fragment is a claim about a heading
+//!
+//! [`every_why_link_resolves_to_a_section`] holds a rule's `[why]` link to its evidence file,
+//! and nothing held any other `#fragment` into the prelude (#970). The docs site's
+//! `check-anchors.mjs` grades fragments on its own pages only, and `installed_layout_links`
+//! resolves a link to a *file*. So a link to `GRAPH.md#the-class-contact` would ship green
+//! everywhere and put every reader at the top of `GRAPH.md`.
+//! [`every_prelude_fragment_resolves_to_a_heading`] closes that for every tracked markdown
+//! file under the prelude and both routes. It is the check RFC-0039's section links will stand
+//! on, and it is written ahead of them.
+//!
+//! The slug is the docs site's, not GitHub's. The two differ only on a heading that ends in
+//! punctuation after a space, where Astro drops the trailing `-`.
+//! [`the_slugger_agrees_with_the_docs_render`] pins the rule to output read off a real Astro
+//! render, not to a reading of `github-slugger`'s source.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 mod common;
 
-use common::{repo_root, step_one_read_list, tracked_under, BOOTSTRAP_SKILL};
+use common::{
+    blank_code_spans, install_of, repo_root, resolve, step_one_read_list, tracked_under,
+    BOOTSTRAP_SKILL,
+};
 
 /// The suffix that marks an evidence file, and the thing that makes a pair discoverable.
 const EVIDENCE_SUFFIX: &str = ".evidence.md";
@@ -630,6 +649,184 @@ fn why_links(rules: &str, evidence: &str) -> Vec<String> {
         .collect()
 }
 
+// ── fragments ─────────────────────────────────────────────────────────────────
+
+/// Files whose `#fragment` links are graded: every tracked markdown file under the prelude,
+/// and the two routes.
+fn fragment_sources() -> Vec<String> {
+    let mut found: Vec<String> = tracked_under(&repo_root(), "yidam/prelude/")
+        .into_iter()
+        .filter(|p| p.ends_with(".md"))
+        .collect();
+    found.extend(["AGENTS.md", "sadhana/root/AGENTS.md"].map(str::to_string));
+    found
+}
+
+/// Every `[label](target#fragment)` outside fenced and inline code, as `(line, target,
+/// fragment)`. An empty `target` is a link into the same file.
+fn fragment_links(text: &str) -> Vec<(usize, String, String)> {
+    let mut out = Vec::new();
+    for (n, raw) in prose_lines(text) {
+        let line = blank_code_spans(raw);
+        let mut j = 0;
+        while let Some(open) = line[j..].find("](") {
+            let at = j + open + 2;
+            let Some(close) = line[at..].find(')') else {
+                break;
+            };
+            let t = line[at..at + close].trim();
+            j = at + close + 1;
+            let t = t.split_whitespace().next().unwrap_or(t);
+            let Some((path, fragment)) = t.split_once('#') else {
+                continue;
+            };
+            if fragment.is_empty() || path.contains("://") || path.starts_with('/') {
+                continue;
+            }
+            out.push((n, path.to_string(), fragment.to_string()));
+        }
+    }
+    out
+}
+
+/// Lines outside fenced code, numbered from 1.
+fn prose_lines(text: &str) -> Vec<(usize, &str)> {
+    let mut out = Vec::new();
+    let mut fence: Option<String> = None;
+    for (n, raw) in text.lines().enumerate() {
+        let trimmed = raw.trim_start();
+        if let Some(open) = &fence {
+            if trimmed.starts_with(open.as_str()) {
+                fence = None;
+            }
+            continue;
+        }
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            fence = Some(trimmed.chars().take(3).collect());
+            continue;
+        }
+        out.push((n + 1, raw));
+    }
+    out
+}
+
+/// The prelude file a link from `from` lands on, or `None` when it lands anywhere else.
+///
+/// Resolved in the tree the linking file is written for, which is not the one it sits in: a
+/// prelude file installs to `.yidam/.vendor/prelude/` and `sadhana/root/AGENTS.md` to a
+/// derived repository's root, so their links are resolved from there and mapped back to the
+/// template file they came from. The template's own `AGENTS.md` installs nowhere and resolves
+/// where it sits. Whether the *file* exists is `installed_layout_links`' question, so a link
+/// to a missing one is skipped here rather than failed twice.
+fn prelude_target(
+    from: &str,
+    target: &str,
+    installed: &BTreeMap<String, String>,
+) -> Option<String> {
+    let dst = install_of(from).and_then(|(_, dst)| dst);
+    let frame = dst.as_deref().unwrap_or(from);
+    let landed = if target.is_empty() {
+        frame.to_string()
+    } else {
+        resolve(frame.rsplit_once('/').map_or("", |(dir, _)| dir), target)?
+    };
+    let source = match dst {
+        Some(_) => installed.get(&landed)?.clone(),
+        None => landed,
+    };
+    (source.starts_with("yidam/prelude/") && source.ends_with(".md")).then_some(source)
+}
+
+/// Where each tracked prelude markdown file lands in a derived repository, mapped back to it.
+fn installed_prelude() -> BTreeMap<String, String> {
+    tracked_under(&repo_root(), "yidam/prelude/")
+        .into_iter()
+        .filter(|p| p.ends_with(".md"))
+        .filter_map(|p| Some((install_of(&p)?.1?, p)))
+        .collect()
+}
+
+/// `(level, slug)` for every ATX heading outside fenced code, in document order.
+///
+/// Every level goes through one slugger, as it does in Astro's `rehype-heading-ids`, so a
+/// second `## Dup` is `dup-1` and a `### Dup` after it is `dup-2`.
+fn heading_slugs(text: &str) -> Vec<(usize, String)> {
+    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    let mut out = Vec::new();
+    for (_, line) in prose_lines(text) {
+        let level = line.chars().take_while(|&c| c == '#').count();
+        let Some(rest) = line[level..].strip_prefix(' ') else {
+            continue;
+        };
+        if !(1..=6).contains(&level) {
+            continue;
+        }
+        let base = slug(&heading_text(rest));
+        let mut result = base.clone();
+        while seen.contains_key(&result) {
+            let n = seen
+                .get_mut(&base)
+                .expect("the base slug is recorded before any suffix");
+            *n += 1;
+            result = format!("{base}-{n}");
+        }
+        seen.insert(result.clone(), 0);
+        // Astro, after the slugger: one trailing `-` is dropped.
+        if result.ends_with('-') {
+            result.pop();
+        }
+        out.push((level, result));
+    }
+    out
+}
+
+/// A heading's rendered text: code spans kept literally, `*` emphasis, escapes, link targets
+/// and a closing `#` sequence removed.
+///
+/// Not a markdown renderer, and not trying to be one. It covers the inline syntax the in-scope
+/// headings use. `_` emphasis is left alone because `_` survives slugging, and no heading here
+/// uses it; one that does fails [`the_slugger_agrees_with_the_docs_render`] once it is added
+/// there, and should be.
+fn heading_text(raw: &str) -> String {
+    let raw = raw.trim_end();
+    let raw = match raw.trim_end_matches('#') {
+        t if t.len() < raw.len() && (t.is_empty() || t.ends_with(' ')) => t.trim_end(),
+        _ => raw,
+    };
+    let mut out = String::new();
+    let mut in_code = false;
+    let mut chars = raw.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '`' => in_code = !in_code,
+            _ if in_code => out.push(c),
+            '*' => {}
+            '\\' if chars.peek().is_some_and(char::is_ascii_punctuation) => {
+                out.extend(chars.next());
+            }
+            ']' if chars.peek() == Some(&'(') => {
+                for skipped in chars.by_ref() {
+                    if skipped == ')' {
+                        break;
+                    }
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// `github-slugger`'s rule: lowercase, drop everything but letters, digits, `_`, `-` and
+/// space, then each space becomes `-`.
+fn slug(text: &str) -> String {
+    text.to_lowercase()
+        .chars()
+        .filter(|&c| c.is_alphanumeric() || matches!(c, '_' | '-' | ' '))
+        .map(|c| if c == ' ' { '-' } else { c })
+        .collect()
+}
+
 // ── the checks ────────────────────────────────────────────────────────────────
 
 #[test]
@@ -668,6 +865,110 @@ fn every_why_link_resolves_to_a_section() {
                  and the rule left behind pointing at nothing."
             );
         }
+    }
+}
+
+#[test]
+fn every_prelude_fragment_resolves_to_a_heading() {
+    let installed = installed_prelude();
+    let mut slugs: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut graded: BTreeSet<String> = BTreeSet::new();
+    let mut dead = Vec::new();
+    for from in fragment_sources() {
+        for (line, target, fragment) in fragment_links(&read(&from)) {
+            let Some(to) = prelude_target(&from, &target, &installed) else {
+                continue;
+            };
+            graded.insert(from.clone());
+            let known = slugs.entry(to.clone()).or_insert_with(|| {
+                heading_slugs(&read(&to))
+                    .into_iter()
+                    .filter(|(level, _)| matches!(level, 2 | 3))
+                    .map(|(_, slug)| slug)
+                    .collect()
+            });
+            if !known.contains(&fragment) {
+                dead.push(format!("  {from}:{line} → {to}#{fragment}"));
+            }
+        }
+    }
+    // A lower bound on discovery, as for the routes: one file linking across files and one
+    // linking within itself. A scan that stopped seeing either would pass on nothing.
+    for known in [BOOTSTRAP_SKILL, "yidam/prelude/GRAPH.evidence.md"] {
+        assert!(
+            graded.contains(known),
+            "the fragment scan graded no link from {known}. Graded: {graded:?}. The scan is \
+             broken, or that file stopped linking into the prelude by fragment."
+        );
+    }
+    assert!(
+        dead.is_empty(),
+        "{} link(s) name a heading the target has no `##` or `###` for. A reader following one \
+         lands at the top of the right file and is told nothing. Slugs are the docs site's: \
+         lowercase, punctuation dropped, spaces to `-`.\n{}",
+        dead.len(),
+        dead.join("\n")
+    );
+}
+
+#[test]
+fn the_slugger_agrees_with_the_docs_render() {
+    // Each `(level, slug)` on the right was read off Astro's `createMarkdownProcessor` render of
+    // the heading on the left, in this order, in one document — the duplicates depend on it.
+    let rendered: &[(&str, usize, &str)] = &[
+        ("# Title", 1, "title"),
+        ("## `.yidam/corpus/`", 2, "yidamcorpus"),
+        (
+            "## Why a *ceiling* — not a floor",
+            2,
+            "why-a-ceiling--not-a-floor",
+        ),
+        ("### The [class](x.md) contract", 3, "the-class-contract"),
+        ("## Dup", 2, "dup"),
+        ("## Dup", 2, "dup-1"),
+        ("### Dup", 3, "dup-2"),
+        ("## ends with ?", 2, "ends-with"),
+        (
+            "### `$YIDAM_GRAPH` — the corpus already parsed, and already resolved",
+            3,
+            "yidam_graph--the-corpus-already-parsed-and-already-resolved",
+        ),
+        (
+            "### 1.5. Explore the existing repository — existing-repo mode only",
+            3,
+            "15-explore-the-existing-repository--existing-repo-mode-only",
+        ),
+        (
+            "## `sadhana/` (transient — present only during bootstrap)",
+            2,
+            "sadhana-transient--present-only-during-bootstrap",
+        ),
+        (
+            "### `[verified]` is a claim about provenance, not about confidence",
+            3,
+            "verified-is-a-claim-about-provenance-not-about-confidence",
+        ),
+        (
+            "## The diagnostic_severity fixtures",
+            2,
+            "the-diagnostic_severity-fixtures",
+        ),
+        ("## Mañjuśrī and \\*escaped\\*", 2, "mañjuśrī-and-escaped"),
+        ("## Closing hashes ##", 2, "closing-hashes"),
+    ];
+    let doc: Vec<&str> = rendered.iter().map(|(h, _, _)| *h).collect();
+    let ours = heading_slugs(&doc.join("\n\n"));
+    assert_eq!(
+        ours.len(),
+        rendered.len(),
+        "a heading was not recognised: {ours:?}"
+    );
+    for ((heading, level, want), (got_level, got)) in rendered.iter().zip(&ours) {
+        assert_eq!(
+            (got_level, got.as_str()),
+            (level, *want),
+            "`{heading}` slugs differently here than on the docs site"
+        );
     }
 }
 
