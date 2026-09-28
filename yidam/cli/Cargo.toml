@@ -568,7 +568,7 @@ toml = "1.1"
 serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 quick-xml = "0.42"
 tempfile = "3"
-jsonschema = { version = "0.56.0", default-features = false }
+jsonschema = { version = "0.57.0", default-features = false }
 
 # ── cargo-binstall ────────────────────────────────────────────────────────────
 #
