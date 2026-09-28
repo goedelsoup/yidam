@@ -28,6 +28,22 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### The skills README no longer explains where `judge` went
+
+**`sadhana/skills/README.md` (#1077).** The scaffold's skills README ended with a paragraph
+about `judge`. It said the skill used to be listed there, and why it left. That is a note about
+the template, and every repository installed it at genesis. A reader there has never met
+`judge`.
+
+`judge` scores runs of yidam's own bootstrap test harness. It lived in `prelude/skills/`, so
+every derived repository vendored it. The bootstrap skill also read it before starting work.
+In `cli/v0.2.0` it moved to `yidam/tests/`, beside the harness that calls it. A derived
+repository has no copy of that harness.
+
+**What changes for you: nothing.** New repositories get the table only. In an existing
+repository, the paragraph under "Inherited from prelude" in `.yidam/skills/README.md` can be
+deleted.
+
 ### A scaffold for watching a source, where unreachable is not unchanged
 
 **`sadhana/github/workflows/watch.yml` (#1073).** A derived repository polled a source on a
