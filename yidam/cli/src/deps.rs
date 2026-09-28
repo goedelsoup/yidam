@@ -150,16 +150,77 @@ pub struct BundleManifest {
 /// Decode a `manifest.yml` body. A manifest that does not parse decodes as all-absent
 /// rather than failing: a bundle whose manifest is unreadable is still a directory of
 /// corpus files, and every caller has an answer for a field it did not get.
+///
+/// The degradation stays; what was missing is that nobody was **told** (#1081). Read
+/// [`parse_manifest_reporting`] wherever the difference matters.
 pub fn parse_manifest(yaml: &str) -> BundleManifest {
-    serde_yaml::from_str(yaml).unwrap_or_default()
+    parse_manifest_reporting(yaml).0
+}
+
+/// Decode a `manifest.yml` body, keeping the reason it did not decode.
+///
+/// The tolerance above is right and the silence was not, and the two are separable because
+/// this format's versioning policy is exactly what makes them separable: every field is
+/// `Option` so that **absence** is a legitimate answer. An *unreadable* manifest is not
+/// absence — it is a bundle that stated its identity and had the statement dropped, and it
+/// arrives at the callers as a manifest declaring nothing:
+///
+/// - `tonpa.lock` records `commit`, `genesis` and `model` from it
+///   ([`crate::cmd::tonpa::install::install_package`]), so the pin for a just-fetched bundle
+///   reads as a bundle that never said which corpus it was.
+/// - [`shadowed`] compares `genesis_hash` against a sibling checkout's and is documented to
+///   stay silent when either side is unknown — so an unreadable manifest reads as
+///   *deliberately* unknown, and the check that exists to catch two corpora under one name
+///   stops asking.
+/// - `lint`'s external-citation checks read `commit` as the pin, and absent means unpinned.
+pub fn parse_manifest_reporting(yaml: &str) -> (BundleManifest, Option<String>) {
+    match serde_yaml::from_str(yaml) {
+        Ok(m) => (m, None),
+        Err(e) => (BundleManifest::default(), Some(e.to_string())),
+    }
 }
 
 /// Read `<dir>/manifest.yml`. `None` when there is no manifest there at all, which is what
 /// distinguishes "not an unpacked bundle" from "an unpacked bundle that says little".
 pub fn read_manifest(dir: &Path) -> Option<BundleManifest> {
+    read_manifest_reporting(dir).map(|(m, _)| m)
+}
+
+/// Read `<dir>/manifest.yml`, keeping the reason it did not decode. See
+/// [`parse_manifest_reporting`].
+///
+/// The `Option` still answers only "is there a manifest here", which is the question
+/// [`read_manifest`]'s callers ask. A present-but-unreadable manifest is `Some` with a reason:
+/// it *is* an unpacked bundle, and reporting it as not one would swap one wrong answer for
+/// another.
+pub fn read_manifest_reporting(dir: &Path) -> Option<(BundleManifest, Option<String>)> {
     std::fs::read_to_string(dir.join("manifest.yml"))
         .ok()
-        .map(|text| parse_manifest(&text))
+        .map(|text| parse_manifest_reporting(&text))
+}
+
+/// Every declared dependency with an unpacked `manifest.yml` that does not parse, by name.
+///
+/// Shaped like [`shadowed`] and read by the same `doctor` check, for the reason that one is:
+/// the walk over declarations and the unpacked tree belongs beside the declarations, and
+/// `doctor` should be asking the question rather than implementing it.
+///
+/// Only dependencies this repository *declares*. A directory under `.yidam/tonpa/` that no
+/// `tonpa.toml` names is not read by anything, and reporting it would be a finding about a
+/// leftover rather than about this corpus.
+pub fn unreadable_manifests(root: &Path) -> Vec<(String, String)> {
+    let config = load_config(&crate::paths::tonpa_config_path(root));
+    let tonpa_dir = crate::paths::tonpa_dir(root);
+    let mut out: Vec<(String, String)> = config
+        .dependencies
+        .keys()
+        .filter_map(|name| {
+            let why = read_manifest_reporting(&tonpa_dir.join(name))?.1?;
+            Some((name.clone(), why))
+        })
+        .collect();
+    out.sort();
+    out
 }
 
 pub fn sha256_hex(data: &[u8]) -> String {
@@ -383,6 +444,46 @@ mod tests {
         assert!(read_manifest(tmp.path()).is_some());
     }
 
+    /// The #1081 arm. The tolerance is unchanged — all fields absent — and the reason is now
+    /// kept, which is the whole difference: every field here is `Option` so that *absence* is a
+    /// legitimate answer, and that is exactly why nothing downstream could tell an unreadable
+    /// manifest from a bundle built before the fields existed.
+    #[test]
+    fn a_manifest_that_does_not_parse_says_so_and_still_decodes_as_absent() {
+        let (m, why) = parse_manifest_reporting("commit: \"unclosed\ngenesis: 2026-01-01\n");
+        assert_eq!(m.commit, None, "the degradation is unchanged");
+        assert_eq!(m.genesis, None);
+        assert!(why.is_some(), "and it is now reported");
+    }
+
+    /// The negative control, over every shape a real manifest has: the current one, one from
+    /// before `genesis_hash`, and an explicit null. A false positive here reports every
+    /// installed dependency in every repository.
+    #[test]
+    fn a_manifest_that_parses_is_not_reported() {
+        for yaml in [
+            "bundle_version: \"1\"\ncommit: \"abc1234\"\ngenesis_hash: \"da4e\"\n",
+            "bundle_version: \"1\"\ncommit: \"abc1234\"\n",
+            "commit: \"abc1234\"\ngenesis_hash: null\n",
+            "",
+            "{}\n",
+        ] {
+            assert_eq!(parse_manifest_reporting(yaml).1, None, "{yaml:?}");
+        }
+    }
+
+    /// `Some` with a reason, not `None`. The `Option` answers "is there a manifest here", and an
+    /// unreadable one *is* an unpacked bundle — reporting it as not one would swap one wrong
+    /// answer for another, and `shadowed` would then skip it for the wrong reason.
+    #[test]
+    fn a_present_but_unreadable_manifest_is_still_a_manifest() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("manifest.yml"), "commit: \"unclosed\n").unwrap();
+        let (m, why) = read_manifest_reporting(tmp.path()).expect("the file is there");
+        assert!(why.is_some());
+        assert_eq!(m.commit, None);
+    }
+
     // ── one name, two corpora ─────────────────────────────────────────────────
 
     use crate::git::fixture::git;
@@ -486,6 +587,48 @@ mod tests {
         let (tmp, _) = shadow_fixture(Some("0000111122223333444455556666777788889999"));
         std::fs::remove_dir_all(tmp.path().join("sibling/.git")).unwrap();
         assert!(shadowed(&root_of(&tmp)).is_empty());
+    }
+
+    // ── an unpacked manifest nobody could read ────────────────────────────────
+
+    /// Reported by name, and only for a dependency this repository declares.
+    #[test]
+    fn an_unpacked_manifest_that_does_not_parse_is_reported_by_name() {
+        let (tmp, _) = shadow_fixture(None);
+        let root = root_of(&tmp);
+        assert!(
+            unreadable_manifests(&root).is_empty(),
+            "the fixture must start clean"
+        );
+
+        let unpacked = crate::paths::tonpa_dir(&root).join("dep");
+        std::fs::write(unpacked.join("manifest.yml"), "commit: \"unclosed\n").unwrap();
+        let found = unreadable_manifests(&root);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].0, "dep");
+        assert!(!found[0].1.is_empty(), "the reason is carried");
+    }
+
+    /// A leftover directory under `.yidam/tonpa/` that no `tonpa.toml` names is read by nothing,
+    /// so a finding about it would be a finding about a leftover rather than about this corpus.
+    #[test]
+    fn an_undeclared_unpacked_directory_is_not_reported() {
+        let (tmp, _) = shadow_fixture(None);
+        let root = root_of(&tmp);
+        let stray = crate::paths::tonpa_dir(&root).join("nobody-declares-this");
+        std::fs::create_dir_all(&stray).unwrap();
+        std::fs::write(stray.join("manifest.yml"), "commit: \"unclosed\n").unwrap();
+        assert!(unreadable_manifests(&root).is_empty());
+    }
+
+    /// A declared dependency with nothing unpacked is not this question's — `check_corpora`
+    /// already reports it as not installed, and two lines about one state is one too many.
+    #[test]
+    fn a_dependency_with_nothing_unpacked_is_not_reported() {
+        let (tmp, _) = shadow_fixture(None);
+        let root = root_of(&tmp);
+        std::fs::remove_dir_all(crate::paths::tonpa_dir(&root).join("dep")).unwrap();
+        assert!(unreadable_manifests(&root).is_empty());
     }
 
     /// Mirrors `resolved`'s own condition. A path dependency whose corpus directory is not

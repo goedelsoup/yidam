@@ -41,7 +41,15 @@ pub use crate::deps::sha256_hex;
 // drifted apart on which fields exist. The full field list is on `render_bundle`.
 pub use crate::deps::BundleManifest;
 
-pub fn extract_bundle(data: &[u8], dest: &Path) -> Result<BundleManifest> {
+/// Unpack a bundle into `dest`, and decode the `manifest.yml` it carried.
+///
+/// Returns the reason the manifest did not decode alongside it, rather than folding it away:
+/// the manifest is where a bundle says *which corpus this is*, `install_package` writes three
+/// of its fields into `tonpa.lock`, and a manifest read through `unwrap_or_default()` put a pin
+/// in the lock saying the bundle declared none of them (#1081). Absence is legitimate in this
+/// format — an older bundle predates the fields — which is exactly why an unreadable manifest
+/// cannot be told from one by looking at the decoded value.
+pub fn extract_bundle(data: &[u8], dest: &Path) -> Result<(BundleManifest, Option<String>)> {
     std::fs::create_dir_all(dest).with_context(|| format!("creating {}", dest.display()))?;
 
     // Cache the raw archive for future verify / reinstall without re-fetch
@@ -74,7 +82,7 @@ pub fn extract_bundle(data: &[u8], dest: &Path) -> Result<BundleManifest> {
         }
     }
 
-    Ok(crate::deps::parse_manifest(&manifest_yaml))
+    Ok(crate::deps::parse_manifest_reporting(&manifest_yaml))
 }
 
 // ── install ───────────────────────────────────────────────────────────────────
@@ -97,7 +105,18 @@ pub async fn install_package(
 
     let dest = tonpa_dir.join(name);
     println!("  extracting {name} ({} bytes) …", data.len());
-    let manifest = extract_bundle(&data, &dest)?;
+    let (manifest, malformed) = extract_bundle(&data, &dest)?;
+
+    // Said, not swallowed. The install still proceeds — the corpus files are on disk and
+    // readable, which is what a dependency is for — but the three lock fields below are about
+    // to be written as `None`, and `None` is indistinguishable from a bundle built before the
+    // fields existed. `doctor`'s `corpora` line reports the same state on a later run.
+    if let Some(why) = malformed {
+        eprintln!(
+            "  warning: {name}'s manifest.yml does not parse ({why}) — pinning it \
+             without a commit, genesis or index model"
+        );
+    }
 
     let nodes = count_corpus_nodes(&dest);
     let dims = read_index_dims(&dest);

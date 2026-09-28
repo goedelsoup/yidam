@@ -73,7 +73,7 @@ different pair.
 locked, because hashing a working tree that changes under you records nothing"
 ([`deps.rs:9-12`](../../yidam/cli/src/deps.rs#L9-L12)). It is also the **only** form that
 supports a development loop, and `resolved()` deliberately lets it win over an unpacked
-directory of the same name ([`fetched.retain`](../../yidam/cli/src/deps.rs#L254-L258)).
+directory of the same name ([`fetched.retain`](../../yidam/cli/src/deps.rs#L315-L319)).
 
 A citation form that requires a pin therefore either excludes the dependency form people
 actually develop against, or admits an unpinnable citation. This RFC admits it, and makes the
@@ -187,7 +187,7 @@ Stated as prohibitions because each one is a thing a reader will assume:
   `instance_links` — the gate's own edge reader, and RFC-0018's — never sees it. `--across`
   (#268) queries the dependency set as a *scope*; it does not follow citations.
 - **Not licensed by `edge_policy`.** `unlicensed-edge`'s own rationale draws this line
-  already ([`checks.rs:1489-1490`](../../yidam/cli/src/cmd/lint/checks.rs#L1489-L1490)): *a link to the
+  already ([`checks.rs:1598-1599`](../../yidam/cli/src/cmd/lint/checks.rs#L1598-L1599)): *a link to the
   class file or into the catalog is a citation, not a relationship.*
   A class's `edges:` bounds relationships; a citation is not one, and asking a class to
   declare which foreign corpora its instances may cite would be asking the ontology a

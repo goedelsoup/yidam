@@ -166,7 +166,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         check.escalate_after = escalate_after;
     }
 
-    suppress_unparsed(&mut all, &corpus);
+    suppress_unparsed(&mut all, &corpus, input.universal());
     all
 }
 
@@ -282,7 +282,22 @@ const ROSTER: &[Entry] = &[
     Entry {
         id: checks::MALFORMED_YAML,
         asked: Asked::Always,
-        run: |i| checks::malformed_yaml(i.nodes(), i.classes(), i.sources(), i.decisions()),
+        run: |i| {
+            checks::malformed_yaml(
+                i.nodes(),
+                i.classes(),
+                i.sources(),
+                i.decisions(),
+                i.universal(),
+            )
+        },
+    },
+    // Second, and beside it for the same reason: the block it reports is YAML the file parses,
+    // so `malformed-yaml` cannot see it and the two together are "what did not read".
+    Entry {
+        id: checks::FINDINGS_MALFORMED,
+        asked: Asked::Always,
+        run: |i| checks::findings_malformed(i.nodes(), i.sources()),
     },
     Entry {
         id: "missing-class",
@@ -691,10 +706,21 @@ const ROSTER: &[Entry] = &[
 /// no `retrieved:` and no `ttl_days:`, so `catalog-expired` and `catalog-uncited` would each
 /// report what they made of the absence, and the only finding worth reading would be the one
 /// saying nobody read the file.
-fn suppress_unparsed(all: &mut [Check], corpus: &crate::corpus::Corpus) {
+fn suppress_unparsed(
+    all: &mut [Check],
+    corpus: &crate::corpus::Corpus,
+    universal: &crate::universal::Universal,
+) {
     // Takes the corpus rather than the four slices: the set below has to be every record
     // `malformed-yaml` can report, and a fifth record type added to that check and not to this
     // one would put #676's contradictory findings straight back on the new kind of file.
+    //
+    // `universal.yml` is the fifth file that check reports and is not one of those records, so
+    // it arrives beside them. Nothing reports a finding against it today — `prose_views`
+    // excludes it by name, and the property checks it governs report against the *instance* —
+    // so this line suppresses nothing. It is here because the invariant above is about what
+    // `malformed-yaml` can report and not about what happens to be reported elsewhere, and the
+    // day a check does name this file is the day the omission would be invisible.
     let unparsed: HashSet<&str> = corpus
         .nodes()
         .iter()
@@ -721,6 +747,7 @@ fn suppress_unparsed(all: &mut [Check], corpus: &crate::corpus::Corpus) {
                 .filter(|d| d.malformed.is_some())
                 .map(|d| d.rel.as_str()),
         )
+        .chain(universal.malformed().map(|_| crate::universal::REL))
         .collect();
     if unparsed.is_empty() {
         return;

@@ -42,6 +42,18 @@ use std::path::Path;
 
 use regex::Regex;
 
+/// The file's name under the corpus directory.
+pub const FILENAME: &str = "universal.yml";
+
+/// The corpus-relative path a finding names this file by.
+///
+/// Spelled out rather than derived, because a finding is reported about a corpus whose root
+/// the check does not hold — [`crate::cmd::lint::checks::malformed_yaml`] is answered about
+/// records and about this one file, and the records carry their own `rel`. Held to
+/// [`Universal::path`] by [`tests::the_relative_path_is_the_one_the_loader_reads`], so the two
+/// spellings cannot drift.
+pub const REL: &str = ".yidam/corpus/universal.yml";
+
 /// One universally-permitted property: matched by exact name, or by a pattern.
 pub struct UniversalProperty {
     /// The exact property name, when the declaration named one.
@@ -75,6 +87,15 @@ pub struct Universal {
     prose: Vec<String>,
     /// What the corpus has said about tagging its edges. See [`EdgeClaims`].
     edge_claims: EdgeClaims,
+    /// Why the bytes did not parse, when they did not. See [`Universal::parse`].
+    ///
+    /// Carried for the reason [`crate::corpus::Class::malformed`] is, and it is the same arm:
+    /// every field above this one is a `Vec` or a `bool`, so a file nobody could read is
+    /// indistinguishable from a corpus that declared nothing universal — and
+    /// `undeclared-property`, `property-type`, `edge-untagged` and `node-too-long` are then
+    /// each checking an instance against declarations that were on disk the whole time.
+    /// [`crate::cmd::lint::checks::malformed_yaml`] reports it.
+    malformed: Option<String>,
 }
 
 /// What a corpus has said about the standing of its own edges (#587).
@@ -149,11 +170,12 @@ impl Universal {
                 required: false,
                 structural: Vec::new(),
             },
+            malformed: None,
         }
     }
 
     pub fn path(root: &Path) -> std::path::PathBuf {
-        crate::paths::yidam_corpus_dir(root).join("universal.yml")
+        crate::paths::yidam_corpus_dir(root).join(FILENAME)
     }
 
     /// Read the declarations. `text` is the file's contents — the caller supplies it so the
@@ -164,8 +186,15 @@ impl Universal {
     /// which reports the property — rather than taking the whole lint run down and leaving
     /// the corpus unchecked. `yidam schema` publishes the file's shape, so the malformed
     /// pattern is underlined where it is being typed.
+    ///
+    /// **A file that does not parse at all is degraded the same way and *reported*.** That is
+    /// the half #1081 is about: the declarations came back empty, [`Self::is_empty`] said the
+    /// corpus had declared nothing universal, and every check reading them found nothing to
+    /// check and passed — the class arm of #676 on a different file, with no finding anywhere.
+    /// The reason is kept on [`Self::malformed`] and reported by
+    /// [`crate::cmd::lint::checks::malformed_yaml`], the way a class's is.
     pub fn parse(text: &str) -> Self {
-        let file: File = serde_yaml::from_str(text).unwrap_or_default();
+        let (file, malformed): (File, _) = crate::corpus::parse_or_default(text);
         let properties = file
             .properties
             .into_iter()
@@ -199,7 +228,13 @@ impl Universal {
                     .filter(|r| !r.is_empty())
                     .collect(),
             },
+            malformed,
         }
+    }
+
+    /// Why the declarations did not parse, when they did not.
+    pub fn malformed(&self) -> Option<&str> {
+        self.malformed.as_deref()
     }
 
     /// Whether an edge outside the structural list must declare its standing.
@@ -377,5 +412,45 @@ properties:
         let u = Universal::parse("edge_claims:\n  required: true\n");
         assert!(u.edge_claims_required());
         assert!(u.structural_relationships().is_empty());
+    }
+
+    // ── the parse outcome (#1081) ─────────────────────────────────────────────
+
+    /// The defect: read leniently, a file nobody could read declared nothing, and
+    /// `undeclared-property` then reported every property this file permits.
+    #[test]
+    fn declarations_that_do_not_parse_say_so() {
+        // The same unclosed quote that cost a corpus a catalog entry's TTL in #1056.
+        let u = Universal::parse("properties:\n  - name: \"seeded_because\n    type: text\n");
+        let why = u.malformed().expect("an unclosed quote");
+        assert!(!why.is_empty());
+        assert!(
+            !u.covers("seeded_because"),
+            "the declarations are still degraded to empty — the checks downstream are \
+             written against a declaration list and guessing at a half-read one is worse"
+        );
+    }
+
+    /// And a file that parses is not reported, including the two states that look like a
+    /// failure and are not: the absent file, and one declaring nothing.
+    #[test]
+    fn a_file_that_parses_is_not_reported() {
+        for text in ["", "properties: []\n", OHIO, TAGGED_EDGES] {
+            assert_eq!(Universal::parse(text).malformed(), None, "{text:?}");
+        }
+        assert_eq!(Universal::empty().malformed(), None);
+    }
+
+    /// [`REL`] is what a finding names the file by and [`Universal::path`] is what reads it.
+    /// Two spellings of one location, held to each other here.
+    #[test]
+    fn the_relative_path_is_the_one_the_loader_reads() {
+        let root = Path::new("/somewhere/repo");
+        assert_eq!(
+            Universal::path(root)
+                .strip_prefix(root)
+                .expect("under the root"),
+            Path::new(REL)
+        );
     }
 }

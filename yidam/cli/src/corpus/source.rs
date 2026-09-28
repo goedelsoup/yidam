@@ -25,6 +25,16 @@ pub struct Source {
     /// so that an empty list is silent. A corpus adopting the field opts into the checks; a
     /// corpus that has not adopted it sees no new findings at all.
     pub artifacts: Vec<crate::parse::CatalogArtifact>,
+    /// The file's bytes, as they were read.
+    ///
+    /// Kept for the reason [`super::Node::text`] is: `load_sources` had this string in hand and
+    /// threw it away, and a check wanting it read the file again from disk — which is the wrong
+    /// answer under an [`crate::overlay::Overlay`], where the bytes being linted are an unsaved
+    /// buffer and the file on disk is the last thing saved. The first caller is
+    /// [`crate::cmd::lint::checks::findings_malformed`]: findings are recorded on catalog
+    /// entries as well as on instances, so a check over them needs the entry's text and the
+    /// parsed frontmatter does not carry the block.
+    pub text: String,
     /// Why the frontmatter did not parse, when it did not. See
     /// [`crate::parse::parse_frontmatter_reporting`].
     ///
