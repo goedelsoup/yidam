@@ -594,9 +594,17 @@ fn a_decline_outranks_a_build_that_cannot_act() {
     let tmp = repo();
     let root = tmp.path();
     decision(root, "due-clocks", "declined");
-    config(root, "[due.declined]\nindex = \"due-clocks\"\n");
 
-    let index = find(&clocks(root), "index").clone();
+    // `can_build = false` passed directly, and the decline composed by hand, for exactly the
+    // reason [`a_corpus_that_wants_an_index_and_has_none_is_due_one`] gives. Read through
+    // [`clocks`] this asserted the *other* arm's detail: with the feature on there is no
+    // `Unbuildable` to outrank, so it passed on every pull request and failed on `main` under
+    // `ci (cli · full features)`. The `[due.declined] index` config route is not lost with it —
+    // [`a_clock_declined_in_writing_is_not_a_clock_nobody_set`] holds that, on assertions no
+    // build feature can move.
+    let index = clock_index(root, None, false)
+        .declined("due-clocks", &crate::paths::yidam_decisions_dir(root));
+
     assert_eq!(index.state, State::Declined, "{index:?}");
     assert!(index.record.is_some(), "{index:?}");
     assert_eq!(index.remedy, None, "nothing discharges a decline");
