@@ -52,7 +52,7 @@ Three things in it are not obvious and are the reason the RFC is longer than the
 
 `walk_neighbors` chains outbound and inbound edges unconditionally and filters on neither
 relationship nor direction
-([`graph.rs:183-192`](../../yidam/cli/src/cmd/graph.rs#L183-L192)):
+([`graph.rs:186-195`](../../yidam/cli/src/cmd/graph.rs#L186-L195)):
 
 ```rust
 let outward = edges.iter().filter(|(from, _, _)| *from == current) …
