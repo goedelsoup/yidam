@@ -164,12 +164,71 @@ fn region(text: &str) -> Option<Region> {
 }
 
 /// Every finding recorded on this document.
+///
+/// The lenient form, for the callers that only want the set. Everything that decides anything
+/// on the strength of the set being complete should read [`parse_reporting`] instead — see
+/// there for why.
 pub fn parse(text: &str) -> Vec<Finding> {
+    parse_reporting(text).0
+}
+
+/// Every finding recorded on this document, and why the block did not read when it did not.
+///
+/// **A corpus's baseline is made of these**, which is what makes an unreported failure here
+/// worse than it looks (#1081). [`parse`] read the block through `unwrap_or_default()`, so one
+/// malformed entry lost *every* finding on the document, and nothing said so. What follows
+/// from that is not a missing line in a report:
+///
+/// - `propose` reads the block to decide what is already open. A document whose block does not
+///   read looks like a document with no outstanding questions, so every finding on it is
+///   opened again — as a new record, with a fresh `opened_at`, and the ids the author had
+///   already `close:`d come back.
+/// - `close:` matches on [`Finding::id`]. A question retired at one commit is outstanding
+///   again at the next, and the corpus cannot tell the difference between that and a check
+///   re-reporting something genuinely unfixed.
+/// - The count is the corpus's own answer to how many of its open questions are the tool's,
+///   which was the whole reason the record is namespaced rather than prose.
+///
+/// **And the file parses.** That is why this is not
+/// [`crate::cmd::lint::checks::malformed_yaml`]'s arm: [`crate::corpus::CorpusInstance`] carries
+/// unknown top-level keys in a flattened `Mapping`, and a catalog entry's `Frontmatter` ignores
+/// them, so a `yidam:` block that is well-formed YAML of the wrong *shape* — an entry with no
+/// `check:`, a `findings:` that is a string — leaves both records reporting a clean parse. The
+/// bytes are YAML; they are not this record. `crate::cmd::lint::checks::findings_malformed`
+/// reports it.
+///
+/// Only a document that *has* a block is reported — see [`declares_container`] for how that is
+/// decided, and why it is not decided by looking for the header line.
+pub fn parse_reporting(text: &str) -> (Vec<Finding>, Option<String>) {
     let Some(r) = region(text) else {
-        return Vec::new();
+        return (Vec::new(), None);
     };
-    let doc: Document = serde_yaml::from_str(&text[r.start..r.end]).unwrap_or_default();
-    doc.yidam.map(|c| c.findings).unwrap_or_default()
+    let yaml = &text[r.start..r.end];
+    match serde_yaml::from_str::<Document>(yaml) {
+        Ok(doc) => (doc.yidam.map(|c| c.findings).unwrap_or_default(), None),
+        Err(e) => (Vec::new(), declares_container(yaml).then(|| e.to_string())),
+    }
+}
+
+/// Whether this YAML has a top-level `yidam:` key at all, whatever is under it.
+///
+/// This is the discrimination [`parse_reporting`] turns on, and it is a second parse rather
+/// than a look at the text. A file whose YAML is broken *somewhere else entirely* fails the
+/// typed parse too, and naming `yidam:` about it would name the wrong key — that file is
+/// [`crate::cmd::lint::checks::malformed_yaml`]'s. So: a document that is not YAML is not this
+/// reader's, and a document that is YAML and has the key failed the typed parse on the shape of
+/// the block, which is exactly the finding.
+///
+/// **Not [`block_lines`].** That looks for a line that is exactly `yidam:`, because it exists to
+/// find a block this tool *wrote* and this tool writes it that way. It is the wrong question
+/// here: `yidam: {findings: [{id: abc}]}` is a document with the key and no such line, and the
+/// first cut of this function used it and left that document unreported — the same shape of
+/// hole as the one #1081 is about, one level down.
+fn declares_container(yaml: &str) -> bool {
+    serde_yaml::from_str::<serde_yaml::Value>(yaml).is_ok_and(|v| {
+        v.as_mapping()
+            .is_some_and(|m| m.iter().any(|(k, _)| k.as_str() == Some(CONTAINER)))
+    })
 }
 
 /// Render the block, at the indentation the container implies.
@@ -441,5 +500,91 @@ mod tests {
         let text = add(&text, &open("dangling-edge", "two")).unwrap();
         assert_eq!(text.matches("yidam:").count(), 1, "{text}");
         assert_eq!(parse(&text).len(), 2);
+    }
+
+    // ── the block that does not read (#1081) ─────────────────────────────────
+
+    /// The case the whole check exists for, asserted where it is counter-intuitive: the block
+    /// is broken and **the file is not**. Both records read these bytes as a clean parse, so
+    /// without this reader nothing anywhere knows the findings were lost.
+    #[test]
+    fn a_block_of_the_wrong_shape_is_reported_and_the_file_still_parses() {
+        // Valid YAML throughout. The entry simply is not a `Finding`: no `check:`, no `detail:`.
+        let text = "class: concept\nyidam:\n  findings:\n    - id: 7f3a1c94b2e1\n";
+
+        let (found, why) = parse_reporting(text);
+        assert!(found.is_empty(), "the lenient read is still what happens");
+        let why = why.expect("an entry that is not a finding");
+        assert!(why.contains("check"), "the reason names the field: {why}");
+
+        // And the two records that are supposed to catch unreadable files do not catch this
+        // one, which is the reason it needs a check of its own.
+        let n = crate::corpus::Node::parse(std::path::PathBuf::from("c/x.yml"), "c/x.yml", text);
+        assert_eq!(n.malformed, None, "the instance parses");
+        assert_eq!(n.inst.class.as_deref(), Some("concept"));
+        let (_, fm_malformed) =
+            crate::parse::parse_frontmatter_reporting(&format!("---\n{text}---\nbody\n"));
+        assert_eq!(fm_malformed, None, "the catalog entry parses");
+    }
+
+    /// Every shape but the record, including the two that put the key on one line. The header
+    /// line is the only form this tool writes and was the only one [`declares_container`] could
+    /// see at first; a hand-edited or machine-generated document has no reason to use it.
+    #[test]
+    fn a_block_of_any_shape_but_the_record_is_reported() {
+        for text in [
+            "yidam: findings\n",
+            "yidam:\n  findings: three\n",
+            "yidam: {findings: [{id: abc}]}\n",
+            "class: concept\nyidam: {findings: [{id: abc}]}\n",
+            "yidam:\n  findings:\n    - 'a sentence, not a record'\n",
+        ] {
+            assert!(parse_reporting(text).1.is_some(), "{text:?}");
+        }
+    }
+
+    /// Every shape a document legitimately has, including the one the block is written in.
+    /// A false positive here fires on nearly every node in every corpus.
+    #[test]
+    fn a_document_with_no_block_or_a_sound_one_is_not_reported() {
+        let sound = add("class: concept\n", &open("orphan-in", "nothing links here")).unwrap();
+        for text in [
+            "",
+            "\n",
+            "class: concept\n",
+            "yidam: {}\n",
+            "yidam:\n  findings: []\n",
+            &sound,
+            "---\nobtained: true\n---\nbody\n",
+        ] {
+            assert_eq!(parse_reporting(text).1, None, "{text:?}");
+        }
+    }
+
+    /// A file broken somewhere else entirely is **not** this check's, and naming `yidam:` about
+    /// it would name the wrong key. `malformed-yaml` reports that file, and the suppression
+    /// there would drop this finding about it in any case — so the discrimination is here, at
+    /// the reader, rather than left to the thing downstream that happens to hide it.
+    #[test]
+    fn a_file_broken_away_from_the_block_is_not_attributed_to_the_block() {
+        let text = "label: \"unclosed\nclass: concept\n";
+        assert_eq!(
+            parse_reporting(text).1,
+            None,
+            "no `yidam:` block here to blame"
+        );
+        assert!(
+            crate::corpus::Node::parse(std::path::PathBuf::from("c/x.yml"), "c/x.yml", text)
+                .malformed
+                .is_some(),
+            "and the record that owns this file does report it"
+        );
+    }
+
+    /// Inside a catalog entry's frontmatter, which is the other half of the population.
+    #[test]
+    fn the_block_is_read_from_a_catalog_entry_too() {
+        let text = "---\nobtained: true\nyidam:\n  findings:\n    - id: abc\n---\nbody\n";
+        assert!(parse_reporting(text).1.is_some());
     }
 }

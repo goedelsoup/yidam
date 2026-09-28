@@ -390,6 +390,65 @@ walking the directory. A fallback restores the whole hole in the circumstance no
 source has to be a git checkout anyway. The `.yidam.toml` pin it writes is read from that same
 git directory.
 
+### `malformed-yaml` reads `.yidam/corpus/universal.yml` too
+
+**`yidam lint` now gates on a universal-declarations file whose YAML does not parse (#1081).**
+The check covered the four records a corpus is written in after #1056. The fifth file a lint run
+reads was still read through `unwrap_or_default()`. A single unclosed quote in it read as a file
+declaring no universals. Every check that consults them then passed over an empty list. A gate
+reported clean over declarations it had not read.
+
+**What changes for you: a lint run that passed may now fail.** Nothing about your corpus
+changed. The finding names `.yidam/corpus/universal.yml` and quotes the parser's line and
+column. Every other finding about that file is suppressed until it reads. A repository with no
+such file is unchanged and is not reported. Absent is a legitimate answer; unreadable is not.
+
+### A document whose `yidam:` block is not a findings record is reported
+
+**New `findings-malformed` check (#1081).** An instance or catalog entry may carry a `yidam:`
+block in its frontmatter holding findings. The block is ordinary YAML, so the *file* parses.
+`malformed-yaml` has nothing to say about it. But a block of the wrong shape decoded to no
+findings at all, silently. Three shapes did, all of them legal YAML:
+
+- A list where a mapping was wanted.
+- A bare string.
+- A mapping whose keys are not the record's.
+
+Each read as a document with no findings.
+
+**What changes for you: a document carrying a block nothing could read now fails the gate.** The
+finding quotes the decoding error. A document with no `yidam:` block is not reported, and neither
+is one whose block reads. A file whose *frontmatter* is broken is reported by `malformed-yaml` as
+before and is not attributed to the block.
+
+### `yidam doctor` counts all four records, and reads your bundle manifests
+
+**`yidam doctor` (#1081).** The corpus line counted instances and classes. It printed
+`N file(s), all readable` on a repository with an unreadable catalog entry or decision record.
+That is the same silence `malformed-yaml` had before #1056. It was in the command people run to
+ask whether a repository is sound. The line now counts all four records, and a failure names how
+many of how many do not parse.
+
+**The corpora line now reports an unpacked bundle whose `manifest.yml` does not parse.** That
+file is where a dependency's commit, genesis digest and index model are read from. Every field
+in it is optional, because an older bundle format legitimately omits them. So a manifest nobody
+could read was indistinguishable from an old one. It also switched off the shadow check, which
+compares genesis digests and stays quiet when either side is unknown. `tonpa install` now warns
+on the same condition as it writes the file.
+
+**What changes for you: `doctor` may now fail where it passed.** The remedy for a manifest is
+`mise run tonpa-install`. The remedy for a corpus file is `yidam lint`, which quotes the parse
+error. A dependency that is not installed is reported as not installed, and not also as
+unreadable.
+
+### `samudaya audit` says when a seed's header did not parse
+
+**`yidam samudaya audit` (#1081).** A seed whose frontmatter does not parse was read as a seed
+declaring nothing. The audit then reported the fields it found missing — `kind:` first — rather
+than the reason it found nothing. The parse error is now reported for that file. The field-level
+complaints are not, since none of them was measured. A seed with no frontmatter at all is
+unchanged: it has contradicted nothing.
+
 ## cli/v0.15.0
 
 ### `yidam clone` copies what git tracks, and refuses a source that is not the template
