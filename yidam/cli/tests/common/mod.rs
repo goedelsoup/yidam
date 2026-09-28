@@ -306,6 +306,44 @@ pub fn install_of(rel: &str) -> Option<(&'static Install, Option<String>)> {
     None
 }
 
+/// Replace the contents of `` `…` `` spans with spaces, preserving byte offsets.
+pub fn blank_code_spans(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut in_code = false;
+    for c in line.chars() {
+        if c == '`' {
+            in_code = !in_code;
+            out.push(c);
+        } else if in_code {
+            for _ in 0..c.len_utf8() {
+                out.push(' ');
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Resolve `target` from `from_dir` lexically. `None` if it climbs above the root.
+pub fn resolve(from_dir: &str, target: &str) -> Option<String> {
+    let mut parts: Vec<&str> = if from_dir.is_empty() {
+        vec![]
+    } else {
+        from_dir.split('/').collect()
+    };
+    for part in target.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            p => parts.push(p),
+        }
+    }
+    Some(parts.join("/"))
+}
+
 /// Files git tracks under `prefix`, repo-relative.
 ///
 /// Tracked rather than walked, because the production vendor step copies out of a
