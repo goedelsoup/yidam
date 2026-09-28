@@ -1516,6 +1516,13 @@ fn check_corpora(root: &Path) -> Answer {
     // apart — RFC-0032 §4.5, and #781, which is that digest arriving.
     let shadowed = crate::deps::shadowed(root);
 
+    // An unpacked bundle whose `manifest.yml` does not parse. Read here rather than inferred
+    // from a missing field, because absence is legitimate in this format and unreadable is not
+    // — and the check just above is one of the things it silently switches off: `shadowed`
+    // compares `genesis_hash` and is documented to stay quiet when either side is unknown, so a
+    // manifest nobody could read reads as a bundle that declined to say which corpus it is.
+    let unreadable = crate::deps::unreadable_manifests(root);
+
     for (name, dep) in &config.dependencies {
         // A path dependency is read where it sits and has nothing to fetch, which is exactly
         // what `cmd_install` decides about it. Counted, not graded.
@@ -1574,13 +1581,22 @@ fn check_corpora(root: &Path) -> Answer {
             short(&s.fetched_genesis),
         ));
     }
+    for (name, why) in &unreadable {
+        detail.push(format!(
+            "{name}: the unpacked bundle's manifest.yml does not parse ({why}) — its \
+             commit, genesis and index model are read as absent, and absent is what an \
+             older bundle format looks like"
+        ));
+    }
     let detail = detail.join("; ");
 
     // A shadow outranks a missing install: one is the wrong corpus being read, the other is
-    // no corpus being read, and the second is visible the moment anything asks for it.
+    // no corpus being read, and the second is visible the moment anything asks for it. An
+    // unreadable manifest ranks with the reinstall cases rather than with the shadow: the
+    // repair is to fetch the bundle again, and `tonpa-install` is already the remedy printed.
     if !shadowed.is_empty() {
         Answer::fail(detail, Some(SHADOW_REMEDY))
-    } else if !missing.is_empty() || !corrupt.is_empty() {
+    } else if !missing.is_empty() || !corrupt.is_empty() || !unreadable.is_empty() {
         Answer::fail(detail, Some(REMEDY))
     } else if !unlocked.is_empty() {
         Answer::warn(detail, Some(REMEDY))
@@ -1613,29 +1629,38 @@ fn short(hash: &str) -> &str {
 /// `doctor` adds is that the question gets *asked* here, so a corpus nothing can read is not
 /// something you discover by noticing that a different command has gone quiet.
 ///
+/// **All four records, since #1081.** It counted instances and classes, and said
+/// `N file(s), all readable` on a repository with an unreadable catalog entry or decision
+/// record — which is the defect it exists to report, committed by the report. A count that
+/// leaves a population out is a clean bill of health over that population, and this line is the
+/// one a person reads first. The wording moved with it: `corpus file(s)`, said only about what
+/// is counted.
+///
 /// Silent on a corpus with no files in it, which is every repository between `bootstrap` and
 /// the first node: `Ok` with `no corpus files yet` says the question was put and had no
 /// subject, which is not the same as a clean bill of health over nothing.
 fn check_corpus(root: &Path) -> Answer {
     let read = crate::corpus::Corpus::open(root);
-    let total = read.instance_paths().len() + read.ont_paths().len();
+    // All four, because the line says `corpus file(s)` and those are the four records a yidam
+    // repository is written in. Counting two of them said `all readable` over a corpus with an
+    // unreadable catalog entry or decision record — the #1081 half of the same defect, one
+    // level up: a count that excludes a population is a clean bill of health over it.
+    let read_outcomes: Vec<bool> = read
+        .nodes()
+        .iter()
+        .map(|n| n.malformed.is_some())
+        .chain(read.classes().iter().map(|c| c.malformed.is_some()))
+        .chain(read.sources().iter().map(|s| s.malformed.is_some()))
+        .chain(read.decisions().iter().map(|d| d.malformed.is_some()))
+        .collect();
+    let total = read_outcomes.len();
     if total == 0 {
         return Answer::ok("no corpus files yet");
     }
-
-    let unreadable = read
-        .nodes()
-        .iter()
-        .filter(|n| n.malformed.is_some())
-        .count()
-        + read
-            .classes()
-            .iter()
-            .filter(|c| c.malformed.is_some())
-            .count();
+    let unreadable = read_outcomes.iter().filter(|bad| **bad).count();
 
     match unreadable {
-        0 => Answer::ok(format!("{total} file(s), all readable")),
+        0 => Answer::ok(format!("{total} corpus file(s), all readable")),
         n => Answer::fail(
             format!("{n} of {total} corpus file(s) do not parse"),
             Some("yidam lint"),
@@ -1882,6 +1907,55 @@ mod tests {
             // re-report what `lint` reports.
             assert_eq!(c.remedy.as_deref(), Some("yidam lint"));
         }
+    }
+
+    /// **The two records the count left out (#1081).** With `nodes` and `classes` sound, an
+    /// unreadable catalog entry or decision record was counted by nothing, so the line read
+    /// `2 file(s), all readable` on a corpus with a file in it that nothing could read. Asserted
+    /// one population at a time, because a total that happens to move says nothing about which
+    /// arm moved it — the shape [`crate::corpus::Source`] and
+    /// [`crate::corpus::DecisionRecord`] had in `lint` before #1056.
+    #[test]
+    fn an_unreadable_catalog_entry_or_decision_record_is_counted() {
+        // The sound corpus is two files; each case below adds one more.
+        for (rel, bytes) in [
+            (
+                ".yidam/catalog/pearl-2009.md",
+                "---\nttl_days: \"30\n---\nbody\n",
+            ),
+            (".yidam/decisions/0001-a.yml", "summary: \"unclosed\n"),
+        ] {
+            let tmp = repo_with_corpus(SOUND, SOUND);
+            let path = tmp.path().join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, bytes).unwrap();
+
+            let c = check_corpus(tmp.path());
+            assert_eq!(c.verdict, Verdict::Fail, "{rel}: {}", c.detail);
+            assert!(c.detail.starts_with("1 of 3"), "{rel}: {}", c.detail);
+        }
+    }
+
+    /// And the negative control for the same widening: a catalog entry and a decision record
+    /// that *do* read are counted and not reported. A count is only evidence if both answers
+    /// move with the file.
+    #[test]
+    fn catalog_entries_and_decision_records_that_read_are_counted_and_silent() {
+        let tmp = repo_with_corpus(SOUND, SOUND);
+        for (rel, bytes) in [
+            (
+                ".yidam/catalog/pearl-2009.md",
+                "---\nobtained: true\n---\nbody\n",
+            ),
+            (".yidam/decisions/0001-a.yml", "id: d1\nsummary: fine\n"),
+        ] {
+            let path = tmp.path().join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, bytes).unwrap();
+        }
+        let c = check_corpus(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok, "{}", c.detail);
+        assert_eq!(c.detail, "4 corpus file(s), all readable");
     }
 
     /// A repository between `bootstrap` and its first node has no corpus files, and that is
@@ -2185,6 +2259,57 @@ mod tests {
         std::fs::create_dir(&bundle).unwrap();
         let c = check_corpora(tmp.path());
         assert_eq!(c.verdict, Verdict::Fail, "detail was: {}", c.detail);
+    }
+
+    /// The #1081 arm. An installed corpus that matches `tonpa.lock` is otherwise entirely
+    /// healthy here — the digest check passes, because the digest is over `bundle.yiz` and the
+    /// manifest is what was written *out of* it. So the one thing that reads the manifest
+    /// silently reads every field as absent, and `shadowed` — documented to stay quiet when
+    /// either genesis is unknown — is switched off by it without saying so.
+    #[test]
+    fn an_unpacked_manifest_that_does_not_parse_is_reported() {
+        let tmp = repo_with_corpora(
+            "[dependencies.hydrology]\nurl = \"https://example.com/h.yiz\"\n",
+            &locked("hydrology", b"bundle bytes"),
+            &[("hydrology", b"bundle bytes")],
+        );
+        let unpacked = crate::paths::tonpa_dir(tmp.path()).join("hydrology");
+
+        // The control first: the same tree with a manifest that reads is clean, so the
+        // failure below is the manifest and not the fixture.
+        std::fs::write(
+            unpacked.join("manifest.yml"),
+            "bundle_version: \"1\"\ncommit: \"abc1234\"\n",
+        )
+        .unwrap();
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
+
+        std::fs::write(unpacked.join("manifest.yml"), "commit: \"unclosed\n").unwrap();
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Fail, "detail was: {}", c.detail);
+        assert!(
+            c.detail.contains("hydrology") && c.detail.contains("manifest.yml does not parse"),
+            "{}",
+            c.detail
+        );
+        assert_eq!(c.remedy.as_deref(), Some("mise run tonpa-install"));
+    }
+
+    /// And a dependency with nothing unpacked keeps the sentence it had. The failure is
+    /// already reported as not installed, and a second line saying its manifest could not be
+    /// read would be describing the same absence twice.
+    #[test]
+    fn a_corpus_that_is_not_installed_is_not_also_reported_as_unreadable() {
+        let tmp = repo_with_corpora(
+            "[dependencies.hydrology]\nurl = \"https://example.com/h.yiz\"\n",
+            &locked("hydrology", b"bundle bytes"),
+            &[],
+        );
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Fail);
+        assert!(c.detail.contains("not installed"), "{}", c.detail);
+        assert!(!c.detail.contains("manifest.yml"), "{}", c.detail);
     }
 
     fn derived_repo() -> TempDir {

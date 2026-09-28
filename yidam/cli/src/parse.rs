@@ -154,19 +154,44 @@ pub fn parse_frontmatter(text: &str) -> Frontmatter {
 /// to that reading. An *opened* header is a claim that a document follows, so a header that
 /// never closes, or that closes over YAML the parser rejects, is reported.
 pub fn parse_frontmatter_reporting(text: &str) -> (Frontmatter, Option<String>) {
-    let body = text.trim_start();
-    let Some(rest) = body.strip_prefix("---\n") else {
-        return (Frontmatter::default(), None);
+    parse_header(text)
+}
+
+/// The YAML inside a document's frontmatter block.
+///
+/// `Ok(None)` for a document that opens no header, `Err` for one that opens a header and never
+/// closes it. The distinction is [`parse_frontmatter_reporting`]'s and is explained there.
+fn frontmatter_yaml(text: &str) -> Result<Option<&str>, &'static str> {
+    let Some(rest) = text.trim_start().strip_prefix("---\n") else {
+        return Ok(None);
     };
-    let Some(end) = rest.find("\n---") else {
-        return (
-            Frontmatter::default(),
-            Some("frontmatter opens with `---` and is never closed".to_string()),
-        );
-    };
-    match serde_yaml::from_str(&rest[..end]) {
-        Ok(parsed) => (parsed, None),
-        Err(e) => (Frontmatter::default(), Some(e.to_string())),
+    match rest.find("\n---") {
+        Some(end) => Ok(Some(&rest[..end])),
+        None => Err("frontmatter opens with `---` and is never closed"),
+    }
+}
+
+/// One document's frontmatter, read into whatever header type the caller has, and why it came
+/// back empty when it did.
+///
+/// **One reader for every frontmatter in the repository.** There were two — this and
+/// [`parse_samudaya_seed`], which found the fences itself and ended in `unwrap_or_default()` —
+/// and the second was a reader whose outcome nothing anywhere read (#1081). Two copies of
+/// "where does the header start and stop" is the shape that had `samudaya-audit` reporting
+/// `missing 'kind:' field` about a seed whose header the parser had rejected: the wrong sentence
+/// about the right file, which is worse than silence because it sends the author to the wrong
+/// line.
+fn parse_header<T>(text: &str) -> (T, Option<String>)
+where
+    T: Default + serde::de::DeserializeOwned,
+{
+    match frontmatter_yaml(text) {
+        Ok(None) => (T::default(), None),
+        Ok(Some(yaml)) => match serde_yaml::from_str(yaml) {
+            Ok(parsed) => (parsed, None),
+            Err(e) => (T::default(), Some(e.to_string())),
+        },
+        Err(why) => (T::default(), Some(why.to_string())),
     }
 }
 
@@ -221,14 +246,23 @@ pub struct SamudayaSeed {
 }
 
 pub fn parse_samudaya_seed(text: &str) -> SamudayaSeed {
-    let body = text.trim_start();
-    let Some(rest) = body.strip_prefix("---\n") else {
-        return SamudayaSeed::default();
-    };
-    let Some(end) = rest.find("\n---") else {
-        return SamudayaSeed::default();
-    };
-    serde_yaml::from_str(&rest[..end]).unwrap_or_default()
+    parse_samudaya_seed_reporting(text).0
+}
+
+/// A seed's frontmatter, and why it came back empty when it did.
+///
+/// Through [`parse_header`], which is the same reader a catalog entry goes through — this
+/// function used to find the fences itself and end in `unwrap_or_default()`, so a seed whose
+/// header the parser rejected read as a seed declaring no `kind:` and no `constitutional:`.
+/// That is not silence, which is the part worth spelling out: `samudaya-audit` then reported
+/// `missing 'kind:' field in frontmatter` about a file whose `kind:` was on line 2, and a
+/// constitutional augmentation read as one that had not answered the question — the answer
+/// `augmentation missing 'constitutional: true|false'` would have been given for. Every seed is
+/// consumed once, at genesis, by a derived repository that will never see this file again.
+///
+/// [`crate::cmd::samudaya_audit`] reports the reason.
+pub fn parse_samudaya_seed_reporting(text: &str) -> (SamudayaSeed, Option<String>) {
+    parse_header(text)
 }
 
 /// A crate or package manifest reduced to what an index row carries.

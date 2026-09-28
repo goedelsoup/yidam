@@ -421,24 +421,64 @@ pub const MALFORMED_YAML: &str = "malformed-yaml";
 /// clean over files they did not read. `catalog-artifact-malformed` is not that report — it
 /// fires only on entries that *declare* `artifacts:`, and an entry whose header did not parse
 /// declares none.
+///
+/// # And `universal.yml`, since #1081
+///
+/// The fifth file, and not a fifth record: [`crate::universal::Universal`] is one document per
+/// corpus rather than a type the walk produces many of, so it arrives here as itself and is
+/// named by [`crate::universal::REL`] rather than by a `rel` it carries.
+///
+/// It is the class arm exactly. `.yidam/corpus/universal.yml` declares the properties any
+/// class may carry, the top-level keys that are prose, and whether an edge must name its
+/// standing — and [`crate::universal::Universal::parse`] read it through
+/// `unwrap_or_default()`, so a corpus whose declarations did not parse declared *none of
+/// them*. `undeclared-property` then reports every property the file permits, `property-type`
+/// checks none of them, `node-too-long` measures a node without the prose keys the corpus
+/// named, and `edge-untagged` is switched off entirely — `edge_claims.required` read as absent,
+/// and absent means no. One of those four is noise and three are gates reporting clean, and
+/// nothing anywhere said the file had not been read.
+///
+/// **Reported, not suppressed around.** The findings that go wrong here are about the
+/// *instances*, which is the case [`super::suppress_unparsed`] deliberately leaves alone: a
+/// finding whose subject is a different file stands even where an unreadable one is why it
+/// fired. What was missing is this finding — the one that says why the rest of the report is
+/// not to be trusted.
 pub fn malformed_yaml(
     nodes: &[Node],
     classes: &[Class],
     sources: &[Source],
     decisions: &[DecisionRecord],
+    universal: &crate::universal::Universal,
 ) -> Check {
     // Instances, classes, catalog, decisions — the order [`prose_views`] reads the corpus in,
-    // extended the way the walk is.
+    // extended the way the walk is. `universal.yml` goes last: it is one file rather than a
+    // record type, so appending it leaves every finding a report already had where it was.
     let violations = nodes
         .iter()
-        .map(|n| (&n.rel, &n.malformed))
-        .chain(classes.iter().map(|c| (&c.rel, &c.malformed)))
-        .chain(sources.iter().map(|s| (&s.rel, &s.malformed)))
-        .chain(decisions.iter().map(|d| (&d.rel, &d.malformed)))
+        .map(|n| (n.rel.as_str(), n.malformed.as_deref()))
+        .chain(
+            classes
+                .iter()
+                .map(|c| (c.rel.as_str(), c.malformed.as_deref())),
+        )
+        .chain(
+            sources
+                .iter()
+                .map(|s| (s.rel.as_str(), s.malformed.as_deref())),
+        )
+        .chain(
+            decisions
+                .iter()
+                .map(|d| (d.rel.as_str(), d.malformed.as_deref())),
+        )
+        .chain(std::iter::once((
+            crate::universal::REL,
+            universal.malformed(),
+        )))
         .filter_map(|(rel, why)| {
             Some(Violation::new(
                 rel,
-                format!("does not parse as YAML: {}", why.as_ref()?),
+                format!("does not parse as YAML: {}", why?),
             ))
         })
         .collect();
@@ -457,8 +497,77 @@ pub fn malformed_yaml(
          and no artifacts that never declared `obtained: false` — so it is read as obtained, \
          governed by nothing, and cited by nothing. On a decision record it reads as a record \
          with no `id:` and no `summary:`, which the log renders under its file stem with an em \
-         dash, indistinguishable from a record nobody filled in. Every other finding about \
-         the file is suppressed: fix the parse error and they come back, correct this time.",
+         dash, indistinguishable from a record nobody filled in. On \
+         `.yidam/corpus/universal.yml` it reads as a corpus that declared nothing universal, \
+         so every property that file permits is reported against the instances carrying it, \
+         and the edge-tagging gate it turns on is off. Every other finding about the file is \
+         suppressed: fix the parse error and they come back, correct this time.",
+        violations,
+    )
+}
+
+/// The id of [`findings_malformed`], named once beside the check it licenses nothing for — it
+/// is spelled here for the reason [`MALFORMED_YAML`] is, so the two read as the pair they are.
+pub const FINDINGS_MALFORMED: &str = "findings-malformed";
+
+/// A document whose `yidam:` block is not the record this tool writes there.
+///
+/// The sibling of [`malformed_yaml`], and the reason it is a second check rather than a fifth
+/// arm of that one: **the file parses**. [`crate::corpus::CorpusInstance`] carries unknown
+/// top-level keys in a flattened mapping and a catalog entry's frontmatter ignores them, so a
+/// `yidam:` block that is well-formed YAML of the wrong shape leaves `Node::malformed` and
+/// `Source::malformed` both empty. Reporting it as "does not parse as YAML" would say something
+/// false about the bytes.
+///
+/// # What is lost, which is a baseline rather than a field
+///
+/// The block is where `propose` records the questions it has opened, and
+/// [`crate::findings::parse`] read it through `unwrap_or_default()` — so one entry missing its
+/// `check:` lost every finding on the document, silently. A document whose block does not read
+/// looks like a document with nothing outstanding, and the consequences run the wrong way:
+/// `propose` opens every finding on it again with a fresh `opened_at`, and the ids an author
+/// had already `close:`d come back. The corpus's own count of how many of its open questions
+/// are the tool's — the whole reason the record is namespaced instead of spliced into prose —
+/// is short by however many the document held.
+///
+/// Error, for [`malformed_yaml`]'s reason narrowed to a key this tool owns: nothing but
+/// `propose` and `migrate-findings` write under `yidam:`, so there is no corpus whose authors
+/// ever declared a block of this shape acceptable, and no judgement call to weigh.
+///
+/// # Both populations, because findings live on both
+///
+/// Instances and catalog entries: `propose` walks both, so a check over one of them would be
+/// half a report. The catalog arm is what [`crate::corpus::Source::text`] was added for.
+pub fn findings_malformed(nodes: &[Node], sources: &[Source]) -> Check {
+    let violations = nodes
+        .iter()
+        .map(|n| (n.rel.as_str(), n.text.as_str()))
+        .chain(sources.iter().map(|s| (s.rel.as_str(), s.text.as_str())))
+        .filter_map(|(rel, text)| {
+            let why = crate::findings::parse_reporting(text).1?;
+            Some(Violation::new(
+                rel,
+                format!(
+                    "`{}:` block does not read as findings: {why}",
+                    crate::findings::CONTAINER
+                ),
+            ))
+        })
+        .collect();
+    Check::new(
+        FINDINGS_MALFORMED,
+        "Document whose findings block is not the record it is read as",
+        Severity::Error,
+        "The `yidam:` block is where `yidam propose` records the questions it has opened, and a \
+         block the parser rejects was read as no findings at all — so one entry missing its \
+         `check:` lost every finding on the document and nothing said so. What follows is not a \
+         gap in a report: a document with no readable block looks like a document with nothing \
+         outstanding, so `propose` opens every finding on it again with a fresh `opened_at`, and \
+         the ids an author has already closed come back. The file itself parses — unknown \
+         top-level keys are carried, so neither the instance nor the catalog entry reports a \
+         parse failure — which is why this is reported apart from `malformed-yaml`. Nothing but \
+         `propose` writes under this key, so a block of the wrong shape is never something a \
+         corpus chose.",
         violations,
     )
 }
@@ -3017,6 +3126,7 @@ mod tests {
             retrieved: fm.retrieved,
             ttl_days: fm.ttl_days,
             artifacts: fm.artifacts.unwrap_or_default(),
+            text: text.to_string(),
             malformed,
         }
     }
@@ -3044,6 +3154,7 @@ mod tests {
                 decision("dec/ok.yml", "id: d1\nsummary: fine\n"),
                 decision("dec/bad.yml", "summary: \"unclosed\n"),
             ],
+            &NONE,
         );
         let named: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
         assert_eq!(
@@ -3055,6 +3166,104 @@ mod tests {
             Severity::Error,
             "a gate that cannot read a file"
         );
+    }
+
+    /// The #1081 arm. Asserted two ways round, because the defect was an absence: a corpus
+    /// whose universal declarations do not parse has to be *named*, and one whose declarations
+    /// are merely empty must not be — `Universal::empty()` is the state every corpus starts in,
+    /// and reporting it would make this check fire on nearly every repository.
+    #[test]
+    fn declarations_that_do_not_parse_are_reported_and_an_absent_file_is_not() {
+        let broken = crate::universal::Universal::parse("properties:\n  - name: \"unclosed\n");
+        assert!(
+            broken.malformed().is_some(),
+            "the fixture has to be a parse failure for this case to be about anything"
+        );
+        let c = malformed_yaml(&[], &[], &[], &[], &broken);
+        let named: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
+        assert_eq!(named, vec![crate::universal::REL]);
+        assert!(
+            c.violations[0].detail.contains("does not parse as YAML"),
+            "{:?}",
+            c.violations[0].detail
+        );
+
+        // And the negative control, over the shapes a corpus legitimately has: no file at all,
+        // a file declaring an empty list, and a file declaring something.
+        for u in [
+            crate::universal::Universal::empty(),
+            crate::universal::Universal::parse(""),
+            crate::universal::Universal::parse("properties: []\n"),
+            crate::universal::Universal::parse(
+                "properties:\n  - name: verdict\n    type: string\n",
+            ),
+        ] {
+            let c = malformed_yaml(&[], &[], &[], &[], &u);
+            assert!(c.violations.is_empty(), "{:?}", c.violations);
+        }
+    }
+
+    /// The ordering promise the comment in [`malformed_yaml`] makes: `universal.yml` is
+    /// appended, so adding it moved no finding a report already had.
+    #[test]
+    fn the_universal_arm_is_reported_last() {
+        let c = malformed_yaml(
+            &[Node::parse(
+                PathBuf::from("c/x.yml"),
+                "c/x.yml",
+                "label: \"unclosed\n",
+            )],
+            &[],
+            &[],
+            &[decision("dec/bad.yml", "summary: \"unclosed\n")],
+            &crate::universal::Universal::parse("properties:\n  - name: \"unclosed\n"),
+        );
+        let named: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
+        assert_eq!(named, vec!["c/x.yml", "dec/bad.yml", crate::universal::REL]);
+    }
+
+    // ── findings-malformed ───────────────────────────────────────────────────
+
+    /// Both populations, and the shape that makes this a second check: the two documents below
+    /// parse — `Node::malformed` and `Source::malformed` are both `None` — so `malformed-yaml`
+    /// reports neither of them.
+    #[test]
+    fn a_findings_block_that_does_not_read_is_reported_on_both_populations() {
+        // An entry with an `id:` and nothing else is not a `Finding`.
+        const BROKEN: &str = "yidam:\n  findings:\n    - id: 7f3a1c94b2e1\n";
+        let bad_node = node("c/x.yml", &format!("class: c\n{BROKEN}"));
+        let bad_entry = catalog(
+            "cat/bad.md",
+            &format!("---\nobtained: true\n{BROKEN}---\nb\n"),
+        );
+        assert_eq!(bad_node.malformed, None, "the instance parses");
+        assert_eq!(bad_entry.malformed, None, "the entry parses");
+
+        let c = findings_malformed(&[bad_node], &[bad_entry]);
+        let named: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
+        assert_eq!(named, vec!["c/x.yml", "cat/bad.md"]);
+        assert!(
+            c.violations[0].detail.starts_with("`yidam:` block"),
+            "{:?}",
+            c.violations[0].detail
+        );
+        assert_eq!(c.severity, Severity::Error);
+    }
+
+    /// The negative control, over the corpus every repository actually has: no block anywhere,
+    /// and a block this tool wrote. A false positive here fires on every node in every corpus.
+    #[test]
+    fn a_corpus_whose_blocks_read_is_not_reported() {
+        let written = crate::findings::add(
+            "class: c\n",
+            &crate::findings::Finding::open("orphan-in", "nothing links here", "4f2a1c9"),
+        )
+        .expect("the tool writes its own block");
+        let c = findings_malformed(
+            &[node("c/x.yml", "class: c\n"), node("c/y.yml", &written)],
+            &[catalog("cat/ok.md", "---\nobtained: true\n---\nbody\n")],
+        );
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
     }
 
     /// The state #1056 is about, asserted on the record rather than through the check: an
@@ -3172,6 +3381,7 @@ mod tests {
             retrieved: None,
             ttl_days: None,
             artifacts: Vec::new(),
+            text: String::new(),
             malformed: None,
         }
     }
@@ -3349,6 +3559,7 @@ mod tests {
                 retrieved: a.retrieved.clone(),
                 ttl_days: a.ttl_days,
                 artifacts: Vec::new(),
+                text: String::new(),
                 malformed: None,
             })
             .collect();
@@ -4464,6 +4675,7 @@ mod tests {
             retrieved: None,
             ttl_days: None,
             artifacts: Vec::new(),
+            text: String::new(),
             malformed: None,
         }
     }

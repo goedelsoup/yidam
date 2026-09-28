@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::collections::HashMap;
 
-use crate::parse::parse_samudaya_seed;
+use crate::parse::parse_samudaya_seed_reporting;
 use crate::paths::samudaya_dir;
 
 /// The `kind` values a seed file may declare.
@@ -68,12 +68,23 @@ pub fn samudaya_audit(root: Option<&std::path::Path>) -> Result<()> {
 
     for path in &seed_files {
         let text = std::fs::read_to_string(path).unwrap_or_default();
-        let seed = parse_samudaya_seed(&text);
+        let (seed, malformed) = parse_samudaya_seed_reporting(&text);
         let rel = path
             .strip_prefix(&root)
             .unwrap_or(path)
             .to_string_lossy()
             .to_string();
+
+        // Said first, and said instead of the field complaints below (#1081). A seed whose
+        // header the parser rejected declares nothing, so every `missing 'x:'` line after this
+        // one is about a key that may well be on line 2 — the wrong sentence about the right
+        // file, which sends the author to the wrong place. `_unknown` still counts the file:
+        // the summary's job is to say how many seeds a derived repo inherits, and this is one.
+        if let Some(why) = &malformed {
+            issues.push(format!("{rel}: frontmatter does not parse: {why}"));
+            *kind_counts.entry("_unknown".to_string()).or_insert(0) += 1;
+            continue;
+        }
 
         let kind = match &seed.kind {
             None => {
@@ -173,8 +184,34 @@ mod tests {
     #[test]
     fn parse_seed_constitutional_field() {
         let text = "---\nkind: augmentation\nconstitutional: true\n---\n# Aug\nContent.\n";
-        let seed = parse_samudaya_seed(text);
+        let (seed, malformed) = parse_samudaya_seed_reporting(text);
         assert_eq!(seed.kind.as_deref(), Some("augmentation"));
         assert_eq!(seed.constitutional, Some(true));
+        assert_eq!(malformed, None);
+    }
+
+    /// The #1081 arm, asserted as the *sentence* rather than as a count: the old reader lost the
+    /// header and the audit then said `missing 'kind:' field` about a file whose `kind:` is on
+    /// line 2. A person reading that goes and looks at a line that is already correct.
+    #[test]
+    fn a_seed_whose_header_does_not_parse_says_that_and_not_which_field_is_missing() {
+        // `kind:` and `constitutional:` are both there. The `title:` value is an unclosed quote.
+        let text = "---\nkind: augmentation\nconstitutional: true\ntitle: \"unclosed\n---\n# Aug\n";
+        let (seed, malformed) = parse_samudaya_seed_reporting(text);
+        assert!(malformed.is_some(), "the fixture has to be a parse failure");
+        assert_eq!(
+            seed.kind, None,
+            "and the record it falls back to declares nothing"
+        );
+        assert_eq!(seed.constitutional, None);
+    }
+
+    /// A document with no frontmatter at all has contradicted nothing, and must not be reported
+    /// as unreadable — the distinction `parse_header` is written around.
+    #[test]
+    fn a_seed_with_no_frontmatter_is_not_a_parse_failure() {
+        for text in ["", "# Just a title\n", "Body with no header.\n"] {
+            assert_eq!(parse_samudaya_seed_reporting(text).1, None, "{text:?}");
+        }
     }
 }
