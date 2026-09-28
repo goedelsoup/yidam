@@ -203,6 +203,46 @@ fn the_inherited_tasks_load_and_the_pinned_binary_answers() {
     );
 }
 
+/// A derived repository can replace an inherited task, and the slot to do it ships at genesis.
+///
+/// A task in `mise.toml` loses to one from an include, and among includes the later one
+/// wins. So the only definition that can beat `mise.yidam.toml`'s is in an include listed
+/// after it. Without one in the scaffold, a repository that needed to refuse an inherited
+/// task had to invent the file and learn the ordering rule (#1064).
+///
+/// The empty file is asserted to load quietly first. A name mise reserves for itself —
+/// `mise.local.toml` — also works as an override, but mise reads it a second time as a
+/// config file and warns about every task in it.
+#[test]
+fn an_inherited_task_is_replaced_from_the_overrides_file() {
+    let repo = Derived::bootstrap();
+
+    let out = repo.mise(&["tasks", "--no-header"]);
+    let listed = text(&out);
+    assert!(out.status.success(), "mise could not load:\n{listed}");
+    assert!(
+        !listed.contains("mise.overrides.toml"),
+        "mise says something about the empty overrides file at genesis:\n{listed}"
+    );
+
+    let overrides = repo.path().join("mise.overrides.toml");
+    let shipped = std::fs::read_to_string(&overrides)
+        .expect("the scaffold installs mise.overrides.toml at genesis");
+    std::fs::write(
+        &overrides,
+        format!("{shipped}\n[graph-check]\nrun = \"echo replaced-by-this-repository\"\n"),
+    )
+    .unwrap();
+
+    let out = repo.mise(&["run", "graph-check"]);
+    let ran = text(&out);
+    assert!(
+        out.status.success() && ran.contains("replaced-by-this-repository"),
+        "a `graph-check` in mise.overrides.toml did not replace the inherited one. \
+         It must be listed AFTER mise.yidam.toml in `[task_config] includes`:\n{ran}"
+    );
+}
+
 /// The gate a new repository is told to run must work on the day it is created.
 ///
 /// `mise run ci` failed at genesis: its crate steps ran `cargo --manifest-path

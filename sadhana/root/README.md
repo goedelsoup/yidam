@@ -100,6 +100,11 @@ it owns in `mise.toml` is marked, and everything outside those markers is yours.
 are not tagged, and for those `mise run yidam-build` compiles from the pin as it always has,
 provisioning Rust only at that moment.
 
+To replace or refuse an inherited task, define it in [`mise.overrides.toml`](mise.overrides.toml).
+A task of the same name in `mise.toml` is silently ignored, because mise lets an included task
+win over the file that includes it. The overrides file is included last, and no vendor update
+touches it.
+
 The corpora this repository depends on come down in the same step, from a `postinstall` hook
 that runs `tonpa-install`. It is safe to re-run: anything already unpacked is verified against
 `tonpa.lock` and left alone. One caveat worth knowing — mise logs a failing postinstall hook as

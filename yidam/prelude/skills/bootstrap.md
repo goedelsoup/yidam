@@ -340,7 +340,8 @@ Then read each template file in `sadhana/`:
 - `sadhana/skills/README.md`
 - `sadhana/web/README.md`
 - `sadhana/root/README.md`, `sadhana/root/AGENTS.md`, `sadhana/root/CLAUDE.md`, `sadhana/root/mise.toml`,
-  `sadhana/root/gitattributes`, `sadhana/root/gitignore`, `sadhana/root/PRACTICE.md`
+  `sadhana/root/mise.overrides.toml`, `sadhana/root/gitattributes`, `sadhana/root/gitignore`,
+  `sadhana/root/PRACTICE.md`
 - `sadhana/config.toml`
 - every file in `sadhana/github/workflows/` — run `ls sadhana/github/workflows/` and read
   each one; do not assume a fixed list (#589)
@@ -400,13 +401,15 @@ sadhana/root/README.md            → README.md            (overwrites yidam's)
 sadhana/root/AGENTS.md            → AGENTS.md            (overwrites yidam's)
 sadhana/root/CLAUDE.md            → .claude/CLAUDE.md    (overwrites yidam's)
 sadhana/root/mise.toml            → mise.toml            (overwrites yidam's)
+sadhana/root/mise.overrides.toml  → mise.overrides.toml  (yidam keeps no copy)
 sadhana/root/gitattributes        → .gitattributes       (overwrites yidam's)
 sadhana/root/gitignore            → .gitignore           (overwrites yidam's)
 sadhana/root/PRACTICE.md          → PRACTICE.md          (yidam keeps no copy)
 ```
 
-Overwrite all six now. Do not merge yidam's content into them. `PRACTICE.md` installs new
-rather than overwriting; step 8.5's `yidam regen` fills its block.
+Overwrite all six now. Do not merge yidam's content into them. `PRACTICE.md` and
+`mise.overrides.toml` install new rather than overwriting; step 8.5's `yidam regen` fills
+`PRACTICE.md`'s block.
 [why](bootstrap.evidence.md#overwrite-do-not-merge)
 
 **`.github/workflows/` — replace the directory, do not overwrite files inside it.** In

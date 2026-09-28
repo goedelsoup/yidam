@@ -200,6 +200,12 @@ pub const MAPPING: &[Install] = &[
     row("sadhana/root/AGENTS.md", Some("AGENTS.md")),
     row("sadhana/root/CLAUDE.md", Some(".claude/CLAUDE.md")),
     row("sadhana/root/mise.toml", Some("mise.toml")),
+    // Installs new: yidam's own mise.toml includes no overrides file, and a vendor update
+    // never writes one, so the repository's overrides of inherited tasks survive it (#1064).
+    row(
+        "sadhana/root/mise.overrides.toml",
+        Some("mise.overrides.toml"),
+    ),
     row("sadhana/root/gitattributes", Some(".gitattributes")),
     row("sadhana/root/gitignore", Some(".gitignore")),
     // The one root file yidam keeps no copy of: the template's own history is a CLI's, not

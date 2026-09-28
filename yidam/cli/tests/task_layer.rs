@@ -146,6 +146,57 @@ fn the_derived_config_puts_the_pinned_binary_first() {
     );
 }
 
+/// The overrides file is the last include, ships empty, and no vendor update writes it.
+///
+/// Each of the three is what makes it an override point rather than a file (#1064). A task
+/// in `mise.toml` loses to one from an include, and the later include wins, so the file only
+/// overrides from after `mise.yidam.toml`. It ships with no tasks because any it held would
+/// replace inherited ones in every repository at genesis. And a vendor update that wrote it
+/// would take the repository's overrides with it. `derived_repo_smoke` runs mise against it.
+#[test]
+fn the_overrides_file_is_the_last_include_and_stays_the_repositorys() {
+    const OVERRIDES: &str = "mise.overrides.toml";
+
+    let cfg = parse("sadhana/root/mise.toml");
+    let includes: Vec<&str> = cfg["task_config"]["includes"]
+        .as_array()
+        .expect("[task_config] includes is an array")
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    let inherited = includes.iter().position(|i| *i == "mise.yidam.toml");
+    assert!(
+        inherited.is_some() && includes.last() == Some(&OVERRIDES),
+        "sadhana/root/mise.toml must include {OVERRIDES} LAST, after mise.yidam.toml. \
+         An earlier include loses to a later one, so anywhere else it overrides nothing: \
+         {includes:?}"
+    );
+
+    let shipped = parse(&format!("sadhana/root/{OVERRIDES}"));
+    assert!(
+        shipped.is_empty(),
+        "sadhana/root/{OVERRIDES} must ship with no tasks. Each table in it is a task that \
+         replaces an inherited one in every repository at genesis: {:?}",
+        shipped.keys().collect::<Vec<_>>()
+    );
+
+    let inherited_tasks = parse("mise.yidam.toml");
+    let writers: Vec<&String> = inherited_tasks
+        .iter()
+        .filter(|(_, t)| {
+            t.get("run")
+                .and_then(|r| r.as_str())
+                .is_some_and(|r| r.contains(OVERRIDES))
+        })
+        .map(|(name, _)| name)
+        .collect();
+    assert!(
+        writers.is_empty(),
+        "{writers:?} in mise.yidam.toml touch {OVERRIDES}. It is the repository's own file; \
+         a vendor update that writes it discards the overrides it exists to keep"
+    );
+}
+
 /// A task the derived CI invokes must exist in the layer that defines it.
 ///
 /// `sadhana/root/mise.toml`'s `ci` task runs `mise run graph-check`, which comes from the

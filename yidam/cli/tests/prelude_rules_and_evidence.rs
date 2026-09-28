@@ -304,7 +304,13 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_836), ("sadhana/root/A
 /// **Raised to 27,898 when `GRAPH.md` gained `migrate value` (#1120).** The delta is **24 words
 /// in `GRAPH.md`**, the same 24 both recurring routes moved by, and 27,874 + 24 is this figure
 /// exactly, so nothing else on the path moved.
-const BOOTSTRAP_CEILING: usize = 27_898;
+///
+/// **Raised to 27,908 when the scaffold gained `mise.overrides.toml` (#1064).** The delta is
+/// **10 words in `bootstrap.md`**: the new file's name in step 3's read list and install table,
+/// and the sentence saying it installs new. 27,898 + 10 is this figure exactly, so nothing else
+/// on the path moved. Nothing is argued in the evidence half; the reason lives in the file
+/// itself, which is what a derived repository reads.
+const BOOTSTRAP_CEILING: usize = 27_908;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -395,11 +401,15 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// the same 24 the three ceilings moved by. Nothing arrived in the evidence half, because the
 /// row states an operation and the argument for it is RFC-0044's own.
 ///
+/// **`bootstrap.md` re-measured to 10,810 for #1064.** 10 words arrived, all in the rules half:
+/// step 3 names `mise.overrides.toml` among the root files. 10,800 + 10 is this figure exactly,
+/// and the 10 are the same 10 [`BOOTSTRAP_CEILING`] moved by.
+///
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_399),
     ("yidam/prelude/GRAPH.md", 9_540),
     ("yidam/prelude/guidelines/directories.md", 12_604),
-    ("yidam/prelude/skills/bootstrap.md", 10_800),
+    ("yidam/prelude/skills/bootstrap.md", 10_810),
 ];
 
 fn read(rel: &str) -> String {

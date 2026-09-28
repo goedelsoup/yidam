@@ -47,6 +47,28 @@ and catalog entries, it says how many the artifact cites and how many cite it. I
 without an object, and for a `projected` corpus. The field is not required in the report
 schema, so output from an older CLI still validates.
 
+### A derived repository overrides inherited tasks from `mise.overrides.toml`
+
+**The scaffold ships an include slot for overriding inherited tasks (#1064).** A task in
+`mise.toml` cannot override one from `mise.yidam.toml`. In mise, an included task wins over the
+file that includes it. Among includes, the later one wins. A repository that needed to replace
+an inherited task had to invent a second include. It also had to learn that rule. New
+repositories now get `mise.overrides.toml` at genesis, empty and listed last. No vendor update
+writes it.
+
+**What changes for you: nothing, unless you want the slot.** An existing repository keeps its
+`mise.toml`, which the vendor update does not rewrite. To adopt it, list the file after the
+inherited layer:
+
+```toml
+[task_config]
+includes = ["mise.yidam.toml", "mise.overrides.toml"]
+```
+
+A missing include is skipped without a word, so the line is safe before the file exists. A
+repository that already keeps its own override include can keep it, or rename it. Do not use
+`mise.local.toml`: mise also loads that name as a config file and warns about every task in it.
+
 ### `migrate value` renames one value of a closed set
 
 **A value of a declared `values:` set can be renamed as one event (#1120).** Declaring a set

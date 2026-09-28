@@ -14,9 +14,14 @@
 # on an individual task, never on a config file. It warns about the unknown field
 # and carries on, so the failure looks like nothing at all — every inherited task
 # just isn't there, and `mise run graph-check` reports an unknown task.
+#
+# To REPLACE or REFUSE an inherited task, use mise.overrides.toml, not this file.
+# A task in an include beats one defined here, and the later include wins, so
+# `[tasks.graph-check]` below would be silently ignored. mise.overrides.toml is
+# listed last for exactly that reason, and the vendor update never touches it.
 
 [task_config]
-includes = ["mise.yidam.toml"]
+includes = ["mise.yidam.toml", "mise.overrides.toml"]
 
 # `.yidam/bin` first, so everything mise runs resolves the binary this repository
 # pinned rather than whichever `yidam` some earlier `cargo install` left in
