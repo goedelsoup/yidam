@@ -149,10 +149,12 @@ jobs:
         run: |
           set -eu
           expected="${GITHUB_REF_NAME#edit/v}"
-          # npm's registry is read-your-writes behind a CDN; the version is usually there
-          # immediately and occasionally a few seconds later. Poll rather than sleep.
+          # The packument sits behind Cloudflare with `max-age=300`, longer than this whole
+          # poll, so a 404 cached before the publish outlives it: #909's first successful
+          # publish failed here on exactly that. A unique query string is a cache MISS;
+          # a `Cache-Control: no-cache` request header is not — the CDN answers HIT.
           for _ in $(seq 1 20); do
-            got=$(curl -sS https://registry.npmjs.org/@goedelsoup/yidam-edit \
+            got=$(curl -sS "https://registry.npmjs.org/@goedelsoup/yidam-edit?t=$(date +%s%N)" \
                     | jq -r '."dist-tags".latest // ""')
             [ "$got" = "$expected" ] && break
             sleep 6
