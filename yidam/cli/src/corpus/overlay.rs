@@ -25,9 +25,21 @@ impl Overlay {
 
     /// The buffer if one is open, otherwise the file.
     pub fn read(&self, path: &Path) -> String {
+        self.try_read(path).unwrap_or_default()
+    }
+
+    /// The same, distinguishing *empty* from *not there*.
+    ///
+    /// [`Self::read`]'s empty string is right for every check that walks a directory and then
+    /// reads what it found: the file was there a moment ago, and a race is not a finding. It is
+    /// wrong for a file some *declaration* names — `capabilities.toml` naming a calculator
+    /// script is the case this exists for (#1099) — where the path not resolving is the
+    /// commonest authoring mistake there is, and reporting it as an empty script would report
+    /// it as a type error instead.
+    pub fn try_read(&self, path: &Path) -> Option<String> {
         match self.0.get(path) {
-            Some(text) => text.clone(),
-            None => std::fs::read_to_string(path).unwrap_or_default(),
+            Some(text) => Some(text.clone()),
+            None => std::fs::read_to_string(path).ok(),
         }
     }
 

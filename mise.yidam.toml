@@ -340,12 +340,36 @@ if [ -n "$pinned_at" ]; then
 fi
 moved=$(git -C "$tmp/y" diff --name-only "$commit" origin/HEAD -- yidam/prelude/ 2>/dev/null | wc -l | tr -d ' ')
 echo "prelude   $moved file(s) changed since the pin"
+# The verbs, and only the verbs. A row is a verb because its table's header is
+# `| Verb | When |`, not because its first cell is a backticked lowercase word.
+# GRAPH.md carries tables of ref namespaces, directories and `edge_policy` values
+# in exactly that shape, and the first version of this read all of them: a derived
+# repo's update announced the two `edge_policy` values as new commit verbs, which
+# teaches the operator to skip the line that matters. `yidam vocabulary` anchors on
+# the same header and cannot stand in here — these verbs come out of two git
+# revisions of the file, neither of them the checked-out one.
+verbs_from_graph() {
+  awk -F'|' '
+    /^[[:space:]]*\\|/ {
+      h = $2; w = $3
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", h)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", w)
+      if (tolower(h) == "verb" && tolower(w) == "when") { t = 1; next }
+      if (!t) next
+      if (h ~ /^[-:]+$/) next
+      gsub(/`/, "", h)
+      if (h ~ /^[a-z]+$/) print h
+      next
+    }
+    { t = 0 }
+  ' | sort -u
+}
 if git -C "$tmp/y" diff --name-only "$commit" origin/HEAD -- yidam/prelude/GRAPH.md 2>/dev/null | grep -q .; then
   before="$tmp/vb"; after="$tmp/va"
   git -C "$tmp/y" show "$commit:yidam/prelude/GRAPH.md" 2>/dev/null \\
-    | sed -n 's/^| `\\([a-z]*\\)` |.*/\\1/p' | sort -u > "$before" || true
+    | verbs_from_graph > "$before" || true
   git -C "$tmp/y" show "origin/HEAD:yidam/prelude/GRAPH.md" 2>/dev/null \\
-    | sed -n 's/^| `\\([a-z]*\\)` |.*/\\1/p' | sort -u > "$after" || true
+    | verbs_from_graph > "$after" || true
   added=$(comm -13 "$before" "$after" || true)
   removed=$(comm -23 "$before" "$after" || true)
   if [ -n "$added" ] || [ -n "$removed" ]; then
@@ -630,9 +654,27 @@ fi
 # A derived repo once spent four commits reverting a verb that upstream had blessed
 # the same day, because nothing told it either fact.
 if [ -n "$previous" ] && [ "$previous" != "unknown" ] && [ "$previous" != "$commit" ]; then
+  # The verbs, and only the verbs — anchored on the `| Verb | When |` header, for the
+  # reason `yidam-vendor-status` states at length. Each task's `run` is its own script,
+  # so the function is defined twice; if you change one, change both.
+  verbs_from_graph() {
+    awk -F'|' '
+      /^[[:space:]]*\\|/ {
+        h = $2; w = $3
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", h)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", w)
+        if (tolower(h) == "verb" && tolower(w) == "when") { t = 1; next }
+        if (!t) next
+        if (h ~ /^[-:]+$/) next
+        gsub(/`/, "", h)
+        if (h ~ /^[a-z]+$/) print h
+        next
+      }
+      { t = 0 }
+    ' | sort -u
+  }
   verbs_at() {
-    git -C "$tmp/yidam" show "$1:yidam/prelude/GRAPH.md" 2>/dev/null \\
-      | sed -n 's/^| `\\([a-z]*\\)` |.*/\\1/p' | sort -u
+    git -C "$tmp/yidam" show "$1:yidam/prelude/GRAPH.md" 2>/dev/null | verbs_from_graph
   }
   before=$(verbs_at "$previous")
   after=$(verbs_at "$commit")

@@ -700,6 +700,14 @@
       "rationale": "A policy in `.yidam/policy/` supersedes the default `yidam` carries, and may permit what the default refused — that is the authoritative model RFC-0024 settled on, and a repository is entitled to use it. This check does not object to that. It exists so that the choice cannot be made quietly: a guard loosened in a file nobody reads is the shape `.yidam/private-paths` was built to end, where access control looked enforced and was not. Record why in `.yidam/decisions/`, and use `yidam policy test` to see exactly which inherited expectations your rule changed.",
       "escalation_eligible": false,
       "violations": []
+    },
+    {
+      "id": "calculator-script",
+      "title": "a declared calculator reads, and invokes no macro",
+      "severity": "error",
+      "rationale": "RFC-0042's arm is pure because its prelude is closed, and a macro is how a script reopens it: `import!` reaches any module on disk and `io.println` is one call away. Both halves of this check are decidable from the text, so the binary `install.sh` downloads refuses exactly what a binary built with the engine refuses — a gate whose verdict depended on which build the reader was holding would be the divergence the RFC warns about, arriving through the gate instead of through the vocabulary.",
+      "escalation_eligible": false,
+      "violations": []
     }
   ]
 }

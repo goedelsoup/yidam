@@ -265,7 +265,12 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_781), ("sadhana/root/A
 /// **48 words in `GRAPH.md`**, the same 48 the two recurring routes moved by, and 27,610 + 48 is
 /// this figure exactly, so nothing else on the path moved. The 280 further words of argument are
 /// in `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
-const BOOTSTRAP_CEILING: usize = 27_658;
+///
+/// **Raised to 27,784 when step 8.5 moved `lint --init-baseline` behind `lint` (#1060).** The
+/// delta is **126 words in `bootstrap.md`**, and 27,658 + 126 is this figure exactly, so nothing
+/// else on the path moved. The 241 further words of argument are in `bootstrap.evidence.md` and
+/// charged to [`PAIR_FLOOR`].
+const BOOTSTRAP_CEILING: usize = 27_784;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -340,11 +345,16 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// measurement: the evidence half carries the per-corpus table of what the check found, and the
 /// argument for why a finding whose repair is sometimes a rename must not gate.
 ///
+/// **`bootstrap.md` re-measured to 10,800 for #1060.** 367 words arrived — 126 in the rules half,
+/// where step 8.5's gate now runs `lint` before `lint --init-baseline`, and 241 in the evidence
+/// half, which carries the argument for why the order is the whole of it. 10,433 + 367 is this
+/// figure exactly, and the 126 are the same 126 [`BOOTSTRAP_CEILING`] moved by.
+///
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_399),
     ("yidam/prelude/GRAPH.md", 9_365),
     ("yidam/prelude/guidelines/directories.md", 12_604),
-    ("yidam/prelude/skills/bootstrap.md", 10_433),
+    ("yidam/prelude/skills/bootstrap.md", 10_800),
 ];
 
 fn read(rel: &str) -> String {

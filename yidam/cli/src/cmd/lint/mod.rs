@@ -7,6 +7,7 @@
 
 pub(crate) mod attest;
 pub(crate) mod baseline;
+pub(crate) mod calculators;
 pub(crate) mod checks;
 pub(crate) mod citations;
 pub(crate) mod commitments;
@@ -176,8 +177,15 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
 /// verdicts about one repository and a question that vanished cannot be told from one that was
 /// never wired in. A lint check is the other shape — its findings are compared against a
 /// baseline keyed by check id, and a check reporting zero findings because nobody asked for it
-/// would resolve every baseline entry it owns. So the entry is left out of the report
-/// entirely, which is what `--commits` has always done.
+/// would claim the corpus passed a question nobody put to it. So the entry is left out of the
+/// report entirely, which is what `--commits` has always done.
+///
+/// Absence does **not** settle the baseline, and this comment used to imply it did. The
+/// accounting seeds itself from every entry the file carries whichever checks ran, so a corpus
+/// that baselined a finding from a conditional check fails as a *stale* baseline under the
+/// invocation that cannot decide it — #1114, pinned by
+/// `baseline::tests::a_check_that_did_not_run_resolves_its_entries_too`. What absence buys is
+/// the report, not the gate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Asked {
     /// Every run.
@@ -188,6 +196,23 @@ enum Asked {
     /// opt-in because reading the log is not free and because a repository being linted
     /// mid-rebase has a log that is nobody's statement about anything.
     WithCommits,
+    /// Only where this build has a typechecker for the typed calculator arm (#1099).
+    ///
+    /// Not an option the caller passes but a property of the binary: `calculators-gluon` is
+    /// outside the default feature set, so the light binary `install.sh` downloads has no VM to
+    /// typecheck a `.glu` with. The two checks behind this — `calculator-scope` and
+    /// `calculator-type` — are then **absent from the report** rather than reported empty: a
+    /// check that ran and found nothing says the corpus was held to the closed prelude, and a
+    /// binary with no typechecker did not hold it to anything. Reporting that as a pass is the
+    /// one reading of the report nobody could correct from the report.
+    ///
+    /// It does not follow that either binary can gate any corpus. See the [`Asked`] lead-in and
+    /// #1114: a baseline entry for one of these two still resolves in a build without the
+    /// feature, and still fails.
+    ///
+    /// What both binaries do decide is `calculator-script`, which is [`Self::Always`]: the macro
+    /// refusal is text. See [`calculators`] for why the split falls exactly there.
+    WithTypechecker,
 }
 
 impl Asked {
@@ -195,6 +220,7 @@ impl Asked {
         match self {
             Self::Always => true,
             Self::WithCommits => opts.commits,
+            Self::WithTypechecker => cfg!(feature = "calculators-gluon"),
         }
     }
 }
@@ -609,6 +635,24 @@ const ROSTER: &[Entry] = &[
         id: "policy-override",
         asked: Asked::Always,
         run: |i| checks::policy_override(i.policy_overrides()),
+    },
+    // The typed calculator arm, refused from the manifest rather than from a step (#1099). Two
+    // of the three are in the report only where the build has a typechecker; see
+    // `Asked::WithTypechecker`.
+    Entry {
+        id: "calculator-script",
+        asked: Asked::Always,
+        run: |i| i.calculator_checks()[0].clone(),
+    },
+    Entry {
+        id: "calculator-scope",
+        asked: Asked::WithTypechecker,
+        run: |i| i.calculator_checks()[1].clone(),
+    },
+    Entry {
+        id: "calculator-type",
+        asked: Asked::WithTypechecker,
+        run: |i| i.calculator_checks()[2].clone(),
     },
     Entry {
         id: "unrecognized-verb",
@@ -1199,8 +1243,10 @@ decision := {"allow": true, "deny": []}
     /// `i.lineage_checks()[1]` picking the wrong element is a silent mislabelling that
     /// renames a baseline entry's check and resolves the one it used to own.
     ///
-    /// Run with `commits: true` so the one conditional entry is asked for too; a roster entry
-    /// nothing exercises is a roster entry nothing holds to anything.
+    /// Run with `commits: true` so every entry an invocation can ask for is asked for; a roster
+    /// entry nothing exercises is a roster entry nothing holds to anything. The entries this
+    /// *build* cannot ask for are excluded by the same [`Asked`] the roster declares, rather
+    /// than by a number here — see [`asked_of`].
     #[test]
     fn the_roster_declares_the_id_each_entry_produces() {
         let tmp = clean_repo();
@@ -1209,14 +1255,28 @@ decision := {"allow": true, "deny": []}
             ..Options::default()
         };
         let all = run_checks(tmp.path(), &opts);
+        let declared = asked_of(&opts);
         assert_eq!(
             all.len(),
-            ROSTER.len(),
-            "every entry runs when `--commits` is asked for"
+            declared.len(),
+            "every entry this build asks for runs when `--commits` is asked for"
         );
-        let declared: Vec<&str> = ROSTER.iter().map(|e| e.id).collect();
         let reported: Vec<&str> = all.iter().map(|c| c.id).collect();
         assert_eq!(declared, reported);
+    }
+
+    /// The ids the roster would report under `opts`, in order.
+    ///
+    /// Derived from the roster's own [`Asked`] rather than written down, because two of the
+    /// conditions are not options at all: `calculator-scope` and `calculator-type` are in the
+    /// report only where the build has a typechecker (#1099), so a count written here would be
+    /// right in one of the two builds CI runs and wrong in the other.
+    fn asked_of(opts: &Options) -> Vec<&'static str> {
+        ROSTER
+            .iter()
+            .filter(|e| e.asked.of(opts))
+            .map(|e| e.id)
+            .collect()
     }
 
     /// Two entries under one id is a report that describes the same invariant twice and a
@@ -1246,7 +1306,7 @@ decision := {"allow": true, "deny": []}
             .map(|c| c.id)
             .collect();
         assert!(!without.contains(&"unrecognized-verb"), "{without:?}");
-        assert_eq!(without.len(), ROSTER.len() - 1);
+        assert_eq!(without, asked_of(&Options::default()));
 
         let with = run_checks(
             tmp.path(),

@@ -358,6 +358,26 @@ mod tests {
         assert!(!d.is_clean(), "a stale baseline must not pass");
     }
 
+    /// A check that did not run at all resolves its baselined findings, exactly as one that ran
+    /// and found nothing does.
+    ///
+    /// Recorded because [`super::Asked`] reads as though leaving a conditional check out of the
+    /// report avoided this, and it does not: `remaining` is seeded from every entry the baseline
+    /// carries, whichever checks ran. So a corpus that baselines a `--commits` finding, or a
+    /// calculator finding only a build with a typechecker can see, fails as a *stale baseline*
+    /// under the invocation that cannot decide it. What absence does buy is a report that does
+    /// not claim a question was asked; see #1114 for the accounting.
+    #[test]
+    fn a_check_that_did_not_run_resolves_its_entries_too() {
+        let d = diff(&[], &baseline_of(&[("unrecognized-verb", "a.yml")]), &[]);
+        assert_eq!(
+            d.resolved,
+            vec![("unrecognized-verb".into(), "a.yml".into())],
+            "an absent check's entries are leftovers like any other"
+        );
+        assert!(!d.is_clean());
+    }
+
     #[test]
     fn the_same_node_tripping_twice_is_not_collapsed() {
         // Multiset, not set: one baselined occurrence must not excuse two.

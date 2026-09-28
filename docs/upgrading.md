@@ -28,6 +28,28 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### A declared gluon calculator is now refused by `yidam lint`
+
+**`yidam lint` (#1099).** A capability declaring `run = { gluon = "..." }` was only checked when
+it ran. A script at a path that does not exist, or one invoking a macro, was quiet until the
+step. `lint` now refuses all three failures from the manifest, without invoking a calculator.
+
+The three are reported as separate checks. `calculator-script` covers a path that does not read
+and a script invoking a macro. `calculator-scope` covers a name the closed prelude does not bind.
+`calculator-type` covers a script that is not `Corpus -> Computed`.
+
+**What changes for you: a corpus with a broken calculator now fails `lint` where it passed.** The
+repair is the one the step would have demanded anyway. Nothing here is a new rule about what a
+calculator may say — `lint` and `run` call one admission function.
+
+**`calculator-scope` and `calculator-type` need a typechecker.** They are absent from the report
+of a binary built without `calculators-gluon`, which is the one `install.sh` downloads. A build
+that held no script to the prelude should not report that it did. `calculator-script` is text, so
+it gates in every build.
+
+Do not bless either of the two from a full build and then lint from a light one. The entry is
+read as a stale baseline and fails. That gap is #1114.
+
 ### A re-fetched artifact record keeps the `redistributable:` the entry already carried
 
 **`yidam catalog-fetch` (#1074).** A record's `vault:` and `redistributable:` are decisions a

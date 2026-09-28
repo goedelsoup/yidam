@@ -27,8 +27,8 @@ use crate::authorship::{Authorship, Region};
 use crate::corpus::{Class, Corpus, DecisionRecord, Edges, Node, Overlay, Source};
 
 use super::{
-    attest, checks, citations, commitments, edge_claims, independence, line_citations, lineage,
-    local_citations, scope, ttl, Check, Options,
+    attest, calculators, checks, citations, commitments, edge_claims, independence, line_citations,
+    lineage, local_citations, scope, ttl, Check, Options,
 };
 
 /// The corpus, the options, and every reading the checks are answered from.
@@ -69,10 +69,11 @@ pub(crate) struct Input<'a> {
     line_citations: OnceLock<Vec<line_citations::LineCitation>>,
     types: OnceLock<checks::TypeIndex>,
     tag_prose: OnceLock<Vec<checks::ProseView<'a>>>,
+    scripts: OnceLock<Vec<calculators::Script>>,
 
     // ── whole groups ────────────────────────────────────────────────────────────
     //
-    // Six producers answer several checks from one walk, and the roster reaches into the
+    // Seven producers answer several checks from one walk, and the roster reaches into the
     // array they return. Cached here rather than at the call site so the walk happens once
     // however many of its checks are asked for — and so that a roster entry is still one
     // expression. Which index is which id is not left to the reader: every entry declares
@@ -83,6 +84,7 @@ pub(crate) struct Input<'a> {
     scope_checks: OnceLock<[Check; 2]>,
     lineage_checks: OnceLock<[Check; 3]>,
     commitment_checks: OnceLock<[Check; 4]>,
+    calculator_checks: OnceLock<[Check; 3]>,
 }
 
 impl<'a> Input<'a> {
@@ -124,12 +126,14 @@ impl<'a> Input<'a> {
             line_citations: OnceLock::new(),
             types: OnceLock::new(),
             tag_prose: OnceLock::new(),
+            scripts: OnceLock::new(),
             citation_checks: OnceLock::new(),
             local_citation_checks: OnceLock::new(),
             edge_claim_checks: OnceLock::new(),
             scope_checks: OnceLock::new(),
             lineage_checks: OnceLock::new(),
             commitment_checks: OnceLock::new(),
+            calculator_checks: OnceLock::new(),
         }
     }
 
@@ -596,6 +600,21 @@ impl<'a> Input<'a> {
     pub(crate) fn commitment_checks(&self) -> &[Check; 4] {
         self.commitment_checks
             .get_or_init(|| commitments::checks(self.commitments()))
+    }
+
+    /// Every calculator the manifest declares, admitted once (#1099).
+    ///
+    /// Cached like every other group, and here it is not only tidiness: admitting a script
+    /// builds a gluon VM and typechecks a prelude, and the three checks that read the verdict
+    /// must not each pay for one. A corpus declaring no typed calculator — every corpus today —
+    /// walks no VM at all, because the list is empty.
+    pub(crate) fn calculator_checks(&self) -> &[Check; 3] {
+        self.calculator_checks.get_or_init(|| {
+            calculators::checks(
+                self.scripts
+                    .get_or_init(|| calculators::read(self.root, self.overlay)),
+            )
+        })
     }
 
     /// `path`, relative to the repository root — the form every finding names a file in.

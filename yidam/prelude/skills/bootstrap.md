@@ -921,13 +921,31 @@ order a failure is cheapest to fix in:
 ```
 mise run graph-check          # is the graph well-formed
 yidam regen                   # refresh every generated block
-yidam lint --init-baseline    # record what the corpus starts with
-yidam lint                    # and read what it says
+yidam lint                    # and read every finding it reports
 ```
 
 `yidam regen` is the one that is easy to skip and cannot be. The scaffold installed in step 3
 carries `<!-- REGEN: ... -->` markers in seven files, and **every one of them is stale on
 arrival**. [why](bootstrap.evidence.md#regen-cannot-be-skipped)
+
+**If `graph-check` or `lint` reports anything, fix it now.** Fix and amend the commit it
+belongs to, or write a `fix:` commit if the genesis commit has already been pushed.
+[why](bootstrap.evidence.md#fix-while-warm)
+
+**Only once the report has been read and acted on, install the ratchet.** It is the fourth
+command, and it is last for a reason:
+
+```
+yidam lint --init-baseline    # the file the ratchet compares against
+```
+
+It is not optional — a repository with no baseline has no ratchet, and `yidam lint` answers `no
+regression` on every later commit whatever the corpus does. But it writes every error-severity
+finding standing at the moment it runs into `.yidam/lint-baseline.yml`, so **run before the
+report is read, it buys a green gate with debt nobody chose.** On a corpus with no history it
+should record **zero** entries. Any entry it does record is a finding this bootstrap decided to
+accept rather than fix: name each one, and say why it stands, in step 9's **Gate** line.
+[why](bootstrap.evidence.md#the-baseline-is-installed-last)
 
 Commit the refreshed blocks and the baseline together:
 
@@ -939,10 +957,6 @@ git commit -m "regen: REGEN blocks populated on the first run of the gate"
 `regen:` is the operational verb for exactly this — generated content refreshed, no
 understanding changed. Keep it out of the genesis commit: genesis is testimony about what the
 corpus knows, and a regenerated index table is not testimony.
-
-**If `graph-check` or `lint` reports anything, fix it now.** Fix and amend the commit it
-belongs to, or write a `fix:` commit if the genesis commit has already been pushed.
-[why](bootstrap.evidence.md#fix-while-warm)
 
 Do not ask the user to run any of this manually. A bootstrap that hands over a repository
 whose gate it has never run has not finished; it has stopped. One that could not install the

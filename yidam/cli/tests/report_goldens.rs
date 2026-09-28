@@ -193,7 +193,57 @@ fn redact(out: &str, root: &Path) -> String {
             &format!("\"commit\": \"{}\"", env!("YIDAM_BUILD_COMMIT")),
             "\"commit\": \"<COMMIT>\"",
         );
-    redact_features(&redact_first_commit(&redacted))
+    redact_features(&redact_first_commit(&redact_conditional_checks(&redacted)))
+}
+
+/// Drop the checks whose *presence* in the report depends on the build, so one golden is the
+/// expected output of every feature set.
+///
+/// The same failure [`redact`] above records, arriving through the roster instead of through the
+/// envelope: `calculator-scope` and `calculator-type` typecheck a declared calculator, and
+/// `cmd::lint::Asked::WithTypechecker` leaves them out of the report where the binary has no
+/// typechecker (#1099). A golden recorded in the light build would then fail every
+/// `--all-features` run on main, which is the job nothing runs on a pull request.
+///
+/// Redacting loses nothing that is stated here. **Which** builds carry them is asserted directly,
+/// by `capability_run::lint_admits_a_declared_calculator_and_reports_the_typed_checks_only_where
+/// _it_can`, and what they say when they fire is asserted by their own tests. What this golden is
+/// for is the shape of the document and the checks a report carries in every build.
+fn redact_conditional_checks(out: &str) -> String {
+    // The two ids `Asked::WithTypechecker` gates. `calculator-script` is deliberately not here:
+    // it is `Asked::Always`, so it is in every report and the golden pins it.
+    const CONDITIONAL: [&str; 2] = ["calculator-scope", "calculator-type"];
+
+    let mut lines: Vec<String> = out.lines().map(str::to_string).collect();
+    for id in CONDITIONAL {
+        let needle = format!("\"id\": \"{id}\"");
+        let Some(at) = lines.iter().position(|l| l.contains(&needle)) else {
+            continue;
+        };
+        // A check is one element of the `checks` array, which `to_string_pretty` opens and closes
+        // at a fixed indent. Bounded by the lines rather than by brace counting, because a
+        // rationale is prose and may say anything at all about braces.
+        let start = lines[..at]
+            .iter()
+            .rposition(|l| l == "    {")
+            .unwrap_or_else(|| panic!("no element start above `{id}`"));
+        let end = at
+            + lines[at..]
+                .iter()
+                .position(|l| l == "    }" || l == "    },")
+                .unwrap_or_else(|| panic!("no element end below `{id}`"));
+        // Removing the array's last element leaves the one before it with a trailing comma.
+        let was_last = lines[end] == "    }";
+        lines.drain(start..=end);
+        if was_last && start > 0 && lines[start - 1] == "    }," {
+            lines[start - 1] = "    }".to_string();
+        }
+    }
+    let mut joined = lines.join("\n");
+    if out.ends_with('\n') {
+        joined.push('\n');
+    }
+    joined
 }
 
 /// Collapse `first_commit` — the commit a corpus-state finding dates from — to a
@@ -1952,6 +2002,51 @@ fn the_feature_set_is_redacted_whatever_it_holds() {
         "a light and a full build must redact identically"
     );
     assert!(one.contains("<FEATURES>"), "{one}");
+}
+
+/// The conditional checks are dropped, and the ids naming them are the ones the roster uses.
+///
+/// Two failures in one test, and the second is the reason it is not just a string comparison. A
+/// typo in `redact_conditional_checks`'s list is invisible in the light build — the id is not in
+/// the report either way — and shows up as a golden mismatch on main, in the `--all-features` job
+/// nothing runs on a pull request. So the ids are asked of the binary that has them.
+#[cfg(feature = "calculators-gluon")]
+#[test]
+fn the_checks_a_build_may_not_carry_are_redacted_out_of_a_real_report() {
+    let tmp = stage();
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(tmp.path())
+        .args(["lint", "--format", "json"])
+        .output()
+        .unwrap();
+    let raw = String::from_utf8_lossy(&out.stdout);
+    let doc: serde_json::Value = serde_json::from_str(&raw).expect("a JSON report");
+    let reported: Vec<&str> = doc["checks"]
+        .as_array()
+        .expect("a checks array")
+        .iter()
+        .filter_map(|c| c["id"].as_str())
+        .collect();
+    for id in ["calculator-scope", "calculator-type"] {
+        assert!(
+            reported.contains(&id),
+            "this build has a typechecker and `{id}` is not in its report, so the redaction              below is about an id the roster no longer uses"
+        );
+    }
+    let redacted = redact(&raw, tmp.path());
+    for id in ["calculator-scope", "calculator-type"] {
+        assert!(
+            !redacted.contains(id),
+            "`{id}` survived redaction, so this golden is the full build's and fails in the              light one:\n{redacted}"
+        );
+    }
+    // And what stayed is still a document, with the array's last element unterminated by a comma.
+    serde_json::from_str::<serde_json::Value>(&redacted)
+        .expect("redaction left the report unparseable — a dropped last element takes a comma");
+    assert!(
+        redacted.contains("calculator-script"),
+        "the unconditional check was redacted too; it is in every report and the golden pins it"
+    );
 }
 
 /// The `state` enum and the states the code can emit must agree, both ways.
