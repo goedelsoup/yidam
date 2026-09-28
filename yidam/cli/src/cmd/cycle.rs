@@ -297,7 +297,8 @@ fn blocked(root: &Path) -> Vec<Blocked> {
     let checks = crate::cmd::lint::run_checks(root, &opts);
     let baseline = crate::cmd::lint::baseline::Baseline::load(root).unwrap_or_default();
     let corpus_commits = crate::cmd::lint::history::corpus_commits(root);
-    let diff = crate::cmd::lint::baseline::diff(&checks, &baseline, &corpus_commits);
+    let unasked = crate::cmd::lint::unasked(&checks);
+    let diff = crate::cmd::lint::baseline::diff(&checks, &baseline, &corpus_commits, &unasked);
 
     for (check, node) in &diff.introduced {
         out.push(Blocked {
