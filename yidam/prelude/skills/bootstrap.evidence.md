@@ -283,3 +283,24 @@ Findings from the first gate run are about work that was written minutes ago by 
 reading them, which is the cheapest they will ever be to act on. A `catalog-uncited` or a
 `missing-property` at this point is a step-4 or step-6 mistake still warm; the same finding six
 months from now is archaeology.
+
+## the-baseline-is-installed-last
+
+`yidam lint --init-baseline` and `yidam lint` are not two readings of the same state. The first
+writes every error-severity finding into `.yidam/lint-baseline.yml` and exits; the second then
+compares the corpus against that file and finds no regression, because the file was written from
+the corpus a moment earlier. Run in that order the pair cannot report anything, and the gate's
+first run — the one occasion where every finding is about work minutes old — produces a green
+line and no reader.
+
+A derived corpus blessed 44 malformed claim tags at genesis this way. Nobody read them, not
+through inattention but because the `lint` that followed was green, which is what a gate is for.
+The cost is not the 44 findings; it is that the repository's *first* baseline, in a corpus with
+21 commits, was 44 entries long and no operator had chosen a single one.
+
+The baseline itself is not the problem and cannot be dropped: a repository with no
+`lint-baseline.yml` has no ratchet at all, and `yidam lint` reports `no regression` on every
+commit forever. What a bootstrap owes is the empty one — a corpus with no history has no legacy,
+so every finding standing at genesis is a mistake made in the last hour by the agent holding the
+context to fix it, not debt inherited from anyone. Reading the report first is what makes the
+recorded number a decision instead of a measurement.
