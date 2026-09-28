@@ -254,7 +254,7 @@ safety `count` is waiting on.
 ### `count` is pull-shaped, and the guard says so
 
 `count` reads the tracked markdown set — `tracked::list`, for the reason
-[`unclaimed_blocks`](../../yidam/cli/src/cmd/regen.rs#L234) already gives at length — collects
+[`unclaimed_blocks`](../../yidam/cli/src/cmd/regen.rs#L257) already gives at length — collects
 every block whose command begins `yidam count `, runs each distinct query once, and writes each
 block through the single write point.
 
@@ -283,7 +283,7 @@ The block would then have gone from correctly reported by #1062's gate to silent
 which is the exact defect that gate exists to close, introduced by closing this one.
 
 So a generator carrying an argument is claimed a second way and not the first.
-[`PARAMETERISED`](../../yidam/cli/src/cmd/regen.rs#L94) lists `count` with its usage, and
+[`PARAMETERISED`](../../yidam/cli/src/cmd/regen.rs#L97) lists `count` with its usage, and
 [`claimable`](../../yidam/cli/src/cmd/regen.rs#L98-L110) partitions the fifteen: fourteen are
 matched whole, `count` is matched only as its name followed by a space and an argument. **The
 separator is the rule.** Without it `yidam counterexamples` would be claimed by `count`, which is
@@ -362,7 +362,7 @@ precedent for a major in `0.x`.
 
 **The two `update_regen` behaviour changes.** Exact-command matching can only stop a write that
 was landing on the wrong block, and no generator name in this repository is a prefix of another —
-checked over [`generator_names`](../../yidam/cli/src/cmd/regen.rs#L132), the fifteen are pairwise
+checked over [`generator_names`](../../yidam/cli/src/cmd/regen.rs#L135), the fifteen are pairwise
 non-prefixing. Writing every match instead of the first can only write a block that was stale.
 Both are covered by new parity fixtures, and both are stated as postconditions in the model.
 

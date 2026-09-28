@@ -71,7 +71,9 @@ completes rather than restarts — and until every step is recorded, `yidam phas
 phase as **interrupted** rather than active. That is the state nothing could say before: a
 phase whose run died and a phase opened this morning were the same row.
 
-`settle` checks the phase produced outputs and drafts the merge subject. **It does not merge**,
+`settle` refreshes the REGEN blocks and stages them, checks the phase produced outputs and
+drafts the merge subject. A block still stale after that, or one no generator writes, is not
+ready: closing a phase over it is a merge that fails its first build. **It does not merge**,
 and that is a limit rather than an omission — see the next section.
 
 A phase without a record is listed exactly as it always was, with its state read from the ref
@@ -105,7 +107,9 @@ and the table saying how many rows are an inference.
   An authored merge subject is checked against the vocabulary like any other commit; a
   git-generated one is exempt. See [GRAPH.md](GRAPH.md), "Commit vocabulary".
 
-  `yidam phase settle` drafts that subject and prints those three lines. **A person runs them.**
+  `yidam phase settle` drafts that subject and prints those three lines — four, when it
+  refreshed a REGEN block: the `regen:` commit goes first, on the phase branch, because a
+  `--no-ff` merge refuses a dirty index. **A person runs them.**
   `phase:` is an epistemic verb, and a tool that authored one would be claiming the synthesis
   the merge exists to record. `yidam due` states the same limit of this clock: *a person —
   merging a phase, or abandoning it, is not a mechanical consequence of a finding.*

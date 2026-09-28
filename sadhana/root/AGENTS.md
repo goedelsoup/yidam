@@ -142,9 +142,9 @@ broken. Delete this block afterwards.
 
 ## The gate
 
-`mise run ci` is what CI runs: `graph-check`, `graph-lint-gate`, and `regen --check`. A
-commit that breaks an edge, orphans a node, or leaves a REGEN block stale fails there. Run
-it before committing rather than after.
+`mise run ci` is what CI runs; the README's gate table lists it. A commit that breaks an
+edge, orphans a node, or leaves a REGEN block stale fails there. Run it before committing,
+not after.
 
 Run the composite rather than its parts. Each catches something the others do not —
 `graph-check` reads the graph and is blind to a stale REGEN block; `regen --check` reads

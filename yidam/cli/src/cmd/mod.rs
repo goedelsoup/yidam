@@ -29,6 +29,7 @@ mod export_rdf;
 #[cfg(feature = "export-sqlite")]
 mod export_sqlite;
 mod export_web;
+mod gates;
 pub(crate) mod graph;
 #[cfg(feature = "index")]
 // Widened for `crate::retrieval::vector`, which resolves the embedding model by name and
@@ -103,6 +104,7 @@ pub use due::due;
 pub use embed::{embed, EmbedOptions};
 pub use estimate::estimate;
 pub use export::{export, list_formats, run_export, ExportFormat, ExportOptions, RdfFormat};
+pub use gates::gates;
 pub use graph::{graph, neighbors};
 #[cfg(feature = "index")]
 pub use index_build::index_build;
@@ -134,7 +136,7 @@ pub use regen::generator_names as regen_generator_names;
 // `doctor` asks the same question `regen --check` asks, through the same generator list.
 pub use migrate::{migrate, Operation as MigrateOperation};
 pub use policy::{run as run_policy, PolicyCommand};
-pub(crate) use regen::{stale_blocks, unclaimed_blocks};
+pub(crate) use regen::{refresh_quietly, stale_blocks, unclaimed_blocks};
 pub use registry::{agents_index, skills_index};
 pub use rename::rename;
 pub use replay::replay;

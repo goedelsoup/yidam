@@ -141,7 +141,7 @@ pub use cmd::{
     agents_index, backfill, bench, bundle, bundle_status, catalog_audit, catalog_fetch,
     catalog_reconcile, check_diff, citation_label_not_cited, citation_range_stated_twice, clone,
     cohort, collect_line_citations, corpus_index, count, crates_index, cycle, dead_line_citation,
-    decisions_log, diff_corpus, doctor, due, embed, estimate, export, graph, graph_check,
+    decisions_log, diff_corpus, doctor, due, embed, estimate, export, gates, graph, graph_check,
     index_status, index_verify, init, label_range, label_symbols, lint, list_formats, log, migrate,
     neighbors, open_questions, overlay, pack, packages_index, parse_bench_goals, parse_binding,
     phases, propose, query, regen, relocate, rename, replay, retrieve, run_capability, run_export,
