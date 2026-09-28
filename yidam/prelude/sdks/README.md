@@ -356,10 +356,12 @@ false: content can spell an open tag. Stated over the scan it is true, because t
 searches a body for an open tag. `ContentThatSpellsATagIsNotABlock` is the document that
 separates the two forms.
 
-The model's scan and the code's differ in one respect: the model's is not tied to lines. The
-code requires a block-form open tag to start its line and the close tag to stand alone on its
-own line; the model does not. `TheModelsScanIsNotLineAnchored` proves the smallest document
-where this matters, and a test in `markers.rs` pins the code's answer to it.
+The model's scan reads a line at a time, as the code's does. A block-form open tag must start
+its line and its close tag must stand alone on its own line; an inline block has all three tags
+on one line. `ACloseTagMustStandAlone` proves that both sides read no block in a document whose
+close tag shares its line, and a test in `markers.rs` runs the same document against the code.
+`AnOpenTagMidSentenceIsProse` proves that an open tag mid-sentence is prose, so the scan reads
+the block on the next line.
 
 **`classify_commit` — totality and coverage**
 ```

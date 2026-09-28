@@ -111,7 +111,7 @@ writer.
 
 The model has that second locator and does not have the first. `RegenSpan` computes a block's
 four offsets by byte search, and
-[`RegenSpanFindsEveryBlock`](../../yidam/prelude/sdks/spec/graph.dfy#L375-L376) proves it finds
+[`RegenSpanFindsEveryBlock`](../../yidam/prelude/sdks/spec/graph.dfy#L748-L749) proves it finds
 every block that exists:
 
 ```dafny
@@ -191,7 +191,7 @@ hand-authored empty block looks like. `<!-- REGEN: a -->\n<!-- /REGEN -->` — t
 `update_regen` writes when it clears a section — has the body `"\n"` and keeps the block form,
 so the `empty-new-content` fixture is unchanged and so is `ClearingASectionLeavesNoBlankLine`.
 In the model this is two conditions in
-[`RegenBody`](../../yidam/prelude/sdks/spec/graph.dfy#L401-L405), which takes the block's form
+[`RegenBody`](../../yidam/prelude/sdks/spec/graph.dfy#L774-L778), which takes the block's form
 as a second argument and returns the content unwrapped only when the block was inline *and* the
 content will fit there.
 
@@ -202,6 +202,13 @@ rewrites it — so `regen --check` reports drift it caused itself. Deciding on t
 as on the block is what keeps a second call a no-op. The idempotency clause of `UpdateRegenSpec`
 is what says so: with the newline test removed the model stops verifying, which is how the
 condition was found.
+
+The block form has a condition of its own, added by #1137. It is read by line, so it can be
+written only where the block has its line to itself. An inline block inside a sentence, given a
+value with a newline, fits neither form and is left as it is. Written in block form anyway, its
+open tag would become prose, or its close tag would not stand alone and the next run would read
+on to a later block's close tag. In the model this is
+[`Holds`](../../yidam/prelude/sdks/spec/graph.dfy#L816-L818).
 
 The rule has the property that matters for a document people edit: the author decides, once, by
 writing the block, and no later regeneration second-guesses them.
@@ -237,18 +244,29 @@ prefix search of its own that stopped at the first hit. On a document holding a 
 the model, asked for `a`, answered with that block where `update_regen` answers with nothing.
 #1097 closed that. `RegenSpan` is now `FirstWithCommand` over a modelled `RegenScan`, compared
 by equality. `UpdateRegen` rewrites every block the scan names.
-[`TheLocatorComparesTheWholeCommand`](../../yidam/prelude/sdks/spec/graph.dfy#L1085-L1089)
+[`TheLocatorComparesTheWholeCommand`](../../yidam/prelude/sdks/spec/graph.dfy#L2530-L2534)
 is the same document, proved with the code's answer. The cost was `UpdateRegenSpec`'s re-scan
 clause, as predicted. Its induction, `ReadBack`, shows that each rewritten block reads back
 where it was written. The count clause the axiom lost also returned, stated over the scan:
 `Commands(RegenScan(result)) == Commands(RegenScan(text))`.
 
-One difference remains, and the model proves it rather than hiding it. The model's scan is
-not tied to lines. The code requires a block-form open tag to start its line and the close tag
-to stand alone on its own line; the model does not.
-[`TheModelsScanIsNotLineAnchored`](../../yidam/prelude/sdks/spec/graph.dfy#L1236-L1238) is
-the smallest document where the two disagree. `markers.rs` pins the code's answer to it, so a
-change to either side reddens one of them.
+The model's scan was not tied to lines at first. The code requires a block-form open tag to
+start its line and the close tag to stand alone on its own line; the model did not, and a proved
+witness stated the smallest document where the two disagreed. #1137 closed that. `RegenScan`
+now reads a line at a time, following `scan_markers`' block-form branch, and the witness became
+an agreement:
+[`ACloseTagMustStandAlone`](../../yidam/prelude/sdks/spec/graph.dfy#L2713-L2716) is the same
+document, and both sides now read no block in it. `markers.rs` pins the code's answer, so a
+change to either side reddens one of them. A second witness,
+[`AnOpenTagMidSentenceIsProse`](../../yidam/prelude/sdks/spec/graph.dfy#L2825-L2828), covers the
+other half of the rule: an open tag mid-sentence with no close tag beside it is prose, and the
+scan reads the block on the next line.
+
+The proof did not carry over unchanged. A block-form body may hold a close tag mid-line, because
+the scan stops only at one that stands alone. So a block the rewrite leaves untouched is not
+re-read by `ReadBack`, which asks for a body with no close tag at all. It is re-read by a
+separate lemma, `NextBlockPrefix`: two texts that agree through a block's close tag, and on that
+tag standing alone, read the same block.
 
 **It was a debt, not a blocker — corrected from an earlier draft.** This section first said the
 model was not optional past `count`, on the reasoning that `count`'s command carries a query, so
@@ -428,10 +446,11 @@ the shape every generator's I/O failure already had. Whichever of the three answ
 also has to say whether a content failure stays an error or becomes a third list inside a report
 that still renders.
 
-**When the model reaches the scan — settled by #1097.** `RegenSpan` is a selection over a
-modelled `RegenScan`, and `UpdateRegenSpec` is proved over it. §"One scanner" records what
-remains: the model's scan is not tied to lines, and a proved witness states that
-difference.
+**When the model reaches the scan — settled by #1097 and #1137.** `RegenSpan` is a selection
+over a modelled `RegenScan`, and `UpdateRegenSpec` is proved over it. The scan is tied to lines
+as the code's is; §"One scanner" names the witnesses. What the model still does not say is why
+the code rejects a candidate: `scan_markers` reports `CloseTagMissing` and `ClosedOnAnothersTag`,
+and the model's scan only skips the candidate.
 
 **Whether a block should be able to state its own expectation.** `<!-- REGEN: yidam count
 district -->44<!-- /REGEN -->` publishes a number and asserts nothing about it. RFC-0035's

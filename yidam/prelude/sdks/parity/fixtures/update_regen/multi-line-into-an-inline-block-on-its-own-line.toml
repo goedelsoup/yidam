@@ -1,0 +1,19 @@
+function = "update_regen"
+description = "An inline block with its line to itself takes a multi-line value in block form, which the next scan reads back as the same block, so a second run is a no-op"
+
+[input]
+command = "yidam count district"
+new_content = """
+one
+two"""
+content = """
+<!-- REGEN: yidam count district -->43<!-- /REGEN -->
+"""
+
+[expected]
+content = """
+<!-- REGEN: yidam count district -->
+one
+two
+<!-- /REGEN -->
+"""
