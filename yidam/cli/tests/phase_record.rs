@@ -637,6 +637,183 @@ fn settle_reports_a_phase_that_produced_nothing_as_not_ready() {
     );
 }
 
+// ── settle and the REGEN blocks ───────────────────────────────────────────────
+
+/// A README carrying one REGEN block with its placeholder, committed on the baseline before
+/// the phase opens — the state every scaffolded block is in until something refreshes it.
+fn with_block(f: &Fixture, command: &str) {
+    std::fs::write(
+        f.root().join("README.md"),
+        format!(
+            "# fixture\n\n<!-- REGEN: yidam {command} -->\n_Run `yidam regen` to populate._\n\
+             <!-- /REGEN -->\n"
+        ),
+    )
+    .unwrap();
+    git(&f.root(), &["add", "README.md"]);
+    git(
+        &f.root(),
+        &[
+            "commit",
+            "-q",
+            "-m",
+            "scaffold: a README with a REGEN block",
+        ],
+    );
+}
+
+/// **#1066.** Closing a phase requires the blocks to be current, and `settle` never touched
+/// them, so every repository ran `regen` by hand one commit before the phase commit — 101 of
+/// 118 phase commits in the reporting corpus. Now `settle` refreshes what is stale, stages
+/// it, and prints the `regen:` commit ahead of the merge. It still writes no commit and
+/// moves no ref, which is the invariant the test above pins and this one re-asserts.
+#[test]
+fn settle_refreshes_a_stale_block_stages_it_and_writes_no_commit() {
+    let f = corpus();
+    with_block(&f, "status");
+    open_and_switch(&f);
+    f.ok(&["phase", "run"]);
+    f.resync();
+
+    // The block is stale before settle, or nothing below measures anything.
+    let (_, _, current) = f.run(&["regen", "--check"]);
+    assert!(!current, "the placeholder block passes `regen --check`");
+
+    let head = git(&f.root(), &["rev-parse", "HEAD"]);
+    let report = f.json(&["phase", "settle"]);
+    assert_eq!(report["ready"], true, "{report}");
+    assert_eq!(report["regen"]["passed"], true, "{report}");
+    assert_eq!(report["regen"]["staged"], serde_json::json!(["README.md"]));
+    assert!(report["regen"]["stale"].as_array().unwrap().is_empty());
+    assert!(report["regen"]["dirty"].as_array().unwrap().is_empty());
+
+    assert_eq!(
+        git(&f.root(), &["rev-parse", "HEAD"]),
+        head,
+        "settle wrote a commit"
+    );
+    assert_eq!(
+        git(&f.root(), &["diff", "--cached", "--name-only"]).trim(),
+        "README.md",
+        "the refreshed block is staged, and nothing else is"
+    );
+    f.ok(&["regen", "--check"]);
+
+    // The merge carries the `regen:` commit, so the draft counts it: the branch's commits
+    // plus one, and the README among the outputs.
+    let on_branch: usize = git(&f.root(), &["rev-list", "--count", "HEAD", "^main"])
+        .parse()
+        .unwrap();
+    assert_eq!(report["commits"], on_branch + 1, "{report}");
+    assert!(
+        report["outputs"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("README.md")),
+        "{report}"
+    );
+    assert!(
+        report["subject"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("{} commits", on_branch + 1)),
+        "{report}"
+    );
+
+    let stdout = f.ok(&["phase", "settle"]);
+    let lines: Vec<&str> = stdout.lines().map(str::trim).collect();
+    let commit = lines
+        .iter()
+        .position(|l| l.starts_with("git commit -m \"regen:"))
+        .unwrap_or_else(|| panic!("no `regen:` commit in the sequence:\n{stdout}"));
+    let switch = lines
+        .iter()
+        .position(|l| l.starts_with("git switch main"))
+        .unwrap();
+    assert!(
+        commit < switch,
+        "the `regen:` commit goes before the merge:\n{stdout}"
+    );
+}
+
+/// A second `settle` before the person has run the sequence finds nothing stale — the
+/// refresh is on disk — and still prints the `regen:` commit, because the index holds it and
+/// `git merge --no-ff` refuses a dirty index. A sequence that dropped the line would hand
+/// back a merge git refuses.
+#[test]
+fn settle_keeps_printing_the_regen_commit_while_it_is_staged() {
+    let f = corpus();
+    with_block(&f, "status");
+    open_and_switch(&f);
+    f.ok(&["phase", "run"]);
+    f.resync();
+    f.ok(&["phase", "settle"]);
+
+    let report = f.json(&["phase", "settle"]);
+    assert!(report["regen"]["stale"].as_array().unwrap().is_empty());
+    assert_eq!(report["regen"]["staged"], serde_json::json!(["README.md"]));
+    assert!(
+        f.ok(&["phase", "settle"])
+            .contains("git commit -m \"regen:"),
+        "the staged refresh dropped out of the sequence"
+    );
+}
+
+/// A block is generated from the tree, and CI checks it against the commit's. A checkout
+/// that differs from `HEAD` — here, the one `phase run` leaves behind — would yield a block
+/// the gate calls stale, so nothing is refreshed and the sync is named instead.
+#[test]
+fn settle_refuses_to_refresh_over_a_checkout_that_is_not_the_commit() {
+    let f = corpus();
+    with_block(&f, "status");
+    open_and_switch(&f);
+    f.ok(&["phase", "run"]);
+
+    let report = f.json(&["phase", "settle"]);
+    assert_eq!(report["ready"], false, "{report}");
+    assert_eq!(report["regen"]["passed"], false);
+    assert!(!report["regen"]["stale"].as_array().unwrap().is_empty());
+    assert!(!report["regen"]["dirty"].as_array().unwrap().is_empty());
+    assert!(report["regen"]["staged"].as_array().unwrap().is_empty());
+    assert!(
+        std::fs::read_to_string(f.root().join("README.md"))
+            .unwrap()
+            .contains("_Run `yidam regen` to populate._"),
+        "the block was refreshed from a tree that is not the commit's"
+    );
+    assert!(
+        git(&f.root(), &["diff", "--cached", "--name-only"])
+            .lines()
+            .all(|l| l != "README.md"),
+        "settle staged a block it did not refresh"
+    );
+    let stdout = f.ok(&["phase", "settle"]);
+    assert!(stdout.contains("Not ready"), "{stdout}");
+    assert!(stdout.contains("git reset --hard HEAD"), "{stdout}");
+
+    f.resync();
+    assert_eq!(f.json(&["phase", "settle"])["ready"], true);
+}
+
+/// A block no generator writes cannot be made current by a refresh, so the phase is not
+/// ready with `regen --check`'s own remedy — rather than ready, and red on the first push.
+#[test]
+fn settle_refuses_a_block_no_generator_writes() {
+    let f = corpus();
+    with_block(&f, "statsu");
+    open_and_switch(&f);
+    f.ok(&["phase", "run"]);
+    f.resync();
+
+    let report = f.json(&["phase", "settle"]);
+    assert_eq!(report["ready"], false, "{report}");
+    assert_eq!(report["regen"]["passed"], false);
+    assert_eq!(report["regen"]["unclaimed"][0]["generator"], "statsu");
+    let stdout = f.ok(&["phase", "settle"]);
+    assert!(stdout.contains("no generator writes"), "{stdout}");
+    assert!(!stdout.contains("git merge --no-ff"), "{stdout}");
+}
+
 // ── the report contract ───────────────────────────────────────────────────────
 
 /// Every `--format json` here carries the envelope, and its fields are the documented ones.
@@ -689,10 +866,17 @@ fn every_phase_report_carries_the_envelope_and_its_documented_fields() {
         "remaining",
         "ready",
         "subject",
+        "regen",
     ] {
         assert!(
             settle.get(key).is_some(),
             "settle is missing `{key}`: {settle}"
+        );
+    }
+    for key in ["passed", "stale", "unclaimed", "staged", "dirty"] {
+        assert!(
+            settle["regen"].get(key).is_some(),
+            "settle's `regen` is missing `{key}`: {settle}"
         );
     }
 

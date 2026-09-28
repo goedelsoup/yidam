@@ -303,6 +303,14 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
+    /// The gate table, from `.github/workflows/ci.yml`.
+    ///
+    /// Writes the `<!-- REGEN: yidam gates -->` block in the repository's README: every
+    /// `run:` step of every job, in the order they run, with what switches a job on.
+    Gates {
+        #[command(flatten)]
+        root: RootArg,
+    },
     /// Index the domain agents in `.yidam/agents/`.
     ///
     /// Writes the `<!-- REGEN: yidam agents-index -->` block in the repository's README.
@@ -1336,6 +1344,7 @@ fn run() -> Result<()> {
             dry_run,
             format: format.value,
         }),
+        Command::Gates { root } => yidam::gates(root.as_deref()),
         Command::AgentsIndex { root } => yidam::agents_index(root.as_deref()),
         Command::SkillsIndex { root } => yidam::skills_index(root.as_deref()),
         Command::CratesIndex { root } => yidam::crates_index(root.as_deref()),

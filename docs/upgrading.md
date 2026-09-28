@@ -28,6 +28,26 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `phase settle` refreshes the REGEN blocks, and a `gates` generator writes the gate table
+
+**`yidam phase settle` (#1066).** Closing a phase requires the REGEN blocks to be current, and
+`settle` never touched them. Every repository ran `regen` by hand one commit before the phase
+commit. In the reporting corpus that was 101 of 118 phase commits. `settle` now asks what
+`regen --check` asks, refreshes what is stale, stages it, and asks again. The printed sequence
+opens with the `regen:` commit when there is one to write.
+
+**What changes for you: a phase with a stale block is not ready.** `settle` used to say
+*ready* over a block CI would have called stale. It now says *not ready*, with the remedy.
+A block no generator writes is not ready either. Nothing is refreshed from a checkout that
+differs from `HEAD`. `settle` names the files and the sync instead. A block generated from
+that tree would not hold against the commit. The report carries a `regen` object: what
+passed, what is stale, what was staged, and what was dirty.
+
+**`yidam gates` (#1066).** A new generator, run by `yidam regen` with the others. It writes
+a table of every `run:` step in `.github/workflows/ci.yml` into the README's `yidam gates`
+block. The scaffold's README carries the block in place of the sentence that named three
+gates by hand. An existing repository adds the block where that sentence is, and runs `regen`.
+
 ### A declared gluon calculator is now refused by `yidam lint`
 
 **`yidam lint` (#1099).** A capability declaring `run = { gluon = "..." }` was only checked when
