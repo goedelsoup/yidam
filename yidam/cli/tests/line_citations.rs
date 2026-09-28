@@ -147,7 +147,12 @@ fn the_two_house_label_forms_are_both_still_read() {
 /// passage rather than only re-pointing the fragment, which is what moves it out of this
 /// population — a citation re-pointed and left unquoted would have slid again on the next edit
 /// to that file and this number would not have noticed.
-const UNANCHORED: usize = 107;
+///
+/// 107 → 106 (#1136): a sentence added to `PHASES.md` put `0028-kuten-layer.md`'s citation of
+/// the rule against mixing phase types on a blank line, and `dead-line-citation` caught it. It
+/// had already slid: on `main` its L74 held `settle`, 62 lines from the rule. It is repaired
+/// the way #954 repaired its own, by quoting the rule.
+const UNANCHORED: usize = 106;
 
 /// The residue, counted — and the count held to a number somebody has to edit.
 ///

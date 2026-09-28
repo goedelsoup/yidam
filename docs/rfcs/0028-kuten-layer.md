@@ -258,7 +258,7 @@ paths they touch shows narrowing helps one of three populations:
 |---|---|---|
 | **Register bleed** | one repository: 24 of 32 off-vocabulary commits touch **no corpus file at all** — `feat:`/`fix:`/`test:` on the artifact, reported as corpus violations. Another: 107 of 111 | **Path-scoped registers** (§4) |
 | **Genuine coinage** | one repository: 260 off-vocabulary commits touching only `.yidam/`; `corpus:` coined against a *closed* list, 40 uses | #292's forum, which currently has a gap and no subject |
-| **Mixed commits** | one repository spans both registers in 27 of 37 off-vocabulary commits | A conduct norm — [`PHASES.md:74`](../../yidam/prelude/PHASES.md#L74)'s rule about not mixing phase types, applied one level out |
+| **Mixed commits** | one repository spans both registers in 27 of 37 off-vocabulary commits | A conduct norm, applied one level out — [`PHASES.md:136`](../../yidam/prelude/PHASES.md#L136): *"Do not mix phase types in one commit"* |
 
 **A repository with an object has two commit registers and yidam models one.**
 
