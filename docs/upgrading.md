@@ -28,6 +28,21 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### A scaffold for watching a source, where unreachable is not unchanged
+
+**`sadhana/github/workflows/watch.yml` (#1073).** A derived repository polled a source on a
+schedule. For 24 rounds the source was unreachable. The job saw no diff, so the build stayed
+green.
+
+The new workflow runs a round you write at `.github/watch/round`. It appends one row per round
+to `.github/watch/heartbeats.tsv`, and commits nothing else. A round that crashes, or prints no
+verdict, is filed `unreachable`. A `watch` job in `ci.yml` reads the ledger. It fails after
+seven unreachable rounds in a row, or seven days with no round.
+
+**What changes for you: nothing until you arm it.** The workflow ships with no schedule. The
+gate runs only when the ledger exists. An existing repository can copy both workflow changes
+from `sadhana/github/workflows/`. The header of `watch.yml` says how to arm it.
+
 ### `yidam lint` reads the artifact's links into the corpus
 
 **`broken-object-link` (#577, RFC-0028 Erratum 6).** A repository declaring `[object] paths`
