@@ -62,7 +62,7 @@ pub struct Entry {
     /// Whether it prints on the short `--help`, rather than only on `--help-all`.
     ///
     /// The test is **what a reader needs before they know the tool**, which is not the same
-    /// as what anyone uses most. `regen` is on it and the twelve generators it runs are not:
+    /// as what anyone uses most. `regen` is on it and the thirteen generators it runs are not:
     /// one row saying the blocks can be refreshed is the whole of what a first reader needs
     /// to know about that family, and eleven rows above `query` is what #921 measured.
     pub short: bool,
@@ -170,6 +170,7 @@ pub const GROUPS: &[Group] = &[
             w("bundle-status"),
             w("vault-status"),
             w("gates"),
+            w("routes"),
         ],
     },
     Group {
@@ -538,7 +539,11 @@ mod tests {
             .iter()
             .find(|g| g.title.starts_with("README blocks"))
             .expect("the README-block group");
-        assert_eq!(readme.commands.len(), 13, "twelve generators plus `regen`");
+        assert_eq!(
+            readme.commands.len(),
+            14,
+            "thirteen generators plus `regen`"
+        );
         for entry in readme.commands {
             assert!(entry.writes, "{} must be marked as writing", entry.name);
         }

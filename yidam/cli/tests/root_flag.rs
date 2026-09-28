@@ -108,6 +108,7 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
     // `example_corpus.rs` still measures that; what is checked here is only the refusal.
     ("export", &["--format", "graphml"], Tell::Names),
     ("gates", &[], Tell::Writes("README.md")),
+    ("routes", &[], Tell::Writes("AGENTS.md")),
     ("graph", &["--format", "json"], Tell::Envelope),
     ("graph-check", &["--format", "json"], Tell::Envelope),
     (
@@ -136,7 +137,7 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
     ("practice", &[], Tell::Writes("PRACTICE.md")),
     ("query", &["low-flow", "--format", "json"], Tell::Envelope),
     // `--check`, so this reads the blocks rather than rewriting the ones the `Writes` rows
-    // seeded. The writing mode runs the same sixteen generators through the same list.
+    // seeded. The writing mode runs the same seventeen generators through the same list.
     ("regen", &["--check", "--format", "json"], Tell::Envelope),
     ("replay", &["--format", "json"], Tell::Envelope),
     (

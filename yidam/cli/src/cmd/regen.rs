@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 /// Every generator takes the corpus rather than resolving one, because `regen --root` has to
 /// mean the same thing as running each of these commands with `--root` (#918). A generator
 /// that resolved its own root would refresh *this* repository's blocks while the reader had
-/// named another — and the sixteen would not even agree with each other about which.
+/// named another — and the seventeen would not even agree with each other about which.
 type Generator = (&'static str, fn(Option<&std::path::Path>) -> Result<()>);
 
 /// Every generator that writes a REGEN block.
@@ -54,6 +54,9 @@ const GENERATORS: &[Generator] = &[
     // The gate table, from `.github/workflows/ci.yml` (#1066). The sentence it replaces was
     // hand-maintained in three files of the reporting corpus and wrong in all three.
     ("gates", super::gates),
+    // The reading routes, into `AGENTS.md` (RFC-0039, #972). That file is installed once at
+    // genesis, and of sixteen route lines the template added later, two reached a derivation.
+    ("routes", super::routes),
     // `vault-status` and `decisions-log` were generators that this list did not name (#831),
     // so `yidam regen` did not populate their blocks and `--check` did not report them stale.
     // In the corpus that reported it, the vault block held its "run this to populate"
@@ -71,7 +74,7 @@ const GENERATORS: &[Generator] = &[
     // than authored (#287). A repository keeping no `PRACTICE.md` has opted out, and the
     // generator is its own no-op there, before `update_file_regen`'s.
     ("practice", super::practice::block),
-    // The one generator that is not handed its file. The other fifteen write a block at a
+    // The one generator that is not handed its file. The other sixteen write a block at a
     // path they know; this one reads the tracked markdown set for blocks whose command is
     // `yidam count <query>` and answers each with a number (RFC-0043). A repository with no
     // such block is its own no-op, which is every repository the day this lands.

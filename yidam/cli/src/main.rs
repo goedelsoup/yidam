@@ -311,6 +311,14 @@ enum Command {
         #[command(flatten)]
         root: RootArg,
     },
+    /// The reading routes, by occasion, from the vendored `routes.yml`.
+    ///
+    /// Writes the `<!-- REGEN: yidam routes -->` block in the repository's `AGENTS.md`: what
+    /// every occasion reads, then each occasion's sections, then the reference list (RFC-0039).
+    Routes {
+        #[command(flatten)]
+        root: RootArg,
+    },
     /// Index the domain agents in `.yidam/agents/`.
     ///
     /// Writes the `<!-- REGEN: yidam agents-index -->` block in the repository's README.
@@ -1367,6 +1375,7 @@ fn run() -> Result<()> {
             format: format.value,
         }),
         Command::Gates { root } => yidam::gates(root.as_deref()),
+        Command::Routes { root } => yidam::routes(root.as_deref()),
         Command::AgentsIndex { root } => yidam::agents_index(root.as_deref()),
         Command::SkillsIndex { root } => yidam::skills_index(root.as_deref()),
         Command::CratesIndex { root } => yidam::crates_index(root.as_deref()),
