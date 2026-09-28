@@ -20,6 +20,7 @@ fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
                 description: String::new(),
                 required: false,
                 prose: false,
+                values: vec![],
                 retrievable: false,
             })
             .collect(),

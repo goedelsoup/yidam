@@ -122,6 +122,9 @@ OntologyProperty
   unit        : string             — what a number is written in; empty is dimensionless.
                                      A fact about the column, declared once, so an ordering
                                      never compares across units. Published as x-yidam-unit
+  values      : string[]           — the closed set a string may hold; empty is unbounded.
+                                     Declaring it closes it: the gate reports a value outside
+                                     it, and the schema carries it as enum, a constraint
 
 OntologyEdge
   relationship : string

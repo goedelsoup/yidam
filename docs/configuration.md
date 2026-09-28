@@ -523,6 +523,12 @@ a class with no type is the ordinary case rather than debt. Name the type as Rus
 accepted and left alone rather than rejected. A `number` is written unquoted. Its unit, if it
 has one, is declared once on the property as `unit:` rather than in each value.
 
+**A `string` may declare the values it admits**, as `values: [extant, demolished, ruin]`
+beside `type:`. Declaring the set closes it. `property-type` reports an instance holding
+anything else and names the set. The compiled class schema carries the set as `enum`. The
+match is exact, as written. The field binds `string` only. On every other type it is carried
+through unchanged. A set on a coined type constrains nothing until the property is retyped.
+
 ## Environment variables
 
 | Variable | Read by | Effect |

@@ -178,6 +178,7 @@ const sidebar = [
       { slug: 'rfcs/0041-typed-property-columns', label: '0041 · Typed property columns' },
       { slug: 'rfcs/0042-typed-calculator-arm', label: '0042 · A calculator whose purity is a closed scope and a typecheck' },
       { slug: 'rfcs/0043-inline-regen-and-count', label: '0043 · An inline REGEN block and the count generator' },
+      { slug: 'rfcs/0044-declared-value-set', label: '0044 · A declared value set' },
     ],
   },
   {

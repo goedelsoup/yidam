@@ -28,6 +28,31 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### A class declares a closed value set, and `property-type` holds instances to it
+
+**`values:` on a `string` property (#1052, RFC-0044).** A class could not declare the set of
+values a property admits. So 40 properties across seven corpora spelled one in the
+description, as `extant | demolished | ruin`. Nothing read it there. 33 instances held a
+value outside the set their own class documented. A `string` property now declares the set as
+`values: [extant, demolished, ruin]` beside `type:`. Declaring it closes it.
+
+**What changes for you: nothing until a class declares a set.** No corpus carries `values:`,
+and a property without one is unbounded, as before. Once a class declares the set,
+`property-type` reports every instance holding a value outside it and names the set. The
+finding gates, as the check always has. Each report is one of two things. A value the set
+should have carried is one line on the declaration. Prose in a token field is a value to
+restore. The match is exact: `In operation` is not `in operation`. The compiled class schema
+now carries the set as `enum`, and the gate is no looser than the schema.
+
+**`migrate retype` into `string` is held to the set.** A set on any other type is carried and
+ignored, so it starts to bind at the retype. An instance outside it is reported and blocks
+before anything is written.
+
+**A class file carrying `values:` is refused by every earlier CLI.** The class-file schema is
+closed. An older CLI would compile the set to nothing and validate the drift as fine. Upgrade
+before adopting the field. SDK parity moves 0.14.0 → 0.15.0 and `yidam-core` 0.9.0 → 0.10.0.
+Both are for the new `OntologyProperty.values` field, which every compiler emits.
+
 ### `phase settle` refreshes the REGEN blocks, and a `gates` generator writes the gate table
 
 **`yidam phase settle` (#1066).** Closing a phase requires the REGEN blocks to be current, and

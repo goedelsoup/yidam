@@ -209,6 +209,19 @@ pub struct ClassProperty {
     /// change what `compile_class_schema` emits, which is a parity function in three SDKs.
     #[serde(default)]
     pub prose: bool,
+    /// The closed set a `string` may hold, or empty for an unbounded one (RFC-0044).
+    ///
+    /// **Empty means unbounded, and a declared set is closed.** Before this field a class
+    /// wrote its set into the description — `plant | refinery | canal` — where nothing reads
+    /// it: measured across seven corpora, 40 properties did so and 33 instances already held a
+    /// value outside the set their own class documented, and no check reported one. Declaring
+    /// the set is what makes it checkable, and there is no open marker because an open list
+    /// is the description again. Honoured on `string` only, as `unit` is on `number` only:
+    /// `text` is prose, `ref` is a path, `claim` has its own set, and a coined type has said
+    /// the gate does not know its shape. [`crate::cmd::lint::checks::property_type`] is the
+    /// reader, and [`crate::cmd::migrate`] consults it before a retype into `string`.
+    #[serde(default)]
+    pub values: Vec<String>,
     /// Whether this property's value belongs in the node's embedding though it is not prose.
     ///
     /// `embed` is the only reader — see [`crate::retrievable`], which held the only parse of

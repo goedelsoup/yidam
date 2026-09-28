@@ -505,7 +505,9 @@ record of what they touched.
 `retype` converts an instance value where the two types differ only in how the value is
 written. A `number` is an unquoted YAML number. So retyping to `number` unquotes `"24"`, and
 retyping to `string` quotes a bare `24`. Each is a repair `property-type` already names. A value
-holding no number — `about 24`, `~24` — is refused, and the refusal says what it tried.
+holding no number — `about 24`, `~24` — is refused, and the refusal says what it tried. A retype
+into `string` on a property that declares `values:` is held to the set. An instance outside it
+is reported and blocks. Widening the set or fixing the value is the author's call.
 
 `references` and `findings` are the two that migrate data rather than the ontology over it.
 

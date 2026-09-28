@@ -98,6 +98,16 @@ ordering depend on conversion, which is a library and not an operator. The trap 
 refused the ordering operators over was a numeric value compared as text; the unquoted
 number is what keeps a `number` from ever being one.
 
+## values-closed
+
+Before the field existed a class spelled its set in the description — `extant | demolished |
+ruin` — where nothing reads it, and across seven corpora 40 properties did so while 33
+instances held a value outside the set their own class documented. Each is one of two things:
+a widening nobody recorded, or prose in a token field, and a query for the token silently
+misses both. Declaring the set closes it because an open list is the description again. The
+match is exact because the compiled schema carries the set as `enum`, and a gate that admitted
+a spelling the schema refuses would be looser than the schema it exists to be no stricter than.
+
 ## silence-is-not-a-contract
 
 Reading either silence as *and therefore none are permitted* would flood every corpus whose

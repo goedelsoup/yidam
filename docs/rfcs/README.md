@@ -74,6 +74,7 @@ re-deriving it.
 | [0041](0041-typed-property-columns.md) | G11 | Typed property columns, and a predicate on a ranked answer (`retrieve --where`) | Draft |
 | [0042](0042-typed-calculator-arm.md) | I31 | A calculator whose purity is a closed scope and a typecheck, not a norm — a typed, effect-tracked arm on the capability manifest | Draft |
 | [0043](0043-inline-regen-and-count.md) | I32 | A figure published twice, computed once — an inline REGEN block and the `count` generator | Implemented |
+| [0044](0044-declared-value-set.md) | G12 | A declared value set | Draft |
 
 ## Reading order
 

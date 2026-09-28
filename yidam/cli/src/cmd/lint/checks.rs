@@ -1412,6 +1412,42 @@ pub(crate) fn property_type_violation(declared: &str, value: &serde_yaml::Value)
     }
 }
 
+/// A `string` outside the closed set its class declares (RFC-0044), or `None`.
+///
+/// `pub(crate)` for `migrate`, for the reason [`property_type_violation`] is: a retype into
+/// `string` on a property that declares a set is a retype into this predicate, and a
+/// migration that did not consult it would be a migration into a failing build.
+///
+/// Only text is tested. A list, a mapping or a bare number is the *shape* being wrong, and
+/// [`property_type_violation`] has already said so — reporting it a second time for being
+/// outside a list of text would be two findings for one mistake. An empty set is no set at
+/// all: a closed set of nothing would refuse every value, which no class means by
+/// `values: []`. The match is exact, as JSON Schema's `enum` is: the compiled schema refuses
+/// `In operation` against `in operation`, and a gate that admitted it would be looser than
+/// the schema it exists to be no stricter than.
+pub(crate) fn declared_value_violation(
+    values: &[String],
+    value: &serde_yaml::Value,
+) -> Option<String> {
+    if values.is_empty() {
+        return None;
+    }
+    let serde_yaml::Value::String(s) = value else {
+        return None;
+    };
+    if values.iter().any(|v| v == s) {
+        return None;
+    }
+    let set = values
+        .iter()
+        .map(|v| format!("`{v}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "`{s}` is not one of the values the class declares — {set}"
+    ))
+}
+
 /// The value of a `number`, or `None` when the text is not one.
 ///
 /// The whole of the `number` arm's rule, returning what it read, so that an ordering over
@@ -1478,6 +1514,14 @@ pub fn iso_date_parts(s: &str) -> Option<Vec<&str>> {
 /// assertion to every counter. That is the same silent-undercount failure
 /// `claim-tag-malformed` reports in prose, one field over, and the matcher is reused rather
 /// than re-derived so the two cannot disagree about what a tag is.
+///
+/// **A `string` declaring `values:` is held to that set** (RFC-0044), and it rides here
+/// rather than in a check of its own because it is the same finding: a value the declaration
+/// does not admit. Before the field existed a class spelled its set in the description —
+/// `plant | refinery | canal` — where nothing reads it, and across seven corpora 40
+/// properties did so while 33 instances held a value outside the set their own class
+/// documented. A class that declares the set has asked for the gate, as one declaring
+/// `edge_policy: exhaustive` has; a class that declares none is unbounded, as before.
 pub fn property_type(
     nodes: &[Node],
     classes: &[Class],
@@ -1494,16 +1538,21 @@ pub fn property_type(
             // fiscal-year snapshot is prose and a `claim` written into one is still
             // counted as no claim — but a class naming the same property has said
             // something more specific about its own instances, and wins.
-            let declared = class
-                .properties
-                .iter()
-                .find(|p| p.name == key)
+            let own = class.properties.iter().find(|p| p.name == key);
+            let declared = own
                 .map(|p| p.r#type.as_str())
                 .or_else(|| universal.declared_type(&key));
             let Some(declared) = declared else {
                 continue;
             };
-            if let Some(why) = property_type_violation(declared, value) {
+            // The shape first, then the set. A value that is not text is reported for what
+            // it is, not also for being outside a list of text — and the set is the class's
+            // own: `universal.yml` declares a type and nothing more.
+            let why = property_type_violation(declared, value).or_else(|| {
+                own.filter(|p| p.r#type == "string")
+                    .and_then(|p| declared_value_violation(&p.values, value))
+            });
+            if let Some(why) = why {
                 violations.push(Violation::new(
                     &n.rel,
                     format!("`{key}` is declared `{declared}` and {why}"),
@@ -1518,8 +1567,11 @@ pub fn property_type(
         "A typed field the ontology declares is read by type, not by eye. A `claim` field \
          holding prose is counted as no claim at all; a `string` holding an unquoted number \
          has lost its leading zeros before anything reads it; a `number` holding a quoted \
-         one is text the compiled schema refuses and an ordering cannot compare. Types the \
-         corpus coins for itself are left alone — this reports only the ones it can test.",
+         one is text the compiled schema refuses and an ordering cannot compare. A `string` \
+         whose class declares `values:` is held to that set: a value outside it is either a \
+         widening the class never recorded or prose in a token field, and both are reported \
+         so the set the class publishes stays true. Types the corpus coins for itself are \
+         left alone — this reports only the ones it can test.",
         violations,
     )
 }
@@ -6283,6 +6335,69 @@ edges:
             "class: reach\nproperties:\n  surveyed: 2024-04-01\nlinks: []\n",
         )];
         assert!(property_type(&ok, &classes, &NONE).passed());
+    }
+
+    /// RFC-0044: the set is declared where the gate reads it, and a value outside it is the
+    /// finding that 33 instances across three corpora had been waiting for.
+    #[test]
+    fn a_string_outside_its_declared_values_is_reported() {
+        let classes = vec![class_from(
+            "site",
+            "properties:\n  - name: status\n    type: string\n    values: [extant, demolished, in operation]\n",
+        )];
+        let status = |v: &str| {
+            vec![node(
+                ".yidam/corpus/site/alpha.yml",
+                &format!("class: site\nproperties:\n  status: {v}\nlinks: []\n"),
+            )]
+        };
+        for v in ["extant", "demolished", "in operation", "\"in operation\""] {
+            assert!(
+                property_type(&status(v), &classes, &NONE).passed(),
+                "{v} is in the set"
+            );
+        }
+        // A widening nobody recorded, prose in a token field, and a spelling the set does
+        // not carry: each is one finding, and the finding names the set.
+        for v in ["abandoned", "\"demolished in 1971\"", "Extant"] {
+            let c = property_type(&status(v), &classes, &NONE);
+            assert_eq!(c.violations.len(), 1, "{v}: {c:#?}");
+            assert!(
+                c.violations[0]
+                    .detail
+                    .contains("`extant`, `demolished`, `in operation`"),
+                "{v}: {c:#?}"
+            );
+        }
+        // The shape first: a bare number under a `string` is "quote it", once, and not also
+        // "not one of the values".
+        let c = property_type(&status("7"), &classes, &NONE);
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert!(c.violations[0].detail.contains("quote it"), "{c:#?}");
+        assert!(!c.violations[0].detail.contains("values"), "{c:#?}");
+    }
+
+    /// Empty is absent, and the field binds `string` alone: `text` is prose, and a coined
+    /// type has said the gate does not know its shape.
+    #[test]
+    fn an_empty_or_misplaced_value_set_binds_nothing() {
+        let status = |v: &str| {
+            vec![node(
+                ".yidam/corpus/site/alpha.yml",
+                &format!("class: site\nproperties:\n  status: {v}\nlinks: []\n"),
+            )]
+        };
+        for declaration in [
+            "properties:\n  - name: status\n    type: string\n    values: []\n",
+            "properties:\n  - name: status\n    type: text\n    values: [extant]\n",
+            "properties:\n  - name: status\n    type: site-status\n    values: [extant]\n",
+        ] {
+            let classes = vec![class_from("site", declaration)];
+            assert!(
+                property_type(&status("abandoned"), &classes, &NONE).passed(),
+                "{declaration}"
+            );
+        }
     }
 
     /// **A date known to the year is a date.** Demanding a day where the corpus knows only

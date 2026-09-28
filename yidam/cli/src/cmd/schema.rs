@@ -252,6 +252,24 @@ pub fn corpus_ontology_schema() -> Value {
                                             validator treats as a constraint. Meaningful on \
                                             `number` only; a unit on any other type is \
                                             carried and ignored."
+                        },
+                        "values": {
+                            "type": "array",
+                            "items": { "type": "string", "minLength": 1 },
+                            "description": "The closed set a `string` may hold — \
+                                            `[extant, demolished, ruin]` — or absent for an \
+                                            unbounded one. Declaring it closes it: \
+                                            `property-type` reports an instance holding a \
+                                            value outside the set, and the compiled class \
+                                            schema carries it as `enum`, so the editor and \
+                                            the gate refuse the same value. There is no \
+                                            open marker, because an open list is the \
+                                            description again — which is where 40 \
+                                            properties across seven corpora spelled a set \
+                                            nothing read, while 33 instances drifted off \
+                                            it. Matched exactly, as written. An empty list \
+                                            declares no set. Meaningful on `string` only; \
+                                            a set on any other type is carried and ignored."
                         }
                     },
                     "required": ["name", "type", "description"],
@@ -739,6 +757,7 @@ pub fn class_schemas(root: &Path) -> Vec<(String, String, Value)> {
                         description: "Declared for every class in .yidam/corpus/universal.yml"
                             .to_string(),
                         unit: String::new(),
+                        values: vec![],
                         // A universal is never required. `universal.yml` has no `required`
                         // field to say so with, and a property declared for EVERY class
                         // that every instance must also carry would gate the whole corpus
@@ -782,6 +801,7 @@ fn with_pattern_properties(schema: &mut Value, universal: &crate::universal::Uni
                     description: "Permitted for every class by .yidam/corpus/universal.yml"
                         .to_string(),
                     unit: String::new(),
+                    values: vec![],
                     // A *pattern* is a permission, not a demand — the name is not even
                     // known until an instance writes one. Requiring it is not expressible
                     // and would not mean anything if it were.
