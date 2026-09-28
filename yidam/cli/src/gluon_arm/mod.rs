@@ -8,11 +8,27 @@
 //! was proved before any surface depended on it.
 //!
 //! The division of labour that gating leaves is worth stating, because it is the thing an obvious
-//! implementation gets backwards. This module is behind the feature; the *shape* of the
-//! declaration, its validation and its refusal are not. A light binary is the common reader of a
-//! manifest declaring an arm it cannot run — a corpus that declares one is not a malformed corpus
-//! — so it parses the table, refuses a script its `reads` do not cover, and declines the plan by
-//! name. Only evaluation is in here.
+//! implementation gets backwards. Most of this module is behind the feature; the *shape* of the
+//! declaration, its validation and its refusal are not.
+//!
+//! # What a light build still has, and why `lint` needed it (#1099)
+//!
+//! [`PRELUDE_MODULES`], [`EXCLUDED`], [`PRELUDE_TYPES`], [`prelude`], [`prepare`] and
+//! [`entry::refuse_macros`] are text and a list of names — no VM, no typechecker, no gluon — so
+//! they are compiled in **every** build. `budget`, `ice`, `marshal`, [`entry::typecheck`],
+//! [`entry::admit`] and [`evaluate`] are behind the feature, and that line is where it falls.
+//!
+//! It falls there because `yidam lint` typechecks every declared calculator without invoking one,
+//! and a gate whose verdict depends on which binary the reader is holding is the divergence
+//! RFC-0042 warns about arriving through the gate instead of through the vocabulary. Refusal 1 —
+//! the macro scan — is decidable from text, so it gates identically in the light binary
+//! `install.sh` downloads and in the full one. Refusals 2 and 3 need the typechecker, so they are
+//! absent from a light build's report rather than reported empty; `cmd::lint::Asked` carries the
+//! baseline argument for why absent and empty are not the same thing.
+//!
+//! The same line answers for the manifest. A light binary is the common reader of a manifest
+//! declaring an arm it cannot run — a corpus that declares one is not a malformed corpus — so it
+//! parses the table, refuses a script its `reads` do not cover, and declines the plan by name.
 //!
 //! # What the arm is for
 //!
@@ -57,15 +73,22 @@
 //! A light build that cannot run a gluon calculator is in no such position: it declines the step
 //! by name and commits nothing. `tests/gluon_arm.rs` is where that gating is asserted.
 
-pub mod budget;
 pub mod entry;
+
+#[cfg(feature = "calculators-gluon")]
+pub mod budget;
+#[cfg(feature = "calculators-gluon")]
 pub mod ice;
+#[cfg(feature = "calculators-gluon")]
 pub mod marshal;
 
 use anyhow::Result;
+#[cfg(feature = "calculators-gluon")]
 use gluon::vm::api::OwnedFunction;
+#[cfg(feature = "calculators-gluon")]
 use gluon::ThreadExt;
 
+#[cfg(feature = "calculators-gluon")]
 use marshal::{Computed, Corpus};
 
 /// The `std` modules a calculator script may use.
@@ -147,6 +170,7 @@ pub fn prepare(script: &str) -> Result<String> {
 }
 
 /// What a calculator run produced, and what it cost.
+#[cfg(feature = "calculators-gluon")]
 #[derive(Debug)]
 pub struct Outcome {
     pub computed: Computed,
@@ -169,12 +193,12 @@ pub struct Outcome {
 /// `corpus` is the projected value and not the reader, so that this function's signature is a
 /// public one — and so that a test can hand over a corpus it constructed rather than one it had
 /// to write to disk. [`marshal::project`] is the bridge from the reader the CLI holds.
+#[cfg(feature = "calculators-gluon")]
 pub fn evaluate(name: &str, script: &str, corpus: Corpus, calls: usize) -> Result<Outcome> {
-    let source = prepare(script)?;
-    let vm = gluon::new_vm();
-    ice::contain(name, "while being typechecked", || {
-        entry::typecheck(&vm, name, &source)
-    })?;
+    // The admission is [`entry::admit`]'s and not this function's, because `lint` performs the
+    // same one without running anything (#1099). Two implementations of "is this a calculator"
+    // is the divergence RFC-0042 names as worse than no gate at all.
+    let entry::Admitted { vm, source } = entry::admit(name, script)?;
 
     let budget = budget::Budget::install(&vm, calls);
 

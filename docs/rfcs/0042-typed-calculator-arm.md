@@ -169,9 +169,9 @@ claim about composition, not an audit of the host's registrations.
 So the guarantee lives in two mechanisms, and the scope is the primary one:
 
 - **A closed prelude.** The script is evaluated with a fixed prefix binding fifteen named pure
-  modules — [`PRELUDE_MODULES`](../../yidam/cli/src/gluon_arm/mod.rs#L82-L85) — and any macro
+  modules — [`PRELUDE_MODULES`](../../yidam/cli/src/gluon_arm/mod.rs#L106-L109) — and any macro
   invocation *in the script* is refused lexically by
-  [`refuse_macros`](../../yidam/cli/src/gluon_arm/entry.rs#L44-L46). Since gluon reaches a native
+  [`refuse_macros`](../../yidam/cli/src/gluon_arm/entry.rs#L189-L191). Since gluon reaches a native
   module only through `import!`, a script that cannot invoke a macro can only use the names the
   prelude bound. **Closed by default:** a module nobody listed is an undefined variable, so a
   module a future gluon registers is out of reach on the day it is added rather than on the day
@@ -401,26 +401,36 @@ subsection above for the measurement that settled which is which.
    its inputs from a commit and `doctor` from the working tree, and two independent digests of the
    same script would report a typed step stale forever. That is #1080's "one builder, one answer"
    repeated one field along.
-5. **Whether a typechecked-but-failing script is a different refusal.** **Partly answered in
-   #1091, and the rest is #1099.** As implemented, all three refusals below are **step** failures:
-   they happen where the script is evaluated, so a corpus declaring a calculator that does not
-   typecheck has a manifest that parses and a step that fails by name. Whether `yidam lint` should
-   find the second and third before anything runs is #1099, and the constraint on it is the one the
-   last paragraph here states. A script that typechecks
-   and then returns a `Computed` the corpus cannot accept is a step failure, and a script that
-   does not typecheck is arguably a manifest failure — found before anything runs, like a cycle
-   in `after`. There are now *three* refusals to place, not two: the macro scan refuses before
-   any gluon runs, an unbound name is refused by the typechecker although it is a scope failure
-   rather than a type failure, and a wrong shape is a type failure. A reader deciding which are
-   manifest failures should know that the middle one reads as a type error in the output today.
+5. ~~**Whether a typechecked-but-failing script is a different refusal.**~~ **Answered in #1091
+   and #1099: all three are manifest failures, reported as three checks, and told apart.** A
+   script that typechecks and then returns a `Computed` the corpus cannot accept stays a **step**
+   failure — nothing decides it without running the script. The three ways a script is not a
+   calculator at all are decidable from the declaration, like a cycle in `after`, and `yidam lint`
+   now decides them:
 
-   If they are manifest failures, `yidam lint` could typecheck every declared gluon calculator
-   without invoking one — but it would have to build the prelude *the same way the runner does*,
-   from the same [`PRELUDE_MODULES`](../../yidam/cli/src/gluon_arm/mod.rs#L82-L85), or lint and
-   run disagree about what a calculator may say. A second opinion about a script's vocabulary is
-   worse than no gate: it either passes something `run` refuses, or refuses something `run` would
-   have accepted. That is a gate this RFC has not designed, and the constraint on it is the one
-   this paragraph states.
+   | check | refusal | needs |
+   |---|---|---|
+   | `calculator-script` | the path does not read, or the script invokes a macro | text |
+   | `calculator-scope` | a name the closed prelude does not bind | the typechecker |
+   | `calculator-type` | not `Corpus -> Computed` | the typechecker |
+
+   The constraint this question turned on is satisfied by construction rather than by agreement.
+   `lint` does not build a prelude, inject a type or decide what a calculator is: it calls
+   `entry::admit`, the one function [`evaluate`](../../yidam/cli/src/gluon_arm/mod.rs#L197)
+   opens with, and `tests/gluon_arm.rs::one_admission_answers_both_callers` asserts those are the
+   only two callers. There is no second opinion to diverge, so the paragraph below — a gate that
+   either passes something `run` refuses or refuses something `run` would have accepted — names a
+   failure mode the design has no place to hold. That is #1080's "one builder, one answer" again.
+
+   The middle refusal no longer reads as a type error. It is classified structurally, from
+   gluon's `UndefinedVariable` and `UndefinedType`, and reported as a scope failure that prints
+   what the prelude binds — in `run` and `lint` alike, because both go through the one function.
+
+   The split across builds is by **what each build can answer**. The macro scan and
+   `PRELUDE_MODULES` are text and a list of names, so `calculator-script` gates identically in the
+   light binary `install.sh` downloads; the other two need a VM and are absent from that build's
+   report. Absent rather than empty: a binary that held no script to the prelude should not report
+   that it did. Absence does not settle the baseline, which is #1114.
 6. **Upstream health.** Three years dormant, then two releases in two months. One maintainer's
    renewed attention is not a maintenance guarantee, and an embedded language is harder to
    replace than a policy engine. Vendoring is not an answer at this closure size.
