@@ -114,6 +114,12 @@ pub enum Operation {
     /// across every node under one commit subject, with a record of what it refused. See
     /// [`crate::cmd::migrate_findings`].
     Findings,
+    /// `AGENTS.md`'s whole-file reading list becomes the `yidam routes` block (#1135).
+    ///
+    /// Migrates neither the ontology nor the data but the scaffold, and belongs here for the
+    /// same reason the two lifts do: a one-time mechanical rewrite with a record of what it
+    /// refused. See [`crate::cmd::migrate_routes`].
+    Routes,
 }
 
 impl Operation {
@@ -127,6 +133,7 @@ impl Operation {
             Self::EdgeRetarget { .. } => "edge-retarget",
             Self::References => "references",
             Self::Findings => "findings",
+            Self::Routes => "routes",
         }
     }
 
@@ -161,6 +168,8 @@ impl Operation {
             // Replaced once planned, for the reason above, and a stable form that does not
             // begin with the operation's own name for the same one.
             Self::Findings => "legacy propose paragraphs into records".to_string(),
+            // Replaced once planned, and for the same reasons as the two above.
+            Self::Routes => "AGENTS.md reading list into a generated block".to_string(),
         }
     }
 }
@@ -213,6 +222,10 @@ pub struct MigrateReport {
     /// somebody's prose now, and listing them would read as work to do.
     #[serde(skip_serializing_if = "is_zero")]
     pub prose_findings: usize,
+    /// The reading list `migrate routes` replaces, and the block it writes. `None` for every
+    /// other operation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routes: Option<super::migrate_routes::Routes>,
     /// Why this cannot proceed. Non-empty means nothing was touched.
     pub blocked: Vec<String>,
     /// Where the migration record was written, once applied.
@@ -248,6 +261,7 @@ impl MigrateReport {
             prose_details: 0,
             findings: vec![],
             prose_findings: 0,
+            routes: None,
             blocked: vec![],
             record: String::new(),
             commit_subject: String::new(),
@@ -463,6 +477,10 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
             super::migrate_findings::plan(root, corpus, &mut report);
             report.summary = super::migrate_findings::summary(&report);
         }
+        Operation::Routes => {
+            super::migrate_routes::plan(root, &mut report);
+            report.summary = super::migrate_routes::summary(&report);
+        }
     }
     if report.blocked.is_empty() {
         // A reference lift's unit of work is a reference and not an edit: only the tags it
@@ -490,6 +508,14 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
                     .map(|l| l.node.as_str())
                     .collect::<BTreeSet<_>>()
                     .len(),
+            )
+        } else if let Some(routes) = &report.routes {
+            // A routes migration makes no edits either: its unit is a bullet of the list the
+            // block replaces, in the one file it writes.
+            (
+                routes.replaced.len(),
+                "bullet",
+                usize::from(!routes.already),
             )
         } else {
             (
@@ -1355,6 +1381,15 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
         let files: BTreeSet<String> = report.findings.iter().map(|l| l.node.clone()).collect();
         return write_record(root, op, report, files.into_iter().collect());
     }
+    // A routes migration replaces a run of lines with a block of a different length, which a
+    // one-for-one line edit cannot express. The same escape as the two lifts above.
+    if matches!(op, Operation::Routes) {
+        let Some(routes) = report.routes.clone().filter(|r| !r.already) else {
+            return Ok(());
+        };
+        super::migrate_routes::apply(root, report)?;
+        return write_record(root, op, report, vec![routes.file]);
+    }
     let mut by_file: BTreeMap<&str, Vec<&Edit>> = Default::default();
     for e in &report.edits {
         by_file.entry(&e.file).or_default().push(e);
@@ -1478,6 +1513,10 @@ fn write_record(
 }
 
 pub(crate) fn render_migrate(r: &MigrateReport) -> String {
+    // Before the generic refusal, which cannot print the block a refusal hands over to paste.
+    if matches!(r.operation, "routes") {
+        return render_routes(r);
+    }
     if !r.blocked.is_empty() {
         let mut out = format!("Cannot migrate — {}:\n", r.summary);
         for b in &r.blocked {
@@ -1652,6 +1691,59 @@ fn render_findings(r: &MigrateReport) -> String {
              the author's now, and this migration will not guess where its own words ended.\n",
             r.prose_findings
         );
+    }
+    if !r.record.is_empty() {
+        let _ = write!(out, "\nrecord: {}", r.record);
+    }
+    let _ = write!(out, "\ncommit: {}", r.commit_subject);
+    out.trim_end().to_string()
+}
+
+/// A routes migration: the list it replaces, and the block — written, or to paste.
+fn render_routes(r: &MigrateReport) -> String {
+    let Some(routes) = &r.routes else {
+        // Refused before there was a block to print: no `AGENTS.md`, or no routes vendored.
+        let mut out = format!("Cannot migrate — {}:\n", r.summary);
+        for b in &r.blocked {
+            let _ = writeln!(out, "  {b}");
+        }
+        return out.trim_end().to_string();
+    };
+    if routes.already {
+        // Not "would migrate 0 bullets": the answer is that the generator already reaches it.
+        return format!(
+            "Nothing to migrate — {} already carries the `yidam routes` block, and \
+             `yidam regen` keeps it current.",
+            routes.file
+        );
+    }
+    if !r.blocked.is_empty() {
+        let mut out = format!("Cannot migrate — {}:\n", r.summary);
+        for b in &r.blocked {
+            let _ = writeln!(out, "  {b}");
+        }
+        let _ = write!(
+            out,
+            "\n{} is left as it was. Paste this where its reading list belongs, then run \
+             `yidam regen`:\n\n{}",
+            routes.file, routes.block
+        );
+        return out;
+    }
+    let mut out = format!(
+        "{} {}\n  {}:{}-{}  replaced by the block\n",
+        if r.applied {
+            "Migrated"
+        } else {
+            "Would migrate"
+        },
+        r.summary,
+        routes.file,
+        routes.line,
+        routes.line + routes.lines - 1,
+    );
+    for b in &routes.replaced {
+        let _ = writeln!(out, "    {b}");
     }
     if !r.record.is_empty() {
         let _ = write!(out, "\nrecord: {}", r.record);

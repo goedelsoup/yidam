@@ -514,6 +514,7 @@ record of what they touched.
 | `edge` | Point a declared relationship at a different class, at both ends |
 | `references` | Lift every reference written inside an evidence tag into the node's `references:` field |
 | `findings` | Lift every paragraph an earlier `propose` spliced into prose into a `yidam:` record |
+| `routes` | Put the `yidam routes` block into `AGENTS.md`, in place of its whole-file reading list |
 
 `retype` converts an instance value where the two types differ only in how the value is
 written. A `number` is an unquoted YAML number. So retyping to `number` unquotes `"24"`, and
