@@ -82,8 +82,8 @@
 
 `prelude/GRAPH.md:566-640` closes the commit vocabulary, and seven of its operational verbs name
 acts a *pipeline* performs rather than acts a person performs. Four of them —
-[`extract`](../../yidam/prelude/GRAPH.md#L635), [`refresh`](../../yidam/prelude/GRAPH.md#L636),
-[`compute`](../../yidam/prelude/GRAPH.md#L637), [`reconcile`](../../yidam/prelude/GRAPH.md#L640) —
+[`extract`](../../yidam/prelude/GRAPH.md#L639), [`refresh`](../../yidam/prelude/GRAPH.md#L640),
+[`compute`](../../yidam/prelude/GRAPH.md#L641), [`reconcile`](../../yidam/prelude/GRAPH.md#L644) —
 name capabilities that exist nowhere in this repository. The other three have a command that
 produces an artifact and stops.
 

@@ -259,6 +259,48 @@ fn prose_under_a_string_is_not_unquoted_into_a_number() {
     assert!(!c.dirty());
 }
 
+/// RFC-0044: a `values:` set binds on `string` and is carried on any other type, so a retype
+/// into `string` is where it starts to bind. `reach.regulated` holds
+/// `"yes — discharge set by outlet works"` — prose in a token field, the issue's own shape —
+/// and a retype that admitted it against `[yes, no]` would be a migration into a red build.
+#[test]
+fn a_retype_into_a_string_with_a_declared_set_is_held_to_the_set() {
+    let c = Corpus::new();
+    let ont = ".yidam/corpus/reach.ont.yml";
+    let text = c.read(ont).replace(
+        "  - name: regulated\n    type: string\n",
+        "  - name: regulated\n    type: flow-control\n    values: [yes, no]\n",
+    );
+    assert!(
+        text.contains("flow-control"),
+        "the fixture drifted:\n{text}"
+    );
+    std::fs::write(c.path().join(ont), text).unwrap();
+    c.git(&[
+        "commit",
+        "-qam",
+        "migrate: regulated is a coined type with a set it does not bind",
+    ]);
+    // The premise: on a coined type the set is carried and ignored, so the gate is clean.
+    assert!(c.gate_is_clean(), "a set on a coined type must not bind");
+
+    let (ok, out) = c.run(&["migrate", "retype", "reach", "regulated", "string"]);
+    assert!(
+        !ok,
+        "a retype into a set the instances contradict must refuse:\n{out}"
+    );
+    for instance in ["lower-canyon", "tailwater"] {
+        assert!(
+            out.contains(instance),
+            "{instance} is outside the set and unnamed:\n{out}"
+        );
+    }
+    assert!(out.contains("widen `values:`"), "{out}");
+    assert!(out.contains("nothing was written"), "{out}");
+    assert!(!c.dirty(), "a blocked retype touched the tree");
+    assert!(c.gate_is_clean());
+}
+
 // ── class rename ──────────────────────────────────────────────────────────────
 
 /// The operation with the most ways to be subtly wrong, and all three of them were.

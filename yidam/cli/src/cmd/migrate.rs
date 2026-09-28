@@ -30,6 +30,11 @@
 //! disagreed with the gate about what a valid value is would be a migration into a failing
 //! build.
 //!
+//! A retype *into* `string` on a property that declares `values:` (RFC-0044) is held to that
+//! set by the same rule: the set was carried and ignored on the type the property had, it
+//! binds on `string`, and an instance outside it is reported and blocks. Widening the set or
+//! fixing the value is a judgment about what the instance meant, and both are the author's.
+//!
 //! **Requoting is not guessing**, and it was refused along with the guesses until #1044. Two
 //! of `property-type`'s messages name their own repair: a `number` holding `"24"` is told to
 //! *unquote it*, and a `string` holding a bare `24` — or a `date` holding a bare `1985` — is
@@ -729,6 +734,15 @@ fn plan_property_retype(
     // conversion, and a retype that rewrote half a class before refusing would leave the
     // corpus in a state neither type describes.
     let mut values: Vec<(String, usize, String, String)> = Vec::new();
+    // A `string` may declare a closed set (RFC-0044), and a retype *into* `string` is the
+    // moment the set starts to bind — on the type the property had, it was carried and
+    // ignored. Consulted for the reason the type predicate is: a migration that left an
+    // instance outside the set would be a migration into a failing build. Read once, here,
+    // and empty on every other type.
+    let set = match new_type {
+        "string" => declared_values(corpus, class, property),
+        _ => vec![],
+    };
     for path in instances_of(corpus, class) {
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         let inst = crate::parse::parse_instance(&text);
@@ -739,29 +753,50 @@ fn plan_property_retype(
         else {
             continue;
         };
-        let Some(why) = super::lint::checks::property_type_violation(new_type, value) else {
-            continue;
+        // What the new type will see: the value as it stands, or as the requote writes it.
+        // `None` is a value that was refused above, which needs no second finding.
+        let admitted = match super::lint::checks::property_type_violation(new_type, value) {
+            None => Some(value.clone()),
+            Some(why) => {
+                let located = property_value_line(&text, property);
+                let outcome = located.as_ref().map_or(Requote::Nothing, |(_, written)| {
+                    requote(new_type, value, written)
+                });
+                match (outcome, located) {
+                    (Requote::Write(to), Some((line, from))) => {
+                        let parsed = serde_yaml::from_str(&to).ok();
+                        values.push((rel(root, &path), line, from, to));
+                        parsed
+                    }
+                    // The gate's finding, then what this tried. Both, because the finding is
+                    // what a reader will search for and the clause is the part that says what
+                    // to do next.
+                    (outcome, _) => {
+                        let clause = match outcome {
+                            Requote::Refused(why) => format!(": {why}"),
+                            _ => String::new(),
+                        };
+                        report.blocked.push(format!(
+                            "{}: `{property}` {why} — no mechanical conversion to \
+                             `{new_type}`{clause}",
+                            rel(root, &path)
+                        ));
+                        None
+                    }
+                }
+            }
         };
-        let located = property_value_line(&text, property);
-        let outcome = located.as_ref().map_or(Requote::Nothing, |(_, written)| {
-            requote(new_type, value, written)
-        });
-        match (outcome, located) {
-            (Requote::Write(to), Some((line, from))) => {
-                values.push((rel(root, &path), line, from, to))
-            }
-            // The gate's finding, then what this tried. Both, because the finding is what a
-            // reader will search for and the clause is the part that says what to do next.
-            (outcome, _) => {
-                let clause = match outcome {
-                    Requote::Refused(why) => format!(": {why}"),
-                    _ => String::new(),
-                };
-                report.blocked.push(format!(
-                    "{}: `{property}` {why} — no mechanical conversion to `{new_type}`{clause}",
-                    rel(root, &path)
-                ));
-            }
+        if let Some(why) = admitted
+            .as_ref()
+            .and_then(|v| super::lint::checks::declared_value_violation(&set, v))
+        {
+            // Not a conversion this can make: `resigned to enter Congress` against
+            // `resigned` is a judgment about what the instance meant, which is the guess the
+            // module note refuses. The two repairs are both the author's.
+            report.blocked.push(format!(
+                "{}: `{property}` {why} — widen `values:` on the declaration, or fix the value",
+                rel(root, &path)
+            ));
         }
     }
     if !report.blocked.is_empty() {
@@ -902,6 +937,17 @@ fn declared_properties(corpus: &Path, class: &str) -> Vec<(String, String)> {
         .into_iter()
         .map(|p| (p.name, p.property_type))
         .collect()
+}
+
+/// The closed set a property declares (RFC-0044), or empty.
+fn declared_values(corpus: &Path, class: &str, property: &str) -> Vec<String> {
+    let text = std::fs::read_to_string(ont_path(corpus, class)).unwrap_or_default();
+    yidam_core::ontology::parse_class(class, &text)
+        .properties
+        .into_iter()
+        .find(|p| p.name == property)
+        .map(|p| p.values)
+        .unwrap_or_default()
 }
 
 /// The class a relationship declares as its other end.

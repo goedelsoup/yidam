@@ -53,12 +53,12 @@ The test that decides all three is not new. `prelude/GRAPH.md` already licenses 
 epistemic commit written outside a resolution event, and licenses it on exactly this ground:
 
 > It is carriage and not synthesis, which is what makes it legal outside a resolution event.
-> — [`GRAPH.md:622`](../../yidam/prelude/GRAPH.md#L622), on `transport`
+> — [`GRAPH.md:626`](../../yidam/prelude/GRAPH.md#L626), on `transport`
 
 The reason sits in the evidence beside it: *"`transport` is legal outside a resolution event
 because Article V confines synthesis to resolutions, and copying a file verbatim introduces no
 node, edge or claim that its author did not hold"*
-([`GRAPH.evidence.md:382-384`](../../yidam/prelude/GRAPH.evidence.md#L382-L384)).
+([`GRAPH.evidence.md:392-394`](../../yidam/prelude/GRAPH.evidence.md#L392-L394)).
 
 `propose` inherits that test and this RFC makes it mechanical: **a proposal's commit body must
 contain the finding's own words, verbatim.** That is the constitutional rule expressed as

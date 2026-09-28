@@ -19,6 +19,7 @@ fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
                 // they hold is prose.
                 required: false,
                 prose: false,
+                values: vec![],
             })
             .collect(),
         edges: edges

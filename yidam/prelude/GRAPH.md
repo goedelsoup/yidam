@@ -113,6 +113,10 @@ nothing, and an edge to the *wrong* thing resolves, traverses, and exports, and 
 `unit: km`, never in the value. `"24"` is text and fails.
 [why](GRAPH.evidence.md#number-unquoted)
 
+**A `string` that declares `values: [extant, demolished, ruin]` is closed to that set**, and
+an instance holding anything else fails, with the set named. The match is exact, as written.
+[why](GRAPH.evidence.md#values-closed)
+
 **Silence is not a contract**, read one field at a time. A class with no `properties:` has
 said nothing about properties and none are checked; a class with no `edges:` has said nothing
 about edges and none are licensed. The same rule decides which classes are source classes for

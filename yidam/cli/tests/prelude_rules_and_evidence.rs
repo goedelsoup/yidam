@@ -192,7 +192,14 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// and why — and 24,146 + 59 is this figure exactly. `AGENTS.md` does not move: `PHASES.md` is
 /// on the derived-repository route and not on this repository's own, so the two routes parting
 /// by exactly the one file's growth is the control here.
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_781), ("sadhana/root/AGENTS.md", 24_205)];
+///
+/// **Both raised by a further 31 when `GRAPH.md` gained the `values:` rule (#1052, RFC-0044).**
+/// 18,781 → 18,812 and 24,205 → 24,236. The delta is **31 words in that one file** — the
+/// sentence saying a `string` that declares a set is closed to it, and that the match is
+/// exact — and the equality of the two deltas is again the control: `GRAPH.md` is on both
+/// lists. Its argument is 120 further words in `GRAPH.evidence.md`, charged to [`PAIR_FLOOR`]
+/// and reached only by a `[why]` link.
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_812), ("sadhana/root/AGENTS.md", 24_236)];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
 ///
@@ -282,7 +289,12 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_781), ("sadhana/root/A
 /// **59 words in `PHASES.md`**, the same 59 the derived-repository route moved by, and 27,784 +
 /// 59 is this figure exactly, so nothing else on the path moved. `PHASES.md` has no evidence
 /// half, so nothing is charged to [`PAIR_FLOOR`].
-const BOOTSTRAP_CEILING: usize = 27_843;
+///
+/// **Raised to 27,874 when `GRAPH.md` gained the `values:` rule (#1052, RFC-0044).** The delta
+/// is **31 words in `GRAPH.md`**, the same 31 both recurring routes moved by, and 27,843 + 31 is
+/// this figure exactly, so nothing else on the path moved. The 120 further words of argument
+/// are in `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
+const BOOTSTRAP_CEILING: usize = 27_874;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -362,9 +374,15 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// half, which carries the argument for why the order is the whole of it. 10,433 + 367 is this
 /// figure exactly, and the 126 are the same 126 [`BOOTSTRAP_CEILING`] moved by.
 ///
+/// **`GRAPH.md` re-measured to 9,516 for #1052.** 151 words arrived — 31 in the rules half, the
+/// sentence saying a declared `values:` set is closed and matched exactly, and 120 in the
+/// evidence half, which carries the 40 properties and 33 drifted instances the field exists
+/// for. 9,365 + 151 is this figure exactly, and the 31 are the same 31 the three ceilings
+/// moved by.
+///
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_399),
-    ("yidam/prelude/GRAPH.md", 9_365),
+    ("yidam/prelude/GRAPH.md", 9_516),
     ("yidam/prelude/guidelines/directories.md", 12_604),
     ("yidam/prelude/skills/bootstrap.md", 10_800),
 ];

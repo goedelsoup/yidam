@@ -27,6 +27,15 @@ export interface OntologyProperty {
    */
   unit: string
   /**
+   * The closed set a `string` may hold, or empty for an unbounded one.
+   *
+   * **A value set is a fact about the column, declared where the gate can read it**
+   * (RFC-0044). Declaring it closes it: `property-type` reports a value outside it, and the
+   * compiled schema carries it as `enum` — a constraint, not an annotation. Empty is absent,
+   * and the field is honoured on `string` only.
+   */
+  values: string[]
+  /**
    * Whether every instance of the class must carry this property.
    *
    * **Absent means false**, and not out of timidity: every corpus written before this field
@@ -85,6 +94,10 @@ export function parseClass(name: string, content: string): OntologyClass {
   const str = (v: unknown): string => (typeof v === 'string' ? v : '')
   const list = (v: unknown): Record<string, unknown>[] =>
     Array.isArray(v) ? v.filter((i): i is Record<string, unknown> => !!i && typeof i === 'object') : []
+  // The strings of a list, and nothing else: a `values:` written as a mapping, or carrying
+  // a bare number, declares no set rather than half of one.
+  const strings = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((i): i is string => typeof i === 'string') : []
 
   const declared = str(doc.class)
   return {
@@ -97,6 +110,7 @@ export function parseClass(name: string, content: string): OntologyClass {
       description: str(p.description),
       required: p?.required === true,
       unit: str(p.unit),
+      values: strings(p.values),
     })),
     edges: list(doc.edges).map((e) => ({
       relationship: str(e.relationship),
@@ -152,9 +166,12 @@ export function sourceClasses(classes: OntologyClass[]): Set<string> {
 
 /**
  * Mirrors `lint`'s `property-type` check, including what it declines to check: a type the
- * corpus coined compiles to `true`, valid against anything.
+ * corpus coined compiles to `true`, valid against anything. A `string` declaring `values:`
+ * compiles to that set as `enum` (RFC-0044) — a constraint, because the gate refuses a value
+ * outside it. Written as declared: no sorting, no trimming.
  */
-function propertySchema(type: string): unknown {
+function propertySchema(type: string, values: string[]): unknown {
+  if (type === 'string' && values.length > 0) return { type: 'string', minLength: 1, enum: values }
   switch (type) {
     case 'string':
     case 'text':
@@ -205,7 +222,7 @@ export function compileClassSchema(cls: OntologyClass): Record<string, unknown> 
   if (cls.properties.length > 0) {
     const declared: Record<string, unknown> = {}
     for (const p of cls.properties) {
-      let body = propertySchema(p.type)
+      let body = propertySchema(p.type, p.values)
       if (typeof body === 'object' && body !== null) {
         if (p.description !== '') body = { ...body, description: p.description }
         if (p.unit !== '') body = { ...body, 'x-yidam-unit': p.unit }
