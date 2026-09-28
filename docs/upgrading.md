@@ -28,6 +28,16 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `migrate value` renames one value of a closed set
+
+**A value of a declared `values:` set can be renamed as one event (#1120).** Declaring a set
+closes it. So `creek` → `stream` could not be done in two steps. Renaming the declaration
+first puts every instance in violation. Renaming the instances first puts them outside the
+set. `yidam migrate value <class> <property> <from> <to>` does both halves together. It
+rewrites the item on the declaration and the value on every instance holding it. It writes a
+migration record. Quoting follows what was written. A value outside the set is refused. So is
+a rename onto a value already in the set.
+
 ### A class declares a closed value set, and `property-type` holds instances to it
 
 **`values:` on a `string` property (#1052, RFC-0044).** A class could not declare the set of
