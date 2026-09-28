@@ -301,12 +301,23 @@ export function parseMarkers(text: string): Marker[] {
  * second-guesses them. Every other block is bracketed by newlines, and the empty case is
  * collapsed so that clearing a section does not leave a blank line between the markers.
  */
-function regenBody(newContent: string, inline: boolean): string {
+function regenBody(newContent: string, inline: boolean, standsAlone: boolean): string | null {
   // Both conditions: `inline` is the form the block was written in, and the newline test is
-  // whether the new content can still be written that way. See the Rust note.
+  // whether the new content can still be written that way. See the Rust note. `null` is an
+  // inline block that shares its line, which block form would break (#1137).
   if (inline && !newContent.includes('\n')) return newContent
+  if (inline && !standsAlone) return null
   if (newContent === '') return '\n'
   return `\n${newContent}\n`
+}
+
+/** Whether nothing but whitespace shares the block's line, before its open tag or after its close tag. */
+function standsAlone(text: string, span: RegenSpan): boolean {
+  const start = text.lastIndexOf('\n', span.open - 1) + 1
+  const end = span.close + REGEN_CLOSE.length
+  const nl = text.indexOf('\n', end)
+  const stop = nl === -1 ? text.length : nl
+  return text.slice(start, span.open).trim() === '' && text.slice(end, stop).trim() === ''
 }
 
 /**
@@ -314,7 +325,8 @@ function regenBody(newContent: string, inline: boolean): string {
  *
  * Defined over `scanMarkers`, which is the point: before #1094 this searched the text itself,
  * and the two searches disagreed. A block the scan cannot read is a block this leaves alone,
- * and a block it reads inline stays inline.
+ * and a block it reads inline stays inline — or, given a value that needs more than one line,
+ * takes the block form if the line is its own and is left alone if not.
  *
  * Two things changed with the second search's removal, and both close a defect rather than
  * open a feature. The command matches **exactly**, where the old prefix search let
@@ -329,8 +341,10 @@ export function updateRegen(text: string, command: string, newContent: string): 
   let out = ''
   let cursor = 0
   for (const span of spans) {
+    const body = regenBody(newContent, span.inline, standsAlone(text, span))
+    if (body === null) continue
     out += text.slice(cursor, span.body)
-    out += regenBody(newContent, span.inline)
+    out += body
     cursor = span.close
   }
   return out + text.slice(cursor)

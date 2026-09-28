@@ -1,5 +1,5 @@
 function = "update_regen"
-description = "A value that will not fit on one line is written in block form even into an inline block, so that the document's form matches its body and a second run is a no-op"
+description = "A value that will not fit on one line is not written into an inline block that shares its line. Block form is read by line, and in the middle of a sentence the open tag would become prose and the block would never be read again (#1137)"
 
 [input]
 command = "yidam count district"
@@ -12,8 +12,5 @@ Ohio has <!-- REGEN: yidam count district -->43<!-- /REGEN --> districts.
 
 [expected]
 content = """
-Ohio has <!-- REGEN: yidam count district -->
-one
-two
-<!-- /REGEN --> districts.
+Ohio has <!-- REGEN: yidam count district -->43<!-- /REGEN --> districts.
 """

@@ -1,0 +1,22 @@
+function = "update_regen"
+description = "An inline block with text after its close tag is left alone by a multi-line value. Written in block form, its close tag would no longer stand alone, and the next run would read the block on down to b's close tag and write over b (#1137)"
+
+[input]
+command = "a"
+new_content = """
+one
+two"""
+content = """
+<!-- REGEN: a -->44<!-- /REGEN --> as of today.
+<!-- REGEN: b -->
+kept
+<!-- /REGEN -->
+"""
+
+[expected]
+content = """
+<!-- REGEN: a -->44<!-- /REGEN --> as of today.
+<!-- REGEN: b -->
+kept
+<!-- /REGEN -->
+"""
