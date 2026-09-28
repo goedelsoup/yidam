@@ -164,6 +164,7 @@ impl Check {
     const PRELUDE: &'static str = "prelude";
     const INDEX: &'static str = "index";
     const REGEN: &'static str = "regen";
+    const ROUTES: &'static str = "routes";
     const COMPUTED: &'static str = "computed";
     const BUILD: &'static str = "build";
     const CATALOG: &'static str = "catalog";
@@ -736,6 +737,35 @@ fn check_regen(root: &std::path::Path) -> Answer {
     }
 }
 
+/// Does `AGENTS.md` carry the reading routes a re-vendor updates? — #1135.
+///
+/// A separate question from [`check_regen`], which judges the blocks a file carries and so
+/// cannot see one that is missing. A derivation made before RFC-0039 has no `yidam routes`
+/// markers, `update_file_regen` writes nothing where it finds none, and `regen --check`
+/// reports every block current. Of sixteen route lines the template added before the block
+/// existed, two reached a derivation, and nothing reported the other fourteen (#969).
+///
+/// A `warn` and not a `fail`: the whole-file list still works, and it is what every
+/// derivation had until this landed. No `AGENTS.md` skips rather than passes, for the reason
+/// [`check_kuten_read`] gives: there is nothing to carry the block.
+fn check_routes(root: &Path) -> Answer {
+    let Ok(text) = std::fs::read_to_string(root.join("AGENTS.md")) else {
+        return Answer::skipped("no `AGENTS.md`, so there is no reading list to route");
+    };
+    if super::migrate_routes::has_block(&text) {
+        return Answer::ok("`AGENTS.md` reads by occasion, from the vendored routes");
+    }
+    let remedy = if root.join(super::routes::VENDORED).exists() {
+        "yidam migrate routes, committed as a `migrate:` commit"
+    } else {
+        "mise run yidam-vendor-update, then yidam migrate routes"
+    };
+    Answer::warn(
+        "`AGENTS.md` has no `yidam routes` block, so no re-vendor reaches its reading list",
+        Some(remedy),
+    )
+}
+
 /// Which features does this binary have?
 ///
 /// Never a verdict — a light build is the recommended install. It is here because
@@ -871,6 +901,12 @@ const ROSTER: &[Question] = &[
         text: "Are the REGEN blocks current?",
         asked: Asked::OfARepository,
         answer: |s| check_regen(&s.root),
+    },
+    Question {
+        id: Check::ROUTES,
+        text: "Does `AGENTS.md` carry the reading routes a re-vendor updates?",
+        asked: Asked::OfARepository,
+        answer: |s| check_routes(&s.root),
     },
     Question {
         id: Check::CATALOG,

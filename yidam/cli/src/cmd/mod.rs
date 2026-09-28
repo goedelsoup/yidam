@@ -49,6 +49,7 @@ mod lsp;
 mod migrate;
 pub(crate) mod migrate_findings;
 pub(crate) mod migrate_references;
+pub(crate) mod migrate_routes;
 mod overlay;
 pub(crate) mod pack;
 pub(crate) mod phase;

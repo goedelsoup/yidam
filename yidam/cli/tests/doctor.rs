@@ -215,6 +215,7 @@ fn the_json_report_carries_the_envelope_and_every_check() {
         "index",
         "computed",
         "regen",
+        "routes",
         "catalog",
         "corpora",
         "corpus",
@@ -419,4 +420,70 @@ fn a_repository_holding_no_kuten_is_not_asked_whether_anything_reads_one() {
     let r = run(tmp.path(), &["doctor", "--format", "json"]);
     let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
     assert_eq!(check(&v, "kuten-read")["verdict"], "skipped");
+}
+
+/// An `AGENTS.md` from before RFC-0039 has no `yidam routes` block, and `regen --check` cannot
+/// see a block that is missing. This is the one surface that says so (#1135).
+#[test]
+fn an_agents_md_with_no_routes_block_is_reported_with_the_migration() {
+    let tmp = stage();
+    std::fs::write(
+        tmp.path().join("AGENTS.md"),
+        "# Agents\n\n## Before taking substantive action\n\n\
+         - [Identity](.yidam/.vendor/prelude/IDENTITY.md)\n",
+    )
+    .unwrap();
+    let routes = tmp.path().join(".yidam/.vendor/prelude/routes.yml");
+    std::fs::create_dir_all(routes.parent().unwrap()).unwrap();
+    std::fs::write(&routes, "always: []\noccasions: []\nreference: []\n").unwrap();
+
+    let r = run(tmp.path(), &["doctor", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
+    let c = check(&v, "routes");
+    assert_eq!(c["verdict"], "warn", "{c:#?}");
+    assert_eq!(
+        c["remedy"], "yidam migrate routes, committed as a `migrate:` commit",
+        "{c:#?}"
+    );
+}
+
+/// Before a re-vendor there are no routes to migrate to, and the remedy says to fetch them first.
+#[test]
+fn a_routes_warning_before_a_revendor_names_the_revendor_first() {
+    let tmp = stage();
+    std::fs::write(tmp.path().join("AGENTS.md"), "# Agents\n").unwrap();
+    let r = run(tmp.path(), &["doctor", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
+    let c = check(&v, "routes");
+    assert_eq!(c["verdict"], "warn", "{c:#?}");
+    assert!(
+        c["remedy"]
+            .as_str()
+            .unwrap()
+            .starts_with("mise run yidam-vendor-update"),
+        "{c:#?}"
+    );
+}
+
+#[test]
+fn an_agents_md_carrying_the_routes_block_reads_as_held() {
+    let tmp = stage();
+    std::fs::write(
+        tmp.path().join("AGENTS.md"),
+        "# Agents\n\n<!-- REGEN: yidam routes\n-->\n_Run `yidam routes`._\n<!-- /REGEN -->\n",
+    )
+    .unwrap();
+    let r = run(tmp.path(), &["doctor", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
+    let c = check(&v, "routes");
+    assert_eq!(c["verdict"], "ok", "{c:#?}");
+    assert_eq!(c["remedy"], serde_json::Value::Null);
+}
+
+#[test]
+fn a_repository_with_no_agents_md_is_not_asked_about_routes() {
+    let tmp = stage();
+    let r = run(tmp.path(), &["doctor", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
+    assert_eq!(check(&v, "routes")["verdict"], "skipped");
 }

@@ -21,6 +21,8 @@ yidam doctor — /home/you/my-domain
                      → yidam index-build (needs the `index` feature)
   ok    computed     this corpus computes nothing about itself, and declares no calculator
   ok    regen        every REGEN block holds what its generator produces
+  warn  routes       `AGENTS.md` has no `yidam routes` block, so no re-vendor reaches its reading list
+                     → mise run yidam-vendor-update, then yidam migrate routes
   ok    catalog      no TTL declared — 1 source(s) never expire. Set `[catalog] ttl_days` or declare `ttl_days:` on an entry.
   fail  corpora      not installed: hydrology
                      → mise run tonpa-install
@@ -33,7 +35,7 @@ yidam doctor — /home/you/my-domain
   skip  kuten-read   no kuten is declared, so nothing carries one
   ok    build        <version> (<commit>) with features: reports, export-graph, tonpa, serve-http, vault-s3, s3-vectors, catalog-fetch
 
-2 failing check(s), 2 warning(s).
+2 failing check(s), 3 warning(s).
 ```
 
 The version and commit are redacted; your own run prints them. Pinning a pair here would
@@ -51,6 +53,7 @@ exit code unless you pass `--strict`, which is the reading a CI job wants.
 | `index` | Is the index built, and is it current? |
 | `computed` | What has this corpus computed about itself, and does it still stand? |
 | `regen` | Are the REGEN blocks current? |
+| `routes` | Does `AGENTS.md` carry the reading routes a re-vendor updates? |
 | `catalog` | Have any source records aged out? |
 | `corpora` | Did the corpora this repository depends on arrive? |
 | `corpus` | Can every corpus file be read? |

@@ -39,7 +39,24 @@ reports a stale block.
 
 An existing derivation's `AGENTS.md` has no markers, and a generator writes nothing where it
 finds none. So `yidam regen` leaves the file as it is, and the whole-file list keeps working.
-The command that installs the markers is #1135.
+
+### `yidam migrate routes` puts the routes block into an existing `AGENTS.md`
+
+**`yidam migrate routes` (#1135).** Re-vendor first, so the prelude carries `routes.yml`. Then:
+
+```sh
+yidam migrate --dry-run routes   # see which list it replaces
+yidam migrate routes             # do it
+```
+
+It replaces the bullet list under *Before taking substantive action* with the rendered block.
+No other line of the file changes. Commit the result as a `migrate:` commit. From then on,
+`yidam regen` keeps the block current, and a stale one fails `regen --check`.
+
+It refuses when the heading is missing or has no list under it. So does a bullet in that list
+linking anything but a vendored prelude file. That line is yours.
+Each refusal prints the block to paste by hand. `yidam doctor` warns under `routes` until the
+block is there.
 
 ### The skills README no longer explains where `judge` went
 

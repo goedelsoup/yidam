@@ -1194,6 +1194,14 @@ enum MigrateCommand {
     /// their prose now, and this will not guess where the tool's sentence ended. Idempotent;
     /// run it with `--dry-run` first.
     Findings,
+    /// Put the `yidam routes` block into `AGENTS.md`, in place of its whole-file reading list
+    ///
+    /// A derivation made before RFC-0039 has no markers for `yidam routes` to write between,
+    /// so `yidam regen` leaves its reading list as genesis installed it. This replaces the
+    /// bullet list under *Before taking substantive action* with the block, once, and touches
+    /// no other line. A list holding a line that links no vendored prelude file is refused,
+    /// with the block printed to paste. Idempotent; run it with `--dry-run` first.
+    Routes,
     /// Point a declared relationship at a different class, at both ends
     Edge {
         /// The class that declares it
@@ -1234,6 +1242,7 @@ impl From<MigrateCommand> for yidam::MigrateOperation {
             },
             MigrateCommand::References => Self::References,
             MigrateCommand::Findings => Self::Findings,
+            MigrateCommand::Routes => Self::Routes,
             MigrateCommand::Edge {
                 class,
                 relationship,

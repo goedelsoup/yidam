@@ -779,3 +779,176 @@ fn a_corpus_with_no_paragraphs_says_there_is_nothing_to_lift() {
     assert!(out.contains("Nothing to lift"), "{out}");
     assert!(!c.dirty(), "it wrote to a corpus with nothing to migrate");
 }
+
+// ── routes ───────────────────────────────────────────────────────────────────
+
+/// `AGENTS.md` as a derivation made before RFC-0039 carries it: the whole-file list, a wrapped
+/// bullet, prose on both sides, and an owner's section after.
+const OLD_AGENTS: &str = "\
+# AGENTS.md
+
+## Before taking substantive action
+
+Read the vendored prelude. It is the model this repository runs on, and it is not
+negotiable from inside the repo:
+
+- [Identity](.yidam/.vendor/prelude/IDENTITY.md) — what this kind of repository is
+- [Agent conduct](.yidam/.vendor/prelude/guidelines/agent-conduct.md) — behavioral norms,
+  including the `[verified]` / `[inference]` / `[open]` claim tags
+- [Phases](.yidam/.vendor/prelude/PHASES.md) — how a unit of inquiry is bounded and committed
+
+Files under `.yidam/.vendor/` are read-only.
+
+## Domain gates
+
+An owner's section, edited by hand.
+";
+
+/// The example corpus with an old `AGENTS.md` and, unless `vendored` is false, the routes the
+/// template ships vendored beside it.
+fn with_old_agents(c: &Corpus, agents: &str, vendored: bool) {
+    std::fs::write(c.path().join("AGENTS.md"), agents).unwrap();
+    if vendored {
+        let to = c.path().join(".yidam/.vendor/prelude/routes.yml");
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(repo_root().join("yidam/prelude/routes.yml"), &to).unwrap();
+    }
+    c.git(&["add", "-A"]);
+    c.git(&[
+        "commit",
+        "-q",
+        "-m",
+        "vendor: a prelude that carries routes",
+    ]);
+}
+
+#[test]
+fn a_dry_run_of_migrate_routes_names_the_list_and_changes_nothing() {
+    let c = Corpus::new();
+    with_old_agents(&c, OLD_AGENTS, true);
+    let (ok, out) = c.run(&["migrate", "--dry-run", "routes"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Would migrate"), "{out}");
+    assert!(out.contains("AGENTS.md:8-11"), "{out}");
+    // The commit-subject special case: its unit is a bullet, and a generic edit count would
+    // report that it did nothing.
+    assert!(
+        out.contains("(3 bullet(s) across 1 file(s))"),
+        "the commit subject does not count the bullets: {out}"
+    );
+    assert!(!c.dirty(), "a dry run wrote to the tree");
+}
+
+/// The migration itself: the list becomes a block the generator already agrees with, and no
+/// other line of the file moves.
+#[test]
+fn migrate_routes_replaces_the_list_and_nothing_else() {
+    let c = Corpus::new();
+    with_old_agents(&c, OLD_AGENTS, true);
+
+    let (ok, out) = c.run(&["migrate", "routes"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Migrated"), "{out}");
+    assert!(out.contains("record: .yidam/migrations/routes-"), "{out}");
+
+    let after = c.read("AGENTS.md");
+    assert!(after.contains("<!-- REGEN: yidam routes\n"), "{after}");
+    assert!(after.contains("### On every occasion"), "{after}");
+    assert!(
+        !after.contains("claim tags\n- [Phases]"),
+        "the old list survived:\n{after}"
+    );
+    for kept in [
+        "## Before taking substantive action\n\nRead the vendored prelude.",
+        "negotiable from inside the repo:\n\n<!-- REGEN: yidam routes\n",
+        "<!-- /REGEN -->\n\nFiles under `.yidam/.vendor/` are read-only.",
+        "## Domain gates\n\nAn owner's section, edited by hand.\n",
+    ] {
+        assert!(after.contains(kept), "`{kept}` did not survive:\n{after}");
+    }
+
+    // Rendered, not a placeholder: the generator finds the block and has nothing to change.
+    let (ok, out) = c.run(&["routes"]);
+    assert!(ok, "{out}");
+    assert_eq!(
+        c.read("AGENTS.md"),
+        after,
+        "`yidam routes` rewrote the block"
+    );
+
+    // And it reaches it: a hand-edited route line is put back.
+    let edited = after.replacen("### On every occasion", "### On most occasions", 1);
+    std::fs::write(c.path().join("AGENTS.md"), &edited).unwrap();
+    assert!(c.run(&["routes"]).0);
+    assert_eq!(
+        c.read("AGENTS.md"),
+        after,
+        "`yidam routes` did not reach the block"
+    );
+}
+
+#[test]
+fn migrate_routes_is_idempotent() {
+    let c = Corpus::new();
+    with_old_agents(&c, OLD_AGENTS, true);
+    assert!(c.run(&["migrate", "routes"]).0);
+    let once = c.read("AGENTS.md");
+
+    let (ok, out) = c.run(&["migrate", "routes"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Nothing to migrate"), "{out}");
+    assert_eq!(c.read("AGENTS.md"), once, "a second run rewrote the file");
+}
+
+/// An owner's line in the list refuses the whole migration, and the refusal hands over the
+/// block to paste. This is the `render_migrate` dispatch: the generic refusal prints no block.
+#[test]
+fn an_owners_line_in_the_list_refuses_and_prints_the_block() {
+    let c = Corpus::new();
+    let agents = OLD_AGENTS.replace(
+        "- [Phases]",
+        "- [Our field guide](docs/field-guide.md) — read before any gauge work\n- [Phases]",
+    );
+    with_old_agents(&c, &agents, true);
+
+    let (ok, out) = c.run(&["migrate", "routes"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("Cannot migrate"), "{out}");
+    assert!(
+        out.contains("Our field guide"),
+        "the refusal does not name the line: {out}"
+    );
+    assert!(
+        out.contains("<!-- REGEN: yidam routes\n") && out.contains("### On every occasion"),
+        "the refusal does not print the block to paste: {out}"
+    );
+    assert!(!c.dirty(), "a refused migration wrote to the tree");
+}
+
+#[test]
+fn a_missing_heading_refuses_and_prints_the_block() {
+    let c = Corpus::new();
+    with_old_agents(
+        &c,
+        "# AGENTS.md\n\nThirty-seven lines, no route list.\n",
+        true,
+    );
+    let (ok, out) = c.run(&["migrate", "routes"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("Before taking substantive action"), "{out}");
+    assert!(out.contains("<!-- /REGEN -->"), "{out}");
+    assert!(!c.dirty(), "a refused migration wrote to the tree");
+}
+
+/// Before a re-vendor there is nothing to render, and the working list is not traded for a
+/// placeholder.
+#[test]
+fn migrate_routes_before_a_revendor_refuses() {
+    let c = Corpus::new();
+    with_old_agents(&c, OLD_AGENTS, false);
+    let (ok, out) = c.run(&["migrate", "routes"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("yidam-vendor-update"), "{out}");
+    assert_eq!(c.read("AGENTS.md"), OLD_AGENTS);
+    assert!(!c.dirty(), "a refused migration wrote to the tree");
+}

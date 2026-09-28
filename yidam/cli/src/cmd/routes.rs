@@ -75,7 +75,7 @@ pub fn routes(root: Option<&Path>) -> Result<()> {
 }
 
 /// The block's content for this repository.
-fn block(root: &Path) -> Result<String> {
+pub(crate) fn block(root: &Path) -> Result<String> {
     let path = root.join(VENDORED);
     if !path.exists() {
         return Ok(format!(
