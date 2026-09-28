@@ -321,6 +321,10 @@ name, or delete the block.
 Only `yidam` commands are judged. A block another program refreshes is left alone, and so is
 one a page only shows inside a code fence.
 
+**The `yidam ` prefix is reserved.** A block marked `yidam <name>` belongs to yidam, and
+`yidam regen` rewrites it whatever wrote it. Mark your own generator's blocks with your own
+program's name: `<!-- REGEN: my-tool <name> -->`.
+
 **A gated block holds only what every checkout of the commit agrees on.** The tree is all they
 share. So a block may not report anything read from outside it.
 
