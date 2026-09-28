@@ -8,14 +8,18 @@
 // (1) and (3) were `{:axiom}` — obligations *on the implementation*, which Dafny could not
 // see, counted toward the "verified" total exactly as a proof is. #499 discharged both by
 // modelling the two functions here and proving the claims about the model. The model is
-// `markers.rs` transcribed: `UpdateRegen` finds the same three offsets `update_regen` finds,
-// `ParseFrom` walks lines the way `parse_markers` walks them.
+// `markers.rs` transcribed: `RegenScan` reads blocks the way `scan_markers` does, and
+// `UpdateRegen` rewrites every block the scan names, as `update_regen` does (#1097);
+// `ParseFrom` walks lines the way `parse_markers` walks them. The one place the two scans
+// differ is proved, not assumed: `TheModelsScanIsNotLineAnchored`.
 //
 // Modelling them found three claims **false as they were written** — two of them assumed by
 // an axiom, which is what an axiom conceals, and one a predicate that stated a property and
 // was then used by nothing at all. Each is now a proved refutation:
-//   - `UpdateRegenSpec` claimed REGEN-block counts are preserved unconditionally. They are
-//     not; `RegenBlockCountWasTheWrongInstrument` proves it and says what replaced the clause.
+//   - `UpdateRegenSpec` claimed REGEN-block counts are preserved unconditionally. Counted as
+//     open tags in the text, they are not: content can spell one. Counted as blocks the scan
+//     reads, they are, and that is the clause now — `ContentThatSpellsATagIsNotABlock` is
+//     the document that tells the two counts apart.
 //   - `MarkerGrounded` (here `GroundedBySubstring`) claimed a marker's command appears in the
 //     source as a raw substring after "<!-- REGEN: ". It does not — `parse_markers` trims, and
 //     one extra space in the tag is enough. `TheSubstringFormOfGroundingIsFalse`.
@@ -191,10 +195,12 @@ module YidamGraph {
 
   // ── update_regen ───────────────────────────────────────────────────────────────
   //
-  // `update_regen(text, command, new_content)` finds, in order:
-  //   "<!-- REGEN: command"  …  "-->"  …  "<!-- /REGEN -->"
-  // and replaces what lies between the arrow and the close tag. Each of the three is the
-  // *first* match at or after where the previous one ended, which is what `RegenSpan` says.
+  // `update_regen` is defined over the scan (#1094): `scan_markers` records every well-formed
+  // block's extent as it reads, and the writer rewrites the body of each block whose command
+  // is *equal* to the one it was asked for. The model has the same shape (#1097). `RegenScan`
+  // is the reader; `RegenSpan` and `UpdateRegen` are both selections over it. There is no
+  // second search for them to disagree with, so *the two agree* is the definition, not a
+  // lemma.
 
   const RegenOpen:  string := "<!-- REGEN: "
   const RegenArrow: string := "-->"
@@ -220,75 +226,56 @@ module YidamGraph {
   // The four offsets, in the order the implementation computes them.
   datatype Span = Span(open: nat, arrow: nat, body: nat, close: nat)
 
-  // A text has a well-formed REGEN block for `command` when the three markers occur in order.
-  // This is the declarative statement the file has always carried; `RegenSpanFindsEveryBlock`
-  // below is what ties it to the greedy left-to-right search the implementation performs.
-  ghost predicate HasRegenFor(text: string, command: string) {
-    exists oi, ai, ci ::
-      SubstringAt(text, RegenOpen + command, oi) &&
-      ai >= oi + |RegenOpen + command| &&
-      SubstringAt(text, RegenArrow, ai) &&
-      ci >= ai + |RegenArrow| &&
-      SubstringAt(text, RegenClose, ci)
+  function End(sp: Span): nat { sp.close + |RegenClose| }
+
+  function Shift(sp: Span, d: nat): Span {
+    Span(sp.open + d, sp.arrow + d, sp.body + d, sp.close + d)
   }
 
-  function RegenSpan(text: string, command: string): Option<Span>
-    ensures RegenSpan(text, command).Some? ==>
-      var sp := RegenSpan(text, command).value;
-      && FindFrom(text, RegenOpen + command, 0) == Some(sp.open)
-      && sp.open + |RegenOpen + command| <= sp.arrow
-      && FindFrom(text, RegenArrow, sp.open + |RegenOpen + command|) == Some(sp.arrow)
-      && sp.body == sp.arrow + |RegenArrow|
-      && sp.body <= sp.close <= |text|
-      && FindFrom(text, RegenClose, sp.body) == Some(sp.close)
-      && SubstringAt(text, RegenClose, sp.close)
-      && SubstringAt(text, RegenArrow, sp.arrow)
+  // The shape every span the scan reports has, relative to the string it was read from.
+  predicate WellPlaced(s: string, sp: Span) {
+    && sp.open + |RegenTag| <= sp.arrow
+    && sp.body == sp.arrow + |RegenArrow|
+    && sp.body <= sp.close
+    && End(sp) <= |s|
+  }
+
+  // `WellPlaced(s, q)` of the span `Shift(q, base)`, stated without subtracting from a `nat`.
+  predicate PlacedAt(s: string, sp: Span, base: nat) {
+    && base <= sp.open
+    && sp.open + |RegenTag| <= sp.arrow
+    && sp.body == sp.arrow + |RegenArrow|
+    && sp.body <= sp.close
+    && End(sp) <= base + |s|
+  }
+
+  // The first block in `s`: the first open tag, the first arrow after it, and the first close
+  // tag after that. This is the inline loop of `scan_markers` — `find` three times.
+  //
+  // The tag is `RegenTag`, without the space, because that is what `scan_markers` searches
+  // for; the command is whatever lies between it and the arrow, trimmed.
+  function NextBlock(s: string): Option<Span>
+    ensures NextBlock(s).Some? ==>
+      var sp := NextBlock(s).value;
+      && WellPlaced(s, sp)
+      && FindFrom(s, RegenTag, 0) == Some(sp.open)
+      && FindFrom(s, RegenArrow, sp.open + |RegenTag|) == Some(sp.arrow)
+      && FindFrom(s, RegenClose, sp.body) == Some(sp.close)
   {
-    match FindFrom(text, RegenOpen + command, 0)
+    match FindFrom(s, RegenTag, 0)
       case None => None
       case Some(op) =>
-        var afterOpen := op + |RegenOpen + command|;
-        match FindFrom(text, RegenArrow, afterOpen)
+        match FindFrom(s, RegenArrow, op + |RegenTag|)
           case None => None
           case Some(ai) =>
-            var bs := ai + |RegenArrow|;
-            match FindFrom(text, RegenClose, bs)
+            match FindFrom(s, RegenClose, ai + |RegenArrow|)
               case None => None
-              case Some(ci) => Some(Span(op, ai, bs, ci))
+              case Some(ci) => Some(Span(op, ai, ai + |RegenArrow|, ci))
   }
 
-  // The greedy search misses no well-formed block, and invents none.
-  //
-  // Not obvious in the ⇒ direction, and worth stating because the two halves are written
-  // differently on purpose: `HasRegenFor` is three unconstrained existentials, and the
-  // implementation takes the *first* match at every step. Taking the first can only move each
-  // offset left, which leaves room for the next — so a block that exists anywhere is a block
-  // the scan finds.
-  lemma RegenSpanFindsEveryBlock(text: string, command: string)
-    ensures HasRegenFor(text, command) <==> RegenSpan(text, command).Some?
-  {
-    if HasRegenFor(text, command) {
-      var oi, ai, ci :| SubstringAt(text, RegenOpen + command, oi) &&
-                        ai >= oi + |RegenOpen + command| &&
-                        SubstringAt(text, RegenArrow, ai) &&
-                        ci >= ai + |RegenArrow| &&
-                        SubstringAt(text, RegenClose, ci);
-      assert FindFrom(text, RegenOpen + command, 0).Some?;
-      var op := FindFrom(text, RegenOpen + command, 0).value;
-      assert op <= oi;
-      var afterOpen := op + |RegenOpen + command|;
-      assert afterOpen <= ai;
-      assert FindFrom(text, RegenArrow, afterOpen).Some?;
-      var ar := FindFrom(text, RegenArrow, afterOpen).value;
-      assert ar <= ai;
-      assert ar + |RegenArrow| <= ci;
-      assert FindFrom(text, RegenClose, ar + |RegenArrow|).Some?;
-    }
-    if RegenSpan(text, command).Some? {
-      var sp := RegenSpan(text, command).value;
-      assert SubstringAt(text, RegenOpen + command, sp.open);
-    }
-  }
+  function CommandAt(s: string, sp: Span): string
+    requires WellPlaced(s, sp)
+  { Trim(s[sp.open + |RegenTag|..sp.arrow]) }
 
   predicate NoNewline(s: string) { forall i :: 0 <= i < |s| ==> s[i] != '\n' }
 
@@ -298,6 +285,106 @@ module YidamGraph {
   predicate InlineAt(text: string, sp: Span)
     requires sp.body <= sp.close <= |text|
   { NoNewline(text[sp.body..sp.close]) }
+
+  // One well-formed block, as `scan_markers` records it — `RegenSpan` in `markers.rs`, which
+  // carries the command, the extent, and the form. The name is taken here by the selection
+  // below, which is older.
+  datatype Block = Block(command: string, span: Span, inline: bool)
+
+  // `scan_markers`' third output. Each block is found in the text after the previous one's
+  // close tag, which is where the scan resumes — a body is never searched for an open tag.
+  // `base` is how far into the original text `s` starts, so the spans are the original's.
+  function ScanAt(s: string, base: nat): seq<Block>
+    decreases |s|
+  {
+    match NextBlock(s)
+      case None => []
+      case Some(sp) =>
+        [Block(CommandAt(s, sp), Shift(sp, base), InlineAt(s, sp))]
+          + ScanAt(s[End(sp)..], base + End(sp))
+  }
+
+  // Every span the scan reports is where it says, in the string it read. A lemma rather than
+  // a postcondition of `ScanAt`: as a postcondition it is a quantifier every proof that
+  // mentions a scan pays for, and the inductions below time out paying it.
+  lemma ScanIsPlaced(s: string, base: nat)
+    ensures forall b :: b in ScanAt(s, base) ==> PlacedAt(s, b.span, base)
+    decreases |s|
+  {
+    if NextBlock(s).Some? {
+      var sp := NextBlock(s).value;
+      ScanIsPlaced(s[End(sp)..], base + End(sp));
+    }
+  }
+
+  // One step of the scan, as a fact a proof can call on. Left to the solver to unfold inside
+  // a larger proof, this equation alone runs it out of time.
+  lemma ScanAtSteps(s: string, base: nat, sp: Span)
+    requires NextBlock(s) == Some(sp)
+    ensures ScanAt(s, base)
+         == [Block(CommandAt(s, sp), Shift(sp, base), InlineAt(s, sp))]
+            + ScanAt(s[End(sp)..], base + End(sp))
+  {}
+
+  function RegenScan(text: string): seq<Block> { ScanAt(text, 0) }
+
+  function Commands(blocks: seq<Block>): seq<string> {
+    if |blocks| == 0 then [] else [blocks[0].command] + Commands(blocks[1..])
+  }
+
+  lemma CommandsOfCons(b: Block, rest: seq<Block>)
+    ensures Commands([b] + rest) == [b.command] + Commands(rest)
+  {
+    assert ([b] + rest)[1..] == rest;
+  }
+
+  // The first block whose command is `command` — equal, not a prefix. Asked for `a`, a block
+  // for `ab` is not an answer (`TheLocatorComparesTheWholeCommand`).
+  function FirstWithCommand(blocks: seq<Block>, command: string): Option<Span>
+    ensures FirstWithCommand(blocks, command).Some? ==>
+      exists b :: b in blocks && b.command == command
+                  && b.span == FirstWithCommand(blocks, command).value
+    ensures FirstWithCommand(blocks, command).None? ==>
+      forall b :: b in blocks ==> b.command != command
+  {
+    if |blocks| == 0 then None
+    else if blocks[0].command == command then Some(blocks[0].span)
+    else FirstWithCommand(blocks[1..], command)
+  }
+
+  lemma FirstWithCommandOfCons(b: Block, rest: seq<Block>, command: string)
+    ensures FirstWithCommand([b] + rest, command)
+         == if b.command == command then Some(b.span) else FirstWithCommand(rest, command)
+  {
+    assert ([b] + rest)[1..] == rest;
+  }
+
+  function RegenSpan(text: string, command: string): Option<Span>
+    ensures RegenSpan(text, command).Some? ==> WellPlaced(text, RegenSpan(text, command).value)
+  {
+    ScanIsPlaced(text, 0);
+    FirstWithCommand(RegenScan(text), command)
+  }
+
+  // A text has a block for `command` when the scan reads one.
+  ghost predicate HasRegenFor(text: string, command: string) {
+    exists b :: b in RegenScan(text) && b.command == command
+  }
+
+  // The selection misses no block the scan reads, and invents none.
+  lemma RegenSpanFindsEveryBlock(text: string, command: string)
+    ensures HasRegenFor(text, command) <==> RegenSpan(text, command).Some?
+  {}
+
+  lemma CommandsHoldsEveryCommand(blocks: seq<Block>, b: Block)
+    requires b in blocks
+    ensures b.command in Commands(blocks)
+  {
+    if blocks[0] != b {
+      assert b in blocks[1..];
+      CommandsHoldsEveryCommand(blocks[1..], b);
+    }
+  }
 
   // The body the implementation writes. Two special cases, and neither is tidiness.
   //
@@ -317,17 +404,48 @@ module YidamGraph {
     else "\n" + newContent + "\n"
   }
 
-  function UpdateRegen(text: string, command: string, newContent: string): string
+  // What a second run reads back out of a body the first run wrote is the form that body was
+  // written in, so the second run writes the same body. This is the clause the two-condition
+  // `RegenBody` is for: had it written a multi-line value into an inline block, the second
+  // run would read block form where the first read inline, and lay down a different body.
+  lemma RegenBodyKeepsItsForm(newContent: string, inline: bool)
+    ensures RegenBody(newContent, NoNewline(RegenBody(newContent, inline)))
+         == RegenBody(newContent, inline)
   {
-    match RegenSpan(text, command)
-      case None => text
+    var body := RegenBody(newContent, inline);
+    if !(inline && NoNewline(newContent)) {
+      assert |body| > 0 && body[0] == '\n';
+      assert !NoNewline(body);
+    }
+  }
+
+  // What goes between a block's arrow and its close tag: the new body if the block is named
+  // `command`, and what was there if not.
+  function Mid(s: string, sp: Span, command: string, newContent: string): string
+    requires WellPlaced(s, sp)
+  {
+    if CommandAt(s, sp) == command then RegenBody(newContent, InlineAt(s, sp))
+    else s[sp.body..sp.close]
+  }
+
+  // `update_regen`: every block the scan reads with the command, rewritten — not the first.
+  function Rewrite(s: string, command: string, newContent: string): string
+    decreases |s|
+  {
+    match NextBlock(s)
+      case None => s
       case Some(sp) =>
-        text[..sp.body] + RegenBody(newContent, InlineAt(text, sp)) + text[sp.close..]
+        s[..sp.body] + Mid(s, sp, command, newContent) + s[sp.close..End(sp)]
+          + Rewrite(s[End(sp)..], command, newContent)
+  }
+
+  function UpdateRegen(text: string, command: string, newContent: string): string {
+    Rewrite(text, command, newContent)
   }
 
   // Nothing in the freshly written body matches the close tag, provided the caller did not
   // write one into `newContent` — which is the precondition the spec below carries, and which
-  // the axiom it replaces did not.
+  // the axiom it replaced did not.
   //
   // Two shapes, because RFC-0043 gave the body two, and they fail differently. A block-form
   // body is bracketed by newlines and neither tag holds one, so nothing can straddle either
@@ -412,15 +530,339 @@ module YidamGraph {
     }
   }
 
-  // **Claim (1).** Content preservation and idempotency, as a lemma with a body.
+  // ── The re-scan ───────────────────────────────────────────────────────────────
   //
-  // Three of the axiom's four clauses survive as written. The fourth — "(3) No REGEN blocks
-  // created or destroyed", stated over an axiomatized `RegenBlockCount` — does not; see
-  // `RegenBlockCountWasTheWrongInstrument`.
+  // Every clause of `UpdateRegenSpec` is a statement about the scan of the *result*, and the
+  // result is the text with some bodies replaced. Replacing a body moves every offset after
+  // it, so nothing about the text's scan carries over for free. What carries it is this: one
+  // step of the rewrite, read back. The block the step wrote is the first block the scan of
+  // the result finds, at the same open tag and arrow, with its close tag moved to the end of
+  // the new body; and what follows that close tag is exactly what the step put there. Every
+  // lemma below is an induction whose step is this one.
+
+  lemma ReadBack(s: string, sp: Span, mid: string, tail: string)
+    requires NextBlock(s) == Some(sp)
+    requires forall j :: sp.body <= j < sp.body + |mid| ==>
+      !SubstringAt(s[..sp.body] + mid + s[sp.close..End(sp)] + tail, RegenClose, j)
+    ensures
+      var r   := s[..sp.body] + mid + s[sp.close..End(sp)] + tail;
+      var sp' := Span(sp.open, sp.arrow, sp.body, sp.body + |mid|);
+      && NextBlock(r) == Some(sp')
+      && CommandAt(r, sp') == CommandAt(s, sp)
+      && InlineAt(r, sp') == NoNewline(mid)
+      && r[..sp.body] == s[..sp.body]
+      && r[sp.body..sp.body + |mid|] == mid
+      && r[End(sp')..] == tail
+  {
+    var r   := s[..sp.body] + mid + s[sp.close..End(sp)] + tail;
+    var sp' := Span(sp.open, sp.arrow, sp.body, sp.body + |mid|);
+    assert r[..sp.body] == s[..sp.body];
+    FindAgreesOnSharedPrefix(s, r, RegenTag, 0, sp.body);
+    FindAgreesOnSharedPrefix(s, r, RegenArrow, sp.open + |RegenTag|, sp.body);
+    assert r[sp'.close..End(sp')] == s[sp.close..End(sp)];
+    assert SubstringAt(r, RegenClose, sp'.close);
+    FindSkips(r, RegenClose, sp.body, sp'.close);
+    SliceOfSharedPrefix(s, r, sp.open + |RegenTag|, sp.arrow, sp.body);
+    assert r[sp.body..sp.body + |mid|] == mid;
+    assert r[End(sp')..] == tail;
+  }
+
+  // The body a step writes holds no close tag, so `ReadBack` applies to every step `Rewrite`
+  // takes. A rewritten body is `CloseTagNotInBody`'s business; an untouched one held none in
+  // the text, because the scan took the *first* close tag after the arrow.
+  lemma MidHoldsNoClose(s: string, sp: Span, command: string, nc: string, tail: string)
+    requires NextBlock(s) == Some(sp)
+    requires ContainsNo(nc, RegenClose)
+    ensures
+      var mid := Mid(s, sp, command, nc);
+      var r   := s[..sp.body] + mid + s[sp.close..End(sp)] + tail;
+      forall j :: sp.body <= j < sp.body + |mid| ==> !SubstringAt(r, RegenClose, j)
+  {
+    var mid := Mid(s, sp, command, nc);
+    var r   := s[..sp.body] + mid + s[sp.close..End(sp)] + tail;
+    if CommandAt(s, sp) == command {
+      assert r[sp.body..sp.body + |mid|] == mid;
+      assert SubstringAt(r, RegenClose, sp.body + |mid|) by {
+        assert r[sp.body + |mid|..sp.body + |mid| + |RegenClose|] == s[sp.close..End(sp)];
+      }
+      CloseTagNotInBody(r, nc, sp.body, InlineAt(s, sp));
+    } else {
+      assert s[..sp.body] + s[sp.body..sp.close] + s[sp.close..End(sp)] == s[..End(sp)];
+      assert r[..End(sp)] == s[..End(sp)];
+      forall j | sp.body <= j < sp.body + |mid| ensures !SubstringAt(r, RegenClose, j) {
+        SliceOfSharedPrefix(s, r, j, j + |RegenClose|, End(sp));
+        assert !SubstringAt(s, RegenClose, j);
+      }
+    }
+  }
+
+  // One step of `Rewrite`, named, with `ReadBack` already applied to it.
+  lemma Step(s: string, command: string, nc: string) returns (sp: Span, sp': Span)
+    requires NextBlock(s).Some?
+    requires ContainsNo(nc, RegenClose)
+    ensures sp == NextBlock(s).value
+    ensures
+      var mid := Mid(s, sp, command, nc);
+      var r   := Rewrite(s, command, nc);
+      && sp' == Span(sp.open, sp.arrow, sp.body, sp.body + |mid|)
+      && r == s[..sp.body] + mid + s[sp.close..End(sp)] + Rewrite(s[End(sp)..], command, nc)
+      && NextBlock(r) == Some(sp')
+      && CommandAt(r, sp') == CommandAt(s, sp)
+      && InlineAt(r, sp') == NoNewline(mid)
+      && r[..sp.body] == s[..sp.body]
+      && r[sp.body..sp.body + |mid|] == mid
+      && r[End(sp')..] == Rewrite(s[End(sp)..], command, nc)
+  {
+    sp := NextBlock(s).value;
+    var mid := Mid(s, sp, command, nc);
+    sp' := Span(sp.open, sp.arrow, sp.body, sp.body + |mid|);
+    var tail := Rewrite(s[End(sp)..], command, nc);
+    MidHoldsNoClose(s, sp, command, nc, tail);
+    ReadBack(s, sp, mid, tail);
+  }
+
+  // Every block named `command` holds what a rewrite would write into it. Stated block by
+  // block down the scan, so it says *every* and not *the first*: a model that rewrote only
+  // the first match would leave a second one holding the old value, and fail this.
+  predicate EveryWritten(s: string, command: string, nc: string)
+    decreases |s|
+  {
+    match NextBlock(s)
+      case None => true
+      case Some(sp) =>
+        && (CommandAt(s, sp) == command ==> s[sp.body..sp.close] == RegenBody(nc, InlineAt(s, sp)))
+        && EveryWritten(s[End(sp)..], command, nc)
+  }
+
+  // A text whose every such block already holds the content is one `Rewrite` leaves alone.
+  lemma RewriteFixesTheWritten(s: string, command: string, nc: string)
+    requires EveryWritten(s, command, nc)
+    ensures Rewrite(s, command, nc) == s
+    decreases |s|
+  {
+    if NextBlock(s).Some? {
+      var sp := NextBlock(s).value;
+      RewriteFixesTheWritten(s[End(sp)..], command, nc);
+      assert Mid(s, sp, command, nc) == s[sp.body..sp.close];
+      assert s[..sp.body] + s[sp.body..sp.close] + s[sp.close..End(sp)] + s[End(sp)..] == s;
+    }
+  }
+
+  // …and `Rewrite` produces one.
+  lemma RewriteWritesEvery(s: string, command: string, nc: string)
+    requires ContainsNo(nc, RegenClose)
+    ensures EveryWritten(Rewrite(s, command, nc), command, nc)
+    decreases |s|
+  {
+    if NextBlock(s).Some? {
+      var sp, sp' := Step(s, command, nc);
+      var r := Rewrite(s, command, nc);
+      RewriteWritesEvery(s[End(sp)..], command, nc);
+      if CommandAt(s, sp) == command {
+        RegenBodyKeepsItsForm(nc, InlineAt(s, sp));
+      }
+    }
+  }
+
+  // The scan of the result reads the blocks the text had, with the same commands, in the
+  // same order. The bases are free because the offsets are not the claim: every one after
+  // the first rewritten body has moved.
+  lemma RewriteKeepsTheScan(s: string, command: string, nc: string, b1: nat, b2: nat)
+    requires ContainsNo(nc, RegenClose)
+    ensures Commands(ScanAt(Rewrite(s, command, nc), b1)) == Commands(ScanAt(s, b2))
+    decreases |s|
+  {
+    if NextBlock(s).Some? {
+      var sp, sp' := Step(s, command, nc);
+      var r := Rewrite(s, command, nc);
+      var rest := s[End(sp)..];
+      RewriteKeepsTheScan(rest, command, nc, b1 + End(sp'), b2 + End(sp));
+      var rb := Block(CommandAt(r, sp'), Shift(sp', b1), InlineAt(r, sp'));
+      var sb := Block(CommandAt(s, sp), Shift(sp, b2), InlineAt(s, sp));
+      ScanAtSteps(r, b1, sp');
+      ScanAtSteps(s, b2, sp);
+      CommandsOfCons(rb, ScanAt(Rewrite(rest, command, nc), b1 + End(sp')));
+      CommandsOfCons(sb, ScanAt(rest, b2 + End(sp)));
+    } else {
+      assert Rewrite(s, command, nc) == s;
+    }
+  }
+
+  // The text with the body of every block named `command` taken out. Two texts that agree
+  // here agree on every byte `update_regen` is not asked to write.
+  function Hollow(s: string, command: string): string
+    decreases |s|
+  {
+    match NextBlock(s)
+      case None => s
+      case Some(sp) =>
+        s[..sp.body] + (if CommandAt(s, sp) == command then "" else s[sp.body..sp.close])
+          + s[sp.close..End(sp)] + Hollow(s[End(sp)..], command)
+  }
+
+  lemma RewriteTouchesOnlyTheBodies(s: string, command: string, nc: string)
+    requires ContainsNo(nc, RegenClose)
+    ensures Hollow(Rewrite(s, command, nc), command) == Hollow(s, command)
+    decreases |s|
+  {
+    if NextBlock(s).Some? {
+      var sp, sp' := Step(s, command, nc);
+      var r := Rewrite(s, command, nc);
+      RewriteTouchesOnlyTheBodies(s[End(sp)..], command, nc);
+      assert r[sp'.close..End(sp')] == s[sp.close..End(sp)];
+    }
+  }
+
+  // The first block named `command`, before and after. Everything up to its body is
+  // untouched, its body is the new one, its close tag follows directly, and the scan of the
+  // result selects it at the same open tag and arrow. `q` is the block's span relative to `s`
+  // — returned rather than computed in the postcondition, where subtracting `base` from a
+  // `nat` would need this lemma's conclusion to be well-formed.
+  lemma RewriteAtTheFirstMatch(s: string, command: string, nc: string, base: nat)
+    returns (q: Span)
+    requires ContainsNo(nc, RegenClose)
+    requires FirstWithCommand(ScanAt(s, base), command).Some?
+    ensures FirstWithCommand(ScanAt(s, base), command) == Some(Shift(q, base))
+    ensures WellPlaced(s, q)
+    ensures
+      var r    := Rewrite(s, command, nc);
+      var body := RegenBody(nc, InlineAt(s, q));
+      && q.body + |body| + |RegenClose| <= |r|
+      && r[..q.body] == s[..q.body]
+      && r[q.body..q.body + |body|] == body
+      && SubstringAt(r, RegenClose, q.body + |body|)
+      && FirstWithCommand(ScanAt(r, base), command)
+         == Some(Shift(Span(q.open, q.arrow, q.body, q.body + |body|), base))
+    decreases |s|, 1
+  {
+    ScanAtSteps(s, base, NextBlock(s).value);
+    var sp := NextBlock(s).value;
+    FirstWithCommandOfCons(Block(CommandAt(s, sp), Shift(sp, base), InlineAt(s, sp)),
+                           ScanAt(s[End(sp)..], base + End(sp)), command);
+    if CommandAt(s, sp) == command {
+      q := FirstMatchIsHere(s, command, nc, base);
+    } else {
+      q := FirstMatchIsLater(s, command, nc, base);
+    }
+  }
+
+  // The first block is the one: `Step` has already said everything.
+  lemma FirstMatchIsHere(s: string, command: string, nc: string, base: nat) returns (q: Span)
+    requires NextBlock(s).Some? && CommandAt(s, NextBlock(s).value) == command
+    requires ContainsNo(nc, RegenClose)
+    requires FirstWithCommand(ScanAt(s, base), command).Some?
+    ensures FirstWithCommand(ScanAt(s, base), command) == Some(Shift(q, base))
+    ensures WellPlaced(s, q)
+    ensures
+      var r    := Rewrite(s, command, nc);
+      var body := RegenBody(nc, InlineAt(s, q));
+      && q.body + |body| + |RegenClose| <= |r|
+      && r[..q.body] == s[..q.body]
+      && r[q.body..q.body + |body|] == body
+      && SubstringAt(r, RegenClose, q.body + |body|)
+      && FirstWithCommand(ScanAt(r, base), command)
+         == Some(Shift(Span(q.open, q.arrow, q.body, q.body + |body|), base))
+  {
+    var sp, sp' := Step(s, command, nc);
+    var r := Rewrite(s, command, nc);
+    q := sp;
+    ScanAtSteps(s, base, sp);
+    ScanAtSteps(r, base, sp');
+    FirstWithCommandOfCons(Block(CommandAt(s, sp), Shift(sp, base), InlineAt(s, sp)),
+                           ScanAt(s[End(sp)..], base + End(sp)), command);
+    FirstWithCommandOfCons(Block(CommandAt(r, sp'), Shift(sp', base), InlineAt(r, sp')),
+                           ScanAt(r[End(sp')..], base + End(sp')), command);
+    assert r[sp'.close..End(sp')] == s[sp.close..End(sp)];
+  }
+
+  // The first block is not the one, so the step left it as it was and the answer is in the
+  // rest — at the same place, moved by the length of the block in front of it.
+  lemma FirstMatchIsLater(s: string, command: string, nc: string, base: nat) returns (q: Span)
+    requires NextBlock(s).Some? && CommandAt(s, NextBlock(s).value) != command
+    requires ContainsNo(nc, RegenClose)
+    requires FirstWithCommand(ScanAt(s, base), command).Some?
+    ensures FirstWithCommand(ScanAt(s, base), command) == Some(Shift(q, base))
+    ensures WellPlaced(s, q)
+    ensures
+      var r    := Rewrite(s, command, nc);
+      var body := RegenBody(nc, InlineAt(s, q));
+      && q.body + |body| + |RegenClose| <= |r|
+      && r[..q.body] == s[..q.body]
+      && r[q.body..q.body + |body|] == body
+      && SubstringAt(r, RegenClose, q.body + |body|)
+      && FirstWithCommand(ScanAt(r, base), command)
+         == Some(Shift(Span(q.open, q.arrow, q.body, q.body + |body|), base))
+    decreases |s|, 0
+  {
+    hide Rewrite, ScanAt;
+    var sp := NextBlock(s).value;
+    var e := End(sp);
+    var rest := s[e..];
+    var tail := Rewrite(rest, command, nc);
+    var r := Rewrite(s, command, nc);
+    RewriteSkips(s, command, nc);
+    var sb := Block(CommandAt(s, sp), Shift(sp, base), InlineAt(s, sp));
+    var rb := Block(CommandAt(r, sp), Shift(sp, base), InlineAt(r, sp));
+    ScanAtSteps(s, base, sp);
+    ScanAtSteps(r, base, sp);
+    FirstWithCommandOfCons(sb, ScanAt(rest, base + e), command);
+    FirstWithCommandOfCons(rb, ScanAt(tail, base + e), command);
+    assert FirstWithCommand(ScanAt(rest, base + e), command)
+        == FirstWithCommand(ScanAt(s, base), command);
+    assert |rest| < |s|;
+    assert FirstWithCommand(ScanAt(rest, base + e), command).Some?;
+    var q' := RewriteAtTheFirstMatch(rest, command, nc, base + e);
+    q := Shift(q', e);
+    assert Shift(q, base) == Shift(q', base + e);
+    SuffixSlice(s, e, q'.body, q'.close);
+    assert InlineAt(s, q) == InlineAt(rest, q');
+    var body := RegenBody(nc, InlineAt(s, q));
+    assert Shift(Span(q.open, q.arrow, q.body, q.body + |body|), base)
+        == Shift(Span(q'.open, q'.arrow, q'.body, q'.body + |body|), base + e);
+    PrefixedSlices(s[..e], tail, q'.body, q'.body + |body|);
+    PrefixedSlices(s[..e], tail, q'.body + |body|, q'.body + |body| + |RegenClose|);
+    PrefixedSlices(s[..e], rest, q'.body, q'.body);
+    assert s[..e] + rest == s;
+  }
+
+  // A step over a block not named `command` copies it whole.
+  lemma RewriteSkips(s: string, command: string, nc: string)
+    requires ContainsNo(nc, RegenClose)
+    requires NextBlock(s).Some? && CommandAt(s, NextBlock(s).value) != command
+    ensures
+      var sp := NextBlock(s).value;
+      var r  := Rewrite(s, command, nc);
+      && r == s[..End(sp)] + Rewrite(s[End(sp)..], command, nc)
+      && NextBlock(r) == Some(sp)
+      && CommandAt(r, sp) == CommandAt(s, sp)
+      && r[End(sp)..] == Rewrite(s[End(sp)..], command, nc)
+  {
+    var sp, sp' := Step(s, command, nc);
+    assert s[..sp.body] + s[sp.body..sp.close] + s[sp.close..End(sp)] == s[..End(sp)];
+  }
+
+  lemma SuffixSlice(s: string, e: nat, a: nat, b: nat)
+    requires e <= |s| && a <= b <= |s| - e
+    ensures s[e..][a..b] == s[e + a..e + b]
+  {}
+
+  lemma PrefixedSlices(p: string, t: string, a: nat, b: nat)
+    requires a <= b <= |t|
+    ensures (p + t)[|p| + a..|p| + b] == t[a..b]
+    ensures (p + t)[..|p| + a] == p + t[..a]
+  {}
+
+  // **Claim (1).** Content preservation and idempotency, over the scan.
   //
-  // `ContainsNo(newContent, RegenClose)` is new, and it is the price of the axiom being an
-  // axiom: a caller who writes a close tag into the new content terminates the section early,
-  // and every clause below is false of that call. Nothing said so before.
+  // Five clauses, and the third is the one the axiom this replaced had and lost. "No REGEN
+  // blocks created or destroyed" was stated over a count of substrings, and it was false:
+  // content spelling an open tag adds one. Over the scan it is true — a body is never searched
+  // for an open tag, so a tag written into one is content and not a block —
+  // `ContentThatSpellsATagIsNotABlock` is that document.
+  //
+  // `ContainsNo(newContent, RegenClose)` is the price of the rest: a caller who writes a close
+  // tag into the new content terminates the section early, and every clause below is false of
+  // that call.
   lemma UpdateRegenSpec(text: string, command: string, newContent: string)
     requires HasRegenFor(text, command)
     requires ContainsNo(newContent, RegenClose)
@@ -429,99 +871,66 @@ module YidamGraph {
       var sp     := RegenSpan(text, command).value;
       var result := UpdateRegen(text, command, newContent);
       var body   := RegenBody(newContent, InlineAt(text, sp));
-      // (1) Frame: the text before the body and from the close tag on is byte-for-byte equal.
+      && sp.body + |body| <= |result|
+      // (1) Frame: nothing before the first such block's body moves, and nothing anywhere
+      //     that is not the body of a block named `command` changes.
       && result[..sp.body] == text[..sp.body]
-      && result[sp.body + |body|..] == text[sp.close..]
-      // (2) The section holds exactly newContent, and the block is still a block: the same
-      //     open tag, the same arrow, the same body start, and a close tag right after it.
+      && Hollow(result, command) == Hollow(text, command)
+      // (2) The first such block holds the new body and is still selected, at the same open
+      //     tag and arrow, with its close tag right after the body.
       && result[sp.body..sp.body + |body|] == body
       && RegenSpan(result, command) == Some(Span(sp.open, sp.arrow, sp.body, sp.body + |body|))
       && HasRegenFor(result, command)
-      // (4) Idempotency: a second application with the same content changes nothing.
+      // (3) The scan of the result reads the blocks the text had, in the same order.
+      && Commands(RegenScan(result)) == Commands(RegenScan(text))
+      // (4) Every block named `command` holds the new content — every, not the first.
+      && EveryWritten(result, command, newContent)
+      // (5) Idempotency: a second application with the same content changes nothing.
       && UpdateRegen(result, command, newContent) == result
   {
     RegenSpanFindsEveryBlock(text, command);
-    TagShapes();
-    var sp     := RegenSpan(text, command).value;
-    var body   := RegenBody(newContent, InlineAt(text, sp));
+    var sp := RegenSpan(text, command).value;
+    var q := RewriteAtTheFirstMatch(text, command, newContent, 0);
+    assert Shift(q, 0) == q;
+    var body := RegenBody(newContent, InlineAt(text, sp));
+    assert Shift(Span(sp.open, sp.arrow, sp.body, sp.body + |body|), 0)
+        == Span(sp.open, sp.arrow, sp.body, sp.body + |body|);
     var result := UpdateRegen(text, command, newContent);
-    assert result == text[..sp.body] + body + text[sp.close..];
-
-    assert result[..sp.body] == text[..sp.body];
-    assert result[sp.body..sp.body + |body|] == body;
-    assert result[sp.body + |body|..] == text[sp.close..];
-
-    // The open tag and the arrow are inside the shared prefix, so both finds land where they
-    // landed in `text`.
-    FindAgreesOnSharedPrefix(text, result, RegenOpen + command, 0, sp.body);
-    FindAgreesOnSharedPrefix(text, result, RegenArrow, sp.open + |RegenOpen + command|, sp.body);
-
-    // The close tag: the one `text` already had is the first thing after the body, and
-    // nothing in the body matches. In that order now — the body's last character is no longer
-    // always a newline, so the inline half of `CloseTagNotInBody` reasons about the seam and
-    // needs the tag beyond it.
-    assert SubstringAt(result, RegenClose, sp.body + |body|) by {
-      assert result[sp.body + |body|..][..|RegenClose|] == text[sp.close..][..|RegenClose|];
-      assert text[sp.close..][..|RegenClose|] == text[sp.close..sp.close + |RegenClose|];
-    }
-    CloseTagNotInBody(result, newContent, sp.body, InlineAt(text, sp));
-    FindSkips(result, RegenClose, sp.body, sp.body + |body|);
-    assert FindFrom(result, RegenClose, sp.body + |body|) == Some(sp.body + |body|);
-    assert RegenSpan(result, command)
-        == Some(Span(sp.open, sp.arrow, sp.body, sp.body + |body|));
     RegenSpanFindsEveryBlock(result, command);
-
-    // Idempotency falls out of (2): the second run splits at the same body start and the new
-    // close, and re-lays the identical three pieces. What it re-lays is `RegenBody` applied
-    // to the form it reads back out of `result`, so that form has to come out the same — and
-    // this is the clause the two-condition `RegenBody` is for. Had it written a multi-line
-    // value into an inline block, the second run would read block form where the first read
-    // inline, and lay down a different body.
-    assert RegenBody(newContent, NoNewline(body)) == body by {
-      if InlineAt(text, sp) && NoNewline(newContent) {
-        assert body == newContent;
-      } else {
-        assert |body| > 0 && body[0] == '\n';
-        assert !NoNewline(body);
-      }
-    }
-    assert UpdateRegen(result, command, newContent)
-        == result[..sp.body] + body + result[sp.body + |body|..];
+    RewriteTouchesOnlyTheBodies(text, command, newContent);
+    RewriteKeepsTheScan(text, command, newContent, 0, 0);
+    RewriteWritesEvery(text, command, newContent);
+    RewriteFixesTheWritten(result, command, newContent);
   }
 
-  // The spec above is about something. A lemma whose preconditions no input satisfies proves
-  // its postcondition of nothing at all, and reads exactly like one that does.
-  lemma UpdateRegenSpecIsNotVacuous()
-    ensures var text := "a\n<!-- REGEN: due -->\nold\n<!-- /REGEN -->\nz";
-            HasRegenFor(text, "due") && ContainsNo("new", RegenClose)
-  {
-    var text := "a\n<!-- REGEN: due -->\nold\n<!-- /REGEN -->\nz";
-    assert RegenOpen + "due" == "<!-- REGEN: due";
-    SliceIsLiteral(text, 2, 17, "<!-- REGEN: due");
-    SliceIsLiteral(text, 18, 21, "-->");
-    SliceIsLiteral(text, 26, 41, "<!-- /REGEN -->");
-    assert SubstringAt(text, RegenOpen + "due", 2);
-    assert SubstringAt(text, RegenArrow, 18);
-    assert SubstringAt(text, RegenClose, 26);
-    assert HasRegenFor(text, "due");
-    forall i | 0 <= i <= |"new"| ensures !SubstringAt("new", RegenClose, i) {}
-  }
+  // ── Witnesses ─────────────────────────────────────────────────────────────────
+  //
+  // The lemmas above are universal, and a universal statement about the empty set reads
+  // exactly like one about something. Each witness below is one document with its offsets
+  // worked out. Every block in them starts at offset 0 on purpose: it keeps each `FindFrom`
+  // to a handful of unrollings rather than a scan across a sentence.
 
   // `update_regen` collapses the empty body: clearing a block-form section leaves the two
-  // markers on consecutive lines rather than with a blank line between them. Nothing above
-  // pins that — the spec is written in terms of `RegenBody`, so a model that wrote "\n\n"
-  // would satisfy every clause of it. This is what fails if `RegenBody` stops special-casing
-  // the empty string, and it is the only thing that does.
+  // markers on consecutive lines rather than with a blank line between them. The spec is
+  // written in terms of `RegenBody`, so a model that wrote "\n\n" would satisfy every clause
+  // of it. This is what fails if `RegenBody` stops special-casing the empty string, and it is
+  // the only thing that does: it names the close tag's offset, not the body's.
   lemma ClearingASectionLeavesNoBlankLine(text: string, command: string)
     requires RegenSpan(text, command).Some?
     requires !InlineAt(text, RegenSpan(text, command).value)
     ensures var sp := RegenSpan(text, command).value;
-            && UpdateRegen(text, command, "") == text[..sp.body] + "\n" + text[sp.close..]
-            && UpdateRegen(text, command, "") != text[..sp.body] + "\n\n" + text[sp.close..]
+            var result := UpdateRegen(text, command, "");
+            && sp.body + 1 <= |result|
+            && result[..sp.body + 1] == text[..sp.body] + "\n"
+            && SubstringAt(result, RegenClose, sp.body + 1)
   {
     var sp := RegenSpan(text, command).value;
-    assert |text[..sp.body] + "\n" + text[sp.close..]|
-        != |text[..sp.body] + "\n\n" + text[sp.close..]|;
+    assert ContainsNo("", RegenClose);
+    var q := RewriteAtTheFirstMatch(text, command, "", 0);
+    assert Shift(q, 0) == q;
+    assert RegenBody("", false) == "\n";
+    var result := UpdateRegen(text, command, "");
+    assert result[..sp.body + 1] == result[..sp.body] + result[sp.body..sp.body + 1];
   }
 
   // The same question asked of the other form, and it has the other answer: clearing an
@@ -536,211 +945,319 @@ module YidamGraph {
     requires RegenSpan(text, command).Some?
     requires InlineAt(text, RegenSpan(text, command).value)
     ensures var sp := RegenSpan(text, command).value;
-            UpdateRegen(text, command, "") == text[..sp.body] + text[sp.close..]
+            var result := UpdateRegen(text, command, "");
+            && sp.body <= |result|
+            && result[..sp.body] == text[..sp.body]
+            && SubstringAt(result, RegenClose, sp.body)
   {
-    var sp := RegenSpan(text, command).value;
+    assert ContainsNo("", RegenClose);
+    var q := RewriteAtTheFirstMatch(text, command, "", 0);
+    assert Shift(q, 0) == q;
     assert RegenBody("", true) == "";
   }
 
-  // `ClearingAnInlineSectionWritesNothing` is about something. One document, with the
-  // offsets worked out, so that `InlineAt` is not a precondition nothing satisfies.
-  //
-  // The block starts at offset 0 on purpose: it is what keeps the three `FindFrom` calls to
-  // a handful of unrollings each rather than a scan across a sentence.
+  // The scan reads nothing from an empty rest. Every witness ends its document on a close
+  // tag, and this is the step that says the scan stops there.
+  lemma NothingAfterTheEnd(base: nat)
+    ensures NextBlock("") == None
+    ensures ScanAt("", base) == []
+    ensures forall c, nc :: Rewrite("", c, nc) == ""
+  {
+    assert FindFrom("", RegenTag, 0) == None;
+  }
+
+  // The characters and slices of the four witness documents below, each proved alone. Proved
+  // in place, next to the scan's definitions, the solver sometimes fails to index a string
+  // literal it indexes instantly on its own.
+  lemma InlineDocument()
+    ensures var text := "<!-- REGEN: n -->44<!-- /REGEN -->";
+            && text[11] == ' ' && text[12] == 'n' && text[13] == ' '
+            && text[17] == '4' && text[18] == '4'
+            && text[0..11] == "<!-- REGEN:"
+            && text[0..17] == "<!-- REGEN: n -->"
+            && text[11..14] == " n "
+            && text[14..17] == "-->"
+            && text[17..19] == "44"
+            && text[19..34] == "<!-- /REGEN -->"
+  {
+    var text := "<!-- REGEN: n -->44<!-- /REGEN -->";
+    SliceIsLiteral(text, 0, 11, "<!-- REGEN:");
+    SliceIsLiteral(text, 0, 17, "<!-- REGEN: n -->");
+    SliceIsLiteral(text, 11, 14, " n ");
+    SliceIsLiteral(text, 14, 17, "-->");
+    SliceIsLiteral(text, 17, 19, "44");
+    SliceIsLiteral(text, 19, 34, "<!-- /REGEN -->");
+  }
+
+  lemma PrefixDocument()
+    ensures var text := "<!-- REGEN: ab -->1<!-- /REGEN -->";
+            && text[11] == ' ' && text[12] == 'a' && text[13] == 'b' && text[14] == ' '
+            && text[18] == '1'
+            && text[0..11] == "<!-- REGEN:"
+            && text[11..15] == " ab "
+            && text[15..18] == "-->"
+            && text[19..34] == "<!-- /REGEN -->"
+  {
+    var text := "<!-- REGEN: ab -->1<!-- /REGEN -->";
+    SliceIsLiteral(text, 0, 11, "<!-- REGEN:");
+    SliceIsLiteral(text, 11, 15, " ab ");
+    SliceIsLiteral(text, 15, 18, "-->");
+    SliceIsLiteral(text, 19, 34, "<!-- /REGEN -->");
+  }
+
+  lemma BlockDocument()
+    ensures var text := "<!-- REGEN: a -->\n\n<!-- /REGEN -->";
+            && text[11] == ' ' && text[12] == 'a' && text[13] == ' '
+            && text[17] == '\n' && text[18] == '\n'
+            && text[0..11] == "<!-- REGEN:"
+            && text[11..14] == " a "
+            && text[14..17] == "-->"
+            && text[19..34] == "<!-- /REGEN -->"
+  {
+    var text := "<!-- REGEN: a -->\n\n<!-- /REGEN -->";
+    SliceIsLiteral(text, 0, 11, "<!-- REGEN:");
+    SliceIsLiteral(text, 11, 14, " a ");
+    SliceIsLiteral(text, 14, 17, "-->");
+    SliceIsLiteral(text, 19, 34, "<!-- /REGEN -->");
+  }
+
+  lemma UnanchoredDocument()
+    ensures var text := "<!-- REGEN: a -->\nx<!-- /REGEN -->";
+            && text[11] == ' ' && text[12] == 'a' && text[13] == ' '
+            && text[17] == '\n' && text[18] == 'x'
+            && text[0..11] == "<!-- REGEN:"
+            && text[11..14] == " a "
+            && text[14..17] == "-->"
+            && text[19..34] == "<!-- /REGEN -->"
+  {
+    var text := "<!-- REGEN: a -->\nx<!-- /REGEN -->";
+    SliceIsLiteral(text, 0, 11, "<!-- REGEN:");
+    SliceIsLiteral(text, 11, 14, " a ");
+    SliceIsLiteral(text, 14, 17, "-->");
+    SliceIsLiteral(text, 19, 34, "<!-- /REGEN -->");
+  }
+
+  // `ClearingAnInlineSectionWritesNothing` is about something: one inline block, read and
+  // rewritten.
   lemma AnInlineBlockIsNotAnEmptyCase()
     ensures var text := "<!-- REGEN: n -->44<!-- /REGEN -->";
+            && RegenScan(text) == [Block("n", Span(0, 14, 17, 19), true)]
             && RegenSpan(text, "n") == Some(Span(0, 14, 17, 19))
             && InlineAt(text, Span(0, 14, 17, 19))
             && UpdateRegen(text, "n", "43") == "<!-- REGEN: n -->43<!-- /REGEN -->"
   {
     var text := "<!-- REGEN: n -->44<!-- /REGEN -->";
-    assert RegenOpen + "n" == "<!-- REGEN: n";
-    SliceIsLiteral(text, 0, 13, "<!-- REGEN: n");
-    assert FindFrom(text, RegenOpen + "n", 0) == Some(0);
+    InlineDocument();
+    var sp := Span(0, 14, 17, 19);
+    assert FindFrom(text, RegenTag, 0) == Some(0);
 
-    // The arrow: not at 13 (that is the space before it), so at 14.
+    // The arrow: 11, 12 and 13 are the space, the `n`, and the space.
+    assert !SubstringAt(text, RegenArrow, 11) by { assert text[11..14][0] == ' '; }
+    assert !SubstringAt(text, RegenArrow, 12) by { assert text[12..15][0] == 'n'; }
     assert !SubstringAt(text, RegenArrow, 13) by { assert text[13..16][0] == ' '; }
-    SliceIsLiteral(text, 14, 17, "-->");
-    assert FindFrom(text, RegenArrow, 13) == Some(14);
+    assert FindFrom(text, RegenArrow, 11) == Some(14);
 
     // The close tag: not at 17 or 18 (the digits), so at 19.
     assert !SubstringAt(text, RegenClose, 17) by { assert text[17..32][0] == '4'; }
     assert !SubstringAt(text, RegenClose, 18) by { assert text[18..33][0] == '4'; }
-    SliceIsLiteral(text, 19, 34, "<!-- /REGEN -->");
     assert FindFrom(text, RegenClose, 17) == Some(19);
+    assert NextBlock(text) == Some(sp);
 
-    assert RegenSpan(text, "n") == Some(Span(0, 14, 17, 19));
-    assert text[17..19] == "44" by { SliceIsLiteral(text, 17, 19, "44"); }
-    assert InlineAt(text, Span(0, 14, 17, 19));
+    assert Trim(" n ") == "n";
+    assert CommandAt(text, sp) == "n";
+    assert text[17..19] == "44";
+    assert InlineAt(text, sp);
+    NothingAfterTheEnd(34);
+    assert text[34..] == "";
+    assert RegenScan(text) == [Block("n", sp, true)];
+
     assert RegenBody("43", true) == "43";
-    assert UpdateRegen(text, "n", "43") == text[..17] + "43" + text[19..];
-    SliceIsLiteral(text, 0, 17, "<!-- REGEN: n -->");
-    assert text[19..] == "<!-- /REGEN -->" by { SliceIsLiteral(text, 19, 34, "<!-- /REGEN -->"); }
+    assert Mid(text, sp, "n", "43") == "43";
+    assert UpdateRegen(text, "n", "43") == text[..17] + "43" + text[19..34] + "";
   }
 
-  // ── what this model does not yet say ──────────────────────────────────────────
-  //
-  // RFC-0043 moved `update_regen` onto the scan's own reading of a block: the command is the
-  // text between the open tag and its arrow, trimmed, and compared **whole**. `RegenSpan`
-  // above is still a prefix search of its own, and it still stops at the first hit. So two
-  // differences from the implementation remain, and they are stated here rather than left to
-  // be found:
-  //
-  //   1. **Prefix, not equality.** Asked for `a`, the model answers with a block whose
-  //      command is `ab`. The implementation answers with nothing, and on a document that
-  //      also holds an `a` block it answers with that one. The lemma below is the smallest
-  //      form of it — a divergence, not an approximation, and nothing about it is silent.
-  //   2. **The first block, not every one.** `update_regen` rewrites every block with the
-  //      command; `UpdateRegen` rewrites the first. Where a command names one block the two
-  //      agree, and a document where it names two is the clobber #1058 reported.
-  //
-  // Closing both is one change — `RegenSpan` becomes a selection over a modelled scan rather
-  // than a search beside it, which is the shape `scan_markers` now has and the shape
-  // RFC-0043 argues for. The definition is the cheap half. The expensive half is
-  // `UpdateRegenSpec`'s re-scan clause, which then needs an induction showing that the scan
-  // of the result reproduces every block below the edit before it reaches the edited one.
-  //
-  // It was not urgent while a command named a generator: no two generator names in
-  // `cmd/regen.rs` stand in the relation clause 1 needs. `count` is what ends that — its
-  // command carries a query, so `yidam count district` is a prefix of
-  // `yidam count district-at-large`, and the document clause 1 describes becomes one a
-  // corpus can write by accident.
-  //
-  // **The code closes both; this model does not.** An earlier draft of this comment said the
-  // model had to reach the scan before `count` shipped. That overstated it. #1094 made
-  // `update_regen` match a command by *equality* over the one scan, which closes clause 1,
-  // and write *every* match, which closes clause 2 — so `count` ships on an implementation
-  // where neither hazard is reachable. `tests/count.rs` holds both as cases:
-  // `a_query_that_prefixes_another_does_not_clobber_it` and
-  // `two_blocks_asking_the_same_question_are_both_written`. What remains is that this model
-  // still describes the search the code no longer performs, which makes it a weaker
-  // statement about `UpdateRegen` than the code deserves — a debt, not a blocker.
-  //
-  // Tracked as #1097.
-  lemma TheModelsLocatorIsStillAPrefixSearch()
+  // Asked for `a`, a block for `ab` is not an answer: the command is compared whole. This is
+  // #1058's clobber in its smallest form, and the model used to commit it — `RegenSpan` was a
+  // prefix search of its own, and on this document it answered with the `ab` block. Now it
+  // answers with nothing, as `update_regen` does, and rewriting `a` leaves the document alone.
+  // `a_query_that_prefixes_another_does_not_clobber_it` in `tests/count.rs` is the same
+  // document, run against the code.
+  lemma TheLocatorComparesTheWholeCommand()
     ensures var text := "<!-- REGEN: ab -->1<!-- /REGEN -->";
-            // Asked for `a`, the model locates the one block this document has …
-            && RegenSpan(text, "a") == Some(Span(0, 15, 18, 19))
-            // … and that block's command, the text between the tag and the arrow, is `ab`.
-            && text[12..14] == "ab"
+            && RegenSpan(text, "a") == None
+            && RegenSpan(text, "ab") == Some(Span(0, 15, 18, 19))
+            && UpdateRegen(text, "a", "2") == text
   {
     var text := "<!-- REGEN: ab -->1<!-- /REGEN -->";
-    assert RegenOpen + "a" == "<!-- REGEN: a";
-    SliceIsLiteral(text, 0, 13, "<!-- REGEN: a");
-    assert FindFrom(text, RegenOpen + "a", 0) == Some(0);
+    PrefixDocument();
+    var sp := Span(0, 15, 18, 19);
+    assert FindFrom(text, RegenTag, 0) == Some(0);
 
-    // The arrow: offsets 13 and 14 are the `b` and the space after it.
+    // The arrow: 11 to 14 are the space, `a`, `b`, and the space.
+    assert !SubstringAt(text, RegenArrow, 11) by { assert text[11..14][0] == ' '; }
+    assert !SubstringAt(text, RegenArrow, 12) by { assert text[12..15][0] == 'a'; }
     assert !SubstringAt(text, RegenArrow, 13) by { assert text[13..16][0] == 'b'; }
     assert !SubstringAt(text, RegenArrow, 14) by { assert text[14..17][0] == ' '; }
-    SliceIsLiteral(text, 15, 18, "-->");
-    assert FindFrom(text, RegenArrow, 13) == Some(15);
+    assert FindFrom(text, RegenArrow, 11) == Some(15);
 
     // The close tag: offset 18 is the body.
     assert !SubstringAt(text, RegenClose, 18) by { assert text[18..33][0] == '1'; }
-    SliceIsLiteral(text, 19, 34, "<!-- /REGEN -->");
     assert FindFrom(text, RegenClose, 18) == Some(19);
+    assert NextBlock(text) == Some(sp);
 
-    assert RegenSpan(text, "a") == Some(Span(0, 15, 18, 19));
-    SliceIsLiteral(text, 12, 14, "ab");
+    assert Trim(" ab ") == "ab";
+    assert CommandAt(text, sp) == "ab";
+    NothingAfterTheEnd(34);
+    assert text[34..] == "";
+    assert RegenScan(text) == [Block("ab", sp, InlineAt(text, sp))];
+
+    assert Mid(text, sp, "a", "2") == text[18..19];
+    assert UpdateRegen(text, "a", "2") == text[..18] + text[18..19] + text[19..34] + "";
   }
 
-  // Where the one block in `RegenBlockCountWasTheWrongInstrument`'s document sits, and which
-  // form it is in. Separate from the lemma it serves: pinning a span is a dozen facts about
-  // one string literal, and proved in place they crowd out the facts that lemma is about.
+  // Where the one block in `ContentThatSpellsATagIsNotABlock`'s document sits, and which form
+  // it is in. Separate from the lemma it serves: pinning a span is a dozen facts about one
+  // string literal, and proved in place they crowd out the facts that lemma is about.
   lemma TheOneBlockIsBlockForm()
     ensures var text := "<!-- REGEN: a -->\n\n<!-- /REGEN -->";
-            && RegenSpan(text, "a") == Some(Span(0, 14, 17, 19))
-            && !InlineAt(text, Span(0, 14, 17, 19))
+            RegenScan(text) == [Block("a", Span(0, 14, 17, 19), false)]
   {
     var text := "<!-- REGEN: a -->\n\n<!-- /REGEN -->";
-    assert RegenOpen + "a" == "<!-- REGEN: a";
-    SliceIsLiteral(text, 0, 13, "<!-- REGEN: a");
-    assert FindFrom(text, RegenOpen + "a", 0) == Some(0);
+    BlockDocument();
+    var sp := Span(0, 14, 17, 19);
+    assert FindFrom(text, RegenTag, 0) == Some(0);
 
-    // The arrow: offset 13 is the space before it, so the first match is at 14.
+    // The arrow: 11, 12 and 13 are the space, the `a`, and the space.
+    assert !SubstringAt(text, RegenArrow, 11) by { assert text[11..14][0] == ' '; }
+    assert !SubstringAt(text, RegenArrow, 12) by { assert text[12..15][0] == 'a'; }
     assert !SubstringAt(text, RegenArrow, 13) by { assert text[13..16][0] == ' '; }
-    SliceIsLiteral(text, 14, 17, "-->");
-    assert FindFrom(text, RegenArrow, 13) == Some(14);
+    assert FindFrom(text, RegenArrow, 11) == Some(14);
 
     // The close tag: offsets 17 and 18 are the body's two newlines, so the first match is 19.
     assert !SubstringAt(text, RegenClose, 17) by { assert text[17..32][0] == '\n'; }
     assert !SubstringAt(text, RegenClose, 18) by { assert text[18..33][0] == '\n'; }
-    SliceIsLiteral(text, 19, 34, "<!-- /REGEN -->");
     assert FindFrom(text, RegenClose, 17) == Some(19);
+    assert NextBlock(text) == Some(sp);
 
-    assert RegenSpan(text, "a") == Some(Span(0, 14, 17, 19));
-    assert !InlineAt(text, Span(0, 14, 17, 19)) by { assert text[17..19][0] == '\n'; }
+    assert Trim(" a ") == "a" by {
+      assert TrimRight(" a ") == " a";
+      assert TrimLeft(" a") == "a";
+    }
+    assert CommandAt(text, sp) == "a";
+    assert !InlineAt(text, sp) by { assert text[17..19][0] == '\n'; }
+    NothingAfterTheEnd(34);
+    assert text[34..] == "";
   }
 
-  // Clause (3) of the axiom — "No REGEN blocks created or destroyed", over an axiomatized
-  // `RegenBlockCount` — is not restated above, and this says why rather than leaving its
-  // absence to be noticed.
-  //
-  // It was false as written: a caller passing "<!-- REGEN: other -->" as `new_content` raises
-  // the count by one, and nothing in the axiom forbade it. It was also the weaker instrument.
-  // Clause (1) gives byte-for-byte equality of everything outside the section, which says
-  // more about those blocks than any count of them could; clause (2) gives the edited block
-  // back intact. What is left over is the body, and the body is the caller's string. There is
-  // no statement about block counts that `update_regen` is answerable for.
-  //
-  // The lemma is the first half of that: a block appears that the text did not have.
-  lemma RegenBlockCountWasTheWrongInstrument()
+  // `UpdateRegenSpec` is about something. A lemma whose preconditions no input satisfies
+  // proves its postcondition of nothing at all, and reads exactly like one that does.
+  lemma UpdateRegenSpecIsNotVacuous()
     ensures var text := "<!-- REGEN: a -->\n\n<!-- /REGEN -->";
-            var nc   := "<!-- REGEN: b -->";
-            && HasRegenFor(text, "a")
+            HasRegenFor(text, "a") && ContainsNo("new", RegenClose)
+  {
+    TheOneBlockIsBlockForm();
+    var text := "<!-- REGEN: a -->\n\n<!-- /REGEN -->";
+    assert RegenScan(text)[0] in RegenScan(text);
+    forall i | 0 <= i <= |"new"| ensures !SubstringAt("new", RegenClose, i) {}
+  }
+
+  // Clause (3) of the axiom — "No REGEN blocks created or destroyed" — was stated over a
+  // count of open tags anywhere in the text, and it was false: a caller passing an open tag
+  // as `new_content` raised that count by one. It is clause (3) of `UpdateRegenSpec` again
+  // now, stated over the scan, and true — because the scan never searches a body.
+  //
+  // This is the document that tells the two apart. The open tag for `b` is in the result,
+  // where the old count saw it; the scan of the result reads one block, `a`, as it did before.
+  // The code agrees, and says more: `scan_markers` reads this document line by line, sees an
+  // open tag inside `a`'s body, and reports `a` as `ClosedOnAnothersTag` —
+  // `ABlockThatClosesOnAnothersTagIsReported` is that report, in the line model.
+  lemma ContentThatSpellsATagIsNotABlock()
+    ensures var text   := "<!-- REGEN: a -->\n\n<!-- /REGEN -->";
+            var nc     := "<!-- REGEN: b -->";
+            var result := UpdateRegen(text, "a", nc);
             && ContainsNo(nc, RegenClose)
-            && !HasRegenFor(text, "b")
-            && HasRegenFor(UpdateRegen(text, "a", nc), "b")
+            && |result| >= 18 + |RegenOpen + "b"|
+            && SubstringAt(result, RegenOpen + "b", 18)
+            && Commands(RegenScan(result)) == ["a"]
+            && !HasRegenFor(result, "b")
   {
     var text := "<!-- REGEN: a -->\n\n<!-- /REGEN -->";
     var nc   := "<!-- REGEN: b -->";
-    assert RegenOpen + "a" == "<!-- REGEN: a";
-    SliceIsLiteral(text, 0, 13, "<!-- REGEN: a");
-    SliceIsLiteral(text, 14, 17, "-->");
-    SliceIsLiteral(text, 19, 34, "<!-- /REGEN -->");
-    assert SubstringAt(text, RegenOpen + "a", 0);
-    assert SubstringAt(text, RegenArrow, 14);
-    assert SubstringAt(text, RegenClose, 19);
-    assert HasRegenFor(text, "a");
+    TheOneBlockIsBlockForm();
+    var sp := Span(0, 14, 17, 19);
+    assert RegenScan(text)[0] in RegenScan(text);
     // `nc` holds no '/', and the close tag is '/' at offset 5.
     assert RegenClose[5] == '/';
     forall i | 0 <= i <= |nc| ensures !SubstringAt(nc, RegenClose, i) {
       if SubstringAt(nc, RegenClose, i) { assert nc[i..i + |RegenClose|][5] == nc[i + 5]; }
     }
-    assert !HasRegenFor(text, "b") by {
-      forall i | 0 <= i <= |text| ensures !SubstringAt(text, RegenOpen + "b", i) {
-        assert (RegenOpen + "b")[12] == 'b';
-        if SubstringAt(text, RegenOpen + "b", i) {
-          assert text[i..i + 13][12] == text[i + 12];
-        }
-      }
-    }
     UpdateRegenSpec(text, "a", nc);
-    // The block is block form — its body is the two newlines between the tags — so the body
-    // written is the wrapped one, which is what the offsets below count on. Without that,
-    // `InlineAt(text, sp)` is an unknown and `RegenBody` could be either shape.
-    TheOneBlockIsBlockForm();
-    var sp := RegenSpan(text, "a").value;
-    assert sp == Span(0, 14, 17, 19);
-    assert !InlineAt(text, sp);
+    assert RegenSpan(text, "a") == Some(sp);
     var result := UpdateRegen(text, "a", nc);
-    assert result[sp.body..sp.body + |RegenBody(nc, false)|] == RegenBody(nc, false);
-    assert result[sp.body + 1..sp.body + 1 + |nc|] == nc by {
-      assert forall i {:trigger RegenBody(nc, false)[1 + i]} :: 0 <= i < |nc| ==>
-        result[sp.body + 1 + i] == nc[i];
-      SliceIsLiteral(result, sp.body + 1, sp.body + 1 + |nc|, nc);
+    var body := RegenBody(nc, false);
+    assert body == "\n" + nc + "\n";
+    assert result[17..17 + |body|] == body;
+    assert result[18..18 + |nc|] == nc by {
+      assert forall i {:trigger body[1 + i]} :: 0 <= i < |nc| ==> result[18 + i] == nc[i];
+      SliceIsLiteral(result, 18, 18 + |nc|, nc);
     }
-    assert SubstringAt(result, RegenOpen + "b", sp.body + 1) by {
+    assert SubstringAt(result, RegenOpen + "b", 18) by {
       SliceIsLiteral(nc, 0, 13, "<!-- REGEN: b");
-      SliceIsLiteral(result, sp.body + 1, sp.body + 1 + 13, "<!-- REGEN: b");
+      SliceIsLiteral(result, 18, 31, "<!-- REGEN: b");
     }
-    assert SubstringAt(result, RegenArrow, sp.body + 1 + 14) by {
-      SliceIsLiteral(nc, 14, 17, "-->");
-      SliceIsLiteral(result, sp.body + 15, sp.body + 18, "-->");
+    assert Commands(RegenScan(text)) == ["a"];
+    if HasRegenFor(result, "b") {
+      var b :| b in RegenScan(result) && b.command == "b";
+      CommandsHoldsEveryCommand(RegenScan(result), b);
     }
-    assert SubstringAt(result, RegenClose, sp.body + |RegenBody(nc, false)|);
-    assert HasRegenFor(result, "b");
   }
+
+  // ── what this model does not yet say ──────────────────────────────────────────
+  //
+  // `NextBlock` is `scan_markers`' inline loop without the line: for a block on one line it
+  // is what the code does. A block *across* lines the code reads a line at a time, and holds
+  // it to a discipline the model does not have. The open tag has to start its line, a
+  // multi-line open tag ends on a line that ends in `-->`, and the close tag has to stand
+  // alone on its line. The model reads a block wherever the three tags occur in that order.
+  //
+  // So where the code rejects a candidate, the model can read a block the code does not.
+  // The smallest case is below: a close tag with text before it on its line. The code reads
+  // that block as `CloseTagMissing` and records no extent, so `update_regen` leaves the
+  // document alone; the model rewrites it. The rejection can also change *which* block is
+  // read. An open tag mid-sentence with no close tag beside it is prose to the code, and
+  // the next block down is the one it reads. The model reads a block from the prose tag to
+  // that next block's close tag.
+  //
+  // `a_close_tag_that_does_not_stand_alone_is_not_a_block_form_close` in `markers.rs` is
+  // the document below, run against the code, so a change to either side reddens one of
+  // them. Closing the gap means modelling `lines_with_offsets` and the block-form branch.
+  // `ReadBack` would need proving again for the new `NextBlock`. The inductions built on it
+  // would not change.
+  lemma TheModelsScanIsNotLineAnchored()
+    ensures var text := "<!-- REGEN: a -->\nx<!-- /REGEN -->";
+            RegenSpan(text, "a") == Some(Span(0, 14, 17, 19))
+  {
+    var text := "<!-- REGEN: a -->\nx<!-- /REGEN -->";
+    UnanchoredDocument();
+    var sp := Span(0, 14, 17, 19);
+    assert FindFrom(text, RegenTag, 0) == Some(0);
+    assert !SubstringAt(text, RegenArrow, 11) by { assert text[11..14][0] == ' '; }
+    assert !SubstringAt(text, RegenArrow, 12) by { assert text[12..15][0] == 'a'; }
+    assert !SubstringAt(text, RegenArrow, 13) by { assert text[13..16][0] == ' '; }
+    assert FindFrom(text, RegenArrow, 11) == Some(14);
+    // The close tag: 17 is the newline, 18 is the `x` the code objects to.
+    assert !SubstringAt(text, RegenClose, 17) by { assert text[17..32][0] == '\n'; }
+    assert !SubstringAt(text, RegenClose, 18) by { assert text[18..33][0] == 'x'; }
+    assert FindFrom(text, RegenClose, 17) == Some(19);
+    assert NextBlock(text) == Some(sp);
+    assert Trim(" a ") == "a" by {
+      assert TrimRight(" a ") == " a";
+      assert TrimLeft(" a") == "a";
+    }
+    assert CommandAt(text, sp) == "a";
+    assert RegenScan(text)[0] == Block("a", sp, InlineAt(text, sp));
+  }
+
   // ── classify_commit — totality ────────────────────────────────────────────────
 
   // Operational is the explicitly marked case; all other verbs are Epistemic.
