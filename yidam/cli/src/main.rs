@@ -1157,6 +1157,17 @@ enum MigrateCommand {
         /// corpus coined
         new_type: String,
     },
+    /// Rename one value of a declared `values:` set, on the declaration and on every instance holding it
+    Value {
+        /// The class that declares it
+        class: String,
+        /// The property whose `values:` list holds it
+        property: String,
+        /// The value as it is now
+        from: String,
+        /// What it becomes
+        to: String,
+    },
     /// Lift every reference written inside an evidence tag into the node's `references:` field
     ///
     /// A detail reading `[verified — #362]` names an issue that no consumer can follow. This
@@ -1201,6 +1212,17 @@ impl From<MigrateCommand> for yidam::MigrateOperation {
                 class,
                 property,
                 new_type,
+            },
+            MigrateCommand::Value {
+                class,
+                property,
+                from,
+                to,
+            } => Self::ValueRename {
+                class,
+                property,
+                from,
+                to,
             },
             MigrateCommand::References => Self::References,
             MigrateCommand::Findings => Self::Findings,

@@ -430,7 +430,7 @@ subsection above for the measurement that settled which is which.
    `PRELUDE_MODULES` are text and a list of names, so `calculator-script` gates identically in the
    light binary `install.sh` downloads; the other two need a VM and are absent from that build's
    report. Absent rather than empty: a binary that held no script to the prelude should not report
-   that it did. Absence does not settle the baseline, which is #1114.
+   that it did. A baseline entry for either is carried through that build, not resolved (#1114).
 6. **Upstream health.** Three years dormant, then two releases in two months. One maintainer's
    renewed attention is not a maintenance guarantee, and an embedded language is harder to
    replace than a policy engine. Vendoring is not an answer at this closure size.

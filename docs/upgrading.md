@@ -47,6 +47,16 @@ and catalog entries, it says how many the artifact cites and how many cite it. I
 without an object, and for a `projected` corpus. The field is not required in the report
 schema, so output from an older CLI still validates.
 
+### `migrate value` renames one value of a closed set
+
+**A value of a declared `values:` set can be renamed as one event (#1120).** Declaring a set
+closes it. So `creek` → `stream` could not be done in two steps. Renaming the declaration
+first puts every instance in violation. Renaming the instances first puts them outside the
+set. `yidam migrate value <class> <property> <from> <to>` does both halves together. It
+rewrites the item on the declaration and the value on every instance holding it. It writes a
+migration record. Quoting follows what was written. A value outside the set is refused. So is
+a rename onto a value already in the set.
+
 ### A class declares a closed value set, and `property-type` holds instances to it
 
 **`values:` on a `string` property (#1052, RFC-0044).** A class could not declare the set of
@@ -111,8 +121,11 @@ of a binary built without `calculators-gluon`, which is the one `install.sh` dow
 that held no script to the prelude should not report that it did. `calculator-script` is text, so
 it gates in every build.
 
-Do not bless either of the two from a full build and then lint from a light one. The entry is
-read as a stale baseline and fails. That gap is #1114.
+Bless either of the two from a full build and lint from a light one. The entry is carried
+(#1114). The light run did not ask the check, so it neither compares the entry nor reports it
+stale. It prints the ids it did not ask. A blessing from the light build keeps the entry too.
+The same holds for `unrecognized-verb` without `--commits`. An entry under a check no build has
+any more is still stale, and still fails.
 
 ### A re-fetched artifact record keeps the `redistributable:` the entry already carried
 

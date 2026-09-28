@@ -308,7 +308,7 @@ fn a_blessed_finding_does_not_block() {
         .last()
         .cloned()
         .unwrap_or_default();
-    crate::cmd::lint::baseline::Baseline::from_checks(&all, &previous, &head)
+    crate::cmd::lint::baseline::Baseline::from_checks(&all, &previous, &head, &[])
         .write(root)
         .unwrap();
 

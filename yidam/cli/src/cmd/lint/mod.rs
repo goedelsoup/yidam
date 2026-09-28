@@ -86,7 +86,8 @@ pub(crate) fn build_report(
     base: &baseline::Baseline,
 ) -> json::LintReport {
     let commits = history::corpus_commits(root);
-    json::build(root, checks, base, &baseline::diff(checks, base, &commits))
+    let d = baseline::diff(checks, base, &commits, &unasked(checks));
+    json::build(root, checks, base, &d)
 }
 
 pub(crate) fn commit_verb_severity() -> Severity {
@@ -170,6 +171,22 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     all
 }
 
+/// The roster's ids that `reported` does not carry: every check this run left unasked.
+///
+/// What the baseline accounting needs in order to carry an entry rather than resolve it
+/// (#1114). Derived from the report rather than from [`Options`] because the report is what
+/// the run actually asked — [`run_checks_with`] filters by [`Asked`], and every check that runs
+/// reports, passing or not — and because two callers (`serve --lsp`, `cycle`) hold a report
+/// and no options. An id the roster does not hold is never on this list, which is what keeps
+/// a retired check's entries stale.
+pub(crate) fn unasked(reported: &[Check]) -> Vec<&'static str> {
+    ROSTER
+        .iter()
+        .map(|e| e.id)
+        .filter(|id| !reported.iter().any(|c| c.id == *id))
+        .collect()
+}
+
 /// Whether a check runs on every invocation, or only when asked for.
 ///
 /// Modelled on `doctor`'s [`Asked`](crate::cmd::doctor), and deliberately *not* the same
@@ -180,12 +197,13 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
 /// would claim the corpus passed a question nobody put to it. So the entry is left out of the
 /// report entirely, which is what `--commits` has always done.
 ///
-/// Absence does **not** settle the baseline, and this comment used to imply it did. The
-/// accounting seeds itself from every entry the file carries whichever checks ran, so a corpus
-/// that baselined a finding from a conditional check fails as a *stale* baseline under the
-/// invocation that cannot decide it — #1114, pinned by
-/// `baseline::tests::a_check_that_did_not_run_resolves_its_entries_too`. What absence buys is
-/// the report, not the gate.
+/// Absence alone did not settle the baseline (#1114): the accounting used to seed itself from
+/// every entry the file carried whichever checks ran, so a corpus that baselined a finding
+/// from a conditional check failed as a *stale* baseline under the invocation that could not
+/// decide it. The gate now hears which ids went unasked — [`unasked`], derived from the report
+/// — and carries their entries rather than resolving them; a blessing carries them the same
+/// way. Pinned by `baseline::tests::an_unasked_check_carries_its_entries` and
+/// `a_baseline_written_by_one_build_survives_the_other`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Asked {
     /// Every run.
@@ -206,9 +224,9 @@ enum Asked {
     /// binary with no typechecker did not hold it to anything. Reporting that as a pass is the
     /// one reading of the report nobody could correct from the report.
     ///
-    /// It does not follow that either binary can gate any corpus. See the [`Asked`] lead-in and
-    /// #1114: a baseline entry for one of these two still resolves in a build without the
-    /// feature, and still fails.
+    /// Either binary can gate a corpus the other blessed: a baseline entry for one of these two
+    /// is carried, not resolved, in a build without the feature (#1114, [`unasked`]). What the
+    /// light build cannot do is *decide* the entry, and its report says so.
     ///
     /// What both binaries do decide is `calculator-script`, which is [`Self::Always`]: the macro
     /// refusal is text. See [`calculators`] for why the split falls exactly there.
@@ -843,9 +861,26 @@ fn bless(root: &Path, all: &[Check]) -> Result<baseline::Baseline> {
         .last()
         .cloned()
         .unwrap_or_default();
-    let b = baseline::Baseline::from_checks(all, &previous, &head);
+    let b = baseline::Baseline::from_checks(all, &previous, &head, &unasked(all));
     b.write(root)?;
     Ok(b)
+}
+
+/// One line naming the baseline entries this run did not compare, or nothing.
+///
+/// A gate that stays green over entries it never looked at owes the reader the list, and the
+/// check to ask for — `--commits`, or a build with the feature — is the id in brackets.
+fn carried_line(d: &baseline::Diff) -> Option<String> {
+    if d.carried.is_empty() {
+        return None;
+    }
+    let mut ids: Vec<&str> = d.carried.iter().map(|(id, _)| id.as_str()).collect();
+    ids.dedup();
+    Some(format!(
+        "lint: {} baseline entry(ies) carried, not compared — this run did not ask: {}",
+        d.carried.len(),
+        ids.join(", ")
+    ))
 }
 
 pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
@@ -899,6 +934,16 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
             "blessed {count} error-severity violation(s) into {}",
             baseline::path(&root).display()
         );
+        let carried: usize = unasked(&all)
+            .iter()
+            .filter_map(|id| b.violations.get(*id))
+            .map(Vec::len)
+            .sum();
+        if carried > 0 {
+            println!(
+                "{carried} of them carried from the previous baseline, under checks this run did not ask"
+            );
+        }
         println!(
             "this records the corpus's current state as its inherited debt — it does not fix it"
         );
@@ -909,7 +954,7 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
 
     let committed = baseline::Baseline::load(&root)?;
     let corpus_commits = history::corpus_commits(&root);
-    let d = baseline::diff(&all, &committed, &corpus_commits);
+    let d = baseline::diff(&all, &committed, &corpus_commits, &unasked(&all));
 
     if opts.warn_only {
         let n: usize = all.iter().map(|c| c.violations.len()).sum();
@@ -928,7 +973,13 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
         } else {
             println!("lint: {n} finding(s), no errors");
         }
+        if let Some(line) = carried_line(&d) {
+            println!("{line}");
+        }
         return Ok(());
+    }
+    if let Some(line) = carried_line(&d) {
+        eprintln!("\n{line}");
     }
 
     if !d.introduced.is_empty() {
@@ -1008,7 +1059,7 @@ fn lint_json(root: &Path, all: &[Check], opts: &Options) -> Result<()> {
 
     let committed = baseline::Baseline::load(root)?;
     let corpus_commits = history::corpus_commits(root);
-    let d = baseline::diff(all, &committed, &corpus_commits);
+    let d = baseline::diff(all, &committed, &corpus_commits, &unasked(all));
     crate::report::emit(root, json::build(root, all, &committed, &d))?;
 
     // Same verdict as the text path, and the same silence about it on success.
@@ -2083,12 +2134,54 @@ decision := {"allow": true, "deny": []}
         let all = run_checks(tmp.path(), &Options::default());
         assert!(errors(&all) > 0);
 
-        baseline::Baseline::from_checks(&all, &super::baseline::Baseline::default(), "")
+        baseline::Baseline::from_checks(&all, &super::baseline::Baseline::default(), "", &[])
             .write(tmp.path())
             .unwrap();
         let again = run_checks(tmp.path(), &Options::default());
         let loaded = baseline::Baseline::load(tmp.path()).unwrap();
-        assert!(baseline::diff(&again, &loaded, &[]).is_clean());
+        assert!(baseline::diff(&again, &loaded, &[], &unasked(&again)).is_clean());
+    }
+
+    /// The gap #1114 names, end to end through the roster: bless with `--commits`, so the
+    /// commit check's finding is recorded, then lint without it. The entry is carried, the
+    /// gate is clean, and a blessing without the flag keeps it.
+    #[test]
+    fn an_entry_blessed_with_commits_is_carried_without_them() {
+        let tmp = clean_repo();
+        let with_commits = Options {
+            commits: true,
+            ..Options::default()
+        };
+        let mut all = run_checks(tmp.path(), &with_commits);
+        let verb = all
+            .iter_mut()
+            .find(|c| c.id == "unrecognized-verb")
+            .expect("asked for");
+        // Planted rather than committed: what is under test is the accounting, not the
+        // vocabulary, and an error-severity finding is an error-severity finding.
+        verb.violations.push(super::model::Violation::new(
+            "deadbeef",
+            "frobnicate: a verb",
+        ));
+        verb.severity = Severity::Error;
+        let previous = baseline::Baseline::default();
+        let blessed = baseline::Baseline::from_checks(&all, &previous, "", &unasked(&all));
+        assert!(blessed.violations.contains_key("unrecognized-verb"));
+
+        let without = run_checks(tmp.path(), &Options::default());
+        let d = baseline::diff(&without, &blessed, &[], &unasked(&without));
+        assert!(d.is_clean(), "{d:?}");
+        assert_eq!(
+            d.carried,
+            vec![("unrecognized-verb".into(), "deadbeef".into())]
+        );
+
+        let reblessed = baseline::Baseline::from_checks(&without, &blessed, "", &unasked(&without));
+        assert_eq!(
+            reblessed.violations.get("unrecognized-verb"),
+            blessed.violations.get("unrecognized-verb"),
+            "a blessing without the flag carries what the flagged one recorded"
+        );
     }
 
     #[test]
@@ -2101,7 +2194,7 @@ decision := {"allow": true, "deny": []}
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        baseline::Baseline::from_checks(&all, &super::baseline::Baseline::default(), "")
+        baseline::Baseline::from_checks(&all, &super::baseline::Baseline::default(), "", &[])
             .write(tmp.path())
             .unwrap();
 
@@ -2113,7 +2206,7 @@ decision := {"allow": true, "deny": []}
         .unwrap();
         let after = run_checks(tmp.path(), &Options::default());
         let loaded = baseline::Baseline::load(tmp.path()).unwrap();
-        let d = baseline::diff(&after, &loaded, &[]);
+        let d = baseline::diff(&after, &loaded, &[], &unasked(&after));
         assert!(!d.resolved.is_empty(), "the fix must show as stale");
         assert!(!d.is_clean());
     }
@@ -2235,14 +2328,18 @@ decision := {"allow": true, "deny": []}
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        let base =
-            super::baseline::Baseline::from_checks(&all, &super::baseline::Baseline::default(), "");
+        let base = super::baseline::Baseline::from_checks(
+            &all,
+            &super::baseline::Baseline::default(),
+            "",
+            &[],
+        );
         assert_eq!(
             base.violations.get("orphan-in").map(Vec::len),
             Some(1),
             "only the escalated finding is recorded, not its younger siblings"
         );
-        assert!(super::baseline::diff(&all, &base, &[]).is_clean());
+        assert!(super::baseline::diff(&all, &base, &[], &[]).is_clean());
     }
 
     /// A config that does not parse must not take the checks down with it. The gate loses

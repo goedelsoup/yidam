@@ -398,6 +398,7 @@ fn a_baselined_finding_is_not_proposed_about() {
         &checks,
         &crate::cmd::lint::baseline::Baseline::default(),
         &head,
+        &[],
     );
     b.write(root).unwrap();
     commit(root, "fix: bless the orphan");

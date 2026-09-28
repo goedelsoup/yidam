@@ -30,7 +30,8 @@
 //! downloads and in one built with `--features calculators-gluon`. The other two need a VM, and
 //! are left out of a light build's report rather than reported empty — see
 //! [`super::Asked::WithTypechecker`] for why a build that held nothing to the prelude should not
-//! report that it did, and #1114 for what absence still does not fix.
+//! report that it did. A baseline entry for either is carried through that build, not resolved
+//! (#1114, [`super::unasked`]).
 //!
 //! # A manifest that does not parse yields nothing here
 //!

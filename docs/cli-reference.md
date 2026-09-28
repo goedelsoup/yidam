@@ -328,6 +328,10 @@ name, or delete the block.
 Only `yidam` commands are judged. A block another program refreshes is left alone, and so is
 one a page only shows inside a code fence.
 
+**The `yidam ` prefix is reserved.** A block marked `yidam <name>` belongs to yidam, and
+`yidam regen` rewrites it whatever wrote it. Mark your own generator's blocks with your own
+program's name: `<!-- REGEN: my-tool <name> -->`.
+
 **A gated block holds only what every checkout of the commit agrees on.** The tree is all they
 share. So a block may not report anything read from outside it.
 
@@ -505,6 +509,7 @@ record of what they touched.
 | `class` | Rename a class: its definition, its directory, and every edge that named it |
 | `property` | Rename a declared property on a class and on every instance carrying it |
 | `retype` | Change a declared property's type; requotes an instance value where only the quoting differs, refuses the rest |
+| `value` | Rename one value of a declared `values:` set, on the declaration and on every instance holding it |
 | `edge` | Point a declared relationship at a different class, at both ends |
 | `references` | Lift every reference written inside an evidence tag into the node's `references:` field |
 | `findings` | Lift every paragraph an earlier `propose` spliced into prose into a `yidam:` record |
@@ -515,6 +520,11 @@ retyping to `string` quotes a bare `24`. Each is a repair `property-type` alread
 holding no number — `about 24`, `~24` — is refused, and the refusal says what it tried. A retype
 into `string` on a property that declares `values:` is held to the set. An instance outside it
 is reported and blocks. Widening the set or fixing the value is the author's call.
+
+`value` renames one item of a closed set. The set is closed, so neither half can go first. It
+rewrites the item on the declaration and the value on every instance holding it, in one event.
+The quoting follows what was written. A value outside the set is refused. So is a rename onto a
+value the set already holds, which would merge two.
 
 `references` and `findings` are the two that migrate data rather than the ontology over it.
 

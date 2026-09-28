@@ -301,6 +301,167 @@ fn a_retype_into_a_string_with_a_declared_set_is_held_to_the_set() {
     assert!(c.gate_is_clean());
 }
 
+// ── value rename ──────────────────────────────────────────────────────────────
+
+/// Give `gage.units` the closed set its two instances already agree on, committed, so the
+/// corpus starts clean under RFC-0044 and every assertion below is about the rename.
+fn with_units_set(c: &Corpus, declaration: &str) {
+    let ont = ".yidam/corpus/gage.ont.yml";
+    let text = c.read(ont).replace(
+        "  - name: units\n    type: string\n",
+        &format!("  - name: units\n    type: string\n{declaration}"),
+    );
+    assert!(text.contains("values:"), "the fixture drifted:\n{text}");
+    std::fs::write(c.path().join(ont), text).unwrap();
+    c.git(&["commit", "-qam", "migrate: units declares its set"]);
+    assert!(
+        c.gate_is_clean(),
+        "the declared set must match the instances"
+    );
+}
+
+/// #1120: a value of a closed set is renamed on the declaration and on every instance holding
+/// it, as one event — the set is closed, so neither half can go first.
+#[test]
+fn a_value_rename_rewrites_the_declaration_and_every_instance_holding_it() {
+    let c = Corpus::new();
+    with_units_set(
+        &c,
+        "    values: [cubic feet per second, cubic metres per second]\n",
+    );
+
+    let (ok, out) = c.run(&[
+        "migrate",
+        "value",
+        "gage",
+        "units",
+        "cubic feet per second",
+        "cfs",
+    ]);
+    assert!(ok, "{out}");
+    assert!(
+        out.contains("3 edit(s) across 3 file(s)"),
+        "one declaration item and two instances:\n{out}"
+    );
+    let ont = c.read(".yidam/corpus/gage.ont.yml");
+    assert!(
+        ont.contains("values: [cfs, cubic metres per second]"),
+        "the other item stays:\n{ont}"
+    );
+    for instance in ["valley-bridge", "canyon-outlet"] {
+        let text = c.read(&format!(".yidam/corpus/gage/{instance}.yml"));
+        assert!(text.contains("  units: cfs\n"), "{instance}:\n{text}");
+    }
+    assert!(
+        c.gate_is_clean(),
+        "the rename left the corpus outside its own set"
+    );
+
+    let dir = c.path().join(".yidam/migrations");
+    let record = std::fs::read_dir(&dir)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let text = std::fs::read_to_string(&record).unwrap();
+    assert!(text.contains("operation: value-rename"), "{text}");
+}
+
+/// The block spelling of the same list, with the item quoted: the quotes are kept, and a
+/// new value YAML would read as something other than a string is quoted on its own account.
+#[test]
+fn a_value_rename_keeps_the_quoting_of_a_block_list_item() {
+    let c = Corpus::new();
+    with_units_set(&c, "    values:\n      - \"cubic feet per second\"\n");
+
+    let (ok, out) = c.run(&[
+        "migrate",
+        "value",
+        "gage",
+        "units",
+        "cubic feet per second",
+        "ft3/s",
+    ]);
+    assert!(ok, "{out}");
+    let ont = c.read(".yidam/corpus/gage.ont.yml");
+    assert!(ont.contains("      - \"ft3/s\"\n"), "{ont}");
+    let text = c.read(".yidam/corpus/gage/valley-bridge.yml");
+    assert!(text.contains("  units: ft3/s\n"), "{text}");
+    assert!(c.gate_is_clean());
+
+    // `24` bare would parse as a number and leave the set it was renamed into.
+    let (ok, out) = c.run(&["migrate", "value", "gage", "units", "ft3/s", "24"]);
+    assert!(ok, "{out}");
+    let ont = c.read(".yidam/corpus/gage.ont.yml");
+    assert!(ont.contains("      - \"24\"\n"), "{ont}");
+    let text = c.read(".yidam/corpus/gage/valley-bridge.yml");
+    assert!(text.contains("  units: \"24\"\n"), "{text}");
+    assert!(c.gate_is_clean());
+}
+
+/// The refusals, each of which leaves the tree as it found it: no set, a value outside it,
+/// and a rename onto a value already in it, which would merge two.
+#[test]
+fn a_value_rename_outside_the_declared_set_is_refused() {
+    let c = Corpus::new();
+    let (ok, out) = c.run(&[
+        "migrate",
+        "value",
+        "gage",
+        "units",
+        "cubic feet per second",
+        "cfs",
+    ]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("declares no `values:`"), "{out}");
+    assert!(!c.dirty());
+
+    with_units_set(
+        &c,
+        "    values: [cubic feet per second, cubic metres per second]\n",
+    );
+    let cases: [(&[&str], &str); 4] = [
+        (
+            &["migrate", "value", "gage", "units", "cfs", "cumecs"],
+            "declares no value `cfs`",
+        ),
+        (
+            &[
+                "migrate",
+                "value",
+                "gage",
+                "units",
+                "cubic feet per second",
+                "cubic metres per second",
+            ],
+            "would merge two values",
+        ),
+        (
+            &["migrate", "value", "gage", "nonesuch", "a", "b"],
+            "declares no property",
+        ),
+        (
+            &[
+                "migrate",
+                "value",
+                "gage",
+                "units",
+                "cubic feet per second",
+                "cubic feet per second",
+            ],
+            "the same",
+        ),
+    ];
+    for (args, why) in cases {
+        let (ok, out) = c.run(args);
+        assert!(!ok, "{args:?} should be refused:\n{out}");
+        assert!(out.contains("Cannot migrate"), "{args:?}:\n{out}");
+        assert!(out.contains(why), "{args:?}:\n{out}");
+        assert!(!c.dirty(), "{args:?} touched the tree");
+    }
+}
+
 // ── class rename ──────────────────────────────────────────────────────────────
 
 /// The operation with the most ways to be subtly wrong, and all three of them were.

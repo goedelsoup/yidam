@@ -15,6 +15,7 @@
 //! | class rename | the class file, its directory, every instance's `class:`, every edge `target:` at both ends, and every link that resolved into the directory |
 //! | property rename | the declaration, and the key on every instance carrying it |
 //! | property retype | the declaration, plus every instance value the new type only rewrites the *quoting* of — and it **refuses** a value the new type cannot admit at all |
+//! | value rename | one item of the declaration's `values:` list, and the value on every instance holding it |
 //! | edge re-target | the declaration at both ends, plus a report of the instances now in violation |
 //!
 //! # What it refuses to guess
@@ -81,6 +82,18 @@ pub enum Operation {
         property: String,
         new_type: String,
     },
+    /// One value of a declared `values:` set (RFC-0044) changes name on the class and on every
+    /// instance holding it.
+    ///
+    /// `property-rename`'s shape one level down: the set is closed, so a value cannot be
+    /// renamed on the instances without the declaration, or on the declaration without every
+    /// instance tripping `property-type` in the interval.
+    ValueRename {
+        class: String,
+        property: String,
+        from: String,
+        to: String,
+    },
     /// A declared relationship points at a different class.
     EdgeRetarget {
         class: String,
@@ -110,6 +123,7 @@ impl Operation {
             Self::ClassRename { .. } => "class-rename",
             Self::PropertyRename { .. } => "property-rename",
             Self::PropertyRetype { .. } => "property-retype",
+            Self::ValueRename { .. } => "value-rename",
             Self::EdgeRetarget { .. } => "edge-retarget",
             Self::References => "references",
             Self::Findings => "findings",
@@ -128,6 +142,12 @@ impl Operation {
                 property,
                 new_type,
             } => format!("`{class}.{property}` is now `{new_type}`"),
+            Self::ValueRename {
+                class,
+                property,
+                from,
+                to,
+            } => format!("`{class}.{property}`: `{from}` → `{to}`"),
             Self::EdgeRetarget {
                 class,
                 relationship,
@@ -160,7 +180,7 @@ pub struct Violation {
 #[derive(Debug, serde::Serialize)]
 pub struct MigrateReport {
     pub corpus_dir: String,
-    /// `class-rename`, `property-rename`, `property-retype`, `edge-retarget`.
+    /// `class-rename`, `property-rename`, `property-retype`, `value-rename`, `edge-retarget`.
     pub operation: &'static str,
     pub summary: String,
     /// Whether anything was written. False for `--dry-run`, and false whenever `blocked` is
@@ -307,6 +327,94 @@ fn mapping_key_on(line: &str, key: &str) -> Option<(usize, usize)> {
     Some((indent, indent + key.len()))
 }
 
+/// An item of a flow-form `values: [a, b, c]` line reading `value`, with its byte range.
+///
+/// The item is matched as written or inside its quotes, and the range is the item as written,
+/// quotes included — a value rename rewrites the whole token, as a requote does. Not a YAML
+/// parse, for the reason [`raw_scalar_on`] is not: every other byte of the line stays.
+fn values_item_on(line: &str, value: &str) -> Option<(usize, usize)> {
+    let (start, _, list) = raw_scalar_on(line, "values")?;
+    let inner = list.strip_prefix('[')?.strip_suffix(']')?;
+    let mut quote: Option<char> = None;
+    let mut item_start = 0;
+    for (i, c) in inner
+        .char_indices()
+        .chain(std::iter::once((inner.len(), ',')))
+    {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None if matches!(c, '"' | '\'') => quote = Some(c),
+            None if c == ',' => {
+                let raw = &inner[item_start..i];
+                let lead = raw.len() - raw.trim_start().len();
+                let item = raw.trim();
+                if !item.is_empty() && (item == value || unquoted(item) == Some(value)) {
+                    let s = start + 1 + item_start + lead;
+                    return Some((s, s + item.len()));
+                }
+                item_start = i + 1;
+            }
+            None => {}
+        }
+    }
+    None
+}
+
+/// A block-form list item — `  - <value>` — reading `value`, with the item's byte range.
+///
+/// The block spelling of [`values_item_on`]. A trailing ` #` comment is left where it is.
+fn list_item_on(line: &str, value: &str) -> Option<(usize, usize)> {
+    let trimmed = line.trim_start();
+    let indent = line.len() - trimmed.len();
+    let rest = trimmed.strip_prefix("- ")?;
+    let lead = rest.len() - rest.trim_start().len();
+    let mut item = rest.trim_start();
+    if let Some(hash) = item.find(" #") {
+        item = &item[..hash];
+    }
+    let item = item.trim_end();
+    if item.is_empty() || (item != value && unquoted(item) != Some(value)) {
+        return None;
+    }
+    let s = indent + 2 + lead;
+    Some((s, s + item.len()))
+}
+
+/// `value` spelled so that YAML reads it back as exactly that string.
+///
+/// Bare where bare reads back as itself — the candidate is parsed rather than reasoned about,
+/// which is what keeps `true`, `24` and `null` from silently leaving the set they were renamed
+/// into — and double-quoted otherwise. The flow-list separators are quoted whether or not the
+/// parser would mind them in a block, because the declaration may be written either way.
+fn yaml_token(value: &str) -> String {
+    let plain = !value.is_empty()
+        && value.trim() == value
+        && !value.contains(['"', '\'', ',', '[', ']', '{', '}', '#', '\n'])
+        && matches!(
+            serde_yaml::from_str::<serde_yaml::Value>(value),
+            Ok(serde_yaml::Value::String(s)) if s == value
+        );
+    if plain {
+        value.to_string()
+    } else if !value.contains('"') {
+        format!("\"{value}\"")
+    } else {
+        format!("'{}'", value.replace('\'', "''"))
+    }
+}
+
+/// `to`, written the way `written` was: quoted with the same quote where it had one, bare
+/// where a bare spelling reads back as itself, and otherwise quoted.
+fn written_like(written: &str, to: &str) -> String {
+    match written.chars().next() {
+        Some(q @ ('"' | '\'')) if unquoted(written).is_some() && !to.contains(q) => {
+            format!("{q}{to}{q}")
+        }
+        _ => yaml_token(to),
+    }
+}
+
 fn push_edit(edits: &mut Vec<Edit>, file: &str, line: usize, from: &str, to: &str) {
     edits.push(Edit {
         file: file.to_string(),
@@ -336,6 +444,12 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
             property,
             new_type,
         } => plan_property_retype(root, corpus, class, property, new_type, &mut report),
+        Operation::ValueRename {
+            class,
+            property,
+            from,
+            to,
+        } => plan_value_rename(root, corpus, class, property, from, to, &mut report),
         Operation::EdgeRetarget {
             class,
             relationship,
@@ -586,6 +700,142 @@ fn plan_property_rename(
             if mapping_key_on(line, old).is_some() {
                 push_edit(&mut report.edits, &file, i + 1, old, new);
             }
+        }
+    }
+}
+
+fn plan_value_rename(
+    root: &Path,
+    corpus: &Path,
+    class: &str,
+    property: &str,
+    from: &str,
+    to: &str,
+    report: &mut MigrateReport,
+) {
+    if !check_class(corpus, class, report) {
+        return;
+    }
+    if from == to {
+        report.blocked.push("the two values are the same".into());
+    }
+    if to.is_empty() {
+        report.blocked.push("the new value is empty".into());
+    }
+    if !declared_properties(corpus, class)
+        .iter()
+        .any(|(n, _)| n == property)
+    {
+        report
+            .blocked
+            .push(format!("`{class}` declares no property `{property}`"));
+        return;
+    }
+    // The set as the gate reads it, so a value the declaration spells in a form this cannot
+    // locate is refused below rather than half-renamed.
+    let set = declared_values(corpus, class, property);
+    if set.is_empty() {
+        report.blocked.push(format!(
+            "`{class}.{property}` declares no `values:` — there is no set to rename within"
+        ));
+    } else {
+        if !set.iter().any(|v| v == from) {
+            report.blocked.push(format!(
+                "`{class}.{property}` declares no value `{from}` — its set is [{}]",
+                set.join(", ")
+            ));
+        }
+        if set.iter().any(|v| v == to) {
+            report.blocked.push(format!(
+                "`{class}.{property}` already declares `{to}` — renaming onto it would merge two values"
+            ));
+        }
+    }
+    if !report.blocked.is_empty() {
+        return;
+    }
+
+    // The declaration: the one item of the property's `values:` list, in whichever of the
+    // two list spellings the class wrote it. Scoped to the property by its `name:` line, as
+    // the file is a list of property mappings and two of them may declare the same value.
+    let ont = ont_path(corpus, class);
+    let ont_rel = rel(root, &ont);
+    let text = std::fs::read_to_string(&ont).unwrap_or_default();
+    let mut current: Option<String> = None;
+    let mut block: Option<usize> = None;
+    let mut found = false;
+    for (i, line) in text.lines().enumerate() {
+        if let Some((_, _, name)) = scalar_on(line, "name") {
+            current = Some(name);
+            block = None;
+            continue;
+        }
+        if current.as_deref() != Some(property) || line.trim().is_empty() {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        if let Some(open) = block {
+            if indent > open {
+                if let Some((s, e)) = list_item_on(line, from) {
+                    let written = &line[s..e];
+                    push_edit(
+                        &mut report.edits,
+                        &ont_rel,
+                        i + 1,
+                        written,
+                        &written_like(written, to),
+                    );
+                    found = true;
+                }
+                continue;
+            }
+            block = None;
+        }
+        if let Some((s, e)) = values_item_on(line, from) {
+            let written = &line[s..e];
+            push_edit(
+                &mut report.edits,
+                &ont_rel,
+                i + 1,
+                written,
+                &written_like(written, to),
+            );
+            found = true;
+        } else if line
+            .trim_start()
+            .strip_prefix("values:")
+            .is_some_and(|rest| rest.trim().is_empty() || rest.trim_start().starts_with('#'))
+        {
+            block = Some(indent);
+        }
+    }
+    if !found {
+        // The parser saw the value and the line scan did not: a flow list broken across
+        // lines, or a spelling this does not read. Refusing keeps the two halves together.
+        report.blocked.push(format!(
+            "`{class}.{property}` declares `{from}` in a form this cannot rewrite in place — \
+             edit the `values:` list by hand"
+        ));
+        return;
+    }
+
+    // Every instance holding it, as written or inside its quotes. An instance holding some
+    // other value is outside this rename: in the set, it stays; outside it, `property-type`
+    // already reports it and a rename is not the repair.
+    for path in instances_of(corpus, class) {
+        let file = rel(root, &path);
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let Some((line, written)) = property_value_line(&text, property) else {
+            continue;
+        };
+        if written == from || unquoted(&written) == Some(from) {
+            push_edit(
+                &mut report.edits,
+                &file,
+                line,
+                &written,
+                &written_like(&written, to),
+            );
         }
     }
 }
@@ -1016,7 +1266,7 @@ fn prose_mentions(root: &Path, needle: &str) -> Vec<Unhandled> {
 /// not — a corpus is free to carry its own fields there and this is generated output.
 #[derive(Debug, serde::Serialize)]
 pub struct MigrationRecord {
-    /// `class-rename`, `property-rename`, `property-retype`, `edge-retarget`.
+    /// `class-rename`, `property-rename`, `property-retype`, `value-rename`, `edge-retarget`.
     pub operation: &'static str,
     pub summary: String,
     /// Files rewritten, repository-relative.
@@ -1135,6 +1385,18 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
                     raw_scalar_on(line, property)
                         .filter(|(_, _, v)| *v == e.from)
                         .map(|(s, t, _)| (s, t))
+                })
+                .or_else(|| {
+                    // A value rename's edits are all whole tokens: the instance value as
+                    // written, or one item of the declaration's list in either spelling.
+                    let Operation::ValueRename { property, .. } = op else {
+                        return None;
+                    };
+                    raw_scalar_on(line, property)
+                        .filter(|(_, _, v)| *v == e.from)
+                        .map(|(s, t, _)| (s, t))
+                        .or_else(|| values_item_on(line, &e.from))
+                        .or_else(|| list_item_on(line, &e.from))
                 })
                 .or_else(|| mapping_key_on(line, &e.from));
             let Some((start, end)) = span else { continue };
@@ -1448,6 +1710,46 @@ mod tests {
         let (start, end, inner) = scalar_on(line, "length_km").unwrap();
         assert_eq!(inner, "24");
         assert_eq!(&line[start..end], "24");
+    }
+
+    /// The two spellings of a `values:` list read the same item to the same token: as written,
+    /// quotes included, so a rename replaces the whole of it and never half a quoted value.
+    #[test]
+    fn a_values_item_is_located_in_either_list_spelling() {
+        let flow = "    values: [extant, \"in operation\", ruin]  # closed";
+        let (s, e) = values_item_on(flow, "in operation").unwrap();
+        assert_eq!(&flow[s..e], "\"in operation\"");
+        let (s, e) = values_item_on(flow, "ruin").unwrap();
+        assert_eq!(&flow[s..e], "ruin");
+        assert_eq!(values_item_on(flow, "extan"), None);
+        assert_eq!(values_item_on(flow, "operation"), None);
+        // A comma inside quotes does not split the item.
+        let quoted = "    values: [\"a, b\", c]";
+        let (s, e) = values_item_on(quoted, "a, b").unwrap();
+        assert_eq!(&quoted[s..e], "\"a, b\"");
+
+        let block = "      - 'in operation'  # the quoted one";
+        let (s, e) = list_item_on(block, "in operation").unwrap();
+        assert_eq!(&block[s..e], "'in operation'");
+        assert_eq!(list_item_on("      - extant", "extant"), Some((8, 14)));
+        assert_eq!(list_item_on("  - name: extant", "extant"), None);
+    }
+
+    /// The new spelling follows the old one, and a bare token is bare only where YAML reads it
+    /// back as the same string: `true` renamed in bare would leave the set, not join it.
+    #[test]
+    fn a_renamed_value_keeps_its_quoting_and_stays_a_string() {
+        assert_eq!(written_like("extant", "standing"), "standing");
+        assert_eq!(
+            written_like("\"in operation\"", "operating"),
+            "\"operating\""
+        );
+        assert_eq!(written_like("'ruin'", "in ruins"), "'in ruins'");
+        assert_eq!(written_like("extant", "in operation"), "in operation");
+        assert_eq!(written_like("extant", "true"), "\"true\"");
+        assert_eq!(written_like("extant", "24"), "\"24\"");
+        assert_eq!(written_like("extant", "a, b"), "\"a, b\"");
+        assert_eq!(written_like("extant", "say \"so\""), "'say \"so\"'");
     }
 
     /// A lone quote both opens and closes.
