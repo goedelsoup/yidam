@@ -271,7 +271,19 @@ Absent means the repository has **one** register, and every commit is corpus wor
 what every repository did before this key existed, and it is what all six defining corpora do
 today.
 
-**`yidam kuten check` is not scoped by this key.** It measures every authored commit, because
+**It also names the artifact `yidam lint` reads for links into the corpus.** Those are the
+tracked `.md`, `.rs` and `.ts` files these globs claim. A relative link from one of them into
+`.yidam/` must resolve. One that does not is a `broken-object-link` warning at the line that
+holds it. It warns and never fails the build. A file under a region in `.yidam/authorship.yml`
+is skipped, because its links are its upstream's citations. The other direction was already
+checked: a node's link into the artifact is held by `broken-prose-link`.
+
+**`yidam kuten check` counts the links both ways.** Its report adds a coupling section. It
+says how many nodes, decisions and catalog entries the artifact cites, and how many cite it.
+Nothing is a finding there, because no rule says a node must be cited. The section is empty
+when no object is declared, or when the kuten declares the corpus `projected`.
+
+**`kuten check`'s history is not scoped by this key.** It measures every authored commit, because
 its numbers are read against a band. Scoping them would let a corpus move its own reading by
 widening this list, with no commit written.
 

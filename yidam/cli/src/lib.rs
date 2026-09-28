@@ -41,6 +41,9 @@ mod config;
 /// a [`corpus::Node`] today, and the point of the module is which way the dependency runs —
 /// the library owns the corpus model and `lint` consumes it, rather than the reverse.
 mod corpus;
+/// What the artifact cites of its corpus (RFC-0028 A6, #577). Private: its types reach the
+/// API through [`kuten::Report`], and the walk is `lint`'s and `kuten check`'s alone.
+mod coupling;
 pub mod dates;
 pub mod deps;
 pub mod embed_config;

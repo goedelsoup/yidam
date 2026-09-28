@@ -32,7 +32,7 @@ use std::path::Path;
 /// Measured: `yidam regen --check` against an initialised-but-uncommitted derived repository
 /// printed *"cannot read the template … Run this from a git checkout of yidam"*, the one
 /// sentence that is untrue of where it was run.
-pub(super) fn list(root: &Path) -> Result<Vec<String>> {
+pub(crate) fn list(root: &Path) -> Result<Vec<String>> {
     // Through [`crate::git::Git`], which is the only production code that spawns git
     // (#929). It owns `-C`, strips an inherited `GIT_DIR` that would otherwise redirect
     // this read past the directory named here, and pins the config — all three of which

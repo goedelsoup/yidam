@@ -28,6 +28,25 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### `yidam lint` reads the artifact's links into the corpus
+
+**`broken-object-link` (#577, RFC-0028 Erratum 6).** A repository declaring `[object] paths`
+holds a corpus and an artifact that cite each other. A node's link into the artifact was already
+checked. A link from a crate README to a node was read by nothing. Deleting the node left it
+dead, and no finding named the README.
+
+**What changes for you: new warnings, if you declare an object.** `yidam lint` now reads the
+tracked `.md`, `.rs` and `.ts` files `[object] paths` claims. Each relative link into `.yidam/`
+must resolve. A dead one is a warning at the line that holds it. Warnings do not fail the
+build, and `escalate_after` cannot raise these. Fix the link, or drop it if the node is gone
+on purpose. A `#L` range on such a link is now held by the line-citation checks too. A
+repository without `[object] paths` sees nothing new.
+
+**`kuten check` gains a `coupling` field.** It counts the links each way. For nodes, decisions
+and catalog entries, it says how many the artifact cites and how many cite it. It is `null`
+without an object, and for a `projected` corpus. The field is not required in the report
+schema, so output from an older CLI still validates.
+
 ### A class declares a closed value set, and `property-type` holds instances to it
 
 **`values:` on a `string` property (#1052, RFC-0044).** A class could not declare the set of

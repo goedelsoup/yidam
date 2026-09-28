@@ -233,13 +233,13 @@ impl LineCitation {
 /// A link whose file does not resolve is skipped — that is `broken-prose-link`'s finding,
 /// and reporting the line of a file that is not there would be blaming the fragment for
 /// the path.
-pub fn collect(
+pub fn collect<'l>(
     root: &Path,
-    links: &[ProseLink],
+    links: impl IntoIterator<Item = &'l ProseLink>,
     read: &dyn Fn(&Path) -> String,
 ) -> Vec<LineCitation> {
     // The citing files, each read once: several citations per document is the norm.
-    let mut sources: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    let mut sources: BTreeMap<&'l str, Vec<String>> = BTreeMap::new();
     let mut out = Vec::new();
     for link in links {
         let Some(fragment) = link.fragment else {

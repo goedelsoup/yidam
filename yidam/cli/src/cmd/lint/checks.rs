@@ -7182,6 +7182,45 @@ pub fn broken_prose_link(links: &[ProseLink]) -> Check {
     )
 }
 
+/// A link from the artifact into the corpus whose target is not there (#577).
+///
+/// `links` are the ones [`crate::coupling::inbound`] found: every link in the artifact whose
+/// target lies under `.yidam/`, from files `broken-prose-link` does not already walk.
+pub fn broken_object_link(links: &[ProseLink]) -> Check {
+    let violations = links
+        .iter()
+        .filter(|l| !l.resolved.exists())
+        .map(|l| {
+            Violation::new(
+                format!("{}:{}", l.file, l.line),
+                format!(
+                    "`{}` names a corpus file that is not there. The record was moved, renamed \
+                     or removed without this citation being updated.",
+                    l.target
+                ),
+            )
+        })
+        .collect();
+    Check::new(
+        "broken-object-link",
+        "A link from the artifact into the corpus does not resolve",
+        Severity::Warn,
+        "The artifact that `[object] paths` declares cites its corpus the way the corpus cites \
+         it: with a relative markdown link. Links from the corpus into the artifact are in \
+         prose `broken-prose-link` already walks. The other direction was read by nothing: \
+         deleting a node that a crate's README linked to produced twenty findings in a derived \
+         corpus, and none of them named the README. Read over the tracked `.md`, `.rs` and \
+         `.ts` files the object globs claim, which is where those links sit across the derived \
+         corpora. Bare paths in code are not read, because a path string in code is as often \
+         a file the code writes as one it cites. Warn and not Error: the finding lands on a \
+         file the corpus gate has never judged, and the first run over a repository should \
+         report what it finds, not refuse it. A `#L` range on one of these links is held by \
+         the line-citation checks. Not read for a corpus whose kuten declares it `projected`, \
+         because that corpus is regenerated from the artifact.",
+        violations,
+    )
+}
+
 /// A broken prose link inside a region the repository declared it did not author, paired
 /// with the declaration that explains it.
 pub struct UnauthoredLink<'a> {

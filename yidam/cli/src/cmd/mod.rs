@@ -73,7 +73,7 @@ pub(crate) mod status;
 pub mod tonpa;
 // The tracked set, shared by the two commands that copy this repository into another one:
 // `clone` and `overlay` (#912, #984).
-mod tracked;
+pub(crate) mod tracked;
 // Ungated. The store, the cache and the `file://` backend need no network, and the light
 // build every derived repository installs is the one that most needs to read a vault it
 // cannot push to.

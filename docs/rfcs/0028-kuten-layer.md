@@ -7,7 +7,9 @@
   - RFC-0020 (the carriage lineage this extends a third step — from findings to executions to conduct)
   - RFC-0026 (the permission layer this composes with, and the two seams on `cmd/phases.rs` and `classify_commit` decided here)
   - RFC-0024 (the policy layer every severity a kuten proposes must enter through, visibly)
-  - RFC-0019 (the citation contract the object slot's coupling checks reuse rather than re-invent)
+  - RFC-0019 (~~the citation contract the object slot's coupling checks reuse rather than
+    re-invent~~ — they do not reuse it; no derived corpus writes `cites:`, and Erratum 6 in §6
+    records the form they read instead)
   - RFC-0008 (the strict reading of Article V the constitutional argument here extends)
   - RFC-0001 (the report contract `kuten check` emits on)
   - RFC-0003 (the light binary it must run in)
@@ -22,8 +24,11 @@
   #286, #577, #288)
 - **Amended 2026-09-25 (#941):** the status reads `Implemented` on the command surface above —
   `kuten`, `kuten check`, `score` (A5) and A7's cross-repository read, which shipped as
-  `cohort` rather than the `fit` §2 calls it. **A6 (#577)** is open: the object-coupling check,
-  which is a `lint` check and not a command of its own.
+  `cohort` rather than the `fit` §2 calls it. ~~**A6 (#577)** is open: the object-coupling
+  check, which is a `lint` check and not a command of its own.~~
+- **Amended 2026-09-28 (#577):** A6 shipped in two places. The `broken-object-link` lint check
+  holds each link, and a coupling section in `kuten check`'s report counts them. Neither is a
+  command of its own. Erratum 6 in §6 records why both read markdown links and not `cites:`.
 - **Downstream reference case:** A0's population — eighteen derived corpora on disk, 6,900
   commits, read-only. Six of them define `inquiry`; two are object-coupled; one is a projected
   mirror of 1,656 commits (#582).
@@ -734,9 +739,9 @@ as misuse while its `.gitignore` argues its case; leaving it neither endorsed no
 forces every repository that reaches the same conclusion to re-derive it.
 
 - **`authored`** (the default, and the only value `inquiry` proposes): the corpus is written in
-  git; `GRAPH.md`'s premise holds; every history-derived surface applies; A6's coupling checks
+  git; `GRAPH.md`'s premise holds; every history-derived surface applies; ~~A6's coupling checks
   (#577) run corpus → object, reusing RFC-0019's `cites:` — a verbatim span plus pin and
-  standing, deliberately not an edge.
+  standing~~, deliberately not an edge (Erratum 6).
 - **`projected`**: the corpus is regenerated from the object by the repository's own tooling;
   the arrow runs object → corpus; `git log` is the audit trail of the *project*, not the corpus.
   The declaration makes the consequences explicit instead of silently empty: `replay`, `--at`,
@@ -762,6 +767,46 @@ surface-with-no-consumer failure this repository keeps finding.
 > records why: making the residence clocks answer differently is a change to `due`, which the
 > non-goals forbid in the same document. The conflict is recorded there and deliberately left
 > for an issue with a repository actually holding `projected` behind it.
+
+> **Erratum 6 — struck 2026-09-28, building A6 (#577).** *"reusing RFC-0019's `cites:`"* names
+> a form no derived corpus writes. Across the fifteen derived repositories on disk on
+> 2026-09-28, `cites:` appears only in vendored prelude text. A check over it would have
+> counted nothing and reported every repository as uncoupled.
+>
+> The corpora already cite in one form: a relative markdown link. The three repositories with
+> an artifact beside the corpus hold 376, 315 and 35 links from `.yidam/` into the rest of the
+> tree. In the other direction, 1,598 relative links into `.yidam/` are written outside it:
+> 1,518 in `.md`, 64 in `.rs` doc comments and 16 in `.ts`. A6 reads that form and leaves
+> `cites:` unchanged. The coupling stays a link and never becomes an edge.
+>
+> **Corpus → object was already held.** Such a link sits in node prose, which
+> `broken-prose-link` walks. Moving one crate in allen-county-ohio turned four of those links
+> into errors, and a `#L` range on one is held by the line-citation checks (#563). The
+> sentence above had the arrow the wrong way round: the direction it assigned to A6 needed
+> nothing new.
+>
+> **Object → corpus was read by nothing.** Deleting one node from allen-county-ohio produced
+> twenty findings from the existing checks, and none named the crate README that linked to
+> it. A6 adds `broken-object-link` (Warn). It reads the tracked `.md`, `.rs` and `.ts` files
+> that `[object] paths` claims, skipping every authorship region, because an imported or
+> generated file's link is its upstream's citation. On the same deletion it names
+> `crates/nrhp/README.md:9`. A `#L` range on an artifact link joins the line-citation checks,
+> so a line-naming citation is verified when it is written. The check is Warn because it
+> judges a file the corpus does not own. Its findings carry no age, so `escalate_after` cannot
+> raise them either: it gates nothing, and a first landing passes.
+>
+> **`kuten check` counts the coupling.** The report gains a `coupling` object: links each way
+> with the dead ones, and for nodes, decisions and catalog entries how many the artifact cites
+> and how many cite it. The uncited ids are listed in the JSON as a report, not as findings,
+> since no rule says a node must be cited. It is read whether or not a kuten is held, and it
+> is `null` where no object is declared or the kuten declares the corpus `projected`.
+>
+> **The slot gained no field.** #577 asked that a kuten be able to *"express what an outward
+> citation looks like."* Measurement answered that instead of a slot: one form is used in
+> every repository, so there was nothing for a profile to choose between. Both surfaces run
+> in the light binary with no feature gate. `yidam/cli/tests/object_coupling.rs` builds
+> allen-county-ohio's shape — a crate README, Rust doc comments, a TypeScript client, an
+> imported design directory and a generated graph feed — and holds both surfaces against it.
 
 ### 7 — The invariant: five prohibitions, each guarded, each guard mutation-tested
 

@@ -638,6 +638,14 @@
       "violations": []
     },
     {
+      "id": "broken-object-link",
+      "title": "A link from the artifact into the corpus does not resolve",
+      "severity": "warn",
+      "rationale": "The artifact that `[object] paths` declares cites its corpus the way the corpus cites it: with a relative markdown link. Links from the corpus into the artifact are in prose `broken-prose-link` already walks. The other direction was read by nothing: deleting a node that a crate's README linked to produced twenty findings in a derived corpus, and none of them named the README. Read over the tracked `.md`, `.rs` and `.ts` files the object globs claim, which is where those links sit across the derived corpora. Bare paths in code are not read, because a path string in code is as often a file the code writes as one it cites. Warn and not Error: the finding lands on a file the corpus gate has never judged, and the first run over a repository should report what it finds, not refuse it. A `#L` range on one of these links is held by the line-citation checks. Not read for a corpus whose kuten declares it `projected`, because that corpus is regenerated from the artifact.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "dead-line-citation",
       "title": "A citation names lines that are not there",
       "severity": "error",
