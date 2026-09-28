@@ -1542,3 +1542,196 @@ fn the_light_build_parses_a_typed_declaration_and_declines_the_plan() {
         "a plan that could not run landed a commit anyway"
     );
 }
+
+// ── refused from the manifest, without invoking one (#1099) ────────────────────
+
+/// Every check `yidam lint` reported, and the details it reported under each.
+///
+/// Keyed by id and carrying the details rather than a count, because the point of the three
+/// calculator checks is *which* of them fires: a scope failure and a shape failure both come out
+/// of the typechecker, and a report that only said "one finding" would not distinguish them.
+fn lint_checks(e: &Example) -> BTreeMap<String, Vec<String>> {
+    let (out, err, _) = e.run(&["lint", "--format", "json"]);
+    let report: serde_json::Value =
+        serde_json::from_str(&out).unwrap_or_else(|x| panic!("not JSON: {x}\n{out}{err}"));
+    report["checks"]
+        .as_array()
+        .expect("the report carries a checks array")
+        .iter()
+        .map(|c| {
+            let id = c["id"].as_str().unwrap_or_default().to_string();
+            let details = c["violations"]
+                .as_array()
+                .map(|vs| {
+                    vs.iter()
+                        .map(|v| {
+                            format!(
+                                "{} {}",
+                                v["node"].as_str().unwrap_or_default(),
+                                v["detail"].as_str().unwrap_or_default()
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            (id, details)
+        })
+        .collect()
+}
+
+/// Declare one more typed calculator in `e`'s manifest, and commit it.
+///
+/// `script` is written to `.yidam/capabilities/<step>.glu`, or left unwritten to declare a
+/// calculator that is not there — the commonest authoring mistake, and the one refusal every
+/// build can reach. The `reads` cover `.yidam/capabilities/**` so the declaration is valid and the
+/// only thing under test is what `lint` makes of the script.
+fn declare_typed(e: &Example, step: &str, script: Option<&str>) {
+    if let Some(script) = script {
+        std::fs::write(
+            e.path().join(format!(".yidam/capabilities/{step}.glu")),
+            format!("{script}\n"),
+        )
+        .expect("writing the calculator");
+    }
+    let manifest = e.path().join(".yidam/capabilities.toml");
+    let text = std::fs::read_to_string(&manifest).expect("the manifest");
+    std::fs::write(
+        &manifest,
+        format!(
+            "{text}\n[capability.{step}]\nkind   = \"calculator\"\n\
+             run    = {{ gluon = \".yidam/capabilities/{step}.glu\" }}\n\
+             reads  = [\".yidam/corpus/**\", \".yidam/capabilities/**\"]\n\
+             writes = [\".yidam/computed/**\"]\nverb   = \"compute\"\n"
+        ),
+    )
+    .expect("declaring the calculator");
+    git(&e.path(), &["add", "-A"]);
+    git(&e.path(), &["commit", "-m", &format!("scaffold: {step}")]);
+}
+
+/// The one refusal both builds reach, and the reason it is not behind the feature.
+///
+/// A declaration naming a file that is not there, and a script reaching for a macro, are both
+/// decidable from text — so `calculator-script` is in the report of the light binary `install.sh`
+/// downloads exactly as it is in one built with the engine. That is the whole of the split RFC-0042
+/// open question 5 asked about: a gate whose verdict depends on which build the reader holds is the
+/// divergence the RFC calls worse than no gate.
+#[test]
+fn lint_refuses_a_calculator_no_build_could_run() {
+    let e = Example::materialize(&an_example_with_capabilities());
+    agrees_about_the_arm(&e);
+    declare_typed(&e, "not-there", None);
+    declare_typed(
+        &e,
+        "reopens-the-prelude",
+        Some(&format!("let d = import! std.debug\n{TYPED_SCRIPT}")),
+    );
+
+    let checks = lint_checks(&e);
+    let found = checks
+        .get("calculator-script")
+        .expect(
+            "`calculator-script` is in the report of every build, whatever it was compiled with",
+        )
+        .join("\n");
+    assert!(
+        found.contains("not-there") && found.contains("does not read"),
+        "a declaration naming a script that is not there was not refused:\n{found}"
+    );
+    assert!(
+        found.contains("reopens-the-prelude") && found.contains("macro"),
+        "a script invoking a macro was not refused:\n{found}"
+    );
+}
+
+/// The shipped reference calculator is admitted by the gate, and by the typechecker where there
+/// is one.
+///
+/// The example's own declaration rather than one this file wrote, so the assertion is that
+/// RFC-0042's downstream reference case still typechecks — which is what `lint` now says without
+/// invoking it. `calculator-scope` and `calculator-type` are **absent** from a light build's
+/// report rather than reported empty, because a check reporting zero findings would say the
+/// corpus was held to the closed prelude by a binary that has no typechecker to hold it with.
+#[test]
+fn lint_admits_a_declared_calculator_and_reports_the_typed_checks_only_where_it_can() {
+    let all = every_declared_capability();
+    let typed: Vec<(String, String)> = all
+        .iter()
+        .filter(|(_, _, d)| d.typed())
+        .map(|(example, step, _)| (example.clone(), step.clone()))
+        .collect();
+    assert!(
+        !typed.is_empty(),
+        "no example declares a typed calculator, so this test asserts nothing"
+    );
+
+    for (example, step) in &typed {
+        let e = Example::materialize(example);
+        agrees_about_the_arm(&e);
+        let checks = lint_checks(&e);
+        for id in ["calculator-scope", "calculator-type"] {
+            assert_eq!(
+                checks.contains_key(id),
+                cfg!(feature = "calculators-gluon"),
+                "`{id}` is {} the report of a build with calculators-gluon = {}; absent and \
+                 empty are not the same thing to a baseline",
+                if checks.contains_key(id) {
+                    "in"
+                } else {
+                    "not in"
+                },
+                cfg!(feature = "calculators-gluon")
+            );
+        }
+        for id in ["calculator-script", "calculator-scope", "calculator-type"] {
+            let found = checks.get(id).cloned().unwrap_or_default();
+            assert!(
+                found.is_empty(),
+                "`{step}` in {example} is this repository's reference calculator and `{id}` \
+                 refuses it:\n{}",
+                found.join("\n")
+            );
+        }
+    }
+}
+
+/// The two refusals that both come out of the typechecker are reported as two different things.
+///
+/// The issue's third point: an unbound name *is* refused by the typechecker, but it is a scope
+/// failure and not a type failure, and it read as one. A script that named a module the closed
+/// prelude does not bind and a script of the wrong shape landed under one heading, with the wrong
+/// preamble on the commoner of the two.
+#[cfg(feature = "calculators-gluon")]
+#[test]
+fn lint_tells_a_scope_failure_from_a_shape_failure() {
+    let e = Example::materialize(&an_example_with_capabilities());
+    agrees_about_the_arm(&e);
+    // `io` is not in the prelude and cannot be brought in — the arm has no `import!` — so this is
+    // a name that is not there rather than a shape that is wrong.
+    declare_typed(&e, "unbound", Some("\\c -> io.println \"x\""));
+    // Every name bound, and not a calculator: a number is not `Corpus -> Computed`.
+    declare_typed(&e, "wrong-shape", Some("\\c -> 1"));
+
+    let checks = lint_checks(&e);
+    let scope = checks
+        .get("calculator-scope")
+        .expect("scope check")
+        .join("\n");
+    let shape = checks
+        .get("calculator-type")
+        .expect("type check")
+        .join("\n");
+    assert!(
+        scope.contains("unbound") && !scope.contains("wrong-shape"),
+        "the scope check does not report exactly the unbound name:\n{scope}"
+    );
+    assert!(
+        shape.contains("wrong-shape") && !shape.contains("unbound"),
+        "the type check does not report exactly the wrong shape:\n{shape}"
+    );
+    assert!(
+        scope.contains("scope failure") && scope.contains("prelude"),
+        "an unbound name is reported without saying it is a scope failure, or without naming \
+         what the prelude does bind — which is the list the author needs:\n{scope}"
+    );
+}
