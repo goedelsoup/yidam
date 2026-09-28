@@ -12,7 +12,7 @@
 //! |---|---|---|
 //! | `start` | opens `phase/<slug>` and snapshots the input state | one `scaffold:` commit |
 //! | `run` | invokes the manifest's plan, recording steps as they complete | one `scaffold:` commit per step, plus whatever the step itself lands |
-//! | `settle` | checks the phase produced outputs and drafts the merge subject | **nothing** |
+//! | `settle` | refreshes the REGEN blocks, checks the phase produced outputs and drafts the merge subject | **no commit** — it stages the refreshed blocks and moves no ref |
 //!
 //! # `settle` prepares; it does not merge
 //!
@@ -20,6 +20,29 @@
 //! operational commits directly, every epistemic commit it produces goes to a proposal branch,
 //! and nothing merges itself.* A `settle` that wrote the `--no-ff` merge would breach that
 //! invariant on this layer's second surface.
+//!
+//! # `settle` runs `regen`, stages the result, and refuses to close over a stale block
+//!
+//! Closing a phase requires the REGEN blocks to be current — `regen --check` is a CI gate —
+//! and nothing here did it, so every repository did it by hand, one `regen: refresh` commit
+//! before the phase commit: 101 of 118 phase commits in the reporting corpus (#1066). Now
+//! `settle` asks the same question `regen --check` asks, through the same generator list;
+//! refreshes what is stale; stages it; and asks again. A block still stale after that, or a
+//! block no generator writes, is *not ready* with the remedy `regen --check` would have
+//! printed, rather than a merge that fails its first build.
+//!
+//! **Staged, not committed.** `regen:` is operational and this module already authors
+//! operational commits, so the limit is not the vocabulary's; it is that `git merge --no-ff`
+//! refuses a dirty index, so the refresh has to be committed *before* the merge and on the
+//! phase branch — which is the sequence `settle` prints, one line longer than it was. The
+//! commit is the person's, beside the merge that is theirs already, and the invariant
+//! `settle_authors_no_commit_and_moves_no_ref` pins stays exactly what it says.
+//!
+//! **Only from a checkout that is the commit.** A block is generated from the tree, and
+//! `--check` in CI reads the commit's tree; a refresh from a working tree that differs from
+//! `HEAD` — behind it by what `phase run` landed, or ahead of it by an edit in progress —
+//! would stage content the gate will call stale. So a stale block found over a dirty
+//! checkout is reported with the sync, and nothing is refreshed.
 //!
 //! The limit is not invented here. `cmd/due.rs` already reached it, of the phase clock:
 //!
@@ -756,8 +779,35 @@ struct SettleReport {
     /// The `--no-ff` merge subject, checked against the closed vocabulary. **Drafted, never
     /// written** — see the module doc.
     subject: String,
+    /// The REGEN blocks: refreshed and staged here, or why the phase cannot close over them.
+    regen: RegenSettle,
     #[serde(skip_serializing_if = "Option::is_none")]
     revision_skew: Option<Skew>,
+}
+
+/// What `settle` did about the REGEN blocks, and what it could not.
+///
+/// The shape `regen --check` reports, plus the two facts only this step has: which files it
+/// staged, and whether it declined to refresh because the checkout is not the commit.
+#[derive(Debug, serde::Serialize)]
+struct RegenSettle {
+    /// Every block current and claimed, after whatever this step refreshed. `ready` requires
+    /// it: a phase settled over a stale block fails its first build.
+    passed: bool,
+    /// Blocks still stale. Empty when `passed`. Non-empty with `dirty` empty means a refresh
+    /// ran and did not clear them — a generator reading something outside the tree.
+    stale: Vec<crate::regen::Stale>,
+    /// Blocks no generator writes, which no refresh can clear. Empty when `passed`.
+    unclaimed: Vec<crate::regen::Unclaimed>,
+    /// Files holding REGEN blocks whose refresh is staged and not yet committed — by this
+    /// run, or by an earlier one whose printed sequence has not been run yet. The `regen:`
+    /// commit the sequence opens with is exactly these, and it is printed while they wait:
+    /// a second `settle` that found nothing stale and said nothing about the index would
+    /// hand back a merge the index refuses.
+    staged: Vec<String>,
+    /// Tracked files whose working-tree content differs from `HEAD`, when a stale block was
+    /// found over them. Nothing was refreshed: see the module doc.
+    dirty: Vec<String>,
 }
 
 fn settle(format: Format) -> Result<()> {
@@ -792,8 +842,20 @@ fn settle(format: Format) -> Result<()> {
     .map(str::to_string)
     .collect();
 
+    let regen = settle_regen(&root)?;
+    // The merge carries the `regen:` commit the sequence opens with, so the tally and the
+    // outputs count it — the draft describes the merge a person is about to write, not the
+    // branch as it stood before this step staged anything.
+    let commits = commits + usize::from(!regen.staged.is_empty());
+    let mut outputs = outputs;
+    for file in &regen.staged {
+        if !outputs.contains(file) {
+            outputs.push(file.clone());
+        }
+    }
+
     let remaining = rec.remaining();
-    let ready = commits > 0 && !outputs.is_empty() && remaining.is_empty();
+    let ready = commits > 0 && !outputs.is_empty() && remaining.is_empty() && regen.passed;
     let subject = merge_subject(&slug, commits, outputs.len());
     // The subject this drafts carries `phase`, which GRAPH.md closes and `lint --commits`
     // reads. Checked here rather than assumed, because a drafted subject a person pastes is
@@ -819,11 +881,75 @@ fn settle(format: Format) -> Result<()> {
         remaining,
         ready,
         subject,
+        regen,
         revision_skew: rec
             .revision_skew(held.revision)
             .map(|(recorded, held)| Skew { recorded, held }),
     };
     crate::report::finish(&root, format, report, |r| println!("{}", render_settle(r)))
+}
+
+/// The REGEN step of `settle`: check, refresh, stage, check again.
+///
+/// Through [`crate::cmd::stale_blocks`] and [`crate::cmd::refresh_quietly`], which walk the
+/// one generator list `yidam regen` walks. A list here would be the third list that command
+/// exists to have prevented, and it would be wrong in the direction nobody looks — a
+/// generator added there and not here is a block this step calls current and CI calls stale.
+fn settle_regen(root: &Path) -> Result<RegenSettle> {
+    let unclaimed = crate::cmd::unclaimed_blocks(root)?;
+    let mut stale = crate::cmd::stale_blocks(Some(root))?;
+    let mut dirty = Vec::new();
+    if !stale.is_empty() {
+        // Tracked files that differ from `HEAD`, staged or not. `diff --name-only HEAD` is
+        // both halves in one read, and it is against `HEAD` rather than the index because
+        // the checkout `phase run` leaves behind is the case: the index and the tree agree
+        // with each other and both are one commit behind the branch.
+        dirty = paths(git(root, None, &["diff", "--name-only", "HEAD"], None));
+        if dirty.is_empty() {
+            crate::cmd::refresh_quietly(root)?;
+            let mut add = vec!["add", "--"];
+            add.extend(stale.iter().map(|s| s.file.as_str()));
+            git(root, None, &add, None).context("staging the refreshed REGEN blocks")?;
+            // Asked again rather than assumed. A generator that reads outside the tree
+            // writes a block that is stale the moment it is written — #895's defect — and
+            // the only way to know is to look.
+            stale = crate::cmd::stale_blocks(Some(root))?;
+        }
+    }
+
+    // What the index holds against `HEAD`, kept to the files that carry a block. The rest
+    // of the index is somebody's work in progress, and `phase run`'s record on a checkout
+    // it left behind; neither is this step's to describe.
+    let staged = paths(git(root, None, &["diff", "--cached", "--name-only"], None))
+        .into_iter()
+        .filter(|rel| {
+            std::fs::read_to_string(root.join(rel)).is_ok_and(|text| text.contains("<!-- REGEN:"))
+        })
+        .collect();
+
+    Ok(RegenSettle {
+        passed: stale.is_empty() && unclaimed.is_empty(),
+        stale,
+        unclaimed,
+        staged,
+        dirty,
+    })
+}
+
+/// The lines of a `--name-only` listing, or nothing where git refused.
+fn paths(listing: Result<String>) -> Vec<String> {
+    listing
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// The subject of the `regen:` commit the printed sequence opens with.
+fn regen_subject(slug: &str) -> String {
+    format!("regen: REGEN blocks refreshed to settle {slug}")
 }
 
 fn merge_subject(slug: &str, commits: usize, files: usize) -> String {
@@ -859,24 +985,44 @@ fn render_settle(r: &SettleReport) -> String {
             s.held.map_or("none".to_string(), |v| v.to_string()),
         );
     }
+    if !r.regen.staged.is_empty() {
+        let _ = writeln!(
+            out,
+            "  {} file(s) with refreshed REGEN blocks staged for the `regen:` commit: {}",
+            r.regen.staged.len(),
+            r.regen.staged.join(", ")
+        );
+    }
     out.push('\n');
 
     if !r.ready {
-        let _ = write!(
-            out,
-            "Not ready to settle.\n\n  \
-             PHASES.md: a phase that never produces commits is an open inquiry thread, not\n  \
-             a settled phase. If it has stalled, open a question naming what is blocking it\n  \
-             and return to {}.\n",
-            r.baseline
-        );
+        out.push_str("Not ready to settle.\n");
+        if !r.regen.passed {
+            out.push_str(&render_regen_refusal(&r.regen));
+        }
+        if r.commits == 0 || r.outputs.is_empty() || !r.remaining.is_empty() {
+            let _ = write!(
+                out,
+                "\n  \
+                 PHASES.md: a phase that never produces commits is an open inquiry thread, not\n  \
+                 a settled phase. If it has stalled, open a question naming what is blocking it\n  \
+                 and return to {}.\n",
+                r.baseline
+            );
+        }
         return out;
     }
 
+    let regen_line = if r.regen.staged.is_empty() {
+        String::new()
+    } else {
+        format!("git commit -m \"{}\"\n  ", regen_subject(r.phase.as_str()))
+    };
     let _ = write!(
         out,
         "Ready. `phase:` is an epistemic verb, so this drafts the merge and a person writes\n\
          it — nothing here merges itself:\n\n  \
+         {regen_line}\
          git switch {}\n  \
          git merge --no-ff -m \"{}\" {}\n  \
          git branch -d {}\n\n\
@@ -884,6 +1030,62 @@ fn render_settle(r: &SettleReport) -> String {
          against the vocabulary like any other commit, and a git-generated one is exempt.\n",
         r.baseline, r.subject, r.branch, r.branch
     );
+    if !r.regen.staged.is_empty() {
+        out.push_str(
+            "\nThe refreshed blocks are staged and not committed: `git merge --no-ff` refuses a\n\
+             dirty index, so the `regen:` commit goes first and lands on the phase branch.\n",
+        );
+    }
+    out
+}
+
+/// Why the REGEN blocks stop the phase closing, and what clears each reason.
+fn render_regen_refusal(g: &RegenSettle) -> String {
+    let mut out = String::new();
+    if !g.dirty.is_empty() {
+        let _ = write!(
+            out,
+            "\n  {} REGEN block(s) stale, and the checkout differs from HEAD in {} file(s), so\n  \
+             nothing was refreshed — a block generated from a tree that is not the commit's\n  \
+             would not hold in CI.\n",
+            g.stale.len(),
+            g.dirty.len()
+        );
+        for f in &g.dirty {
+            let _ = writeln!(out, "    {f}");
+        }
+        out.push_str(
+            "  If that is what `phase run` landed, `git reset --hard HEAD` syncs it; if it is\n  \
+             work in progress, commit or stash it. Then run `yidam phase settle` again.\n",
+        );
+    } else if !g.stale.is_empty() {
+        let _ = write!(
+            out,
+            "\n  {} REGEN block(s) still stale after a refresh:\n",
+            g.stale.len()
+        );
+        for s in &g.stale {
+            let _ = writeln!(out, "    {}  ({})", s.file, s.generator);
+        }
+        out.push_str(
+            "  A block that is stale the moment it is written reads something outside the\n  \
+             tree. `yidam regen --check` reports the same; fix the generator's input.\n",
+        );
+    }
+    if !g.unclaimed.is_empty() {
+        let _ = write!(
+            out,
+            "\n  {} REGEN block(s) name a command no generator writes:\n",
+            g.unclaimed.len()
+        );
+        for u in &g.unclaimed {
+            let _ = writeln!(out, "    {}  (yidam {})", u.file, u.generator);
+        }
+        out.push_str(
+            "  `yidam regen` writes no block for those, so they keep whatever they hold.\n  \
+             Correct the command or delete the block; `yidam regen --check` lists the generators.\n",
+        );
+    }
     out
 }
 

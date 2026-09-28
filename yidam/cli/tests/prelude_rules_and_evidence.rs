@@ -185,7 +185,14 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// Both figures are the measurement taken on the merged tree, not the two branches' deltas
 /// added: 57 and 48 landed in different files, and a ceiling with no slack cannot be arrived at
 /// by arithmetic on a number nobody re-ran.
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_781), ("sadhana/root/AGENTS.md", 24_146)];
+///
+/// **`sadhana/root/AGENTS.md` raised to 24,205 when `settle` learned to refresh the REGEN
+/// blocks (#1066).** The delta is **59 words in `PHASES.md`** — the sentence saying a stale or
+/// unclaimed block is not ready, and the one saying the `regen:` commit goes before the merge
+/// and why — and 24,146 + 59 is this figure exactly. `AGENTS.md` does not move: `PHASES.md` is
+/// on the derived-repository route and not on this repository's own, so the two routes parting
+/// by exactly the one file's growth is the control here.
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_781), ("sadhana/root/AGENTS.md", 24_205)];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
 ///
@@ -270,7 +277,12 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_781), ("sadhana/root/A
 /// delta is **126 words in `bootstrap.md`**, and 27,658 + 126 is this figure exactly, so nothing
 /// else on the path moved. The 241 further words of argument are in `bootstrap.evidence.md` and
 /// charged to [`PAIR_FLOOR`].
-const BOOTSTRAP_CEILING: usize = 27_784;
+///
+/// **Raised to 27,843 when `settle` learned to refresh the REGEN blocks (#1066).** The delta is
+/// **59 words in `PHASES.md`**, the same 59 the derived-repository route moved by, and 27,784 +
+/// 59 is this figure exactly, so nothing else on the path moved. `PHASES.md` has no evidence
+/// half, so nothing is charged to [`PAIR_FLOOR`].
+const BOOTSTRAP_CEILING: usize = 27_843;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
