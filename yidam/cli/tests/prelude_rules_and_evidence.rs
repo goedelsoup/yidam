@@ -135,9 +135,15 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// The same raise discipline as before: a raise names the section and the words. Two occasions
 /// moving by the same delta is the sign of a shared section; one moving alone is the sign of
 /// a section on its list only.
+///
+/// **Raised by 22 on *Before you run a phase* when Investigation's missing verb was stated
+/// (#1136).** The delta is **22 words in `PHASES.md`**, on that occasion's list only, and both
+/// routes moved by it. The same change moved `extract`, `open` and `close` to *Before you write
+/// or revise a node*, which costs nothing: a verb is in the route file, charged to every
+/// occasion, and moving it leaves the file's length where it was.
 const READ_CEILING: &[(&str, &str, usize)] = &[
     ("AGENTS.md", "Before you write or revise a node", 6_157),
-    ("AGENTS.md", "Before you run a phase", 4_584),
+    ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
@@ -150,7 +156,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
         "Before you write or revise a node",
         7_351,
     ),
-    ("sadhana/root/AGENTS.md", "Before you run a phase", 5_778),
+    ("sadhana/root/AGENTS.md", "Before you run a phase", 5_800),
     (
         "sadhana/root/AGENTS.md",
         "Before a claim crosses a corpus boundary",
@@ -263,7 +269,11 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// and the sentence saying it installs new. 27,898 + 10 is this figure exactly, so nothing else
 /// on the path moved. Nothing is argued in the evidence half; the reason lives in the file
 /// itself, which is what a derived repository reads.
-const BOOTSTRAP_CEILING: usize = 27_908;
+///
+/// **Raised to 27,930 when `PHASES.md` said Investigation has no verb of its own (#1136).** The
+/// delta is **22 words in `PHASES.md`**, the same 22 *Before you run a phase* moved by on both
+/// recurring routes, and 27,908 + 22 is this figure exactly, so nothing else on the path moved.
+const BOOTSTRAP_CEILING: usize = 27_930;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///

@@ -21,7 +21,8 @@ accountability beyond the individual commit.
 the corpus — with `yidam query`, `neighbors` and `pack`, not with `grep`; see
 [Reading the corpus](guidelines/reading-the-corpus.md) — queries external sources, and
 produces findings. Output: new corpus nodes, new catalog edges, updated open-question nodes.
-The investigation → distill → commit cycle is the standard pattern.
+The investigation → distill → commit cycle is the standard pattern. It is the one type
+with no verb of its own: each output commits under its own verb, and `phase:` names it.
 
 **Extraction** — Structured data is pulled from a primary source and committed as corpus
 nodes. Output: validated authored or generated nodes linked to catalog entries. Extraction

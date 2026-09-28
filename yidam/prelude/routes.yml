@@ -30,7 +30,7 @@ always:
 
 occasions:
   - heading: Before you write or revise a node
-    verbs: [establish, revise, withdraw]
+    verbs: [establish, revise, withdraw, extract, open, close]
     read:
       - read: GRAPH.md#the-class-contract
         label: The class contract
@@ -42,7 +42,7 @@ occasions:
         gloss: the `[verified]` / `[inference]` / `[open]` tags, and why an edge is a claim
 
   - heading: Before you run a phase
-    verbs: [phase, assess, scope, synthesize, extract, open, close]
+    verbs: [phase, assess, scope, synthesize]
     read:
       - read: PHASES.md
         label: Phases

@@ -58,7 +58,7 @@ Read by occasion. Find the occasion your next commit belongs to, then read *On e
 
 ### Before you write or revise a node
 
-Verbs: `establish`, `revise`, `withdraw`.
+Verbs: `establish`, `revise`, `withdraw`, `extract`, `open`, `close`.
 
 - [The class contract](yidam/prelude/GRAPH.md#the-class-contract) — what an instance may carry, and what `yidam lint` checks it against
 - [`.yidam/corpus/`](yidam/prelude/guidelines/directories.md#yidamcorpus)
@@ -66,7 +66,7 @@ Verbs: `establish`, `revise`, `withdraw`.
 
 ### Before you run a phase
 
-Verbs: `phase`, `assess`, `scope`, `synthesize`, `extract`, `open`, `close`.
+Verbs: `phase`, `assess`, `scope`, `synthesize`.
 
 - [Phases](yidam/prelude/PHASES.md) — how a unit of inquiry is bounded and committed
 - [Commits as events](yidam/prelude/GRAPH.md#commits-as-events)
