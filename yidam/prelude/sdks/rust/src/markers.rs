@@ -677,6 +677,21 @@ mod tests {
         }
     }
 
+    /// The one place the Dafny model's scan and this one disagree, and `graph.dfy` states it
+    /// as `TheModelsScanIsNotLineAnchored`. The model reads a block wherever its three tags
+    /// occur in order; this scan holds a block-form close tag to a line of its own. So the
+    /// model rewrites this document and the code leaves it alone. Change either side and one
+    /// of the two goes red.
+    #[test]
+    fn a_close_tag_that_does_not_stand_alone_is_not_a_block_form_close() {
+        let text = "<!-- REGEN: a -->\nx<!-- /REGEN -->";
+        let s = scan(text);
+        assert!(s.regen.is_empty(), "{:?}", s.regen);
+        assert_eq!(s.malformed.len(), 1);
+        assert_eq!(s.malformed[0].fault, Fault::CloseTagMissing);
+        assert_eq!(update_regen(text, "a", "y"), text);
+    }
+
     /// Offsets are bytes, and a document is not ASCII. Stated here because the extents are
     /// the one part of this that is *not* a parity contract: the same block is at a different
     /// number in each SDK, and a fixture asserting one would be asserting three things.

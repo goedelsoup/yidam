@@ -331,23 +331,35 @@ can state as method postconditions and verify automatically.
 lemma UpdateRegenSpec(text: string, command: string, newContent: string)
   requires HasRegenFor(text, command)
   requires ContainsNo(newContent, RegenClose)
-  ensures  result[..sp.body] == text[..sp.body]              // frame, before
-  ensures  result[sp.body + |body|..] == text[sp.close..]    // frame, after
-  ensures  RegenSpan(result, command) == Some(...)           // the section, exactly
-  ensures  UpdateRegen(result, command, newContent) == result // idempotency
+  ensures  result[..sp.body] == text[..sp.body]                        // frame, before
+  ensures  Hollow(result, command) == Hollow(text, command)            // frame, everywhere
+  ensures  RegenSpan(result, command) == Some(...)                     // the section, exactly
+  ensures  Commands(RegenScan(result)) == Commands(RegenScan(text))    // same blocks
+  ensures  EveryWritten(result, command, newContent)                   // every match
+  ensures  UpdateRegen(result, command, newContent) == result          // idempotency
 ```
-Everything outside the target REGEN section is byte-for-byte identical; the target section
-gets exactly `new_content`, still bracketed by the same open tag and arrow; and running it
-again with the same content changes nothing.
+`RegenScan` models `scan_markers`, and `RegenSpan` selects from it by equality of command,
+as `update_regen` does. `Hollow` is the text with the body of every block named `command`
+removed. So:
 
-The precondition is not decoration: a caller who writes `<!-- /REGEN -->` into
-`new_content` terminates the section early, and every clause above is false of that call.
+- Everything except those bodies is byte-for-byte identical.
+- The first such section gets exactly `new_content`, bracketed by the same open tag and arrow.
+- Every other block with the same command gets the same content.
+- The scan of the result reads the same blocks, in the same order.
+- Running it again with the same content changes nothing.
 
-A fourth clause — "no REGEN blocks are created or destroyed", over a count — used to be here
-and is not, because it was false and because it was the weaker instrument. Byte-for-byte
-equality says more about the blocks outside the section than a count of them can, and inside
-the section the content is the caller's. `RegenBlockCountWasTheWrongInstrument` proves the
-unconditional form false.
+The precondition is required. A caller who writes `<!-- /REGEN -->` into `new_content` ends
+the section early, and every clause above is false of that call.
+
+The block count was once stated as a count of open tags in the text, and in that form it was
+false: content can spell an open tag. Stated over the scan it is true, because the scan never
+searches a body for an open tag. `ContentThatSpellsATagIsNotABlock` is the document that
+separates the two forms.
+
+The model's scan and the code's differ in one respect: the model's is not tied to lines. The
+code requires a block-form open tag to start its line and the close tag to stand alone on its
+own line; the model does not. `TheModelsScanIsNotLineAnchored` proves the smallest document
+where this matters, and a test in `markers.rs` pins the code's answer to it.
 
 **`classify_commit` — totality and coverage**
 ```

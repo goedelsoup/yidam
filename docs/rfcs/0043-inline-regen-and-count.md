@@ -111,7 +111,7 @@ writer.
 
 The model has that second locator and does not have the first. `RegenSpan` computes a block's
 four offsets by byte search, and
-[`RegenSpanFindsEveryBlock`](../../yidam/prelude/sdks/spec/graph.dfy#L267-L268) proves it finds
+[`RegenSpanFindsEveryBlock`](../../yidam/prelude/sdks/spec/graph.dfy#L375-L376) proves it finds
 every block that exists:
 
 ```dafny
@@ -122,6 +122,10 @@ every block that exists:
 That lemma is about the writer's notion of a block. `scan_markers`' notion is modelled nowhere,
 so the proof obligation that would have caught this — *the two agree* — has never been
 statable, let alone discharged.
+
+*Since #1097 the model has one locator, as the code does.* `RegenSpan` is now a selection
+over `RegenScan`, so the lemma above says that the selection misses no block the scan reads.
+*The two agree* is the definition, and needs no proof.
 
 ### `count` cannot be registered the way the other fourteen are
 
@@ -187,7 +191,7 @@ hand-authored empty block looks like. `<!-- REGEN: a -->\n<!-- /REGEN -->` — t
 `update_regen` writes when it clears a section — has the body `"\n"` and keeps the block form,
 so the `empty-new-content` fixture is unchanged and so is `ClearingASectionLeavesNoBlankLine`.
 In the model this is two conditions in
-[`RegenBody`](../../yidam/prelude/sdks/spec/graph.dfy#L314-L318), which takes the block's form
+[`RegenBody`](../../yidam/prelude/sdks/spec/graph.dfy#L401-L405), which takes the block's form
 as a second argument and returns the content unwrapped only when the block was inline *and* the
 content will fit there.
 
@@ -228,18 +232,25 @@ own. Three things follow, and all three are defects closing rather than features
 
 (1) and (2) are behaviour changes to a proved function, and §"Migration" states what they cost.
 
-(3) lands in the code and not yet in the model, and this RFC says so rather than leaving it to
-be found. `RegenSpan` is still a prefix search of its own that stops at the first hit, so on a
-document holding a block for `ab` the model, asked for `a`, answers with that block where
-`update_regen` answers with nothing.
-[`TheModelsLocatorIsStillAPrefixSearch`](../../yidam/prelude/sdks/spec/graph.dfy#L620-L625) is
-that document, proved, so the divergence is a checked statement in the file rather than a
-comment. Closing it is one change — `RegenSpan` becomes a selection over a modelled scan, and
-*the two agree* stops being a lemma nobody can write and starts being the definition — and the
-cost is not the definition but `UpdateRegenSpec`'s re-scan clause, which then needs an induction
-showing the scan of the result reproduces every block below the edit. It is tracked as #1097.
+(3) landed in the code first. When this RFC shipped, `RegenSpan` in the model was still a
+prefix search of its own that stopped at the first hit. On a document holding a block for `ab`,
+the model, asked for `a`, answered with that block where `update_regen` answers with nothing.
+#1097 closed that. `RegenSpan` is now `FirstWithCommand` over a modelled `RegenScan`, compared
+by equality. `UpdateRegen` rewrites every block the scan names.
+[`TheLocatorComparesTheWholeCommand`](../../yidam/prelude/sdks/spec/graph.dfy#L1085-L1089)
+is the same document, proved with the code's answer. The cost was `UpdateRegenSpec`'s re-scan
+clause, as predicted. Its induction, `ReadBack`, shows that each rewritten block reads back
+where it was written. The count clause the axiom lost also returned, stated over the scan:
+`Commands(RegenScan(result)) == Commands(RegenScan(text))`.
 
-**It is a debt, not a blocker — corrected from an earlier draft.** This section first said the
+One difference remains, and the model proves it rather than hiding it. The model's scan is
+not tied to lines. The code requires a block-form open tag to start its line and the close tag
+to stand alone on its own line; the model does not.
+[`TheModelsScanIsNotLineAnchored`](../../yidam/prelude/sdks/spec/graph.dfy#L1236-L1238) is
+the smallest document where the two disagree. `markers.rs` pins the code's answer to it, so a
+change to either side reddens one of them.
+
+**It was a debt, not a blocker — corrected from an earlier draft.** This section first said the
 model was not optional past `count`, on the reasoning that `count`'s command carries a query, so
 `yidam count district` is a prefix of `yidam count district-at-large` and the document above
 becomes one a corpus can write by accident. The premise is right and the conclusion was not: the
@@ -248,8 +259,8 @@ matches by equality over the one scan and writes every match, so on the implemen
 ships against, neither the clobber nor the unwritten second block is reachable —
 `a_query_that_prefixes_another_does_not_clobber_it` and
 `two_blocks_asking_the_same_question_are_both_written` in `yidam/cli/tests/count.rs` are those
-two documents, run. What #1097 still buys is a model that says so; what it does not buy is
-safety `count` is waiting on.
+two documents, run. What #1097 bought is a model that says so. It did not buy safety that
+`count` was waiting on.
 
 ### `count` is pull-shaped, and the guard says so
 
@@ -417,13 +428,10 @@ the shape every generator's I/O failure already had. Whichever of the three answ
 also has to say whether a content failure stays an error or becomes a third list inside a report
 that still renders.
 
-**When the model reaches the scan.** §"One scanner" clause 3 landed in the code and not in the
-model, and #1097 carries the rest: `RegenSpan` becoming a selection over a modelled `RegenScan`,
-and `UpdateRegenSpec` gaining the induction that says the scan of the result reproduces every
-block below the edit. It is not blocking — §"Two scanners, two answers" records why, and the two
-documents the lemma describes are integration cases that pass. What is not settled is the price:
-the lemma names the hazard and the definition is the cheap half, but nobody has costed the
-induction, and until somebody does, "when" has no answer to give.
+**When the model reaches the scan — settled by #1097.** `RegenSpan` is a selection over a
+modelled `RegenScan`, and `UpdateRegenSpec` is proved over it. §"One scanner" records what
+remains: the model's scan is not tied to lines, and a proved witness states that
+difference.
 
 **Whether a block should be able to state its own expectation.** `<!-- REGEN: yidam count
 district -->44<!-- /REGEN -->` publishes a number and asserts nothing about it. RFC-0035's
