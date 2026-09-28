@@ -238,30 +238,6 @@ impl Expectation {
     }
 }
 
-/// A class definition's declared edges, read from a blob.
-///
-/// The expectation cannot be computed from one blob any more, and that is the point: an
-/// inbound relationship may be declared from either end, so which classes are exempt is a
-/// property of the whole ontology at a commit rather than of one file in it. The replay
-/// therefore keeps the declarations and derives the answer per frame, through
-/// [`crate::corpus::source_classes`] — the same function the check calls, so the two cannot
-/// disagree about which classes are exempt.
-///
-/// That guarantee held for *exempt* and not for *pointed at*, which the replay went on to
-/// answer for itself, direction-blind, and got wrong (#659). Both now read
-/// [`crate::corpus::pointed_classes`], which is where `direction:` is interpreted and the
-/// only place it is.
-fn blob_edges(content: &str) -> Vec<crate::corpus::ClassEdge> {
-    #[derive(Default, serde::Deserialize)]
-    struct Fields {
-        #[serde(default)]
-        edges: Vec<crate::corpus::ClassEdge>,
-    }
-    serde_yaml::from_str::<Fields>(content)
-        .unwrap_or_default()
-        .edges
-}
-
 /// What the ontology at this commit says about each class being pointed at.
 ///
 /// Three states, and the third has to survive: a class nothing points at *and* which
@@ -278,24 +254,17 @@ fn blob_edges(content: &str) -> Vec<crate::corpus::ClassEdge> {
 /// `direction: in` is not hypothetical: the reports fixture's own `concept.ont.yml` uses it.
 /// [`crate::corpus::pointed_classes`] is the one reading of `direction:`, and both questions
 /// now go through it rather than being answered twice.
-fn expectations_of(
-    decls: &BTreeMap<String, Vec<crate::corpus::ClassEdge>>,
-) -> HashMap<String, Expectation> {
-    let view: Vec<crate::corpus::EdgeView<'_>> = decls
-        .iter()
-        .map(|(name, edges)| crate::corpus::EdgeView { name, edges })
-        .collect();
-    let sources = crate::corpus::source_classes(&view);
-    let pointed = crate::corpus::pointed_classes(&view);
-    decls
-        .iter()
-        .filter_map(|(name, edges)| {
-            if sources.contains(name) {
-                Some((name.clone(), Expectation::Uncited))
-            } else if edges.is_empty() && !pointed.contains(name.as_str()) {
+fn expectations_of(view: &[crate::corpus::EdgeView<'_>]) -> HashMap<String, Expectation> {
+    let sources = crate::corpus::source_classes(view);
+    let pointed = crate::corpus::pointed_classes(view);
+    view.iter()
+        .filter_map(|v| {
+            if sources.contains(v.name) {
+                Some((v.name.to_string(), Expectation::Uncited))
+            } else if v.edges.is_empty() && !pointed.contains(v.name) {
                 None
             } else {
-                Some((name.clone(), Expectation::Cited))
+                Some((v.name.to_string(), Expectation::Cited))
             }
         })
         .collect()
@@ -372,14 +341,25 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
     // `out` — every insert and every removal touches both — so a frame cannot show a node
     // whose text is a previous revision's.
     let mut text: HashMap<String, &str> = HashMap::new();
-    // The ontology as it stands, class by class. Kept rather than reduced on the way in,
-    // because the reduction reads every class at once.
-    let mut decls: BTreeMap<String, Vec<crate::corpus::ClassEdge>> = BTreeMap::new();
-    // What each class calls itself and which of its properties carry a tag. Keyed by the
-    // file stem, and carrying the declared `class:` beside it, because
-    // `ClaimFields::load` keys by the declared name where there is one and an instance
-    // looks itself up by the name it writes in its own `class:` field.
-    let mut claims: BTreeMap<String, (Option<String>, Vec<String>)> = BTreeMap::new();
+    // The ontology as it stands, class by class, keyed by the `.ont.yml` stem — which is
+    // what an instance's class resolves to, live and here.
+    //
+    // **Kept rather than reduced on the way in**, because the reduction reads every class at
+    // once. An inbound relationship may be declared from either end, so which classes are
+    // exempt is a property of the whole ontology at a commit rather than of one file in it.
+    // The replay therefore keeps the declarations and derives the answer per frame, through
+    // [`crate::corpus::source_classes`] — the same function the check calls, so the two
+    // cannot disagree about which classes are exempt. That guarantee held for *exempt* and
+    // not for *pointed at*, which the replay went on to answer for itself, direction-blind,
+    // and got wrong (#659); both now read [`crate::corpus::pointed_classes`], which is where
+    // `direction:` is interpreted and the only place it is.
+    //
+    // **One [`crate::corpus::Class`] per blob, where this was two parses** (#1116). The
+    // replay read each class blob twice — once through a local `edges:` struct and once
+    // through `claims::declared_claim_fields` — so a past revision of the ontology was
+    // described by two readers that the live corpus had replaced with one. `Class::parse` is
+    // the live parse, given a blob instead of a file.
+    let mut classes: BTreeMap<String, crate::corpus::Class> = BTreeMap::new();
 
     for c in &commits {
         let mut touched = false;
@@ -396,15 +376,18 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
                 }
             } else if is_class(&ch.path) {
                 touched = true;
-                let name = class_of(&ch.path).trim_end_matches(".ont.yml").to_string();
+                // The stem, from the one place that derives it — the same answer
+                // `Class::parse` gives the record inserted just below (#1116).
+                let name = crate::corpus::Class::name_of(&ch.path);
                 match ch.status {
                     b'D' => {
-                        decls.remove(&name);
-                        claims.remove(&name);
+                        classes.remove(&name);
                     }
                     _ => {
-                        decls.insert(name.clone(), blob_edges(content()));
-                        claims.insert(name, crate::claims::declared_claim_fields(content()));
+                        classes.insert(
+                            name,
+                            crate::corpus::Class::parse(ch.path.clone(), content()),
+                        );
                     }
                 }
             }
@@ -415,23 +398,16 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
         let cited: HashSet<&String> = out.values().flatten().collect();
         // Derived per frame rather than maintained incrementally: one class's edit can
         // change another class's exemption, so there is nothing to update in place.
-        let view: Vec<crate::corpus::EdgeView<'_>> = decls
+        let view: Vec<crate::corpus::EdgeView<'_>> = classes
             .iter()
-            .map(|(name, edges)| crate::corpus::EdgeView { name, edges })
+            .map(|(name, c)| crate::corpus::EdgeView {
+                name,
+                edges: &c.edges,
+            })
             .collect();
         let source_classes = crate::corpus::source_classes(&view);
-        let expectations = expectations_of(&decls);
-        let claim_fields = crate::claims::ClaimFields::from_declarations(
-            claims
-                .iter()
-                .map(|(stem, (declared, fields))| {
-                    (
-                        declared.clone().unwrap_or_else(|| stem.clone()),
-                        fields.clone(),
-                    )
-                })
-                .collect::<Vec<_>>(),
-        );
+        let expectations = expectations_of(&view);
+        let claim_fields = crate::claims::ClaimFields::from_classes(classes.values());
         frame(Frame {
             sha: &c.sha,
             ts: c.ts,
@@ -543,11 +519,25 @@ pub fn uncited_age(root: &Path) -> HashMap<String, Age> {
 /// [`crate::claims::has_open_claim`] the same way over the working tree; asking it
 /// differently here would produce an age for a condition the present-tense reports do not
 /// agree is holding.
+///
+/// **Not a duplicate of [`crate::corpus`]'s read** (#1116). The bytes are a blob out of the
+/// replay, not a file on disk, and the replay hands them over one frame at a time — there is
+/// no corpus to open at a past commit without `query::at`'s tree listing and blob fill per
+/// frame, which is a whole corpus reconstructed to answer one predicate. The *record* is the
+/// model's: [`crate::corpus::parse_or_default`] is the one place bytes become a
+/// [`crate::parse::CorpusInstance`]. Its outcome is dropped, because a node that did not
+/// parse at some past commit is not a question at that commit and an age has nowhere to say
+/// otherwise.
 fn is_open(path: &str, content: &str, fields: &crate::claims::ClaimFields) -> bool {
-    let inst: crate::parse::CorpusInstance = serde_yaml::from_str(content).unwrap_or_default();
+    let (inst, _malformed): (crate::parse::CorpusInstance, _) =
+        crate::corpus::parse_or_default(content);
     let label = inst.label.unwrap_or_default();
-    // The declared class, then the directory. `ClaimFields` is keyed by what a class calls
-    // itself, and a node that names no class still lives in one.
+    // The node's declared class, then its directory. `ClaimFields` is keyed by the
+    // `<class>.ont.yml` stem (#1116) and `class_of` reads the directory, which is the same
+    // name; the declared field is tried first because that is the lookup `status` and
+    // `open-questions` make, and asking differently here would date a condition those
+    // reports do not agree is holding. The fallback is this reader's own: a historical node
+    // that named no class still lived in a class directory.
     let class = inst.class.unwrap_or_else(|| class_of(path).to_string());
     crate::claims::has_open_claim(&label, content, fields.for_class(&class))
 }
@@ -738,9 +728,20 @@ mod tests {
                     relationship: "measured-by".to_string(),
                     target: "concept".to_string(),
                     direction: direction.map(str::to_string),
+                    description: String::new(),
                 }],
             ),
         ])
+    }
+
+    /// The shape `replay` hands [`expectations_of`], built from a map the tests can write.
+    fn views(
+        decls: &BTreeMap<String, Vec<crate::corpus::ClassEdge>>,
+    ) -> Vec<crate::corpus::EdgeView<'_>> {
+        decls
+            .iter()
+            .map(|(name, edges)| crate::corpus::EdgeView { name, edges })
+            .collect()
     }
 
     /// #659. `direction: in` on `gauge` says instances of `concept` point at a gauge — it
@@ -752,7 +753,7 @@ mod tests {
     /// against the one state the missing entry exists to represent.
     #[test]
     fn a_class_named_by_an_inbound_declaration_is_not_thereby_pointed_at() {
-        let e = expectations_of(&named_from_the_gauge(Some("in")));
+        let e = expectations_of(&views(&named_from_the_gauge(Some("in"))));
         assert_eq!(e.get("concept"), None, "{e:?}");
         // And the class that did declare is still scored: something points at a gauge.
         assert_eq!(e.get("gauge"), Some(&Expectation::Cited), "{e:?}");
@@ -762,7 +763,7 @@ mod tests {
     /// branch: stated from the other end, the same relationship does point at `concept`.
     #[test]
     fn a_class_another_class_points_at_is_cited_though_it_declares_nothing() {
-        let e = expectations_of(&named_from_the_gauge(Some("out")));
+        let e = expectations_of(&views(&named_from_the_gauge(Some("out"))));
         assert_eq!(e.get("concept"), Some(&Expectation::Cited), "{e:?}");
     }
 
@@ -772,7 +773,7 @@ mod tests {
     /// the same way to both questions — which is the whole of what #659 was about.
     #[test]
     fn a_declaration_with_no_direction_names_both_ends() {
-        let e = expectations_of(&named_from_the_gauge(None));
+        let e = expectations_of(&views(&named_from_the_gauge(None)));
         assert_eq!(e.get("concept"), Some(&Expectation::Cited), "{e:?}");
     }
 

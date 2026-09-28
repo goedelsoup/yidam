@@ -168,77 +168,60 @@ pub const TAG_MEANINGS: [(&str, &str, &str); 3] = [
 #[derive(Debug, Default, Clone)]
 pub struct ClaimFields(std::collections::BTreeMap<String, Vec<String>>);
 
-#[derive(Default, serde::Deserialize)]
-struct OntologyProperties {
-    #[serde(default)]
-    class: Option<String>,
-    #[serde(default)]
-    properties: Vec<OntologyProperty>,
-}
-
-#[derive(serde::Deserialize)]
-struct OntologyProperty {
-    name: String,
-    #[serde(default)]
-    r#type: String,
-}
-
-/// What one class definition declares: the name it calls itself, and its claim-typed
-/// properties.
+/// The properties one class declares as `type: claim`, in declaration order.
 ///
-/// **One parser, two readers.** [`ClaimFields::load`] reads the ontology on disk;
-/// [`crate::cmd::lint::history`] reads it from a blob at a past commit, where there is no
-/// file to walk. A second copy of this parse is how a corpus and its own history come to
-/// disagree about which fields carry a tag — and the disagreement would surface as a
-/// question whose age is measured against an ontology that never applied to it.
-///
-/// The class name is `None` when the file does not declare one; the caller supplies the
-/// file stem, which is the only thing it can fall back to and which the blob reader does not
-/// have a path for.
-pub(crate) fn declared_claim_fields(text: &str) -> (Option<String>, Vec<String>) {
-    let ont: OntologyProperties = serde_yaml::from_str(text).unwrap_or_default();
-    let fields = ont
+/// **The one reading of `type: claim`, and it was four.** `ClaimFields::load` had its own
+/// `serde_yaml` struct over the class file; `pack` and `score` each wrote this filter out by
+/// hand over an ontology they already held; `cmd/lint/history` parsed a class blob twice, once
+/// for its edges and once for this. Four expressions deciding which fields carry an evidence
+/// tag is how a corpus and its own history come to disagree about it — and that disagreement
+/// surfaces as a question whose age is measured against an ontology that never applied to it
+/// (#1116).
+pub(crate) fn declared_claim_fields(class: &crate::corpus::Class) -> Vec<String> {
+    class
         .properties
-        .into_iter()
+        .iter()
         .filter(|p| p.r#type == CLAIM_PROPERTY_TYPE)
-        .map(|p| p.name)
-        .collect();
-    (ont.class, fields)
+        .map(|p| p.name.clone())
+        .collect()
 }
 
 impl ClaimFields {
-    /// Read every class definition in a corpus.
+    /// Read every class definition in a corpus directory.
+    ///
+    /// Through [`crate::corpus::read_classes`], so this is the corpus model's parse and not a
+    /// second one. A caller that already holds an ontology — `lint`, `pack`, `score`, and the
+    /// replay, which holds one that is not on disk at all — calls [`Self::from_classes`] and
+    /// reads nothing.
     pub fn load(corpus: &std::path::Path) -> Self {
-        let mut map = std::collections::BTreeMap::new();
-        for path in crate::walk::walk_ont_files(corpus) {
-            let text = std::fs::read_to_string(&path).unwrap_or_default();
-            let (declared, fields) = declared_claim_fields(&text);
-            let class = declared.unwrap_or_else(|| {
-                path.file_name()
-                    .and_then(|n| n.to_str())
-                    .and_then(|n| n.strip_suffix(".ont.yml"))
-                    .unwrap_or_default()
-                    .to_string()
-            });
-            if !fields.is_empty() {
-                map.insert(class, fields);
-            }
-        }
-        Self(map)
+        Self::from_classes(crate::corpus::read_classes(corpus).iter())
     }
 
-    /// The same declaration, read from an ontology already parsed.
+    /// The same declaration, from classes already parsed.
     ///
-    /// [`Self::load`] walks `.ont.yml` from disk. A caller holding the classes already —
-    /// `query::Graph` does — would otherwise read every one of them a second time, and a
-    /// graph reconstructed at a past commit holds an ontology that is not on disk at all,
-    /// where the second read would answer with today's declaration about another year's
-    /// corpus.
+    /// **Keyed by [`crate::corpus::Class::name`], the file stem.** Until #1116 [`Self::load`]
+    /// keyed by the file's declared `class:` where it had one while `pack`, `score` and the
+    /// lint fixtures keyed by the stem — one corpus, two answers. The stem is the one that
+    /// governs, and the argument is on `Class::name` along with the measurement that says no
+    /// corpus on hand can tell the difference.
+    pub fn from_classes<'a>(classes: impl IntoIterator<Item = &'a crate::corpus::Class>) -> Self {
+        Self::from_declarations(
+            classes
+                .into_iter()
+                .map(|c| (c.name.clone(), declared_claim_fields(c))),
+        )
+    }
+
+    /// The map written out directly, for a caller whose declarations are not
+    /// [`crate::corpus::Class`]es.
     ///
-    /// **Key by whatever the caller will look a class up by.** `load` keys by the file's
-    /// `class:` field where it has one; the gate keys by the `.ont.yml` stem, which is also
-    /// the directory an instance must live in. Where the two disagree the stem is the one a
-    /// node's class resolves to, so a caller passing stems gets the answer the gate would.
+    /// Two of them: a test that wants one class and two field names, and
+    /// [`crate::cmd::lint::edge_claims`]'s fixtures. Every reader of a real ontology goes
+    /// through [`Self::from_classes`], which is what makes the key one thing.
+    ///
+    /// **The key is the `.ont.yml` stem**, which is the directory an instance must live in
+    /// and the name [`crate::cmd::lint::checks::class_of`] resolves a node to. A caller
+    /// keying on anything else gets a map the gate cannot look a node up in.
     pub fn from_declarations(
         declarations: impl IntoIterator<Item = (String, Vec<String>)>,
     ) -> Self {
@@ -2875,12 +2858,19 @@ mod structural_tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn corpus_with(ont: &str) -> (TempDir, std::path::PathBuf) {
+    /// One class, named by its file. The stem is what [`ClaimFields`] keys by, so a fixture
+    /// whose `class:` says something else is still filed under `class` (#1116) — which is
+    /// why this takes the name rather than letting the YAML supply it.
+    fn corpus_named(class: &str, ont: &str) -> (TempDir, std::path::PathBuf) {
         let tmp = TempDir::new().unwrap();
         let corpus = tmp.path().join(".yidam/corpus");
-        std::fs::create_dir_all(corpus.join("lead")).unwrap();
-        std::fs::write(corpus.join("lead.ont.yml"), ont).unwrap();
+        std::fs::create_dir_all(corpus.join(class)).unwrap();
+        std::fs::write(corpus.join(format!("{class}.ont.yml")), ont).unwrap();
         (tmp, corpus)
+    }
+
+    fn corpus_with(ont: &str) -> (TempDir, std::path::PathBuf) {
+        corpus_named("lead", ont)
     }
 
     const TYPED: &str = "class: lead\nlabel: Lead\nproperties:\n  \
@@ -3013,6 +3003,21 @@ mod structural_tests {
         assert_eq!(ClaimFields::load(&corpus).for_class("lead"), ["claim_tag"]);
     }
 
+    /// And when it says something else. Until #1116 this reader keyed by the declared
+    /// `class:` where there was one, so a class whose field disagreed with its file was
+    /// filed under a name `class_of` can never resolve a node to — the map was there and
+    /// every lookup missed it.
+    #[test]
+    fn a_class_declaring_another_name_is_keyed_by_its_file() {
+        let (_t, corpus) = corpus_with(
+            "class: measure\nlabel: Lead\nproperties:\n  \
+             - name: claim_tag\n    type: claim\n    description: x\n",
+        );
+        let f = ClaimFields::load(&corpus);
+        assert_eq!(f.for_class("lead"), ["claim_tag"]);
+        assert!(f.for_class("measure").is_empty());
+    }
+
     /// **The distinction the rename exists for.** A node stuffed with open claims — in prose,
     /// in a declared field, and in a carried finding — is not thereby a question, and the two
     /// predicates must disagree about it. Measured downstream at 60.1% against 0.36%: if this
@@ -3027,7 +3032,8 @@ mod structural_tests {
     /// alongside the other three.
     #[test]
     fn a_node_full_of_open_claims_is_not_a_question_node() {
-        let (_t, corpus) = corpus_with(
+        let (_t, corpus) = corpus_named(
+            "technique",
             "class: technique\nlabel: Technique\nproperties:\n  \
              - name: attestation_standing\n    type: claim\n    description: How attested.\n",
         );
