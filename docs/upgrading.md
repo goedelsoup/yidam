@@ -92,8 +92,11 @@ of a binary built without `calculators-gluon`, which is the one `install.sh` dow
 that held no script to the prelude should not report that it did. `calculator-script` is text, so
 it gates in every build.
 
-Do not bless either of the two from a full build and then lint from a light one. The entry is
-read as a stale baseline and fails. That gap is #1114.
+Bless either of the two from a full build and lint from a light one. The entry is carried
+(#1114). The light run did not ask the check, so it neither compares the entry nor reports it
+stale. It prints the ids it did not ask. A blessing from the light build keeps the entry too.
+The same holds for `unrecognized-verb` without `--commits`. An entry under a check no build has
+any more is still stale, and still fails.
 
 ### A re-fetched artifact record keeps the `redistributable:` the entry already carried
 
