@@ -463,6 +463,68 @@ struct Payload<'a> {
 }
 
 pub(crate) fn render_check(r: &Report) -> String {
+    let mut out = render_verdict(r);
+    if let Some(coupling) = &r.coupling {
+        out.push_str("\n\n");
+        out.push_str(&render_coupling(coupling));
+    }
+    out
+}
+
+/// The links between corpus and artifact, as counts. `--format json` carries the uncited
+/// records by path; a list of hundreds is not text a person reads at a terminal.
+///
+/// Worded as a map, not a verdict. A record the artifact never names is the normal case for
+/// most of a corpus, and the dead links are `lint`'s findings, where they can be fixed.
+fn render_coupling(c: &kuten::Coupling) -> String {
+    let mut out = format!(
+        "Coupling: {} artifact file(s) read from {}.\n\n",
+        c.files,
+        c.object.join(", ")
+    );
+    let _ = writeln!(
+        out,
+        "  artifact → corpus  {} link(s), {} dead",
+        c.inbound.total, c.inbound.dead
+    );
+    let _ = writeln!(
+        out,
+        "  corpus → artifact  {} link(s), {} dead\n",
+        c.outbound.total, c.outbound.dead
+    );
+    let _ = writeln!(
+        out,
+        "  {:<10} {:>22}  {:>16}",
+        "", "cited by the artifact", "citing it"
+    );
+    for (kind, reach) in [
+        ("nodes", &c.nodes),
+        ("decisions", &c.decisions),
+        ("catalog", &c.catalog),
+    ] {
+        let _ = writeln!(
+            out,
+            "  {:<10} {:>22}  {:>16}",
+            kind,
+            format!("{} of {}", reach.cited, reach.total),
+            format!("{} of {}", reach.citing, reach.total)
+        );
+    }
+    if c.inbound.dead + c.outbound.dead > 0 {
+        out.push_str(
+            "\nA dead link is a `yidam lint` finding: `broken-object-link` from the artifact, \
+             `broken-prose-link` from the corpus.",
+        );
+    }
+    out.push_str(
+        "\n`--format json` lists the records nothing in the artifact links to. That list \
+         is where to look, not a list of defects.",
+    );
+    out
+}
+
+/// What the kuten says about this repository, before the coupling.
+fn render_verdict(r: &Report) -> String {
     if !r.held {
         return "No kuten declared.\n\nThis repository runs on the template's defaults and \
                 declares nothing about what its work is aimed at. That is a supported state, \
@@ -743,6 +805,7 @@ mod tests {
             measurement: m,
             findings,
             conforming: false,
+            coupling: None,
         };
         let text = render_check(&report);
         assert!(text.contains("Questions for a person"), "{text}");
@@ -758,6 +821,62 @@ mod tests {
         let text = render_check(&Report::unheld(Measurement::default(), Vintage::absent()));
         assert!(text.contains("No kuten declared"), "{text}");
         assert!(text.contains("supported state"), "{text}");
+        assert!(!text.contains("Coupling"), "{text}");
+    }
+
+    fn coupling(dead: usize) -> crate::kuten::Coupling {
+        let reach = |total, cited, citing| crate::kuten::Reach {
+            total,
+            cited,
+            citing,
+            uncited: vec![".yidam/corpus/site/jail.yml".into()],
+        };
+        crate::kuten::Coupling {
+            object: vec!["crates/**".into(), "web/**".into()],
+            files: 7,
+            inbound: crate::kuten::Links { total: 21, dead },
+            outbound: crate::kuten::Links { total: 33, dead: 0 },
+            nodes: reach(724, 4, 30),
+            decisions: reach(200, 14, 2),
+            catalog: reach(173, 3, 0),
+        }
+    }
+
+    /// One of the two object-coupled corpora declares paths and holds no kuten, so the
+    /// coupling renders on the unheld arm too.
+    #[test]
+    fn the_coupling_renders_whether_or_not_a_kuten_is_held() {
+        let mut report = Report::unheld(Measurement::default(), Vintage::absent());
+        report.coupling = Some(coupling(0));
+        let text = render_check(&report);
+        assert!(text.contains("No kuten declared"), "{text}");
+        assert!(
+            text.contains("7 artifact file(s) read from crates/**, web/**"),
+            "{text}"
+        );
+        assert!(
+            text.contains("artifact → corpus  21 link(s), 0 dead"),
+            "{text}"
+        );
+        assert!(
+            text.contains("corpus → artifact  33 link(s), 0 dead"),
+            "{text}"
+        );
+        for row in ["4 of 724", "30 of 724", "14 of 200", "3 of 173"] {
+            assert!(text.contains(row), "{row} missing: {text}");
+        }
+        assert!(!text.contains("broken-object-link"), "{text}");
+        // The uncited list is JSON's, not the terminal's.
+        assert!(!text.contains("jail.yml"), "{text}");
+    }
+
+    #[test]
+    fn a_dead_link_points_at_the_lint_check_that_names_it() {
+        let mut report = Report::unheld(Measurement::default(), Vintage::absent());
+        report.coupling = Some(coupling(1));
+        let text = render_check(&report);
+        assert!(text.contains("21 link(s), 1 dead"), "{text}");
+        assert!(text.contains("`broken-object-link`"), "{text}");
     }
 
     /// Every verdict tag is distinct, or two states print the same and a reader cannot tell

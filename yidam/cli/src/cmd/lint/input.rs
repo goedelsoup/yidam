@@ -65,6 +65,7 @@ pub(crate) struct Input<'a> {
     prose_paths: OnceLock<Vec<PathBuf>>,
     regen_files: OnceLock<Vec<(String, String)>>,
     links: OnceLock<(Vec<checks::ProseLink>, Vec<checks::UnauthoredLink<'a>>)>,
+    object_links: OnceLock<Vec<checks::ProseLink>>,
     stale_regions: OnceLock<Vec<&'a Region>>,
     line_citations: OnceLock<Vec<line_citations::LineCitation>>,
     types: OnceLock<checks::TypeIndex>,
@@ -122,6 +123,7 @@ impl<'a> Input<'a> {
             prose_paths: OnceLock::new(),
             regen_files: OnceLock::new(),
             links: OnceLock::new(),
+            object_links: OnceLock::new(),
             stale_regions: OnceLock::new(),
             line_citations: OnceLock::new(),
             types: OnceLock::new(),
@@ -504,6 +506,30 @@ impl<'a> Input<'a> {
         })
     }
 
+    /// The links from the artifact into the corpus (#577).
+    ///
+    /// Empty unless `[object] paths` are declared and the corpus is not `projected`; see
+    /// [`crate::coupling`] for which files are read and why. A file the prose walk already
+    /// reads is left out — `docs/` is declared an object path in one derived corpus — so no
+    /// link is judged by both `broken-prose-link` and `broken-object-link`.
+    pub(crate) fn object_links(&self) -> &[checks::ProseLink] {
+        self.object_links.get_or_init(|| {
+            let registers = crate::kuten::Registers::of_globs(self.config().object.paths.clone());
+            if !crate::coupling::applies(self.root, &registers) {
+                return Vec::new();
+            }
+            let prose: HashSet<String> = self.prose_paths().iter().map(|p| self.rel(p)).collect();
+            crate::coupling::object_files(self.root, &registers, self.authorship)
+                .into_iter()
+                .filter(|rel| !prose.contains(rel))
+                .flat_map(|rel| {
+                    let text = self.overlay.read(&self.root.join(&rel));
+                    crate::coupling::inbound(self.root, &rel, &text)
+                })
+                .collect()
+        })
+    }
+
     /// Declared regions that no longer describe anything on disk.
     pub(crate) fn stale_regions(&self) -> &[&'a Region] {
         self.stale_regions
@@ -515,9 +541,16 @@ impl<'a> Input<'a> {
     /// Through the overlay, so the buffer someone is editing a passage out of is the one the
     /// citation is held to. Authored links only: a line citation in vendored or generated
     /// prose is somebody else's to fix, the same judgement `unauthored-prose-link` records.
+    ///
+    /// The artifact's links into the corpus as well (#577), so a line-naming citation from a
+    /// crate into a node is verified by the same checks as one from a node into a crate.
     pub(crate) fn line_citations(&self) -> &[line_citations::LineCitation] {
         self.line_citations.get_or_init(|| {
-            line_citations::collect(self.root, self.prose_links(), &|p| self.overlay.read(p))
+            line_citations::collect(
+                self.root,
+                self.prose_links().iter().chain(self.object_links()),
+                &|p| self.overlay.read(p),
+            )
         })
     }
 

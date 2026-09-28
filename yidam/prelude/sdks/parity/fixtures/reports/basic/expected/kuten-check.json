@@ -30,6 +30,7 @@
       "open_questions": 3
     },
     "findings": [],
-    "conforming": true
+    "conforming": true,
+    "coupling": null
   }
 }

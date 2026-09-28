@@ -2360,6 +2360,15 @@ const UNREACHED: &[(&str, &str)] = &[
          kuten_cluster.rs against the six shapes that defined the profile (see stage.toml)",
     ),
     (
+        "kuten.coupling",
+        "needs `[object] paths`, and declaring an object in this fixture would split its tree \
+         into two registers under every golden that reads a commit or a path. The `null` arm \
+         IS reached — it is what `kuten-check` emits here, and what every repository without an \
+         object emits. The populated arm is covered end to end in `object_coupling.rs`, which \
+         builds the object-coupled shape #577 was measured on and holds every emitted path \
+         against this schema",
+    ),
+    (
         "reconciled[].commit",
         "null on `--dry-run` by declaration, and a writing run would corrupt the shared fixture",
     ),

@@ -615,6 +615,11 @@ const ROSTER: &[Entry] = &[
         run: |i| checks::broken_prose_link(i.prose_links()),
     },
     Entry {
+        id: "broken-object-link",
+        asked: Asked::Always,
+        run: |i| checks::broken_object_link(i.object_links()),
+    },
+    Entry {
         id: "dead-line-citation",
         asked: Asked::Always,
         run: |i| line_citations::dead_line_citation(i.line_citations()),
@@ -1860,6 +1865,112 @@ decision := {"allow": true, "deny": []}
         let all = run_checks(tmp.path(), &Options::default());
         assert!(check(&all, "broken-prose-link").passed());
         assert_eq!(check(&all, "unauthored-prose-link").violations.len(), 1);
+    }
+
+    // ── #577: the artifact's links into the corpus ──────────────────────────────
+
+    /// `clean_repo` with an artifact beside it: `crates/**` declared the object, and a crate
+    /// whose README links the corpus through `link`. Staged, because the artifact is the
+    /// tracked set.
+    fn coupled_repo(link: &str) -> TempDir {
+        let tmp = clean_repo();
+        let root = tmp.path();
+        crate::git::fixture::init(root);
+        crate::git::fixture::write(
+            root,
+            ".yidam/config.toml",
+            "[object]\npaths = [\"crates/**\"]\n",
+        );
+        crate::git::fixture::write(
+            root,
+            "crates/reach/README.md",
+            &format!("Reads [{link}]({link}).\n"),
+        );
+        crate::git::fixture::git(root, &["add", "-A"]);
+        tmp
+    }
+
+    #[test]
+    fn an_artifact_link_to_a_node_that_exists_is_not_a_finding() {
+        let tmp = coupled_repo("../../.yidam/corpus/reach/alpha.yml");
+        let all = run_checks(tmp.path(), &Options::default());
+        assert!(check(&all, "broken-object-link").passed());
+    }
+
+    /// The case #577 was measured on: a node the artifact cites is removed, and the citation
+    /// goes dead in a file the prose walk never reads.
+    #[test]
+    fn an_artifact_link_to_a_missing_node_warns_at_the_citing_line() {
+        let tmp = coupled_repo("../../.yidam/corpus/reach/gone.yml");
+        let all = run_checks(tmp.path(), &Options::default());
+        let c = check(&all, "broken-object-link");
+        assert_eq!(c.severity, Severity::Warn);
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert_eq!(c.violations[0].node, "crates/reach/README.md:1");
+        assert!(check(&all, "broken-prose-link").passed());
+        assert_eq!(errors(&all), 0);
+    }
+
+    /// The mutation: the same tree with no object declared has one register, and the README
+    /// is not read.
+    #[test]
+    fn without_an_object_declared_the_same_link_is_not_read() {
+        let tmp = coupled_repo("../../.yidam/corpus/reach/gone.yml");
+        crate::git::fixture::write(tmp.path(), ".yidam/config.toml", "");
+        let all = run_checks(tmp.path(), &Options::default());
+        assert!(check(&all, "broken-object-link").passed());
+    }
+
+    /// `docs/` is an object path in one derived corpus and a prose path everywhere. A dead
+    /// link there is `broken-prose-link`'s, and only its.
+    #[test]
+    fn a_file_the_prose_walk_reads_is_judged_once() {
+        let tmp = coupled_repo("../../.yidam/corpus/reach/alpha.yml");
+        let root = tmp.path();
+        crate::git::fixture::write(
+            root,
+            ".yidam/config.toml",
+            "[object]\npaths = [\"crates/**\", \"docs/**\"]\n",
+        );
+        crate::git::fixture::write(
+            root,
+            "docs/guide.md",
+            "[gone](../.yidam/corpus/reach/gone.yml)\n",
+        );
+        crate::git::fixture::git(root, &["add", "-A"]);
+        let all = run_checks(root, &Options::default());
+        assert_eq!(check(&all, "broken-prose-link").violations.len(), 1);
+        assert!(check(&all, "broken-object-link").passed());
+    }
+
+    /// A line-naming citation from the artifact is held by the line-citation checks, which
+    /// is the DoD's "verified or refused at authoring time". `alpha.yml` has six lines.
+    #[test]
+    fn a_line_citation_from_the_artifact_is_verified() {
+        let tmp = coupled_repo("../../.yidam/corpus/reach/alpha.yml#L40");
+        let all = run_checks(tmp.path(), &Options::default());
+        let dead = check(&all, "dead-line-citation");
+        assert_eq!(dead.violations.len(), 1, "{:?}", dead.violations);
+        assert_eq!(dead.violations[0].node, "crates/reach/README.md:1");
+        assert!(check(&all, "broken-object-link").passed());
+    }
+
+    #[test]
+    fn a_projected_corpus_is_not_read_for_object_links() {
+        let tmp = coupled_repo("../../.yidam/corpus/reach/gone.yml");
+        let root = tmp.path();
+        crate::git::fixture::write(
+            root,
+            crate::kuten::DECISION_PATH,
+            "kuten: mirror\nrevision: 1\n",
+        );
+        crate::git::fixture::write(
+            root,
+            ".yidam/.vendor/prelude/kuten/mirror/kuten.yml",
+            "kuten: mirror\nrevision: 1\nobject:\n  direction: projected\n",
+        );
+        let all = run_checks(root, &Options::default());
+        assert!(check(&all, "broken-object-link").passed());
     }
 
     #[test]

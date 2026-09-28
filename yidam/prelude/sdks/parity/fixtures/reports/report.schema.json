@@ -41,6 +41,55 @@
         "operational"
       ],
       "description": "How `classify_commit` files a commit, declared once. Total by construction: operational verbs are the explicitly marked case and every other verb is epistemic, which the Dafny spec proves \u2014 so this enum is closed and a third member would be a change to that proof, not to a report."
+    },
+    "coupling_links": {
+      "type": "object",
+      "required": [
+        "total",
+        "dead"
+      ],
+      "description": "Links counted in one direction across the boundary between a corpus and the artifact `[object] paths` declares.",
+      "properties": {
+        "total": {
+          "type": "integer",
+          "description": "Every relative markdown link read in this direction."
+        },
+        "dead": {
+          "type": "integer",
+          "description": "The ones whose target is not on disk. Each is also a `lint` finding: `broken-object-link` for artifact \u2192 corpus, `broken-prose-link` for corpus \u2192 artifact. A consumer that wants the locations reads `lint`, not this count."
+        }
+      }
+    },
+    "coupling_reach": {
+      "type": "object",
+      "required": [
+        "total",
+        "cited",
+        "citing",
+        "uncited"
+      ],
+      "description": "How far one kind of corpus record reaches across the boundary.",
+      "properties": {
+        "total": {
+          "type": "integer",
+          "description": "Records of this kind the corpus holds."
+        },
+        "cited": {
+          "type": "integer",
+          "description": "Records the artifact links to at least once."
+        },
+        "citing": {
+          "type": "integer",
+          "description": "Records that link into the artifact at least once."
+        },
+        "uncited": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Records nothing in the artifact links to, repository-relative and sorted. Where to look, NOT a list of defects: most records have no reason to be cited by code, and a consumer MUST NOT count these as findings."
+        }
+      }
     }
   },
   "properties": {
@@ -1962,6 +2011,55 @@
         "conforming": {
           "type": "boolean",
           "description": "Whether every measured metric is inside its band. NOT an exit code: this command exits zero either way."
+        },
+        "coupling": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "object",
+            "files",
+            "inbound",
+            "outbound",
+            "nodes",
+            "decisions",
+            "catalog"
+          ],
+          "description": "The links between the corpus and the artifact `[object] paths` declares, in both directions (RFC-0028 \u00a76, #577). Relative markdown links only, read over the tracked `.md`, `.rs` and `.ts` files the object globs claim and outside every authorship region \u2014 not `cites:`, which no derived corpus writes (Erratum 6). Null where no object is declared, and where the held kuten declares the corpus `projected`, because the projection is then the coupling. Read whether or not a kuten is held. NOT required, for the reason `suffixed_commits` gives: a CLI released before this field emits a report without it, and its output must still validate.",
+          "properties": {
+            "object": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The globs `[object] paths` declares, as read."
+            },
+            "files": {
+              "type": "integer",
+              "description": "The artifact files read: tracked, claimed by a glob, one of `.md`/`.rs`/`.ts`, and outside every authorship region."
+            },
+            "inbound": {
+              "$ref": "#/$defs/coupling_links",
+              "description": "Links from the artifact into `.yidam/`."
+            },
+            "outbound": {
+              "$ref": "#/$defs/coupling_links",
+              "description": "Links from corpus records into the artifact."
+            },
+            "nodes": {
+              "$ref": "#/$defs/coupling_reach",
+              "description": "Instance nodes under `.yidam/corpus/`."
+            },
+            "decisions": {
+              "$ref": "#/$defs/coupling_reach",
+              "description": "Decision records under `.yidam/decisions/`."
+            },
+            "catalog": {
+              "$ref": "#/$defs/coupling_reach",
+              "description": "Catalog entries under `.yidam/catalog/`."
+            }
+          }
         }
       }
     },

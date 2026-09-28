@@ -189,6 +189,13 @@ this repository *vendored*, not the current ones. A repository whose vendored `G
 have moved past the revision the decision record names. The report says so, and the numbers
 stay readable.
 
+**It also counts what the artifact cites.** A repository that declares
+[`[object] paths`](configuration.md#object-paths) gets a coupling section. It counts the
+relative links between the corpus and the artifact, in both directions. It says how many
+nodes, decisions and catalog entries the artifact cites. The JSON lists the uncited ones by id.
+They are not findings, because no rule says a node must be cited. A dead link from the artifact
+is a `broken-object-link` warning in `yidam lint`.
+
 ### `score` reads a contribution, not a repository
 
 The genesis rubric scores a repository's birth. It fires once. After that nothing said whether
