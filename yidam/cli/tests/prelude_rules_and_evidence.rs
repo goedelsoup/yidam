@@ -199,7 +199,13 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// exact — and the equality of the two deltas is again the control: `GRAPH.md` is on both
 /// lists. Its argument is 120 further words in `GRAPH.evidence.md`, charged to [`PAIR_FLOOR`]
 /// and reached only by a `[why]` link.
-const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_812), ("sadhana/root/AGENTS.md", 24_236)];
+///
+/// **Both raised by a further 24 when `GRAPH.md` gained `migrate value` (#1120).** 18,812 →
+/// 18,836 and 24,236 → 24,260. The delta is **24 words in that one file** — the row of the
+/// migrate table naming what a value rename touches — and the equality of the two deltas is
+/// again the control. No argument arrived in `GRAPH.evidence.md`: the reason a closed set needs
+/// a rename that does both halves at once is the one RFC-0044 already gives for closing it.
+const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_836), ("sadhana/root/AGENTS.md", 24_260)];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
 ///
@@ -294,7 +300,11 @@ const READ_CEILING: &[(&str, usize)] = &[("AGENTS.md", 18_812), ("sadhana/root/A
 /// is **31 words in `GRAPH.md`**, the same 31 both recurring routes moved by, and 27,843 + 31 is
 /// this figure exactly, so nothing else on the path moved. The 120 further words of argument
 /// are in `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
-const BOOTSTRAP_CEILING: usize = 27_874;
+///
+/// **Raised to 27,898 when `GRAPH.md` gained `migrate value` (#1120).** The delta is **24 words
+/// in `GRAPH.md`**, the same 24 both recurring routes moved by, and 27,874 + 24 is this figure
+/// exactly, so nothing else on the path moved.
+const BOOTSTRAP_CEILING: usize = 27_898;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -380,9 +390,14 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// for. 9,365 + 151 is this figure exactly, and the 31 are the same 31 the three ceilings
 /// moved by.
 ///
+/// **`GRAPH.md` re-measured to 9,540 for #1120.** 24 words arrived, all in the rules half: the
+/// migrate table's row for `migrate value`. 9,516 + 24 is this figure exactly, and the 24 are
+/// the same 24 the three ceilings moved by. Nothing arrived in the evidence half, because the
+/// row states an operation and the argument for it is RFC-0044's own.
+///
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_399),
-    ("yidam/prelude/GRAPH.md", 9_516),
+    ("yidam/prelude/GRAPH.md", 9_540),
     ("yidam/prelude/guidelines/directories.md", 12_604),
     ("yidam/prelude/skills/bootstrap.md", 10_800),
 ];

@@ -123,8 +123,8 @@ declares types and no sets, so the universal arm of the check is unchanged.
   contract stays where it is until a client asks. See the open questions.
 - **Non-`string` types.** No set on a `number`, no set on a coined type.
 - **A rename across the set.** `creek` → `stream` on the declaration and every instance is
-  `property-rename`'s shape one level down, and it is a migration of its own (filed as a
-  follow-up to #1052), not a consequence of declaring the set.
+  `property-rename`'s shape one level down, and it is a migration of its own (`migrate
+  value`, #1120), not a consequence of declaring the set.
 - **The index and `retrieve`.** A `string` with a set is the same column it was.
 
 ## Migration & compatibility

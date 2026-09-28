@@ -425,6 +425,7 @@ edge is licensed depends on where its target resolves and no schema can see that
 | `migrate class <old> <new>` | the class file, its directory, every instance's `class:`, the `instance-of` edge into the class file, and every edge declaring the class at either end |
 | `migrate property <class> <old> <new>` | the declaration, and the key on every instance carrying it |
 | `migrate retype <class> <prop> <type>` | the declaration, plus any instance value it can requote — and **refuses** the rest |
+| `migrate value <class> <prop> <from> <to>` | one item of the declaration's `values:` list, and the value on every instance holding it |
 | `migrate edge <class> <rel> <target>` | the declaration at both ends, plus a report of the instances now in violation |
 
 `--dry-run` prints the plan and writes nothing.
