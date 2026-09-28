@@ -1,0 +1,35 @@
+# mise.overrides.toml — this repository's overrides of inherited tasks.
+#
+# Empty at genesis, and yours from then on. `mise run yidam-vendor-update`
+# replaces mise.yidam.toml and never touches this file.
+#
+# It exists because mise.toml cannot override an inherited task. mise resolves a
+# task name defined in more than one place like this:
+#
+#   - a task in an included file beats a `[tasks.*]` in mise.toml itself;
+#   - among includes, the LATER one wins.
+#
+# So `[tasks.graph-check]` in mise.toml is silently ignored — the inherited
+# `graph-check` still runs. The only place a definition can win is an include
+# listed after mise.yidam.toml, and mise.toml lists this file there:
+#
+#   [task_config]
+#   includes = ["mise.yidam.toml", "mise.overrides.toml"]
+#
+# Put a task here to REPLACE or REFUSE one mise.yidam.toml defines. A new
+# domain task has nothing to override and belongs in mise.toml.
+#
+# This is a task file, like mise.yidam.toml: tables are task names directly
+# (`[graph-check]`, not `[tasks.graph-check]`), and it holds no `[env]`,
+# `[tools]` or `[hooks]` — each of those would be read as a task of that name,
+# and mise fails the whole include to parse.
+#
+# It is not `mise.local.toml`. mise loads that name on its own as a config file,
+# where every table here is an unknown field, and it is conventionally
+# gitignored. An override that governs what CI runs has to be committed.
+#
+# Example — refuse an inherited task this repository must not run:
+#
+#   [yidam-vendor-update]
+#   description = "Refused here: this repository vendors by hand."
+#   run = "echo 'yidam-vendor-update is refused in this repository' >&2; exit 1"

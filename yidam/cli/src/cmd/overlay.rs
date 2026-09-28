@@ -223,7 +223,9 @@ fn overlay_from(
     println!();
     println!("Next steps:");
     println!("  1. Add to your mise.toml:  [task_config]");
-    println!("                             includes = [\"mise.yidam.toml\"]");
+    println!(
+        "                             includes = [\"mise.yidam.toml\", \"mise.overrides.toml\"]"
+    );
     println!("  2. Open {} in your IDE", target.display());
     println!("  3. The agent will read BOOTSTRAP.md and enter existing-repo mode");
 

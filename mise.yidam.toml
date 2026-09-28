@@ -3,7 +3,12 @@
 # This is the INHERITED task layer. Pull it into your mise.toml with:
 #
 #   [task_config]
-#   includes = ["mise.yidam.toml"]
+#   includes = ["mise.yidam.toml", "mise.overrides.toml"]
+#
+# A task defined here cannot be overridden from mise.toml: a task in an include
+# beats one in the config that includes it, and the later include wins. To
+# replace or refuse one of these, define it in mise.overrides.toml, which comes
+# after this file and which a vendor update never touches.
 #
 # This is a mise *task file*, not a standalone config: tables are task names
 # directly (`[graph-check]`, not `[tasks.graph-check]`) and it carries no
