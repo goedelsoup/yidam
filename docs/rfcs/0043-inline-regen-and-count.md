@@ -244,7 +244,7 @@ prefix search of its own that stopped at the first hit. On a document holding a 
 the model, asked for `a`, answered with that block where `update_regen` answers with nothing.
 #1097 closed that. `RegenSpan` is now `FirstWithCommand` over a modelled `RegenScan`, compared
 by equality. `UpdateRegen` rewrites every block the scan names.
-[`TheLocatorComparesTheWholeCommand`](../../yidam/prelude/sdks/spec/graph.dfy#L2481-L2485)
+[`TheLocatorComparesTheWholeCommand`](../../yidam/prelude/sdks/spec/graph.dfy#L2530-L2534)
 is the same document, proved with the code's answer. The cost was `UpdateRegenSpec`'s re-scan
 clause, as predicted. Its induction, `ReadBack`, shows that each rewritten block reads back
 where it was written. The count clause the axiom lost also returned, stated over the scan:
@@ -255,10 +255,10 @@ start its line and the close tag to stand alone on its own line; the model did n
 witness stated the smallest document where the two disagreed. #1137 closed that. `RegenScan`
 now reads a line at a time, following `scan_markers`' block-form branch, and the witness became
 an agreement:
-[`ACloseTagMustStandAlone`](../../yidam/prelude/sdks/spec/graph.dfy#L2664-L2667) is the same
+[`ACloseTagMustStandAlone`](../../yidam/prelude/sdks/spec/graph.dfy#L2713-L2716) is the same
 document, and both sides now read no block in it. `markers.rs` pins the code's answer, so a
 change to either side reddens one of them. A second witness,
-[`AnOpenTagMidSentenceIsProse`](../../yidam/prelude/sdks/spec/graph.dfy#L2776-L2779), covers the
+[`AnOpenTagMidSentenceIsProse`](../../yidam/prelude/sdks/spec/graph.dfy#L2825-L2828), covers the
 other half of the rule: an open tag mid-sentence with no close tag beside it is prose, and the
 scan reads the block on the next line.
 

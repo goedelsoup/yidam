@@ -31,11 +31,11 @@ next one. The repair is to rename the heading to the tag.
 ### A multi-line value leaves an inline block that shares its line
 
 **The marker contract (#1137).** `update_regen` wrote a value that holds a newline in block
-form. Block form is read by line: the open tag must start its line, and the close tag must
+form. Block form is read by line. The open tag must start its line, and the close tag must
 stand alone on its own. An inline block inside a sentence has neither, and the rewrite broke it
 two ways. With text before the open tag, the tag became prose and the block was never read
-again. With text after the close tag, the next run read the block on down to a later block's
-close tag and wrote over that block too.
+again. With text after the close tag, the next run read on to a later block's close tag. It
+then wrote over that block too.
 
 Such a block is now left as it is. An inline block with its line to itself still takes the
 block form. SDK parity moves 0.15.0 → 0.16.0.

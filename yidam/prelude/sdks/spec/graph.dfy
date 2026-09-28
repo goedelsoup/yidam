@@ -1508,7 +1508,7 @@ module YidamGraph {
     assert s[..sp.body + d] == s[..d] + s[d..sp.body + d];
   }
 
-  lemma ReadBackNextLine(s: string, m: bool, sp: Span, mid: string, tail: string)
+  lemma {:isolate_assertions} ReadBackNextLine(s: string, m: bool, sp: Span, mid: string, tail: string)
     requires NextBlock(s, m) == Some(sp)
     requires ReadLine(s[..LineEnd(s, 0)], m) == NoBlock
     requires Fits(s, m, sp, mid, tail)
@@ -1675,71 +1675,120 @@ module YidamGraph {
   }
 
   // Two texts that agree through a block's close tag, and — when the block is block form —
-  // on the close tag standing alone, read the same first block.
+  // on the close tag standing alone, read the same first block. One lemma per way the first
+  // line can read: proved together, the three branches share one query and it runs close to
+  // the time limit.
   lemma NextBlockPrefix(s: string, r: string, m: bool, sp: Span)
     requires NextBlock(s, m) == Some(sp)
     requires End(sp) <= |r| && r[..End(sp)] == s[..End(sp)]
     requires !InlineAt(s, sp) ==> FirstLineSpace(r[End(sp)..])
     ensures NextBlock(r, m) == Some(sp)
-    decreases |s|
+    decreases |s|, 1
+  {
+    var e := LineEnd(s, 0);
+    match ReadLine(s[..e], m)
+      case InlineBlock(_) => NextBlockPrefixInline(s, r, m, sp);
+      case OpensBlock(o) => NextBlockPrefixOpens(s, r, m, sp, o);
+      case NoBlock => NextBlockPrefixPastALine(s, r, m, sp);
+  }
+
+  // Both texts agree on every character before the block's end.
+  lemma SharedBeforeEnd(s: string, r: string, sp: Span)
+    requires End(sp) <= |s| && End(sp) <= |r| && r[..End(sp)] == s[..End(sp)]
+    ensures forall k :: 0 <= k < End(sp) ==> r[k] == s[k]
+  {
+    forall k | 0 <= k < End(sp) ensures r[k] == s[k] {
+      assert r[k] == r[..End(sp)][k]; assert s[k] == s[..End(sp)][k];
+    }
+  }
+
+  lemma {:isolate_assertions} NextBlockPrefixInline(s: string, r: string, m: bool, sp: Span)
+    requires NextBlock(s, m) == Some(sp)
+    requires End(sp) <= |r| && r[..End(sp)] == s[..End(sp)]
+    requires ReadLine(s[..LineEnd(s, 0)], m).InlineBlock?
+    ensures NextBlock(r, m) == Some(sp)
+    decreases |s|, 0
   {
     TagShapes();
     var e := LineEnd(s, 0);
     LineEndFacts(s, 0);
-    forall k | 0 <= k < End(sp) ensures r[k] == s[k] {
-      assert r[k] == r[..End(sp)][k]; assert s[k] == s[..End(sp)][k];
+    SharedBeforeEnd(s, r, sp);
+    var x := s[..e];
+    assert ReadLine(x, m) == InlineBlock(sp);
+    forall k | 0 <= k < End(sp) ensures r[k] != '\n' { assert s[k] == x[k]; }
+    LineEndAtLeast(r, 0, End(sp));
+    var x' := r[..LineEnd(r, 0)];
+    assert x[..End(sp)] == x'[..End(sp)];
+    FindAgreesOnSharedPrefix(x, x', RegenTag, 0, End(sp));
+    FindAgreesOnSharedPrefix(x, x', RegenArrow, sp.open + |RegenTag|, End(sp));
+    FindAgreesOnSharedPrefix(x, x', RegenClose, sp.body, End(sp));
+    assert ReadLine(x', m) == InlineBlock(sp);
+  }
+
+  lemma {:isolate_assertions} NextBlockPrefixOpens(s: string, r: string, m: bool, sp: Span, o: nat)
+    requires NextBlock(s, m) == Some(sp)
+    requires End(sp) <= |r| && r[..End(sp)] == s[..End(sp)]
+    requires ReadLine(s[..LineEnd(s, 0)], m) == OpensBlock(o)
+    requires !InlineAt(s, sp) ==> FirstLineSpace(r[End(sp)..])
+    ensures NextBlock(r, m) == Some(sp)
+    decreases |s|, 0
+  {
+    TagShapes();
+    var e := LineEnd(s, 0);
+    LineEndFacts(s, 0);
+    SharedBeforeEnd(s, r, sp);
+    BlockFormFacts(s, o, e);
+    var t := TrimRight(s[o + |RegenTag|..e]);
+    var c := sp.close;
+    FirstLineOfSuffix(r, End(sp));
+    if HasSuffix(t, RegenArrow) {
+      assert e < c;
+      forall k | 0 <= k < e ensures r[k] != '\n' {}
+      LineEndIs(r, 0, e);
+      assert r[..e] == s[..e];
+      assert r[o + |RegenTag|..e] == s[o + |RegenTag|..e];
+      CloseLineShared(s, r, e + 1, c);
+    } else {
+      var b := FindArrowLine(s, e + 1).value;
+      var le := LineEnd(s, b);
+      LineEndFacts(s, b);
+      FindArrowLineFacts(s, e + 1);
+      assert le < c;
+      forall k | 0 <= k < e ensures r[k] != '\n' {}
+      LineEndIs(r, 0, e);
+      assert r[..e] == s[..e];
+      assert r[o + |RegenTag|..e] == s[o + |RegenTag|..e];
+      forall k | b <= k < le ensures r[k] != '\n' {}
+      LineEndIs(r, b, le);
+      assert r[b..le] == s[b..le];
+      assert r[..b] == s[..b];
+      ArrowLineShared(s, r, e + 1, b);
+      CloseLineShared(s, r, le + 1, c);
     }
-    match ReadLine(s[..e], m)
-      case InlineBlock(_) =>
-        var x := s[..e];
-        forall k | 0 <= k < End(sp) ensures r[k] != '\n' { assert s[k] == x[k]; }
-        LineEndAtLeast(r, 0, End(sp));
-        var x' := r[..LineEnd(r, 0)];
-        assert x[..End(sp)] == x'[..End(sp)];
-        FindAgreesOnSharedPrefix(x, x', RegenTag, 0, End(sp));
-        FindAgreesOnSharedPrefix(x, x', RegenArrow, sp.open + |RegenTag|, End(sp));
-        FindAgreesOnSharedPrefix(x, x', RegenClose, sp.body, End(sp));
-        assert ReadLine(x', m) == InlineBlock(sp);
-      case OpensBlock(o) =>
-        BlockFormFacts(s, o, e);
-        var t := TrimRight(s[o + |RegenTag|..e]);
-        var c := sp.close;
-        FirstLineOfSuffix(r, End(sp));
-        if HasSuffix(t, RegenArrow) {
-          assert e < c;
-          forall k | 0 <= k < e ensures r[k] != '\n' {}
-          LineEndIs(r, 0, e);
-          assert r[..e] == s[..e];
-          assert r[o + |RegenTag|..e] == s[o + |RegenTag|..e];
-          CloseLineShared(s, r, e + 1, c);
-        } else {
-          var b := FindArrowLine(s, e + 1).value;
-          var le := LineEnd(s, b);
-          LineEndFacts(s, b);
-          FindArrowLineFacts(s, e + 1);
-          assert le < c;
-          forall k | 0 <= k < e ensures r[k] != '\n' {}
-          LineEndIs(r, 0, e);
-          assert r[..e] == s[..e];
-          assert r[o + |RegenTag|..e] == s[o + |RegenTag|..e];
-          forall k | b <= k < le ensures r[k] != '\n' {}
-          LineEndIs(r, b, le);
-          assert r[b..le] == s[b..le];
-          assert r[..b] == s[..b];
-          ArrowLineShared(s, r, e + 1, b);
-          CloseLineShared(s, r, le + 1, c);
-        }
-      case NoBlock =>
-        var d := e + 1;
-        var sp0 := NextBlock(s[d..], false).value;
-        ShiftedFacts(s, e, sp0);
-        forall k | 0 <= k < e ensures r[k] != '\n' {}
-        LineEndIs(r, 0, e);
-        assert r[..e] == s[..e];
-        NextBlockPastALine(r, m);
-        assert r[d..][..End(sp0)] == s[d..][..End(sp0)];
-        assert r[d..][End(sp0)..] == r[End(sp)..];
-        NextBlockPrefix(s[d..], r[d..], false, sp0);
+  }
+
+  lemma {:isolate_assertions} NextBlockPrefixPastALine(s: string, r: string, m: bool, sp: Span)
+    requires NextBlock(s, m) == Some(sp)
+    requires End(sp) <= |r| && r[..End(sp)] == s[..End(sp)]
+    requires ReadLine(s[..LineEnd(s, 0)], m) == NoBlock
+    requires !InlineAt(s, sp) ==> FirstLineSpace(r[End(sp)..])
+    ensures NextBlock(r, m) == Some(sp)
+    decreases |s|, 0
+  {
+    TagShapes();
+    var e := LineEnd(s, 0);
+    LineEndFacts(s, 0);
+    SharedBeforeEnd(s, r, sp);
+    var d := e + 1;
+    var sp0 := NextBlock(s[d..], false).value;
+    ShiftedFacts(s, e, sp0);
+    forall k | 0 <= k < e ensures r[k] != '\n' {}
+    LineEndIs(r, 0, e);
+    assert r[..e] == s[..e];
+    NextBlockPastALine(r, m);
+    assert r[d..][..End(sp0)] == s[d..][..End(sp0)];
+    assert r[d..][End(sp0)..] == r[End(sp)..];
+    NextBlockPrefix(s[d..], r[d..], false, sp0);
   }
 
   // ── One step of the rewrite ───────────────────────────────────────────────────
