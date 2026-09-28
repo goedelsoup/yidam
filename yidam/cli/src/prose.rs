@@ -91,38 +91,43 @@ pub struct Declaration {
     pub properties: Vec<String>,
 }
 
-/// What a declaration file says about prose: the `class:` it named itself, its `prose:` list,
-/// and the properties it flagged.
-fn declared(text: &str) -> (Option<String>, Vec<String>, Vec<String>) {
+fn clean(k: &str) -> Option<String> {
+    let k = k.trim().to_string();
+    (!k.is_empty()).then_some(k)
+}
+
+/// What one class declared about prose, read off the corpus model.
+///
+/// [`crate::corpus::Class`] already trims and drops the empty entries of `prose:`; the
+/// properties are filtered and trimmed here for the same reason it does — a `name: ""` an
+/// author started and did not finish is not a key any node can carry.
+///
+/// **`universal.yml` is the one file still parsed here**, and it is not a class: it declares
+/// prose keys for every class at once, has no `.ont.yml` stem, and the corpus model holds no
+/// record for it. See [`ProseFields::load`].
+pub(crate) fn declared(class: &crate::corpus::Class) -> Declaration {
+    Declaration {
+        class: class.name.clone(),
+        keys: class.prose.iter().filter_map(|k| clean(k)).collect(),
+        properties: class
+            .properties
+            .iter()
+            .filter(|p| p.prose)
+            .filter_map(|p| clean(&p.name))
+            .collect(),
+    }
+}
+
+/// The `prose:` list a `universal.yml` declares — the only prose declaration that is not a
+/// class's.
+fn universal_prose(text: &str) -> Vec<String> {
     #[derive(Default, serde::Deserialize)]
     struct Fields {
         #[serde(default)]
-        class: Option<String>,
-        #[serde(default)]
         prose: Vec<String>,
-        #[serde(default)]
-        properties: Vec<Property>,
-    }
-    #[derive(Default, serde::Deserialize)]
-    struct Property {
-        #[serde(default)]
-        name: String,
-        #[serde(default)]
-        prose: bool,
     }
     let f: Fields = serde_yaml::from_str(text).unwrap_or_default();
-    let clean = |k: String| {
-        let k = k.trim().to_string();
-        (!k.is_empty()).then_some(k)
-    };
-    let keys = f.prose.into_iter().filter_map(clean).collect();
-    let props = f
-        .properties
-        .into_iter()
-        .filter(|p| p.prose)
-        .filter_map(|p| clean(p.name))
-        .collect();
-    (f.class.filter(|c| !c.is_empty()), keys, props)
+    f.prose.iter().filter_map(|k| clean(k)).collect()
 }
 
 fn unioned(universal: &[String], own: &[String]) -> Vec<String> {
@@ -150,26 +155,20 @@ impl Default for ProseFields {
 
 impl ProseFields {
     /// Read every class definition in a corpus, and `universal.yml` beside them.
+    ///
+    /// The classes come through [`crate::corpus::read_classes`] — the corpus model's parse,
+    /// not a second one over the same bytes (#1116) — and are keyed by the `.ont.yml` stem,
+    /// which is what `lint` was already doing where it builds this from classes it holds.
+    ///
+    /// **Off disk, not through an [`crate::corpus::Overlay`].** `lint` is the caller with an
+    /// editor behind it and it does not come here; it passes its own classes and its own
+    /// `universal.yml` to [`Self::from_declarations`], so an unsaved declaration is measured.
     pub fn load(corpus: &Path) -> Self {
         let universal = std::fs::read_to_string(corpus.join("universal.yml"))
-            .map(|t| declared(&t).1)
+            .map(|t| universal_prose(&t))
             .unwrap_or_default();
-        let declarations = crate::walk::walk_ont_files(corpus).into_iter().map(|path| {
-            let text = std::fs::read_to_string(&path).unwrap_or_default();
-            let (named, keys, properties) = declared(&text);
-            let class = named.unwrap_or_else(|| {
-                path.file_name()
-                    .and_then(|n| n.to_str())
-                    .and_then(|n| n.strip_suffix(".ont.yml"))
-                    .unwrap_or_default()
-                    .to_string()
-            });
-            Declaration {
-                class,
-                keys,
-                properties,
-            }
-        });
+        let classes = crate::corpus::read_classes(corpus);
+        let declarations: Vec<Declaration> = classes.iter().map(declared).collect();
         Self::from_declarations(universal, declarations)
     }
 
@@ -274,17 +273,19 @@ pub fn text(inst: &CorpusInstance, fields: &ProseFields, class: &str) -> String 
 mod tests {
     use super::*;
 
+    /// Class text in, declarations out — through the same [`crate::corpus::Class::parse`]
+    /// the product reads with, so a case that parses here parses there.
+    ///
+    /// `name` becomes the file stem, which is what [`crate::corpus::Class::name`] reports
+    /// whatever the text's `class:` says.
     fn fields(universal: &str, classes: &[(&str, &str)]) -> ProseFields {
+        let parsed: Vec<crate::corpus::Class> = classes
+            .iter()
+            .map(|(name, text)| crate::corpus::Class::parse(format!("{name}.ont.yml"), *text))
+            .collect();
         ProseFields::from_declarations(
-            declared(universal).1,
-            classes.iter().map(|(name, text)| {
-                let (_, keys, properties) = declared(text);
-                Declaration {
-                    class: (*name).to_string(),
-                    keys,
-                    properties,
-                }
-            }),
+            universal_prose(universal),
+            parsed.iter().map(declared).collect::<Vec<_>>(),
         )
     }
 
@@ -302,6 +303,22 @@ mod tests {
         let f = fields("", &[("gage", "class: gage\n")]);
         assert_eq!(f.for_class("gage"), ["description"]);
         assert_eq!(f.for_class("never-heard-of-it"), ["description"]);
+    }
+
+    /// The file stem is the class, whatever the file's `class:` says.
+    ///
+    /// This reader preferred the declared field until #1116, which filed the declaration
+    /// under a name no node resolves to: `class_of` reads an instance's parent directory,
+    /// and the directory matches the stem. The argument is on [`crate::corpus::Class::name`].
+    #[test]
+    fn a_class_declaring_another_name_is_keyed_by_its_file() {
+        let f = fields("", &[("finding", "class: measure\nprose: [findings]\n")]);
+        assert_eq!(f.for_class("finding"), ["description", "findings"]);
+        assert_eq!(
+            f.for_class("measure"),
+            ["description"],
+            "the declared name must not carry the declaration"
+        );
     }
 
     /// The union, from the class's end.

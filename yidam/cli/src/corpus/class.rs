@@ -65,7 +65,36 @@ pub struct Class {
     /// The `description` field: the text that says what kind of thing an instance is.
     /// Deliberately the only field [`crate::cmd::lint::checks::class_asserts_purpose`] reads; see there.
     pub description: String,
+    /// The short human name the class gives itself — `Person`, as written.
+    ///
+    /// Serialised by `graph` and read by nothing else. It is on the model because it was
+    /// the field `cmd/graph.rs` could not get from here, and so the reason that module kept
+    /// a second parse of every class file (#1116).
+    pub label: String,
     /// The class name — `person` for `person.ont.yml`.
+    ///
+    /// **The file stem, and never the `class:` field inside.** The stem is what governs: an
+    /// instance lives in `corpus/<stem>/`, [`crate::cmd::lint::checks::class_of`] resolves a
+    /// node's class by reading that directory, and [`super::Corpus::defined_classes`] is the
+    /// stem for the same reason. A class file that declares a different `class:` has not
+    /// renamed itself; it has written a field nothing resolves by.
+    ///
+    /// **Four readers used to prefer the declared field, and this is where they stopped.**
+    /// `claims`, `prose`, `retrievable` and `cmd/graph.rs` each parsed the class file
+    /// themselves and keyed on `class:` where it was present, while `pack`, `score` and the
+    /// lint checks keyed on the stem — one corpus, two answers to what a class is called,
+    /// and no check reporting the gap. #1116 routed all four through this field.
+    ///
+    /// **The change is inert on every corpus measured.** 18 corpora, 204 class files, 0 that
+    /// declare a `class:` differing from their stem and 0 that omit the field — so no lookup
+    /// that resolved before resolves differently. The population is one corpus per
+    /// independent checkout on hand: no vendored `.vendor/` or `tonpa/` copy, no
+    /// `.claude/worktrees/` or second branch of a repository already counted, and not this
+    /// repository's own `examples/` or test fixtures. `yidam schema` requires `class:` on a
+    /// class file, which is why the field is always there: a conformant file states the name
+    /// its stem already is. **Nothing reports the disagreement**, so a corpus that starts
+    /// writing one would be silently re-keyed rather than told; the decision on #1116 was to
+    /// document the rule rather than add a check nobody had a case for.
     pub name: String,
     /// The typed fields the class declares, in declaration order.
     pub properties: Vec<ClassProperty>,
@@ -146,6 +175,14 @@ pub struct ClassProperty {
     /// unchecked.
     #[serde(default)]
     pub r#type: String,
+    /// What the property is for, as the class writes it.
+    ///
+    /// Required by `yidam schema`'s class shape, and prose: [`Class::text`] explains why the
+    /// *scan* for evidence tags reads the bytes instead, and this field is the structural
+    /// half — `graph` serialises it per property so an editor can show it. It is declared
+    /// here rather than parsed a second time in `cmd/graph.rs`, which is #1116.
+    #[serde(default)]
+    pub description: String,
     /// Whether every instance of the class must carry this property (#301).
     ///
     /// **Absent means false.** Every corpus predating this field was written under a schema
@@ -185,6 +222,14 @@ pub struct ClassProperty {
     /// reader, and [`crate::cmd::migrate`] consults it before a retype into `string`.
     #[serde(default)]
     pub values: Vec<String>,
+    /// Whether this property's value belongs in the node's embedding though it is not prose.
+    ///
+    /// `embed` is the only reader — see [`crate::retrievable`], which held the only parse of
+    /// this field until #1116 and now reads it from here.
+    ///
+    /// **Absent means false**, for [`Self::required`]'s reason.
+    #[serde(default)]
+    pub retrievable: bool,
 }
 /// One relationship a class declares.
 #[derive(Default, serde::Deserialize)]
@@ -197,6 +242,11 @@ pub struct ClassEdge {
     /// `out` when instances of this class author the link, `in` when the other side does.
     #[serde(default)]
     pub direction: Option<String>,
+    /// What the relationship means, as the class writes it. `graph` serialises it; nothing
+    /// else reads it. Here rather than in `cmd/graph.rs` for [`ClassProperty::description`]'s
+    /// reason.
+    #[serde(default)]
+    pub description: String,
 }
 /// One class's edge declarations, which is all the source-class derivation reads.
 ///
@@ -314,6 +364,8 @@ pub fn edge_views(classes: &[Class]) -> Vec<EdgeView<'_>> {
 #[derive(Default, serde::Deserialize)]
 struct ClassFields {
     #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
     description: Option<String>,
     #[serde(default)]
     properties: Vec<ClassProperty>,
@@ -369,17 +421,28 @@ impl Class {
     /// It takes the *text* and deserializes here rather than taking a parsed [`ClassFields`],
     /// so that [`Self::text`] and the fields cannot come from different strings. A caller
     /// holding both could pass a mismatched pair, and nothing would say so.
+    /// The class a `<class>.ont.yml` path names: its file stem.
+    ///
+    /// Split out of [`Self::parse`] because `lint::history` needs the answer for a class blob
+    /// it is *removing* from the ontology, where there is no text to parse and so no `Class`
+    /// to read [`Self::name`] off. That call site derived the stem itself until #1116 — a
+    /// second expression for the question this whole type exists to answer once.
+    pub(crate) fn name_of(rel: &str) -> String {
+        Path::new(rel)
+            .file_name()
+            .map(|f| f.to_string_lossy().replace(".ont.yml", ""))
+            .unwrap_or_default()
+    }
+
     pub(crate) fn parse(rel: impl Into<String>, text: impl Into<String>) -> Self {
         let rel = rel.into();
         let text = text.into();
         let (fields, malformed): (ClassFields, _) = super::parse_or_default(&text);
         Self {
-            name: Path::new(&rel)
-                .file_name()
-                .map(|f| f.to_string_lossy().replace(".ont.yml", ""))
-                .unwrap_or_default(),
+            name: Self::name_of(&rel),
             rel,
             text,
+            label: fields.label.unwrap_or_default(),
             description: fields.description.unwrap_or_default(),
             properties: fields.properties,
             edges: fields.edges,
@@ -409,5 +472,61 @@ impl Class {
             .collect(),
             malformed,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **The stem governs, and it governs against a declared `class:`** rather than only in
+    /// its absence.
+    ///
+    /// Four readers preferred the declared field until #1116 while `class_of`,
+    /// `Corpus::defined_classes` and `graph-check` have always read the stem. No corpus on
+    /// hand can tell the two apart — the measurement is on [`Class::name`] — so this is the
+    /// only place the disagreement is constructed at all, and it is constructed so the rule
+    /// has a falsifier rather than only a sentence.
+    #[test]
+    fn the_file_stem_names_the_class_when_the_declared_field_disagrees() {
+        let c = Class::parse(
+            ".yidam/corpus/gage.ont.yml",
+            "class: measure\nlabel: Gage\n",
+        );
+        assert_eq!(c.name, "gage");
+        // Only the name is the stem's. Everything else is read as the file wrote it.
+        assert_eq!(c.label, "Gage");
+    }
+
+    /// The three fields #1116 widened this with, each of which a reader used to reach by
+    /// opening the file a second time.
+    #[test]
+    fn a_class_carries_its_label_and_its_declared_descriptions() {
+        let c = Class::parse(
+            "gage.ont.yml",
+            "class: gage\nlabel: Gage\ndescription: A station.\n\
+             properties:\n  - name: datum\n    type: string\n    description: Which datum.\n\
+             edges:\n  - relationship: reads\n    target: sensor\n    \
+             description: The gage reads a sensor.\n",
+        );
+        assert_eq!(c.label, "Gage");
+        assert_eq!(c.properties[0].description, "Which datum.");
+        assert_eq!(c.edges[0].description, "The gage reads a sensor.");
+    }
+
+    /// Absent is empty, not unparseable. Every class file written before `label:` and the two
+    /// `description:`s were read here still has to load, because this parse is now the only
+    /// one and a reader that refused them would take the whole corpus with it.
+    #[test]
+    fn a_class_declaring_none_of_them_still_parses() {
+        let c = Class::parse(
+            "gage.ont.yml",
+            "class: gage\nproperties:\n  - name: datum\n    type: string\n\
+             edges:\n  - relationship: reads\n    target: sensor\n",
+        );
+        assert!(c.malformed.is_none(), "{:?}", c.malformed);
+        assert!(c.label.is_empty());
+        assert!(c.properties[0].description.is_empty());
+        assert!(c.edges[0].description.is_empty());
     }
 }

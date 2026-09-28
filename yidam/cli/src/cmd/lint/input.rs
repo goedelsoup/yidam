@@ -260,10 +260,16 @@ impl<'a> Input<'a> {
     }
 
     /// The `type: claim` properties each class declared, so the structural arm of the claim
-    /// reader sees anything at all. Loaded once and shared: it walks the ontology.
+    /// reader sees anything at all.
+    ///
+    /// From the classes this input already holds, and so through the
+    /// [`crate::corpus::Overlay`] — where until #1116 it walked and re-read the ontology
+    /// itself, and keyed the result by each file's declared `class:` while
+    /// [`Self::prose_fields`] beside it keyed by the stem. One corpus answering to two names
+    /// is what that cost; the stem is the one `class_of` resolves a node to.
     pub(crate) fn claim_fields(&self) -> &crate::claims::ClaimFields {
         self.claim_fields
-            .get_or_init(|| crate::claims::ClaimFields::load(self.corpus.dir()))
+            .get_or_init(|| crate::claims::ClaimFields::from_classes(self.classes()))
     }
 
     /// Which keys on each class carry prose.
@@ -272,22 +278,17 @@ impl<'a> Input<'a> {
     /// overlay for `universal.yml`, so the editor measures an unsaved declaration. Keyed by
     /// the `.ont.yml` stem, which is the directory an instance's class resolves to — the same
     /// keying [`crate::claims::ClaimFields`] documents.
+    ///
+    /// The reduction is [`crate::prose::declared`]'s, where this wrote it out again beside
+    /// the copy in `ProseFields::load` (#1116) — and the two had already drifted: that one
+    /// dropped a property whose `name:` was blank or whitespace and this one kept it.
     pub(crate) fn prose_fields(&self) -> &crate::prose::ProseFields {
         self.prose_fields.get_or_init(|| {
             crate::prose::ProseFields::from_declarations(
                 self.universal().prose().to_vec(),
                 self.classes()
                     .iter()
-                    .map(|c| crate::prose::Declaration {
-                        class: c.name.clone(),
-                        keys: c.prose.clone(),
-                        properties: c
-                            .properties
-                            .iter()
-                            .filter(|p| p.prose)
-                            .map(|p| p.name.clone())
-                            .collect(),
-                    })
+                    .map(crate::prose::declared)
                     .collect::<Vec<_>>(),
             )
         })

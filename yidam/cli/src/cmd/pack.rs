@@ -238,15 +238,9 @@ pub(crate) fn from_report(
 
     // From the ontology the query already loaded, rather than a second walk of
     // `.yidam/corpus` — and keyed by the stem, which is what `class_of` resolves a node to.
-    let fields = crate::claims::ClaimFields::from_declarations(ctx.graph.classes.iter().map(|c| {
-        let claim_fields = c
-            .properties
-            .iter()
-            .filter(|p| p.r#type == crate::claims::CLAIM_PROPERTY_TYPE)
-            .map(|p| p.name.clone())
-            .collect();
-        (c.name.clone(), claim_fields)
-    }));
+    // The filter over `type: claim` used to be written out here, and identically in `score`
+    // and inside `ClaimFields::load`; it lives on `ClaimFields` now (#1116).
+    let fields = crate::claims::ClaimFields::from_classes(ctx.graph.classes.iter());
     order(&mut nodes, &fields);
 
     let reachable = nodes.len();
