@@ -183,6 +183,10 @@ maximum-reach export. Each node becomes a short named section (`## <class>/<name
 description, `[[link]]` targets) under a provenance header (domain, generation date, commit,
 node count).
 
+Without `--out` the pack goes to stdout and the summary to stderr, so
+`yidam export --format llms | pbcopy` copies the pack alone. Reading a corpus this way writes
+nothing into it. Pass `--out llms.txt` to keep a file.
+
 With `--token-budget` the output is capped at approximately `budget × 4` characters
 (1 token ≈ 4 chars — deliberately an approximation, not a tokenizer). A budget degrades
 **coverage before membership**: descriptions are dropped first, leaving each node as its

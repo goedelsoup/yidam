@@ -1,9 +1,10 @@
 use anyhow::Result;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use super::bundle::render_bundle;
 use super::export_graphml::render_graphml;
-use super::export_llms::render_llms;
+use super::export_llms::{render_llms, LlmsPack};
 #[cfg(feature = "export-graph")]
 use super::export_rdf::{render_rdf_jsonld, render_rdf_turtle};
 #[cfg(feature = "export-sqlite")]
@@ -44,15 +45,21 @@ pub enum ExportFormat {
 }
 
 impl ExportFormat {
-    fn default_output(&self, root: &Path) -> PathBuf {
-        match self {
+    /// Where the format writes when `--out` is absent; `None` is stdout.
+    ///
+    /// `llms` is the one that answers `None`. It is the export an agent runs to *read* a
+    /// corpus, and a default of `llms.txt` at the root left every such read with an untracked
+    /// file in the tree it had only meant to inspect (#919). The others are artefacts: a
+    /// bundle, a site, a database. Nobody pipes those, so they keep a place on disk.
+    fn default_output(&self, root: &Path) -> Option<PathBuf> {
+        Some(match self {
             Self::Bundle => root.join(".yidam").join("bundle.yiz"),
             Self::Web => root.join(".yidam").join("web"),
             Self::Rdf => root.join("corpus.ttl"),
             Self::GraphMl => root.join("corpus.graphml"),
             Self::Sqlite => root.join("corpus.db"),
-            Self::Llms => root.join("llms.txt"),
-        }
+            Self::Llms => return None,
+        })
     }
 }
 
@@ -209,54 +216,90 @@ pub fn export(
             }
         }
         ExportFormat::Llms => {
-            if let Some(parent) = out.parent() {
+            let pack = render_llms(model, root, options.token_budget);
+            write_llms(
+                &pack,
+                options.token_budget,
+                Some(out),
+                &mut std::io::stdout(),
+                &mut std::io::stderr(),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Write an llms pack to `out`, or to `stdout` when `out` is `None`, and report what it holds.
+///
+/// The report goes where the pack does not. Written to a file, the pack leaves stdout free
+/// and the report takes it. Written to stdout, the report moves to `stderr`, because a
+/// summary line inside the pack would be pasted into a context window with it.
+fn write_llms(
+    pack: &LlmsPack,
+    token_budget: Option<usize>,
+    out: Option<&Path>,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<()> {
+    let report: &mut dyn Write = match out {
+        Some(path) => {
+            if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let pack = render_llms(model, root, options.token_budget);
-            std::fs::write(out, &pack.text)?;
-            let budget_note = match options.token_budget {
-                Some(budget) => format!(" (token budget: {budget})"),
-                None => String::new(),
-            };
-            // The count a reader needs is what the file holds, not what the corpus
-            // holds — those differ exactly when the budget bit, which is the case
-            // where being told the corpus size is worst.
-            let count = if pack.written == pack.total {
-                format!("{} node(s)", pack.total)
-            } else {
-                format!("{} of {} node(s)", pack.written, pack.total)
-            };
-            println!(
-                "llms.txt written: {count}, ~{} tokens{budget_note} → {}",
-                pack.text.len() / 4,
-                out.display(),
-            );
-            if pack.omitted() > 0 {
-                let breakdown: Vec<String> = pack
-                    .omitted_by_class
-                    .iter()
-                    .map(|(class, n)| format!("{class}: {n}"))
-                    .collect();
-                println!(
-                    "  omitted {} node(s) ({}) — see the trailing `# Omitted:` line",
-                    pack.omitted(),
-                    breakdown.join(", "),
-                );
-            }
-            if pack.elided > 0 {
-                println!(
-                    "  elided {} description(s) to fit; labels and links kept",
-                    pack.elided,
-                );
-            }
+            std::fs::write(path, &pack.text)?;
+            stdout
         }
+        None => {
+            stdout.write_all(pack.text.as_bytes())?;
+            stdout.flush()?;
+            stderr
+        }
+    };
+    let dest = out.map_or_else(|| "stdout".to_string(), |p| p.display().to_string());
+    let budget_note = match token_budget {
+        Some(budget) => format!(" (token budget: {budget})"),
+        None => String::new(),
+    };
+    // The count a reader needs is what the pack holds, not what the corpus holds — those
+    // differ exactly when the budget bit, which is the case where being told the corpus size
+    // is worst.
+    let count = if pack.written == pack.total {
+        format!("{} node(s)", pack.total)
+    } else {
+        format!("{} of {} node(s)", pack.written, pack.total)
+    };
+    writeln!(
+        report,
+        "llms.txt written: {count}, ~{} tokens{budget_note} → {dest}",
+        pack.text.len() / 4,
+    )?;
+    if pack.omitted() > 0 {
+        let breakdown: Vec<String> = pack
+            .omitted_by_class
+            .iter()
+            .map(|(class, n)| format!("{class}: {n}"))
+            .collect();
+        writeln!(
+            report,
+            "  omitted {} node(s) ({}) — see the trailing `# Omitted:` line",
+            pack.omitted(),
+            breakdown.join(", "),
+        )?;
+    }
+    if pack.elided > 0 {
+        writeln!(
+            report,
+            "  elided {} description(s) to fit; labels and links kept",
+            pack.elided,
+        )?;
     }
     Ok(())
 }
 
 /// Load the domain model and export in `format`.
 ///
-/// Resolves the output path from `out` or uses the format-specific default.
+/// Resolves the output path from `out` or uses the format-specific default. A format whose
+/// default is stdout (`llms`, see [`ExportFormat::default_output`]) prints there instead.
 /// This is the command-level entry point; [`export`] is the pure dispatch layer.
 pub fn run_export(
     root: Option<&Path>,
@@ -277,8 +320,19 @@ pub fn run_export(
     crate::paths::require_yidam_repo(&root)?;
     let model = load_domain_model(&root)?;
     let default_out = format.default_output(&root);
-    let out_path = out.unwrap_or(&default_out);
-    export(&model, &root, format, out_path, options)
+    match out.or(default_out.as_deref()) {
+        Some(out_path) => export(&model, &root, format, out_path, options),
+        None => {
+            let pack = render_llms(&model, &root, options.token_budget);
+            write_llms(
+                &pack,
+                options.token_budget,
+                None,
+                &mut std::io::stdout(),
+                &mut std::io::stderr(),
+            )
+        }
+    }
 }
 
 /// Unix seconds → ISO-8601 UTC.
@@ -295,7 +349,80 @@ pub(crate) fn unix_to_iso(secs: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::unix_to_iso;
+    use super::{unix_to_iso, write_llms, ExportFormat, LlmsPack};
+    use std::collections::BTreeMap;
+    use std::path::Path;
+
+    fn pack(omitted: usize) -> LlmsPack {
+        LlmsPack {
+            text: "# Domain: d\n# Nodes: 2\n\n## concept/a\n".to_string(),
+            total: 2 + omitted,
+            written: 2,
+            elided: 1,
+            omitted_by_class: if omitted > 0 {
+                BTreeMap::from([("concept".to_string(), omitted)])
+            } else {
+                BTreeMap::new()
+            },
+        }
+    }
+
+    /// #919: `llms` is the one format with nowhere on disk to go by default. Asserted over
+    /// every variant, so a format added later has to pick a side here rather than inherit one.
+    #[test]
+    fn only_llms_defaults_to_stdout() {
+        let root = Path::new("/corpus");
+        for format in [
+            ExportFormat::Bundle,
+            ExportFormat::Web,
+            ExportFormat::Rdf,
+            ExportFormat::GraphMl,
+            ExportFormat::Sqlite,
+            ExportFormat::Llms,
+        ] {
+            let default = format.default_output(root);
+            match format {
+                ExportFormat::Llms => assert_eq!(default, None),
+                _ => assert!(default.is_some_and(|p| p.starts_with(root)), "{format:?}"),
+            }
+        }
+    }
+
+    /// Stdout carries the pack and nothing else, byte for byte, so it can be piped or pasted.
+    /// Every report line, the budget's included, is on stderr.
+    #[test]
+    fn to_stdout_the_pack_is_all_stdout_holds() {
+        let p = pack(3);
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        write_llms(&p, Some(100), None, &mut out, &mut err).unwrap();
+
+        assert_eq!(String::from_utf8(out).unwrap(), p.text);
+        let err = String::from_utf8(err).unwrap();
+        assert!(
+            err.contains("2 of 5 node(s)") && err.contains("→ stdout"),
+            "{err}"
+        );
+        assert!(err.contains("token budget: 100"), "{err}");
+        assert!(err.contains("omitted 3 node(s) (concept: 3)"), "{err}");
+        assert!(err.contains("elided 1 description(s)"), "{err}");
+    }
+
+    /// With `--out` the pack is the file, the report is stdout, and stderr stays empty.
+    #[test]
+    fn to_a_file_the_report_takes_stdout() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("nested").join("llms.md");
+        let p = pack(0);
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        write_llms(&p, None, Some(&path), &mut out, &mut err).unwrap();
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), p.text);
+        let out = String::from_utf8(out).unwrap();
+        assert!(out.starts_with("llms.txt written: 2 node(s)"), "{out}");
+        assert!(out.contains(&path.display().to_string()), "{out}");
+        assert!(!out.contains(&p.text), "{out}");
+        assert!(err.is_empty(), "{}", String::from_utf8_lossy(&err));
+    }
 
     #[test]
     fn unix_to_iso_is_correct() {

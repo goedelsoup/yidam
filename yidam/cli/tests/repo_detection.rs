@@ -511,6 +511,33 @@ fn a_bootstrapped_repository_with_an_empty_corpus_can_still_export() {
     }
 }
 
+/// #919: `export --format llms` is how an agent reads a corpus, and with no `--out` it used to
+/// leave an untracked `llms.txt` at the root. It prints the pack instead, and the tree it read is
+/// the tree it leaves.
+#[test]
+fn export_llms_without_out_prints_and_writes_nothing() {
+    let d = bootstrapped_but_empty();
+    let before = files(d.path());
+    let r = run(d.path(), &["export", "--format", "llms"]);
+    assert_eq!(r.code, 0, "stderr: {}", r.stderr);
+    assert_eq!(
+        before,
+        files(d.path()),
+        "export --format llms wrote into the corpus"
+    );
+    assert!(
+        r.stdout.contains("Nodes: 0"),
+        "no pack on stdout: {}",
+        r.stdout
+    );
+    assert!(
+        !r.stdout.contains("llms.txt written"),
+        "the report landed in the pack: {}",
+        r.stdout
+    );
+    assert!(r.stderr.contains("→ stdout"), "{}", r.stderr);
+}
+
 /// `schema --settings` prints a compiled-in editor configuration and reads nothing from disk,
 /// so it has no corpus to refuse over. Gating the command rather than its writing branch would
 /// have taken that away, which is why the gate sits after the early return.
