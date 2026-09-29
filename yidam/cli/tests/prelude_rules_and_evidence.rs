@@ -273,7 +273,12 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// **Raised to 27,930 when `PHASES.md` said Investigation has no verb of its own (#1136).** The
 /// delta is **22 words in `PHASES.md`**, the same 22 *Before you run a phase* moved by on both
 /// recurring routes, and 27,908 + 22 is this figure exactly, so nothing else on the path moved.
-const BOOTSTRAP_CEILING: usize = 27_930;
+///
+/// **Raised to 27,944 when `.yidam.toml` gained `cli` (#1076).** The delta is **14 words in
+/// `directories.md`**, the manifest example's new line. 27,930 + 14 is this figure exactly, so
+/// nothing else on the path moved. Neither recurring route moved: the line sits in a section no
+/// occasion links, and a route is charged by section.
+const BOOTSTRAP_CEILING: usize = 27_944;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -368,10 +373,15 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// step 3 names `mise.overrides.toml` among the root files. 10,800 + 10 is this figure exactly,
 /// and the 10 are the same 10 [`BOOTSTRAP_CEILING`] moved by.
 ///
+/// **`directories.md` re-measured to 12,618 for #1076.** 14 words arrived, all in the rules
+/// half: the manifest example's `cli` line. 12,604 + 14 is this figure exactly, and the 14 are
+/// the same 14 [`BOOTSTRAP_CEILING`] moved by. Nothing arrived in the evidence half; the reason
+/// is the field's own and lives in `VERSIONING.md`.
+///
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_399),
     ("yidam/prelude/GRAPH.md", 9_540),
-    ("yidam/prelude/guidelines/directories.md", 12_604),
+    ("yidam/prelude/guidelines/directories.md", 12_618),
     ("yidam/prelude/skills/bootstrap.md", 10_810),
 ];
 

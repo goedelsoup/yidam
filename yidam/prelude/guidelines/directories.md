@@ -919,6 +919,7 @@ origin    = "git@github.com:goedelsoup/yidam.git"
 commit    = "4f2a…"      # the resolvable pin — what re-vendor and CI check out
 template  = "v0.1.0"     # release tag at that commit, or "untagged"
 committed = "2026-08-08" # that commit's date — how old this prelude is
+cli       = "0.16.0 (ce5e738)" # the yidam binary in use when this was written
 ```
 
 `commit` is the field that does the work. `template` is a semantic version and is only

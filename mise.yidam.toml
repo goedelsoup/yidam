@@ -521,6 +521,16 @@ if [ -f "$tmp/yidam/mise.yidam.toml" ]; then
   cp "$tmp/yidam/mise.yidam.toml" mise.yidam.toml
   echo "refreshed mise.yidam.toml (the inherited task layer)"
 fi
+# The yidam binary this repository resolves, as `<version> (<build commit>)` — the same
+# spelling `yidam clone` writes for itself. The copy above is this task's own `cp`, but the
+# binary is what runs against the result, starting with the baseline below, and a stale
+# one shadowing the pin earlier on PATH is exactly what the manifest could not show (#1076).
+# A binary predating `--version` answers nothing parseable, and that is recorded as such.
+cli=""
+if command -v yidam >/dev/null 2>&1; then
+  cli=$(yidam --version 2>/dev/null | sed -n 's/^yidam \\([^ ]*\\) (\\([^)]*\\)).*/\\1 (\\2)/p' | head -1)
+fi
+[ -n "$cli" ] || cli="unknown"
 cat > .yidam.toml <<EOF
 # Provenance of the yidam template this repository was derived from.
 #
@@ -530,6 +540,7 @@ cat > .yidam.toml <<EOF
 # \\`commit\\` is the resolvable pin: it is what the re-vendor procedure and CI
 # check out. \\`template\\` is the release tag at that commit, or "untagged".
 # \\`committed\\` is that commit's date — how old the vendored prelude is.
+# \\`cli\\` is the yidam binary in use when this file was written: version (build commit).
 #
 # See .yidam/.vendor/prelude/guidelines/directories.md for the re-vendor procedure.
 
@@ -538,6 +549,7 @@ origin    = "$origin"
 commit    = "$commit"
 template  = "$template"
 committed = "$committed"
+cli       = "$cli"
 EOF
 # Yours, and preserved across every re-vendor. Both channels read it: the source build passes
 # it to cargo, and the download declines a release that was not built with it.

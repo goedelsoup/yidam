@@ -145,3 +145,52 @@ fn every_template_tag_lookup_is_restricted_to_the_template_layer() {
         unrestricted.join("\n")
     );
 }
+
+/// The keys of `[yidam]`, as the lines between that header and the next table or the end.
+fn yidam_keys(manifest: &str) -> Vec<String> {
+    let mut keys: Vec<String> = manifest
+        .lines()
+        .skip_while(|l| l.trim() != "[yidam]")
+        .skip(1)
+        .take_while(|l| !l.trim_start().starts_with('['))
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, _)| k.trim().to_string())
+        .filter(|k| !k.is_empty() && !k.starts_with('#'))
+        .collect();
+    keys.sort();
+    keys
+}
+
+/// `yidam clone` and `yidam-vendor-update` write the same `[yidam]` table.
+///
+/// The vendor task overwrites `.yidam.toml` wholesale, so a field only the CLI writes is a
+/// field the first re-vendor deletes. `cli` was added to both (#1076); this is what keeps
+/// the next one from reaching only one.
+#[test]
+fn the_vendor_task_writes_every_key_clone_writes() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let clone_keys = yidam_keys(&yidam::provenance::Provenance::read(tmp.path()).render());
+    assert!(
+        clone_keys.iter().any(|k| k == "cli"),
+        "the scan found no `cli` in the CLI's own manifest — the scan is broken: {clone_keys:?}"
+    );
+
+    let text =
+        std::fs::read_to_string(repo_root().join("mise.yidam.toml")).expect("mise.yidam.toml");
+    let tasks: toml::Value = toml::from_str(&text).expect("mise.yidam.toml parses");
+    let run = tasks["yidam-vendor-update"]["run"]
+        .as_str()
+        .expect("yidam-vendor-update has a run script");
+    let heredoc = run
+        .split_once("cat > .yidam.toml <<EOF\n")
+        .and_then(|(_, rest)| rest.split_once("\nEOF\n"))
+        .map(|(body, _)| body)
+        .expect("yidam-vendor-update writes .yidam.toml from a heredoc");
+
+    assert_eq!(
+        yidam_keys(heredoc),
+        clone_keys,
+        "`yidam-vendor-update` and `yidam clone` write different `[yidam]` keys; a re-vendor \
+         would drop or invent a field"
+    );
+}
