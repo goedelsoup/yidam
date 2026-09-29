@@ -378,6 +378,7 @@ mod tests {
             text: text.into(),
             parents,
             paths: vec![],
+            body: String::new(),
         };
         assert!(!in_population(&s("regen", "regen: blocks", 1)));
         assert!(!in_population(&s("regen(blocks)", "regen(blocks): x", 1)));
