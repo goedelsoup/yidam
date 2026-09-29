@@ -26,6 +26,7 @@ origin    = "git@github.com:goedelsoup/yidam.git"
 commit    = "88edd17f4c2a1b09e3d5f7a8c6b4e2d1a9f0c3b5"
 template  = "v0.1.0"
 committed = "2026-08-27"
+cli       = "0.16.0 (ce5e738)"
 ```
 
 | Field | Meaning |
@@ -34,6 +35,7 @@ committed = "2026-08-27"
 | `commit` | **The resolvable pin** — what the re-vendor procedure and CI check out |
 | `template` | The template-layer release tag at that commit, or `"untagged"` |
 | `committed` | That commit's author date — i.e. how old the vendored prelude is |
+| `cli` | The `yidam` binary in use when the file was written: version and build commit |
 
 ### `[build]` — yours, and preserved
 
