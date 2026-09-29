@@ -181,10 +181,13 @@ pub struct StepReport {
     /// Whether the step ran and produced the bytes that were already committed.
     ///
     /// The ordinary result of an ageing rule firing over something whose answer had not moved,
-    /// and a materially different event from a step that recomputed and found a change: the
-    /// commit that lands carries a new receipt and the same outputs, which is the record of
-    /// *having looked*. `cmd/due.rs` draws the same distinction about a source's TTL — *"An
-    /// expiry does not claim the upstream changed. It claims nobody has looked."* A report
+    /// and a materially different event from a step that recomputed and found a change. On the
+    /// branch, the commit that lands carries a new receipt and the same outputs, which is the
+    /// record of *having looked*. On a proposal it is not recorded (#1162). The receipt names
+    /// the head the inputs came from, which has not moved, so it reproduces the proposal
+    /// already there and no commit lands. `cmd/due.rs` draws the same distinction about a
+    /// source's TTL — *"An expiry does not claim the upstream changed. It claims nobody has
+    /// looked."* A report
     /// that said `wrote` here would be claiming the first thing while recording the second.
     pub unchanged_outputs: bool,
     /// Anything the step said on stderr, kept because a calculator's own account of what it
@@ -203,8 +206,10 @@ pub struct RunReport {
     pub steps: Vec<StepReport>,
     pub ran: usize,
     pub skipped: usize,
-    /// How many steps landed a commit. Never more than `ran`, and often fewer: a step that
-    /// was re-run under an ageing rule and computed the same bytes lands nothing.
+    /// How many steps landed a commit. Never more than `ran`, and fewer when an epistemic
+    /// step re-run under an ageing rule reproduced the proposal already on `propose/<head>`.
+    /// On the branch an aged re-run lands: the last run's own commit is now the head, so the
+    /// new receipt names a different commit from the old one.
     pub committed: usize,
 }
 
@@ -792,9 +797,11 @@ struct Landing<'a> {
 /// blank line identical — and `hash-object` is the identity the commit will be built from
 /// anyway.
 ///
-/// This decides what the report says, never whether the commit is written. A step that ran
-/// because its corpus asked to be re-checked has looked, and the receipt that records it is
-/// worth a commit whether or not the answer moved.
+/// This decides what the report says, never whether the commit is written. [`commit`] decides
+/// that from the tree. On the branch, a step that ran because its corpus asked to be re-checked
+/// lands a receipt naming the new head, so the check is recorded whether or not the answer
+/// moved. On a proposal the head has not moved, the tree is the one already proposed, and
+/// nothing lands (#1162). The pending proposal is the answer until a person acts on it.
 fn outputs_already_committed(root: &Path, parent: &str, outputs: &[(String, Vec<u8>)]) -> bool {
     !outputs.is_empty()
         && outputs.iter().all(|(path, bytes)| {
@@ -996,25 +1003,39 @@ fn render(r: &RunReport) -> String {
                 }
             );
         }
-        if s.unchanged_outputs {
-            let _ = writeln!(
-                out,
-                "           the answer had not moved; the commit records that it was checked"
-            );
-        }
         match &s.committed {
             Some(c) => {
+                if s.unchanged_outputs {
+                    let _ = writeln!(
+                        out,
+                        "           the answer had not moved; the commit records that it was \
+                         checked"
+                    );
+                }
                 let _ = writeln!(out, "           {}  {}", c.commit, c.subject);
                 let _ = writeln!(out, "           on {}", c.branch);
             }
             // Only ever reached for a step that ran: a skipped step wrote nothing to say this
             // about, and a planned one was never invoked.
+            //
+            // Named by where the tree was compared, which is not the same commit on both routes
+            // (#1162). An epistemic step lands on top of the proposal it already made, so what it
+            // reproduced is that proposal's tip, not the head its inputs came from.
             None if s.outcome == Outcome::Ran => {
-                let _ = writeln!(
-                    out,
-                    "           it reproduced the tree already at {}, so no commit was written",
-                    s.input_commit.as_deref().unwrap_or("HEAD")
-                );
+                let short = s.input_commit.as_deref().unwrap_or("HEAD");
+                let _ = match s.route == Route::Proposal.as_str() {
+                    true => writeln!(
+                        out,
+                        "           it reproduced what {} already proposes, so no commit was \
+                         written",
+                        crate::cmd::propose::write::branch_for(short)
+                    ),
+                    false => writeln!(
+                        out,
+                        "           it reproduced the tree already at {short}, so no commit was \
+                         written"
+                    ),
+                };
             }
             None => {}
         }
@@ -1101,9 +1122,9 @@ fn summary(r: &RunReport) -> String {
         r.ran, r.skipped, r.committed
     );
     // Said rather than left to the arithmetic. A run that invoked something and landed
-    // nothing is the ordinary result of an ageing rule firing over a calculator whose answer
-    // did not move, and a reader who has just watched three steps run needs to be told that
-    // an empty log is what success looks like.
+    // nothing is the ordinary result of an ageing rule firing over an epistemic step whose
+    // pending proposal already holds the answer (#1162), and a reader who has just watched
+    // three steps run needs to be told that an empty log is what success looks like.
     if r.ran > 0 && r.committed < r.ran {
         let _ = write!(
             out,
@@ -1369,6 +1390,46 @@ mod tests {
         assert!(
             !out.contains("git restore"),
             "a dry run took nothing from the checkout:\n{out}"
+        );
+    }
+
+    /// An aged re-run that lands nothing on its proposal says where it looked, and does not
+    /// claim a commit it did not write.
+    #[test]
+    fn an_aged_proposal_that_reproduced_itself_names_the_proposal_and_claims_no_commit() {
+        // #1162: the report said "the commit records that it was checked" and then "no commit
+        // was written" about one step, and named the head where the tree it matched was the
+        // proposal's tip.
+        let mut ran = step(
+            "tier",
+            Route::Proposal,
+            "revise",
+            Outcome::Ran,
+            Freshness::Stale,
+        );
+        ran.committed = None;
+        ran.unchanged_outputs = true;
+        let out = render(&plan(false, vec![ran]));
+        assert!(
+            out.contains("it reproduced what propose/abc1234 already proposes, so no commit"),
+            "{out}"
+        );
+        assert!(!out.contains("records that it was checked"), "{out}");
+        assert!(!out.contains("already at abc1234"), "{out}");
+
+        // And the branch, where the look does land, still says so.
+        let mut landed = step(
+            "tier",
+            Route::Branch,
+            "compute",
+            Outcome::Ran,
+            Freshness::Stale,
+        );
+        landed.unchanged_outputs = true;
+        let out = render(&plan(false, vec![landed]));
+        assert!(
+            out.contains("the answer had not moved; the commit records that it was checked"),
+            "{out}"
         );
     }
 
