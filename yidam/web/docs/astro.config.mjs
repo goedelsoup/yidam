@@ -179,6 +179,7 @@ const sidebar = [
       { slug: 'rfcs/0042-typed-calculator-arm', label: '0042 · A calculator whose purity is a closed scope and a typecheck' },
       { slug: 'rfcs/0043-inline-regen-and-count', label: '0043 · An inline REGEN block and the count generator' },
       { slug: 'rfcs/0044-declared-value-set', label: '0044 · A declared value set' },
+      { slug: 'rfcs/0045-derivation-check', label: '0045 · A refusal is declared, and a derivation is checked' },
     ],
   },
   {
