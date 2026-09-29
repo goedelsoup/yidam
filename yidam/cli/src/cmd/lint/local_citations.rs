@@ -66,6 +66,7 @@
 //! are compared as written, because those are the changes a span exists to catch.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use super::citations::{flatten, truncate, Finding};
 use super::model::{Check, Severity, Violation};
@@ -130,6 +131,15 @@ pub(crate) fn key_of(node: &str) -> String {
     t.strip_suffix(".yml").unwrap_or(t).to_string()
 }
 
+/// The `.ont.yml` stem a corpus key's node belongs to: the directory it sits in.
+///
+/// [`crate::paths::class_of_path`] over the key, which is the node's path under the corpus
+/// root less its extension, so both answer the same for the same node — the directory, never
+/// the `class:` the file declares.
+pub(crate) fn class_of_key(key: &str) -> String {
+    crate::paths::class_of_path(Path::new(key))
+}
+
 /// The three standings, weakest first — [`crate::claims::WEAKEST_FIRST`].
 ///
 /// Aliased rather than restated. This ordering was declared here, where the first comparison of
@@ -188,8 +198,19 @@ pub(crate) fn governing(text: &str, span: &str, fields: &[String]) -> Option<&'s
 /// Shaped like [`super::citations::findings`] and for the same reason: the predicate is here and
 /// the checks are filters over it, so a surface that wants to ask whether a citation *would*
 /// hold before writing it gets the same answer the gate will give afterwards.
+///
+/// **`fields` is the whole map, and the class is resolved here from the cited node** — #1147.
+/// The claims being read are the cited node's, so the prose keys are its class's. The slice
+/// used to be chosen by the caller, and the gate chose it from the *citing* node's declared
+/// `class:`: the wrong node, and the key #1116 retired. A citation from a `claim` node into a
+/// `reach` node read the reach node through `claim`'s declarations and reported "nothing
+/// licenses" a tag that was correct.
 #[must_use]
-pub fn findings(cite: &ExternalCitation, corpus: &Corpus, fields: &[String]) -> Vec<Finding> {
+pub fn findings(
+    cite: &ExternalCitation,
+    corpus: &Corpus,
+    fields: &crate::claims::ClaimFields,
+) -> Vec<Finding> {
     let mut out = Vec::new();
     let mut report = |check, severity, message| {
         out.push(Finding {
@@ -283,6 +304,7 @@ pub fn findings(cite: &ExternalCitation, corpus: &Corpus, fields: &[String]) -> 
                 );
                 return out;
             };
+            let fields = fields.for_class(&class_of_key(&target));
             match governing(text, span, fields) {
                 Some(found) if found == declared => {}
                 Some(found) => report(
@@ -335,14 +357,13 @@ pub fn checks(nodes: &[Node], fields: &crate::claims::ClaimFields) -> [Check; 4]
     let found: Vec<(&Node, Vec<Finding>)> = nodes
         .iter()
         .flat_map(|n| {
-            let class = n.inst.class.clone().unwrap_or_default();
             n.inst
                 .cites
                 .as_deref()
                 .unwrap_or_default()
                 .iter()
                 .filter(|c| is_local(c))
-                .map(|c| (n, findings(c, &corpus, fields.for_class(&class))))
+                .map(|c| (n, findings(c, &corpus, fields)))
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -708,6 +729,58 @@ mod tests {
         );
         assert!(all["drift"].passed(), "{:?}", all["drift"].violations);
         assert_eq!(all["untagged"].violations.len(), 1);
+    }
+
+    /// A `claim` node citing a `reach` node's `status: verified`, under `fields`.
+    ///
+    /// The citing node declares `class: finding` from a `claim/` directory, so a gate keying
+    /// on the declared `class:` — the key #1116 retired — looks up a class nobody declared.
+    fn cross_class(fields: &[(&str, &str)]) -> Check {
+        let dir = tempfile::tempdir().unwrap();
+        let corpus = dir.path().join(".yidam/corpus");
+        std::fs::create_dir_all(corpus.join("claim")).unwrap();
+        std::fs::create_dir_all(corpus.join("reach")).unwrap();
+        std::fs::write(
+            corpus.join("claim/rests.yml"),
+            "class: finding\nlabel: Rests\ncites:\n  - node: reach/gauge\n    tag: verified\n    \
+             span: \"status: verified\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            corpus.join("reach/gauge.yml"),
+            "class: reach\nlabel: Gauge\nstatus: verified\n",
+        )
+        .unwrap();
+        let fields = crate::claims::ClaimFields::from_declarations(
+            fields
+                .iter()
+                .map(|(class, field)| (class.to_string(), vec![field.to_string()])),
+        );
+        let [_, _, tag, _] = checks(&nodes(dir.path()), &fields);
+        tag
+    }
+
+    /// #1147: the span sits in a property the **cited** class declares a claim, and the citing
+    /// class declares nothing. The claims read are the cited node's, so this holds.
+    #[test]
+    fn a_cross_class_citation_reads_the_cited_class_claim_fields() {
+        let tag = cross_class(&[("reach", "status")]);
+        assert!(tag.passed(), "{:?}", tag.violations);
+    }
+
+    /// #1147, the reverse: only the **citing** class declares `status`, so in the cited node
+    /// it is not a claim and nothing licenses the tag.
+    #[test]
+    fn a_cross_class_citation_ignores_the_citing_class_claim_fields() {
+        for declared in ["claim", "finding"] {
+            let tag = cross_class(&[(declared, "status")]);
+            assert_eq!(tag.violations.len(), 1, "{declared}: {:?}", tag.violations);
+            assert!(
+                tag.violations[0].detail.contains("nothing licenses"),
+                "{declared}: {:?}",
+                tag.violations
+            );
+        }
     }
 
     /// Two citations in one node are two findings, filed against that node.
