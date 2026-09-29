@@ -2053,10 +2053,38 @@ fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
 /// used to be wrong was that nobody was told; [`malformed_yaml`] reports the file now, so the
 /// degradation here is a stated consequence rather than a silent one. Reporting it a second
 /// time would put a finding about a corpus node on the catalog entry that happens to be asking.
-pub fn linked_paths(node_path: &Path, rel: &str, text: &str) -> HashSet<PathBuf> {
+///
+/// `catalog` is the catalog directory, and it is here because the third form a citation takes
+/// is not a path. An edge's `source:` names a catalog entry by file stem (#1158), and a stem
+/// resolves only against the directory the entries live in — see [`source_targets`].
+pub fn linked_paths(node_path: &Path, rel: &str, text: &str, catalog: &Path) -> HashSet<PathBuf> {
     let dir = node_path.parent().unwrap_or(node_path);
     let inst: crate::parse::CorpusInstance = serde_yaml::from_str(text).unwrap_or_default();
-    linked_paths_from(&inst, dir, rel, text)
+    linked_paths_from(&inst, dir, rel, text, catalog)
+}
+
+/// Where an edge's `source:` may point, as node directory `dir` wrote it.
+///
+/// Two readings, tried together: a catalog entry by file stem — `pearl-2009` for
+/// `.yidam/catalog/pearl-2009.md` — and a path written the way a `links:` target is. Both are
+/// returned rather than one chosen, because a bare stem tried as a path lands in the node's
+/// own class directory, which is never a catalog entry, and a path tried as a stem lands under
+/// `catalog/` with a `.md` appended to a `.md`. Neither reading can admit the other's mistake,
+/// so a caller testing membership against the catalog gets exactly the entries the value
+/// names. The third spelling an edge source admits, a decision record's `id:`, is not a path
+/// and is not resolved here: `edge-source-unresolved` reads it, and a citation is a thing that
+/// resolves to the catalog.
+///
+/// **This is the one place both directions resolve a stem.** `edge-source-unresolved` asks
+/// whether a `source:` names something held; `catalog-uncited` asks whether an entry is named
+/// by anything. Until #1158 the second read only links, so an entry cited from edges alone was
+/// reported uncited while every edge citing it resolved. Sharing the readings is what makes
+/// that impossible to reintroduce.
+pub(super) fn source_targets(dir: &Path, catalog: &Path, written: &str) -> [PathBuf; 2] {
+    [
+        normalize(&catalog.join(format!("{written}.md"))),
+        normalize(&dir.join(written)),
+    ]
 }
 
 /// [`linked_paths`] for a caller that has already parsed the node.
@@ -2071,20 +2099,32 @@ pub fn linked_paths(node_path: &Path, rel: &str, text: &str) -> HashSet<PathBuf>
 /// [`crate::corpus::parse_or_default`] leaves a default instance exactly as the `unwrap_or_default` above
 /// does. Two checks ask this per node, so re-parsing here meant a lint run parsed every
 /// node's YAML three times.
+///
+/// Three things go in: every `links:` target, every markdown link in the prose, and every
+/// non-blank `source:` an edge writes, read through [`source_targets`]. The last is what an
+/// edge rests on, and it is a citation for the same reason a prose link is — the node has
+/// named a catalog entry as the thing a claim draws from. A blank `source:` names nothing and
+/// is skipped, as `edge-source-unresolved` skips it.
 fn linked_paths_from(
     inst: &crate::parse::CorpusInstance,
     dir: &Path,
     rel: &str,
     text: &str,
+    catalog: &Path,
 ) -> HashSet<PathBuf> {
-    let mut out: HashSet<PathBuf> = inst
-        .links
-        .as_deref()
-        .unwrap_or(&[])
+    let links = inst.links.as_deref().unwrap_or(&[]);
+    let mut out: HashSet<PathBuf> = links
         .iter()
         .filter_map(|l| l.target.as_ref())
         .map(|t| normalize(&dir.join(t)))
         .collect();
+    out.extend(
+        links
+            .iter()
+            .filter_map(|l| l.source.as_deref())
+            .filter(|s| !s.trim().is_empty())
+            .flat_map(|s| source_targets(dir, catalog, s)),
+    );
     out.extend(
         prose_links(rel, dir, text)
             .into_iter()
@@ -2093,10 +2133,10 @@ fn linked_paths_from(
     out
 }
 
-/// [`linked_paths_from`] for a [`Node`], which carries everything it needs.
-fn linked_paths_of(node: &Node) -> HashSet<PathBuf> {
+/// [`linked_paths_from`] for a [`Node`], which carries everything it needs but the catalog.
+fn linked_paths_of(node: &Node, catalog: &Path) -> HashSet<PathBuf> {
     let dir = node.path.parent().unwrap_or(&node.path);
-    linked_paths_from(&node.inst, dir, &node.rel, &node.text)
+    linked_paths_from(&node.inst, dir, &node.rel, &node.text, catalog)
 }
 
 /// Corpus nodes citing each source, by repo-relative path.
@@ -2115,14 +2155,17 @@ fn linked_paths_of(node: &Node) -> HashSet<PathBuf> {
 /// The finding named a file whose text contains no citation, so the diagnosis ran through
 /// "which node cites this?" before arriving at "none of them do".
 ///
-/// Both edge forms count: a `links:` entry and a markdown link in the prose. The prose scan
-/// is [`prose_links`], the same function `broken-prose-link` uses, so a link shown as an
-/// example in code is not read as a citation here either.
-pub fn citations(sources: &[Source], nodes: &[Node]) -> Vec<Vec<String>> {
+/// Three forms count: a `links:` entry, a markdown link in the prose, and an edge's `source:`
+/// naming the entry by stem or by path (#1158). The prose scan is [`prose_links`], the same
+/// function `broken-prose-link` uses, so a link shown as an example in code is not read as a
+/// citation here either. The edge source is resolved by [`source_targets`], the same function
+/// `edge-source-unresolved` resolves it with, so an entry every edge citing it resolves to
+/// cannot be reported as cited by nothing.
+pub fn citations(sources: &[Source], nodes: &[Node], catalog: &Path) -> Vec<Vec<String>> {
     // Resolved once per node rather than once per (node, source) pair, and from [`Node::text`]
     // rather than from a parallel `Vec<String>` the caller built by re-reading every instance.
     // The gate's hot path read the corpus twice and held two copies of it to run one check.
-    let linked: Vec<HashSet<PathBuf>> = nodes.iter().map(linked_paths_of).collect();
+    let linked: Vec<HashSet<PathBuf>> = nodes.iter().map(|n| linked_paths_of(n, catalog)).collect();
 
     sources
         .iter()
@@ -2160,9 +2203,10 @@ pub fn citations(sources: &[Source], nodes: &[Node]) -> Vec<Vec<String>> {
 ///
 /// # What counts as resting on something
 ///
-/// A link that resolves to a file under `.yidam/catalog/`. That is the same resolution
-/// [`citations`] performs, so a node this check calls unsourced is exactly a node absent from
-/// every entry's citation list — the two cannot come to disagree about what a citation is.
+/// A link that resolves to a file under `.yidam/catalog/`, or an edge `source:` that names
+/// one. That is the same resolution [`citations`] performs, so a node this check calls
+/// unsourced is exactly a node absent from every entry's citation list — the two cannot come
+/// to disagree about what a citation is.
 ///
 /// **A `cites:` into a dependency does not count**, and that is RFC-0019's rule rather than a
 /// simplification. A foreign tag is the producer's tag: it records what *that* corpus's
@@ -2185,6 +2229,7 @@ pub fn verified_unsourced(
     nodes: &[Node],
     sources: &[Source],
     fields: &crate::claims::ClaimFields,
+    catalog: &Path,
 ) -> Check {
     let registered: HashSet<PathBuf> = sources.iter().map(|s| normalize(&s.path)).collect();
     let violations = nodes
@@ -2201,7 +2246,7 @@ pub fn verified_unsourced(
             if verified == 0 {
                 return None;
             }
-            let links = linked_paths_of(n);
+            let links = linked_paths_of(n, catalog);
             if links.iter().any(|p| registered.contains(p)) {
                 return None;
             }
@@ -2838,6 +2883,11 @@ pub fn malformed_table(files: &[(String, String)]) -> Check {
 
 #[cfg(test)]
 mod tests {
+    /// The catalog directory every staged node here resolves an edge `source:` against.
+    /// `/repo/.yidam/catalog`, which is where `catalog_source` and `source` put their entries.
+    fn catalog_dir() -> PathBuf {
+        PathBuf::from("/repo/.yidam/catalog")
+    }
 
     /// The resolved graph for a slice of test nodes.
     ///
@@ -3462,6 +3512,25 @@ mod tests {
         )])
     }
 
+    /// A `[verified]` claim whose only source is the one an edge names (#1158). The edge
+    /// resolved under `edge-source-unresolved` and the node was still called unsourced, which
+    /// is the disagreement [`citations`] and this check promise not to have.
+    #[test]
+    fn a_verified_claim_resting_on_an_edge_source_is_sourced() {
+        let nodes = vec![corpus_node(
+            "a",
+            "class: c\ndescription: |\n  A statement. [verified]\nlinks:\n  \
+             - target: ../concept/b.yml\n    claim_tag: verified\n    source: nwis\n",
+        )];
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+        );
+        assert!(c.passed(), "{:?}", c.violations);
+    }
+
     /// The finding: a claim at the strongest standing, and nothing registered beneath it.
     #[test]
     fn a_verified_claim_with_no_citation_is_reported() {
@@ -3470,7 +3539,12 @@ mod tests {
             "class: c\ndescription: |\n  A statement. [verified]\nlinks:\n  \
              - target: ../concept.ont.yml\n",
         )];
-        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+        );
         assert_eq!(c.violations.len(), 1);
         assert_eq!(c.violations[0].node, ".yidam/corpus/concept/a.yml");
         assert!(
@@ -3489,7 +3563,12 @@ mod tests {
             "class: c\ndescription: |\n  A statement. [verified]\nlinks:\n  \
              - target: ../../catalog/nwis.md\n",
         )];
-        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+        );
         assert!(c.passed(), "{:?}", c.violations);
     }
 
@@ -3507,7 +3586,12 @@ mod tests {
                 "class: c\ndescription: |\n  A question. [open]\nlinks: []\n",
             ),
         ];
-        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+        );
         assert!(c.passed(), "{:?}", c.violations);
     }
 
@@ -3520,7 +3604,12 @@ mod tests {
             "class: c\ndescription: |\n  Prose with no marker.\nproperties:\n  \
              claim_tag: verified\nlinks: []\n",
         )];
-        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+        );
         assert_eq!(c.violations.len(), 1, "the structural arm read nothing");
     }
 
@@ -3534,7 +3623,12 @@ mod tests {
             "class: c\ndescription: |\n  A statement. [verified]\ncites:\n  \
              - package: upstream\n    node: concept/x.yml\n    tag: verified\nlinks: []\n",
         )];
-        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+        );
         assert_eq!(c.violations.len(), 1);
         assert!(
             c.violations[0].detail.contains("does not transfer"),
@@ -3553,7 +3647,12 @@ mod tests {
             "class: c\ndescription: |\n  One. [verified] Two. [verified] Three. \
              [verified]\nlinks: []\n",
         )];
-        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+        );
         assert_eq!(c.violations.len(), 1);
         assert!(
             c.violations[0].detail.starts_with("3 `[verified]` claims"),
@@ -3570,7 +3669,7 @@ mod tests {
             "a",
             "class: c\ndescription: |\n  A statement. [verified]\nlinks: []\n",
         )];
-        let c = verified_unsourced(&nodes, &[], &claim_fields());
+        let c = verified_unsourced(&nodes, &[], &claim_fields(), &catalog_dir());
         assert_eq!(c.violations.len(), 1);
     }
 
@@ -3582,7 +3681,7 @@ mod tests {
             "a",
             "class: c\ndescription: |\n  A statement. [verified]\nlinks: []\n",
         )];
-        let c = verified_unsourced(&nodes, &[], &claim_fields());
+        let c = verified_unsourced(&nodes, &[], &claim_fields(), &catalog_dir());
         assert_eq!(c.severity, Severity::Warn);
         assert!(!c.gates(&c.violations[0]));
     }
@@ -4951,7 +5050,7 @@ mod tests {
             "class: concept\nlabel: Gauge ingest\ndescription: The `nwis` crate fetches the \
              series; nwis is also the source name.\nlinks:\n  - target: ../concept/other.yml\n",
         );
-        let cites = citations(&sources, &[node]);
+        let cites = citations(&sources, &[node], &catalog_dir());
         assert_eq!(cites, vec![Vec::<String>::new()], "no link resolves to it");
         assert!(catalog_unobtained_but_cited(&sources, &cites).passed());
     }
@@ -4966,7 +5065,7 @@ mod tests {
             "class: concept\nlabel: Confounding\ndescription: Draws on \
              [Pearl 2009](../../catalog/pearl-2009.md).\nlinks:\n  - target: ../concept/o.yml\n",
         );
-        let cites = citations(&sources, &[node]);
+        let cites = citations(&sources, &[node], &catalog_dir());
         assert_eq!(
             cites[0],
             vec![".yidam/corpus/concept/confounding.yml".to_string()]
@@ -4988,9 +5087,68 @@ mod tests {
             "class: concept\nlabel: Confounding\ndescription: Draws on it.\nlinks:\n  \
              - target: ../../catalog/pearl-2009.md\n    relationship: cites\n",
         );
-        let cites = citations(&sources, &[node]);
+        let cites = citations(&sources, &[node], &catalog_dir());
         assert_eq!(cites[0].len(), 1);
         assert!(catalog_uncited(&sources, &cites).passed());
+    }
+
+    /// The reported case (#1158). A corpus that cites its sources from edges — 140 of them in
+    /// one derived repository, every one a catalog stem — had every such entry reported
+    /// uncited, while `edge-source-unresolved` resolved every one of the edges.
+    #[test]
+    fn an_edge_source_naming_the_entry_by_stem_is_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", true)];
+        let node = corpus_node(
+            "confounding",
+            "class: concept\nlabel: Confounding\ndescription: Draws on it.\nlinks:\n  \
+             - target: ../concept/o.yml\n    relationship: refines\n    claim_tag: verified\n    \
+             source: pearl-2009\n",
+        );
+        let cites = citations(&sources, &[node], &catalog_dir());
+        assert_eq!(
+            cites[0],
+            vec![".yidam/corpus/concept/confounding.yml".to_string()]
+        );
+        assert!(catalog_uncited(&sources, &cites).passed());
+    }
+
+    /// The second spelling `edge-source-unresolved` admits: a path written as a `links:`
+    /// target is. It resolves against the node's own directory, as a target does.
+    #[test]
+    fn an_edge_source_naming_the_entry_by_path_is_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", false)];
+        let node = corpus_node(
+            "confounding",
+            "class: concept\nlabel: Confounding\ndescription: Draws on it.\nlinks:\n  \
+             - target: ../concept/o.yml\n    source: ../../catalog/pearl-2009.md\n",
+        );
+        let cites = citations(&sources, &[node], &catalog_dir());
+        assert_eq!(cites[0].len(), 1);
+        assert_eq!(
+            catalog_unobtained_but_cited(&sources, &cites)
+                .violations
+                .len(),
+            1,
+            "an edge resting on an unfetched source gates as a prose citation of it does"
+        );
+    }
+
+    /// An edge source that resolves to nothing — a renamed entry, a decision record, a blank
+    /// — is not a citation of anything. A decision record in particular is not a catalog entry,
+    /// and the bare stem tried as a path lands in the node's own class directory.
+    #[test]
+    fn an_edge_source_naming_nothing_in_the_catalog_is_not_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", true)];
+        let node = corpus_node(
+            "confounding",
+            "class: concept\nlabel: Confounding\ndescription: Draws on it.\nlinks:\n  \
+             - target: ../concept/o.yml\n    source: pearl-2009-old\n  \
+             - target: ../concept/p.yml\n    source: sampling-frame\n  \
+             - target: ../concept/q.yml\n    source: ''\n",
+        );
+        let cites = citations(&sources, &[node], &catalog_dir());
+        assert_eq!(cites, vec![Vec::<String>::new()]);
+        assert_eq!(catalog_uncited(&sources, &cites).violations.len(), 1);
     }
 
     /// A link shown as an example is not a citation, for the same reason it is not a link.
@@ -5003,7 +5161,7 @@ mod tests {
              `[Pearl 2009](../../catalog/pearl-2009.md)` rather than a full \
              citation.\nlinks:\n  - target: ../concept/o.yml\n",
         );
-        let cites = citations(&sources, &[node]);
+        let cites = citations(&sources, &[node], &catalog_dir());
         assert_eq!(cites, vec![Vec::<String>::new()]);
     }
 
@@ -5016,7 +5174,7 @@ mod tests {
             "class: concept\nlabel: C\ndescription: See \
              [P](../../corpus/../catalog/pearl-2009.md).\nlinks:\n  - target: ../concept/o.yml\n",
         );
-        assert_eq!(citations(&sources, &[node])[0].len(), 1);
+        assert_eq!(citations(&sources, &[node], &catalog_dir())[0].len(), 1);
     }
 
     /// The two entry points are one implementation, and this is what says so. The `&str` form
@@ -5033,8 +5191,8 @@ mod tests {
         ] {
             let node = corpus_node("confounding", text);
             assert_eq!(
-                linked_paths_of(&node),
-                linked_paths(&node.path, &node.rel, &node.text),
+                linked_paths_of(&node, &catalog_dir()),
+                linked_paths(&node.path, &node.rel, &node.text, &catalog_dir()),
                 "diverged on {text:?}"
             );
         }

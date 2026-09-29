@@ -138,10 +138,10 @@
 //! is not reported twice here.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::model::{Check, Severity, Violation};
-use crate::corpus::{normalize, resolve_target, DecisionRecord, Edges, Node, Source};
+use crate::corpus::{normalize, DecisionRecord, Edges, Node, Source};
 use crate::universal::Universal;
 
 /// The check ids, named once — a filter keyed on a literal would drift from the id the
@@ -161,20 +161,20 @@ struct Held {
     /// Catalog entries by normalized path — the same set `verified-unsourced` resolves a
     /// prose citation against, so the two cannot disagree about what is in the catalog.
     catalog_paths: HashSet<PathBuf>,
-    /// Catalog entries by file stem: `1889-municipal-register` for
-    /// `.yidam/catalog/1889-municipal-register.md`.
-    catalog_stems: HashSet<String>,
+    /// The catalog directory, which is what a bare stem — `1889-municipal-register` for
+    /// `.yidam/catalog/1889-municipal-register.md` — resolves against.
+    catalog: PathBuf,
     /// Decision records by declared `id:` and by file stem. Both, because the corpus that asked
     /// keeps them equal and a corpus that does not has not said which it addresses one by.
     decisions: HashSet<String>,
 }
 
 impl Held {
-    fn build(sources: &[Source], decisions: &[DecisionRecord]) -> Self {
+    fn build(sources: &[Source], decisions: &[DecisionRecord], catalog: &Path) -> Self {
         let stem = |p: &std::path::Path| p.file_stem().map(|s| s.to_string_lossy().into_owned());
         Self {
             catalog_paths: sources.iter().map(|s| normalize(&s.path)).collect(),
-            catalog_stems: sources.iter().filter_map(|s| stem(&s.path)).collect(),
+            catalog: catalog.to_path_buf(),
             decisions: decisions
                 .iter()
                 .flat_map(|d| d.decision.id.clone().into_iter().chain(stem(&d.path)))
@@ -184,14 +184,16 @@ impl Held {
 
     /// Whether `written`, as node `from` wrote it, names something held here.
     ///
-    /// A bare stem tried as a path lands in the node's own class directory, which is never a
-    /// catalog entry, so the three readings cannot admit each other's mistakes.
+    /// The two catalog readings are [`super::checks::source_targets`]'s, the function
+    /// `catalog-uncited` counts an edge source with (#1158), so an edge this check resolves is
+    /// an edge that check counts. The decision reading is this check's own: a record is not a
+    /// catalog entry, and citing one is not citing a source.
     fn resolves(&self, from: &Node, written: &str) -> bool {
-        self.catalog_stems.contains(written)
-            || self.decisions.contains(written)
-            || self
-                .catalog_paths
-                .contains(&resolve_target(&from.path, written))
+        let dir = from.path.parent().unwrap_or(&from.path);
+        self.decisions.contains(written)
+            || super::checks::source_targets(dir, &self.catalog, written)
+                .iter()
+                .any(|p| self.catalog_paths.contains(p))
     }
 }
 
@@ -316,9 +318,10 @@ pub fn checks(
     fields: &crate::claims::ClaimFields,
     sources: &[Source],
     decisions: &[DecisionRecord],
+    catalog: &Path,
 ) -> [Check; 4] {
     let required = universal.edge_claims_required();
-    let held = Held::build(sources, decisions);
+    let held = Held::build(sources, decisions, catalog);
     let mut untagged = Vec::new();
     let mut unsourced = Vec::new();
     let mut unheld = Vec::new();
@@ -629,6 +632,7 @@ mod tests {
             &claim_fields,
             &sources,
             &decisions,
+            &catalog,
         );
         let details =
             |c: Check| -> Vec<String> { c.violations.into_iter().map(|v| v.detail).collect() };
