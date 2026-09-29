@@ -366,7 +366,7 @@ pub(crate) fn project(
                     .map(|p| ClassProperty {
                         name: p.name.clone(),
                         kind: p.r#type.clone(),
-                        required: p.required,
+                        required: p.required(),
                         prose: p.prose,
                     })
                     .collect(),
