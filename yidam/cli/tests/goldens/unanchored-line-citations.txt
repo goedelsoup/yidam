@@ -5,7 +5,6 @@
 # One line per citation: `<citing file> → <target>#<fragment>`, sorted, repeats allowed.
 # Delete a line when you anchor its citation (UPDATE_GOLDENS=1 does this and nothing else).
 # Never add one to make the test pass: quote the passage or label the symbol instead.
-
 docs/rfcs/0008-emergent-claims.md → ../../yidam/prelude/CONSTITUTION.md#L40-L41
 docs/rfcs/0009-resolution-executor.md → ../../sadhana/sangha/PROTOCOL.md#L201
 docs/rfcs/0009-resolution-executor.md → ../../sadhana/sangha/PROTOCOL.md#L36-L58
@@ -36,8 +35,8 @@ docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/corpus.rs#L111-L113
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/lint/mod.rs#L900-L954
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/lint/model.rs#L44-L51
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/lint/model.rs#L44-L74
-docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/schema.rs#L234-L237
-docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/schema.rs#L238-L275
+docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/schema.rs#L244-L247
+docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/schema.rs#L248-L285
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/lib.rs#L27
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/main.rs#L18-L146
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/export_llms.rs#L34
@@ -97,10 +96,10 @@ docs/rfcs/0030-standalone-editor.md → ../../yidam/editors/web/src/lib/act.ts#L
 docs/rfcs/0030-standalone-editor.md → ../../yidam/editors/web/src/lib/overlay.ts#L396
 docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/embed.rs#L111
 docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/lint/checks.rs#L994-L999
-docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/schema.rs#L116-L118
-docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/schema.rs#L116-L118
-docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/schema.rs#L116-L118
-docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/schema.rs#L90
+docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/schema.rs#L100
+docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/schema.rs#L126-L128
+docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/schema.rs#L126-L128
+docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/schema.rs#L126-L128
 docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/corpus/class.rs#L57-L63
 docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/corpus/class.rs#L57-L63
 docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/export_rdf.rs#L317
