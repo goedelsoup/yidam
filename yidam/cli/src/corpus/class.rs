@@ -189,8 +189,14 @@ pub struct ClassProperty {
     /// where the question could not be asked, so defaulting to `true` would gate every class
     /// in every derived repository on a declaration nobody made — a gate arriving in a
     /// corpus that never agreed to it, which is #257 from the other direction.
-    #[serde(default)]
-    pub required: bool,
+    ///
+    /// **Kept as written, because `false` and absent are different answers** (#1078). Both
+    /// mean an instance may omit the property, so every check reads [`Self::required`] and
+    /// not this. What differs is whether the ontology was ever asked: a class that writes
+    /// `required: false` has decided, and one that writes nothing may predate the field.
+    /// `doctor`'s `contract` line is the reader that needs the difference.
+    #[serde(default, rename = "required")]
+    pub declared_required: Option<bool>,
     /// Whether this property's value is prose (#746).
     ///
     /// **A fifth of what a corpus writes is here and nothing that reads prose could see it.**
@@ -230,6 +236,13 @@ pub struct ClassProperty {
     /// **Absent means false**, for [`Self::required`]'s reason.
     #[serde(default)]
     pub retrievable: bool,
+}
+impl ClassProperty {
+    /// Whether every instance of the class must carry this property. Absent means false —
+    /// see [`Self::declared_required`].
+    pub fn required(&self) -> bool {
+        self.declared_required.unwrap_or(false)
+    }
 }
 /// One relationship a class declares.
 #[derive(Default, serde::Deserialize)]

@@ -384,6 +384,9 @@ enum Command {
         /// Treat warnings as failures. For a CI job that wants the strictest reading.
         #[arg(long)]
         strict: bool,
+        /// Report only this check, by its id. Repeat to name more than one.
+        #[arg(long, value_name = "ID")]
+        only: Vec<String>,
         #[command(flatten)]
         format: FormatArg,
     },
@@ -1394,8 +1397,9 @@ fn run() -> Result<()> {
         Command::Doctor {
             root,
             strict,
+            only,
             format,
-        } => yidam::doctor(root.as_deref(), strict, format.value),
+        } => yidam::doctor(root.as_deref(), strict, &only, format.value),
         Command::Due {
             root,
             strict,

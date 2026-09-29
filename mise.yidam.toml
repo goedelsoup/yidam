@@ -713,6 +713,14 @@ fi
 if command -v yidam >/dev/null 2>&1; then
   yidam lint --init-baseline 2>/dev/null || true
 fi
+# Whether the ontology ever stated its contract (#1078). Two corpora re-vendored past the
+# commit that introduced `required:` and neither ontology learned it, because nothing asked.
+# A re-vendor is when a corpus meets fields it was written without, so it is asked here.
+#
+# `--strict` exits nonzero on the warning, and `contract` has no `fail`. Printed only when
+# something warned *and* printed: a binary that predates `--only`, or no binary at all,
+# writes nothing to stdout, and must not stop the re-vendor. One line, so a test can run it.
+contract=$(yidam doctor --only contract --strict 2>/dev/null) || [ -z "$contract" ] || printf '\\n%s\\n\\n' "$contract"
 echo "review the diff, then commit it as its own event:"
 echo "  git add .yidam/.vendor/prelude .yidam.toml mise.yidam.toml mise.toml .yidam/lint-baseline.yml"
 echo "  git commit -m 'vendor: re-vendor prelude at $commit — <what changed>'"

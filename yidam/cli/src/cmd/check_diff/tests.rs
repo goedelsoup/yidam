@@ -18,7 +18,7 @@ fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
                 // commits, not about whether an instance must carry them, whether what they
                 // hold is prose, whether it is retrievable, or what it is for.
                 description: String::new(),
-                required: false,
+                declared_required: None,
                 prose: false,
                 values: vec![],
                 retrievable: false,
