@@ -1020,7 +1020,7 @@ description = "Record the corpus's current error-severity violations as its base
 run = "yidam lint --bless"
 
 [schema]
-description = "Emit JSON Schema for the corpus shapes into .yidam/schemas/ for in-editor validation."
+description = "Emit JSON Schema for the corpus shapes into .yidam/schemas/ for in-editor validation. A file yidam did not write is left alone; `yidam schema --force` replaces it."
 run = "yidam schema"
 
 [decisions-log]
