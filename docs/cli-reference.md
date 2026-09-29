@@ -698,9 +698,13 @@ the tree a dependent is checked out from.
 
 A step whose input state matches its committed receipt is skipped, not invoked. The report names
 each skipped step and why. A step that reads what the repository does not hold declares
-`ageing_days`. It is re-run on that cadence even when its inputs have not moved. `--dry-run`
-resolves the plan and reports what is stale. It invokes nothing and writes nothing: no commit, no
-ref, no receipt.
+`ageing_days`. It is re-run on that cadence even when its inputs have not moved. On the branch,
+that re-run lands a commit even when the answer is the same. The commit records the check. An
+epistemic re-run that reproduces its pending proposal lands nothing. The proposal already holds
+that answer.
+
+`--dry-run` resolves the plan and reports what is stale. It invokes nothing and writes nothing: no
+commit, no ref, no receipt.
 
 [RFC-0026](rfcs/0026-orchestrator-layer.md) has the argument for what a run may author. Its §6
 has the argument for freshness.
