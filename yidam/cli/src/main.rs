@@ -922,6 +922,11 @@ enum Command {
         /// Print the editor `yaml.schemas` mapping instead of writing schema files
         #[arg(long)]
         settings: bool,
+        /// Replace a schema file `yidam schema` did not write, rather than refusing the run.
+        /// For files an earlier release wrote before it marked its output; a repository
+        /// that compiles its own schemas into .yidam/schemas/ should not run this at all
+        #[arg(long, conflicts_with = "settings")]
+        force: bool,
     },
     /// Inspect and validate samudaya/ seed files
     #[command(name = "samudaya-audit")]
@@ -1731,7 +1736,7 @@ fn run() -> Result<()> {
             dry_run,
             format,
         } => yidam::migrate(operation.into(), dry_run, format.value),
-        Command::Schema { settings } => yidam::schema(settings),
+        Command::Schema { settings, force } => yidam::schema(settings, force),
         Command::SamudayaAudit { root } => yidam::samudaya_audit(root.as_deref()),
         Command::Sangha { root, format } => yidam::sangha(root.as_deref(), format.value),
         Command::Vocabulary {

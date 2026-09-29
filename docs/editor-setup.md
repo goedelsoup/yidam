@@ -87,6 +87,11 @@ Beside `yaml-language-server` rather than instead of it: that one applies the JS
 `yidam schema` writes, and the two answer different questions. `yidam schema --settings` prints
 the `yaml.schemas` mapping to paste into an editor that wants one.
 
+A repository may write its own schemas into `.yidam/schemas/`, stricter than the generic
+ones. `yidam schema` marks every file it writes in its `$comment`. A target without the mark
+refuses the run before anything is written. `yidam schema --force` replaces a file an earlier
+release wrote unmarked.
+
 ## Install the VS Code extension
 
 Five views over the corpus, lint and `graph-check` verdicts as diagnostics, claim decoration,

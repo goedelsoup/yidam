@@ -1291,7 +1291,7 @@ deciding *quietly*.
 |---|---|
 | `export` * | Export the domain model. `--format`, `--out`, `--list` |
 | `bundle` * | Alias for `export --format bundle`, kept for compatibility *(no flags)* |
-| `schema` * | Emit JSON Schema for the corpus shapes into `.yidam/schemas/`. `--settings` prints the editor `yaml.schemas` mapping instead |
+| `schema` * | Emit JSON Schema for the corpus shapes into `.yidam/schemas/`. A file it did not write is left alone, and the run refuses; `--force` replaces it. `--settings` prints the editor `yaml.schemas` mapping instead |
 
 `yidam export --list` reports each format and its implementation status in *your* build. That is
 the reliable answer, because two of the six are feature-gated:
