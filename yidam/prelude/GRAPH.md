@@ -385,16 +385,16 @@ must carry it:
 properties:
   - name: parameter
     type: string
-    required: true          # absent means false
+    required: true          # absent: not required
     description: The measured quantity, by its publisher's parameter code.
 ```
 
-Omitting a `required: true` property is an **error**; omitting any other declared property is
-reported and does not gate. That is the same rule its four siblings follow — they gate on
-something the ontology actually *said* being contradicted. `unlicensed-edge` sits in the same
-place, gating only where the class said `exhaustive`.
+Omitting a `required: true` property is an **error**, as its four siblings gate on something
+the ontology *said* being contradicted. Omitting a `required: false` one is not reported: the
+class licensed it. Omitting one that says neither is reported and does not gate. These are
+`unlicensed-edge`'s three answers: `exhaustive`, `characteristic` and silence.
 
-**Absent means false**, and that default is load-bearing rather than timid.
+**Absent never gates**, and that default is load-bearing rather than timid.
 [why](GRAPH.evidence.md#required-absent-means-false)
 
 The declaration decides two things at once: the gate above, and the JSON Schema below, which

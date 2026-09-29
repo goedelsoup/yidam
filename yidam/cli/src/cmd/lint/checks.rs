@@ -1203,6 +1203,15 @@ pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
             if carried.iter().any(|(k, _)| *k == declared.name) {
                 continue;
             }
+            // `required: false` is the class saying an instance may omit this, and an
+            // omission it licensed is not a finding (#1055) — `edge_policy: characteristic`'s
+            // shape. Before this, the one corpus that had answered `required:` on every
+            // property drew all 36 of its warnings from the 8 it had marked `false`, and the
+            // deliberate omissions were indistinguishable from the ones nobody decided.
+            // Silence stays reported: absent means the ontology was never asked.
+            if declared.declared_required == Some(false) {
+                continue;
+            }
             // The severity is a function of the DECLARATION, not a blanket judgement about
             // omissions — the shape `orphan-in` already has, where residence time rather
             // than the check's level decides. A class that said `required: true` has
@@ -1235,7 +1244,9 @@ pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
          invisible to every reader and obvious in a list. A property declared \
          `required: true` GATES: the class wrote that contract, and an instance omitting it \
          contradicts the ontology, which is what this check's four siblings gate on. \
-         Everything else is reported, because a class that said nothing about a property \
+         `required: false` is not reported: the class said an instance may omit it, and \
+         an omission the class licensed is not a finding. A property that says neither is \
+         reported and does not gate, because a class that said nothing about a property \
          cannot be read as demanding it — a node that makes no tagged claim is a real \
          state, not a defect, and gating on omission would assert a contract nobody wrote.",
         violations,
@@ -5970,6 +5981,45 @@ edges:
             !c.violations[0].detail.contains("required"),
             "a finding about a property nobody required must not mention requirement: {}",
             c.violations[0].detail
+        );
+    }
+
+    /// `required:` has three answers and they are three severities (#1055): `true` gates,
+    /// silence is reported, and `false` is not a finding at all.
+    ///
+    /// `false` and silence both mean an instance may omit the property, so neither gates.
+    /// What differs is whether anyone decided. A corpus that answered `required:` on every
+    /// property drew all 36 of its warnings from the 8 it had marked `false`, so warning
+    /// there kept the omissions it had licensed in the same list as the ones nobody chose.
+    #[test]
+    fn the_three_required_answers_are_three_different_severities() {
+        let declaring = "properties:\n  \
+                         - name: parameter\n    type: string\n    required: true\n  \
+                         - name: datum\n    type: string\n  \
+                         - name: vendor\n    type: string\n    required: false\n\
+                         edges: []\n";
+        let nodes = vec![node(
+            ".yidam/corpus/gage/outlet.yml",
+            "class: gage\nlinks: []\n",
+        )];
+        let classes = vec![class_from("gage", declaring)];
+
+        let c = missing_property(&nodes, &classes);
+        let found: Vec<_> = c
+            .violations
+            .iter()
+            .map(|v| {
+                let name = ["parameter", "datum", "vendor"]
+                    .into_iter()
+                    .find(|p| v.detail.contains(&format!("`{p}`")))
+                    .unwrap_or_else(|| panic!("names no declared property: {}", v.detail));
+                (name, c.severity_of(v))
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [("parameter", Severity::Error), ("datum", Severity::Warn)],
+            "`vendor` is `required: false` and must not be reported"
         );
     }
 

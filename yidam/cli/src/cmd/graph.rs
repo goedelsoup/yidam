@@ -52,10 +52,14 @@ pub struct OntProperty {
     ///
     /// This report dropped the field until #606, and the omission had a shape worth naming.
     /// `yidam schema` describes `required` on a property and says why it is one declaration:
-    /// *"`missing-property` gates on a property declared `true` and reports the rest, and the
-    /// compiled class schema lists exactly these as JSON Schema `required` — one declaration
-    /// deciding both, so the editor and the gate cannot disagree."* An editor reading this
-    /// report could not see it, so along this route they could, and did.
+    /// *"The compiled class schema lists exactly the `true` ones as JSON Schema `required` —
+    /// one declaration deciding both, so the editor and the gate cannot disagree."* An editor
+    /// reading this report could not see it, so along this route they could, and did.
+    ///
+    /// **One bool still folds two answers.** `required: false` and silence both arrive as
+    /// `false`, and since #1055 `missing-property` reports the second and not the first. A
+    /// client labelling every `false` property "reported" is wrong about the ones declared
+    /// `false`, and the web editor's table does exactly that (#1155).
     ///
     /// What that cost is a client that cannot tell the one property whose omission fails CI
     /// from the four whose omission is reported and forgiven. It was found by a surface that

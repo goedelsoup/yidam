@@ -52,7 +52,7 @@ Three things in it are not obvious and are the reason the RFC is longer than the
 
 `walk_neighbors` chains outbound and inbound edges unconditionally and filters on neither
 relationship nor direction
-([`graph.rs:186-195`](../../yidam/cli/src/cmd/graph.rs#L186-L195)):
+([`graph.rs:190-199`](../../yidam/cli/src/cmd/graph.rs#L190-L199)):
 
 ```rust
 let outward = edges.iter().filter(|(from, _, _)| *from == current) …
@@ -70,14 +70,14 @@ at depth 2 and all of it at depth 3.
 `.ont.yml` now declares, and lint now enforces: the class an instance belongs to
 ([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L610), Error), the properties it may
 and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1058),
-[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1231)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1525)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1594)), and which class
+[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1240)), the type of each value
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1536)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1605)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1663), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1674), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
-([`checks.rs:1647-1648`](../../yidam/cli/src/cmd/lint/checks.rs#L1647-L1648)):
+([`checks.rs:1658-1659`](../../yidam/cli/src/cmd/lint/checks.rs#L1658-L1659)):
 
 > a relationship in no declaration is worth seeing, because **a traversal that walks by
 > relationship will not find it**
@@ -291,7 +291,7 @@ relationship the class does not declare resolves as:
 
 The first row is load-bearing and is easy to omit. `unlicensed_edge` short-circuits on an empty
 edge list **before** it consults the policy
-([`checks.rs:1603-1604`](../../yidam/cli/src/cmd/lint/checks.rs#L1603-L1604)):
+([`checks.rs:1614-1615`](../../yidam/cli/src/cmd/lint/checks.rs#L1614-L1615)):
 
 ```rust
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }

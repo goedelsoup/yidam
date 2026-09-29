@@ -191,10 +191,12 @@ pub struct ClassProperty {
     /// corpus that never agreed to it, which is #257 from the other direction.
     ///
     /// **Kept as written, because `false` and absent are different answers** (#1078). Both
-    /// mean an instance may omit the property, so every check reads [`Self::required`] and
-    /// not this. What differs is whether the ontology was ever asked: a class that writes
-    /// `required: false` has decided, and one that writes nothing may predate the field.
-    /// `doctor`'s `contract` line is the reader that needs the difference.
+    /// mean an instance may omit the property, so every check that asks *what gates* reads
+    /// [`Self::required`] and not this. What differs is whether the ontology was ever asked:
+    /// a class that writes `required: false` has decided, and one that writes nothing may
+    /// predate the field. Two readers need the difference. `doctor`'s `contract` line asks
+    /// whether the ontology answered at all, and `missing-property` reports an omission only
+    /// where nobody did (#1055).
     #[serde(default, rename = "required")]
     pub declared_required: Option<bool>,
     /// Whether this property's value is prose (#746).
