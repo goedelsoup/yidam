@@ -952,3 +952,136 @@ fn migrate_routes_before_a_revendor_refuses() {
     assert_eq!(c.read("AGENTS.md"), OLD_AGENTS);
     assert!(!c.dirty(), "a refused migration wrote to the tree");
 }
+
+// ── scaffold ─────────────────────────────────────────────────────────────────
+
+/// The scaffold's own `ci.yml` and `CLAUDE.md` as a derivation made before #1054 carries them:
+/// the markers stripped, and an owner's job and section added outside where they would go.
+fn with_old_scaffold(c: &Corpus) -> (String, String) {
+    let unmark = |text: String| -> String {
+        text.lines()
+            .filter(|l| !l.contains("<!-- YIDAM:") && !l.contains("<!-- /YIDAM:"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n"
+    };
+    let ci = unmark(
+        std::fs::read_to_string(repo_root().join("sadhana/github/workflows/ci.yml")).unwrap(),
+    ) + "\n  ours:\n    runs-on: ubuntu-latest\n    steps:\n      - run: make ours\n";
+    let claude =
+        unmark(std::fs::read_to_string(repo_root().join("sadhana/root/CLAUDE.md")).unwrap())
+            + "\n## Ours\n\nDomain notes.\n";
+    std::fs::create_dir_all(c.path().join(".github/workflows")).unwrap();
+    std::fs::create_dir_all(c.path().join(".claude")).unwrap();
+    std::fs::write(c.path().join(".github/workflows/ci.yml"), &ci).unwrap();
+    std::fs::write(c.path().join(".claude/CLAUDE.md"), &claude).unwrap();
+    c.git(&["add", "-A"]);
+    c.git(&[
+        "commit",
+        "-q",
+        "-m",
+        "vendor: the scaffold before its regions",
+    ]);
+    (ci, claude)
+}
+
+#[test]
+fn a_dry_run_of_migrate_scaffold_names_the_regions_and_changes_nothing() {
+    let c = Corpus::new();
+    with_old_scaffold(&c);
+    let (ok, out) = c.run(&["migrate", "--dry-run", "scaffold"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Would migrate"), "{out}");
+    assert!(
+        out.contains(".github/workflows/ci.yml  the region takes in: privacy, corpus"),
+        "{out}"
+    );
+    assert!(out.contains("## The short version"), "{out}");
+    assert!(out.contains("(2 file(s) across 2 file(s))"), "{out}");
+    assert!(!c.dirty(), "a dry run wrote to the tree");
+}
+
+/// The migration puts back the scaffold's regions exactly: every line it wraps is the
+/// template's, and every line outside is where the owner left it.
+#[test]
+fn migrate_scaffold_marks_the_template_s_part_and_nothing_else() {
+    let c = Corpus::new();
+    let (ci_before, claude_before) = with_old_scaffold(&c);
+    let (ok, out) = c.run(&["migrate", "scaffold"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("record: .yidam/migrations/scaffold-"), "{out}");
+
+    let ci = c.read(".github/workflows/ci.yml");
+    let claude = c.read(".claude/CLAUDE.md");
+    // Stripping the markers again gives back what was there: nothing added, nothing lost.
+    let unmark = |t: &str| {
+        t.lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter(|l| !l.contains("<!-- YIDAM:") && !l.contains("<!-- /YIDAM:"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(unmark(&claude), unmark(&claude_before), "{claude}");
+    let mut had: Vec<&str> = ci_before.lines().filter(|l| !l.trim().is_empty()).collect();
+    let mut has: Vec<&str> = ci
+        .lines()
+        .filter(|l| {
+            !l.trim().is_empty() && !l.contains("<!-- YIDAM:CI") && !l.contains("<!-- /YIDAM:CI")
+        })
+        .collect();
+    had.sort_unstable();
+    has.sort_unstable();
+    assert_eq!(has, had, "the workflow gained or lost a line");
+
+    // And the region holds the gate jobs and not the owner's.
+    let region = ci
+        .split("<!-- YIDAM:CI -->")
+        .nth(1)
+        .unwrap()
+        .split("<!-- /YIDAM:CI -->")
+        .next()
+        .unwrap();
+    assert!(
+        region.contains("\n  privacy:\n") && region.contains("\n  corpus:\n"),
+        "{ci}"
+    );
+    assert!(
+        !region.contains("\n  ours:\n") && !region.contains("\n  detect:\n"),
+        "{ci}"
+    );
+    let region = claude
+        .split("<!-- YIDAM:CLAUDE -->")
+        .nth(1)
+        .unwrap()
+        .split("<!-- /YIDAM:CLAUDE -->")
+        .next()
+        .unwrap();
+    assert!(
+        region.contains("## The short version") && !region.contains("## Ours"),
+        "{claude}"
+    );
+
+    // Idempotent.
+    let (ok, out) = c.run(&["migrate", "scaffold"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Nothing to migrate"), "{out}");
+}
+
+/// An owner's section between two of the template's refuses: wrapping it would hand it to the
+/// re-vendor. hermetic-ch's `CLAUDE.md` has one.
+#[test]
+fn migrate_scaffold_refuses_an_owner_section_inside_the_template_s() {
+    let c = Corpus::new();
+    let (_, claude) = with_old_scaffold(&c);
+    let claude = claude.replace(
+        "## Before committing",
+        "## Ours first\n\nx\n\n## Before committing",
+    );
+    std::fs::write(c.path().join(".claude/CLAUDE.md"), &claude).unwrap();
+    c.git(&["commit", "-q", "-am", "edit: our section"]);
+    let (ok, out) = c.run(&["migrate", "scaffold"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("`## Ours first`"), "{out}");
+    assert!(out.contains("Nothing was written"), "{out}");
+    assert!(!c.dirty(), "a refused migration wrote to the tree");
+}

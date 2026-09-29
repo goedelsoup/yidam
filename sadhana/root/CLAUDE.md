@@ -11,6 +11,11 @@ knowledge graph. It has already been bootstrapped — there is no bootstrap mode
 Read [AGENTS.md](../AGENTS.md) before taking substantive action. It names the prelude files
 that govern conduct here and the gate that CI runs.
 
+<!-- YIDAM:CLAUDE -->
+<!-- Written by yidam-vendor-update from the yidam scaffold; do not edit. Everything down to
+the closing marker is replaced at each re-vendor, so a correction upstream reaches this file.
+Put this domain's own sections above or below the region, never inside it. -->
+
 ## The short version
 
 - **Nodes** are files in [`.yidam/corpus/`](../.yidam/corpus/). One concept per file. Every
@@ -49,3 +54,5 @@ mise run ci              # the whole gate; the README's gate table lists its ste
 `mise run ci` is what CI runs, and the two are held together by a test upstream. Run it
 rather than its parts: `graph-check` reads the graph and says nothing about a stale REGEN
 block, which is a failing build all the same.
+
+<!-- /YIDAM:CLAUDE -->

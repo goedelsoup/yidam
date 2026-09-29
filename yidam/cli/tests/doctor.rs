@@ -216,6 +216,8 @@ fn the_json_report_carries_the_envelope_and_every_check() {
         "computed",
         "regen",
         "routes",
+        "scaffold",
+        "ci",
         "catalog",
         "corpora",
         "corpus",
@@ -487,6 +489,159 @@ fn a_repository_with_no_agents_md_is_not_asked_about_routes() {
     let r = run(tmp.path(), &["doctor", "--format", "json"]);
     let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
     assert_eq!(check(&v, "routes")["verdict"], "skipped");
+}
+
+/// The scaffold's two files, as genesis installed them before #1054, or with their regions.
+fn with_scaffold(root: &Path, marked: bool) {
+    let (ci, claude) = if marked {
+        (
+            "jobs:\n  # <!-- YIDAM:CI -->\n  corpus:\n    steps:\n      - run: yidam graph-check\n  # <!-- /YIDAM:CI -->\n",
+            "# W\n\n<!-- YIDAM:CLAUDE -->\n\n## The short version\n\n<!-- /YIDAM:CLAUDE -->\n",
+        )
+    } else {
+        (
+            "jobs:\n  corpus:\n    steps:\n      - run: yidam graph-check\n",
+            "# W\n\n## The short version\n\n- a\n",
+        )
+    };
+    std::fs::create_dir_all(root.join(".github/workflows")).unwrap();
+    std::fs::create_dir_all(root.join(".claude")).unwrap();
+    std::fs::write(root.join(".github/workflows/ci.yml"), ci).unwrap();
+    std::fs::write(root.join(".claude/CLAUDE.md"), claude).unwrap();
+}
+
+fn doctor_json(root: &Path) -> serde_json::Value {
+    let r = run(root, &["doctor", "--format", "json"]);
+    serde_json::from_str(&r.stdout).expect("doctor emits JSON")
+}
+
+/// Without markers no re-vendor reaches `ci.yml` or `CLAUDE.md` (#1054), and nothing else says so.
+#[test]
+fn unmarked_scaffold_files_are_reported_with_the_migration() {
+    let tmp = stage();
+    with_scaffold(tmp.path(), false);
+    let v = doctor_json(tmp.path());
+    let c = check(&v, "scaffold");
+    assert_eq!(c["verdict"], "warn", "{c:#?}");
+    let detail = c["detail"].as_str().unwrap();
+    assert!(
+        detail.contains(".github/workflows/ci.yml") && detail.contains(".claude/CLAUDE.md"),
+        "{c:#?}"
+    );
+    assert!(
+        c["remedy"]
+            .as_str()
+            .unwrap()
+            .starts_with("yidam migrate scaffold"),
+        "{c:#?}"
+    );
+}
+
+#[test]
+fn marked_scaffold_files_read_as_held() {
+    let tmp = stage();
+    with_scaffold(tmp.path(), true);
+    let v = doctor_json(tmp.path());
+    assert_eq!(check(&v, "scaffold")["verdict"], "ok");
+    assert_eq!(check(&v, "scaffold")["remedy"], serde_json::Value::Null);
+}
+
+/// A `CLAUDE.md` the owner wrote whole is not asked for a region `migrate scaffold` would not
+/// give it: a warning with no way to clear it is one to live with forever.
+#[test]
+fn an_owner_written_claude_md_is_not_asked_for_a_region() {
+    let tmp = stage();
+    with_scaffold(tmp.path(), true);
+    std::fs::write(
+        tmp.path().join(".claude/CLAUDE.md"),
+        "# Ours\n\n## Our rules\n",
+    )
+    .unwrap();
+    let v = doctor_json(tmp.path());
+    assert_eq!(
+        check(&v, "scaffold")["verdict"],
+        "ok",
+        "{:#?}",
+        check(&v, "scaffold")
+    );
+}
+
+#[test]
+fn a_repository_with_neither_file_is_not_asked_about_the_scaffold() {
+    let tmp = stage();
+    let v = doctor_json(tmp.path());
+    assert_eq!(check(&v, "scaffold")["verdict"], "skipped");
+}
+
+#[test]
+fn a_workflow_that_runs_a_gate_reads_as_gated() {
+    let tmp = stage();
+    with_scaffold(tmp.path(), false);
+    let v = doctor_json(tmp.path());
+    let c = check(&v, "ci");
+    assert_eq!(c["verdict"], "ok", "{c:#?}");
+    assert_eq!(c["detail"], "runs yidam graph-check", "{c:#?}");
+}
+
+/// A gate named only in prose runs nothing, and a green check then says nothing about the graph.
+#[test]
+fn a_workflow_that_only_mentions_a_gate_is_reported() {
+    let tmp = stage();
+    with_scaffold(tmp.path(), false);
+    std::fs::write(
+        tmp.path().join(".github/workflows/ci.yml"),
+        "jobs:\n  # the corpus gate was `yidam graph-check`\n  test:\n    steps:\n      - run: cargo test\n",
+    )
+    .unwrap();
+    let v = doctor_json(tmp.path());
+    let c = check(&v, "ci");
+    assert_eq!(c["verdict"], "warn", "{c:#?}");
+    assert!(
+        c["detail"]
+            .as_str()
+            .unwrap()
+            .contains("none of 1 workflow(s)"),
+        "{c:#?}"
+    );
+}
+
+/// ohio-budget's shape: the workflow runs `mise run ci`, and the repository's own task gates.
+#[test]
+fn a_gate_reached_through_the_repository_s_own_task_counts() {
+    let tmp = stage();
+    with_scaffold(tmp.path(), false);
+    std::fs::write(
+        tmp.path().join(".github/workflows/ci.yml"),
+        "jobs:\n  gate:\n    steps:\n      - run: mise run ci\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.path().join("mise.toml"),
+        "[tasks.ci]\nrun = [\"cargo test\", \"yidam graph-check\"]\n",
+    )
+    .unwrap();
+    let v = doctor_json(tmp.path());
+    let c = check(&v, "ci");
+    assert_eq!(c["verdict"], "ok", "{c:#?}");
+    assert_eq!(
+        c["detail"], "runs mise run ci (yidam graph-check)",
+        "{c:#?}"
+    );
+}
+
+#[test]
+fn a_repository_with_no_workflows_is_warned_that_none_can_be_read() {
+    let tmp = stage();
+    let v = doctor_json(tmp.path());
+    let c = check(&v, "ci");
+    assert_eq!(c["verdict"], "warn", "{c:#?}");
+    assert!(
+        c["detail"]
+            .as_str()
+            .unwrap()
+            .contains("no `.github/workflows/`"),
+        "{c:#?}"
+    );
 }
 
 /// The line `yidam-vendor-update` runs to ask `contract` (#1078), out of the file that ships.
