@@ -540,6 +540,10 @@ from *an instance may have this*, and gating on the second reading asserts a con
 ontology never wrote. Defaulting it to true would demand a declaration nobody made, in every
 derived repository at once.
 
+Absent and `false` both mean an instance may omit the property, but they report differently.
+`missing-property` warns about an omission where the property says nothing. It is silent where
+the property says `required: false`, because the class has already answered.
+
 **`implemented_by:` is absent by default, and nothing is checked without it.** A class may
 name the `struct` or `enum` under `crates/` that implements it, and `unimplemented-class` then
 gates when the tree defines no type of that name — the class stated a fact about the code, and

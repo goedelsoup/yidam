@@ -187,15 +187,17 @@ pub fn corpus_ontology_schema() -> Value {
                             "default": false,
                             "description": "Whether every instance of this class must \
                                             carry the property. `missing-property` gates on \
-                                            a property declared `true` and reports the \
-                                            rest, and the compiled class schema lists \
-                                            exactly these as JSON Schema `required` — one \
-                                            declaration deciding both, so the editor and \
-                                            the gate cannot disagree. Absent means false: \
-                                            every corpus predating this field was written \
-                                            where the question could not be asked, and \
-                                            defaulting to true would demand a declaration \
-                                            nobody made."
+                                            a property declared `true`, reports one that \
+                                            says nothing, and is silent on one declared \
+                                            `false`. The compiled class schema lists \
+                                            exactly the `true` ones as JSON Schema \
+                                            `required` — one declaration deciding both, so \
+                                            the editor and the gate cannot disagree. Absent \
+                                            is not required: every corpus predating this \
+                                            field was written where the question could not \
+                                            be asked, and defaulting to true would demand a \
+                                            declaration nobody made. Write `false` to say \
+                                            an instance may omit it and nothing is owed."
                         },
                         "prose": {
                             "type": "boolean",
