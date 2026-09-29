@@ -10,7 +10,7 @@
   "root": "<ROOT>",
   "gate": {
     "passed": false,
-    "new_violations": 1,
+    "new_violations": 2,
     "baselined_violations": 2,
     "stale_baseline_entries": [
       {
@@ -190,6 +190,24 @@
           "in_baseline": false,
           "span": {
             "line": 14
+          }
+        }
+      ]
+    },
+    {
+      "id": "edge-source-unresolved",
+      "title": "An edge's `source:` names nothing this repository holds",
+      "severity": "error",
+      "rationale": "`edge-verified-unsourced` asks whether a `verified` edge names a source, and until this check that was the whole of the question: a `source:` naming a catalog entry that was renamed, or that never existed, passed exactly as one that resolves. This resolves it. A value may name a catalog entry by its file stem, a catalog entry by a path written as a `links:` target is, or a decision record by its `id:` — the three spellings the derived corpora were measured writing, and the last admitted because an edge can rest on a rule this corpus wrote rather than on a document it retrieved, for which a catalog entry would be the wrong citation. Error, on the one ground the rest of this family cannot claim. Which standing an edge deserves is the author's judgement and every sibling here is Warn for it; whether the thing an edge cites is in this tree is not a judgement at all, and is the question `dangling-edge` already gates on, one key over. The population is empty in a corpus that writes no `source:`, and was measured at zero across every corpus that writes one, so no repository that predates the check is put in debt by it. It reads every edge that names a source, whatever the tag beside it: an `inference` edge naming a dead source has still cited nothing.",
+      "escalation_eligible": false,
+      "violations": [
+        {
+          "node": ".yidam/corpus/concept/tailwater.yml",
+          "detail": "`relates-to` → `../concept/low-flow.yml` names `source: stage-discharge-curve`, which is no catalog entry and no decision record — name a catalog entry by its file stem or by a path from this node, or a decision record by its `id:`",
+          "severity": "error",
+          "in_baseline": false,
+          "span": {
+            "line": 16
           }
         }
       ]

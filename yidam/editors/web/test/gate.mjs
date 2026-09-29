@@ -52,7 +52,9 @@ test('the fixture still holds all three baseline states', () => {
   // took two issues — so a fixture that quietly lost an arm would leave the tests passing
   // while checking a state nobody is in. This is the line that would say so.
   assert.equal(golden.gate.passed, false)
-  assert.equal(golden.gate.new_violations, 1, 'one introduced violation')
+  // Two since #1067: low-flow's missing property, and tailwater's edge naming
+  // a renamed catalog entry (`edge-source-unresolved`).
+  assert.equal(golden.gate.new_violations, 2, 'two introduced violations')
   assert.equal(golden.gate.baselined_violations, 2, 'two entries describe violations that occur')
   assert.equal(golden.gate.expired_baseline_entries.length, 1, 'one of those is out of time')
   assert.equal(golden.gate.stale_baseline_entries.length, 1, 'and one entry describes nothing')
@@ -61,7 +63,7 @@ test('the fixture still holds all three baseline states', () => {
 test('a failing gate names every count, including the two this page used to drop', () => {
   const verdict = gateVerdict(golden.gate)
   assert.equal(verdict.passed, false)
-  assert.equal(verdict.summary, 'Gate failed — 1 new, 2 in baseline, 1 expired, 1 stale.')
+  assert.equal(verdict.summary, 'Gate failed — 2 new, 2 in baseline, 1 expired, 1 stale.')
 })
 
 test('and states each cause, distinguishably from a new violation', () => {

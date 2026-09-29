@@ -14,5 +14,7 @@ properties:
 links:
   - target: ../concept/low-flow.yml
     relationship: relates-to
+    # A stand-in for a renamed entry: the catalog holds `stage-discharge`, not this.
+    source: stage-discharge-curve
   - target: ../concept/mixing-zone.yml
     relationship: relates-to

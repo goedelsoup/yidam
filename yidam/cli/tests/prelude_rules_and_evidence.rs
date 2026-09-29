@@ -151,20 +151,32 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 ///   charged all five for a key only a node's author writes.
 /// - **72 words in `agent-conduct.md`**, the third outbound rule's grammar, on *Before a claim
 ///   crosses a corpus boundary* only.
+///
+/// **Raised on two occasions when an edge's `source:` was resolved (#1067).** Two deltas, each
+/// on the lists that link its section, and both routes moved by each:
+///
+/// - **103 words in `GRAPH.md`**, the `edge-source-unresolved` row and paragraph under *What an
+///   edge rests on*, on *Before you write or revise a node* and *Before you change a class* —
+///   the two occasions that link *The class contract*, as the #1053 raise found.
+/// - **85 words in `agent-conduct.md`**, the fourth bullet under *An edge is a claim*, on
+///   *Before you write or revise a node* only.
+///
+/// The argument for the three spellings the check admits is in the evidence halves and charged
+/// to [`PAIR_FLOOR`].
 const READ_CEILING: &[(&str, &str, usize)] = &[
-    ("AGENTS.md", "Before you write or revise a node", 6_248),
+    ("AGENTS.md", "Before you write or revise a node", 6_436),
     ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
         4_382,
     ),
-    ("AGENTS.md", "Before you change a class", 4_655),
+    ("AGENTS.md", "Before you change a class", 4_758),
     ("AGENTS.md", "Before you retrieve", 2_959),
     (
         "sadhana/root/AGENTS.md",
         "Before you write or revise a node",
-        7_442,
+        7_630,
     ),
     ("sadhana/root/AGENTS.md", "Before you run a phase", 5_800),
     (
@@ -172,7 +184,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
         "Before a claim crosses a corpus boundary",
         5_576,
     ),
-    ("sadhana/root/AGENTS.md", "Before you change a class", 5_849),
+    ("sadhana/root/AGENTS.md", "Before you change a class", 5_952),
     ("sadhana/root/AGENTS.md", "Before you retrieve", 4_153),
 ];
 
@@ -293,7 +305,12 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// path whole: **91 words in `GRAPH.md`** (the `refuses:` subsection) and **72 in
 /// `agent-conduct.md`** (the third outbound rule's grammar). 27,944 + 163 is this figure
 /// exactly, and the two deltas are the ones [`READ_CEILING`] moved by.
-const BOOTSTRAP_CEILING: usize = 28_107;
+///
+/// **Raised to 28,295 when an edge's `source:` was resolved (#1067).** Two files, both on the
+/// path whole: **103 words in `GRAPH.md`** (the `edge-source-unresolved` row and paragraph)
+/// and **85 in `agent-conduct.md`** (the fourth bullet under *An edge is a claim*). 28,107 +
+/// 188 is this figure exactly, and the two deltas are the ones [`READ_CEILING`] moved by.
+const BOOTSTRAP_CEILING: usize = 28_295;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -398,9 +415,17 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// subsection. 5,399 + 72 and 9,540 + 91 are these figures exactly, and they are the deltas
 /// [`BOOTSTRAP_CEILING`] moved by. The argument is RFC-0045's own.
 ///
+/// **`GRAPH.md` re-measured to 9,948 and `agent-conduct.md` to 5,686 for #1067.** 317 and 215
+/// words arrived — 103 and 85 in the rules halves, the `edge-source-unresolved` row, paragraph
+/// and bullet, which are the deltas [`BOOTSTRAP_CEILING`] moved by; 214 and 130 in the
+/// evidence halves, which carry the measurement the check rests on: 1,985 link sources over
+/// four derived corpora, three spellings, all resolving. 9,631 + 317 and 5,471 + 215 are these
+/// figures exactly, so neither pair carried slack before this edit and neither carries any
+/// after it.
+///
 const PAIR_FLOOR: &[(&str, usize)] = &[
-    ("yidam/prelude/guidelines/agent-conduct.md", 5_471),
-    ("yidam/prelude/GRAPH.md", 9_631),
+    ("yidam/prelude/guidelines/agent-conduct.md", 5_686),
+    ("yidam/prelude/GRAPH.md", 9_948),
     ("yidam/prelude/guidelines/directories.md", 12_618),
     ("yidam/prelude/skills/bootstrap.md", 10_810),
 ];

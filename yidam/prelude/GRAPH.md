@@ -201,6 +201,7 @@ addressed by its triple, rather than promoting the node that authors it. The MCP
 | `edge-verified-unsourced` | an edge asserting `verified` and naming no `source:` | no — Warn |
 | `edge-untagged` | an empirical edge declaring no standing, or one spelling none | no — Warn, and only where the corpus asked |
 | `edge-standing-unheld` | an edge asserting a standing **stronger** than one its endpoints declare | no — Warn |
+| `edge-source-unresolved` | an edge whose `source:` names no catalog entry and no decision record | yes — Error |
 
 The first needs no declaration: writing `claim_tag: verified` is itself the opt-in. The second
 cannot be, so it runs only where the corpus says so, once, for the whole graph:
@@ -229,6 +230,13 @@ not the weakest marker in its prose. A node that declares no such property has n
 is compared to nothing. The end an edge is measured against is the **weaker** of the two that
 declare one, and the edge's own standing is the **strongest** it spells. It never gates.
 [why](GRAPH.evidence.md#edge-standing-unheld)
+
+`edge-source-unresolved` reads what a `source:` **names**, and it is the one check in the
+family that gates. A value may name a catalog entry by its file stem, a catalog entry by a path
+written the way a `links:` target is, or a decision record by its `id:`, and it is read on
+every edge that writes one, whatever the tag beside it. Which standing an edge deserves is a
+judgement; whether the thing it cites is in this tree is not.
+[why](GRAPH.evidence.md#edge-source-unresolved)
 
 ### Which keys hold prose
 

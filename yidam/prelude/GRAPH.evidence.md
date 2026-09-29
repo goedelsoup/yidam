@@ -172,6 +172,26 @@ related, which is what the vocabulary is for. And it never gates — both sides 
 are opted into separately, so a corpus can adopt edge tags on a graph whose nodes were graded
 years earlier and inherit findings it did not create.
 
+## edge-source-unresolved
+
+`edge-verified-unsourced` asks whether a `verified` edge names a source, and until this check
+that was the whole question: a `source:` naming an entry that was renamed, or never existed,
+passed exactly as one that resolves. The corpus that filed it had written the check locally.
+
+Three spellings are admitted because three were measured. Over 1,985 link sources in four
+derived corpora, one writes a catalog stem or a decision `id:`, two write the stem, and one
+writes a path relative to the node — and all 1,985 resolve. A check that picked one spelling
+would open with a thousand findings in a corpus whose every citation is sound.
+
+A decision record is admitted because an edge can rest on a rule the corpus wrote rather than
+on a document it retrieved — a `peer-of` edge rests on a comparator rule, for which a catalog
+entry would be the wrong citation.
+
+It gates because the population is empty in a corpus that writes no `source:` and was zero in
+every corpus that writes one, so no repository that predates it is put in debt. And because it
+is `dangling-edge`'s kind of finding, one key over: not a judgement about standing, which every
+sibling here reports as Warn, but a name that names nothing.
+
 ## prose-keys
 
 `description` was the only key anything read as prose, and corpora write more than one. Closing

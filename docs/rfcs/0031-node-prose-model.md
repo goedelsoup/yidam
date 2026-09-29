@@ -76,7 +76,7 @@ that made it so records why:
 > Measured: with `false`, one derived repository was rejected 117 nodes of 117 (`summary`,
 > `findings`, `revisions`, `unfilled` at the top level), a projecting consumer 199 of 199
 >
-> — [`schema.rs:126-128`](../../yidam/cli/src/cmd/schema.rs#L126-L128)
+> — [`schema.rs:136-138`](../../yidam/cli/src/cmd/schema.rs#L136-L138)
 
 `summary` and `findings` are prose. So is `analytic_note`, which `class-asserts-purpose` tells an
 author to move prose *into*. None of them is on `CorpusInstance`, so all of them are silently
@@ -174,7 +174,7 @@ prose. Upstream gives three different answers to those two keys:
 |---|---|
 | [`CorpusLink`](../../yidam/prelude/sdks/rust/src/corpus.rs#L67) | ~~dropped~~ — **kept since #714**: the struct declares `claim_tag` and `source` beside `target` and `relationship` |
 | the published schema, [`schema.rs`](../../yidam/cli/src/cmd/schema.rs#L100) | ~~rejected~~ — **both keys named since #587**; the link item stays closed and now names what a corpus writes |
-| `yidam lint` | ~~nothing~~ — **`edge-untagged`, `edge-verified-unsourced` and `edge-standing-unheld`**, in [`lint/edge_claims.rs`](../../yidam/cli/src/cmd/lint/edge_claims.rs) |
+| `yidam lint` | ~~nothing~~ — **`edge-untagged`, `edge-verified-unsourced`, `edge-standing-unheld` and `edge-source-unresolved`**, in [`lint/edge_claims.rs`](../../yidam/cli/src/cmd/lint/edge_claims.rs) |
 | the reporting surfaces | ~~nothing~~ — **`open-questions`, `status`, `corpus-index` and the MCP `claims` and `open_questions`** read a tagged edge since #857, through [`claims::edge_claims`](../../yidam/cli/src/claims.rs) |
 
 The defect as filed was that the editor underlined 1,270 links as invalid while the runtime
@@ -225,7 +225,7 @@ prose: [summary, description, findings]
 Absent, the set is `[description]` — which is every corpus written before this field existed, so
 nothing changes for them. This is the shape `claim_tag` already has: the corpus says, and no key
 name is blessed. It is deliberately *not* a fixed list of blessed names, for the reason
-[`schema.rs:126-128`](../../yidam/cli/src/cmd/schema.rs#L126-L128) already measured — a closed set is
+[`schema.rs:136-138`](../../yidam/cli/src/cmd/schema.rs#L136-L138) already measured — a closed set is
 what sent 117 nodes of 117 to be reshaped around a validator.
 
 Then every reader takes the declared set rather than the literal `description`:
@@ -313,7 +313,7 @@ node model that products would, for the first time, actually run.
    > The catalog schema describes frontmatter inside markdown, which yaml-language-server cannot
    > apply to a .md file
    >
-   > — [`schema.rs:698-699`](../../yidam/cli/src/cmd/schema.rs#L698-L699)
+   > — [`schema.rs:708-709`](../../yidam/cli/src/cmd/schema.rs#L708-L709)
 
    Every compiled per-class schema is delivered through `yaml.schemas`. Under Markdown nodes,
    none of them reaches a node in a third-party editor. This is the strongest argument against,
@@ -335,7 +335,7 @@ population already names:
 - **prose-to-structure ratio per node** — what fraction of a node's bytes are inside prose fields.
   #674 is one data point at roughly 34 of 118 lines; one is not a population.
 - **how many corpora already grew top-level prose keys**, and which. Two are known from
-  [`schema.rs:126-128`](../../yidam/cli/src/cmd/schema.rs#L126-L128) and one from #674.
+  [`schema.rs:136-138`](../../yidam/cli/src/cmd/schema.rs#L136-L138) and one from #674.
 - **how much of `claims.rs` is YAML-awareness** rather than claim semantics, measured by deleting
   it against a Markdown fixture set rather than estimated.
 
@@ -398,7 +398,7 @@ that much history, by as much as 17 points. One falls by under two points. The t
 own corpus, and it falls by 39, which is the next finding rather than a counter-example.
 
 **2. Coining is one corpus of sixteen, and the projecting consumer has stopped.** The three data
-points [`schema.rs:126-128`](../../yidam/cli/src/cmd/schema.rs#L126-L128) and #674 rest on are one
+points [`schema.rs:136-138`](../../yidam/cli/src/cmd/schema.rs#L136-L138) and #674 rest on are one
 corpus and one generator. Re-measured: that corpus — `ohio-education-funding`, public and already
 named upstream as the divergence canary — still coins, now on 129 nodes of 129 (`summary` on all
 of them, `findings` on 91, plus `figures`, `revisions` and `unfilled`). The projecting consumer
@@ -693,6 +693,17 @@ RFC-0030 shipping first.
    tags by design. Both operands are opted into separately, so a corpus can adopt edge tags on a
    graph whose nodes were graded years earlier and inherit findings it did not create — which is
    the empty-population argument above, failing for the first time in the family.
+
+   The fourth, `edge-source-unresolved` (#1067, 2026-09-29), is the one that ships at Error, and
+   on the ground the other three cannot claim. `edge-verified-unsourced` read only whether a
+   `source:` was present, so a value naming a renamed or nonexistent entry passed as one that
+   resolves; a derived corpus wrote the resolving check locally. What had to be settled was what
+   the key denotes, which nothing had written down: measured over 1,985 link sources in four
+   derived corpora, one writes a catalog stem or a decision record's `id:`, two write the stem,
+   and one writes a path relative to the node. All three are admitted and all 1,985 resolve. It
+   gates because whether the cited thing is in the tree is `dangling-edge`'s kind of question,
+   not a judgement about standing, and because the population was zero everywhere it was
+   measured — the empty-population argument, holding again.
 
 3. **Is a finding record a node-level key or its own file?** In the node, it is beside what it is
    about and travels with a rename. In `.yidam/findings/`, it does not enlarge every node that
