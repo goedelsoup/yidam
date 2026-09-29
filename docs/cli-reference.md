@@ -13,9 +13,9 @@ which is what #873 was.
 
 Three conventions run through the whole surface.
 
-**A `*` means the command rewrites files in the repository it is run against.** Thirty-four
-do. That was previously visible only in each command's long help, where you had to already
-suspect it to go looking. That is the wrong way round for a tool people point at a checkout
+**A `*` means the command rewrites files in the repository it is run against.** That was
+previously visible only in each command's long help, where you had to already suspect it to go
+looking. That is the wrong way round for a tool people point at a checkout
 they only meant to inspect.
 
 **`--format json` is available on most commands** and emits the machine-readable report contract
