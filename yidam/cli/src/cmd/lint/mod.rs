@@ -12,6 +12,7 @@ pub(crate) mod checks;
 pub(crate) mod citations;
 pub(crate) mod commitments;
 pub(crate) mod commits;
+pub(crate) mod deliberation;
 pub(crate) mod edge_claims;
 pub(crate) mod history;
 pub(crate) mod independence;
@@ -565,6 +566,16 @@ const ROSTER: &[Entry] = &[
         asked: Asked::Always,
         run: |i| {
             checks::resolution_executor_unrecorded(&i.sangha().resolutions, i.keys_bind_seats())
+        },
+    },
+    Entry {
+        id: "resolution-deliberation-unrecorded",
+        asked: Asked::Always,
+        run: |i| {
+            checks::resolution_deliberation_unrecorded(
+                &i.sangha().resolutions,
+                i.deliberation_asked(),
+            )
         },
     },
     Entry {
@@ -1424,6 +1435,7 @@ decision := {"allow": true, "deny": []}
         // prose: a repository with no `electors.md` at all still hears both answer.
         assert!(ids.contains("resolution-elector-unregistered"));
         assert!(ids.contains("resolution-executor-unrecorded"));
+        assert!(ids.contains("resolution-deliberation-unrecorded"));
         // Same reason again, and this one is the most silent of all: RFC-0012's verification
         // is vacuous until a registry row binds a signing key, so a check that vanished when
         // it found no keys would be indistinguishable from one nobody wired in.

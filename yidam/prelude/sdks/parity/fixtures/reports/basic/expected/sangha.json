@@ -61,6 +61,8 @@
       ],
       "synthesized_by": [],
       "independence": "distinct-seats",
+      "rounds": "",
+      "positions": [],
       "branch_present": false
     },
     {
@@ -75,6 +77,11 @@
         "ma/hydrologist"
       ],
       "independence": "",
+      "rounds": "1",
+      "positions": [
+        "positions/hydrologist-tailwater-regime.md",
+        "positions/gauge-reader-tailwater-regime.md"
+      ],
       "branch_present": true
     }
   ]

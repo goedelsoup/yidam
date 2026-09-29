@@ -9,8 +9,10 @@ tips:
 
 ## What was resolved
 
-Kept in the fixture on purpose, and it is three findings rather than one. It names no
-`synthesized-by`, which is every record written before that field existed; one of its tips
+Kept in the fixture on purpose, and it is four findings rather than one. It names no
+`synthesized-by`, which is every record written before that field existed. It names no
+round count and no positions either, and warns rather than gates: this fixture carries no
+PROTOCOL.md, so nothing in its history asked for them. One of its tips
 is `ma/dredger`, which `electors.md` does not register; and it states `independence:
 distinct-seats` over two tips that name no commit in this repository, so the registry cannot
 be read at either of them and the derived answer is `unrecorded`. A golden that only ever saw

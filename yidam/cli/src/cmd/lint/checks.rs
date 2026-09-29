@@ -6988,6 +6988,82 @@ pub fn resolution_executor_unrecorded(
     )
 }
 
+/// A resolution record that does not say how its deliberation went: no `rounds:`, or no
+/// `positions:`.
+///
+/// PROTOCOL.md names both fields as what makes Article III *checkable rather than asserted*.
+/// `tips:` says which commits were read; `positions:` says which claims were contested and by
+/// whom, and `rounds:` says whether anyone read anyone else before the synthesis. Without them
+/// a later reader can audit the record only by trusting its prose. **The fields' presence is
+/// the point, not their size** — `rounds: 1` is a complete loop, and this check never asks for
+/// more than one.
+///
+/// A `rounds:` that is not a count of at least one is reported as well. A loop that ran zero
+/// times did not run, and `rounds: two` is a value no reader can compare; both are kept
+/// verbatim by the parser so this finding can say *malformed* rather than *missing*.
+///
+/// **Warn, and Error for a record written after the repository's own PROTOCOL.md asked for
+/// them.** `asked` is that set of records, decided by ancestry in
+/// [`super::deliberation::asked`]: the commit that added the record descends from the commit
+/// that put `rounds:` into the protocol's record format. Omitting the fields there was a
+/// choice rather than an inheritance, so that finding gates. Every other record is the debt
+/// `resolution-executor-unrecorded` describes: 32 of 32 in the repository that has run this
+/// protocol, written from a vendored PROTOCOL.md without the fields. They cannot be fixed
+/// mechanically — a round count is somebody's recollection — and gating on them is how a gate
+/// gets switched off.
+///
+/// **Not decided by the record's other fields.** A record carrying `synthesized-by:` or
+/// `independence:` looks newer than these two fields, but both can be added to an old record
+/// afterward — `resolution-independence-mismatch` asks for exactly that. A tell a repair can
+/// produce would turn an Info repair into an Error.
+pub fn resolution_deliberation_unrecorded(
+    records: &[crate::cmd::sangha::Resolution],
+    asked: &std::collections::BTreeSet<String>,
+) -> Check {
+    let violations = records
+        .iter()
+        .filter_map(|r| {
+            let mut gaps = Vec::new();
+            if r.rounds.is_empty() {
+                gaps.push("no `rounds:`".to_string());
+            } else if !r.rounds.parse::<u32>().is_ok_and(|n| n >= 1) {
+                gaps.push(format!(
+                    "`rounds: {}` is not a count of at least one",
+                    r.rounds
+                ));
+            }
+            if r.positions.is_empty() {
+                gaps.push("no `positions:`".to_string());
+            }
+            if gaps.is_empty() {
+                return None;
+            }
+            let knew = asked.contains(&r.file);
+            let why = if knew {
+                " — the record was added after this repository's PROTOCOL.md asked for them"
+            } else {
+                " — the record names which tips were read and not how the deliberation went"
+            };
+            let v = Violation::new(r.file.clone(), format!("{}{why}", gaps.join(" and ")));
+            Some(if knew { v.at(Severity::Error) } else { v })
+        })
+        .collect();
+    Check::new(
+        "resolution-deliberation-unrecorded",
+        "Resolution record does not name its rounds or the positions it read",
+        Severity::Warn,
+        "Article III asks for ancestry, and ancestry is not only which commits were read: it \
+         is which claims were contested and by whom. `positions:` names them and `rounds:` \
+         says whether the electors read each other before the synthesis. A record carrying \
+         both can be audited by someone who was not there; one without them can only be \
+         believed. `rounds: 1` is a complete loop, so the fields cost nothing to write. A \
+         record older than the fields warns, because nobody can recover a round count \
+         mechanically. A record added after the repository's own PROTOCOL.md asked for them \
+         gates, because there the omission was a choice.",
+        violations,
+    )
+}
+
 #[cfg(test)]
 mod resolution_record_tests {
     use super::*;
@@ -7001,8 +7077,24 @@ mod resolution_record_tests {
             tips: tips.iter().map(|t| t.to_string()).collect(),
             synthesized_by: by.iter().map(|b| b.to_string()).collect(),
             independence: String::new(),
+            rounds: "1".to_string(),
+            positions: vec!["positions/auditor-e.md".to_string()],
             branch_present: true,
         }
+    }
+
+    /// A record in the shape every one in the repository that has run this protocol takes:
+    /// `evolution`, `date` and `tips`, and nothing that says how the deliberation went.
+    fn predating(file: &str) -> Resolution {
+        Resolution {
+            rounds: String::new(),
+            positions: vec![],
+            ..record(file, &[], &["ma/auditor@a", "ma/advocate@b"])
+        }
+    }
+
+    fn none() -> std::collections::BTreeSet<String> {
+        std::collections::BTreeSet::new()
     }
 
     fn registered() -> Vec<String> {
@@ -7096,9 +7188,109 @@ mod resolution_record_tests {
         assert_eq!(c.severity, Severity::Error, "{c:#?}");
     }
 
+    /// A record naming its rounds and positions passes, and one round is enough: the
+    /// protocol's loop ends when a round adds nothing, and the check is not a quota.
+    #[test]
+    fn a_record_naming_one_round_and_its_positions_passes() {
+        let c =
+            resolution_deliberation_unrecorded(&[record("resolutions/e.md", &[], &[])], &none());
+        assert!(c.passed(), "{c:#?}");
+    }
+
+    /// The baseline #592 was filed on: 0 of 29 records carried either field, and 0 of 32 do
+    /// now. Every one is named, each once, and none of them gates — the fields postdate the
+    /// vendored protocol those records were written from.
+    #[test]
+    fn records_predating_the_fields_are_each_named_and_warn() {
+        let r = [predating("resolutions/a.md"), predating("resolutions/b.md")];
+        let c = resolution_deliberation_unrecorded(&r, &none());
+        assert_eq!(c.violations.len(), 2, "{c:#?}");
+        assert_eq!(c.severity, Severity::Warn);
+        for v in &c.violations {
+            assert_eq!(v.severity, None, "a predating record gated: {v:?}");
+            assert!(v.detail.contains("no `rounds:`"), "{v:?}");
+            assert!(v.detail.contains("no `positions:`"), "{v:?}");
+        }
+    }
+
+    /// Either field alone is the finding, and the finding says which one.
+    #[test]
+    fn each_field_is_asked_for_on_its_own() {
+        let no_positions = Resolution {
+            positions: vec![],
+            ..record("resolutions/p.md", &[], &[])
+        };
+        let no_rounds = Resolution {
+            rounds: String::new(),
+            ..record("resolutions/r.md", &[], &[])
+        };
+        let c = resolution_deliberation_unrecorded(&[no_positions, no_rounds], &none());
+        assert_eq!(c.violations.len(), 2, "{c:#?}");
+        assert!(
+            c.violations[0].detail.starts_with("no `positions:`"),
+            "{c:#?}"
+        );
+        assert!(!c.violations[0].detail.contains("rounds"), "{c:#?}");
+        assert!(c.violations[1].detail.starts_with("no `rounds:`"), "{c:#?}");
+    }
+
+    /// A loop that ran zero times did not run, and a count that is not a number cannot be
+    /// compared. Both are named as malformed rather than read as absent.
+    #[test]
+    fn a_rounds_value_that_is_not_a_count_is_named() {
+        for bad in ["0", "two", "-1", "1.5"] {
+            let r = Resolution {
+                rounds: bad.to_string(),
+                ..record("resolutions/e.md", &[], &[])
+            };
+            let c = resolution_deliberation_unrecorded(&[r], &none());
+            assert_eq!(c.violations.len(), 1, "{bad}: {c:#?}");
+            assert!(
+                c.violations[0]
+                    .detail
+                    .contains(&format!("`rounds: {bad}` is not a count")),
+                "{bad}: {c:#?}"
+            );
+        }
+    }
+
+    /// A record added after the repository's PROTOCOL.md asked for the fields gates; one added
+    /// before warns. The check stays Warn, so a consumer must read the finding's own level.
+    #[test]
+    fn a_record_added_after_the_protocol_asked_gates() {
+        let asked: std::collections::BTreeSet<String> = ["resolutions/new.md".to_string()].into();
+        let c = resolution_deliberation_unrecorded(
+            &[
+                predating("resolutions/new.md"),
+                predating("resolutions/old.md"),
+            ],
+            &asked,
+        );
+        assert_eq!(c.severity, Severity::Warn, "{c:#?}");
+        let levels: Vec<_> = c.violations.iter().map(|v| v.severity).collect();
+        assert_eq!(levels, [Some(Severity::Error), None], "{c:#?}");
+        assert!(c.violations[0].detail.contains("asked for them"), "{c:#?}");
+    }
+
+    /// The tell that was rejected: a record carrying `synthesized-by:` and `independence:` is
+    /// not thereby newer, because both can be added to an old record afterward. Only
+    /// ancestry decides.
+    #[test]
+    fn a_newer_field_on_an_old_record_does_not_gate() {
+        let retrofitted = Resolution {
+            synthesized_by: vec!["ma/auditor".to_string()],
+            independence: "distinct-seats".to_string(),
+            ..predating("resolutions/old.md")
+        };
+        let c = resolution_deliberation_unrecorded(&[retrofitted], &none());
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert_eq!(c.violations[0].severity, None, "{c:#?}");
+    }
+
     /// A repository with no sangha has no records, and both checks report that they ran.
     #[test]
     fn no_records_is_not_a_finding() {
+        assert!(resolution_deliberation_unrecorded(&[], &none()).passed());
         assert!(resolution_elector_unregistered(&[], &[]).passed());
         assert!(resolution_executor_unrecorded(&[], false).passed());
         // Escalated or not, a check with nothing to report reports nothing.

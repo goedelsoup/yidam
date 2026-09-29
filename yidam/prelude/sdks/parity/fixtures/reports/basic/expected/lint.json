@@ -531,6 +531,21 @@
       ]
     },
     {
+      "id": "resolution-deliberation-unrecorded",
+      "title": "Resolution record does not name its rounds or the positions it read",
+      "severity": "warn",
+      "rationale": "Article III asks for ancestry, and ancestry is not only which commits were read: it is which claims were contested and by whom. `positions:` names them and `rounds:` says whether the electors read each other before the synthesis. A record carrying both can be audited by someone who was not there; one without them can only be believed. `rounds: 1` is a complete loop, so the fields cost nothing to write. A record older than the fields warns, because nobody can recover a round count mechanically. A record added after the repository's own PROTOCOL.md asked for them gates, because there the omission was a choice.",
+      "escalation_eligible": false,
+      "violations": [
+        {
+          "node": ".yidam/sangha/resolutions/silt-budget.md",
+          "detail": "no `rounds:` and no `positions:` — the record names which tips were read and not how the deliberation went",
+          "severity": "warn",
+          "in_baseline": false
+        }
+      ]
+    },
+    {
       "id": "resolution-independence-mismatch",
       "title": "Resolution's stated independence is not the one its seats derive",
       "severity": "info",
