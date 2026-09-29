@@ -14,7 +14,7 @@ import type { APIRoute } from 'astro'
 import { json, wrongOrigin } from '../../lib/api.ts'
 import { session } from '../../lib/session.ts'
 import { spawnReport } from '../../lib/cli.ts'
-import { describeFailure } from '../../lib/messages.ts'
+import { describeUnavailable } from '../../lib/messages.ts'
 
 export const prerender = false
 
@@ -37,7 +37,7 @@ export const GET: APIRoute = async ({ request }) => {
   const graphCheck = await spawnReport(input, 'graph-check')
 
   if (!lint.ok) {
-    return json({ error: describeFailure(lint.handshake), kind: lint.handshake.kind }, 503)
+    return json({ error: describeUnavailable(lint), kind: lint.handshake.kind }, 503)
   }
 
   return json({

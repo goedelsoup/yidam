@@ -270,14 +270,14 @@ The `yidam` binary gains nothing. There is no `yidam edit` subcommand, no route 
 `http.rs`, and no new Rust feature — a consequence of the reversal worth stating plainly, since
 the original design put all three in the CLI.
 
-- **`--root` sets a working directory, and the binary resolves the corpus from there.** The
-  original text said it *"resolves exactly as `serve --root` does"*, which is right about
-  `serve` and wrong about this surface: **`--root` exists on `serve` and `export`, and on
-  neither of the five report commands this design spawns** — `lint`, `graph`, `graph-check`,
-  `status`, `open-questions`. Those resolve by `git rev-parse --show-toplevel` from the
-  working directory ([`paths.rs:5-9`](../../yidam/cli/src/paths.rs#L5-L9)), which has a
-  consequence stated below rather than inherited silently — see
-  [§ A corpus inside a corpus](#a-corpus-inside-a-corpus).
+- **`--root` is handed to the binary, and also sets its working directory.** The original
+  text said it *"resolves exactly as `serve --root` does"*. When this was written that was
+  right about `serve` and wrong about the five report commands this design spawns — `lint`,
+  `graph`, `graph-check`, `status`, `open-questions` — which resolved by
+  `git rev-parse --show-toplevel` from the working directory
+  ([`paths.rs:5-9`](../../yidam/cli/src/paths.rs#L5-L9)). They take `--root` since #918
+  (cli/v0.16.0), and the surface passes it since #1012; a pinned binary older than that is
+  asked again without the flag. See [§ A corpus inside a corpus](#a-corpus-inside-a-corpus).
 - **Loopback only, and not configurable.** The original offered `--bind` for a container; this
   one does not, because a server that authenticates nobody and now has a Node process in it
   should not carry the flag that turns it into #236. A container reaches it by publishing a port,
@@ -315,8 +315,23 @@ degrade-loudly applied to a question the handshake does not cover.
 
 The real fix is a `--root` flag on the report commands, and it is **the CLI's to make, not this
 surface's** — restating the resolution rule in TypeScript would be the second copy the parity
-apparatus exists to prevent. Until it exists, a corpus nested in another git repository is
-opened by copying it out, which is the workaround `export`'s comment already records.
+apparatus exists to prevent.
+
+> **Amended 2026-09-29 (#1012).** The CLI made it (#918), and every spawn from this surface —
+> the five reports, `serve --mcp` and `serve --lsp` — now carries `--root` beside the working
+> directory. Three consequences:
+>
+> - **A pin older than cli/v0.16.0 still works.** Clap rejects `--root` on its report
+>   commands, so the run is repeated without the flag and the result is marked
+>   `working-directory`. The header then states the overshoot and names the repair, a re-pin.
+>   `serve` has taken `--root` since cli/v0.10.0, below the act tier's floor, so it gets no
+>   fallback.
+> - **The header check stays, with a second cause.** Handed `--root`, the binary walks up to
+>   the nearest `.yidam/`, so a directory *inside* a corpus answers for the corpus around it.
+>   That is correct, and the header says which corpus it is without suggesting a repair.
+> - **A wrong path is now a refusal, not an empty page** (#1000). The refusal has no envelope,
+>   and the handshake would read that as a binary predating `--format json`. So the binary's
+>   own `Error:` text is what the page shows.
 
 ### How it reaches a verdict
 
@@ -329,7 +344,7 @@ The server spawns the pinned binary per request and parses the envelope. Nothing
 | `GET /api/corpus` | `yidam graph --format json`, whose nodes and resolved edges come from [`model::corpus_nodes()`](../../yidam/cli/src/model.rs#L506) — the function `serve`, `graphml` and `rdf` already share |
 | `GET /api/reports` | `lint` and `graph-check` as the RFC-0001 envelope, byte-identical to `--format json` |
 | `GET /api/overlay` (SSE) | Diagnostics from a supervised `yidam serve --lsp` — see below |
-| `POST /api/act/propose`, `POST /api/act/cycle` | The two tools of RFC-0029's `act` tier, through `yidam serve --mcp` — one stdio connection per request, three lines down and two back ([`act.ts:129`](../../yidam/editors/web/src/lib/act.ts#L129)). `?dry_run=true` is the tool's own argument; `force` has no field to arrive in. Landed 2026-09-22 (#608) |
+| `POST /api/act/propose`, `POST /api/act/cycle` | The two tools of RFC-0029's `act` tier, through `yidam serve --mcp` — one stdio connection per request, three lines down and two back ([`act.ts:136`](../../yidam/editors/web/src/lib/act.ts#L136)). `?dry_run=true` is the tool's own argument; `force` has no field to arrive in. Landed 2026-09-22 (#608) |
 
 **Binary resolution is the extension's, and this is the one place the reversal is free.**
 [`binary.ts`](../../yidam/editors/vscode/src/binary.ts) and
@@ -467,7 +482,7 @@ being built:
   ([`overlay.ts:396`](../../yidam/editors/web/src/lib/overlay.ts#L396)). No protocol extension,
   and nothing in the server knows the bridge exists.
 - **The three failure modes are three tests, and a budget.** One
-  [`LspClient`](../../yidam/editors/web/src/lib/lsp.ts#L165) frames `Content-Length` over
+  [`LspClient`](../../yidam/editors/web/src/lib/lsp.ts#L168) frames `Content-Length` over
   stdio and correlates ids; one [`OverlayBridge`](../../yidam/editors/web/src/lib/overlay.ts#L156)
   per process supervises the child: the first page starts it, the last page's leaving shuts
   it down politely and kills it if it will not go, and the process-exit hook kills it

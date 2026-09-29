@@ -48,7 +48,7 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnReport } from './cli.ts'
 import { LspClient, LspExited, describeExit, type Exit, type Spawn } from './lsp.ts'
-import { describeFailure } from './messages.ts'
+import { describeUnavailable } from './messages.ts'
 import type { Session } from './session.ts'
 
 /** A diagnostic as `lsp.rs` publishes it. Relayed whole; nothing here reads inside it. */
@@ -370,7 +370,7 @@ export class OverlayBridge {
     const { root, binary } = await this.deps.session()
     if (binary.command === null) return `no yidam binary: ${binary.reason}`
     const graph = await this.deps.report<{ corpus_dir?: unknown }>({ command: binary.command, root }, 'graph')
-    if (!graph.ok) return describeFailure(graph.handshake)
+    if (!graph.ok) return describeUnavailable(graph)
     if (typeof graph.report.corpus_dir !== 'string') {
       return 'yidam graph did not report corpus_dir, so this bridge cannot address a buffer; re-pin the binary'
     }

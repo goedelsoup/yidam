@@ -18,7 +18,7 @@ import { session } from './session.ts'
 import { spawnReport, type ReportCommand } from './cli.ts'
 import { spawnAct, type ActTool } from './act.ts'
 import { overlay, sseEvent } from './overlay.ts'
-import { describeFailure } from './messages.ts'
+import { describeUnavailable } from './messages.ts'
 
 const JSON_HEADERS = { 'content-type': 'application/json' }
 
@@ -68,7 +68,7 @@ export async function reportRoute(request: Request, command: ReportCommand): Pro
 
   const result = await spawnReport({ command: binary.command, root }, command)
   if (!result.ok) {
-    return json({ error: describeFailure(result.handshake), kind: result.handshake.kind }, 503)
+    return json({ error: describeUnavailable(result), kind: result.handshake.kind }, 503)
   }
   return json(result.report)
 }

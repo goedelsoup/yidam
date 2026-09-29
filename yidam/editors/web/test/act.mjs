@@ -75,7 +75,7 @@ test('the argv is `serve --mcp` in the corpus root, and the frame is the whole o
   const { exec, calls } = server([handshake(DECLARED), tool('{"due":0}')].join('\n'))
   await spawnAct({ command: '/bin/yidam', root: '/corpus', exec }, 'cycle')
   assert.equal(calls.length, 1)
-  assert.deepEqual(calls[0].args, ['serve', '--mcp'])
+  assert.deepEqual(calls[0].args, ['serve', '--mcp', '--root', '/corpus'])
   assert.equal(calls[0].command, '/bin/yidam')
   assert.equal(calls[0].options.cwd, '/corpus')
   assert.equal(calls[0].options.input, frame('cycle', false))

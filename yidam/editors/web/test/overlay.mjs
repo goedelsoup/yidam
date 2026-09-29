@@ -164,7 +164,7 @@ test('the first event is a status carrying the client id; the handshake follows'
   assert.equal(ready.data.unsavedInstances, true)
   assert.equal(ready.data.corpusDir, CORPUS_DIR)
   assert.equal(ready.data.starts, 1)
-  assert.deepEqual(server.last().args, ['serve', '--lsp'])
+  assert.deepEqual(server.last().args, ['serve', '--lsp', '--root', ROOT])
   assert.equal(server.last().cwd, ROOT)
   const init = server.last().received.find((m) => m.method === 'initialize')
   assert.equal(init.params.rootUri, 'file:///tmp/corpus')
