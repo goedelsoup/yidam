@@ -417,6 +417,11 @@ working tree. The digest still answers every question above — *which queries c
 set with counts either way. It answers them identically on both transports, so no
 transport-conditional shape exists for anyone to reason about.
 
+**`yidam record` reads it.** It answers the four questions above in sentences, below a table of
+calls per tool. Pass `--format json` for the same counts as a report. A line from an older
+writer is read as far as its keys go. A line that is not JSON is counted as unreadable, not
+dropped.
+
 **The file is gitignored, and `serve` refuses to start until it is.** `.yidam/record/` must be
 ignored, on the same rule as `.yidam/vault/`. The reason is related: this project's protocols
 prescribe `git add -A`. A tracked record is a working tree that is dirty after every served

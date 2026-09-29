@@ -60,6 +60,7 @@ pub(crate) mod policy;
 pub(crate) mod practice;
 pub(crate) mod propose;
 pub(crate) mod query;
+mod record;
 mod regen;
 pub(crate) mod registry;
 mod rename;
@@ -142,6 +143,7 @@ pub use regen::generator_names as regen_generator_names;
 // `doctor` asks the same question `regen --check` asks, through the same generator list.
 pub use migrate::{migrate, Operation as MigrateOperation};
 pub use policy::{run as run_policy, PolicyCommand};
+pub use record::record;
 pub(crate) use regen::{refresh_quietly, stale_blocks, unclaimed_blocks};
 pub use registry::{agents_index, skills_index};
 pub use rename::rename;

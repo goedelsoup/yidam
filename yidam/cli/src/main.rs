@@ -1043,6 +1043,19 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
+    /// Report what `serve --mcp` was asked, from the record `[serve] record` keeps
+    ///
+    /// Reads `.yidam/record/calls.jsonl` and answers the four questions it exists for: which
+    /// calls came back empty, whether retrieval was served degraded, whether anything acted on
+    /// a clock, and which tools were never called. A corpus that keeps no record is told so —
+    /// *nothing was recorded* is not *nothing was asked*. Reads only, and exits 0 whatever the
+    /// record says.
+    Record {
+        #[command(flatten)]
+        root: RootArg,
+        #[command(flatten)]
+        format: FormatArg,
+    },
     /// Report the sangha: electors, positions, and settled resolutions
     Sangha {
         #[command(flatten)]
@@ -1738,6 +1751,7 @@ fn run() -> Result<()> {
         } => yidam::migrate(operation.into(), dry_run, format.value),
         Command::Schema { settings, force } => yidam::schema(settings, force),
         Command::SamudayaAudit { root } => yidam::samudaya_audit(root.as_deref()),
+        Command::Record { root, format } => yidam::record(root.as_deref(), format.value),
         Command::Sangha { root, format } => yidam::sangha(root.as_deref(), format.value),
         Command::Vocabulary {
             root,

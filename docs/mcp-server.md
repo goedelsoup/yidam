@@ -557,6 +557,8 @@ answering from keyword search for a month.* *Did anything ever act on a clock.*
  "degraded":true,"rejected":false,"ms":12}
 ```
 
+`yidam record` reads the file and answers those questions. It needs no `jq`.
+
 A refusal is recorded too, on the same shape with `outcome: "error"`. That is the path answering
 *which queries returned nothing*. Dropping it would drop the reason to keep the file.
 

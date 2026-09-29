@@ -1,0 +1,26 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "consumption": {
+    "path": ".yidam/record/calls.jsonl",
+    "declared": false,
+    "present": false,
+    "calls": 0,
+    "unreadable": 0,
+    "commits": 0,
+    "first_at": null,
+    "last_at": null,
+    "empty": 0,
+    "empty_questions": 0,
+    "errors": 0,
+    "tools": [],
+    "never_called": []
+  }
+}

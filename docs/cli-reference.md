@@ -1332,6 +1332,7 @@ compiled-in mapping and reads no corpus.
 | `serve --mcp` | MCP over stdio — the agent surface. See [Connecting an agent](mcp-server.md) |
 | `serve --mcp --http` | The same server over HTTP, for a client that takes a URL rather than spawning a process. `--bind` (loopback by default), `--port`, `--allow-origin` |
 | `serve --lsp` | LSP over stdio — the editor surface. See [Editor setup](editor-setup.md) |
+| `record` | What `serve --mcp` was asked, read from the record `[serve] record` keeps. Reads only, and exits 0 |
 
 **`--root <DIR>` matters most here**, and `serve` is where it started (#421). A client
 configures a command line, not a working directory. Without the flag the corpus depends on
@@ -1350,6 +1351,12 @@ names the tool, a digest of its arguments, the row count and the latency. It als
 retrieval was degraded, and the corpus commit it answered from. Never the query text.
 `.yidam/record/` must be gitignored and the server refuses to start until it is. See
 [Configuration](configuration.md#serve-record).
+
+**`yidam record` reads that file.** It prints the calls per tool, then one sentence per
+question the record answers. Those are the empty answers, degraded retrieval, `act`-tier calls,
+and tools never called. A missing file is reported as *nothing was recorded*. That is not the same
+as *nothing was asked*, and the command says which one it found. It never gates: the file is
+gitignored, so a fresh clone or CI runner does not have it.
 
 ## Measuring the corpus
 
