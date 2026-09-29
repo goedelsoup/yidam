@@ -52,7 +52,8 @@ use crate::walk::walk_md_files;
 /// counts are `len()` of these, which is what keeps the two from ever disagreeing.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct Cited {
-    /// Corpus instances that link here. **The list every gate's count reads.**
+    /// Corpus instances that cite this entry, by a link or by an edge `source:`. **The list
+    /// every gate's count reads.**
     pub(super) nodes: Vec<String>,
     /// Other files under `.yidam/corpus/` that link here — class definitions and READMEs.
     ///
@@ -79,7 +80,8 @@ impl Cited {
 /// The two counts, kept exactly as the contract has always emitted them.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 struct Counts {
-    /// Corpus instances that link here. **The number every gate reads.**
+    /// Corpus instances that cite this entry, by a link or by an edge `source:`. **The number
+    /// every gate reads.**
     nodes: usize,
     /// Other files under `.yidam/corpus/` that link here — class definitions and READMEs.
     elsewhere: usize,
@@ -170,7 +172,8 @@ pub(super) fn draws_on(read: &Corpus) -> HashMap<PathBuf, Cited> {
         let text = std::fs::read_to_string(path).unwrap_or_default();
         let rel = path.strip_prefix(root).unwrap_or(path).to_string_lossy();
         let is_node = graph.holds(path);
-        for target in crate::cmd::lint::checks::linked_paths(path, &rel, &text) {
+        for target in crate::cmd::lint::checks::linked_paths(path, &rel, &text, read.catalog_dir())
+        {
             let c = out.entry(target).or_default();
             if is_node {
                 c.nodes.push(rel.to_string());
@@ -219,10 +222,10 @@ fn artifact_cell(artifacts: &[crate::parse::CatalogArtifact]) -> String {
 ///
 /// Generated with the block rather than written once into the README, because a REGEN block
 /// that explains itself somewhere else is one a re-vendored repository never receives.
-const LEGEND: &str = "\n\n**Nodes** counts corpus instances that link here — the number \
-     every gate reads, and what `catalog-uncited` means by *no corpus node draws on this \
-     source*. **Elsewhere** counts other files under `.yidam/corpus/` that link here: class \
-     definitions and README prose. They are kept apart rather than summed, because a claim \
+const LEGEND: &str = "\n\n**Nodes** counts corpus instances that cite this entry, by a link or \
+     by an edge `source:` — the number every gate reads, and what `catalog-uncited` means by \
+     *no corpus node draws on this source*. **Elsewhere** counts other files under \
+     `.yidam/corpus/` that link here: class definitions and README prose. They are kept apart rather than summed, because a claim \
      resting on a source and a page linking to one are different things. **Artifacts** counts what an \
      entry records having obtained, by content address, and how many of those records name \
      bytes — `1 of 2` is an entry that recorded two and gave a digest for one. It says \

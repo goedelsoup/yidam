@@ -145,6 +145,11 @@ impl<'a> Input<'a> {
         self.root
     }
 
+    /// `.yidam/catalog`, where an edge `source:` written as a bare stem resolves (#1158).
+    pub(crate) fn catalog_dir(&self) -> &Path {
+        self.corpus.catalog_dir()
+    }
+
     pub(crate) fn opts(&self) -> &'a Options {
         self.opts
     }
@@ -258,7 +263,7 @@ impl<'a> Input<'a> {
     /// corpus to hand the same bytes to a check a second time.
     pub(crate) fn cites(&self) -> &[Vec<String>] {
         self.cites
-            .get_or_init(|| checks::citations(self.sources(), self.nodes()))
+            .get_or_init(|| checks::citations(self.sources(), self.nodes(), self.catalog_dir()))
     }
 
     /// The `type: claim` properties each class declared, so the structural arm of the claim
@@ -621,6 +626,7 @@ impl<'a> Input<'a> {
                 self.claim_fields(),
                 self.sources(),
                 self.decisions(),
+                self.catalog_dir(),
             )
         })
     }

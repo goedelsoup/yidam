@@ -498,9 +498,10 @@ fn snapshots(
 
 /// Which catalog entries each node cites.
 ///
-/// `linked_paths` is the resolver `catalog-uncited` gates on — `links:` targets and prose
-/// markdown links both, resolved against the node's own directory. Reusing it is what keeps
-/// the agent surface and the gate from disagreeing about what a citation is.
+/// `linked_paths` is the resolver `catalog-uncited` gates on — `links:` targets, prose
+/// markdown links, and edge `source:` values, resolved against the node's own directory and
+/// the catalog's. Reusing it is what keeps the agent surface and the gate from disagreeing
+/// about what a citation is.
 ///
 /// `walk_md_files` for the catalog, not a recursive walk: it is `max_depth(1)` and skips
 /// `README.md`, which is a REGEN target rather than a source. A deeper walk would invent
@@ -533,7 +534,8 @@ fn load_citations(root: &Path, nodes: &[Node]) -> std::collections::HashMap<Stri
                 .unwrap_or(&path)
                 .to_string_lossy()
                 .replace('\\', "/");
-            let linked = crate::cmd::lint::checks::linked_paths(&path, &rel, &n.content);
+            let linked =
+                crate::cmd::lint::checks::linked_paths(&path, &rel, &n.content, &catalog_dir);
             let cited = sources
                 .iter()
                 .filter(|(_, p)| linked.contains(p))
