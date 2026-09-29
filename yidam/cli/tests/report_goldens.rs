@@ -363,6 +363,11 @@ const COMMANDS: &[(&str, &[&str])] = &[
     ("log-epistemic", &["log", "--epistemic"]),
     ("index-status", &["index-status"]),
     ("sangha", &["sangha"]),
+    // The fixture declares no `[serve] record` and holds no record file, so this pins the arm
+    // every clone and every CI runner is in: *nothing was recorded*, said as such, and not a
+    // table of zeros a reader would take for a corpus nobody asked. The populated arm needs a
+    // server to write the file, which is `mcp_serve.rs`'s to run.
+    ("record", &["record"]),
     ("graph", &["graph"]),
     // A plan, not a rename: the golden must not mutate the fixture the other goldens read.
     (
@@ -2378,6 +2383,14 @@ const UNREACHED: &[(&str, &str)] = &[
          object emits. The populated arm is covered end to end in `object_coupling.rs`, which \
          builds the object-coupled shape #577 was measured on and holds every emitted path \
          against this schema",
+    ),
+    (
+        "consumption.tools[]",
+        "`record` emits a row only for a tool the consumption record names, and the fixture \
+         holds no record — the file is gitignored by construction, so no committed corpus does. \
+         The `record` golden pins that arm. `mcp_serve.rs` runs a recording server, reads what \
+         it wrote with `yidam record --format json`, and holds every emitted path — each row \
+         field included — against this schema (#1019)",
     ),
     (
         "reconciled[].commit",

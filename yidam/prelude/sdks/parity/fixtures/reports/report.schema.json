@@ -2909,6 +2909,152 @@
           }
         }
       }
+    },
+    "consumption": {
+      "type": "object",
+      "description": "`record` only (#1019). What `serve --mcp` was asked, read from `.yidam/record/calls.jsonl` \u2014 the file `[serve] record` makes a server append one line per `tools/call` to. `declared` and `present` are two fields and not one because an absent file and an empty one are different findings: the first says nothing was recorded, the second that a server kept the record and was asked nothing. A consumer MUST NOT read `calls: 0` with `present: false` as a corpus nobody read.",
+      "required": [
+        "path",
+        "declared",
+        "present",
+        "calls",
+        "unreadable",
+        "commits",
+        "first_at",
+        "last_at",
+        "empty",
+        "empty_questions",
+        "errors",
+        "tools",
+        "never_called"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Repo-relative path of the record, always `.yidam/record/calls.jsonl`."
+        },
+        "declared": {
+          "type": "boolean",
+          "description": "Whether `.yidam/config.toml` declares `[serve] record = true` now. A record can be present and undeclared: it is what was kept while the key was set."
+        },
+        "present": {
+          "type": "boolean",
+          "description": "Whether the file exists. False means nothing was recorded, which is not a claim that nothing was asked."
+        },
+        "calls": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lines read as calls. Excludes `unreadable`."
+        },
+        "unreadable": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lines that were not a JSON object naming a `tool` \u2014 a torn last line from a killed server is the likeliest. Counted rather than dropped, so a record of N calls is never reported as N\u22121."
+        },
+        "commits": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Distinct corpus commits the calls answered from."
+        },
+        "first_at": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Earliest `at` in the record, seconds since the epoch. Null with no timestamped line."
+        },
+        "last_at": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Latest `at` in the record, seconds since the epoch. Null with no timestamped line."
+        },
+        "empty": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Calls that answered with zero rows and were not rejected \u2014 a rejection is a caller's error, not a hole in the corpus. A line with no `rejected` key, from an older writer, counts as not rejected."
+        },
+        "empty_questions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Distinct `args_digest`s among `empty`: how many questions came back empty, where `empty` counts how many times."
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Calls whose outcome was `error`."
+        },
+        "tools": {
+          "type": "array",
+          "description": "One row per tool the record names, busiest first, ties by name.",
+          "items": {
+            "type": "object",
+            "required": [
+              "tool",
+              "tier",
+              "calls",
+              "errors",
+              "empty",
+              "degraded",
+              "reported_degraded",
+              "p50_ms"
+            ],
+            "properties": {
+              "tool": {
+                "type": "string"
+              },
+              "tier": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The MCP contract's tier for the tool. Null for a name the contract does not carry, which is what a mistyped tool name records as."
+              },
+              "calls": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "errors": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "empty": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "degraded": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "description": "Calls served degraded. NULL, not zero, for a tool no line reported the key for: a tool with no degraded path and a tool that never degraded are different facts."
+              },
+              "reported_degraded": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Calls that reported `degraded` at all. `degraded == reported_degraded` with both non-zero is every call served degraded \u2014 the corpus has never answered this tool from semantic search."
+              },
+              "p50_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "description": "Median latency in milliseconds, the lower middle on an even count. Null with no line carrying `ms`."
+              }
+            }
+          }
+        },
+        "never_called": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tools the MCP contract carries that no line names, in the contract's order. Every tier is listed, including ones this corpus does not back."
+        }
+      }
     }
   }
 }

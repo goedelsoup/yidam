@@ -137,6 +137,7 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
     ("policy", &["check", "--format", "json"], Tell::Envelope),
     ("practice", &[], Tell::Writes("PRACTICE.md")),
     ("query", &["low-flow", "--format", "json"], Tell::Envelope),
+    ("record", &["--format", "json"], Tell::Envelope),
     // `--check`, so this reads the blocks rather than rewriting the ones the `Writes` rows
     // seeded. The writing mode runs the same seventeen generators through the same list.
     ("regen", &["--check", "--format", "json"], Tell::Envelope),

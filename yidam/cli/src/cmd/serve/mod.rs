@@ -21,7 +21,7 @@ mod absence;
 pub(crate) mod bound;
 #[cfg(feature = "serve-http")]
 pub(crate) mod http;
-mod record;
+pub(crate) mod record;
 mod resources;
 pub(crate) mod tools;
 

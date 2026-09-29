@@ -282,7 +282,11 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         title: "Serving the domain computer",
-        commands: &[r("serve").short()],
+        // `record` beside `serve` because it reads what `serve` wrote, and nothing else does.
+        // Not with the gates, though its findings are claims about corpus health: its input is
+        // a gitignored file most checkouts do not have, and a gate over that would either pass
+        // on absence or fail every build that never served anything.
+        commands: &[r("serve").short(), r("record")],
     },
     Group {
         // Its own group rather than beside the gates: `bench` measures and does not gate,
