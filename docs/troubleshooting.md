@@ -27,6 +27,7 @@ yidam doctor — /home/you/my-domain
   fail  corpora      not installed: hydrology
                      → mise run tonpa-install
   ok    corpus       no corpus files yet
+  ok    contract     no classes yet
   ok    vault        none declared
   ok    remote-index no remote index declared
   ok    policy       3 decision(s), all inherited
@@ -57,6 +58,7 @@ exit code unless you pass `--strict`, which is the reading a CI job wants.
 | `catalog` | Have any source records aged out? |
 | `corpora` | Did the corpora this repository depends on arrive? |
 | `corpus` | Can every corpus file be read? |
+| `contract` | Has the ontology said what its classes require? |
 | `vault` | Can this repository reach its vaults? |
 | `remote-index` | Is the declared remote vector index usable from here? |
 | `policy` | Do this repository's own rules compile, and which are its own? |
@@ -301,6 +303,16 @@ which is the whole correctness story for a fetched corpus — so it works on a p
 binary built without the `tonpa` feature, which can read a corpus but not fetch one.
 
 ---
+
+## `contract` warns
+
+Your ontology never answered one of two questions. Does an instance have to carry a property?
+Is a class's `edges:` list closed? Until one class answers, the checks that read the answer
+cannot gate.
+
+Write `required:` on each property, `true` or `false`. Write `edge_policy:` on each class with
+edges, `exhaustive` or `characteristic`. `false` and `characteristic` gate nothing, but they
+answer the question. See *The class contract* in `.yidam/.vendor/prelude/GRAPH.md`.
 
 ## The pin is old, or the prelude is stale
 

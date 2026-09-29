@@ -278,7 +278,7 @@ pub(crate) fn graph_data(read: &Corpus) -> GraphReport {
                     name: p.name.clone(),
                     r#type: p.r#type.clone(),
                     description: p.description.clone(),
-                    required: p.required,
+                    required: p.required(),
                 })
                 .collect(),
             edges: c

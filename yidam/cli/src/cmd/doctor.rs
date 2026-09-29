@@ -176,6 +176,7 @@ impl Check {
     const KUTEN: &'static str = "kuten";
     const KUTEN_READ: &'static str = "kuten-read";
     const CORPUS: &'static str = "corpus";
+    const CONTRACT: &'static str = "contract";
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -927,6 +928,12 @@ const ROSTER: &[Question] = &[
         answer: |s| check_corpus(&s.root),
     },
     Question {
+        id: Check::CONTRACT,
+        text: "Has the ontology said what its classes require?",
+        asked: Asked::OfARepository,
+        answer: |s| check_contract(&s.root),
+    },
+    Question {
         id: Check::VAULT,
         text: "Can this repository reach its vaults?",
         asked: Asked::OfARepository,
@@ -970,15 +977,23 @@ const ROSTER: &[Question] = &[
     },
 ];
 
-/// Run every check against `root`.
+/// Run the checks against `root`.
 ///
 /// `running` and `path_var` are passed rather than read so the two environment-sensitive
 /// checks are testable; production hands them [`std::env::current_exe`] and `$PATH`.
+///
+/// `only` names the questions to report — every one when it is empty.
+///
+/// The repository question is still *asked* when it is not reported, because its answer is
+/// what makes the rest unanswerable. Asking `contract` of a directory that is not a
+/// repository should say `skipped`, as the full run does, and not read an ontology that is
+/// not there.
 pub(crate) fn diagnose(
     root: &Path,
     running: Option<&Path>,
     path_var: Option<&std::ffi::OsStr>,
     today: i64,
+    only: &[&str],
 ) -> Vec<Check> {
     let subject = Subject {
         root: root.to_path_buf(),
@@ -992,6 +1007,10 @@ pub(crate) fn diagnose(
     let mut unanswerable: Option<&'static str> = None;
     let mut checks = Vec::with_capacity(ROSTER.len());
     for question in ROSTER {
+        let reported = only.is_empty() || only.contains(&question.id);
+        if !reported && question.id != Check::REPOSITORY {
+            continue;
+        }
         let check = question.ask(&subject, unanswerable);
         // `!= Ok` rather than `== Fail`: since #914 the repository check has a third
         // answer, and it is a `warn`. A clone that has not been bootstrapped has no more
@@ -1007,7 +1026,9 @@ pub(crate) fn diagnose(
                 "not a yidam repository"
             });
         }
-        checks.push(check);
+        if reported {
+            checks.push(check);
+        }
     }
     checks
 }
@@ -1704,6 +1725,89 @@ fn check_corpus(root: &Path) -> Answer {
     }
 }
 
+/// Has the ontology said what its classes require (#1078)?
+///
+/// **The whole ontology, not one class.** Every contract check takes its severity from the
+/// class's own declaration, which is right per check: `missing-property` gates only on
+/// `required: true`, and `unlicensed-edge` only on `edge_policy: exhaustive`. Many classes
+/// require nothing, and saying so per class would be a report that is never empty. But when
+/// *no* class in an ontology writes `required:`, and *no* class writes `edge_policy:`, both
+/// checks can warn there and never gate. Nothing said so. That is an ontology nobody asked,
+/// and it is usually one written before the fields existed.
+///
+/// **Writing the key is the answer, whatever its value.** `required: false` on every property
+/// is a decision, so this reads [`crate::corpus::ClassProperty::declared_required`] and not
+/// `required()`. `edge_policy: characteristic` is a decision for the same reason. The two
+/// questions are reported apart, because a corpus can answer one and not the other.
+///
+/// Measured on 2026-09-29 over the 16 derived ontologies on one host: 11 answered neither
+/// question, 3 answered only `required:`, and 2 answered both. ohio-education-funding, the
+/// corpus that reported this, answered only `edge_policy:` until it wrote `required:` by hand
+/// that morning. A `warn` and not a `fail`: nothing is broken, and no derived repository runs
+/// `doctor` in CI.
+fn check_contract(root: &Path) -> Answer {
+    let corpus = crate::corpus::Corpus::open(root);
+    contract_answer(corpus.classes())
+}
+
+/// [`check_contract`] over classes already read, so the reading can be tested without a disk.
+///
+/// A class that did not parse reads as one with no properties and no edges, so it adds to
+/// neither question and cannot make either one warn. `corpus` is the line that fails on it.
+fn contract_answer(classes: &[crate::corpus::Class]) -> Answer {
+    use crate::corpus::EdgePolicy;
+    const WHERE: &str = "see `The class contract` in .yidam/.vendor/prelude/GRAPH.md";
+
+    if classes.is_empty() {
+        return Answer::ok("no classes yet");
+    }
+    let properties: Vec<_> = classes.iter().flat_map(|c| &c.properties).collect();
+    let answered_required = properties
+        .iter()
+        .filter(|p| p.declared_required.is_some())
+        .count();
+    // Only a class with edges has a policy to state: `unlicensed-edge` reads nothing else.
+    let with_edges: Vec<_> = classes.iter().filter(|c| !c.edges.is_empty()).collect();
+    let answered_policy = with_edges
+        .iter()
+        .filter(|c| c.edge_policy != EdgePolicy::Unstated)
+        .count();
+
+    let required_unasked = !properties.is_empty() && answered_required == 0;
+    let policy_unasked = !with_edges.is_empty() && answered_policy == 0;
+    let (p, e) = (properties.len(), with_edges.len());
+    match (required_unasked, policy_unasked) {
+        (true, true) => Answer::warn(
+            format!(
+                "no property says `required:` ({p} declared), and no class says \
+                 `edge_policy:` ({e} with edges) — `missing-property` and `unlicensed-edge` \
+                 can warn here and never gate"
+            ),
+            Some(&format!(
+                "write `required:` on each property and `edge_policy:` on each class; {WHERE}"
+            )),
+        ),
+        (true, false) => Answer::warn(
+            format!(
+                "no property says `required:` ({p} declared) — `missing-property` can warn \
+                 here and never gate"
+            ),
+            Some(&format!("write `required:` on each property; {WHERE}")),
+        ),
+        (false, true) => Answer::warn(
+            format!(
+                "no class says `edge_policy:` ({e} with edges) — `unlicensed-edge` can warn \
+                 here and never gate"
+            ),
+            Some(&format!("write `edge_policy:` on each class; {WHERE}")),
+        ),
+        (false, false) => Answer::ok(format!(
+            "`required:` on {answered_required} of {p} property declaration(s), \
+             `edge_policy:` on {answered_policy} of {e} class(es) with edges"
+        )),
+    }
+}
+
 /// Have any source records aged past what the corpus said they may?
 ///
 /// **No network, and none is possible from here.** This reads the entry's own `retrieved:`,
@@ -1802,12 +1906,38 @@ pub(crate) fn render(report: &DoctorReport, root: &Path) -> String {
     out
 }
 
+/// The ids `only` may name, each one a [`ROSTER`] id. An unknown one is an error and not an
+/// empty report: `--only contrat` answering nothing would read as a clean bill of health.
+fn selected(only: &[String]) -> Result<Vec<&'static str>> {
+    only.iter()
+        .map(|want| {
+            ROSTER
+                .iter()
+                .map(|q| q.id)
+                .find(|id| id == want)
+                .ok_or_else(|| {
+                    let ids: Vec<&str> = ROSTER.iter().map(|q| q.id).collect();
+                    anyhow::anyhow!(
+                        "no doctor check `{want}`; the checks are: {}",
+                        ids.join(", ")
+                    )
+                })
+        })
+        .collect()
+}
+
 /// `yidam doctor`. Read-only, and exits nonzero on anything actionable.
+///
+/// `only` narrows the report to the named checks. `yidam-vendor-update` asks `contract` this
+/// way, so a re-vendor raises the question a corpus written before the contract existed was
+/// never asked (#1078).
 pub fn doctor(
     root: Option<&std::path::Path>,
     strict: bool,
+    only: &[String],
     format: crate::report::Format,
 ) -> Result<()> {
+    let only = selected(only)?;
     let root = crate::paths::resolve_root(root)?;
     let running = std::env::current_exe().ok();
     let path_var = std::env::var_os("PATH");
@@ -1816,6 +1946,7 @@ pub fn doctor(
         running.as_deref(),
         path_var.as_deref(),
         crate::dates::today_days(),
+        &only,
     );
     let report = DoctorReport::new(checks, strict);
     let passed = report.passed;
@@ -2397,6 +2528,129 @@ mod tests {
         assert_eq!(crate::dates::days_from_civil_str("2026-13-01"), None);
     }
 
+    // ── contract ─────────────────────────────────────────────────────────────
+
+    fn class(name: &str, body: &str) -> crate::corpus::Class {
+        crate::corpus::Class::parse(format!(".yidam/corpus/{name}.ont.yml"), body)
+    }
+
+    const EDGE: &str = "edges:\n  - relationship: part-of\n    target: place\n";
+
+    fn property(required: &str) -> String {
+        format!("properties:\n  - name: series\n    type: string\n{required}")
+    }
+
+    /// matt-huffman's shape: properties and edges, and neither question answered anywhere.
+    #[test]
+    fn an_ontology_that_answers_neither_question_warns_about_both() {
+        let classes = [
+            class("metric", &format!("{}{EDGE}", property(""))),
+            class("place", "properties: []\n"),
+        ];
+        let a = contract_answer(&classes);
+        assert_eq!(a.verdict, Verdict::Warn);
+        assert!(a.detail.contains("`required:`"), "{}", a.detail);
+        assert!(a.detail.contains("`edge_policy:`"), "{}", a.detail);
+        let remedy = a.remedy.unwrap();
+        assert!(remedy.contains("GRAPH.md"), "{remedy}");
+    }
+
+    /// ohio-education-funding before its `0870a3fd`: `characteristic` on every class and no
+    /// `required:` anywhere. The issue's own proposal, "no class requires anything *and* no
+    /// class states a policy", would have been silent here — on the corpus that reported it.
+    #[test]
+    fn the_two_questions_are_reported_apart() {
+        let edges_answered = [class(
+            "metric",
+            &format!("{}{EDGE}edge_policy: characteristic\n", property("")),
+        )];
+        let a = contract_answer(&edges_answered);
+        assert_eq!(a.verdict, Verdict::Warn);
+        assert!(a.detail.contains("`missing-property`"), "{}", a.detail);
+        assert!(!a.detail.contains("`unlicensed-edge`"), "{}", a.detail);
+
+        let required_answered = [class(
+            "metric",
+            &format!("{}{EDGE}", property("    required: true\n")),
+        )];
+        let a = contract_answer(&required_answered);
+        assert_eq!(a.verdict, Verdict::Warn);
+        assert!(a.detail.contains("`unlicensed-edge`"), "{}", a.detail);
+        assert!(!a.detail.contains("`missing-property`"), "{}", a.detail);
+    }
+
+    /// Writing the key is the answer. `required: false` gates nothing, the same as silence,
+    /// but it is a decision — ohio-education-funding writes it on 7 of its 120 properties,
+    /// each with a reason. Reading [`crate::corpus::ClassProperty::required`] here instead
+    /// of what was written would warn at a corpus that did the work.
+    #[test]
+    fn required_false_is_an_answer() {
+        let classes = [class(
+            "metric",
+            &format!(
+                "{}{EDGE}edge_policy: characteristic\n",
+                property("    required: false\n")
+            ),
+        )];
+        let a = contract_answer(&classes);
+        assert_eq!(a.verdict, Verdict::Ok, "{}", a.detail);
+        assert!(a.remedy.is_none());
+        assert!(!classes[0].properties[0].required());
+    }
+
+    /// One class answering is enough. The signal is the ontology, and a class that requires
+    /// nothing beside one that requires something is a corpus that was asked.
+    #[test]
+    fn one_class_answering_answers_for_the_ontology() {
+        let classes = [
+            class(
+                "metric",
+                &format!("{}{EDGE}", property("    required: true\n")),
+            ),
+            class(
+                "place",
+                &format!("{}{EDGE}edge_policy: exhaustive\n", property("")),
+            ),
+        ];
+        assert_eq!(contract_answer(&classes).verdict, Verdict::Ok);
+    }
+
+    /// A question with no subject is not unanswered. No property means nothing to require,
+    /// and no edge means `unlicensed-edge` has nothing to read a policy for.
+    #[test]
+    fn a_question_with_no_subject_is_not_asked() {
+        assert_eq!(contract_answer(&[]).verdict, Verdict::Ok);
+        let bare = [class("place", "description: A place.\n")];
+        assert_eq!(contract_answer(&bare).verdict, Verdict::Ok);
+    }
+
+    // ── --only ───────────────────────────────────────────────────────────────
+
+    /// `--only` reports what it names and nothing else, and the repository question still
+    /// decides whether the rest can be answered — so a directory that is not a repository
+    /// gets `skipped`, as a full run would say, and no ontology is read.
+    #[test]
+    fn only_reports_what_it_names_and_still_asks_the_repository() {
+        let tmp = TempDir::new().unwrap();
+        let checks = diagnose(tmp.path(), None, None, 20_000, &[Check::CONTRACT]);
+        let ids: Vec<&str> = checks.iter().map(|c| c.id).collect();
+        assert_eq!(ids, [Check::CONTRACT]);
+        assert_eq!(checks[0].verdict, Verdict::Skipped);
+    }
+
+    /// An id that names nothing is an error. An empty report would pass, and read as a clean
+    /// bill of health on a question nobody asked.
+    #[test]
+    fn only_refuses_an_unknown_check() {
+        let err = selected(&["contrat".to_string()]).unwrap_err().to_string();
+        assert!(err.contains("`contrat`"), "{err}");
+        assert!(err.contains("contract"), "{err}");
+        assert_eq!(
+            selected(&["contract".to_string()]).unwrap(),
+            [Check::CONTRACT]
+        );
+    }
+
     // ── repository ───────────────────────────────────────────────────────────
 
     /// The case this whole command exists for: run it somewhere that is not a derived
@@ -2411,7 +2665,7 @@ mod tests {
     #[test]
     fn outside_a_derived_repository_only_the_first_question_is_answered() {
         let tmp = TempDir::new().unwrap();
-        let checks = diagnose(tmp.path(), None, None, 20_000);
+        let checks = diagnose(tmp.path(), None, None, 20_000, &[]);
 
         let asked: Vec<&str> = checks.iter().map(|c| c.id).collect();
         let roster: Vec<&str> = ROSTER.iter().map(|q| q.id).collect();
@@ -2467,7 +2721,7 @@ mod tests {
         // And the rest of the checks are skipped for the same reason as "not a repository"
         // — most of them read git history that does not exist yet either — but the *why*
         // must not claim there is no `.yidam/` here, since there plainly is one.
-        let checks = diagnose(tmp.path(), None, None, 20_000);
+        let checks = diagnose(tmp.path(), None, None, 20_000, &[]);
         let regen = find(&checks, Check::REGEN);
         assert_eq!(regen.verdict, Verdict::Skipped);
         assert!(!DoctorReport::new(checks, false).passed);
@@ -2530,7 +2784,7 @@ mod tests {
             c.remedy
         );
 
-        let checks = diagnose(tmp.path(), None, None, 20_000);
+        let checks = diagnose(tmp.path(), None, None, 20_000, &[]);
         // Every question is still reported, and the ones that read history are skipped with
         // a reason that does not claim this is not a repository.
         for question in ROSTER.iter().filter(|q| q.asked == Asked::OfARepository) {

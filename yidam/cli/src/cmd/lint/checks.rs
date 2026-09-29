@@ -1215,13 +1215,13 @@ pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
                     "`{}` is declared by `{}`{} and this instance does not carry it",
                     declared.name,
                     class.rel,
-                    match declared.required {
+                    match declared.required() {
                         true => " as `required: true`",
                         false => "",
                     }
                 ),
             );
-            violations.push(match declared.required {
+            violations.push(match declared.required() {
                 true => violation.at(Severity::Error),
                 false => violation,
             });

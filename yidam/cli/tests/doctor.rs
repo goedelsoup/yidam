@@ -219,6 +219,7 @@ fn the_json_report_carries_the_envelope_and_every_check() {
         "catalog",
         "corpora",
         "corpus",
+        "contract",
         "vault",
         "remote-index",
         "policy",
@@ -486,4 +487,94 @@ fn a_repository_with_no_agents_md_is_not_asked_about_routes() {
     let r = run(tmp.path(), &["doctor", "--format", "json"]);
     let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
     assert_eq!(check(&v, "routes")["verdict"], "skipped");
+}
+
+/// The line `yidam-vendor-update` runs to ask `contract` (#1078), out of the file that ships.
+///
+/// By content rather than by line number, and exactly one: the task keeps it on one line so
+/// this test runs what a re-vendor runs, and not a copy of it.
+fn vendor_contract_line() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../mise.yidam.toml");
+    let doc: toml::Table = std::fs::read_to_string(path)
+        .expect("mise.yidam.toml is readable")
+        .parse()
+        .expect("mise.yidam.toml parses");
+    let body = doc["yidam-vendor-update"]["run"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let found: Vec<&str> = body
+        .lines()
+        .filter(|l| l.contains("doctor --only contract"))
+        .collect();
+    assert_eq!(found.len(), 1, "one line asks `contract`: {found:?}");
+    found[0].trim().to_string()
+}
+
+/// Run the vendor task's line in `root`, under the task's own `set -eu`, with `bin` as the
+/// whole of `PATH`. Returns stdout, and fails the test if the line would stop a re-vendor.
+fn run_vendor_line(root: &Path, bin: &Path) -> String {
+    let out = Command::new("/bin/sh")
+        .args(["-euc", &vendor_contract_line()])
+        .current_dir(root)
+        .env("PATH", bin)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "the line must never fail a re-vendor: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+/// A directory holding only a `yidam` that is this build.
+fn bin_dir() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_yidam"), dir.path().join("yidam")).unwrap();
+    dir
+}
+
+/// **A re-vendor asks the question** (#1078). ohio-education-funding and matt-huffman both
+/// re-vendored past the commit that introduced `required:`, and neither was told. The line
+/// prints the warning when the ontology never answered, and prints nothing once it has.
+#[test]
+fn a_re_vendor_asks_whether_the_ontology_stated_its_contract() {
+    let tmp = stage();
+    let bin = bin_dir();
+
+    // The fixture answers `required:` on one class and states no `edge_policy:` anywhere.
+    let out = run_vendor_line(tmp.path(), bin.path());
+    assert!(out.contains("warn  contract"), "{out}");
+    assert!(out.contains("`edge_policy:`"), "{out}");
+
+    for class in ["concept", "gauge"] {
+        let path = tmp.path().join(format!(".yidam/corpus/{class}.ont.yml"));
+        let mut text = std::fs::read_to_string(&path).unwrap();
+        text.push_str("edge_policy: characteristic\n");
+        std::fs::write(&path, text).unwrap();
+    }
+    let out = run_vendor_line(tmp.path(), bin.path());
+    assert_eq!(out, "", "an ontology that answered is not told again");
+}
+
+/// With no `yidam` on `PATH`, or one too old to know `--only`, the line prints nothing and
+/// the re-vendor goes on. The old binary is a stand-in that refuses the flag the way clap
+/// does: usage on stderr, nothing on stdout, exit 2.
+#[test]
+fn a_re_vendor_without_a_binary_that_knows_the_question_is_quiet() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = stage();
+    let empty = tempfile::tempdir().unwrap();
+    assert_eq!(run_vendor_line(tmp.path(), empty.path()), "");
+
+    let old = tempfile::tempdir().unwrap();
+    let yidam = old.path().join("yidam");
+    std::fs::write(
+        &yidam,
+        "#!/bin/sh\necho \"error: unexpected argument '--only' found\" >&2\nexit 2\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&yidam, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(run_vendor_line(tmp.path(), old.path()), "");
 }
