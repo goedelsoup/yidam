@@ -377,6 +377,14 @@ jobs:
     concurrency:
       group: pages
       cancel-in-progress: false
+    # A job-level block replaces the workflow's, so all four are restated. `contents: write`
+    # is this job's alone, for the one unreferenced commit object the deploy step writes as
+    # its build version; it creates no ref and moves no branch.
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+      actions: read
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -427,17 +435,20 @@ jobs:
       #
       # It did refuse something. Every run from the one that shipped this step to #1085's
       # fix failed at the request — `{"message":"Not Found"}`, naming nothing — and the site
-      # went twenty-five merges without publishing. The step now attempts the request twice
-      # to find out which of its two values Pages will not take, and a fallback to the bare
-      # commit is a warning rather than a silent return to the defect this step exists for.
-      # Whichever attempt Pages accepts, the other stops being sent.
+      # went twenty-five merges without publishing. #1085 then sent two values in an order,
+      # and `cli/v0.16.0` answered it: Pages 404'd `<sha>-<run id>` and accepted the bare
+      # commit, with the same artifact id both times. **A build version must be a real
+      # commit.** The bare commit was the one main's push had deployed ten minutes earlier,
+      # so the tag's deployment was accepted and published nothing — #992 again.
+      #
+      # So the build version is a commit made for this run: this run's commit's tree, with
+      # that commit as its parent, written through the Git Data API and referenced by
+      # nothing. It is real, so Pages can find it, and new, so Pages has never deployed it.
+      # Nothing points at it and nothing reads it after this step; git collects it.
       - name: Deploy to GitHub Pages
         id: deployment
         env:
           GH_TOKEN: ${{ github.token }}
-          # The whole fix. Deliberately not spelled `GITHUB_SHA`: that name belongs to the
-          # runner and this one does not.
-          BUILD_VERSION: ${{ github.sha }}-${{ github.run_id }}
         run: |
           set -euo pipefail
 
@@ -507,21 +518,25 @@ jobs:
           }
           echo "     token minted, ${#id_token} characters"
 
-          # ── which value Pages is refusing (#1085) ────────────────────────────────
+          # ── the build version: a commit Pages has never deployed (#992) ─────────
           #
-          # Pages answers a refused deployment with `{"message":"Not Found"}` and names
-          # nothing it could not find, and the two candidates are the two values in the
-          # payload: the artifact id (REST's, where `actions/deploy-pages` uses the results
-          # service's) and the build version. A malformed build version is documented as 400
-          # or 422, which points at the artifact — but the run that would settle it is this
-          # one, because the `github-pages` environment admits only `main` and `cli/v*` and
-          # this job therefore has no rehearsal on a branch.
-          #
-          # So the request is made twice, in an order, and both answers reach the log. The
-          # run-scoped version is tried first because it is the one #992 needs. If Pages
-          # takes the bare commit after refusing it, the build version is the cause and the
-          # artifact id is exonerated; if it refuses both, the reverse. Either way the site
-          # publishes, which it has not done since 2026-09-25.
+          # Made from this run's commit rather than invented: same tree, that commit as its
+          # only parent, and a message naming the run, so a reader who finds the id in the
+          # deployments list can tell where it came from.
+          echo "GET  git/commits/${GITHUB_SHA}"
+          tree=$(request "reading this run's commit" \
+            "repos/${GITHUB_REPOSITORY}/git/commits/${GITHUB_SHA}" --jq '.tree.sha')
+          echo "     tree ${tree}"
+          echo "POST git/commits"
+          build_version=$(jq -nc \
+              --arg tree "$tree" \
+              --arg parent "$GITHUB_SHA" \
+              --arg message "Pages deployment of ${GITHUB_SHA} for ${GITHUB_REF} (run ${GITHUB_RUN_ID})" \
+              '{tree: $tree, parents: [$parent], message: $message}' \
+            | request "writing the commit this deployment is identified by" \
+                -X POST "repos/${GITHUB_REPOSITORY}/git/commits" --input - --jq '.sha') || build_version=""
+          echo "     ${build_version:-no commit written}"
+
           payload() {
             jq -nc \
               --argjson artifact_id "$artifact_id" \
@@ -531,28 +546,30 @@ jobs:
                 pages_build_version: $pages_build_version,
                 oidc_token: $oidc_token}'
           }
+          deploy() {
+            # To stderr: the caller reads this function through `$(…)`, as it does `request`.
+            {
+              echo "POST pages/deployments"
+              echo "     artifact_id ${artifact_id}, pages_build_version $1"
+            } >&2
+            payload "$1" | request "creating the Pages deployment ($2)" \
+              -X POST "repos/${GITHUB_REPOSITORY}/pages/deployments" --input -
+          }
 
-          echo "POST pages/deployments"
-          echo "     artifact_id ${artifact_id}, pages_build_version ${BUILD_VERSION}"
-          if created=$(payload "$BUILD_VERSION" \
-            | request "creating the Pages deployment with a build version scoped to this run" \
-                -X POST "repos/${GITHUB_REPOSITORY}/pages/deployments" --input -); then
-            sent=$BUILD_VERSION
-            echo "     Pages accepted the run-scoped build version"
+          # The bare commit is kept as a fallback, loudly. It publishes on a push to main,
+          # where the commit is always new; on a tag or a dispatch it is the #992 no-op, and
+          # the check after this step goes red on it. A site that publishes with a warning
+          # beats one that goes a day without publishing, which is what this step did once.
+          if [ -n "$build_version" ] &&
+             created=$(deploy "$build_version" "a commit written for this run"); then
+            sent=$build_version
           else
-            echo "::warning::Pages refused the run-scoped build version, so this deployment"
-            echo "::warning::is identified by the bare commit instead. A release tag and the"
-            echo "::warning::push it was cut from share a commit; the second such deployment"
-            echo "::warning::is accepted and publishes nothing, which is #992. The check"
-            echo "::warning::after this step is what catches that, on a tag."
-            echo "POST pages/deployments"
-            echo "     artifact_id ${artifact_id}, pages_build_version ${GITHUB_SHA}"
-            created=$(payload "$GITHUB_SHA" \
-              | request "creating the Pages deployment with the bare commit as its build version" \
-                  -X POST "repos/${GITHUB_REPOSITORY}/pages/deployments" --input -)
+            echo "::warning::Pages did not take a commit written for this run, so this"
+            echo "::warning::deployment is identified by the bare commit instead. On a tag"
+            echo "::warning::or a dispatch, that commit is already live and the deployment"
+            echo "::warning::publishes nothing (#992); the check after this step says so."
+            created=$(deploy "$GITHUB_SHA" "the bare commit")
             sent=$GITHUB_SHA
-            echo "     Pages accepted the bare commit, so the run-scoped version is what it"
-            echo "     refused — and the artifact id, which both attempts carried, is not."
           fi
           echo "     Pages answered: ${created}"
 
