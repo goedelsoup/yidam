@@ -115,6 +115,7 @@ pub const GROUPS: &[Group] = &[
     Group {
         title: "Checks and gates — read-only, and exit nonzero on a problem",
         commands: &[
+            r("derive"),
             r("doctor").short(),
             r("graph-check").short(),
             r("lint").short(),

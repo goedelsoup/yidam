@@ -505,6 +505,7 @@ mod tests {
                         .collect(),
                 ),
                 references: None,
+                refuses: None,
                 cites: None,
                 extra: Default::default(),
             },

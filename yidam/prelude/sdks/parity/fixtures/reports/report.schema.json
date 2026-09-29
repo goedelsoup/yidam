@@ -2792,6 +2792,123 @@
           "description": "The diagnosis in prose, naming what was wrong and, where the corpus affords one, the nearest name it does declare."
         }
       }
+    },
+    "derive_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "`derive check` only. The `[derive] paths` globs this repository declares, as written. Empty means none are declared: the report is then empty and the command passes, which is every repository before RFC-0045."
+    },
+    "derivations": {
+      "type": "array",
+      "description": "`derive check` only. One entry per artifact under `[derive] paths`, sorted by path. The command fails when any entry carries an `error` finding; an `info` finding never fails it.",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "claim",
+          "reach",
+          "tier",
+          "spans",
+          "findings"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The artifact, repository-relative."
+          },
+          "claim": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The artifact's `claim:`, whitespace collapsed, or null where it states none."
+          },
+          "reach": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The artifact's `reach:` as written — `public`, `attributed` or `internal` when it is one — or null where it declares none."
+          },
+          "tier": {
+            "enum": [
+              "open",
+              "inference",
+              "verified",
+              null
+            ],
+            "description": "The weakest standing over every located span. `open` for an artifact citing nothing, because nothing beneath it licenses more. Null when no cited span could be located, so no standing was read."
+          },
+          "spans": {
+            "type": "array",
+            "description": "Each `cites:` entry, in the artifact's order.",
+            "items": {
+              "type": "object",
+              "required": [
+                "node",
+                "span",
+                "standing"
+              ],
+              "properties": {
+                "node": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The cited node's corpus key, `class/name`."
+                },
+                "span": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The span as the artifact quotes it."
+                },
+                "standing": {
+                  "enum": [
+                    "open",
+                    "inference",
+                    "verified",
+                    null
+                  ],
+                  "description": "The weakest claim overlapping the span, or `open` where none does. Null when the span could not be located."
+                }
+              }
+            }
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "check",
+                "severity",
+                "message"
+              ],
+              "properties": {
+                "check": {
+                  "type": "string",
+                  "description": "Stable id, one of the nine `derive-*` findings RFC-0045 §3.5 names."
+                },
+                "severity": {
+                  "$ref": "#/$defs/severity",
+                  "description": "`error` for every finding but `derive-refusal-candidate`, which is `info` and proposes a `refuses:` declaration a person decides on."
+                },
+                "node": {
+                  "type": "string",
+                  "description": "The cited node the finding is about, where it is about one."
+                },
+                "message": {
+                  "type": "string",
+                  "description": "What was found and the repair. Prose, free to change."
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

@@ -460,12 +460,12 @@ fn external_citation_unpinned(violations: Vec<Violation>) -> Check {
 }
 
 /// Whitespace-flattened, for a containment test that survives YAML folding.
-pub(super) fn flatten(text: &str) -> String {
+pub(crate) fn flatten(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// A span short enough to sit in a finding, with the elision visible.
-pub(super) fn truncate(span: &str) -> String {
+pub(crate) fn truncate(span: &str) -> String {
     let flat = flatten(span);
     match flat.chars().count() > 60 {
         true => format!("{}…", flat.chars().take(60).collect::<String>()),

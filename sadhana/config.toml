@@ -89,6 +89,14 @@
 # corpus vocabulary governs every commit.
 # paths = ["web/**", "crates/**", "package.json"]
 
+[derive]
+# Globs naming the arguments this repository derives from its corpus — memos, dossiers,
+# findings — for `yidam derive check` to hold to the three outbound rules: each cites a span,
+# its tier is the weakest standing beneath it, and it answers every refusal declared in a
+# paragraph it rests on. A `.yml` file under these globs is an artifact, and so is a `.md` file
+# with YAML frontmatter. Absent means `derive check` reads nothing and passes.
+# paths = ["dossier/**"]
+
 [serve]
 # Whether a server started against this corpus may declare the `act` capability — that is,
 # may write to it. `false` is the default, and a server satisfying every other condition

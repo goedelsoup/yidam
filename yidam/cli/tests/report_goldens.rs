@@ -396,6 +396,10 @@ const COMMANDS: &[(&str, &[&str])] = &[
     // other twenty goldens — and is covered by `kuten_cluster.rs` against the six shapes
     // that defined the profile.
     ("kuten-check", &["kuten", "check"]),
+    // The fixture declares no `[derive] paths`, so this pins the arm every repository is in
+    // today: nothing to read, an empty report, a pass. The held arms are `derive.rs`'s unit
+    // tests, for `kuten-check`'s reason — an artifact here would move the other goldens.
+    ("derive-check", &["derive", "check"]),
     // `policy`'s four, none of which any golden covered before #893 — the roster could not
     // see a subcommand, so nothing required them. RFC-0024 named its dependency as *"RFC-0001
     // (the report contract `policy check --format json` emits on)"* and asked for these
@@ -2295,6 +2299,13 @@ fn declarations(
 /// `stage.toml` says why the followable catalog arm and the held kuten arm are covered end-to-end
 /// instead of here, and `NO_REPORT` says why `index-verify` cannot run at all.
 const UNREACHED: &[(&str, &str)] = &[
+    (
+        "derivations[]",
+        "`derive check` emits an entry only for an artifact under `[derive] paths`, and this \
+         fixture declares none — the arm every repository is in, which the `derive-check` golden \
+         pins. Staging a dossier here would be a fact thirty goldens and three SDK runners carry. \
+         `derive_check.rs` stages both populated arms and holds every emitted path to this schema",
+    ),
     (
         "blessed",
         "`lint --bless` rewrites the baseline, and every invocation in this file is read-only \

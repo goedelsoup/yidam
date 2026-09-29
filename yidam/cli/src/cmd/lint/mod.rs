@@ -21,6 +21,7 @@ pub(crate) mod line_citations;
 pub(crate) mod lineage;
 pub(crate) mod local_citations;
 pub(crate) mod model;
+pub(crate) mod refusals;
 pub(crate) mod scope;
 pub(crate) mod ttl;
 
@@ -426,6 +427,11 @@ const ROSTER: &[Entry] = &[
         id: local_citations::UNTAGGED,
         asked: Asked::Always,
         run: |i| i.local_citation_checks()[3].clone(),
+    },
+    Entry {
+        id: refusals::SPAN_DRIFT,
+        asked: Asked::Always,
+        run: |i| refusals::refusal_span_drift(i.nodes()),
     },
     Entry {
         id: "verified-unsourced",

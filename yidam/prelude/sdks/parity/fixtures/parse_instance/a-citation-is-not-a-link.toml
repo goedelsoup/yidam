@@ -28,6 +28,7 @@ instance = """
     { "target": "../measure.ont.yml", "relationship": "instance-of", "claim_tag": null, "source": null }
   ],
   "references": null,
+  "refuses": null,
   "cites": [
     {
       "package": "allen-county-ohio",

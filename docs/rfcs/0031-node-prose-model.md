@@ -67,7 +67,7 @@ declaration rather than a format.
 
 An instance is a YAML document. `class`, `label`, a `description` block scalar carrying every
 paragraph the node asserts, a `properties` bag typed by the class, and `links`. The parser is
-[`CorpusInstance`](../../yidam/prelude/sdks/rust/src/corpus.rs#L93), and `description` is the only prose field
+[`CorpusInstance`](../../yidam/prelude/sdks/rust/src/corpus.rs#L112), and `description` is the only prose field
 it declares.
 
 Corpora did not stay inside it. The node schema is permissive at the top level, and the comment

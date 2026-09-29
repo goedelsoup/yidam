@@ -1,6 +1,6 @@
 # RFC-0045 — A refusal is declared, and a derivation is checked against it (`refuses:` and `yidam derive check`)
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I33
 - **Commands:** `derive`
 - **Relates to:**

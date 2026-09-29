@@ -259,6 +259,14 @@
       "violations": []
     },
     {
+      "id": "refusal-span-drift",
+      "title": "A declared refusal quotes text its own node no longer holds",
+      "severity": "error",
+      "rationale": "`agent-conduct.md`: an outbound claim does not route around a refusal in the block it cites. `derive check` can only hold an argument to that when the refusal is declared, and it finds the paragraph a refusal governs by the `refuses:` span — so a span the prose no longer contains governs nothing, and every argument resting on that paragraph is released from it with no finding anywhere. Error, under the baseline ratchet: the repair is in this corpus and is one edit. Whitespace is normalized and nothing else is, which is `local-citation-span-drift`'s comparison. The population is empty in a corpus that declares no refusals, so this cannot fail a repository that predates it.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "verified-unsourced",
       "title": "A claim asserted at `[verified]` that rests on nothing",
       "severity": "warn",

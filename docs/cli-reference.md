@@ -56,6 +56,7 @@ Read-only, and they exit nonzero on a problem — which is what makes them usabl
 | `lint` | Corpus quality checks against the baseline ratchet |
 | `index-verify` | Does an embedding provider reproduce this index's contract? `--remote` reads the contract from the vector index `[index.remote]` declares |
 | `samudaya-audit` | Inspect and validate `samudaya/` seed files *(no flags)* |
+| `derive check` | Does each argument under `[derive] paths` hold to the corpus it cites? See [below](#derive) |
 
 `lint` carries the most flags of any command, because it is the one with a ratchet:
 
@@ -71,6 +72,47 @@ Read-only, and they exit nonzero on a problem — which is what makes them usabl
 `lint` answers *did this change make the corpus less clean?* — not *is the corpus clean?* The
 baseline is what makes that the question. — see
 [Configuration](configuration.md#yidamlint-baselineyml).
+
+### `derive`
+
+A memo, dossier or finding carries a claim out of the repository. `agent-conduct.md` gives
+that claim three rules, and `derive check` holds it to them
+([RFC-0045](rfcs/0045-derivation-check.md)). It reads every artifact under
+[`[derive] paths`](configuration.md#derive-paths):
+
+```yaml
+claim: The dam's release schedule governs discharge below it.
+reach: attributed
+cites:
+  - node: reach/tailwater
+    span: Discharge tracks the release schedule
+answers:
+  - node: reach/tailwater
+    refusal: The record does not say the dam caused the 2019 avulsion.
+    answer: This memo claims the schedule, not the avulsion.
+```
+
+**Each span must sit in one paragraph of the node it names.** Resolution, drift and a declared
+`tag:` are checked as `lint` checks a node's own local citation.
+
+**The tier is computed.** It is the weakest standing beneath the spans. `public` admits
+`[verified]` only, `attributed` admits `[inference]` and stronger, and `internal` admits
+anything. An artifact citing nothing is `[open]`.
+
+**A declared refusal is owed an answer.** A node declares one under `refuses:`. When an
+artifact cites that paragraph, it names the refusal under `answers:` and says why the claim
+survives it. Quoting the refusal itself owes nothing.
+
+| Finding | Severity |
+|---|---|
+| `derive-unresolved`, `derive-span-drift`, `derive-span-crosses-paragraph`, `derive-tag-drift` | error |
+| `derive-beyond-reach`, `derive-no-reach` | error |
+| `derive-unanswered-refusal`, `derive-stale-answer` | error |
+| `derive-refusal-candidate` | info |
+
+The candidate is a cited paragraph that reads like a refusal and declares none. It is a
+question for a person and never fails the check. No `[derive] paths` means nothing is read, and
+the check passes.
 
 ## The practice
 

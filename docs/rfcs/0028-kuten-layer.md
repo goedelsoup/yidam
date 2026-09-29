@@ -337,7 +337,7 @@ The slot inventory, with A0's verdicts as #572 records them:
 | **object** — the artifact outside the corpus, and its direction | real — the one axis that breaks conformance | A3 §6, A6 |
 | **dialogue** — what the bootstrap asks | real | A2 |
 | **skills** — what the practice routes through | real | A2 |
-| **rubric** — the criteria a contribution is scored by | real | **A5, co-designed with #286** (scope decision 3): a rubric built alone would be `escalate_after`'s argument violated at rubric scale — *"a value compiled into the binary would be one corpus's answer imposed on every other"* ([`config.rs:65-66`](../../yidam/cli/src/config.rs#L65-L66)) |
+| **rubric** — the criteria a contribution is scored by | real | **A5, co-designed with #286** (scope decision 3): a rubric built alone would be `escalate_after`'s argument violated at rubric scale — *"a value compiled into the binary would be one corpus's answer imposed on every other"* ([`config.rs:67-68`](../../yidam/cli/src/config.rs#L67-L68)) |
 | **clocks** — proposed `[due]` and `[catalog]` values | premature, but not unmeasured (A0 correction, above): the `[due]` keys had a denominator of 2 when A0 ran and 1 corpus held two of them; `catalog.ttl_days` is declared 165 times inside the cluster, pooled median 365 against the proposed 180. Ships as a **proposal with values**, not a permission with blanks — now with the distribution beside it and a rule that retires it | A2, §9 |
 | **thresholds** — proposed `[lint]`/`[propose]` values: `escalate_after`, `withdraw_uncited_after` ([`configuration.md`](../configuration.md)) | premature on `clocks`' evidence, and — unlike `clocks` — not a kuten's to propose either: escalating a finding to a build failure is a gate change that enters through RFC-0024's layer (§7, row 5), and drafting a withdrawal is authorship §8 declines. Ships **named and unpopulated** | A2 |
 | **policy** — proposed severities and overrides | premature: no corpus carries an override in `.yidam/policy/` — re-verified 2026-09-06 under #633, and it stands on its own terms, though on the same corrected denominator as `clocks` (the Rego layer shipped four days before A0) — ships as a **proposal with values**, through RFC-0024's layer, visible as an override | A2, §7 row 5 |
@@ -708,7 +708,7 @@ The slot has two halves and only one can be built:
   naming the state rather than leaving a blank to be invented twice — and the only prose the
   model has about coverage today is one unenforceable sentence about the `scope` verb:
   *"a negative result about coverage is the only durable record that the coverage was checked"*
-  ([`GRAPH.md:619-620`](../../yidam/prelude/GRAPH.md#L619-L620)).
+  ([`GRAPH.md:636-637`](../../yidam/prelude/GRAPH.md#L636-L637)).
 
 **#578 is unscheduled, on the record.** No track in the current iteration carries it. Two
 conditions would schedule it, either sufficing: a second series-completing corpus appears at a
@@ -816,7 +816,7 @@ by that file's own comments.
 
 | Prohibited | Because | Instead |
 |---|---|---|
-| Add a commit verb | The *"closed vocabulary of leading verbs"* ([`GRAPH.md:578`](../../yidam/prelude/GRAPH.md#L578)) is what makes `log --epistemic` decidable, and `classify_commit` is a parity function pinned by fixtures in three SDKs | Declare a **subset** and gloss it. A needed-and-absent verb is evidence for #292, not a patch |
+| Add a commit verb | The *"closed vocabulary of leading verbs"* ([`GRAPH.md:595`](../../yidam/prelude/GRAPH.md#L595)) is what makes `log --epistemic` decidable, and `classify_commit` is a parity function pinned by fixtures in three SDKs | Declare a **subset** and gloss it. A needed-and-absent verb is evidence for #292, not a patch |
 | Add or alter a claim standing | Article V reads the standings as a total order when it licenses lowering a claim at resolution ([`CONSTITUTION.md:72-76`](../../yidam/prelude/CONSTITUTION.md#L72-L76)) | Nothing. This is constitutional |
 | Contradict Articles I–VI | Article I — the prelude is not subject to resolution, and a kuten is vendored prelude | A domain extension appended at genesis, which the constitution already provides for |
 | Change the graph encoding | Files are nodes, links are edges, commits are events. This is the premise, not a policy | Nothing |
@@ -837,7 +837,7 @@ constitutional finding with a stated ground, not a scoping convenience.
 
 1. **RFC-0020, for findings:** a proposal is legal iff it carries what a finding or a corpus
    declaration already said — `transport`'s licence
-   ([`GRAPH.md:627`](../../yidam/prelude/GRAPH.md#L627)): *carriage and not synthesis,
+   ([`GRAPH.md:644`](../../yidam/prelude/GRAPH.md#L644)): *carriage and not synthesis,
    which is what makes it legal outside a resolution event*, because carrying introduces no
    node, edge or claim its author did not hold.
 2. **RFC-0026, for executions:** a run authors operational commits directly; every epistemic
@@ -974,7 +974,7 @@ an interval, and this RFC adds no second one — the same sentence RFC-0026 wrot
    thresholds decide a build failure and a drafted deletion, so a kuten names the slot and
    populates nothing. Undoing the fold also stops the layer disowning the one quote it is built
    on — `escalate_after`'s *"a value compiled into the binary would be one corpus's answer
-   imposed on every other"* ([`config.rs:65-66`](../../yidam/cli/src/config.rs#L65-L66)) is the
+   imposed on every other"* ([`config.rs:67-68`](../../yidam/cli/src/config.rs#L67-L68)) is the
    argument for the kuten existing, and it was the only slot with no row. ~~`inquiry` leaves it
    unpopulated, as it leaves `object`, `rubric` and `question_pressure`.~~
 
