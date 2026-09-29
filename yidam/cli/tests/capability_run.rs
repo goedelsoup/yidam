@@ -852,6 +852,24 @@ fn settle(e: &Example) {
     assert_eq!(code, 0, "settling the corpus failed:\n{out}{err}");
 }
 
+/// [`settle`] until a run leaves the branch where it found it, so the proposal is for this HEAD.
+///
+/// One settle drafts the epistemic step's proposal at the head it stood on, and a terminal step
+/// that runs after it can still advance the branch. `streamflow` has one under
+/// `calculators-gluon`: `travel-tier-typed` declares no `after` and commits once
+/// `disclosure-envelope` has proposed, so the proposal names a head that is no longer HEAD. A
+/// run that holds the branch has proposed at the head it ended on.
+fn settle_until_the_branch_holds(e: &Example) {
+    for _ in 0..3 {
+        let before = git(&e.path(), &["rev-parse", "HEAD"]);
+        settle(e);
+        if git(&e.path(), &["rev-parse", "HEAD"]) == before {
+            return;
+        }
+    }
+    panic!("three runs each advanced the branch, so the corpus never settled");
+}
+
 /// Delete every proposal branch, so an epistemic step has its act to perform again.
 ///
 /// [`settle`] runs the epistemic step too, and its result is then committed on `propose/<head>`
@@ -1041,7 +1059,7 @@ fn an_aged_step_on_a_proposal_reproduces_it_and_lands_nothing() {
         let e = Example::materialize_runnable(&example);
         with_verb(&e, &step, "revise");
         with_ageing(&e, &step, 0);
-        settle(&e);
+        settle_until_the_branch_holds(&e);
 
         let head = git(&e.path(), &["rev-parse", "HEAD"]);
         let short = git(&e.path(), &["rev-parse", "--short", "HEAD"]);
