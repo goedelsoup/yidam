@@ -63,7 +63,7 @@ outgoing links") — orphans forbid a node with *no* edge; this forbids an edge 
   `old`, and rewrites it to `new`;
 - is committed as an **operational** event — a rename is infrastructure, and operational commits are
   *"legitimate provenance records but are not epistemic events"*
-  ([`GRAPH.md:573-574`](../../yidam/prelude/GRAPH.md#L573-L574)) — with a message naming the count, e.g.
+  ([`GRAPH.md:590-591`](../../yidam/prelude/GRAPH.md#L590-L591)) — with a message naming the count, e.g.
   `migrate: concept/old.yml → concept/new.yml (7 inbound links rewritten)`.
 
   **`migrate`, not `rename`.** This RFC said `rename:` until the command was built, and `rename` is

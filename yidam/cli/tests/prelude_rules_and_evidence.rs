@@ -141,28 +141,38 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// routes moved by it. The same change moved `extract`, `open` and `close` to *Before you write
 /// or revise a node*, which costs nothing: a verb is in the route file, charged to every
 /// occasion, and moving it leaves the file's length where it was.
+///
+/// **Raised on three occasions when a node could declare a refusal (#1053).** Two deltas, each
+/// on the lists that link its section, and both routes moved by each:
+///
+/// - **91 words in `GRAPH.md`**, the `refuses:` subsection, on *Before you write or revise a
+///   node* and *Before you change a class* — the two occasions that link *The class contract*.
+///   It was drafted under *Nodes* first, which every occasion reads, and moved when that
+///   charged all five for a key only a node's author writes.
+/// - **72 words in `agent-conduct.md`**, the third outbound rule's grammar, on *Before a claim
+///   crosses a corpus boundary* only.
 const READ_CEILING: &[(&str, &str, usize)] = &[
-    ("AGENTS.md", "Before you write or revise a node", 6_157),
+    ("AGENTS.md", "Before you write or revise a node", 6_248),
     ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
-        4_310,
+        4_382,
     ),
-    ("AGENTS.md", "Before you change a class", 4_564),
+    ("AGENTS.md", "Before you change a class", 4_655),
     ("AGENTS.md", "Before you retrieve", 2_959),
     (
         "sadhana/root/AGENTS.md",
         "Before you write or revise a node",
-        7_351,
+        7_442,
     ),
     ("sadhana/root/AGENTS.md", "Before you run a phase", 5_800),
     (
         "sadhana/root/AGENTS.md",
         "Before a claim crosses a corpus boundary",
-        5_504,
+        5_576,
     ),
-    ("sadhana/root/AGENTS.md", "Before you change a class", 5_758),
+    ("sadhana/root/AGENTS.md", "Before you change a class", 5_849),
     ("sadhana/root/AGENTS.md", "Before you retrieve", 4_153),
 ];
 
@@ -278,7 +288,12 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// `directories.md`**, the manifest example's new line. 27,930 + 14 is this figure exactly, so
 /// nothing else on the path moved. Neither recurring route moved: the line sits in a section no
 /// occasion links, and a route is charged by section.
-const BOOTSTRAP_CEILING: usize = 27_944;
+///
+/// **Raised to 28,107 when a node could declare a refusal (#1053).** Two files, both on the
+/// path whole: **91 words in `GRAPH.md`** (the `refuses:` subsection) and **72 in
+/// `agent-conduct.md`** (the third outbound rule's grammar). 27,944 + 163 is this figure
+/// exactly, and the two deltas are the ones [`READ_CEILING`] moved by.
+const BOOTSTRAP_CEILING: usize = 28_107;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -378,9 +393,14 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// the same 14 [`BOOTSTRAP_CEILING`] moved by. Nothing arrived in the evidence half; the reason
 /// is the field's own and lives in `VERSIONING.md`.
 ///
+/// **`agent-conduct.md` re-measured to 5,471 and `GRAPH.md` to 9,631 for #1053.** 72 and 91
+/// words arrived, all in the rules halves: the third outbound rule's grammar and the `refuses:`
+/// subsection. 5,399 + 72 and 9,540 + 91 are these figures exactly, and they are the deltas
+/// [`BOOTSTRAP_CEILING`] moved by. The argument is RFC-0045's own.
+///
 const PAIR_FLOOR: &[(&str, usize)] = &[
-    ("yidam/prelude/guidelines/agent-conduct.md", 5_399),
-    ("yidam/prelude/GRAPH.md", 9_540),
+    ("yidam/prelude/guidelines/agent-conduct.md", 5_471),
+    ("yidam/prelude/GRAPH.md", 9_631),
     ("yidam/prelude/guidelines/directories.md", 12_618),
     ("yidam/prelude/skills/bootstrap.md", 10_810),
 ];

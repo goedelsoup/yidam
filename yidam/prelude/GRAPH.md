@@ -401,6 +401,23 @@ The declaration decides two things at once: the gate above, and the JSON Schema 
 lists exactly the required properties as its own `required`. One statement, so the editor and
 the build cannot come to disagree about which fields a node owes.
 
+### A refusal is declared beside the prose that makes it
+
+**A node that declines an inference may say so under `refuses:`:**
+
+```yaml
+refuses:
+  - span: The record does not say the dam caused the 2019 avulsion.
+    inference: the dam caused the 2019 avulsion    # optional
+```
+
+`span` quotes the node's own prose, whitespace aside. `refusal-span-drift` fails a span that
+prose no longer holds. An argument citing that paragraph must answer the refusal
+([`agent-conduct.md`](guidelines/agent-conduct.md#when-claims-leave-the-repository)).
+
+**Neither field is prose.** A span found only in `refuses:` is the node's declaration, not its
+words.
+
 ### Published, not only enforced
 
 `yidam schema` compiles every `.ont.yml` into a JSON Schema at

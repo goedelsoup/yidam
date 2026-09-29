@@ -91,6 +91,7 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
         &[],
         Tell::Writes(".yidam/decisions/README.md"),
     ),
+    ("derive", &["check", "--format", "json"], Tell::Envelope),
     (
         "diff",
         &["HEAD~1..HEAD", "--format", "json"],

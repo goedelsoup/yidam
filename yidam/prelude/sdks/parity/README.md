@@ -64,6 +64,12 @@ It had to be named. The key already reached `extra`'s passthrough, so a corpus c
 and nothing would read it — which is how `[unentered]` happened one layer up, and the exit there was
 structure beside the tag rather than a mark the tooling guessed at.
 
+**`refuses:` is named for the same reason (RFC-0045).** A node declares the refusals its prose
+makes, each as `{span, inference}`, and `yidam derive check` reads them to decide what an artifact
+citing that node must answer. `parse_instance/refusals-are-declared-on-the-node.toml` pins the
+shape, including an entry with no `inference`. It is a field and not a fourth tag, because a
+refusal is not a standing: the sentence in that fixture is `[open]` and is also a refusal.
+
 **Two kinds arrived by measurement, not by design (#783).** Across the five corpora that write
 evidence-tag details, 496 references sit inside brackets where nothing can read them, and the two
 largest shapes had no form in the grammar:

@@ -22,6 +22,8 @@ pub struct YidamConfig {
     #[serde(default)]
     pub object: ObjectConfig,
     #[serde(default)]
+    pub derive: DeriveConfig,
+    #[serde(default)]
     pub serve: ServeConfig,
     /// The stores this corpus keeps artifacts in, by name.
     ///
@@ -249,6 +251,32 @@ pub struct ObjectConfig {
     pub paths: Vec<String>,
 }
 
+/// Where this repository keeps the arguments it derives from its corpus (RFC-0045).
+///
+/// A derived repository writes its memos, dossiers and findings where its own practice puts them
+/// — `dossier/`, `briefs/`, `analysis/` in the three that built a gate for this — and no
+/// directory is compiled in for the same reason `[object]` has none: where an argument lives is a
+/// fact about a repository and not about the practice.
+///
+/// Absent means `derive check` has nothing to read, reports nothing, and passes. That is every
+/// repository before this key existed.
+#[derive(Debug, Default, Deserialize)]
+pub struct DeriveConfig {
+    /// Globs naming the artifacts `derive check` reads, relative to the repository root.
+    ///
+    /// The `[object] paths` grammar: `**` spans any number of segments, `*` any run within one,
+    /// and a glob claims everything beneath what it names. Under them, a `.yml` or `.yaml` file
+    /// is an artifact, and so is a `.md` file that opens with YAML frontmatter; a `.md` without
+    /// frontmatter is prose beside the artifacts and is skipped.
+    ///
+    /// ```toml
+    /// [derive]
+    /// paths = ["dossier/**"]
+    /// ```
+    #[serde(default)]
+    pub paths: Vec<String>,
+}
+
 /// What this repository permits a server it starts to do — RFC-0029.
 ///
 /// # Why a repository's own file and not a flag
@@ -391,6 +419,11 @@ mod tests {
         // Spot-check the ends of the shape, so a parse that silently read nothing is not
         // mistaken for one that read everything.
         assert_eq!(config.due.questions_after, Some(100));
+        assert_eq!(
+            config.derive.paths,
+            ["dossier/**"],
+            "the [derive] offer did not survive"
+        );
         assert_eq!(config.vault.len(), 1, "the example vault did not survive");
         let vault = config.vault.values().next().unwrap();
         assert!(

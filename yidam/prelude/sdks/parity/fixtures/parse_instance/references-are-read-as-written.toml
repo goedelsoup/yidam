@@ -26,6 +26,7 @@ instance = """
     "catalog/lsc-greenbook",
     "not a reference at all"
   ],
+  "refuses": null,
   "cites": null,
   "extra": {}
 }

@@ -235,8 +235,23 @@ verify the inference; nothing can. It forces the actual sentence to sit beside t
 where the gap between them is visible to a reader.
 
 **A refusal in the cited block fails the build.** Where a corpus node carries a refusal beside
-the claim — a sentence of the form *this corpus does not infer X from this* — an assertion
-citing across it is refused, and the author must answer it rather than route around it.
+the claim — a sentence of the form *this corpus does not infer X from this* — it declares that
+sentence under `refuses:` ([`GRAPH.md`](../GRAPH.md#a-refusal-is-declared-beside-the-prose-that-makes-it)).
+An artifact citing that paragraph answers it rather than routing around it:
+
+```yaml
+reach: attributed           # public, attributed or internal
+cites:
+  - node: reach/tailwater
+    span: Discharge tracks the release schedule
+answers:
+  - node: reach/tailwater
+    refusal: The record does not say the dam caused the 2019 avulsion.
+    answer: This memo claims the schedule, not the avulsion.
+```
+
+**`yidam derive check` holds every artifact under `[derive] paths` to all three rules.** Only a
+declared refusal gates; one left undeclared is proposed, and a person decides.
 [why](agent-conduct.evidence.md#outbound-claims)
 
 ## When claims arrive from another repository

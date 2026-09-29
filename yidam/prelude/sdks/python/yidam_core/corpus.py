@@ -17,7 +17,9 @@ from typing import Any
 
 import yaml
 
-_DECLARED = {"class", "label", "description", "properties", "links", "cites", "references"}
+_DECLARED = {
+    "class", "label", "description", "properties", "links", "cites", "references", "refuses",
+}
 
 _TIMESTAMP = "tag:yaml.org,2002:timestamp"
 
@@ -70,6 +72,19 @@ class ExternalCitation:
 
 
 @dataclass
+class Refusal:
+    """One refusal a node declares in its own prose (RFC-0045).
+
+    ``span`` quotes the sentence verbatim, for the reason a citation quotes one; ``inference``
+    says in a few words what it declines to conclude, and no check reads it. A field rather than
+    a fourth tag: a refusal is not a standing, and the sentence usually carries a tag of its own.
+    """
+
+    span: str | None = None
+    inference: str | None = None
+
+
+@dataclass
 class CorpusInstance:
     """A corpus node: ``.yidam/corpus/<class>/<name>.yml``."""
 
@@ -84,6 +99,9 @@ class CorpusInstance:
     #: second encoding of the identifier the grammar already spells. Named rather than left to
     #: ``extra``'s passthrough, because a destination that is not named is a convention (#783).
     references: list[str] | None = None
+    #: The refusals this node's prose makes, each quoted verbatim (RFC-0045). Named for
+    #: ``references``' reason: a field that is named is one a check can read.
+    refuses: list[Refusal] | None = None
     cites: list[ExternalCitation] | None = None
     #: Every other top-level key, kept rather than dropped.
     extra: dict[str, Any] = field(default_factory=dict)
@@ -144,6 +162,13 @@ def parse_instance(text: str) -> CorpusInstance:
     if isinstance(doc.get("references"), list):
         references = [r if isinstance(r, str) else str(r) for r in doc["references"]]
 
+    refuses = None
+    if isinstance(doc.get("refuses"), list):
+        refuses = []
+        for item in doc["refuses"]:
+            m = item if isinstance(item, dict) else {}
+            refuses.append(Refusal(span=_str(m.get("span")), inference=_str(m.get("inference"))))
+
     props = doc.get("properties")
     return CorpusInstance(
         cls=_str(doc.get("class")),
@@ -152,6 +177,7 @@ def parse_instance(text: str) -> CorpusInstance:
         properties=props if isinstance(props, dict) else None,
         links=links,
         references=references,
+        refuses=refuses,
         cites=cites,
         extra={k: v for k, v in doc.items() if k not in _DECLARED},
     )
@@ -186,6 +212,11 @@ def instance_to_json(inst: CorpusInstance) -> dict[str, Any]:
             ]
         ),
         "references": inst.references,
+        "refuses": (
+            None
+            if inst.refuses is None
+            else [{"span": r.span, "inference": r.inference} for r in inst.refuses]
+        ),
         "cites": (
             None
             if inst.cites is None

@@ -110,6 +110,9 @@ model = "BAAI/bge-small-en-v1.5"
 [object]
 paths = ["web/**", "crates/**"]
 
+[derive]
+paths = ["dossier/**"]
+
 [serve]
 act = true
 record = true
@@ -296,6 +299,21 @@ terminal, the VS Code commit box, and the MCP tool `check_subject`. All three st
 than fixed: closing it means changing a frozen MCP tool.
 
 **This project ships no commit-msg hook.** The stance is conformance, not hooks (RFC-0004).
+
+### `[derive] paths`
+
+Globs naming the arguments this repository derives from its corpus: the memos, dossiers and
+findings that carry a claim out. [`yidam derive check`](cli-reference.md#derive) reads them. It
+holds each one to the three rules in `agent-conduct.md` for a claim leaving the repository.
+
+The grammar is `[object] paths`'s. Under these globs, a `.yml` or `.yaml` file is an artifact.
+So is a `.md` file that opens with YAML frontmatter. A `.md` without frontmatter is prose kept
+beside the artifacts, and is skipped.
+
+No directory is compiled in. The repositories that built this gate keep their arguments in
+`dossier/`, `briefs/` and `analysis/`. Where an argument lives is a fact about a repository.
+
+Absent means `derive check` has nothing to read, and it passes.
 
 ### `[serve] act`
 

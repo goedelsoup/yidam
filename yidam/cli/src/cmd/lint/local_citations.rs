@@ -125,7 +125,7 @@ pub fn corpus(nodes: &[Node]) -> Corpus {
 /// A node reference is written `class/name` in the `cites:` grammar and `class/name.yml`
 /// everywhere a markdown link points at one. Both spellings name the same node, and a check
 /// that read only the first would report the second unresolved against a file it can see.
-fn key_of(node: &str) -> String {
+pub(crate) fn key_of(node: &str) -> String {
     let t = node.trim().trim_start_matches("./");
     t.strip_suffix(".yml").unwrap_or(t).to_string()
 }
@@ -160,7 +160,7 @@ fn declared_standing(tag: &str) -> Option<&'static str> {
 /// quotes a clause. Both readings count, and where several claims overlap the answer is the
 /// weakest of them — the same direction `agent-conduct.md` computes a derived assertion's tier
 /// in, and the only direction that cannot flatter a citation.
-fn governing(text: &str, span: &str, fields: &[String]) -> Option<&'static str> {
+pub(crate) fn governing(text: &str, span: &str, fields: &[String]) -> Option<&'static str> {
     let needle = flatten(span);
     let mut found: Option<&'static str> = None;
     for claim in crate::claims::claims_in_node(text, fields) {

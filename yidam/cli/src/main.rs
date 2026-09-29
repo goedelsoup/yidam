@@ -1077,6 +1077,19 @@ enum Command {
         #[command(subcommand)]
         sub: yidam::PolicyCommand,
     },
+    /// Check the arguments this repository derives from its corpus (RFC-0045)
+    ///
+    /// A memo, dossier or finding under `[derive] paths` declares a `reach:` and `cites:`
+    /// spans of corpus nodes. `check` holds it to the three rules for a claim leaving the
+    /// repository: each span sits in one paragraph of the node it names, the tier is the
+    /// weakest standing beneath them and must be one the reach admits, and every refusal a
+    /// cited paragraph declares under `refuses:` is answered under `answers:`.
+    Derive {
+        #[command(flatten)]
+        root: RootArg,
+        #[command(subcommand)]
+        sub: yidam::DeriveCommand,
+    },
     /// Declare what this corpus's practice is aimed at, and read the corpus against it
     ///
     /// A repository declares what it is *about* and, until now, never what its work is
@@ -1733,6 +1746,7 @@ fn run() -> Result<()> {
         // putting one in the signature of the ungated half. See `vault/store.rs`.
         Command::Vault { sub } => yidam::run_vault(sub),
         Command::Policy { root, sub } => yidam::run_policy(root.as_deref(), sub),
+        Command::Derive { root, sub } => yidam::run_derive(root.as_deref(), sub),
         Command::Kuten { root, sub } => yidam::run_kuten(root.as_deref(), sub),
         Command::Practice { root } => yidam::run_practice(root.as_deref()),
         Command::Score {
