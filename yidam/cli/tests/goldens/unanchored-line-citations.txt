@@ -32,11 +32,8 @@ docs/rfcs/0014-node-rename.md → ../../yidam/cli/src/cmd/corpus.rs#L109-L110
 docs/rfcs/0015-epistemic-log.md → ../../VERSIONING.md#L65-L66
 docs/rfcs/0015-epistemic-log.md → ../../yidam/cli/src/cmd/backfill.rs#L81-L122
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/corpus.rs#L111-L113
-docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/lint/mod.rs#L905-L959
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/lint/model.rs#L44-L51
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/lint/model.rs#L44-L74
-docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/schema.rs#L254-L257
-docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/schema.rs#L258-L295
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/lib.rs#L27
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/main.rs#L18-L146
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/export_llms.rs#L34

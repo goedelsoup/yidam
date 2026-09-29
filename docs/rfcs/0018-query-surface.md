@@ -71,13 +71,13 @@ at depth 2 and all of it at depth 3.
 ([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L610), Error), the properties it may
 and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1058),
 [`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1240)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1536)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1605)), and which class
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1541)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1610)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1674), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1679), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
-([`checks.rs:1658-1659`](../../yidam/cli/src/cmd/lint/checks.rs#L1658-L1659)):
+([`checks.rs:1663-1664`](../../yidam/cli/src/cmd/lint/checks.rs#L1663-L1664)):
 
 > a relationship in no declaration is worth seeing, because **a traversal that walks by
 > relationship will not find it**
@@ -291,7 +291,7 @@ relationship the class does not declare resolves as:
 
 The first row is load-bearing and is easy to omit. `unlicensed_edge` short-circuits on an empty
 edge list **before** it consults the policy
-([`checks.rs:1614-1615`](../../yidam/cli/src/cmd/lint/checks.rs#L1614-L1615)):
+([`checks.rs:1619-1620`](../../yidam/cli/src/cmd/lint/checks.rs#L1619-L1620)):
 
 ```rust
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
@@ -510,7 +510,7 @@ A rejected query **emits its report and exits 1**. That is the shape four comman
 have — `doctor`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/doctor.rs#L2165)), `regen`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/regen.rs#L361)), `rename`
-([`crate::report::gate`](../../yidam/cli/src/cmd/rename.rs#L714)) and `index-verify`
+([`crate::report::gate`](../../yidam/cli/src/cmd/rename.rs#L722)) and `index-verify`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/index_verify.rs#L260)) all print, then
 fail.
 

@@ -113,7 +113,7 @@ match nothing and say nothing, which is an empty answer that reads as a true one
 
 ## What this does not touch
 
-- **Citation counting.** A quotation's `of:` is not yet one of the forms `catalog-uncited`
+- **Citation counting (#1174).** A quotation's `of:` is not yet one of the forms `catalog-uncited`
   and `verified-unsourced` count as citing an entry.
 - **Rename-blind history checks.** #1070 also asked whether `history.rs`, `lineage.rs` and
   `line_citations.rs` miss a rename written as a delete plus an add. That audit is #1171.
@@ -139,4 +139,4 @@ as mappings.
 
 ## Open questions
 
-- Should a quotation count as a citation of its entry (see *What this does not touch*)?
+- Should a quotation count as a citation of its entry (#1174)?

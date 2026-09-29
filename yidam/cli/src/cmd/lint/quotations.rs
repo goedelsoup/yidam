@@ -127,9 +127,8 @@ fn one(m: &serde_yaml::Mapping) -> Result<Quotation, String> {
             "sha256" => &mut sha256,
             _ => {
                 return Err(format!(
-                    "has `{}:`, which a quotation does not — write `of:`, `span:`, and \
-                     optionally `sha256:`",
-                    key
+                    "has `{key}:`, which a quotation does not — write `of:`, `span:`, and \
+                     optionally `sha256:`"
                 ))
             }
         };
