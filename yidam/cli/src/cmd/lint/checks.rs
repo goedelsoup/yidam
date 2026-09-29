@@ -1419,6 +1419,11 @@ pub(crate) fn property_type_violation(declared: &str, value: &serde_yaml::Value)
             serde_yaml::Value::Bool(_) => Some("is a boolean, not a number".to_string()),
             other => scalar(other).err(),
         },
+        // **A value that names its document** (RFC-0046). The shape is all this can test —
+        // whether the words are in the bytes is `quotation-span-drift`'s question, and needs
+        // the catalog and the vault cache — and it is read by the one parser those checks
+        // read with, so a value this admits is one they can resolve.
+        super::quotations::QUOTATION_PROPERTY_TYPE => super::quotations::read(value).err(),
         _ => None,
     }
 }
@@ -6524,6 +6529,34 @@ edges:
             assert_eq!(c.violations.len(), 1, "{v}: {c:#?}");
             assert!(!c.violations[0].detail.contains("unquote"), "{v}: {c:#?}");
         }
+    }
+
+    /// **A quotation names its document** (RFC-0046). Text in a `quotation` field is the
+    /// `type: text` anchors of hb-96 again: words that read like a quotation with nothing to
+    /// hold them against. The shape is this check's; the bytes are `quotation-span-drift`'s.
+    #[test]
+    fn a_quotation_field_holding_bare_text_is_reported() {
+        let classes = vec![class_from(
+            "provision",
+            "properties:\n  - name: anchors\n    type: quotation\n",
+        )];
+        let anchors = |v: &str| {
+            vec![node(
+                ".yidam/corpus/provision/item-12.yml",
+                &format!("class: provision\nproperties:\n  anchors:\n{v}links: []\n"),
+            )]
+        };
+        let held = anchors("    - of: veto-message\n      span: in the public interest\n");
+        assert!(property_type(&held, &classes, &NONE).passed());
+
+        let bare = property_type(&anchors("    in the public interest\n"), &classes, &NONE);
+        assert_eq!(bare.violations.len(), 1);
+        assert!(
+            bare.violations[0]
+                .detail
+                .contains("is declared `quotation` and is not a quotation"),
+            "{bare:#?}"
+        );
     }
 
     #[test]

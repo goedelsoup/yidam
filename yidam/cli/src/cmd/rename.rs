@@ -42,7 +42,7 @@
 //! # Catalog entries
 //!
 //! A catalog entry is renamed the same way (#1159). The edges into it are every corpus
-//! `source:` that resolves to it, in either spelling `edge-source-unresolved` admits: the
+//! `source:` that resolves to it, and every quotation's `of:` (RFC-0046), in either spelling `edge-source-unresolved` admits: the
 //! entry's stem, or a path written the way a `target:` is. Each is rewritten in the spelling
 //! its author chose — a stem stays a stem, a path is re-relativized — because the two mean
 //! the same thing and a rename is not the moment to change how a corpus writes it. Nothing
@@ -410,10 +410,14 @@ pub(crate) fn plan(root: &Path, corpus: &Path, old: &str, new: &str) -> RenameRe
     report
 }
 
+/// The keys whose value names a catalog entry: an edge's `source:`, and a quotation's `of:`
+/// (RFC-0046), which lint resolves through the same function.
+const CATALOG_KEYS: [&str; 2] = ["source", "of"];
+
 /// The catalog half of [`plan`]. `from` is `catalog/old.md`, as [`catalog_id`] spells it.
 ///
 /// Two kinds of edge come into a catalog entry, and both are rewritten. A `source:` on a
-/// corpus edge resolves the way `edge-source-unresolved` resolves it — the bare stem, or a
+/// corpus edge, or a quotation's `of:`, resolves the way `edge-source-unresolved` resolves it — the bare stem, or a
 /// path from the node's own directory — and is rewritten in the form it was written in. A
 /// markdown link, anywhere under `.yidam/` that lint reads, resolves the way
 /// `broken-prose-link` and `catalog-uncited` resolve it, through the same parser, and is
@@ -476,7 +480,7 @@ fn plan_catalog(root: &Path, corpus: &Path, from: String, new: &str) -> RenameRe
         let rel = slash(path.strip_prefix(root).unwrap_or(&path));
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         for (i, line) in text.lines().enumerate() {
-            let Some((_, _, value)) = value_on(line, "source") else {
+            let Some((_, _, value)) = CATALOG_KEYS.iter().find_map(|k| value_on(line, k)) else {
                 continue;
             };
             // The two readings `edge-source-unresolved` admits, from the function it reads
@@ -594,7 +598,6 @@ fn apply(root: &Path, report: &mut RenameReport) -> Result<()> {
     let base = root.join(&report.corpus_dir);
     let old_path = base.join(&report.from);
     let new_path = base.join(&report.to);
-    let key = if report.catalog { "source" } else { "target" };
     if let Some(parent) = new_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -618,10 +621,15 @@ fn apply(root: &Path, report: &mut RenameReport) -> Result<()> {
             };
             // Re-read rather than trusting the recorded span: the plan and the apply are two
             // reads of the same file, and rewriting a range that has moved would corrupt it.
-            // A catalog entry's edits are `source:` values and markdown links; the second is
-            // found by its own syntax, and a line holding two of them is rewritten twice,
-            // each pass finding the first one still spelled the old way.
-            let span = match value_on(line, key) {
+            // A catalog entry's edits are `source:` and `of:` values and markdown links; the
+            // last is found by its own syntax, and a line holding two of them is rewritten
+            // twice, each pass finding the first one still spelled the old way.
+            let keys: &[&str] = if report.catalog {
+                &CATALOG_KEYS
+            } else {
+                &["target"]
+            };
+            let span = match keys.iter().find_map(|k| value_on(line, k)) {
                 Some((start, end, value)) if value == e.from => Some((start, end)),
                 _ if report.catalog => link_span(line, &e.from),
                 _ => None,
@@ -1092,6 +1100,29 @@ mod tests {
         let dir = root.join(".yidam/catalog");
         std::fs::create_dir_all(&dir).unwrap();
         write(&dir.join(name), text);
+    }
+
+    /// A quotation's `of:` names a catalog entry the way a `source:` does, and moves with it
+    /// (RFC-0046) — a rename that left it behind would turn every quotation of the entry into
+    /// `quotation-unresolved`.
+    #[test]
+    fn a_quotation_of_a_catalog_entry_is_rewritten_with_it() {
+        let (_t, root, corpus) = corpus();
+        catalog(&root, "old.md", "---\nobtained: true\n---\n# Old\n");
+        write(
+            &corpus.join("concept/a.yml"),
+            "class: concept\nanchors:\n  - of: old\n    span: the words\n  - of: ../../catalog/old.md\n    span: more words\n",
+        );
+
+        let mut r = plan(&root, &corpus, "catalog/old", "new");
+        assert!(r.blocked.is_empty(), "{:?}", r.blocked);
+        assert_eq!(r.edits.len(), 2, "{:?}", r.edits);
+        assert!(r.unhandled.is_empty(), "{:?}", r.unhandled);
+        apply(&root, &mut r).unwrap();
+
+        let a = read(&corpus.join("concept/a.yml"));
+        assert!(a.contains("  - of: new\n"), "{a}");
+        assert!(a.contains("  - of: ../../catalog/new.md\n"), "{a}");
     }
 
     /// Both spellings `edge-source-unresolved` admits, each rewritten in the form it was

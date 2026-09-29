@@ -28,7 +28,7 @@ use crate::corpus::{Class, Corpus, DecisionRecord, Edges, Node, Overlay, Source}
 
 use super::{
     attest, calculators, checks, citations, commitments, edge_claims, independence, line_citations,
-    lineage, local_citations, scope, ttl, Check, Options,
+    lineage, local_citations, quotations, scope, ttl, Check, Options,
 };
 
 /// The corpus, the options, and every reading the checks are answered from.
@@ -81,6 +81,7 @@ pub(crate) struct Input<'a> {
     // its id and `the_roster_declares_the_id_each_entry_produces` compares the two.
     citation_checks: OnceLock<[Check; 4]>,
     local_citation_checks: OnceLock<[Check; 4]>,
+    quotation_checks: OnceLock<[Check; 3]>,
     edge_claim_checks: OnceLock<[Check; 4]>,
     scope_checks: OnceLock<[Check; 2]>,
     lineage_checks: OnceLock<[Check; 3]>,
@@ -131,6 +132,7 @@ impl<'a> Input<'a> {
             scripts: OnceLock::new(),
             citation_checks: OnceLock::new(),
             local_citation_checks: OnceLock::new(),
+            quotation_checks: OnceLock::new(),
             edge_claim_checks: OnceLock::new(),
             scope_checks: OnceLock::new(),
             lineage_checks: OnceLock::new(),
@@ -609,6 +611,24 @@ impl<'a> Input<'a> {
     pub(crate) fn local_citation_checks(&self) -> &[Check; 4] {
         self.local_citation_checks
             .get_or_init(|| local_citations::checks(self.nodes(), self.claim_fields()))
+    }
+
+    /// A value that is a span of a catalogued document (RFC-0046), held against the bytes this
+    /// machine's vault cache has. The cache is resolved from the environment exactly as
+    /// `catalog fetch` resolves it, and a machine with none has every quotation unchecked
+    /// rather than a lint run that fails.
+    pub(crate) fn quotation_checks(&self) -> &[Check; 3] {
+        self.quotation_checks.get_or_init(|| {
+            let cache = crate::vault::Cache::resolve(|k| std::env::var(k).ok()).ok();
+            quotations::checks(
+                self.nodes(),
+                self.classes(),
+                self.universal(),
+                self.sources(),
+                self.catalog_dir(),
+                cache.as_ref(),
+            )
+        })
     }
 
     /// The graph's own half of the same discipline (#587): an edge is a claim written as

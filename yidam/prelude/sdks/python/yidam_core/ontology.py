@@ -213,6 +213,20 @@ def _property_schema(property_type: str, values: tuple[str, ...]) -> Any:
                 {"type": "array", "items": {"enum": list(CLAIM_TOKENS)}},
             ]
         }
+    # A span and the catalog entry it is quoted from, one or a non-empty list (RFC-0046).
+    # Only the shape: whether the words are in the bytes needs the vault cache.
+    if property_type == "quotation":
+        one = {
+            "type": "object",
+            "properties": {
+                "of": {"type": "string", "minLength": 1},
+                "span": {"type": "string", "minLength": 1},
+                "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            },
+            "required": ["of", "span"],
+            "additionalProperties": False,
+        }
+        return {"anyOf": [one, {"type": "array", "minItems": 1, "items": one}]}
     return True
 
 

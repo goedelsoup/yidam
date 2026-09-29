@@ -431,6 +431,22 @@ fn check_pred(
             ),
         ));
     }
+    // A quotation is a mapping, and the executor compares scalars, so `~` against one would
+    // match nothing and say nothing — an empty answer indistinguishable from a true one.
+    // `=` and `!=` need no arm of their own: `property_type_violation` already says a bare
+    // operand is not a quotation, and the arms below turn that into a rejection and a warning.
+    if pred.op == Op::Contains && declared == crate::cmd::lint::quotations::QUOTATION_PROPERTY_TYPE
+    {
+        return Err(reject(
+            code::UNSATISFIABLE_PREDICATE,
+            Some(step_index),
+            format!(
+                "`{}` is `type: quotation` on `{}`, and a query does not read inside a \
+                 quotation — `~` would match nothing. Use `{}?`.",
+                pred.prop, class.name, pred.prop
+            ),
+        ));
+    }
     // The operand arrives as text, because a query is text. Against a `number` the gate's
     // string arm would say "unquote it", which is the right sentence for a corpus file and
     // nonsense for a query — so an operand that reads as a number is handed over as one, and
@@ -1152,6 +1168,24 @@ mod tests {
         assert_eq!(e.code, "unsatisfiable-predicate");
         let checked = check(&parse("reach[length_km!=nine]").unwrap(), &f.schema()).unwrap();
         assert_eq!(checked.diagnostics[0].code, "trivial-predicate");
+    }
+
+    /// A quotation is a mapping and the executor compares scalars, so every operator but
+    /// `prop?` is refused or warned about rather than answered with a silent zero.
+    #[test]
+    fn a_quotation_is_asked_only_whether_it_is_there() {
+        let f = Fixture::new(vec![class(
+            "class: provision\nproperties:\n  - name: anchors\n    type: quotation\n",
+        )]);
+        for q in ["provision[anchors~veto]", "provision[anchors=veto]"] {
+            let e = check(&parse(q).unwrap(), &f.schema()).unwrap_err();
+            assert_eq!(e.code, "unsatisfiable-predicate", "{q}");
+        }
+        let e = check(&parse("provision[anchors<veto]").unwrap(), &f.schema()).unwrap_err();
+        assert_eq!(e.code, "unordered-property");
+        let checked = check(&parse("provision[anchors!=veto]").unwrap(), &f.schema()).unwrap();
+        assert_eq!(checked.diagnostics[0].code, "trivial-predicate");
+        assert!(check(&parse("provision[anchors?]").unwrap(), &f.schema()).is_ok());
     }
 
     /// A `string` that happens to hold digits is still text. `*` narrows an ordering to the

@@ -21,6 +21,7 @@ pub(crate) mod line_citations;
 pub(crate) mod lineage;
 pub(crate) mod local_citations;
 pub(crate) mod model;
+pub(crate) mod quotations;
 pub(crate) mod refusals;
 pub(crate) mod scope;
 pub(crate) mod ttl;
@@ -432,6 +433,21 @@ const ROSTER: &[Entry] = &[
         id: local_citations::UNTAGGED,
         asked: Asked::Always,
         run: |i| i.local_citation_checks()[3].clone(),
+    },
+    Entry {
+        id: quotations::UNRESOLVED,
+        asked: Asked::Always,
+        run: |i| i.quotation_checks()[0].clone(),
+    },
+    Entry {
+        id: quotations::SPAN_DRIFT,
+        asked: Asked::Always,
+        run: |i| i.quotation_checks()[1].clone(),
+    },
+    Entry {
+        id: quotations::UNCHECKED,
+        asked: Asked::Always,
+        run: |i| i.quotation_checks()[2].clone(),
     },
     Entry {
         id: refusals::SPAN_DRIFT,

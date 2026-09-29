@@ -15,7 +15,7 @@ import { parse as parseYaml } from 'yaml'
 
 export interface OntologyProperty {
   name: string
-  /** `string`, `text`, `date`, `number`, `ref`, `claim` — or a type this corpus coined. */
+  /** `string`, `text`, `date`, `number`, `ref`, `claim`, `quotation` — or a type this corpus coined. */
   type: string
   description: string
   /**
@@ -190,6 +190,21 @@ function propertySchema(type: string, values: string[]): unknown {
       return {
         anyOf: [{ enum: [...CLAIM_TOKENS] }, { type: 'array', items: { enum: [...CLAIM_TOKENS] } }],
       }
+    // A span and the catalog entry it is quoted from, one or a non-empty list (RFC-0046).
+    // Only the shape: whether the words are in the bytes needs the vault cache.
+    case 'quotation': {
+      const one = {
+        type: 'object',
+        properties: {
+          of: { type: 'string', minLength: 1 },
+          span: { type: 'string', minLength: 1 },
+          sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+        },
+        required: ['of', 'span'],
+        additionalProperties: false,
+      }
+      return { anyOf: [one, { type: 'array', minItems: 1, items: one }] }
+    }
     default:
       return true
   }

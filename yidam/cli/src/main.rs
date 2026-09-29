@@ -1195,8 +1195,8 @@ enum MigrateCommand {
         class: String,
         /// The property to retype
         property: String,
-        /// The new type — `string`, `text`, `date`, `number`, `ref`, `claim`, or one this
-        /// corpus coined
+        /// The new type — `string`, `text`, `date`, `number`, `ref`, `claim`, `quotation`, or
+        /// one this corpus coined
         new_type: String,
     },
     /// Rename one value of a declared `values:` set, on the declaration and on every instance holding it
