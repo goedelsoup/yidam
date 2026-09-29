@@ -958,7 +958,7 @@ description = "Show the neighbourhood of one node — `mise run neighbors -- con
 run = "yidam neighbors"
 
 [rename]
-description = "Rename a corpus node, rewriting every edge into it — `mise run rename -- concept/old concept/new --dry-run`."
+description = "Rename a corpus node or a catalog entry, rewriting every edge into it — `mise run rename -- concept/old concept/new --dry-run`."
 run = "yidam rename"
 
 [graph-lint]

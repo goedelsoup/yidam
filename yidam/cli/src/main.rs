@@ -451,11 +451,11 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
-    /// Rename a corpus node, rewriting every edge into it
+    /// Rename a corpus node or a catalog entry, rewriting every edge into it
     Rename {
-        /// Node to rename, e.g. `concept/old.yml` or `concept/old`
+        /// Node to rename, e.g. `concept/old.yml` or `concept/old`; or a catalog entry, `catalog/old`
         old: String,
-        /// Its new id, e.g. `concept/new` — may move it to another class
+        /// Its new id, e.g. `concept/new` — may move it to another class. For a catalog entry, `new`
         new: String,
         /// Print the plan and change nothing
         #[arg(long)]
