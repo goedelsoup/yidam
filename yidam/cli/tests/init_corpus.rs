@@ -305,20 +305,7 @@ fn the_next_steps_name_commands_the_binary_has() {
     let r = run(d.path(), &["init"]);
     assert_eq!(r.code, 0, "stderr: {}", r.stderr);
 
-    let help = {
-        let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
-            .arg("--help-all")
-            .output()
-            .unwrap();
-        String::from_utf8_lossy(&out.stdout).to_string()
-    };
-    let listed = |name: &str| {
-        help.lines().any(|l| {
-            let l = l.trim_start();
-            l.strip_prefix(name)
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
-        })
-    };
+    let commands = common::commands_from_help();
 
     // Discovered from the block rather than listed here, so a command added to it is
     // covered the day it is added.
@@ -332,7 +319,7 @@ fn the_next_steps_name_commands_the_binary_has() {
 
     for name in &named {
         assert!(
-            listed(name),
+            commands.contains(name),
             "`init` tells the reader to run `yidam {name}`, which `--help-all` does not \
              list:\n{}",
             r.stdout

@@ -12,6 +12,8 @@
 //! Narrow on purpose. It checks that the set of commands matches. It does not read the prose,
 //! and it cannot tell a correct description from a plausible wrong one — that is review's job.
 
+mod common;
+
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -23,70 +25,6 @@ fn repo_root() -> PathBuf {
 fn reference() -> String {
     let p = repo_root().join("docs/cli-reference.md");
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{} is unreadable ({e})", p.display()))
-}
-
-/// Every subcommand this binary offers, read out of its own `--help-all`.
-///
-/// Asking the built binary rather than the source is deliberate: it is the same question a
-/// reader asks, answered the same way, and it stays correct through a refactor of how the
-/// clap enum is spelled.
-///
-/// A command line in that output is indented, starts with the name, and is followed by either
-/// the `*` write-marker or two spaces before its description. The group headings are flush
-/// left and the option block is filtered out by requiring a lowercase-and-hyphens name.
-///
-/// `--help-all` and not `--help` since #921: `--help` is now the thirteen commands a session
-/// usually needs, and this page documents the whole surface. Reading the short one here would
-/// have left forty-five commands undocumented with this test green about it.
-fn commands_from_help() -> BTreeSet<String> {
-    writers_from_help().into_keys().collect()
-}
-
-/// Every subcommand, and whether `--help-all` marks it as writing.
-///
-/// The marker is the `*` [`yidam::help`] puts between the name and the description. Parsed
-/// positionally — the column after the name — rather than searched for, because a description
-/// that happened to begin with a star would otherwise read as a writer.
-fn writers_from_help() -> std::collections::BTreeMap<String, bool> {
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_yidam"))
-        .arg("--help-all")
-        .output()
-        .expect("running `yidam --help-all`");
-    assert!(out.status.success(), "`yidam --help-all` exited nonzero");
-    let help = String::from_utf8(out.stdout).expect("--help-all is utf-8");
-
-    let mut found = std::collections::BTreeMap::new();
-    for line in help.lines() {
-        let Some(rest) = line.strip_prefix("  ") else {
-            continue;
-        };
-        if rest.starts_with(' ') || rest.starts_with('-') {
-            continue; // continuation, or an option like `-h, --help`
-        }
-        let name = rest.split_whitespace().next().unwrap_or_default();
-        if name.is_empty() || !name.chars().all(|c| c.is_ascii_lowercase() || c == '-') {
-            continue;
-        }
-        // `help` is clap's own, and is not part of the documented surface.
-        if name == "help" {
-            continue;
-        }
-        let writes = rest[name.len()..].trim_start().starts_with("* ");
-        found.insert(name.to_string(), writes);
-    }
-
-    assert!(
-        found.len() > 20,
-        "parsed only {} command(s) from --help-all — the output shape changed and this test is \
-         no longer reading it: {found:?}",
-        found.len()
-    );
-    assert!(
-        found.values().filter(|w| **w).count() > 10,
-        "no command parsed as a writer, so the marker column is not where this expects it: \
-         {found:?}"
-    );
-    found
 }
 
 /// Every command name the reference page writes in a table's first cell.
@@ -176,7 +114,7 @@ fn writers_from_reference() -> std::collections::BTreeMap<String, bool> {
 /// reader reads it.
 #[test]
 fn the_page_marks_the_writers_the_binary_marks() {
-    let binary = writers_from_help();
+    let binary = common::writers_from_help();
     let page = writers_from_reference();
 
     let mut wrong: Vec<String> = Vec::new();
@@ -203,7 +141,7 @@ fn the_page_marks_the_writers_the_binary_marks() {
 
 #[test]
 fn every_command_the_binary_offers_is_in_the_reference() {
-    let built = commands_from_help();
+    let built = common::commands_from_help();
     let documented = commands_from_reference();
 
     let undocumented: Vec<_> = built.difference(&documented).collect();
@@ -216,7 +154,7 @@ fn every_command_the_binary_offers_is_in_the_reference() {
 
 #[test]
 fn every_command_the_reference_lists_still_exists() {
-    let built = commands_from_help();
+    let built = common::commands_from_help();
     let documented = commands_from_reference();
 
     // `tonpa` is behind a default feature, so a `--no-default-features` build legitimately

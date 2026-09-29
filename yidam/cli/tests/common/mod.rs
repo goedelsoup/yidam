@@ -899,23 +899,42 @@ where
 
 /// Every subcommand this binary offers, read out of its own `--help-all`.
 ///
-/// Asking the built binary rather than the source is deliberate: it is the same question a
-/// reader asks, answered the same way, and it stays correct through a refactor of how the
-/// clap enum is spelled. A roster listed here instead would stop covering a rename without
-/// ever going red, which is the rot every check over this surface exists for.
-///
-/// A command line in that listing is indented two spaces, starts with the name, and is
-/// followed by either the `*` write-marker or two spaces before its description. Group
-/// headings are flush left, the legend's continuation line is indented four, and the option
-/// block is filtered out by requiring a lowercase-and-hyphens name. `help` is clap's own and
-/// is not part of the surface.
-///
-/// `--help-all` and not `--help`: since #921 `--help` is the thirteen commands a session
-/// usually needs, and every question asked of this roster is about the whole surface.
-///
-/// Three test files parsed this listing separately before this function existed
-/// (`cli_reference`, `reading_surface`, `editor_configs`); those copies are #993's to fold in.
+/// The keys of [`writers_from_help`]; see there for how the listing is read and why.
 pub fn commands_from_help() -> BTreeSet<String> {
+    writers_from_help().into_keys().collect()
+}
+
+/// Every subcommand this binary offers, and whether `--help-all` marks it as writing.
+///
+/// The one reader of that listing for every test binary (#993). Seven test files once parsed
+/// it separately, each with its own copy of the listing's shape, so a change to
+/// [`yidam::help`]'s template that one copy survived and another did not would take one
+/// roster quietly to empty while the others stayed right.
+///
+/// **Asked of the built binary**, not the source: it is the same question a reader asks,
+/// answered the same way, and it stays correct through a refactor of how the clap enum is
+/// spelled. A roster listed in a test instead would stop covering a rename without ever going
+/// red, which is the rot every check over this surface exists for.
+///
+/// **`--help-all` and not `--help`**: since #921 `--help` is the thirteen commands a session
+/// usually needs and marks five writers, while `--help-all` lists every command and marks
+/// every writer. Every question asked of this roster is about the whole surface; reading the
+/// short one would narrow each of them and stay green about it.
+///
+/// **The shape.** The listing is `help::render`'s template, not clap's flat `Commands:` block —
+/// a group's own `--help` is clap's, and is a different document that stays with its callers.
+/// Group headings sit flush left. A command row is indented two spaces, starts with the name,
+/// and is followed by either the `*` write-marker or two spaces before its description. The
+/// legend's first line is indented two as well and opens with `*`, and its continuation is
+/// indented four. The option block is filtered out by requiring a lowercase-and-hyphens name.
+/// `help` is clap's own and is not part of the surface.
+///
+/// **The marker** is read positionally — the column after the name — rather than searched for,
+/// because a description that happened to begin with a star would otherwise read as a writer.
+///
+/// **Two floors**, because the listing can rot two ways: rows that stop parsing leave every
+/// roster built on this empty, and a marker that moves leaves every command a reader.
+pub fn writers_from_help() -> BTreeMap<String, bool> {
     let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
         .arg("--help-all")
         .output()
@@ -923,7 +942,7 @@ pub fn commands_from_help() -> BTreeSet<String> {
     assert!(out.status.success(), "`yidam --help-all` exited nonzero");
     let help = String::from_utf8(out.stdout).expect("--help-all is utf-8");
 
-    let mut found = BTreeSet::new();
+    let mut found = BTreeMap::new();
     for line in help.lines() {
         let Some(rest) = line.strip_prefix("  ") else {
             continue;
@@ -938,7 +957,8 @@ pub fn commands_from_help() -> BTreeSet<String> {
         if name == "help" {
             continue;
         }
-        found.insert(name.to_string());
+        let writes = rest[name.len()..].trim_start().starts_with("* ");
+        found.insert(name.to_string(), writes);
     }
 
     assert!(
@@ -946,6 +966,11 @@ pub fn commands_from_help() -> BTreeSet<String> {
         "parsed only {} command(s) from --help-all — the output shape changed and this is no \
          longer reading it: {found:?}",
         found.len()
+    );
+    assert!(
+        found.values().filter(|w| **w).count() > 10,
+        "too few commands parsed as writers, so the marker column is not where this expects \
+         it: {found:?}"
     );
     found
 }
