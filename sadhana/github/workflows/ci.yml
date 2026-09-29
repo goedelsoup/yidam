@@ -56,6 +56,20 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # <!-- YIDAM:CI --> written by yidam-vendor-update from the yidam scaffold — do not edit
+  #
+  # Everything between this line and its closing marker is yidam's: the jobs that
+  # run the corpus gate. `mise run yidam-vendor-update` replaces the region with the
+  # scaffold's at the new pin, so a gate added upstream reaches this repository at
+  # its next re-vendor (#1054). Before these markers existed, this file was
+  # installed once at genesis and never updated, and a derived repository ran
+  # whatever gates its genesis happened to know — one of them, none.
+  #
+  # So an edit inside the region is lost at the next re-vendor. A step you want
+  # beside the gate goes in a job of your own, below the closing marker; a job
+  # here you need changed is an issue upstream. `yidam doctor` checks that the
+  # markers are here and that some workflow still runs a corpus gate.
+  #
   # ── Paths that may not sit in a public repository ──────────────────────────
   #
   # Opt-in. Absent `.yidam/private-paths`, this job passes immediately and costs
@@ -183,23 +197,6 @@ jobs:
           else
             yidam policy gate disclose/at_rest --public
           fi
-
-  detect:
-    name: detect layers
-    runs-on: ubuntu-latest
-    outputs:
-      crates: ${{ steps.check.outputs.crates }}
-      packages: ${{ steps.check.outputs.packages }}
-      web: ${{ steps.check.outputs.web }}
-      watch: ${{ steps.check.outputs.watch }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: check
-        run: |
-          test -f crates/Cargo.toml     && echo "crates=true"   >> "$GITHUB_OUTPUT" || echo "crates=false"   >> "$GITHUB_OUTPUT"
-          test -f packages/pyproject.toml && echo "packages=true" >> "$GITHUB_OUTPUT" || echo "packages=false" >> "$GITHUB_OUTPUT"
-          test -f web/package.json      && echo "web=true"      >> "$GITHUB_OUTPUT" || echo "web=false"      >> "$GITHUB_OUTPUT"
-          test -f .github/watch/heartbeats.tsv && echo "watch=true" >> "$GITHUB_OUTPUT" || echo "watch=false" >> "$GITHUB_OUTPUT"
 
   corpus:
     name: corpus (graph gate)
@@ -472,6 +469,25 @@ jobs:
       # command answers the same question on a dirty tree.
       - name: REGEN blocks are current
         run: yidam regen --check
+
+  # <!-- /YIDAM:CI -->
+
+  detect:
+    name: detect layers
+    runs-on: ubuntu-latest
+    outputs:
+      crates: ${{ steps.check.outputs.crates }}
+      packages: ${{ steps.check.outputs.packages }}
+      web: ${{ steps.check.outputs.web }}
+      watch: ${{ steps.check.outputs.watch }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          test -f crates/Cargo.toml     && echo "crates=true"   >> "$GITHUB_OUTPUT" || echo "crates=false"   >> "$GITHUB_OUTPUT"
+          test -f packages/pyproject.toml && echo "packages=true" >> "$GITHUB_OUTPUT" || echo "packages=false" >> "$GITHUB_OUTPUT"
+          test -f web/package.json      && echo "web=true"      >> "$GITHUB_OUTPUT" || echo "web=false"      >> "$GITHUB_OUTPUT"
+          test -f .github/watch/heartbeats.tsv && echo "watch=true" >> "$GITHUB_OUTPUT" || echo "watch=false" >> "$GITHUB_OUTPUT"
 
   # ── The scheduled watch: it runs, and it can see ───────────────────────────
   #

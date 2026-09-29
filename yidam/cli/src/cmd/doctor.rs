@@ -165,6 +165,8 @@ impl Check {
     const INDEX: &'static str = "index";
     const REGEN: &'static str = "regen";
     const ROUTES: &'static str = "routes";
+    const SCAFFOLD: &'static str = "scaffold";
+    const CI: &'static str = "ci";
     const COMPUTED: &'static str = "computed";
     const BUILD: &'static str = "build";
     const CATALOG: &'static str = "catalog";
@@ -767,6 +769,203 @@ fn check_routes(root: &Path) -> Answer {
     )
 }
 
+/// Do `ci.yml` and `CLAUDE.md` mark the part a re-vendor updates? — #1054.
+///
+/// The question [`check_routes`] asks of `AGENTS.md`, asked of the other two files genesis
+/// installs once. Without markers `yidam-vendor-update` reaches neither, so a gate added
+/// upstream never reaches this repository's CI, and nothing else would say so.
+///
+/// A `warn`, for the reason `routes` gives. A `CLAUDE.md` with none of the template's sections
+/// is the owner's whole, and asks for no region: `migrate scaffold` leaves it unmarked, and a
+/// finding it cannot resolve would be one to live with forever.
+fn check_scaffold(root: &Path) -> Answer {
+    use super::migrate_scaffold as m;
+    let ci = std::fs::read_to_string(root.join(m::CI)).ok();
+    let claude = std::fs::read_to_string(root.join(m::CLAUDE)).ok();
+    if ci.is_none() && claude.is_none() {
+        return Answer::skipped(format!(
+            "no `{}` and no `{}`, so there is nothing a re-vendor could update",
+            m::CI,
+            m::CLAUDE
+        ));
+    }
+    let mut unmarked = vec![];
+    if ci.as_deref().is_some_and(|t| !m::ci_has_region(t)) {
+        unmarked.push(m::CI);
+    }
+    if claude
+        .as_deref()
+        .is_some_and(|t| m::claude_is_template(t) && !m::claude_has_region(t))
+    {
+        unmarked.push(m::CLAUDE);
+    }
+    if unmarked.is_empty() {
+        return Answer::ok("each file genesis installed marks the part a re-vendor updates");
+    }
+    Answer::warn(
+        format!(
+            "no YIDAM region in {}, so no re-vendor reaches the part that is yidam's",
+            unmarked
+                .iter()
+                .map(|f| format!("`{f}`"))
+                .collect::<Vec<_>>()
+                .join(" or ")
+        ),
+        Some("yidam migrate scaffold, then mise run yidam-vendor-update"),
+    )
+}
+
+/// The commands that check a corpus. `yidam lint` counts unless it is one of the flags that
+/// only prints or writes.
+const CI_GATES: &[&str] = &["yidam graph-check", "yidam regen --check", "yidam lint"];
+
+/// `yidam lint` flags that check nothing.
+const NOT_A_GATE: &[&str] = &["--bless", "--explain", "--init-baseline"];
+
+/// The inherited `mise.yidam.toml` tasks that run one of [`CI_GATES`]. A test reads each one's
+/// `run` and holds it to that.
+const GATE_TASKS: &[&str] = &[
+    "graph-check",
+    "graph-lint",
+    "graph-lint-gate",
+    "graph-lint-commits",
+    "regen-check",
+];
+
+/// How many of the repository's own tasks deep a `mise run` is followed.
+const TASK_DEPTH: usize = 3;
+
+/// The corpus gates some shell text runs.
+///
+/// Comments are cut first, whole-line and trailing: the scaffold's workflow explains its gates
+/// in comments, and a workflow whose every gate was deleted but whose prose still names them
+/// must not pass. A `mise run` of an inherited gate task counts, addressed bare or as `//:`,
+/// as does one of the repository's own tasks whose `run` reaches a gate: two of fifteen
+/// derived workflows gate through `mise run ci` or `mise run //:graph-lint` and name no
+/// `yidam` command at all.
+fn gates_in(text: &str, own_task: &dyn Fn(&str) -> Option<String>, depth: usize) -> Vec<String> {
+    let mut found: Vec<String> = vec![];
+    let mut add = |g: String| {
+        if !found.contains(&g) {
+            found.push(g);
+        }
+    };
+    for line in text.lines() {
+        let code = match line.find('#') {
+            Some(i) if line[..i].trim().is_empty() => continue,
+            Some(i) if line[..i].ends_with(char::is_whitespace) => &line[..i],
+            _ => line,
+        };
+        for gate in CI_GATES {
+            for (at, _) in code.match_indices(gate) {
+                let rest = &code[at + gate.len()..];
+                // A whole command, not a prefix of another: `yidam lint-x`.
+                if rest.starts_with(|c: char| c.is_alphanumeric() || c == '-' || c == '_') {
+                    continue;
+                }
+                if *gate == "yidam lint"
+                    && NOT_A_GATE.iter().any(|f| rest.trim_start().starts_with(f))
+                {
+                    continue;
+                }
+                add((*gate).to_string());
+            }
+        }
+        for (at, _) in code.match_indices("mise run ") {
+            let token: String = code[at + "mise run ".len()..]
+                .chars()
+                .take_while(|c| {
+                    !c.is_whitespace() && !matches!(c, '"' | '\'' | '`' | ';' | '&' | '|' | ')')
+                })
+                .collect();
+            // `//:task` is the root's task; `//web:task` is a subproject's, and not inherited.
+            let task = match token.strip_prefix("//:") {
+                Some(t) => t,
+                None if token.starts_with("//") => continue,
+                None => token.as_str(),
+            };
+            if GATE_TASKS.contains(&task) {
+                add(format!("mise run {token}"));
+            } else if depth > 0 {
+                if let Some(run) = own_task(task) {
+                    let inner = gates_in(&run, own_task, depth - 1);
+                    if !inner.is_empty() {
+                        add(format!("mise run {token} ({})", inner.join(", ")));
+                    }
+                }
+            }
+        }
+    }
+    found
+}
+
+/// A task's `run`, from the repository's own `mise.toml`, as one piece of shell text.
+fn own_task_run(mise: &toml::Value, task: &str) -> Option<String> {
+    let run = mise.get("tasks")?.get(task)?.get("run")?;
+    match run {
+        toml::Value::String(s) => Some(s.clone()),
+        toml::Value::Array(a) => Some(
+            a.iter()
+                .filter_map(toml::Value::as_str)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        _ => None,
+    }
+}
+
+/// Does this repository's CI run a corpus gate? — #1054.
+///
+/// A workflow that runs none leaves a green check saying nothing about the graph. #1054
+/// reported one derivation in that state; it gated through `mise run //:graph-lint` and named
+/// `yidam` only in a comment, which is why [`gates_in`] cuts comments and follows tasks.
+/// Measured 2026-09-29, all fourteen derived workflows gate. Read offline from
+/// `.github/workflows/`: this cannot see CI that lives anywhere else, so a `warn` and never a
+/// `fail`, and the detail says what it looked at.
+fn check_ci(root: &Path) -> Answer {
+    let dir = root.join(".github/workflows");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Answer::warn(
+            "no `.github/workflows/`, so no CI this can read checks the corpus",
+            Some(
+                "a workflow step running `yidam graph-check` — or, with CI elsewhere, run it there",
+            ),
+        );
+    };
+    let mut files: Vec<_> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "yml" || x == "yaml"))
+        .collect();
+    files.sort();
+    let mise = std::fs::read_to_string(root.join("mise.toml"))
+        .ok()
+        .and_then(|t| toml::from_str::<toml::Value>(&t).ok());
+    let own_task = |task: &str| mise.as_ref().and_then(|m| own_task_run(m, task));
+    let mut gates: Vec<String> = vec![];
+    for f in &files {
+        let Ok(text) = std::fs::read_to_string(f) else {
+            continue;
+        };
+        for g in gates_in(&text, &own_task, TASK_DEPTH) {
+            if !gates.contains(&g) {
+                gates.push(g);
+            }
+        }
+    }
+    if gates.is_empty() {
+        return Answer::warn(
+            format!(
+                "none of {} workflow(s) runs a corpus gate, so a green check says nothing about \
+                 the graph",
+                files.len()
+            ),
+            Some("yidam migrate scaffold, then mise run yidam-vendor-update"),
+        );
+    }
+    Answer::ok(format!("runs {}", gates.join(", ")))
+}
+
 /// Which features does this binary have?
 ///
 /// Never a verdict — a light build is the recommended install. It is here because
@@ -908,6 +1107,18 @@ const ROSTER: &[Question] = &[
         text: "Does `AGENTS.md` carry the reading routes a re-vendor updates?",
         asked: Asked::OfARepository,
         answer: |s| check_routes(&s.root),
+    },
+    Question {
+        id: Check::SCAFFOLD,
+        text: "Do `ci.yml` and `CLAUDE.md` mark the part a re-vendor updates?",
+        asked: Asked::OfARepository,
+        answer: |s| check_scaffold(&s.root),
+    },
+    Question {
+        id: Check::CI,
+        text: "Does this repository's CI run a corpus gate?",
+        asked: Asked::OfARepository,
+        answer: |s| check_ci(&s.root),
     },
     Question {
         id: Check::CATALOG,
@@ -2134,6 +2345,108 @@ mod tests {
         assert_eq!(c.verdict, Verdict::Ok);
         assert_eq!(c.detail, "no corpus files yet");
         assert!(c.remedy.is_none());
+    }
+
+    fn no_tasks(_: &str) -> Option<String> {
+        None
+    }
+
+    #[test]
+    fn a_gate_named_only_in_a_comment_is_not_run() {
+        let text = "\
+# yidam graph-check, from column 0
+jobs:
+  corpus:
+    # runs `yidam graph-check` and `mise run graph-lint`
+    steps:
+      - run: echo ok # then yidam regen --check
+      - run: yidam lint --bless
+      - run: yidam lint-report
+      - run: mise run //web:graph-check
+";
+        assert_eq!(gates_in(text, &no_tasks, TASK_DEPTH), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_gate_is_found_run_directly_or_through_an_inherited_task() {
+        let text = "\
+      - run: yidam lint --commits --range origin/main..HEAD
+      - run: yidam regen --check
+      - run: mise run //:graph-lint
+      - run: \"mise run regen-check\"
+";
+        assert_eq!(
+            gates_in(text, &no_tasks, TASK_DEPTH),
+            [
+                "yidam lint",
+                "yidam regen --check",
+                "mise run //:graph-lint",
+                "mise run regen-check"
+            ]
+        );
+    }
+
+    /// ohio-budget's workflow runs `mise run ci`, and its own `[tasks.ci]` runs the gate.
+    #[test]
+    fn a_repository_task_is_followed_to_the_gate_it_runs() {
+        let mise: toml::Value = toml::from_str(
+            "[tasks.ci]\nrun = [\"cargo test\", \"mise run check\"]\n\
+             [tasks.check]\nrun = \"yidam graph-check\"\n\
+             [tasks.loop]\nrun = \"mise run loop\"\n\
+             [tasks.web]\nrun = \"pnpm test\"\n",
+        )
+        .unwrap();
+        let own = |t: &str| own_task_run(&mise, t);
+        assert_eq!(
+            gates_in("- run: mise run ci", &own, TASK_DEPTH),
+            ["mise run ci (mise run check (yidam graph-check))"]
+        );
+        // A task that runs itself ends at the depth limit, and one that gates nothing is not a gate.
+        assert!(gates_in("- run: mise run loop && mise run web", &own, TASK_DEPTH).is_empty());
+        // The depth is a limit: a gate one task down is not seen with none to spend.
+        assert!(gates_in("- run: mise run check", &own, 0).is_empty());
+    }
+
+    /// Every inherited task [`GATE_TASKS`] counts runs a gate, read from the task layer itself.
+    /// A task renamed or re-pointed there would otherwise pass every workflow that calls it.
+    #[test]
+    fn every_gate_task_runs_a_gate_in_the_task_layer() {
+        let text = std::fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../mise.yidam.toml"),
+        )
+        .expect("mise.yidam.toml");
+        let layer: toml::Value = toml::from_str(&text).expect("mise.yidam.toml parses");
+        for task in GATE_TASKS {
+            let run = layer
+                .get(task)
+                .and_then(|t| t.get("run"))
+                .and_then(toml::Value::as_str)
+                .unwrap_or_else(|| panic!("mise.yidam.toml has no `[{task}]` with a `run`"));
+            assert!(
+                !gates_in(run, &no_tasks, 0).is_empty(),
+                "`[{task}]` runs `{run}`, which is no corpus gate"
+            );
+        }
+    }
+
+    /// The scaffold's own workflow passes, and every gate it runs is one this reads: a gate
+    /// added to its region under a new command would otherwise reach every derivation and be
+    /// invisible here.
+    #[test]
+    fn the_scaffold_s_gates_are_the_ones_this_reads() {
+        let ci = std::fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../sadhana/github/workflows/ci.yml"),
+        )
+        .expect("the scaffold workflow");
+        let region = ci
+            .split("<!-- YIDAM:CI -->")
+            .nth(1)
+            .and_then(|r| r.split("<!-- /YIDAM:CI -->").next())
+            .expect("the scaffold's YIDAM:CI region");
+        assert_eq!(
+            gates_in(region, &no_tasks, TASK_DEPTH),
+            ["yidam graph-check", "yidam lint", "yidam regen --check"]
+        );
     }
 
     /// The page both docs gates read, spelled once.

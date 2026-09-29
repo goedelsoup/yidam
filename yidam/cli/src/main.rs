@@ -1205,6 +1205,14 @@ enum MigrateCommand {
     /// no other line. A list holding a line that links no vendored prelude file is refused,
     /// with the block printed to paste. Idempotent; run it with `--dry-run` first.
     Routes,
+    /// Mark the part of `ci.yml` and `CLAUDE.md` that a re-vendor updates
+    ///
+    /// Genesis installs both files once, and a derivation made before #1054 has no markers, so
+    /// `mise run yidam-vendor-update` reaches neither and a gate added upstream never reaches
+    /// its CI. This wraps the `privacy` and `corpus` jobs, and the template's `CLAUDE.md`
+    /// sections, in the regions the re-vendor rewrites. A workflow with neither job gets an
+    /// empty region the re-vendor fills. Idempotent; run it with `--dry-run` first.
+    Scaffold,
     /// Point a declared relationship at a different class, at both ends
     Edge {
         /// The class that declares it
@@ -1246,6 +1254,7 @@ impl From<MigrateCommand> for yidam::MigrateOperation {
             MigrateCommand::References => Self::References,
             MigrateCommand::Findings => Self::Findings,
             MigrateCommand::Routes => Self::Routes,
+            MigrateCommand::Scaffold => Self::Scaffold,
             MigrateCommand::Edge {
                 class,
                 relationship,

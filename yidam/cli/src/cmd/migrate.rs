@@ -120,6 +120,11 @@ pub enum Operation {
     /// same reason the two lifts do: a one-time mechanical rewrite with a record of what it
     /// refused. See [`crate::cmd::migrate_routes`].
     Routes,
+    /// `ci.yml` and `CLAUDE.md` get the regions `yidam-vendor-update` rewrites (#1054).
+    ///
+    /// Migrates the scaffold, as [`Self::Routes`] does, and for the same reason. See
+    /// [`crate::cmd::migrate_scaffold`].
+    Scaffold,
 }
 
 impl Operation {
@@ -134,6 +139,7 @@ impl Operation {
             Self::References => "references",
             Self::Findings => "findings",
             Self::Routes => "routes",
+            Self::Scaffold => "scaffold",
         }
     }
 
@@ -170,6 +176,8 @@ impl Operation {
             Self::Findings => "legacy propose paragraphs into records".to_string(),
             // Replaced once planned, and for the same reasons as the two above.
             Self::Routes => "AGENTS.md reading list into a generated block".to_string(),
+            // A stable form that does not begin with the operation's own name, as above.
+            Self::Scaffold => "ci.yml and CLAUDE.md regions a re-vendor updates".to_string(),
         }
     }
 }
@@ -226,6 +234,10 @@ pub struct MigrateReport {
     /// other operation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub routes: Option<super::migrate_routes::Routes>,
+    /// The two files `migrate scaffold` marks, and what goes inside each region. `None` for
+    /// every other operation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scaffold: Option<super::migrate_scaffold::Scaffold>,
     /// Why this cannot proceed. Non-empty means nothing was touched.
     pub blocked: Vec<String>,
     /// Where the migration record was written, once applied.
@@ -262,6 +274,7 @@ impl MigrateReport {
             findings: vec![],
             prose_findings: 0,
             routes: None,
+            scaffold: None,
             blocked: vec![],
             record: String::new(),
             commit_subject: String::new(),
@@ -481,6 +494,10 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
             super::migrate_routes::plan(root, &mut report);
             report.summary = super::migrate_routes::summary(&report);
         }
+        Operation::Scaffold => {
+            super::migrate_scaffold::plan(root, &mut report);
+            report.summary = super::migrate_scaffold::summary(&report);
+        }
     }
     if report.blocked.is_empty() {
         // A reference lift's unit of work is a reference and not an edit: only the tags it
@@ -517,6 +534,10 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
                 "bullet",
                 usize::from(!routes.already),
             )
+        } else if let Some(scaffold) = &report.scaffold {
+            // Nor a scaffold migration: its unit is a file given a region.
+            let n = scaffold.files.iter().filter(|f| f.to_write()).count();
+            (n, "file", n)
         } else {
             (
                 report.edits.len(),
@@ -1390,6 +1411,14 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
         super::migrate_routes::apply(root, report)?;
         return write_record(root, op, report, vec![routes.file]);
     }
+    // A scaffold migration wraps a span of lines in markers, and may move one: the same escape.
+    if matches!(op, Operation::Scaffold) {
+        if report.scaffold.as_ref().is_none_or(|s| s.nothing_to_do()) {
+            return Ok(());
+        }
+        let written = super::migrate_scaffold::apply(root, report)?;
+        return write_record(root, op, report, written);
+    }
     let mut by_file: BTreeMap<&str, Vec<&Edit>> = Default::default();
     for e in &report.edits {
         by_file.entry(&e.file).or_default().push(e);
@@ -1516,6 +1545,9 @@ pub(crate) fn render_migrate(r: &MigrateReport) -> String {
     // Before the generic refusal, which cannot print the block a refusal hands over to paste.
     if matches!(r.operation, "routes") {
         return render_routes(r);
+    }
+    if matches!(r.operation, "scaffold") {
+        return render_scaffold(r);
     }
     if !r.blocked.is_empty() {
         let mut out = format!("Cannot migrate — {}:\n", r.summary);
@@ -1745,6 +1777,72 @@ fn render_routes(r: &MigrateReport) -> String {
     for b in &routes.replaced {
         let _ = writeln!(out, "    {b}");
     }
+    if !r.record.is_empty() {
+        let _ = write!(out, "\nrecord: {}", r.record);
+    }
+    let _ = write!(out, "\ncommit: {}", r.commit_subject);
+    out.trim_end().to_string()
+}
+
+/// A scaffold migration: each file, and what its region takes in.
+fn render_scaffold(r: &MigrateReport) -> String {
+    let mut out = String::new();
+    if !r.blocked.is_empty() {
+        let _ = writeln!(out, "Cannot migrate — {}:", r.summary);
+        for b in &r.blocked {
+            let _ = writeln!(out, "  {b}");
+        }
+        let _ = write!(out, "\nNothing was written.");
+        return out;
+    }
+    let Some(scaffold) = &r.scaffold else {
+        return out;
+    };
+    if scaffold.nothing_to_do() {
+        let _ = writeln!(out, "Nothing to migrate:");
+    } else {
+        let verb = if r.applied {
+            "Migrated"
+        } else {
+            "Would migrate"
+        };
+        let _ = writeln!(out, "{verb} {}:", r.summary);
+    }
+    for f in &scaffold.files {
+        if f.absent {
+            let _ = writeln!(out, "  {}  absent, so there is nothing to mark", f.file);
+        } else if f.already {
+            let _ = writeln!(out, "  {}  already carries its region", f.file);
+        } else if f.owned {
+            let _ = writeln!(
+                out,
+                "  {}  carries none of the template's sections, so none of it is the re-vendor's",
+                f.file
+            );
+        } else if f.wrapped.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {}  an empty region, which the next re-vendor fills with the corpus gate",
+                f.file
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "  {}  the region takes in: {}",
+                f.file,
+                f.wrapped.join(", ")
+            );
+        }
+    }
+    if scaffold.nothing_to_do() {
+        return out.trim_end().to_string();
+    }
+    let _ = write!(
+        out,
+        "\nEverything inside a region is replaced by the scaffold's at the next \
+         `mise run yidam-vendor-update`, so a step added inside one of those jobs or sections \
+         shows up in that diff as removed. Move it to a job or section of its own, outside.\n"
+    );
     if !r.record.is_empty() {
         let _ = write!(out, "\nrecord: {}", r.record);
     }
