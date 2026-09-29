@@ -424,7 +424,7 @@ pub(crate) fn check_artifact(rel: &str, text: &str, cited: &Cited) -> Option<Der
             .map(|n| crate::paths::class_of_path(&n.path))
             .unwrap_or_default();
         let mut located = true;
-        for f in local_citations::findings(cite, &cited.by_key, cited.fields.for_class(&class)) {
+        for f in local_citations::findings(cite, &cited.by_key, cited.fields) {
             let id = match f.check {
                 local_citations::UNRESOLVED => UNRESOLVED,
                 local_citations::SPAN_DRIFT => SPAN_DRIFT,
