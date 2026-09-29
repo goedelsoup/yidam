@@ -966,6 +966,116 @@ fn an_epistemic_run_lands_on_a_proposal_branch_and_the_branch_does_not_move() {
     }
 }
 
+/// Declare `ageing_days` on one capability, so every re-run of it is owed.
+///
+/// Zero rather than a real interval: the age is measured in whole days from a committer date,
+/// and a test cannot wait one. Asserted like [`with_verb`], for the same reason.
+fn with_ageing(e: &Example, step: &str, days: u32) {
+    let manifest = e.path().join(".yidam/capabilities.toml");
+    let before = std::fs::read_to_string(&manifest).unwrap();
+    let head = format!("[capability.{step}]\n");
+    let after = before.replacen(&head, &format!("{head}ageing_days = {days}\n"), 1);
+    assert_ne!(
+        before,
+        after,
+        "{} declares no `{step}` to age, so the test asserts nothing",
+        manifest.display()
+    );
+    std::fs::write(&manifest, after).unwrap();
+}
+
+/// One step's entry in a JSON run report.
+fn entry<'a>(report: &'a serde_json::Value, step: &str) -> &'a serde_json::Value {
+    report["steps"]
+        .as_array()
+        .expect("a plan")
+        .iter()
+        .find(|s| s["step"] == step)
+        .unwrap_or_else(|| panic!("`{step}` is not in the plan:\n{report}"))
+}
+
+/// RFC-0026 §6 on the branch: an aged re-run whose answer had not moved still lands a commit.
+///
+/// The receipt names the head it was computed from, and that head is the commit the last run
+/// landed, so the receipt differs and the commit is the record that somebody looked. Its
+/// outputs are byte-identical, so the only path the commit changes is the receipt.
+#[test]
+fn an_aged_step_on_the_branch_lands_a_commit_that_records_the_check() {
+    for (example, step) in every_terminal_capability() {
+        let e = Example::materialize_runnable(&example);
+        with_ageing(&e, &step, 0);
+        settle(&e);
+        let before = git(&e.path(), &["rev-parse", "HEAD"]);
+
+        let (out, err, code) = e.run(&["run", &step, "--format", "json"]);
+        assert_eq!(code, 0, "an aged run failed in {example}:\n{out}{err}");
+        let report: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let s = entry(&report, &step);
+        assert_eq!(s["freshness"], "stale", "{out}");
+        assert_eq!(s["outcome"], "ran", "{out}");
+        assert_eq!(s["unchanged_outputs"], true, "{out}");
+        assert!(
+            s["committed"]["commit"].is_string(),
+            "an aged re-run of `{step}` in {example} landed nothing on the branch, so the check \
+             it made is recorded nowhere:\n{out}"
+        );
+
+        assert_eq!(git(&e.path(), &["rev-parse", "HEAD~1"]), before);
+        let changed = git(&e.path(), &["diff", "--name-only", &before, "HEAD"]);
+        assert_eq!(
+            changed,
+            format!(".yidam/runs/{step}.yml"),
+            "the answer had not moved, so the receipt is the only thing that should have"
+        );
+    }
+}
+
+/// RFC-0026 §6 on a proposal: an aged re-run that reproduces the pending proposal lands
+/// nothing, and says so without claiming a commit (#1162).
+///
+/// The branch has not moved, so the receipt names the same head and the tree is the one already
+/// proposed. The proposal is the answer until a person merges or deletes it.
+#[test]
+fn an_aged_step_on_a_proposal_reproduces_it_and_lands_nothing() {
+    for (example, step) in every_terminal_capability() {
+        let e = Example::materialize_runnable(&example);
+        with_verb(&e, &step, "revise");
+        with_ageing(&e, &step, 0);
+        settle(&e);
+
+        let head = git(&e.path(), &["rev-parse", "HEAD"]);
+        let short = git(&e.path(), &["rev-parse", "--short", "HEAD"]);
+        let proposal = format!("propose/{short}");
+        let tip = git(&e.path(), &["rev-parse", &proposal]);
+
+        let (out, err, code) = e.run(&["run", &step, "--format", "json"]);
+        assert_eq!(code, 0, "an aged run failed in {example}:\n{out}{err}");
+        let report: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let s = entry(&report, &step);
+        assert_eq!(s["route"], "proposal", "{out}");
+        assert_eq!(
+            s["freshness"], "stale",
+            "the step was not aged, so nothing below is about #1162:\n{out}"
+        );
+        assert_eq!(s["outcome"], "ran", "{out}");
+        assert_eq!(s["unchanged_outputs"], true, "{out}");
+        assert!(s["committed"].is_null(), "{out}");
+        assert_eq!(report["committed"], 0, "{out}");
+
+        assert_eq!(git(&e.path(), &["rev-parse", "HEAD"]), head);
+        assert_eq!(git(&e.path(), &["rev-parse", &proposal]), tip);
+
+        // The text says where the tree was matched, and claims no commit.
+        let (text, err, code) = e.run(&["run", &step]);
+        assert_eq!(code, 0, "{text}{err}");
+        assert!(
+            text.contains(&format!("it reproduced what {proposal} already proposes")),
+            "{text}"
+        );
+        assert!(!text.contains("records that it was checked"), "{text}");
+    }
+}
+
 /// The same property over the **whole** epistemic family, not over one verb.
 ///
 /// `establish` is the verb the argument is usually made about, and a test that only ever ran
