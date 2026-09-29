@@ -19,9 +19,10 @@
 //!   copies agree.
 //!
 //! The remaining one — a citation with neither anchor — is Info by design and is still not
-//! asserted empty, because the remedy is a judgement about the document. Its **count** is
-//! gated instead (#899). It is by far the largest group: 109 of this repository's 229 line
-//! citations, checked for existence and nothing else. 176 carry no quote and 67 of those
+//! asserted empty, because the remedy is a judgement about the document. Its **members** are
+//! gated instead, listed in `tests/goldens/unanchored-line-citations.txt` (#899, #932). It
+//! is by far the largest group: 109 of this repository's 229 line citations, checked for
+//! existence and nothing else. 176 carry no quote and 67 of those
 //! are held by their label instead, which is the whole of what the documents themselves
 //! make decidable; 105 of the remaining 109 label a line number, and a line number that
 //! agrees with itself anchors nothing.
@@ -136,25 +137,50 @@ fn the_two_house_label_forms_are_both_still_read() {
     );
 }
 
-/// How many citations nothing can check, and the only number in this file that is allowed
-/// to move (#899).
-///
-/// Lower it when a repair earns it. Never raise it.
-///
-/// 109 → 108 (#954): splitting `agent-conduct.md` into rules and evidence slid the line two
-/// RFCs cite for the canonical `[inference]` spelling from L42 onto a blank line, and
-/// `dead-line-citation` caught both. `0013-node-model-close.md` was repaired by quoting the
-/// passage rather than only re-pointing the fragment, which is what moves it out of this
-/// population — a citation re-pointed and left unquoted would have slid again on the next edit
-/// to that file and this number would not have noticed.
-///
-/// 107 → 106 (#1136): a sentence added to `PHASES.md` put `0028-kuten-layer.md`'s citation of
-/// the rule against mixing phase types on a blank line, and `dead-line-citation` caught it. It
-/// had already slid: on `main` its L74 held `settle`, 62 lines from the rule. It is repaired
-/// the way #954 repaired its own, by quoting the rule.
-const UNANCHORED: usize = 106;
+/// Where the citations nothing can check are listed, one per line — the only file this suite
+/// lets a person edit to make it pass (#899, #932).
+fn unanchored_baseline_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/goldens/unanchored-line-citations.txt")
+}
 
-/// The residue, counted — and the count held to a number somebody has to edit.
+/// A citation's identity in the baseline: the citing file and the anchor as a reader writes
+/// it. Not the citing *line* — an edit above a citation would move every key under it and
+/// the list would churn on changes that touched no citation. Two identical citations in one
+/// file are one key twice, which is why the comparison is of multisets.
+fn unanchored_key(c: &yidam::LineCitation) -> String {
+    format!("{} → {}", c.file, c.anchor())
+}
+
+/// Every non-comment, non-blank line of the baseline, in file order.
+fn read_unanchored_baseline() -> Vec<String> {
+    let path = unanchored_baseline_path();
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{} is unreadable: {e}", path.display()))
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// `a` minus `b`, counting repeats.
+fn multiset_minus(a: &[String], b: &[String]) -> Vec<String> {
+    let mut left: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for k in b {
+        *left.entry(k).or_default() += 1;
+    }
+    a.iter()
+        .filter(|k| match left.get_mut(k.as_str()) {
+            Some(n) if *n > 0 => {
+                *n -= 1;
+                false
+            }
+            _ => true,
+        })
+        .cloned()
+        .collect()
+}
+
+/// The residue, listed — and the list held to a file somebody has to edit.
 ///
 /// `unverified-line-citation` is Info and gates on nothing, for a reason its own rationale
 /// makes and this test does not disturb: the remedy is a judgement about the document —
@@ -164,35 +190,117 @@ const UNANCHORED: usize = 106;
 /// of `GRAPH.md` were stale on `main`, one of them by 27 lines for months, and every one of
 /// them was in this group and therefore silent from the day it was written.
 ///
-/// **Exact, not a ceiling.** The same argument `.yidam/lint-baseline.yml` carries for a
-/// derived corpus: a number permitted to be too high drifts, and a ratchet that has drifted
-/// silently permits re-introduction of whatever it over-counts. So a repair reddens this
-/// test too, and the repair for *that* is one line.
+/// **A list, not a count (#932).** This used to be `assert_eq!` against a constant, and the
+/// constant had two defects a list does not:
 ///
-/// **Two branches can each be green and the merge red**, because this is a count rather
-/// than a list: two PRs that each retire one citation both pass at `UNANCHORED - 1`, and the
-/// merged tree sits at `UNANCHORED - 2`. Nothing runs on the merge result until CI does.
-/// That is the ratchet working — the number is wrong on `main` and says so — not a reason
-/// to loosen it.
+/// - *Two green branches merged red.* Two PRs that each retired one citation both passed at
+///   `UNANCHORED - 1`, and the merged tree sat at `UNANCHORED - 2`. Each now deletes its own
+///   line, and git merges two deletions — or refuses them as a conflict on the PR, before
+///   the merge rather than after it.
+/// - *A swap passed.* A PR that anchored one citation and added another left the count
+///   where it was. Now the addition is a key the file does not hold.
+///
+/// Loosening the constant to a ceiling would have fixed the first and made the second
+/// worse: a ceiling above the truth is room for exactly that many silent additions, which
+/// is the drift `.yidam/lint-baseline.yml` refuses for a derived corpus on the same
+/// argument. The list stays exact in both directions.
+///
+/// **Re-pointing is an addition.** A citation whose fragment moves has a new key, so a
+/// citation repaired by re-pointing alone fails here until its line is edited too. That is
+/// deliberate: a re-pointed, unquoted citation slides again on the next edit to its target,
+/// and the count could not see it happen (#954, #1136 — both repaired by quoting instead).
 #[test]
 fn the_unanchored_population_does_not_grow() {
     let cites = yidam::collect_line_citations(&repo_root());
     let check = yidam::unverified_line_citation(&cites);
-    let n = check.violations.len();
+    let mut found: Vec<String> = cites
+        .iter()
+        .filter(|c| c.is_unanchored())
+        .map(unanchored_key)
+        .collect();
+    found.sort();
     assert_eq!(
-        n,
-        UNANCHORED,
-        "{} citations of {} carry neither a quote nor a symbol label, and this file says \
-         {UNANCHORED}.\n\
-         More than that: a citation was added that nothing can check. Anchor it — quote the \
-         passage beside the link, or label the symbol the lines declare — rather than \
-         raising the number.\n\
-         Fewer: a repair landed. Lower `UNANCHORED` to {n}.\n\
-         The population:\n{}",
-        n,
-        cites.len(),
-        render(&check.violations)
+        found.len(),
+        check.violations.len(),
+        "the keys listed here and the violations the check reports are two readings of one \
+         population and disagree — `is_unanchored` and `unverified_line_citation` have come \
+         apart"
     );
+
+    let listed = read_unanchored_baseline();
+    let added = multiset_minus(&found, &listed);
+    let retired = multiset_minus(&listed, &found);
+
+    if std::env::var("UPDATE_GOLDENS").is_ok() && added.is_empty() && !retired.is_empty() {
+        let path = unanchored_baseline_path();
+        let text = std::fs::read_to_string(&path).expect("read baseline");
+        let mut drop = retired.clone();
+        let kept: Vec<&str> = text
+            .lines()
+            .filter(|l| match drop.iter().position(|r| r == l) {
+                Some(i) => {
+                    drop.swap_remove(i);
+                    false
+                }
+                None => true,
+            })
+            .collect();
+        std::fs::write(&path, kept.join("\n") + "\n").expect("write baseline");
+        return;
+    }
+
+    let path = unanchored_baseline_path();
+    assert!(
+        added.is_empty(),
+        "{} citation(s) carry neither a quote nor a symbol label and are not listed in {}:\n\
+         {}\n\
+         Anchor each — quote the passage beside the link, or label the symbol the lines \
+         declare — rather than listing it. A citation you only re-pointed counts: quote it \
+         while you are there. Listing one is a hand edit, and the diff is the review.",
+        added.len(),
+        path.display(),
+        added
+            .iter()
+            .map(|k| format!("  {k}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    assert!(
+        retired.is_empty(),
+        "{} listed citation(s) are anchored or gone — a repair landed. Delete their lines \
+         from {}, or re-run with UPDATE_GOLDENS=1, which only ever deletes:\n{}",
+        retired.len(),
+        path.display(),
+        retired
+            .iter()
+            .map(|k| format!("  {k}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+/// The list is kept in the order `found` is sorted into, so two branches' deletions land at
+/// predictable lines and a hand-added entry has one right place to go.
+#[test]
+fn the_unanchored_baseline_is_sorted() {
+    let listed = read_unanchored_baseline();
+    let mut sorted = listed.clone();
+    sorted.sort();
+    assert!(
+        listed == sorted,
+        "{} is out of order; sort its entries (byte order, as Rust's `sort` does)",
+        unanchored_baseline_path().display()
+    );
+}
+
+#[test]
+fn multiset_minus_counts_repeats() {
+    let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        multiset_minus(&s(&["a", "a", "b"]), &s(&["a", "c"])),
+        s(&["a", "b"])
+    );
+    assert!(multiset_minus(&s(&["a"]), &s(&["a", "a"])).is_empty());
 }
 
 /// The label and the fragment are two statements of one range, and a repair that edits

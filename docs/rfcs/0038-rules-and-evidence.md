@@ -327,7 +327,7 @@ to the source changed nothing. Moving the comma outside the quotation marks chan
 rule is **adjacency** — everything between the quoted span and the link must be punctuation:
 
 > the last quoted span, separated from it by punctuation alone
-> — [`line_citations.rs:515`](../../yidam/cli/src/cmd/lint/line_citations.rs#L515), in
+> — [`line_citations.rs:521`](../../yidam/cli/src/cmd/lint/line_citations.rs#L521), in
 > `quotes_beside`
 
 The citation read `— "One concept per file; one file per concept", decompose past a screen
