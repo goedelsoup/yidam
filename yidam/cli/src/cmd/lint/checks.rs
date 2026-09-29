@@ -2075,12 +2075,12 @@ pub fn linked_paths(node_path: &Path, rel: &str, text: &str, catalog: &Path) -> 
 /// and is not resolved here: `edge-source-unresolved` reads it, and a citation is a thing that
 /// resolves to the catalog.
 ///
-/// **This is the one place both directions resolve a stem.** `edge-source-unresolved` asks
+/// **This is the one place every direction resolves a stem.** `edge-source-unresolved` asks
 /// whether a `source:` names something held; `catalog-uncited` asks whether an entry is named
-/// by anything. Until #1158 the second read only links, so an entry cited from edges alone was
-/// reported uncited while every edge citing it resolved. Sharing the readings is what makes
-/// that impossible to reintroduce.
-pub(super) fn source_targets(dir: &Path, catalog: &Path, written: &str) -> [PathBuf; 2] {
+/// by anything; `rename` asks which edges name the entry it is moving (#1159). Until #1158 the
+/// second read only links, so an entry cited from edges alone was reported uncited while every
+/// edge citing it resolved. Sharing the readings is what makes that impossible to reintroduce.
+pub(crate) fn source_targets(dir: &Path, catalog: &Path, written: &str) -> [PathBuf; 2] {
     [
         normalize(&catalog.join(format!("{written}.md"))),
         normalize(&dir.join(written)),

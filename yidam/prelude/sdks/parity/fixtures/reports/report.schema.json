@@ -1449,7 +1449,7 @@
     },
     "corpus_dir": {
       "type": "string",
-      "description": "`corpus-index`, `graph`, `neighbors` and `rename`. Repository-relative corpus root; every `node` path in the same report is relative to it. Emitted so a consumer never hardcodes `.yidam/corpus` \u2014 the one path in this contract a repository could plausibly move."
+      "description": "`corpus-index`, `graph`, `neighbors` and `rename`. Repository-relative corpus root; every `node` path in the same report is relative to it. Emitted so a consumer never hardcodes `.yidam/corpus` \u2014 the one path in this contract a repository could plausibly move. On a `rename` of a catalog entry it is `.yidam`, and `from` and `to` are `catalog/<name>.md`: the moved file is always `corpus_dir/to`."
     },
     "classes": {
       "type": "array",
@@ -1604,11 +1604,11 @@
     },
     "from": {
       "type": "string",
-      "description": "`rename` only. Corpus-relative source."
+      "description": "`rename` only. Source, relative to `corpus_dir`: `<class>/<name>.yml` for a node, `catalog/<name>.md` for a catalog entry."
     },
     "to": {
       "type": "string",
-      "description": "`rename` only. Corpus-relative destination; may name a different class."
+      "description": "`rename` only. Destination, relative to `corpus_dir`; may name a different class. A catalog entry stays in the catalog."
     },
     "applied": {
       "type": "boolean",
@@ -1645,7 +1645,7 @@
     },
     "edits": {
       "type": "array",
-      "description": "`rename` only. Every `target:` rewrite, located. Covers inbound edges AND the moved node's own outgoing links, which need re-relativizing when it changes class \u2014 a same-directory target survives a rename inside one class and breaks the moment the node leaves it.",
+      "description": "`rename` only. Every `target:` rewrite, located \u2014 or, for a catalog entry, every edge `source:` rewrite in the spelling its author used (stem or path) and every markdown link under `.yidam/` that resolved to the entry. Covers inbound edges AND the moved node's own outgoing links, which need re-relativizing when it changes class \u2014 a same-directory target survives a rename inside one class and breaks the moment the node leaves it.",
       "items": {
         "type": "object",
         "required": [
