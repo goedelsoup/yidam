@@ -193,9 +193,8 @@ yidam tonpa add …         manage bundle dependencies on other derived repos
 
 That is a sample. `yidam --help` is a shorter one — the fourteen commands a session usually
 needs — and `yidam --help-all` lists all fifty-nine under these same groups. Both mark with
-`*` the ones that rewrite files in the repository they are run against — thirty-three do, and
-that was previously visible only in each command's long help, where you had to already
-suspect it to go looking.
+`*` the ones that rewrite files in the repository they are run against. That was previously
+visible only in each command's long help, where you had to already suspect it to go looking.
 
 Index subcommands (`corpus-index`, `skills-index`, `catalog-audit`, …) back the
 `<!-- REGEN: yidam <subcommand> -->` markers embedded in README files. `mise run regen`
