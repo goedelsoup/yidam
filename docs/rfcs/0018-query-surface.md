@@ -52,7 +52,7 @@ Three things in it are not obvious and are the reason the RFC is longer than the
 
 `walk_neighbors` chains outbound and inbound edges unconditionally and filters on neither
 relationship nor direction
-([`graph.rs:190-199`](../../yidam/cli/src/cmd/graph.rs#L190-L199)):
+([`graph.rs:204-213`](../../yidam/cli/src/cmd/graph.rs#L204-L213)):
 
 ```rust
 let outward = edges.iter().filter(|(from, _, _)| *from == current) …
@@ -68,16 +68,16 @@ at depth 2 and all of it at depth 3.
 ### E1 typed the graph and no traversal reads the types
 
 `.ont.yml` now declares, and lint now enforces: the class an instance belongs to
-([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L610), Error), the properties it may
-and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1058),
-[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1240)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1536)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1605)), and which class
+([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L611), Error), the properties it may
+and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1059),
+[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1242)), the type of each value
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1538)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1607)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1674), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1676), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
-([`checks.rs:1658-1659`](../../yidam/cli/src/cmd/lint/checks.rs#L1658-L1659)):
+([`checks.rs:1660-1661`](../../yidam/cli/src/cmd/lint/checks.rs#L1660-L1661)):
 
 > a relationship in no declaration is worth seeing, because **a traversal that walks by
 > relationship will not find it**
@@ -235,7 +235,7 @@ for an anchored entry, whose entry nodes are ordered by score.
 
 An edge is traversable when it is authored on an instance, resolves inside the corpus, and
 lands on **another instance** — the same set `instance_links` reads
-([`checks.rs:322-347`](../../yidam/cli/src/cmd/lint/checks.rs#L322-L347)), and the same rule
+([`instance_links`](../../yidam/cli/src/corpus/edges.rs#L158-L165)), and the same rule
 `unlicensed-edge` states: *a link to the class file or into the catalog is a citation, not a
 relationship.*
 
@@ -253,7 +253,7 @@ citation and one an edge. A query naming the wrong one must not silently return 
 is what the next section is for.
 
 Note also that this is **not** the set `graph.rs` reports: `neighbors` keeps in-corpus links
-whose target file does not exist ([`graph.rs:336`](../../yidam/cli/src/cmd/graph.rs#L336)
+whose target file does not exist ([`neighbors_data`](../../yidam/cli/src/cmd/graph.rs#L371-L392)
 filters on `resolved`, not on `exists`). A query cannot walk an edge to a file that is not
 there, so it filters on `exists`. The two readers disagree, and this RFC picks the narrower
 one deliberately rather than by accident.
@@ -272,7 +272,7 @@ So a query naming a class the corpus does not declare can only ever match nothin
 **rejected** with the declared class list and the nearest name.
 
 The one exception is the one `unknown_class` itself carves out
-([`checks.rs:493-497`](../../yidam/cli/src/cmd/lint/checks.rs#L493-L497)): a corpus with no `.ont.yml`
+([`unknown_class`](../../yidam/cli/src/cmd/lint/checks.rs#L593-L597)): a corpus with no `.ont.yml`
 files at all has no schema layer, which is a different problem from a misspelling. There, class
 names are not checked and the report says the corpus is unschematised.
 
@@ -291,7 +291,7 @@ relationship the class does not declare resolves as:
 
 The first row is load-bearing and is easy to omit. `unlicensed_edge` short-circuits on an empty
 edge list **before** it consults the policy
-([`checks.rs:1614-1615`](../../yidam/cli/src/cmd/lint/checks.rs#L1614-L1615)):
+([`checks.rs:1616-1617`](../../yidam/cli/src/cmd/lint/checks.rs#L1616-L1617)):
 
 ```rust
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
@@ -345,7 +345,7 @@ If a class declares the relationship but only toward class C, a hop asking for c
 **rejected**, naming the declared targets. `edge-target-class` is Error severity for the same
 reason: an edge to the wrong thing resolves, traverses, and exports, and is simply false. A
 declaration with an empty `target` licenses every class, exactly as the check reads it
-([`checks.rs:875`](../../yidam/cli/src/cmd/lint/checks.rs#L875)), and so does a query hop
+([`edge_target_class`](../../yidam/cli/src/cmd/lint/checks.rs#L1676-L1695)), and so does a query hop
 against it. `*` on the target side is the query-side twin of that empty `target:` and licenses
 every class in the same way.
 
@@ -357,7 +357,7 @@ so `seeded_because` and `fy2024_profile` are queryable without being declared on
 classes. An undeclared name is **rejected** with the class's declared list.
 
 Predicate *values* are a separate question from predicate *names*, and the operator decides it.
-`property_type_violation` ([`checks.rs:661`](../../yidam/cli/src/cmd/lint/checks.rs#L661))
+[`property_type_violation`](../../yidam/cli/src/cmd/lint/checks.rs#L1352)
 takes a declared type and a value and no operator — it answers *may the corpus store this*, not
 *may someone ask about this*. Using it operator-blind rejects satisfiable predicates:
 `reach[claim_tag!=maybe]` is satisfied by every reach in `examples/streamflow`, and
@@ -379,7 +379,7 @@ Three further rules the naive version leaves undefined:
   rule stands as the default and `?` after the operator opts one predicate out of it.
 - **A list value matches if any element matches.** `claim_tag: [open]` is legal YAML that the
   claim counter reads as one claim, and `property_type_violation` accepts it
-  ([`checks.rs:663-670`](../../yidam/cli/src/cmd/lint/checks.rs#L663-L670)); a predicate must read the
+  ([`property_type_violation`](../../yidam/cli/src/cmd/lint/checks.rs#L1352-L1381)); a predicate must read the
   same bytes the same way.
 - **`=` on a `date` compares at the precision written**, so `observed_on=2026-08` matches every
   day in that month. Ordering compares at the precision the two sides *share*, which is a
