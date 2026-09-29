@@ -389,6 +389,11 @@ const ROSTER: &[Entry] = &[
         run: |i| i.edge_claim_checks()[2].clone(),
     },
     Entry {
+        id: edge_claims::SOURCE_UNRESOLVED,
+        asked: Asked::Always,
+        run: |i| i.edge_claim_checks()[3].clone(),
+    },
+    Entry {
         id: citations::UNRESOLVED,
         asked: Asked::Always,
         run: |i| i.citation_checks()[0].clone(),

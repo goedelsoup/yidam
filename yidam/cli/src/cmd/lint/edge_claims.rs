@@ -23,7 +23,7 @@
 //! [`crate::parse::CorpusLink`] gained the two fields in #714 and carried them uninterpreted.
 //! This is what reads them.
 //!
-//! # Three checks, two mirroring the prose rules and one comparing an edge to its ends
+//! # Four checks: two mirror prose rules, one compares an edge to its ends, one resolves a name
 //!
 //! - **`edge-untagged`** — an empirical edge that declares no standing, or one whose
 //!   `claim_tag` spells none. The mirror of `claim-tag-malformed`, which is the prose rule for
@@ -34,6 +34,9 @@
 //! - **`edge-standing-unheld`** — an edge asserting a standing **stronger** than one its own
 //!   endpoints declare. #587's closing comment named this as the remaining question and #858
 //!   answers it; see the section below, because what had to be settled was not the comparison.
+//! - **`edge-source-unresolved`** — a `source:` naming nothing this repository holds (#1067).
+//!   The edge half of `dangling-edge` rather than of any prose rule, and the one check in the
+//!   family that gates; see the last section, because the question was what the key denotes.
 //!
 //! # The first is opt-in and the second is not
 //!
@@ -96,6 +99,36 @@
 //! rather than two. The seam between the two commands is about structure versus prose, and an
 //! evidence standing is prose that happens to be stored on a link.
 //!
+//! # The fourth resolves a name, and settling what the name denotes was the whole of it
+//!
+//! `edge-verified-unsourced` asks whether a `verified` edge names a source, and until #1067 that
+//! was the whole question: a `source:` naming an entry that was renamed, or that never existed,
+//! passed exactly as one that resolves. The repository that filed it had written the check
+//! locally, as it had written the tagging discipline locally before #587.
+//!
+//! **What a `source:` denotes was never written down**, and four derived corpora answered it
+//! three ways before this check asked. Measured at the pins #1067 records, over every link
+//! `source:` in the tree: `allen-county-ohio-affordability-2026` writes a catalog entry's file
+//! stem (140) or a decision record's `id:` (21); `ohio-136th-assembly-hb-96` (54) and
+//! `ohio-democratic-party-rural-caucus` (410) write the stem; `allen-county-ohio` (1,360) writes
+//! a path relative to the node, exactly as it writes a `links:` target. All 1,985 resolve. So
+//! [`Held`] admits all three, because a check that picked one would open with a thousand
+//! findings in a corpus whose every citation is sound, and the spelling was never the defect.
+//!
+//! The decision record is admitted on the filing corpus's own argument: *"several of these
+//! edges rest on a rule this repository wrote rather than on a document it retrieved — a
+//! `peer-of` edge rests on `comparator-counties` […] for which a catalog entry would be the
+//! wrong citation entirely."* A record is addressed by its `id:`, or by its file stem where a
+//! corpus keeps the two apart, because nothing here can tell which one a corpus meant.
+//!
+//! **Error, on the ground the rest of the family cannot claim.** Which standing an edge
+//! deserves is the author's judgement, which is why every sibling here is Warn. Whether the
+//! thing an edge cites is in this tree is not a judgement at all — it is `dangling-edge`'s kind
+//! of question, one key over, and `dangling-edge` gates. The population is empty by
+//! construction in a corpus that writes no `source:`, and was measured at zero in every corpus
+//! that writes one, so no repository that predates the check is put in debt by it. It is
+//! unconditional on the tag: an `inference` edge naming a dead source has still cited nothing.
+//!
 //! # Only edges between instances, and that is the existing boundary
 //!
 //! [`super::checks::instance_links`] is the reader, exactly as it is for `unlicensed-edge` and
@@ -104,8 +137,11 @@
 //! decision what it is worth. A link that resolves to nothing is `dangling-edge`'s finding and
 //! is not reported twice here.
 
+use std::collections::HashSet;
+use std::path::PathBuf;
+
 use super::model::{Check, Severity, Violation};
-use crate::corpus::{Edges, Node};
+use crate::corpus::{normalize, resolve_target, DecisionRecord, Edges, Node, Source};
 use crate::universal::Universal;
 
 /// The check ids, named once — a filter keyed on a literal would drift from the id the
@@ -113,6 +149,51 @@ use crate::universal::Universal;
 pub const UNTAGGED: &str = "edge-untagged";
 pub const VERIFIED_UNSOURCED: &str = "edge-verified-unsourced";
 pub const STANDING_UNHELD: &str = "edge-standing-unheld";
+pub const SOURCE_UNRESOLVED: &str = "edge-source-unresolved";
+
+/// What a `source:` may name — everything this repository holds that an edge can rest on.
+///
+/// Three spellings, which are the three the derived corpora were measured writing (see the
+/// module doc): a catalog entry by its file stem, a catalog entry by a path relative to the
+/// authoring node, and a decision record by its `id:` or its file stem. Built once per lint
+/// rather than once per edge, for the reason `citations::checks` resolves once per node.
+struct Held {
+    /// Catalog entries by normalized path — the same set `verified-unsourced` resolves a
+    /// prose citation against, so the two cannot disagree about what is in the catalog.
+    catalog_paths: HashSet<PathBuf>,
+    /// Catalog entries by file stem: `1889-municipal-register` for
+    /// `.yidam/catalog/1889-municipal-register.md`.
+    catalog_stems: HashSet<String>,
+    /// Decision records by declared `id:` and by file stem. Both, because the corpus that asked
+    /// keeps them equal and a corpus that does not has not said which it addresses one by.
+    decisions: HashSet<String>,
+}
+
+impl Held {
+    fn build(sources: &[Source], decisions: &[DecisionRecord]) -> Self {
+        let stem = |p: &std::path::Path| p.file_stem().map(|s| s.to_string_lossy().into_owned());
+        Self {
+            catalog_paths: sources.iter().map(|s| normalize(&s.path)).collect(),
+            catalog_stems: sources.iter().filter_map(|s| stem(&s.path)).collect(),
+            decisions: decisions
+                .iter()
+                .flat_map(|d| d.decision.id.clone().into_iter().chain(stem(&d.path)))
+                .collect(),
+        }
+    }
+
+    /// Whether `written`, as node `from` wrote it, names something held here.
+    ///
+    /// A bare stem tried as a path lands in the node's own class directory, which is never a
+    /// catalog entry, so the three readings cannot admit each other's mistakes.
+    fn resolves(&self, from: &Node, written: &str) -> bool {
+        self.catalog_stems.contains(written)
+            || self.decisions.contains(written)
+            || self
+                .catalog_paths
+                .contains(&resolve_target(&from.path, written))
+    }
+}
 
 /// What a link's `claim_tag` spells.
 ///
@@ -223,21 +304,25 @@ fn edge_address(link: &crate::parse::CorpusLink) -> String {
     )
 }
 
-/// The three checks, over one walk of the corpus.
+/// The four checks, over one walk of the corpus.
 ///
 /// Returned together and destructured at the call site for [`super::citations::checks`]'s
-/// reason: three public functions is what makes three walks look free.
+/// reason: four public functions is what makes four walks look free.
 #[must_use]
 pub fn checks(
     nodes: &[Node],
     edges: &Edges,
     universal: &Universal,
     fields: &crate::claims::ClaimFields,
-) -> [Check; 3] {
+    sources: &[Source],
+    decisions: &[DecisionRecord],
+) -> [Check; 4] {
     let required = universal.edge_claims_required();
+    let held = Held::build(sources, decisions);
     let mut untagged = Vec::new();
     let mut unsourced = Vec::new();
     let mut unheld = Vec::new();
+    let mut unresolved = Vec::new();
     for (i, n) in nodes.iter().enumerate() {
         for (edge, t) in edges.instance_links(i) {
             let (link, far) = (edge.written_as(n), &nodes[t]);
@@ -271,12 +356,31 @@ pub fn checks(
             // under an exemption from being asked about one.
             let verified =
                 matches!(&standing, Standing::Declared(s) if s.contains(&crate::claims::VERIFIED));
-            if verified && link.source.as_deref().unwrap_or_default().trim().is_empty() {
+            let source = link.source.as_deref().unwrap_or_default().trim();
+            if verified && source.is_empty() {
                 unsourced.push(Violation::new(
                     &n.rel,
                     format!(
                         "{} asserts `verified` and declares no `source:` — the standing means \
                          supported by a committed primary source, and nothing here names one",
+                        edge_address(link)
+                    ),
+                ));
+            }
+
+            // ── the name against what the repository holds (#1067) ────────────
+            //
+            // Unconditional on the tag and on the declaration, for the reason above: writing
+            // `source:` is the opt-in, and a name that resolves to nothing has cited nothing
+            // whatever standing sits beside it. A blank value is `edge-verified-unsourced`'s
+            // finding where it matters and silence where it does not, never a dead name.
+            if !source.is_empty() && !held.resolves(n, source) {
+                unresolved.push(Violation::new(
+                    &n.rel,
+                    format!(
+                        "{} names `source: {source}`, which is no catalog entry and no \
+                         decision record — name a catalog entry by its file stem or by a path \
+                         from this node, or a decision record by its `id:`",
                         edge_address(link)
                     ),
                 ));
@@ -318,7 +422,35 @@ pub fn checks(
         edge_untagged(untagged),
         edge_verified_unsourced(unsourced),
         edge_standing_unheld(unheld),
+        edge_source_unresolved(unresolved),
     ]
+}
+
+fn edge_source_unresolved(violations: Vec<Violation>) -> Check {
+    Check::new(
+        SOURCE_UNRESOLVED,
+        "An edge's `source:` names nothing this repository holds",
+        Severity::Error,
+        "`edge-verified-unsourced` asks whether a `verified` edge names a source, and until this \
+         check that was the whole of the question: a `source:` naming a catalog entry that was \
+         renamed, or that never existed, passed exactly as one that resolves. This resolves it. \
+         A value may name a catalog entry by its file stem, a catalog entry by a path written \
+         as a `links:` target is, or a decision record by its `id:` — the three spellings the \
+         derived corpora were measured writing, and the last admitted because an edge can rest \
+         on a rule this corpus wrote rather than on a document it retrieved, for which a \
+         catalog entry would be the wrong citation. \
+         \
+         Error, on the one ground the rest of this family cannot claim. Which standing an edge \
+         deserves is the author's judgement and every sibling here is Warn for it; whether the \
+         thing an edge cites is in this tree is not a judgement at all, and is the question \
+         `dangling-edge` already gates on, one key over. The population is empty in a corpus \
+         that writes no `source:`, and was measured at zero across every corpus that writes \
+         one, so no repository that predates the check is put in debt by it. It reads every \
+         edge that names a source, whatever the tag beside it: an `inference` edge naming a \
+         dead source has still cited nothing.",
+        violations,
+    )
+    .spanning_links()
 }
 
 fn edge_standing_unheld(violations: Vec<Violation>) -> Check {
@@ -422,24 +554,38 @@ mod tests {
 
     const TAGGED: &str = "edge_claims:\n  required: true\n  structural:\n    - instance-of\n";
 
+    /// What every staged corpus holds for a `source:` to name: one catalog entry, and two
+    /// decision records — one whose `id:` is its file stem and one whose `id:` is not, so the
+    /// two ways of addressing a record are told apart.
+    const CATALOG: &[&str] = &["a-record"];
+    const DECISIONS: &[(&str, &str)] = &[
+        ("comparator-counties", "comparator-counties"),
+        ("rule-0007", "sampling-frame"),
+    ];
+
     /// `(edge-untagged, edge-verified-unsourced)` details over one staged corpus, with no class
     /// declaring a claim field — so `edge-standing-unheld` has no endpoint standing to read and
     /// the two original checks are measured exactly as they were.
     fn run(files: &[(String, String)], universal: &str) -> (Vec<String>, Vec<String>) {
-        let (untagged, unsourced, unheld) = run_all(files, universal, &[]);
+        let (untagged, unsourced, unheld, unresolved) = run_all(files, universal, &[]);
         assert!(
             unheld.is_empty(),
             "no class declared a claim field, so no node declares a standing: {unheld:?}"
         );
+        assert!(
+            unresolved.is_empty(),
+            "every `source:` these corpora write names the staged entry: {unresolved:?}"
+        );
         (untagged, unsourced)
     }
 
-    /// All three checks, with `fields` the properties every class here declared `type: claim`.
+    /// All four checks, with `fields` the properties every class here declared `type: claim`.
+    #[allow(clippy::type_complexity)]
     fn run_all(
         files: &[(String, String)],
         universal: &str,
         fields: &[&str],
-    ) -> (Vec<String>, Vec<String>, Vec<String>) {
+    ) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
         let tmp = tempfile::tempdir().unwrap();
         let mut paths = Vec::new();
         for (rel, text) in files {
@@ -449,21 +595,49 @@ mod tests {
             paths.push(path);
         }
         let nodes = crate::corpus::load_nodes(tmp.path(), &paths, &Overlay::default());
+        let catalog = tmp.path().join(".yidam/catalog");
+        std::fs::create_dir_all(&catalog).unwrap();
+        let entries: Vec<_> = CATALOG
+            .iter()
+            .map(|stem| {
+                let path = catalog.join(format!("{stem}.md"));
+                std::fs::write(&path, "---\nobtained: true\n---\nA record.\n").unwrap();
+                path
+            })
+            .collect();
+        let sources = crate::corpus::load_sources(tmp.path(), &entries, &Overlay::default());
+        let decisions_dir = tmp.path().join(".yidam/decisions");
+        std::fs::create_dir_all(&decisions_dir).unwrap();
+        for (stem, id) in DECISIONS {
+            std::fs::write(
+                decisions_dir.join(format!("{stem}.yml")),
+                format!("id: {id}\nsummary: A rule this corpus wrote.\n"),
+            )
+            .unwrap();
+        }
+        let decisions = crate::corpus::load_decisions(tmp.path(), &decisions_dir);
         let declared: Vec<String> = fields.iter().map(|f| (*f).to_string()).collect();
         let claim_fields = crate::claims::ClaimFields::from_declarations(
             ["place", "concept"]
                 .into_iter()
                 .map(|c| (c.to_string(), declared.clone())),
         );
-        let [untagged, unsourced, unheld] = checks(
+        let [untagged, unsourced, unheld, unresolved] = checks(
             &nodes,
             &crate::corpus::Edges::build(&nodes),
             &Universal::parse(universal),
             &claim_fields,
+            &sources,
+            &decisions,
         );
         let details =
             |c: Check| -> Vec<String> { c.violations.into_iter().map(|v| v.detail).collect() };
-        (details(untagged), details(unsourced), details(unheld))
+        (
+            details(untagged),
+            details(unsourced),
+            details(unheld),
+            details(unresolved),
+        )
     }
 
     /// The finding the issue is about: an edge beside correctly tagged prose, saying nothing.
@@ -634,7 +808,7 @@ mod tests {
             ),
             ("place/canyon.yml".to_string(), graded("open", BACK)),
         ];
-        let (_, unsourced, unheld) = run_all(&files, TAGGED, &["status"]);
+        let (_, unsourced, unheld, _) = run_all(&files, TAGGED, &["status"]);
         assert!(unsourced.is_empty(), "{unsourced:?}");
         assert_eq!(unheld.len(), 1, "{unheld:?}");
         assert!(
@@ -664,7 +838,7 @@ mod tests {
                 graded("verified", "  - target: ./tailwater.yml\n    relationship: located-in\n    claim_tag: open\n"),
             ),
         ];
-        let (_, _, unheld) = run_all(&files, TAGGED, &["status"]);
+        let (_, _, unheld, _) = run_all(&files, TAGGED, &["status"]);
         assert!(unheld.is_empty(), "{unheld:?}");
     }
 
@@ -682,7 +856,7 @@ mod tests {
                 ),
                 ("place/canyon.yml".to_string(), graded(node, BACK)),
             ];
-            let (_, _, unheld) = run_all(&files, TAGGED, &["status"]);
+            let (_, _, unheld, _) = run_all(&files, TAGGED, &["status"]);
             assert!(unheld.is_empty(), "{node}/{edge}: {unheld:?}");
         }
     }
@@ -701,7 +875,7 @@ mod tests {
             ),
             ("place/canyon.yml".to_string(), graded("inference", BACK)),
         ];
-        let (_, _, unheld) = run_all(&files, TAGGED, &["status"]);
+        let (_, _, unheld, _) = run_all(&files, TAGGED, &["status"]);
         assert_eq!(unheld.len(), 1, "{unheld:?}");
         assert!(unheld[0].contains("`[inference]`"), "{unheld:?}");
         assert!(
@@ -724,7 +898,7 @@ mod tests {
                 "class: place\nlabel: A place\ndescription: |\n  Also unsettled. [open]\nlinks:\n  - target: ./tailwater.yml\n    relationship: located-in\n    claim_tag: open\n".to_string(),
             ),
         ];
-        let (_, _, unheld) = run_all(&files, TAGGED, &["status"]);
+        let (_, _, unheld, _) = run_all(&files, TAGGED, &["status"]);
         assert!(
             unheld.is_empty(),
             "a prose `[open]` is not the node's grade: {unheld:?}"
@@ -742,7 +916,7 @@ mod tests {
             ),
             ("place/canyon.yml".to_string(), graded("verified", BACK)),
         ];
-        let (_, _, unheld) = run_all(&files, TAGGED, &["status", "provenance"]);
+        let (_, _, unheld, _) = run_all(&files, TAGGED, &["status", "provenance"]);
         assert_eq!(unheld.len(), 1, "{unheld:?}");
         assert!(unheld[0].contains("`[open]`"), "{unheld:?}");
     }
@@ -761,7 +935,7 @@ mod tests {
             ),
             ("place/canyon.yml".to_string(), graded("open", BACK)),
         ];
-        let (_, _, unheld) = run_all(&files, TAGGED, &["status"]);
+        let (_, _, unheld, _) = run_all(&files, TAGGED, &["status"]);
         assert_eq!(unheld.len(), 1, "{unheld:?}");
         assert!(unheld[0].contains("asserts `[verified]`"), "{unheld:?}");
     }
@@ -780,7 +954,7 @@ mod tests {
             ),
             ("place/canyon.yml".to_string(), graded("open", BACK)),
         ];
-        let (untagged, _, unheld) = run_all(&files, "", &["status"]);
+        let (untagged, _, unheld, _) = run_all(&files, "", &["status"]);
         assert!(untagged.is_empty(), "{untagged:?}");
         assert_eq!(unheld.len(), 1, "{unheld:?}");
     }
@@ -797,5 +971,97 @@ mod tests {
         )];
         let (untagged, _) = run(&files, "edge_claims:\n  required: true\n");
         assert!(untagged.is_empty(), "{untagged:?}");
+    }
+
+    // ── #1067: the name against what the repository holds ──────────────────────
+
+    /// One outgoing edge naming `source`, tagged or not, in a corpus that declared nothing.
+    fn sourced(tag: Option<&str>, source: &str) -> Vec<(String, String)> {
+        let tag = tag
+            .map(|t| format!("    claim_tag: {t}\n"))
+            .unwrap_or_default();
+        pair(
+            &format!("  - target: ./canyon.yml\n    relationship: located-in\n{tag}    source: {source}\n"),
+            BACK,
+        )
+    }
+
+    /// The three spellings measured in the derived corpora, and the two ways of addressing a
+    /// decision record. None is a finding.
+    #[test]
+    fn a_source_naming_something_this_repository_holds_resolves() {
+        for source in [
+            "a-record",
+            "../../catalog/a-record.md",
+            "comparator-counties",
+            "sampling-frame",
+            "rule-0007",
+            "\"a-record\"",
+        ] {
+            let (_, _, _, unresolved) = run_all(&sourced(Some("verified"), source), "", &[]);
+            assert!(unresolved.is_empty(), "{source}: {unresolved:?}");
+        }
+    }
+
+    /// The finding the issue is about: an entry that was renamed, or never existed, cited as
+    /// though it were there. Reported without any declaration, whatever the tag beside it.
+    #[test]
+    fn a_source_naming_nothing_is_reported_whatever_the_tag() {
+        for tag in [Some("verified"), Some("inference"), None] {
+            let (untagged, unsourced, _, unresolved) = run_all(&sourced(tag, "a-recrod"), "", &[]);
+            assert!(untagged.is_empty(), "{tag:?}: {untagged:?}");
+            assert!(
+                unsourced.is_empty(),
+                "{tag:?}: a name is not an absence: {unsourced:?}"
+            );
+            assert_eq!(unresolved.len(), 1, "{tag:?}: {unresolved:?}");
+            assert!(
+                unresolved[0].contains("`located-in` \u{2192} `./canyon.yml`"),
+                "{unresolved:?}"
+            );
+            assert!(
+                unresolved[0].contains("`source: a-recrod`"),
+                "the name as written, which is the string to search for: {unresolved:?}"
+            );
+        }
+    }
+
+    /// A path that lands on a file is not a path that lands in the catalog: a node is not a
+    /// source, and a stem read as a path lands in the node's own directory.
+    #[test]
+    fn a_path_outside_the_catalog_does_not_resolve() {
+        for source in [
+            "./canyon.yml",
+            "../../catalog/a-recrod.md",
+            "../place/a-record",
+        ] {
+            let (_, _, _, unresolved) = run_all(&sourced(None, source), "", &[]);
+            assert_eq!(unresolved.len(), 1, "{source}: {unresolved:?}");
+        }
+    }
+
+    /// A blank value is `edge-verified-unsourced`'s finding, and only where it matters. It is
+    /// never reported as a dead name, so a `verified` edge with a blank source gets one finding
+    /// and an `inference` edge with one gets none.
+    #[test]
+    fn a_blank_source_is_an_absence_and_not_a_dead_name() {
+        for (tag, want_unsourced) in [(Some("verified"), 1), (Some("inference"), 0), (None, 0)] {
+            let (_, unsourced, _, unresolved) = run_all(&sourced(tag, "\"  \""), "", &[]);
+            assert_eq!(unsourced.len(), want_unsourced, "{tag:?}: {unsourced:?}");
+            assert!(unresolved.is_empty(), "{tag:?}: {unresolved:?}");
+        }
+    }
+
+    /// An exemption is from being asked for a standing. A structural edge that names a source
+    /// has cited something, and what it cited is still held to exist.
+    #[test]
+    fn a_structural_relationship_naming_a_dead_source_is_still_reported() {
+        let files = pair(
+            "  - target: ./canyon.yml\n    relationship: instance-of\n    source: a-recrod\n",
+            BACK,
+        );
+        let (untagged, _, _, unresolved) = run_all(&files, TAGGED, &[]);
+        assert!(untagged.is_empty(), "{untagged:?}");
+        assert_eq!(unresolved.len(), 1, "{unresolved:?}");
     }
 }

@@ -98,7 +98,17 @@ pub fn corpus_node_schema() -> Value {
                         // the failure the `additionalProperties: true` note describes
                         // arriving through the one sub-object that stayed closed.
                         "claim_tag": claim_standing(),
-                        "source": non_empty_string()
+                        "source": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "What this edge rests on: a catalog entry by its \
+                                            file stem, a catalog entry by a path written the \
+                                            way `target` is, or a decision record by its \
+                                            `id`. `edge-source-unresolved` reports a value \
+                                            that names none of them, on every edge that \
+                                            writes one; `edge-verified-unsourced` reports a \
+                                            `verified` edge that writes none."
+                        }
                     },
                     "required": ["target", "relationship"],
                     "additionalProperties": false
@@ -423,10 +433,10 @@ pub fn corpus_universal_schema() -> Value {
                                         written before the field existed tags no edges, so \
                                         a default of true would open with one finding per \
                                         edge in the graph. `edge-untagged` runs only where \
-                                        this is true; `edge-verified-unsourced` and \
-                                        `edge-standing-unheld` need no declaration, because \
-                                        an edge that wrote a standing opted in by writing \
-                                        it."
+                                        this is true; `edge-verified-unsourced`, \
+                                        `edge-standing-unheld` and `edge-source-unresolved` \
+                                        need no declaration, because an edge that wrote a \
+                                        standing or a source opted in by writing it."
                     },
                     "structural": {
                         "type": "array",

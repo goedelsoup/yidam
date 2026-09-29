@@ -81,7 +81,7 @@ pub(crate) struct Input<'a> {
     // its id and `the_roster_declares_the_id_each_entry_produces` compares the two.
     citation_checks: OnceLock<[Check; 4]>,
     local_citation_checks: OnceLock<[Check; 4]>,
-    edge_claim_checks: OnceLock<[Check; 3]>,
+    edge_claim_checks: OnceLock<[Check; 4]>,
     scope_checks: OnceLock<[Check; 2]>,
     lineage_checks: OnceLock<[Check; 3]>,
     commitment_checks: OnceLock<[Check; 4]>,
@@ -609,14 +609,18 @@ impl<'a> Input<'a> {
     /// The graph's own half of the same discipline (#587): an edge is a claim written as
     /// structure, and these are the checks that ask it what it rests on. The third compares
     /// that standing to the ones its own endpoints declare (#858), which is why the claim
-    /// fields go in — a node's standing is a property its class declared `type: claim`.
-    pub(crate) fn edge_claim_checks(&self) -> &[Check; 3] {
+    /// fields go in — a node's standing is a property its class declared `type: claim`. The
+    /// fourth resolves what an edge's `source:` names against the catalog and the decision
+    /// log (#1067), which is why those go in too.
+    pub(crate) fn edge_claim_checks(&self) -> &[Check; 4] {
         self.edge_claim_checks.get_or_init(|| {
             edge_claims::checks(
                 self.nodes(),
                 self.edges(),
                 self.universal(),
                 self.claim_fields(),
+                self.sources(),
+                self.decisions(),
             )
         })
     }

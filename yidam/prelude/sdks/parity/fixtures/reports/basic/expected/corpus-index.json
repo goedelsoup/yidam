@@ -47,7 +47,7 @@
       "edge_claims_verified": 0,
       "edge_claims_inference": 0,
       "edge_claims_open": 0,
-      "lines": 18
+      "lines": 20
     },
     {
       "node": "gauge/riffle-station.yml",

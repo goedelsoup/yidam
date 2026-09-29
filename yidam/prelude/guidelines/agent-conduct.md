@@ -109,7 +109,7 @@ links:
 
 [why](agent-conduct.evidence.md#edge-claim-keys)
 
-Three checks read them, and all three are named in `GRAPH.md`:
+Four checks read them, and all four are named in `GRAPH.md`:
 
 - `edge-verified-unsourced` reports an edge asserting `verified` with no `source:` — the edge
   half of `verified-unsourced`. It needs no declaration, because writing the tag is what opts
@@ -136,6 +136,12 @@ Three checks read them, and all three are named in `GRAPH.md`:
   compared to nothing. The check is one-directional, so an `open` edge between two `verified`
   nodes is not a defect. Prefer the demotion to the promotion.
   [why](agent-conduct.evidence.md#edge-standing-unheld)
+- `edge-source-unresolved` reports an edge whose `source:` names nothing this repository holds,
+  and it gates. Name a catalog entry by its file stem, as the example above does, or by a path
+  written the way the `target:` is; name a decision record by its `id:` when the edge rests on
+  a rule this corpus wrote rather than on a document it retrieved. It reads every edge that
+  writes a source, whatever the tag beside it, so rename the citation when you rename the entry.
+  [why](agent-conduct.evidence.md#edge-source-unresolved)
 
 **And the tag is read, not only graded.** `open-questions`, `status`, `corpus-index` and the
 MCP `claims` and `open_questions` tools all see a tagged edge. An edge tagged `open` is an open
