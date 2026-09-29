@@ -1301,7 +1301,7 @@ the reliable answer, because two of the six are feature-gated:
 | `bundle` | `.yidam/bundle.yiz` — corpus, ontology, skills, decisions, index | default |
 | `web` | Feeds for the browser shell. `--webllm-model` names the chat panel's model | default |
 | `graphml` | GraphML for graph tools | default |
-| `llms` | A flattened corpus for a context window. `--token-budget` | default |
+| `llms` | A flattened corpus for a context window, on stdout unless `--out` names a file. `--token-budget` | default |
 | `rdf` | Turtle and JSON-LD. `--rdf-format` picks one | `export-graph` |
 | `sqlite` | SQLite + sqlite-vec | `export-sqlite` |
 
