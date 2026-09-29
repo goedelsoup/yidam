@@ -707,7 +707,7 @@ enum Command {
         /// Output format (use --list to see available formats and their status)
         #[arg(long, value_enum, required_unless_present = "list")]
         format: Option<ExportFormat>,
-        /// Output path (default: format-specific, e.g. .yidam/bundle.yiz for bundle)
+        /// Output path (default: format-specific, e.g. .yidam/bundle.yiz for bundle; stdout for llms)
         #[arg(long)]
         out: Option<PathBuf>,
         /// WebLLM model id for the web format's chat panel (default: Llama-3.2-1B-Instruct)
