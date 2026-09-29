@@ -41,24 +41,53 @@ export function describeBinary(h: Handshake, origin: string): string {
 }
 
 /**
+ * Why a report is unavailable, preferring the binary's own words.
+ *
+ * A refusal — a named root holding no corpus (#1000), a directory that is not a git
+ * repository — is the binary saying what is wrong with *this corpus*. `describeFailure` can
+ * only say what is wrong with the binary, and for an empty stdout it says the binary predates
+ * `--format json`, which would send the reader to re-pin one that is current.
+ */
+export function describeUnavailable(result: {
+  handshake: Handshake
+  refusal: string | null
+}): string {
+  return result.refusal ?? describeFailure(result.handshake)
+}
+
+/**
  * The corpus that was asked for, and the one that answered.
  *
- * **No subcommand takes a `--root` flag.** The corpus is resolved by
- * `git rev-parse --show-toplevel` from the working directory, so `--root` on this surface
- * sets a working directory and the binary decides from there. A corpus nested inside another
- * git repository therefore answers about the outer one — `examples/streamflow` is exactly
- * that case, and it renders as a corpus with no nodes in it.
+ * Two ways they differ, and they need different repairs:
+ *
+ * - **`working-directory`** — the binary predates `--root` on reports (cli/v0.16.0) and
+ *   resolved the working directory with `git rev-parse --show-toplevel`. A corpus nested
+ *   inside another git repository answers about the outer one, and renders as a corpus with
+ *   no nodes — `examples/streamflow` is exactly that case. The repair is a re-pin.
+ * - **`flag`** — the binary took `--root` and walked up to the nearest `.yidam/`, so a
+ *   directory *inside* a corpus answers for the corpus around it. Nothing is wrong; the
+ *   reader is told which corpus they are looking at.
  *
  * An empty page and a wrong page look identical, which is the whole reason this string
  * exists. Returns null when they agree, so the shell shows nothing in the common case.
  */
-export function describeRootMismatch(asked: string, resolved: string | null): string | null {
+export function describeRootMismatch(
+  asked: string,
+  resolved: string | null,
+  by: 'flag' | 'working-directory',
+): string | null {
   if (resolved === null || resolved === asked) return null
+  if (by === 'flag') {
+    return (
+      `Asked for ${asked}, and yidam answered about ${resolved}: the nearest directory at or ` +
+      'above it holding a .yidam/ corpus.'
+    )
+  }
   return (
     `Asked for ${asked}, and yidam answered about ${resolved}. ` +
-    'No yidam subcommand takes a --root flag: the corpus is resolved by ' +
-    '`git rev-parse --show-toplevel` from the working directory, so a corpus nested inside ' +
-    'another git repository resolves to the outer one. Open it as its own checkout.'
+    'This yidam predates --root on reports (cli/v0.16.0), so it resolved the corpus from the ' +
+    'working directory with `git rev-parse --show-toplevel`, and a corpus nested inside ' +
+    `another git repository resolves to the outer one. ${REPIN}`
   )
 }
 

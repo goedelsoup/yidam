@@ -171,7 +171,10 @@ const port = await new Promise((resolve, reject) => {
 // `--root work`, which is a directory with no corpus and no `yidam` on any path under it.
 // That is the point: this asserts the server *starts and answers*, which is the thing a
 // missing module takes away. What it renders is `index.astro`'s "no status to show" arm,
-// and the pages that need a binary are covered by the unit tests against a real one.
+// and the pages that need a binary are covered by the unit tests against a real one. On a
+// machine with a `yidam` on PATH the arm is the same one reached differently: the binary is
+// handed `--root work` too (#1012), refuses a directory holding no corpus, and the header
+// carries the refusal.
 const server = spawn(process.execPath, ['bin/yidam-edit.mjs', '--root', work, '--port', String(port), '--no-open'], {
   cwd: install,
   stdio: ['ignore', 'pipe', 'pipe'],
