@@ -42,6 +42,12 @@ impl Subject {
     /// Text before the first heading belongs to no section and is dropped. A heading that
     /// repeats keeps its first section, so a later quotation of a heading cannot replace
     /// the section it quotes. Lines inside a ``` fence are never headings.
+    // Nothing outside the tests calls this until the check lands. `expect`, not `allow`: once
+    // it does, the marker is an error and must go — and `body`, read only here, needs none.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "called by the Article IV check, #253")
+    )]
     pub fn sections(&self) -> BTreeMap<String, String> {
         let mut out = BTreeMap::new();
         let mut current: Option<(String, Vec<&str>)> = None;
