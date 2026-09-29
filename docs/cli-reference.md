@@ -641,7 +641,7 @@ too: a negative result about coverage is the only durable record that coverage w
 Members are lettered rather than named. Most derived repositories are private, and this report
 is written to be pasted somewhere. `--paths` opts back in.
 
-### `run` is one step, and a run authors operational commits only
+### `run` is a plan, and only an operational commit advances your branch
 
 `.yidam/capabilities.toml` declares what may run. Per entry: a `kind`, the argv to invoke, the
 globs it `reads` and `writes`, and the commit verb it authors.
@@ -685,13 +685,25 @@ accept it, or deletes it to reject it. So a run may open a question and may not 
 There is no route field and no policy key. A corpus that could write that permission for
 itself could license its own runs to author `establish:` on its baseline.
 
-It writes git objects and one ref. The working tree and the index are untouched, so it is safe to
-run mid-edit. It therefore leaves your checkout one commit behind. The report says so, and names
+It writes git objects and refs: the current branch, `propose/<head>`, or both when a plan holds
+both kinds of verb. The working tree and the index are untouched, so it is safe to run mid-edit. It therefore leaves your checkout behind `HEAD`. The report says so, and names
 the path-scoped `git restore` that syncs it. A re-run whose inputs have not moved writes no commit
 at all.
 
-One step per invocation: dependency order, freshness and `--dry-run` are not built yet.
-[RFC-0026](rfcs/0026-orchestrator-layer.md) has the argument for what a run may author.
+A manifest is a plan. An entry's `after` names the steps it waits for. `yidam run travel-tier`
+runs that step and everything it comes `after`, dependencies first. `yidam run` alone runs the
+whole manifest. An `after` that forms a cycle is refused with the cycle named, and nothing runs.
+A step may not come `after` an epistemic one. That step's output is on `propose/<head>`, not in
+the tree a dependent is checked out from.
+
+A step whose input state matches its committed receipt is skipped, not invoked. The report names
+each skipped step and why. A step that reads what the repository does not hold declares
+`ageing_days`. It is re-run on that cadence even when its inputs have not moved. `--dry-run`
+resolves the plan and reports what is stale. It invokes nothing and writes nothing: no commit, no
+ref, no receipt.
+
+[RFC-0026](rfcs/0026-orchestrator-layer.md) has the argument for what a run may author. Its §6
+has the argument for freshness.
 
 ### The second arm: a calculator that is a typed function
 
