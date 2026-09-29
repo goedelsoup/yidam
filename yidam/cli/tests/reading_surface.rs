@@ -28,7 +28,6 @@
 //! only re-running the measurement answers that. What it can do is fail the day someone
 //! deletes the section, and fail the day a documented query stops parsing.
 
-use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -38,7 +37,7 @@ use common::{repo_root, tracked_under};
 
 /// The commands the measurement found at zero adoption, plus the one that says what is owed.
 ///
-/// A hardcoded list, unlike [`commands_from_help`] below — and deliberately so. This is not
+/// A hardcoded list, unlike [`common::commands_from_help`] — and deliberately so. This is not
 /// "every command exists in the docs", which `cli_reference.rs` already covers against a
 /// discovered roster. It is the specific set #726 measured, and shrinking it is a decision
 /// somebody has to make on purpose rather than a name quietly dropping out of a scan.
@@ -122,39 +121,9 @@ fn the_guidance_names_what_it_is_displacing() {
     }
 }
 
-/// Every subcommand this binary offers, from its own `--help-all`.
-///
-/// Discovered rather than listed, for `cli_reference.rs`'s reason: a roster written here
-/// stops covering a rename without ever going red.
-///
-/// `--help-all` because `--help` is the short listing since #921, and every command this
-/// asks about — `pack`, `estimate`, `neighbors` — is on the long one only.
-fn commands_from_help() -> BTreeSet<String> {
-    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
-        .arg("--help-all")
-        .output()
-        .expect("running `yidam --help-all`");
-    assert!(out.status.success(), "`yidam --help-all` exited nonzero");
-    let help = String::from_utf8(out.stdout).expect("--help-all is utf-8");
-    let mut found = BTreeSet::new();
-    for line in help.lines() {
-        let Some(rest) = line.strip_prefix("  ") else {
-            continue;
-        };
-        if rest.starts_with(' ') || rest.starts_with('-') {
-            continue;
-        }
-        let name = rest.split_whitespace().next().unwrap_or_default();
-        if !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '-') {
-            found.insert(name.to_string());
-        }
-    }
-    found
-}
-
 #[test]
 fn every_command_the_retrieval_set_names_is_one_this_binary_has() {
-    let have = commands_from_help();
+    let have = common::commands_from_help();
     let missing: Vec<&&str> = RETRIEVAL.iter().filter(|c| !have.contains(**c)).collect();
     assert!(
         missing.is_empty(),

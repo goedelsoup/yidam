@@ -256,26 +256,10 @@ fn files(dir: &Path) -> Vec<String> {
 /// marks all thirty-two. The tests below assert a property of *every* writing command, and
 /// reading the short one would have quietly narrowed that to five.
 fn writing_commands() -> Vec<String> {
-    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
-        .arg("--help-all")
-        .output()
-        .unwrap();
-    let help = String::from_utf8_lossy(&out.stdout).to_string();
-    let mut names: Vec<String> = help
-        .lines()
-        .filter_map(|l| {
-            let rest = l.strip_prefix("  ")?;
-            let (name, after) = rest.split_once(char::is_whitespace)?;
-            after
-                .trim_start()
-                .strip_prefix("* ")
-                .map(|_| name.to_string())
-        })
-        .filter(|n| !n.is_empty() && !n.starts_with('-'))
-        .collect();
-    names.sort();
-    names.dedup();
-    names
+    common::writers_from_help()
+        .into_iter()
+        .filter_map(|(name, writes)| writes.then_some(name))
+        .collect()
 }
 
 /// The floor under the two tests below. A parser that stops recognising the `*` legend would

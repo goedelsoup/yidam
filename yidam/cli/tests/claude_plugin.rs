@@ -461,19 +461,6 @@ fn prescribed_subcommands(text: &str) -> BTreeSet<String> {
     found
 }
 
-/// Does `--help-all` list this subcommand — as a row, not as a substring?
-///
-/// `help.contains("init")` would be satisfied by the word appearing anywhere in any
-/// description, which is most of what a help text is. The listing writes one command per
-/// line, indented, name first.
-fn lists_subcommand(help: &str, name: &str) -> bool {
-    help.lines().any(|l| {
-        let l = l.trim_start();
-        l.strip_prefix(name)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
-    })
-}
-
 /// The floor under [`the_launcher_prescribes_commands_that_exist`]: a parser that recognised
 /// nothing would leave its loop iterating an empty set and passing over everything.
 ///
@@ -534,17 +521,9 @@ fn the_shipped_launcher_prescribes_the_repair_for_the_state_it_refuses_on() {
 #[test]
 fn the_launcher_prescribes_commands_that_exist() {
     let installation = read("docs/installation.md");
-    let help = {
-        let out = std::process::Command::new(env!("CARGO_BIN_EXE_yidam"))
-            .arg("--help-all")
-            .output()
-            .expect("running yidam --help-all");
-        format!(
-            "{}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        )
-    };
+    // A row of the listing, not a substring of it: `help.contains("init")` would be satisfied
+    // by the word appearing anywhere in any description, which is most of what a help text is.
+    let commands = common::commands_from_help();
 
     for (name, dir) in marketplace_plugins() {
         for entry in common::repo_walk(&dir.join("scripts")).filter(|e| e.file_type().is_file()) {
@@ -569,7 +548,7 @@ fn the_launcher_prescribes_commands_that_exist() {
             // corpus", so quoting is what separates an instruction from a noun.
             for sub in prescribed_subcommands(&text) {
                 assert!(
-                    lists_subcommand(&help, &sub),
+                    commands.contains(&sub),
                     "`{name}`'s launcher names `yidam {sub}`, which the binary does not list"
                 );
             }

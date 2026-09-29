@@ -566,19 +566,15 @@ const NO_REPORT: &[(&str, &str)] = &[
     ("estimate", "requires a query expression"),
 ];
 
-/// `--help` for a command or group, and `--help-all` for the binary itself.
+/// `--help` for a command or group.
 ///
-/// Since #921 the top-level `--help` is the thirteen commands a session usually needs. The
-/// population below is *every* command that emits the report contract, which is a question
-/// about the whole surface, so the top level is asked with `--help-all`.
+/// Never the top level: since #921 its `--help` is the thirteen commands a session usually
+/// needs, and the population below is *every* command that emits the report contract. That
+/// roster is [`common::commands_from_help`], read from `--help-all`.
 fn help(args: &[&str]) -> String {
     let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
         .args(args)
-        .arg(if args.is_empty() {
-            "--help-all"
-        } else {
-            "--help"
-        })
+        .arg("--help")
         .output()
         .expect("running --help");
     String::from_utf8_lossy(&out.stdout).to_string()
@@ -595,17 +591,17 @@ fn advertises_format(args: &[&str]) -> bool {
     })
 }
 
-/// Subcommand names under `args`, or none where it is not a group.
+/// Subcommand names under `group`, or none where it is not a group.
 ///
-/// Two parsers rather than one, because the two help screens are not the same document.
-/// `yidam --help-all` is [`yidam::help`]'s own template — grouped, with the `{subcommands}`
-/// slot replaced — and has no `Commands:` heading at all; a group's help is clap's, and does.
-/// A single parser would have to be loose enough to match both, and loose is how this scan
-/// ends up returning the empty set that satisfies every question asked of it.
+/// A group's help is clap's, with a `Commands:` block. The top level is not read here: `yidam
+/// --help-all` is [`yidam::help`]'s own template — grouped, with the `{subcommands}` slot
+/// replaced — and has no `Commands:` heading at all, so its reader is
+/// [`common::commands_from_help`]. One parser loose enough to match both would be how this
+/// scan ends up returning the empty set that satisfies every question asked of it.
 fn children(group: &[&str]) -> Vec<String> {
     let text = help(group);
     let mut out = Vec::new();
-    let mut inside = group.is_empty();
+    let mut inside = false;
     for line in text.lines() {
         if line.starts_with("Commands:") {
             inside = true;
@@ -614,9 +610,8 @@ fn children(group: &[&str]) -> Vec<String> {
         if !inside {
             continue;
         }
-        // A group's block ends at the first line that is not an entry; the top level has no
-        // block and is read whole, its headings being flush left.
-        if !group.is_empty() && !line.starts_with("  ") && !line.trim().is_empty() {
+        // The block ends at the first line that is not an entry.
+        if !line.starts_with("  ") && !line.trim().is_empty() {
             break;
         }
         let Some(rest) = line.strip_prefix("  ") else {
@@ -663,13 +658,7 @@ fn children(group: &[&str]) -> Vec<String> {
 ///
 /// Members are the argv path, space-joined: `lint`, `migrate`, `policy check`.
 fn reporting_commands() -> BTreeSet<String> {
-    let tops = children(&[]);
-    assert!(
-        tops.len() > 20,
-        "parsed only {} command(s) from --help-all — the output shape changed and this is no \
-         longer reading it: {tops:?}",
-        tops.len()
-    );
+    let tops = common::commands_from_help();
 
     let mut reporting = BTreeSet::new();
     let mut groups = 0usize;
