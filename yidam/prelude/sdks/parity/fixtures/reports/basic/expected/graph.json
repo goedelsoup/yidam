@@ -83,13 +83,15 @@
           "name": "datum",
           "type": "string",
           "description": "Which vertical datum the values are read against.",
-          "required": true
+          "required": true,
+          "omission": "gates"
         },
         {
           "name": "claim_tag",
           "type": "claim",
           "description": "The evidence standing of this node, as a tag rather than as prose.",
-          "required": false
+          "required": false,
+          "omission": "reported"
         }
       ],
       "edges": [
@@ -122,7 +124,8 @@
           "name": "station",
           "type": "string",
           "description": "The operator's identifier for this station.",
-          "required": false
+          "required": false,
+          "omission": "reported"
         }
       ],
       "edges": [

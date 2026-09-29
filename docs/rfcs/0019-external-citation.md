@@ -115,7 +115,7 @@ ERROR [dangling-edge] Edge pointing at nothing — 1 finding(s)
 ```
 
 `dangling_edge` is a filesystem `exists()` test
-([`checks.rs:94-111`](../../yidam/cli/src/cmd/lint/checks.rs#L94-L111)). `unlicensed-edge`
+([`dangling_edge`](../../yidam/cli/src/cmd/lint/checks.rs#L695-L710)). `unlicensed-edge`
 and `edge-target-class` never see the link at all, because `instance_links` drops every target
 that does not resolve to another instance. So the failure mode of the obvious syntax is: an
 Error, from the check with the least to say about it, and silence from the two checks whose
@@ -187,7 +187,7 @@ Stated as prohibitions because each one is a thing a reader will assume:
   `instance_links` — the gate's own edge reader, and RFC-0018's — never sees it. `--across`
   (#268) queries the dependency set as a *scope*; it does not follow citations.
 - **Not licensed by `edge_policy`.** `unlicensed-edge`'s own rationale draws this line
-  already ([`checks.rs:1661-1662`](../../yidam/cli/src/cmd/lint/checks.rs#L1661-L1662)): *a link to the
+  already ([`checks.rs:1663-1664`](../../yidam/cli/src/cmd/lint/checks.rs#L1663-L1664)): *a link to the
   class file or into the catalog is a citation, not a relationship.*
   A class's `edges:` bounds relationships; a citation is not one, and asking a class to
   declare which foreign corpora its instances may cite would be asking the ontology a
