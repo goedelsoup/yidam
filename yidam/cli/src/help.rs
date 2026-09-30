@@ -223,6 +223,10 @@ pub const GROUPS: &[Group] = &[
             // The same run, split into pods (#475). `workflow` writes nothing, but `land`
             // moves a ref on a remote and is the only thing in the binary that does.
             w("cluster"),
+            // Beside `propose`, whose branch discipline it shares (#476): it writes `open:`
+            // commits on `propose/gather/<name>/<head>` and nothing else — no working-tree
+            // file, no edge, no merge. A question landed from peers is history, not a block.
+            w("gather"),
             r("log"),
             r("phases"),
             r("replay"),

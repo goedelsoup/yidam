@@ -1051,6 +1051,33 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
+    /// Ask pinned peers one question and land their answers as a cited `?` question
+    ///
+    /// Reads `.yidam/gathers/<name>.toml`: a question, a one-step query in this corpus's
+    /// own classes, the property that is the answer, and per peer a correspondence
+    /// naming which of its classes and properties mean the same. The query is translated
+    /// per peer and run against each installed, pinned bundle; every answer becomes a
+    /// `cites:` entry quoting the peer verbatim at its commit.
+    ///
+    /// Lands one `? …` node — and one more per key the peers answer differently — as
+    /// `open:` commits on `propose/gather/<name>/<head>`. Nothing is imported, no edge
+    /// is drawn and no claim is merged. Every peer is reported: answered, empty,
+    /// unaligned, refused (a path dependency, or an unpinned or unlocked bundle),
+    /// missing, or installed and not named. A repeat over unchanged peers writes nothing.
+    ///
+    /// See docs/rfcs/0026-orchestrator-layer.md §8.
+    Gather {
+        /// The gather to run, as .yidam/gathers/<name>.toml names it
+        name: String,
+        /// Ask every peer and report, writing no branch
+        #[arg(long)]
+        dry_run: bool,
+        /// Replace an existing gather branch at this HEAD that holds a different answer
+        #[arg(long)]
+        force: bool,
+        #[command(flatten)]
+        format: FormatArg,
+    },
     /// Draft findings as proposed epistemic commits on a `propose/<head>` branch
     ///
     /// Turns findings that are failing the gate into commits a person reviews and
@@ -1521,6 +1548,17 @@ fn run() -> Result<()> {
                 dry_run,
             },
         ),
+        Command::Gather {
+            name,
+            dry_run,
+            force,
+            format,
+        } => yidam::gather(yidam::GatherOptions {
+            name,
+            dry_run,
+            force,
+            format: format.value,
+        }),
         Command::Propose {
             dry_run,
             force,

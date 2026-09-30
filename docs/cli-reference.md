@@ -426,6 +426,7 @@ the read-only overview.
 | `run [step]` * | Invoke the stale capabilities declared in `.yidam/capabilities.toml`, in dependency order, and commit what each produced with a receipt. Named with a step, runs that step and everything it declares it comes `after`; with nothing, the whole manifest. `--dry-run` plans and writes nothing |
 | `phase <sub>` * | `start` opens a phase and snapshots what it begins from. `run` invokes its plan, recording each step. `settle` checks it produced outputs and drafts the merge — a person runs it |
 | `cluster <sub>` * | The same run on Argo Workflows, one pod per act. `workflow` generates the manifest. `pin` bundles the branch tip into a vault. `step` runs one capability against a bundle. `land` is the one command that moves a ref. `admit` says whether a run is owed |
+| `gather <name>` * | Ask pinned peers the question in `.yidam/gathers/<name>.toml`. Their answers land as one cited `?` node on a `propose/*` branch. `--dry-run` asks and writes nothing |
 
 ### Retrieval, and the corpora it can reach
 
@@ -616,6 +617,35 @@ Nothing merges itself and nothing synthesizes — no edge is drawn, no claim is 
 is authored. It writes git objects and one ref. The working tree, the index and `HEAD` are
 untouched, so it is safe to run mid-edit. [RFC-0020](rfcs/0020-proposal-surface.md) has the
 argument for why the surface is this small.
+
+### `gather` cites its peers and merges nothing
+
+A gather asks every installed `tonpa` peer one question. You write it in `.yidam/gathers/<name>.toml`:
+
+```toml
+question = "What peak discharge has each gage recorded?"
+query    = "gage[state=VA]"   # one step, in this corpus's own classes
+answer   = "peak_cfs"         # the property whose value is the answer
+key      = "station"          # optional: answers under one key are compared
+lands_as = "question"         # the local class the question node is written as
+
+[peers.usgs]
+classes    = { gage = "station" }
+properties = { station = "usgs_id", peak_cfs = "flood_peak", state = "state" }
+```
+
+Each `[peers.<name>]` says which of that peer's classes and properties mean yours. Nothing is matched by spelling.
+A class or property the correspondence leaves out makes that peer `unaligned`, and it is not asked.
+
+`yidam gather <name>` translates the query per peer and runs it against the pinned bundle.
+Every answer becomes a `cites:` entry with the package, node, the bundle's commit, and a verbatim span.
+It lands as one `? …` node on `propose/gather/<name>/<head>`, as an `open:` commit.
+Peers that give different answers under one key get a second `?` node citing each answer.
+
+Nothing is imported, no edge is drawn, and no claim is merged. Deciding between answers is yours.
+Every peer is reported: `answered`, `empty`, `unaligned`, `refused`, `missing` or `undeclared`.
+A path dependency is `refused`, because a working tree has no commit to cite.
+A repeat over unchanged peers writes nothing and reports `unchanged`.
 
 ### `cohort` reports about the prelude, not about a corpus
 
