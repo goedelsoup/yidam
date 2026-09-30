@@ -560,9 +560,12 @@ a class with no type is the ordinary case rather than debt. Name the type as Rus
 `HTTPServer` and `HttpServer` are two types and one kebab-case name, so nothing is derived.
 
 **A property `type:` the corpus coins is carried through unconstrained.** `string`, `text`,
-`date`, `number`, `ref` and `claim` are the types the tooling understands; anything else is
-accepted and left alone rather than rejected. A `number` is written unquoted. Its unit, if it
-has one, is declared once on the property as `unit:` rather than in each value.
+`date`, `number`, `ref`, `claim` and `quotation` are the types the tooling understands; anything
+else is accepted and left alone rather than rejected. A `number` is written unquoted. Its unit,
+if it has one, is declared once on the property as `unit:` rather than in each value. A
+`quotation` holds `of:` and `span:`: a catalog entry and words copied from it. Lint compares
+the words with the entry's cached bytes. Add `sha256:` when the entry holds more than one
+artifact.
 
 **A `string` may declare the values it admits**, as `values: [extant, demolished, ruin]`
 beside `type:`. Declaring the set closes it. `property-type` reports an instance holding
