@@ -181,6 +181,7 @@ const sidebar = [
       { slug: 'rfcs/0044-declared-value-set', label: '0044 · A declared value set' },
       { slug: 'rfcs/0045-derivation-check', label: '0045 · A refusal is declared, and a derivation is checked' },
       { slug: 'rfcs/0046-quotation-property-type', label: '0046 · A quotation property type' },
+      { slug: 'rfcs/0047-sealed-domain-articles', label: '0047 · A domain article is sealed by the genesis commit' },
     ],
   },
   {

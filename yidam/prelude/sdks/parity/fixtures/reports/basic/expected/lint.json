@@ -612,6 +612,38 @@
       "violations": []
     },
     {
+      "id": "domain-article-violated",
+      "title": "The corpus breaks a domain article this repository was born with",
+      "severity": "error",
+      "rationale": "A domain article is part of this repository's constitution, committed at genesis and permanent. Its rule is evaluated as the genesis commit holds it, so each finding here is a refusal the article made before any of today's work existed. The repair is to the corpus, never to the rule.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "domain-article-edited",
+      "title": "A file under .yidam/constitution/ differs from the genesis commit",
+      "severity": "error",
+      "rationale": "A domain article binds permanently, so an edit to it is detected rather than obeyed: lint keeps evaluating the genesis text. Leaving the edit in place makes the file on disk say something the repository does not enforce. Restoring the genesis text is always possible, so this gates.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "domain-article-unproven",
+      "title": "A domain article's rule has no passing test beside it",
+      "severity": "warn",
+      "rationale": "A rule with no case beside it may refuse nothing its article says, and nothing would show it. This warns rather than gates: the rule and its test are sealed at genesis, so no commit this repository can make would repair them.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "domain-article-unverifiable",
+      "title": "Domain articles are present and the genesis commit cannot be read",
+      "severity": "warn",
+      "rationale": "The genesis commit is what seals a domain article. Without it, evaluating the working tree's rule would obey whatever it says now, so nothing is evaluated and this says so. Fetch the full history to check them.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "resolution-scope-unheld",
       "title": "Resolution seats a node or edge no elector held",
       "severity": "error",

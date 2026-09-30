@@ -127,8 +127,8 @@ genesis commit. Archival ethics cannot be that. **The people who agreed to these
 not party to the derived repository's later decisions**, and a norm that evaporates at genesis
 protects them for exactly as long as nobody has started working yet.
 
-So the rule is committed permanently into the derived repository's `CONSTITUTION.md`, where it
-governs that repository's resolutions for its lifetime. `yidam samudaya-audit` flags any
+So the rule is sealed into the derived repository's `.yidam/constitution/` by the genesis
+commit, where it governs that repository's resolutions for its lifetime. `yidam samudaya-audit` flags any
 constitutional augmentation before genesis and asks that it be checked against the
 constitution's existing articles — a review that is a feature of this seed rather than an
 obstacle to it. A rule governing a repository for its lifetime should be read by a person once.

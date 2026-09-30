@@ -30,6 +30,33 @@ fn has_title(text: &str) -> bool {
         .any(|l| l.starts_with("# ") && l.len() > 2)
 }
 
+/// What a constitutional augmentation at `path` lacks to be checked once it is sealed.
+///
+/// `yidam lint` evaluates `<stem>.rego` from the genesis commit and runs `<stem>_test.rego`
+/// beside it (RFC-0047). Without the rule the article is sealed as prose: it still binds, and
+/// nothing checks it. Without the cases the rule is evaluated and reported unproven on every
+/// lint. Both are warnings, because a norm with no machine form is still a norm.
+fn unruled(path: &std::path::Path, rel: &str) -> Vec<String> {
+    let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+        return Vec::new();
+    };
+    let rule = path.with_file_name(format!("{stem}.rego"));
+    let cases = path.with_file_name(format!("{stem}_test.rego"));
+    if !rule.is_file() {
+        return vec![format!(
+            "{rel}: constitutional augmentation has no {stem}.rego beside it — \
+             it will be sealed as prose, and nothing will check it"
+        )];
+    }
+    if !cases.is_file() {
+        return vec![format!(
+            "{rel}: {stem}.rego has no {stem}_test.rego beside it — \
+             `yidam lint` will report the article unproven"
+        )];
+    }
+    Vec::new()
+}
+
 pub fn samudaya_audit(root: Option<&std::path::Path>) -> Result<()> {
     let root = crate::paths::resolve_root(root)?;
     let samudaya = samudaya_dir(&root);
@@ -111,13 +138,14 @@ pub fn samudaya_audit(root: Option<&std::path::Path>) -> Result<()> {
             match seed.constitutional {
                 None => issues.push(format!(
                     "{rel}: augmentation missing 'constitutional: true|false' — \
-                     set true to commit into CONSTITUTION.md permanently, false otherwise"
+                     set true to seal it into .yidam/constitution/ at genesis, false otherwise"
                 )),
                 Some(true) => {
                     constitutional_count += 1;
+                    issues.extend(unruled(path, &rel));
                     println!(
                         "[review] {rel}: constitutional augmentation — \
-                         will be committed permanently into the derived repo's CONSTITUTION.md"
+                         will be sealed into the derived repo's .yidam/constitution/ at genesis"
                     );
                     println!(
                         "         Verify it does not contradict Articles I–VI \
@@ -165,6 +193,28 @@ pub fn samudaya_audit(root: Option<&std::path::Path>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_constitutional_augmentation_is_asked_for_its_rule_and_its_cases() {
+        let dir = tempfile::tempdir().unwrap();
+        let seed = dir.path().join("augmentation-x.md");
+        std::fs::write(&seed, "").unwrap();
+
+        let got = unruled(&seed, "samudaya/augmentation-x.md");
+        assert_eq!(got.len(), 1);
+        assert!(
+            got[0].contains("no augmentation-x.rego beside it"),
+            "{got:?}"
+        );
+
+        std::fs::write(dir.path().join("augmentation-x.rego"), "").unwrap();
+        let got = unruled(&seed, "samudaya/augmentation-x.md");
+        assert_eq!(got.len(), 1);
+        assert!(got[0].contains("no augmentation-x_test.rego"), "{got:?}");
+
+        std::fs::write(dir.path().join("augmentation-x_test.rego"), "").unwrap();
+        assert!(unruled(&seed, "samudaya/augmentation-x.md").is_empty());
+    }
 
     #[test]
     fn has_title_detects_h1() {

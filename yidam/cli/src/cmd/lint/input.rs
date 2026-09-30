@@ -27,8 +27,8 @@ use crate::authorship::{Authorship, Region};
 use crate::corpus::{Class, Corpus, DecisionRecord, Edges, Node, Overlay, Source};
 
 use super::{
-    attest, calculators, checks, citations, commitments, deliberation, edge_claims, independence,
-    line_citations, lineage, local_citations, quotations, scope, ttl, Check, Options,
+    articles, attest, calculators, checks, citations, commitments, deliberation, edge_claims,
+    independence, line_citations, lineage, local_citations, quotations, scope, ttl, Check, Options,
 };
 
 /// The corpus, the options, and every reading the checks are answered from.
@@ -85,6 +85,7 @@ pub(crate) struct Input<'a> {
     local_citation_checks: OnceLock<[Check; 4]>,
     quotation_checks: OnceLock<[Check; 3]>,
     edge_claim_checks: OnceLock<[Check; 4]>,
+    article_checks: OnceLock<[Check; 4]>,
     scope_checks: OnceLock<[Check; 2]>,
     lineage_checks: OnceLock<[Check; 3]>,
     commitment_checks: OnceLock<[Check; 4]>,
@@ -138,6 +139,7 @@ impl<'a> Input<'a> {
             local_citation_checks: OnceLock::new(),
             quotation_checks: OnceLock::new(),
             edge_claim_checks: OnceLock::new(),
+            article_checks: OnceLock::new(),
             scope_checks: OnceLock::new(),
             lineage_checks: OnceLock::new(),
             commitment_checks: OnceLock::new(),
@@ -710,6 +712,15 @@ impl<'a> Input<'a> {
                 self.decisions(),
                 self.catalog_dir(),
             )
+        })
+    }
+
+    /// The domain articles, read from the genesis commit and evaluated (#593).
+    pub(crate) fn article_checks(&self) -> &[Check; 4] {
+        self.article_checks.get_or_init(|| {
+            articles::checks(&articles::read(self.root, || {
+                articles::input(self.sangha(), self.nodes())
+            }))
         })
     }
 

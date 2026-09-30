@@ -5,6 +5,7 @@
 //! Conflating the two is what produces a gate that is either permanently red or
 //! permanently ignored; see [`baseline`].
 
+pub(crate) mod articles;
 pub(crate) mod attest;
 pub(crate) mod baseline;
 pub(crate) mod calculators;
@@ -616,6 +617,26 @@ const ROSTER: &[Entry] = &[
         id: "elector-signature-unverified",
         asked: Asked::Always,
         run: |i| attest::elector_signature_unverified(i.attestations()),
+    },
+    Entry {
+        id: "domain-article-violated",
+        asked: Asked::Always,
+        run: |i| i.article_checks()[0].clone(),
+    },
+    Entry {
+        id: "domain-article-edited",
+        asked: Asked::Always,
+        run: |i| i.article_checks()[1].clone(),
+    },
+    Entry {
+        id: "domain-article-unproven",
+        asked: Asked::Always,
+        run: |i| i.article_checks()[2].clone(),
+    },
+    Entry {
+        id: "domain-article-unverifiable",
+        asked: Asked::Always,
+        run: |i| i.article_checks()[3].clone(),
     },
     Entry {
         id: "resolution-scope-unheld",
@@ -1465,6 +1486,14 @@ decision := {"allow": true, "deny": []}
         assert!(ids.contains("resolution-elector-unregistered"));
         assert!(ids.contains("resolution-executor-unrecorded"));
         assert!(ids.contains("resolution-deliberation-unrecorded"));
+        for id in [
+            "domain-article-violated",
+            "domain-article-edited",
+            "domain-article-unproven",
+            "domain-article-unverifiable",
+        ] {
+            assert!(ids.contains(id), "{id}");
+        }
         // Same reason again, and this one is the most silent of all: RFC-0012's verification
         // is vacuous until a registry row binds a signing key, so a check that vanished when
         // it found no keys would be indistinguishable from one nobody wired in.

@@ -298,6 +298,14 @@ pub fn yidam_policy_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("policy")
 }
 
+/// The domain articles this repository was born with (#593): each one's prose, and where it
+/// has one, its rule and the rule's test. Written in the genesis commit and never after, so
+/// lint reads each rule from that commit and reports this directory's drift from it.
+/// Absent in every repository whose bootstrap consumed no constitutional augmentation.
+pub fn yidam_constitution_dir(root: &Path) -> PathBuf {
+    root.join(".yidam").join("constitution")
+}
+
 /// The sangha's governance records: `PROTOCOL.md`, `electors.md`, `positions/`,
 /// `resolutions/`. Absent in single-elector repositories, where collective mode is
 /// opt-in — every caller must tolerate it not existing.

@@ -77,6 +77,7 @@ re-deriving it.
 | [0044](0044-declared-value-set.md) | G12 | A declared value set | Draft |
 | [0045](0045-derivation-check.md) | I33 | A refusal is declared, and a derivation is checked against it (`refuses:` and `yidam derive check`) | Implemented |
 | [0046](0046-quotation-property-type.md) | G13 | A quotation property type | Implemented |
+| [0047](0047-sealed-domain-articles.md) | I34 | A domain article is sealed by the genesis commit | Implemented |
 
 ## Reading order
 

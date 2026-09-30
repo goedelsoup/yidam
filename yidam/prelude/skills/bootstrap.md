@@ -76,10 +76,10 @@ which are not seeds. Note each seed file's `kind` frontmatter field.
 - **`constraint`** files: enforce these as hard boundaries during scaffolding. Do not deviate
   from them without surfacing the constraint and asking explicitly.
 - **`augmentation`** files: read the `constitutional:` frontmatter flag. `constitutional:
-  true` marks a constitutional extension — a domain-specific article that adds to
-  [CONSTITUTION.md](../CONSTITUTION.md) — and must be committed into the derived repo
-  permanently: append it to the repo's copy of the constitution as part of the genesis
-  scaffolding. `constitutional: false` marks a general guideline — additional prelude for
+  true` marks a domain article — an addition to [CONSTITUTION.md](../CONSTITUTION.md) that
+  governs the derived repo for its lifetime. Copy it to `.yidam/constitution/<stem>.md` in the
+  genesis commit, with `<stem>.rego` and `<stem>_test.rego` from beside the seed when they
+  exist. Do not append it to the vendored `CONSTITUTION.md` — a re-vendor erases it. `constitutional: false` marks a general guideline — additional prelude for
   this run only, gone once samudaya is consumed. A file missing the flag is malformed
   (`samudaya-audit` reports it as an issue); surface it to the user and ask, rather than
   classifying the content yourself.
