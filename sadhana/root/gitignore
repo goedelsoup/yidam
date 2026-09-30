@@ -87,5 +87,17 @@ dist/
 # mise
 .mise.local.toml
 
+# VS Code's workspace settings. The yidam extension writes this file itself at activation: the
+# vendor guard adds `files.readonlyInclude` over `.yidam/.vendor/**`, and the schema wiring adds
+# what `yidam schema --settings` prints. Other extensions write a Python interpreter or a node
+# binary into the same file by absolute path. Three derived repositories committed the
+# extension's copy in a `vendor:` or `regen:` commit, and #1065 read those copies as a file the
+# scaffold should ship. A tracked copy would publish the next home-directory path an editor
+# wrote there. The guard is re-applied in every window, so leaving the file untracked loses no
+# protection. At any depth, because VS Code writes it into whichever folder is opened as the
+# workspace: open `web/` and the file is `web/.vscode/settings.json`. To share settings on
+# purpose, add `!.vscode/settings.json` below this line.
+**/.vscode/settings.json
+
 # macOS
 .DS_Store
