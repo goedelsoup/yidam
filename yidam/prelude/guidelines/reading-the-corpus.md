@@ -68,6 +68,8 @@ back as a **diagnosis naming the near miss**, never as an empty result.
 `--select` projects fields, `--limit` bounds what is shown but never what is walked, `--at
 <ref>` answers as of a past commit, and `--across` reaches installed dependencies.
 
+`--paths <a> <b>` prints the typed paths between two nodes. Each is a query that returns `<b>`.
+
 ### The absence diagnosis is the reason to prefer it
 
 An empty answer is where an agent invents. `query` says *why* it is empty, derived from what
@@ -146,6 +148,7 @@ before a `pack` you are not sure will fit.
 | What is owed? | `yidam due` — index staleness, catalog TTL, unanswered questions, phases in flight |
 | Where is the gap? | `yidam query` on the class you suspect, and read the **absence** |
 | What is around this node? | `yidam neighbors <node>` |
+| How are these two connected? | `yidam query --paths <a> <b>` |
 | What will this cost? | `yidam estimate '…'` |
 | Load context to write from | `yidam pack '…' --budget N` |
 | Then write, then gate | `mise run ci` |

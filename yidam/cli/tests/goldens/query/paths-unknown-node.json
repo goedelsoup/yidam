@@ -1,0 +1,28 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "kind": "paths",
+  "from": "reach/tailwater",
+  "to": "gage/cannon-outlet",
+  "scope": "local",
+  "rejected": {
+    "step": null,
+    "code": "unknown-node",
+    "message": "`gage/cannon-outlet` names no node in this corpus — write it as `class/name`, the id `yidam query` prints (argument 2)"
+  },
+  "max_hops": 4,
+  "paths": [],
+  "found": 0,
+  "returned": 0,
+  "unchecked": 0,
+  "withheld": [],
+  "complete": true,
+  "nearest": null
+}

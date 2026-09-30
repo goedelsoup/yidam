@@ -1,0 +1,79 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "kind": "paths",
+  "from": "reach/tailwater.yml",
+  "to": "concept/hydropeaking.yml",
+  "scope": "local",
+  "rejected": null,
+  "max_hops": 4,
+  "paths": [
+    {
+      "query": "reach -exhibits-> concept",
+      "hops": 1,
+      "chains": 1,
+      "evidence": [
+        [
+          "reach/tailwater.yml",
+          "concept/hydropeaking.yml"
+        ]
+      ],
+      "matched": 2
+    },
+    {
+      "query": "reach -measured-by-> gage -sources-from-> concept",
+      "hops": 2,
+      "chains": 1,
+      "evidence": [
+        [
+          "reach/tailwater.yml",
+          "gage/canyon-outlet.yml",
+          "concept/hydropeaking.yml"
+        ]
+      ],
+      "matched": 3
+    },
+    {
+      "query": "reach -measured-by-> gage -sources-from-> concept <-refines- concept",
+      "hops": 3,
+      "chains": 1,
+      "evidence": [
+        [
+          "reach/tailwater.yml",
+          "gage/canyon-outlet.yml",
+          "concept/low-flow.yml",
+          "concept/hydropeaking.yml"
+        ]
+      ],
+      "matched": 3
+    },
+    {
+      "query": "reach <-downstream-of- reach -exhibits-> concept -refines-> concept <-refines- concept",
+      "hops": 4,
+      "chains": 1,
+      "evidence": [
+        [
+          "reach/tailwater.yml",
+          "reach/lower-canyon.yml",
+          "concept/instream-flow-right.yml",
+          "concept/low-flow.yml",
+          "concept/hydropeaking.yml"
+        ]
+      ],
+      "matched": 2
+    }
+  ],
+  "found": 4,
+  "returned": 4,
+  "unchecked": 0,
+  "withheld": [],
+  "complete": true,
+  "nearest": 1
+}

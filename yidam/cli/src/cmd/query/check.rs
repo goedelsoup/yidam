@@ -221,12 +221,17 @@ pub mod code {
     pub const ANCHOR_AT_REVISION: Code = Code("anchor-at-revision");
     /// The corpus at the requested revision or range could not be reconstructed.
     pub const HISTORY_UNREADABLE: Code = Code("history-unreadable");
+    /// `--paths` was given a node the corpus does not hold (#1202).
+    pub const UNKNOWN_NODE: Code = Code("unknown-node");
 
     /// The codes a caller of the MCP `query` tool can receive, and the set the contract
     /// freezes. `serve::tools` compares this against `tools.json` in both directions — a code
     /// missing from the contract is one a client was told to branch on and never sees, and a
     /// frozen name missing from here is a branch that can never be taken — and checks the
     /// value on the way out of the tool besides.
+    ///
+    /// [`UNKNOWN_NODE`] is absent because `--paths` is CLI-only; #1202 defers the MCP half
+    /// until the CLI surface has been used.
     ///
     /// [`ANCHOR_AT_REVISION`] and [`HISTORY_UNREADABLE`] are deliberately absent. Both are
     /// about a revision and the MCP surface has none: the contract's `at` is null for a

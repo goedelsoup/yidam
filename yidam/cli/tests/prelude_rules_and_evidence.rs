@@ -193,6 +193,11 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// **Raised again on both when `interval:` gained `complete:` (#1213).** The delta is **74
 /// words in `GRAPH.md`**: the `interval-gap` row and the paragraph naming the mark. The
 /// measurement is in `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
+///
+/// **Raised on *Before you retrieve*, on both routes, when `query` gained `--paths` (#1202).**
+/// The delta is **30 words in `reading-the-corpus.md`**: one sentence under *`yidam query`* and
+/// one row of the loop table. The worked example went to `docs/cli-reference.md` instead, where
+/// no occasion pays for it.
 const READ_CEILING: &[(&str, &str, usize)] = &[
     ("AGENTS.md", "Before you write or revise a node", 6_693),
     ("AGENTS.md", "Before you run a phase", 4_606),
@@ -202,7 +207,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
         4_382,
     ),
     ("AGENTS.md", "Before you change a class", 5_015),
-    ("AGENTS.md", "Before you retrieve", 2_959),
+    ("AGENTS.md", "Before you retrieve", 2_989),
     (
         "sadhana/root/AGENTS.md",
         "Before you write or revise a node",
@@ -215,7 +220,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
         5_576,
     ),
     ("sadhana/root/AGENTS.md", "Before you change a class", 6_209),
-    ("sadhana/root/AGENTS.md", "Before you retrieve", 4_153),
+    ("sadhana/root/AGENTS.md", "Before you retrieve", 4_183),
 ];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**

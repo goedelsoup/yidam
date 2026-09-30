@@ -143,6 +143,7 @@ pub use phase::{run as run_phase, PhaseCommand};
 pub use phases::phases;
 pub use practice::run as run_practice;
 pub use propose::{propose, Options as ProposeOptions};
+pub use query::paths::paths as query_paths;
 pub use query::query;
 pub use regen::regen;
 // For `help.rs`'s guard that every generator carries the write marker — see

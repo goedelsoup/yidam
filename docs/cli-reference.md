@@ -540,11 +540,13 @@ absence and takes no operand. The second is a comparison an absent property also
 | Flag | Applies to | Effect |
 |---|---|---|
 | `--select` | `query`, `estimate` | Fields to project: `node`, `class`, `label`, `description`, `body`, `properties.<name>` |
-| `--limit` | `query`, `estimate` | Bounds the *projection*, not the traversal — the reported count is always the full one (default 50) |
+| `--limit` | `query`, `estimate` | Bounds the *projection*, not the traversal — the reported count is always the full one (default 50). With `--paths`, the number of paths printed (default 5) |
 | `--budget` | `pack`, `estimate` | Approximate token budget, 1 token ≈ 4 chars. `pack` is **unbudgeted by default**, because a default budget would silently truncate the first pack anybody builds |
 | `--at <ref>` | `query` | Answer as of a commit, reconstructed from git objects; the working tree is never touched |
 | `--between <a..b>` | `query` | Answer at every corpus-touching commit in the range, as a series |
 | `--across` | `query` | Query installed dependencies too. Every result says whose corpus it came from, and no hop crosses a corpus boundary |
+| `--paths <from> <to>` | `query` | Print the typed paths between two nodes, shortest first. Each one is a query that returns `<to>` when run. Takes no query |
+| `--max-hops` | `query --paths` | The longest path searched (default 4). A cut-off search names the nearest length that would connect |
 
 ### `migrate` subcommands
 
