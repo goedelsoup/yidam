@@ -77,6 +77,28 @@ impl Staged {
         git(self.root(), &["log", "-1", "--format=%s"])
     }
 
+    fn head_body(&self) -> String {
+        git(self.root(), &["log", "-1", "--format=%b"])
+    }
+
+    /// Write a decision onto the entry's latest record and commit it, as an operator would.
+    ///
+    /// Spliced textually rather than by rewriting the file, because what the next fetch reads
+    /// has to be a record a person actually typed — the same four lines, in the same place.
+    fn decide(&self, field: &str) {
+        let text = self.entry_text();
+        let at = text.rfind("    from: ").expect("a record to decide about");
+        let eol = text[at..].find('\n').unwrap() + at + 1;
+        let mut out = text.clone();
+        out.insert_str(eol, &format!("    {field}\n"));
+        std::fs::write(self.entry(), &out).unwrap();
+        git(self.root(), &["add", "-A"]);
+        git(
+            self.root(),
+            &["commit", "-q", "-m", "note: the publisher's terms"],
+        );
+    }
+
     fn head_author(&self) -> String {
         git(self.root(), &["log", "-1", "--format=%an <%ae>"])
     }
@@ -273,6 +295,160 @@ fn a_changed_source_appends_a_second_record() {
         text.matches("sha256: ").count(),
         2,
         "two records, not one replaced:\n{text}"
+    );
+}
+
+/// #1200, end to end. A re-fetch that records a new version names the node that read the
+/// old one — in the report and in the commit it makes — and `due` holds that node until a
+/// commit touches it. The first fetch has nothing to supersede and names nobody.
+#[test]
+fn a_new_version_names_the_nodes_that_read_the_old_one() {
+    const NODE: &str = ".yidam/corpus/record/hydrant-count.yml";
+    let s = stage();
+    let first = s
+        .run(&["catalog-fetch", "local-registry", "--location", "0"])
+        .ok();
+    assert!(
+        !first.contains(NODE),
+        "a first fetch supersedes nothing:\n{first}"
+    );
+    assert!(!s.head_body().contains(NODE), "{}", s.head_body());
+
+    std::fs::write(
+        s.root().join("sources/registry-2026.csv"),
+        "asset_id,placed_year,static_psi\nVC-0001,1974,62\nVC-0005,2026,70\n",
+    )
+    .unwrap();
+    git(s.root(), &["add", "-A"]);
+    git(s.root(), &["commit", "-q", "-m", "extract: a new edition"]);
+
+    let second = s
+        .run(&["catalog-fetch", "local-registry", "--location", "0"])
+        .ok();
+    assert!(second.contains("a new version"), "{second}");
+    assert!(
+        second.contains(NODE),
+        "the report names the citing node:\n{second}"
+    );
+    let body = s.head_body();
+    assert!(body.contains(NODE), "the commit names it too:\n{body}");
+
+    // And `due` carries it from here, once the corpus has said how long a re-read may wait.
+    let config = s.root().join(".yidam/config.toml");
+    let mut toml = std::fs::read_to_string(&config).unwrap();
+    toml.push_str("\n[due]\nsuperseded_after = 0\n");
+    std::fs::write(&config, toml).unwrap();
+    git(s.root(), &["add", "-A"]);
+    git(
+        s.root(),
+        &["commit", "-q", "-m", "config: a re-read may not wait"],
+    );
+    let due = s.run(&["due"]).ok();
+    assert!(due.contains(NODE), "due holds the node:\n{due}");
+
+    // A commit to the node discharges it.
+    let node = s.root().join(NODE);
+    let mut text = std::fs::read_to_string(&node).unwrap();
+    text.push_str("properties_note: re-read against the new edition\n");
+    std::fs::write(&node, text).unwrap();
+    git(s.root(), &["add", "-A"]);
+    git(
+        s.root(),
+        &["commit", "-q", "-m", "revise: hydrant count, re-read"],
+    );
+    let due = s.run(&["due"]).ok();
+    assert!(!due.contains(NODE), "the commit discharged it:\n{due}");
+}
+
+/// #1074, end to end. An operator cleared this source for redistribution; the next edition
+/// arrives carrying that decision rather than a blank where `vault push` reads a refusal.
+///
+/// Through the real command against a real repository, because the unit tests exercise
+/// `artifact_for` and the defect was in what the *fetch loop* handed it: nothing read the
+/// entry's existing records at all.
+#[test]
+fn a_re_fetch_carries_the_licence_the_entry_already_recorded() {
+    let s = stage();
+    s.run(&["catalog-fetch", "local-registry", "--location", "0"])
+        .ok();
+    let first = registry_digest();
+    s.decide("redistributable: true");
+
+    std::fs::write(
+        s.root().join("sources/registry-2026.csv"),
+        "asset_id,placed_year,static_psi\nVC-0001,1974,62\nVC-0005,2026,70\n",
+    )
+    .unwrap();
+    git(s.root(), &["add", "-A"]);
+    git(s.root(), &["commit", "-q", "-m", "extract: a new edition"]);
+
+    s.run(&["catalog-fetch", "local-registry", "--location", "0"])
+        .ok();
+    let text = s.entry_text();
+    assert_eq!(
+        text.matches("redistributable: true").count(),
+        2,
+        "the new record carries the licence the old one stated:\n{text}"
+    );
+    assert!(
+        s.head_body().contains(&format!(
+            "carried forward from sha256:{first}: redistributable: true"
+        )),
+        "the commit says the licence was continued and not established:\n{}",
+        s.head_body()
+    );
+}
+
+/// The other half, and the one that loses bytes rather than time. `vault: none` is bytes an
+/// operator chose to keep in the local cache — RFC-0023 calls it *"the local cache and nowhere
+/// else, by decision — for which the cache is the only copy there will ever be."* A hold-back
+/// that lapsed at the next edition would route the new bytes to a store the operator held the
+/// previous ones back from.
+#[test]
+fn a_re_fetch_carries_a_local_only_hold_back() {
+    let s = stage();
+    s.run(&["catalog-fetch", "local-registry", "--location", "0"])
+        .ok();
+    s.decide("vault: none");
+
+    std::fs::write(
+        s.root().join("sources/registry-2026.csv"),
+        "asset_id,placed_year,static_psi\nVC-0009,2019,58\n",
+    )
+    .unwrap();
+    git(s.root(), &["add", "-A"]);
+    git(s.root(), &["commit", "-q", "-m", "extract: a new edition"]);
+
+    s.run(&["catalog-fetch", "local-registry", "--location", "0"])
+        .ok();
+    let text = s.entry_text();
+    assert_eq!(
+        text.matches("vault: none").count(),
+        2,
+        "the hold-back survives the edition:\n{text}"
+    );
+}
+
+/// A first capture is still silent, and the record shows it. This is the assertion the carry
+/// must not cost: a fetch of a source nobody has ruled on says nothing about its licence.
+///
+/// Read off the `artifacts:` block rather than the whole file. The entry is a document whose
+/// prose is the substance, and a page that came to discuss its own licensing would make a
+/// whole-file `contains` fail over a sentence.
+#[test]
+fn a_first_capture_records_neither_field() {
+    let s = stage();
+    s.run(&["catalog-fetch", "local-registry", "--location", "0"])
+        .ok();
+    let text = s.entry_text();
+    let at = text.find("artifacts:").expect("a record was written");
+    let records = &text[at..text[at..].find("\n---").unwrap() + at];
+    assert!(!records.contains("redistributable"), "{records}");
+    assert!(!records.contains("vault:"), "{records}");
+    assert!(
+        !s.head_body().contains("carried forward"),
+        "{}",
+        s.head_body()
     );
 }
 

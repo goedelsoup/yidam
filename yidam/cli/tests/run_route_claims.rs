@@ -73,8 +73,13 @@ fn observe() -> (Observed, String) {
     // waits for an epistemic one — what a proposal branch holds is not in the tree a dependent
     // would read — so mutating an upstream would make this probe observe `Refused` for a
     // reason that is the dependency rule rather than the route.
+    //
+    // Materialized as the plan this build can run, here and below both. A step whose arm is
+    // compiled out is refused before anything runs, so leaving it in the manifest would make
+    // this probe read the arm's absence as the route's — and the step chosen must come from the
+    // same manifest the run below is measured against.
     let Some((example, step)) = examples().into_iter().find_map(|name| {
-        let e = Example::materialize(&name);
+        let e = Example::materialize_runnable(&name);
         let text = std::fs::read_to_string(e.path().join(".yidam/capabilities.toml")).ok()?;
         let m: toml::Value = toml::from_str(&text).ok()?;
         let caps = m.get("capability")?.as_table()?;
@@ -92,7 +97,7 @@ fn observe() -> (Observed, String) {
         panic!("no example declares a terminal capability, so this file asserts nothing");
     };
 
-    let e = Example::materialize(&example);
+    let e = Example::materialize_runnable(&example);
     let manifest = e.path().join(".yidam/capabilities.toml");
     let before = std::fs::read_to_string(&manifest).unwrap();
 

@@ -4,14 +4,16 @@
 //! reports nothing when it passes cannot be distinguished from a check that did not run,
 //! and the difference matters when someone is deciding whether the gate covers a case.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::parse::CATALOG_LOCATION_KINDS;
 
 use super::model::{Check, Severity, Violation};
+use super::quotations::Declared;
 use crate::corpus::{
-    edge_views, normalize, source_classes, Class, EdgePolicy, Edges, Node, Source,
+    authored_relationships, edge_views, normalize, sink_classes, source_classes, Class,
+    DecisionRecord, EdgePolicy, Edges, Node, Omission, Source,
 };
 
 /// One corpus file's prose and where it lives — all [`claim_tag_malformed`] reads.
@@ -405,16 +407,80 @@ pub const MALFORMED_YAML: &str = "malformed-yaml";
 /// reading. What is *not* suppressed is a finding whose subject is a different file, even
 /// where the unreadable one is why it fired — a catalog entry whose `used-by` list names a
 /// node that can no longer be shown to cite it still says so. See there for why.
-pub fn malformed_yaml(nodes: &[Node], classes: &[Class]) -> Check {
-    // Instances then classes, the order [`prose_views`] reads the corpus in.
+///
+/// # All four records, since #1056
+///
+/// #676 covered the two records `lint` had a model for, and the other two kept the defect
+/// verbatim. A catalog entry's frontmatter read through `unwrap_or_default()` to a
+/// `Frontmatter::default()`, which is not an entry declaring nothing — it is `obtained:`
+/// absent and so read as *true*, with no TTL, no `used-by`, no locations and no artifacts. A
+/// decision record read to a `Decision` with no `id:` and no `summary:`, which the log renders
+/// under its file stem with an em dash, exactly as it renders a record nobody has filled in.
+///
+/// One corpus lost a catalog entry's TTL for its whole history and a decision record that
+/// governed a phase, to one unclosed quote each. `grep` saw both; nothing in this binary did,
+/// and the class arm's reason applies unchanged: these are gates and a renderer reporting
+/// clean over files they did not read. `catalog-artifact-malformed` is not that report — it
+/// fires only on entries that *declare* `artifacts:`, and an entry whose header did not parse
+/// declares none.
+///
+/// # And `universal.yml`, since #1081
+///
+/// The fifth file, and not a fifth record: [`crate::universal::Universal`] is one document per
+/// corpus rather than a type the walk produces many of, so it arrives here as itself and is
+/// named by [`crate::universal::REL`] rather than by a `rel` it carries.
+///
+/// It is the class arm exactly. `.yidam/corpus/universal.yml` declares the properties any
+/// class may carry, the top-level keys that are prose, and whether an edge must name its
+/// standing — and [`crate::universal::Universal::parse`] read it through
+/// `unwrap_or_default()`, so a corpus whose declarations did not parse declared *none of
+/// them*. `undeclared-property` then reports every property the file permits, `property-type`
+/// checks none of them, `node-too-long` measures a node without the prose keys the corpus
+/// named, and `edge-untagged` is switched off entirely — `edge_claims.required` read as absent,
+/// and absent means no. One of those four is noise and three are gates reporting clean, and
+/// nothing anywhere said the file had not been read.
+///
+/// **Reported, not suppressed around.** The findings that go wrong here are about the
+/// *instances*, which is the case [`super::suppress_unparsed`] deliberately leaves alone: a
+/// finding whose subject is a different file stands even where an unreadable one is why it
+/// fired. What was missing is this finding — the one that says why the rest of the report is
+/// not to be trusted.
+pub fn malformed_yaml(
+    nodes: &[Node],
+    classes: &[Class],
+    sources: &[Source],
+    decisions: &[DecisionRecord],
+    universal: &crate::universal::Universal,
+) -> Check {
+    // Instances, classes, catalog, decisions — the order [`prose_views`] reads the corpus in,
+    // extended the way the walk is. `universal.yml` goes last: it is one file rather than a
+    // record type, so appending it leaves every finding a report already had where it was.
     let violations = nodes
         .iter()
-        .map(|n| (&n.rel, &n.malformed))
-        .chain(classes.iter().map(|c| (&c.rel, &c.malformed)))
+        .map(|n| (n.rel.as_str(), n.malformed.as_deref()))
+        .chain(
+            classes
+                .iter()
+                .map(|c| (c.rel.as_str(), c.malformed.as_deref())),
+        )
+        .chain(
+            sources
+                .iter()
+                .map(|s| (s.rel.as_str(), s.malformed.as_deref())),
+        )
+        .chain(
+            decisions
+                .iter()
+                .map(|d| (d.rel.as_str(), d.malformed.as_deref())),
+        )
+        .chain(std::iter::once((
+            crate::universal::REL,
+            universal.malformed(),
+        )))
         .filter_map(|(rel, why)| {
             Some(Violation::new(
                 rel,
-                format!("does not parse as YAML: {}", why.as_ref()?),
+                format!("does not parse as YAML: {}", why?),
             ))
         })
         .collect();
@@ -429,8 +495,81 @@ pub fn malformed_yaml(nodes: &[Node], classes: &[Class]) -> Check {
          edges, which is indistinguishable from an ontology nobody has filled in — and five \
          checks that gate on those declarations find nothing to check and pass. That is a \
          false negative in a gate, produced by a typo, and nothing else in the report can \
-         say it happened. Every other finding about the file is suppressed: fix the parse \
-         error and they come back, correct this time.",
+         say it happened. On a catalog entry it reads as an entry with no TTL, no `used-by` \
+         and no artifacts that never declared `obtained: false` — so it is read as obtained, \
+         governed by nothing, and cited by nothing. On a decision record it reads as a record \
+         with no `id:` and no `summary:`, which the log renders under its file stem with an em \
+         dash, indistinguishable from a record nobody filled in. On \
+         `.yidam/corpus/universal.yml` it reads as a corpus that declared nothing universal, \
+         so every property that file permits is reported against the instances carrying it, \
+         and the edge-tagging gate it turns on is off. Every other finding about the file is \
+         suppressed: fix the parse error and they come back, correct this time.",
+        violations,
+    )
+}
+
+/// The id of [`findings_malformed`], named once beside the check it licenses nothing for — it
+/// is spelled here for the reason [`MALFORMED_YAML`] is, so the two read as the pair they are.
+pub const FINDINGS_MALFORMED: &str = "findings-malformed";
+
+/// A document whose `yidam:` block is not the record this tool writes there.
+///
+/// The sibling of [`malformed_yaml`], and the reason it is a second check rather than a fifth
+/// arm of that one: **the file parses**. [`crate::corpus::CorpusInstance`] carries unknown
+/// top-level keys in a flattened mapping and a catalog entry's frontmatter ignores them, so a
+/// `yidam:` block that is well-formed YAML of the wrong shape leaves `Node::malformed` and
+/// `Source::malformed` both empty. Reporting it as "does not parse as YAML" would say something
+/// false about the bytes.
+///
+/// # What is lost, which is a baseline rather than a field
+///
+/// The block is where `propose` records the questions it has opened, and
+/// [`crate::findings::parse`] read it through `unwrap_or_default()` — so one entry missing its
+/// `check:` lost every finding on the document, silently. A document whose block does not read
+/// looks like a document with nothing outstanding, and the consequences run the wrong way:
+/// `propose` opens every finding on it again with a fresh `opened_at`, and the ids an author
+/// had already `close:`d come back. The corpus's own count of how many of its open questions
+/// are the tool's — the whole reason the record is namespaced instead of spliced into prose —
+/// is short by however many the document held.
+///
+/// Error, for [`malformed_yaml`]'s reason narrowed to a key this tool owns: nothing but
+/// `propose` and `migrate-findings` write under `yidam:`, so there is no corpus whose authors
+/// ever declared a block of this shape acceptable, and no judgement call to weigh.
+///
+/// # Both populations, because findings live on both
+///
+/// Instances and catalog entries: `propose` walks both, so a check over one of them would be
+/// half a report. The catalog arm is what [`crate::corpus::Source::text`] was added for.
+pub fn findings_malformed(nodes: &[Node], sources: &[Source]) -> Check {
+    let violations = nodes
+        .iter()
+        .map(|n| (n.rel.as_str(), n.text.as_str()))
+        .chain(sources.iter().map(|s| (s.rel.as_str(), s.text.as_str())))
+        .filter_map(|(rel, text)| {
+            let why = crate::findings::parse_reporting(text).1?;
+            Some(Violation::new(
+                rel,
+                format!(
+                    "`{}:` block does not read as findings: {why}",
+                    crate::findings::CONTAINER
+                ),
+            ))
+        })
+        .collect();
+    Check::new(
+        FINDINGS_MALFORMED,
+        "Document whose findings block is not the record it is read as",
+        Severity::Error,
+        "The `yidam:` block is where `yidam propose` records the questions it has opened, and a \
+         block the parser rejects was read as no findings at all — so one entry missing its \
+         `check:` lost every finding on the document and nothing said so. What follows is not a \
+         gap in a report: a document with no readable block looks like a document with nothing \
+         outstanding, so `propose` opens every finding on it again with a fresh `opened_at`, and \
+         the ids an author has already closed come back. The file itself parses — unknown \
+         top-level keys are carried, so neither the instance nor the catalog entry reports a \
+         parse failure — which is why this is reported apart from `malformed-yaml`. Nothing but \
+         `propose` writes under this key, so a block of the wrong shape is never something a \
+         corpus chose.",
         violations,
     )
 }
@@ -846,6 +985,82 @@ pub fn orphan_in(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Check {
     )
 }
 
+/// A node whose every link is its own class membership (#1072).
+///
+/// `orphan-out` passes it — it has a link — and `orphan-in` reports it only when nothing
+/// points back. It is well-formed, it parses, and it records that something exists without
+/// relating it to anything: a stub, or what a bulk import leaves behind. One derived corpus
+/// wrote a local check for exactly this after finding a set of them.
+///
+/// **Scoped by the ontology, not switched off by default.** The issue asked for either, since
+/// some classes are legitimately leaves. The ontology already says which ones: a class some
+/// declaration names, and never as the author, is a [`sink_classes`] class, and its instances are
+/// exempt for the reason a source class's are exempt from `orphan-in`. Measured over sixteen
+/// derived corpora (2,772 nodes, 2026-09-29): 79 nodes link only to their class, 28 are
+/// instances of a sink class, and every one of the remaining 51 is an instance of a class
+/// whose ontology says it authors a relationship the node does not — a `venue` declaring
+/// `operated-by → partner` with no operator. That is a contradiction of the ontology the
+/// corpus wrote, not a leaf, and the finding names the relationships so the repair is in it.
+///
+/// **Class membership is a link resolving to a `.ont.yml`**, not a relationship named
+/// `instance-of`: the target is what makes it membership, and the relationship label is
+/// the corpus's own. A node with no links is `orphan-out`'s, and one with a link missing its
+/// `target:` or pointing at nothing is `dangling-edge`'s; neither is reported twice here. A
+/// citation into the catalog is a link to something other than the class, so a node that
+/// cites a source is not reported.
+///
+/// Warn rather than Error: a node authored this morning may not have its edges yet, and the
+/// ratchet in [`super::baseline`] already tells an inherited finding from a new one.
+pub fn only_instance_of(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Check {
+    let view = edge_views(classes);
+    let exempt = sink_classes(&view);
+    let authored = authored_relationships(&view);
+
+    let violations = nodes
+        .iter()
+        .enumerate()
+        .filter(|(i, n)| {
+            let out = edges.out(*i);
+            !out.is_empty()
+                && out.len() == n.inst.links.as_deref().unwrap_or_default().len()
+                && out.iter().all(|e| {
+                    e.resolved
+                        .file_name()
+                        .is_some_and(|f| f.to_string_lossy().ends_with(".ont.yml"))
+                })
+        })
+        .map(|(_, n)| n)
+        .filter_map(|n| {
+            let class = class_of(n);
+            if exempt.contains(&class) {
+                return None;
+            }
+            let detail = match authored.get(class.as_str()) {
+                Some(rels) => format!(
+                    "links only to its class; `{class}` declares {}",
+                    rels.iter()
+                        .map(|r| format!("`{r}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                None => "links only to its class".to_string(),
+            };
+            Some(Violation::new(&n.rel, detail))
+        })
+        .collect();
+    Check::new(
+        "only-instance-of",
+        "Node linked only to its class",
+        Severity::Warn,
+        "A node whose only link is to its own class records that something exists without \
+         relating it to anything — a stub, or what a bulk import left behind. Instances of a \
+         class the ontology names only as a target are exempt: a leaf there is the model \
+         working. What remains is a class that declares relationships its instances author, \
+         and a node carrying none of them.",
+        violations,
+    )
+}
+
 // ── the class contract ────────────────────────────────────────────────────────
 //
 // `.ont.yml` states, per class, which properties an instance carries and which
@@ -1066,27 +1281,37 @@ pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
             if carried.iter().any(|(k, _)| *k == declared.name) {
                 continue;
             }
+            // `required: false` is the class saying an instance may omit this, and an
+            // omission it licensed is not a finding (#1055) — `edge_policy: characteristic`'s
+            // shape. Before this, the one corpus that had answered `required:` on every
+            // property drew all 36 of its warnings from the 8 it had marked `false`, and the
+            // deliberate omissions were indistinguishable from the ones nobody decided.
+            // Silence stays reported: absent means the ontology was never asked.
+            //
             // The severity is a function of the DECLARATION, not a blanket judgement about
             // omissions — the shape `orphan-in` already has, where residence time rather
             // than the check's level decides. A class that said `required: true` has
             // written the contract this instance contradicts, and contradiction is what the
             // other four checks gate on. A class that said nothing has not, and gating
             // there would assert a contract the ontology never wrote.
+            //
+            // Read through `omission()` because `graph` reports the same verdict to editors,
+            // and a second derivation is how the two came to disagree (#1155).
+            let (qualifier, escalated) = match declared.omission() {
+                Omission::Licensed => continue,
+                Omission::Gates => (" as `required: true`", Some(Severity::Error)),
+                Omission::Reported => ("", None),
+            };
             let violation = Violation::new(
                 &n.rel,
                 format!(
-                    "`{}` is declared by `{}`{} and this instance does not carry it",
-                    declared.name,
-                    class.rel,
-                    match declared.required {
-                        true => " as `required: true`",
-                        false => "",
-                    }
+                    "`{}` is declared by `{}`{qualifier} and this instance does not carry it",
+                    declared.name, class.rel,
                 ),
             );
-            violations.push(match declared.required {
-                true => violation.at(Severity::Error),
-                false => violation,
+            violations.push(match escalated {
+                Some(severity) => violation.at(severity),
+                None => violation,
             });
         }
     }
@@ -1098,7 +1323,9 @@ pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
          invisible to every reader and obvious in a list. A property declared \
          `required: true` GATES: the class wrote that contract, and an instance omitting it \
          contradicts the ontology, which is what this check's four siblings gate on. \
-         Everything else is reported, because a class that said nothing about a property \
+         `required: false` is not reported: the class said an instance may omit it, and \
+         an omission the class licensed is not a finding. A property that says neither is \
+         reported and does not gate, because a class that said nothing about a property \
          cannot be read as demanding it — a node that makes no tagged claim is a real \
          state, not a defect, and gating on omission would assert a contract nobody wrote.",
         violations,
@@ -1271,8 +1498,49 @@ pub(crate) fn property_type_violation(declared: &str, value: &serde_yaml::Value)
             serde_yaml::Value::Bool(_) => Some("is a boolean, not a number".to_string()),
             other => scalar(other).err(),
         },
+        // **A value that names its document** (RFC-0046). The shape is all this can test —
+        // whether the words are in the bytes is `quotation-span-drift`'s question, and needs
+        // the catalog and the vault cache — and it is read by the one parser those checks
+        // read with, so a value this admits is one they can resolve.
+        super::quotations::QUOTATION_PROPERTY_TYPE => super::quotations::read(value).err(),
         _ => None,
     }
+}
+
+/// A `string` outside the closed set its class declares (RFC-0044), or `None`.
+///
+/// `pub(crate)` for `migrate`, for the reason [`property_type_violation`] is: a retype into
+/// `string` on a property that declares a set is a retype into this predicate, and a
+/// migration that did not consult it would be a migration into a failing build.
+///
+/// Only text is tested. A list, a mapping or a bare number is the *shape* being wrong, and
+/// [`property_type_violation`] has already said so — reporting it a second time for being
+/// outside a list of text would be two findings for one mistake. An empty set is no set at
+/// all: a closed set of nothing would refuse every value, which no class means by
+/// `values: []`. The match is exact, as JSON Schema's `enum` is: the compiled schema refuses
+/// `In operation` against `in operation`, and a gate that admitted it would be looser than
+/// the schema it exists to be no stricter than.
+pub(crate) fn declared_value_violation(
+    values: &[String],
+    value: &serde_yaml::Value,
+) -> Option<String> {
+    if values.is_empty() {
+        return None;
+    }
+    let serde_yaml::Value::String(s) = value else {
+        return None;
+    };
+    if values.iter().any(|v| v == s) {
+        return None;
+    }
+    let set = values
+        .iter()
+        .map(|v| format!("`{v}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "`{s}` is not one of the values the class declares — {set}"
+    ))
 }
 
 /// The value of a `number`, or `None` when the text is not one.
@@ -1333,6 +1601,37 @@ pub fn iso_date_parts(s: &str) -> Option<Vec<&str>> {
     }
 }
 
+/// Order two ISO dates **at the precision they share**, or `None` if either is not a date.
+///
+/// The corpus writes a date to whatever precision it knows it — `is_iso_date`'s own rationale
+/// records `formed: "1985"` occurring 71 times in one derived corpus — so a comparison has to
+/// say what it does when the two sides disagree about precision. This one drops both to the
+/// coarser: `1893-04-01 < 1900` is decided on the years alone.
+///
+/// **This is deliberately not `=`'s rule, and the divergence is the point.** `=` compares at
+/// the precision the *query* wrote, so `born=1893-04-01` does not match `born: 1893` — a
+/// day-precision question the corpus cannot answer. Ordering at the query's precision would
+/// make `born<=1900-01-01` skip every person whose birth year alone is known, silently, in
+/// the direction of a smaller answer. An equality asked more precisely than the corpus knows
+/// is genuinely unanswerable; an ordering usually is not — `1893` is before `1900-01-01`
+/// whatever day it fell on — and answering it is the reason the operator exists.
+///
+/// The consequence to know: where the corpus is coarser than the query, `<=` and `>=` can
+/// both hold for a value `=` rejects. When the two sides carry the same precision the three
+/// are trichotomous, which is the case a caller reasons about.
+///
+/// **Here rather than in `query`, because it has a second reader.** [`interval_overlap`]
+/// orders a class's declared start and end by it (#1201), and a second rule there would be a
+/// corpus where `query` says a holder was in office on a day and `lint` says nobody was.
+/// Equality at the shared precision is what an overlap check must not guess past: `1893`
+/// and `1893-06-01` compare equal, and so a term ending `1893` and one beginning
+/// `1893-06-01` are adjacent rather than overlapping.
+pub fn compare_dates(left: &str, right: &str) -> Option<std::cmp::Ordering> {
+    let (left, right) = (iso_date_parts(left.trim())?, iso_date_parts(right.trim())?);
+    let shared = left.len().min(right.len());
+    Some(left[..shared].cmp(&right[..shared]))
+}
+
 /// Property values that do not satisfy the type the class declares.
 ///
 /// `claim` is the type that pays for this check on its own. `claims.rs` matches the three
@@ -1341,6 +1640,14 @@ pub fn iso_date_parts(s: &str) -> Option<Vec<&str>> {
 /// assertion to every counter. That is the same silent-undercount failure
 /// `claim-tag-malformed` reports in prose, one field over, and the matcher is reused rather
 /// than re-derived so the two cannot disagree about what a tag is.
+///
+/// **A `string` declaring `values:` is held to that set** (RFC-0044), and it rides here
+/// rather than in a check of its own because it is the same finding: a value the declaration
+/// does not admit. Before the field existed a class spelled its set in the description —
+/// `plant | refinery | canal` — where nothing reads it, and across seven corpora 40
+/// properties did so while 33 instances held a value outside the set their own class
+/// documented. A class that declares the set has asked for the gate, as one declaring
+/// `edge_policy: exhaustive` has; a class that declares none is unbounded, as before.
 pub fn property_type(
     nodes: &[Node],
     classes: &[Class],
@@ -1353,20 +1660,24 @@ pub fn property_type(
             continue;
         };
         for (key, value) in instance_properties(n) {
-            // The class first, then the corpus. Universal does not mean untyped — a
-            // fiscal-year snapshot is prose and a `claim` written into one is still
-            // counted as no claim — but a class naming the same property has said
-            // something more specific about its own instances, and wins.
-            let declared = class
-                .properties
-                .iter()
-                .find(|p| p.name == key)
-                .map(|p| p.r#type.as_str())
-                .or_else(|| universal.declared_type(&key));
-            let Some(declared) = declared else {
+            // The class first, then `universal.yml` — the one precedence rule
+            // [`crate::universal::Universal::declared_type_for`] states, so this and the
+            // other three readers of it cannot disagree about which values are typed.
+            let Some(declared) = universal.declared_type_for(Some(*class), &key) else {
                 continue;
             };
-            if let Some(why) = property_type_violation(declared, value) {
+            // The shape first, then the set. A value that is not text is reported for what
+            // it is, not also for being outside a list of text — and the set is the class's
+            // own: `universal.yml` declares a type and nothing more.
+            let why = property_type_violation(declared, value).or_else(|| {
+                class
+                    .properties
+                    .iter()
+                    .find(|p| p.name == key)
+                    .filter(|p| p.r#type == "string")
+                    .and_then(|p| declared_value_violation(&p.values, value))
+            });
+            if let Some(why) = why {
                 violations.push(Violation::new(
                     &n.rel,
                     format!("`{key}` is declared `{declared}` and {why}"),
@@ -1381,8 +1692,11 @@ pub fn property_type(
         "A typed field the ontology declares is read by type, not by eye. A `claim` field \
          holding prose is counted as no claim at all; a `string` holding an unquoted number \
          has lost its leading zeros before anything reads it; a `number` holding a quoted \
-         one is text the compiled schema refuses and an ordering cannot compare. Types the \
-         corpus coins for itself are left alone — this reports only the ones it can test.",
+         one is text the compiled schema refuses and an ordering cannot compare. A `string` \
+         whose class declares `values:` is held to that set: a value outside it is either a \
+         widening the class never recorded or prose in a token field, and both are reported \
+         so the set the class publishes stays true. Types the corpus coins for itself are \
+         left alone — this reports only the ones it can test.",
         violations,
     )
 }
@@ -1522,6 +1836,340 @@ pub fn edge_target_class(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Ch
         violations,
     )
     .spanning_links()
+}
+
+/// One instance's place in time under its class's [`crate::corpus::Interval`]: the start it wrote, and the
+/// end, or `None` for an interval still open.
+struct Placed {
+    node: usize,
+    start: String,
+    end: Option<String>,
+}
+
+/// A date property's value as text, or `None` when it is absent or not a scalar.
+///
+/// A number is text here because YAML reads an unquoted `1893` as one, and `property-type`
+/// reports that as a malformed date without gating — so the interval should still be read.
+fn date_scalar(v: &serde_yaml::Value) -> Option<String> {
+    match v {
+        serde_yaml::Value::String(s) => Some(s.trim().to_string()),
+        serde_yaml::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+/// Whether `a` begins strictly before `b` ends. An open end is after every start.
+fn starts_before_end(a: &Placed, b: &Placed) -> bool {
+    match &b.end {
+        None => true,
+        Some(end) => compare_dates(&a.start, end) == Some(std::cmp::Ordering::Less),
+    }
+}
+
+/// The later of two dates by [`compare_dates`], and at a tie the more precise one — the tie
+/// is two readings of one moment, and the finer one says more about where the span begins.
+fn later<'a>(a: &'a str, b: &'a str) -> &'a str {
+    match compare_dates(a, b) {
+        Some(std::cmp::Ordering::Less) => b,
+        Some(std::cmp::Ordering::Equal) if b.len() > a.len() => b,
+        _ => a,
+    }
+}
+
+/// The earlier of two ends, where `None` is open and so later than any date.
+fn earlier_end<'a>(a: Option<&'a str>, b: Option<&'a str>) -> Option<&'a str> {
+    match (a, b) {
+        (None, e) | (e, None) => e,
+        (Some(a), Some(b)) => match compare_dates(a, b) {
+            Some(std::cmp::Ordering::Greater) => Some(b),
+            Some(std::cmp::Ordering::Equal) if b.len() > a.len() => Some(b),
+            _ => Some(a),
+        },
+    }
+}
+
+/// Whether `a` began before `b`: by [`compare_dates`], and where that cannot tell them apart,
+/// by path — so of two holders, exactly one began first.
+fn began_first(nodes: &[Node], a: &Placed, b: &Placed) -> bool {
+    match compare_dates(&a.start, &b.start) {
+        Some(std::cmp::Ordering::Less) => true,
+        Some(std::cmp::Ordering::Greater) => false,
+        _ => nodes[a.node].rel < nodes[b.node].rel,
+    }
+}
+
+/// How many instances may hold `target` at once: its `capacity` property, or one where the
+/// class names none or the target omits it. `None` when the value is not a whole number of at
+/// least one. Digits in quotes count, because a corpus that declared the property `string`
+/// before this check existed writes `seats: "3"`, and it is still a count.
+fn capacity_of(target: &Node, capacity: Option<&str>) -> Option<usize> {
+    let Some(cap) = capacity else {
+        return Some(1);
+    };
+    let value = target.inst.properties.as_ref().and_then(|m| m.get(cap));
+    let n = match value {
+        None => return Some(1),
+        Some(serde_yaml::Value::Number(n)) => n.as_u64(),
+        Some(serde_yaml::Value::String(s)) => s.trim().parse::<u64>().ok(),
+        Some(_) => None,
+    };
+    n.filter(|&n| n >= 1).map(|n| n as usize)
+}
+
+/// More instances of an interval class holding one target at once than it holds, and
+/// intervals that end before they start (#1201).
+///
+/// **The question a `tenure` class exists to answer is the one this protects.** A corpus
+/// models tenures so it can say who was sheriff in 1893, and two tenures of one office that
+/// overlap give that question two answers while `lint`, `graph-check` and `query` all report
+/// success. The constraint is what `interval.exclusive_over` declares: no two instances linking
+/// the same target by that relationship may overlap.
+///
+/// **Overlap is decided by [`compare_dates`], the rule `query`'s orderings use.** An interval
+/// is half-open — its start inclusive, its end exclusive, as `tenure`'s own actions define
+/// *open at a date* — so two intervals overlap when each starts strictly before the other
+/// ends. Where the two sides disagree about precision both drop to the coarser, and equality
+/// there is not overlap: a term ending `1893` and one beginning `1893-06-01` may have met in
+/// June, and reporting it would be the check inventing a day the corpus does not know. What
+/// is certain at the shared precision is reported; nothing else is.
+///
+/// **An absent end is open, and two open intervals over one target always overlap.** That is
+/// the reading `tenure` writes — *absent means still serving* — and it is the case this check
+/// most needs to see: two holders both still serving is the corpus contradicting itself today.
+/// An instance with no start, or a start or end that is not a date, is not placed at all:
+/// `missing-property` and `property-type` report those, and guessing a date to compare would
+/// be a finding the corpus did not make.
+///
+/// **A target may hold more than one, and says how many itself (#1205).** A board of three
+/// commissioners with staggered terms is three tenures of one office open at once, and correct.
+/// `interval.capacity` names the target's property that counts its seats; a holder is reported
+/// only when that many others already held the target at its start. The count is the target's,
+/// not the class's, because one `office` class holds both the sheriff and the board. A target
+/// that omits it holds one — the calculator the corpus already had read it the same way — and
+/// one whose value is not a whole number is reported on the target and left unchecked.
+///
+/// **A declaration naming what the class does not declare is reported on the class.** A
+/// `start` that is not a `date` property of the class, or an `exclusive_over` naming no
+/// relationship in its `edges:`, would otherwise read every instance as unplaceable and report
+/// nothing — the check switched off by the typo it most needs to catch. So would a `capacity`
+/// no target class declares, or one with no `exclusive_over` to bound.
+///
+/// Error, because the population is empty by construction: nothing is checked until a class
+/// declares `interval:`, and no class could before this check existed. Gaps in coverage — a
+/// span with no holder — are not reported; most corpora are incomplete by design, and an
+/// acknowledged gap is a finding the corpus records rather than one the gate should.
+pub fn interval_overlap(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Check {
+    let mut violations = Vec::new();
+    // A target two classes both bound by capacity is reported unreadable once.
+    let mut unreadable: HashSet<usize> = HashSet::new();
+    let mut by_class: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, n) in nodes.iter().enumerate() {
+        by_class.entry(class_of(n)).or_default().push(i);
+    }
+    for class in classes {
+        let Some(interval) = &class.interval else {
+            continue;
+        };
+        let is_date = |name: &str| {
+            class
+                .properties
+                .iter()
+                .any(|p| p.name == name && p.r#type == "date")
+        };
+        let mut declared = true;
+        for (key, name) in [("start", &interval.start), ("end", &interval.end)] {
+            if !is_date(name) {
+                declared = false;
+                violations.push(Violation::new(
+                    &class.rel,
+                    format!(
+                        "`interval.{key}` names `{name}`, which `{}` does not declare as a \
+                         `date` property",
+                        class.name
+                    ),
+                ));
+            }
+        }
+        let exclusive = interval.exclusive_over.as_deref();
+        if let Some(rel) = exclusive {
+            if !class.edges.iter().any(|e| e.relationship == rel) {
+                declared = false;
+                violations.push(Violation::new(
+                    &class.rel,
+                    format!(
+                        "`interval.exclusive_over` names `{rel}`, which `{}` does not declare \
+                         in `edges:`",
+                        class.name
+                    ),
+                ));
+            }
+        }
+        if let Some(cap) = interval.capacity.as_deref() {
+            match exclusive {
+                None => {
+                    declared = false;
+                    violations.push(Violation::new(
+                        &class.rel,
+                        format!(
+                            "`interval.capacity` names `{cap}`, but `{}` declares no \
+                             `exclusive_over` for it to bound",
+                            class.name
+                        ),
+                    ));
+                }
+                Some(rel) => {
+                    let mut targets: BTreeSet<&str> = class
+                        .edges
+                        .iter()
+                        .filter(|e| e.relationship == rel)
+                        .map(|e| e.target.as_str())
+                        .collect();
+                    // A target class that does not exist is `edge-target-class`'s finding.
+                    targets.retain(|t| classes.iter().any(|c| c.name == *t));
+                    for t in targets {
+                        let declares = classes
+                            .iter()
+                            .filter(|c| c.name == t)
+                            .any(|c| c.properties.iter().any(|p| p.name == cap));
+                        if !declares {
+                            declared = false;
+                            violations.push(Violation::new(
+                                &class.rel,
+                                format!(
+                                    "`interval.capacity` names `{cap}`, which `{t}` — a \
+                                     `{rel}` target — does not declare"
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        if !declared {
+            continue;
+        }
+
+        let mut placed: Vec<Placed> = Vec::new();
+        let members = by_class.get(&class.name).map(Vec::as_slice);
+        for &i in members.unwrap_or_default() {
+            let props = &nodes[i].inst.properties;
+            let get = |name: &str| {
+                props
+                    .as_ref()
+                    .and_then(|m| m.get(name))
+                    .and_then(date_scalar)
+            };
+            let Some(start) = get(&interval.start).filter(|s| iso_date_parts(s).is_some()) else {
+                continue;
+            };
+            let end = match get(&interval.end) {
+                None => None,
+                Some(e) if iso_date_parts(&e).is_some() => Some(e),
+                Some(_) => continue,
+            };
+            if let Some(e) = &end {
+                if compare_dates(e, &start) == Some(std::cmp::Ordering::Less) {
+                    violations.push(Violation::new(
+                        &nodes[i].rel,
+                        format!(
+                            "`{}: {e}` precedes `{}: {start}`",
+                            interval.end, interval.start
+                        ),
+                    ));
+                    continue;
+                }
+            }
+            placed.push(Placed {
+                node: i,
+                start,
+                end,
+            });
+        }
+        let Some(rel) = exclusive else {
+            continue;
+        };
+
+        let mut holders: BTreeMap<usize, Vec<&Placed>> = BTreeMap::new();
+        for p in &placed {
+            let n = &nodes[p.node];
+            let targets: BTreeSet<usize> = edges
+                .instance_links(p.node)
+                .filter(|(e, _)| e.written_as(n).relationship.as_deref() == Some(rel))
+                .map(|(_, t)| t)
+                .collect();
+            for t in targets {
+                holders.entry(t).or_default().push(p);
+            }
+        }
+        for (target, held) in holders {
+            let Some(seats) = capacity_of(&nodes[target], interval.capacity.as_deref()) else {
+                if unreadable.insert(target) {
+                    let cap = interval.capacity.as_deref().unwrap_or_default();
+                    violations.push(Violation::new(
+                        &nodes[target].rel,
+                        format!(
+                            "`{cap}` is not a whole number of at least one, so \
+                             `{}` cannot say how many of its holders overlap",
+                            class.name
+                        ),
+                    ));
+                }
+                continue;
+            };
+            // Reported on the holder that took the target while `seats` others already had
+            // it. Every holder that began first and overlaps it is open at its start, so
+            // those are the ones holding at once — exact for intervals on one line, and no
+            // sort, because `compare_dates` is not a total order across precisions.
+            for b in &held {
+                let before: Vec<&&Placed> = held
+                    .iter()
+                    .filter(|a| a.node != b.node)
+                    .filter(|a| began_first(nodes, a, b))
+                    .filter(|a| starts_before_end(a, b) && starts_before_end(b, a))
+                    .collect();
+                if before.len() < seats {
+                    continue;
+                }
+                let from = before
+                    .iter()
+                    .fold(b.start.as_str(), |f, a| later(f, &a.start));
+                let to = before
+                    .iter()
+                    .fold(b.end.as_deref(), |t, a| earlier_end(t, a.end.as_deref()))
+                    .unwrap_or("open");
+                let others = before
+                    .iter()
+                    .map(|a| format!("`{}`", nodes[a.node].rel))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let beyond = match interval.capacity.as_deref() {
+                    Some(cap) => format!(", beyond its `{cap}: {seats}`"),
+                    None => String::new(),
+                };
+                violations.push(Violation::new(
+                    &nodes[b.node].rel,
+                    format!(
+                        "overlaps {others} over `{rel}` `{}`{beyond}, from {from} to {to}",
+                        nodes[target].rel,
+                    ),
+                ));
+            }
+        }
+    }
+    Check::new(
+        "interval-overlap",
+        "More holders of one target at once than it seats, or an interval ending before it starts",
+        Severity::Error,
+        "A class that declares `interval:` has said which of its properties are an instance's \
+         start and end, and one that also declares `exclusive_over:` has said no two instances \
+         may hold the same target by that relationship at once — one sheriff at a time. Two \
+         that overlap give *who held it then* two answers. A `capacity:` names the target's \
+         own count, so three commissioners at once is not a finding. Intervals are half-open and \
+         compared as `query` orders dates: at the precision both sides share, so `1893` and \
+         `1893-06-01` are adjacent rather than overlapping, and an absent end is still open. \
+         A class that declares no `interval:` is not checked.",
+        violations,
+    )
 }
 
 /// Separators that turn a tag into a tag-plus-something.
@@ -1724,6 +2372,103 @@ pub fn class_claim_uncounted(classes: &[Class]) -> Check {
     )
 }
 
+/// A property whose value spells a standing, in a class that did not declare it `type: claim`.
+///
+/// **The gap #1069 arrived through.** A derived corpus reported 56 open questions as nodes
+/// against a `due` questions clock that saw 8, and the issue asked for the counter to match a
+/// bare `open` under any key. The frozen `open_questions` contract refuses that by name, and for
+/// a reason a fifth key in the same corpus demonstrates: `status: open` on a ballot measure is a
+/// legislative stage, and a scan that read it as an unsettled claim would make every corpus in
+/// the population assert things it did not. **The ontology declares the field or the arm reads
+/// nothing** — so what was missing is not a wider scan. It is that a corpus which wrote a
+/// standing into an undeclared field was told by nothing at all.
+///
+/// The finding is one declaration away from being counted, and says so:
+/// [`crate::claims::undeclared_structural_tags`] is [`crate::claims::count_structural`]'s own
+/// walk inverted, so every pair reported here is a claim the counters would pick up the moment
+/// the class declared the field — in `status`, in `open-questions`, in the questions clock, in
+/// the MCP `claims` resource, at once.
+///
+/// **Info, and not a gate, because the fix is not always the declaration.** Run by this binary
+/// over the sixteen corpora in eighteen derived repositories — 2,770 tracked instance nodes —
+/// it reports **18 findings in 3 corpora**, and those 18 are three `(class, property)` pairs
+/// that split three ways. One is unambiguous: `bitrecover-bitwipe`'s `question` class carries
+/// `claim_tag` on 11 nodes holding exactly `verified` (5), `inference` (5) and `open` (1), and
+/// its `question.ont.yml` declares no such property — a claim field by name, by vocabulary and
+/// by intent, undeclared, counted nowhere. One is a corpus that grades its own transcription:
+/// `allen-recorder`'s `parcel.status` holds a bare `verified` on 3 nodes. And one is neither:
+/// `hegeomai`'s `inquiry.status` holds `open` on 4 nodes and `narrowing` and `answered` on
+/// others, which is a question's lifecycle and not an evidence standing. Declaring that one
+/// `type: claim` would be wrong; renaming it is the repair. A check that gated could not tell
+/// the three apart, and deciding which a word is remains the judgement Article V refuses to
+/// delegate — so both fixes are named and neither is imposed.
+///
+/// Bracketed values are not reported; [`crate::claims::undeclared_structural_tags`] says why, and
+/// the reason is that they are already counted.
+pub fn claim_property_undeclared(nodes: &[Node], classes: &[Class]) -> Check {
+    let by_name = classes_by_name(classes);
+    let mut violations = Vec::new();
+    for n in nodes {
+        let class_name = class_of(n);
+        let Some(class) = by_name.get(class_name.as_str()) else {
+            continue;
+        };
+        let declared: Vec<String> = class
+            .properties
+            .iter()
+            .filter(|p| p.r#type == crate::claims::CLAIM_PROPERTY_TYPE)
+            .map(|p| p.name.clone())
+            .collect();
+        for (key, value) in crate::claims::undeclared_structural_tags(&n.text, &declared) {
+            violations.push(
+                Violation::new(
+                    &n.rel,
+                    format!(
+                        "`{key}: {}` spells a standing, and `{}` does not declare `{key}` \
+                         as `type: claim` — so it is counted as no claim at all. Declare it, \
+                         or rename the property if the word is a workflow state rather than a \
+                         standing",
+                        elide_value(&value),
+                        class.rel
+                    ),
+                )
+                .at(Severity::Info),
+            );
+        }
+    }
+    Check::new(
+        "claim-property-undeclared",
+        "Property spelling a standing that its class did not declare `type: claim`",
+        Severity::Info,
+        "A claim in a node's field is counted when the class declares that field \
+         `type: claim`, and is read by nothing when it does not — not by `status`, not by \
+         `open-questions`, not by the `due` questions clock, not by the MCP `claims` \
+         resource. The corpus wrote the standing; the declaration is what makes it \
+         reachable. This reports bare spellings only: a bracketed `[open]` is already \
+         counted wherever it sits, because the prose scan reads the file's bytes, and every \
+         bracketed value measured in an undeclared field is a placeholder for a value the \
+         corpus does not have yet rather than a claim. It is Info because the right repair \
+         is not always the declaration: a `status` holding `open`, `narrowing` and \
+         `answered` is a lifecycle and not an evidence standing, and declaring that one \
+         `type: claim` would make the corpus assert something it did not. The finding names \
+         both fixes and imposes neither.",
+        violations,
+    )
+}
+
+/// A value shortened to its first line and 60 characters, so a finding stays one line.
+///
+/// A claim-spelling value can be a qualified tag running to a paragraph — `verified for the
+/// counts and the two roll joins; …` — and a finding that reproduced one would push the
+/// declaration it is asking for off the reader's screen.
+fn elide_value(value: &str) -> String {
+    let first = value.lines().next().unwrap_or_default().trim();
+    match first.char_indices().nth(60) {
+        Some((i, _)) => format!("{}…", &first[..i]),
+        None => first.to_string(),
+    }
+}
+
 /// `(line, text)` for each bracketed near miss, in the form `claim-tag-malformed` reports.
 ///
 /// **A test helper now, and only that.** The check iterates
@@ -1756,10 +2501,49 @@ fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
 /// used to be wrong was that nobody was told; [`malformed_yaml`] reports the file now, so the
 /// degradation here is a stated consequence rather than a silent one. Reporting it a second
 /// time would put a finding about a corpus node on the catalog entry that happens to be asking.
-pub fn linked_paths(node_path: &Path, rel: &str, text: &str) -> HashSet<PathBuf> {
-    let dir = node_path.parent().unwrap_or(node_path);
+///
+/// `catalog` is the catalog directory, and it is here because the third form a citation takes
+/// is not a path. An edge's `source:` names a catalog entry by file stem (#1158), and a stem
+/// resolves only against the directory the entries live in — see [`source_targets`].
+///
+/// `quotations` is here for the fourth form. A quotation's `of:` names an entry the same way
+/// (#1174), but only in a property the ontology declares `type: quotation`, and the bytes
+/// alone cannot say which properties those are.
+pub fn linked_paths(
+    node_path: &Path,
+    rel: &str,
+    text: &str,
+    catalog: &Path,
+    quotations: &Declared,
+) -> HashSet<PathBuf> {
     let inst: crate::parse::CorpusInstance = serde_yaml::from_str(text).unwrap_or_default();
-    linked_paths_from(&inst, dir, rel, text)
+    linked_paths_from(&inst, node_path, rel, text, catalog, quotations)
+}
+
+/// Where an edge's `source:` may point, as node directory `dir` wrote it.
+///
+/// Two readings, tried together: a catalog entry by file stem — `pearl-2009` for
+/// `.yidam/catalog/pearl-2009.md` — and a path written the way a `links:` target is. Both are
+/// returned rather than one chosen, because a bare stem tried as a path lands in the node's
+/// own class directory, which is never a catalog entry, and a path tried as a stem lands under
+/// `catalog/` with a `.md` appended to a `.md`. Neither reading can admit the other's mistake,
+/// so a caller testing membership against the catalog gets exactly the entries the value
+/// names. The third spelling an edge source admits, a decision record's `id:`, is not a path
+/// and is not resolved here: `edge-source-unresolved` reads it, and a citation is a thing that
+/// resolves to the catalog.
+///
+/// **This is the one place every direction resolves a stem.** `edge-source-unresolved` asks
+/// whether a `source:` names something held; `catalog-uncited` asks whether an entry is named
+/// by anything; `rename` asks which edges name the entry it is moving (#1159). Until #1158 the
+/// second read only links, so an entry cited from edges alone was reported uncited while every
+/// edge citing it resolved. Sharing the readings is what makes that impossible to reintroduce.
+/// A quotation's `of:` is resolved here too, by `quotation-unresolved` and by the citation
+/// count (RFC-0046, #1174).
+pub(crate) fn source_targets(dir: &Path, catalog: &Path, written: &str) -> [PathBuf; 2] {
+    [
+        normalize(&catalog.join(format!("{written}.md"))),
+        normalize(&dir.join(written)),
+    ]
 }
 
 /// [`linked_paths`] for a caller that has already parsed the node.
@@ -1774,20 +2558,46 @@ pub fn linked_paths(node_path: &Path, rel: &str, text: &str) -> HashSet<PathBuf>
 /// [`crate::corpus::parse_or_default`] leaves a default instance exactly as the `unwrap_or_default` above
 /// does. Two checks ask this per node, so re-parsing here meant a lint run parsed every
 /// node's YAML three times.
+///
+/// Four things go in: every `links:` target, every markdown link in the prose, every
+/// non-blank `source:` an edge writes, and every `of:` a declared quotation writes. The last
+/// two are read through [`source_targets`]. An edge source is what an edge rests on, and it is a
+/// citation for the same reason a prose link is — the node has named a catalog entry as the
+/// thing a claim draws from. A quotation names the entry its words were taken from, which is
+/// the same act (#1174). A blank `source:` names nothing and is skipped, as
+/// `edge-source-unresolved` skips it. A quotation without an `of:` is not one, and
+/// [`Declared::named_entries`] drops it.
+///
+/// The directory and the class both come from `node_path`, here, so the two entry points
+/// cannot derive them differently.
 fn linked_paths_from(
     inst: &crate::parse::CorpusInstance,
-    dir: &Path,
+    node_path: &Path,
     rel: &str,
     text: &str,
+    catalog: &Path,
+    quotations: &Declared,
 ) -> HashSet<PathBuf> {
-    let mut out: HashSet<PathBuf> = inst
-        .links
-        .as_deref()
-        .unwrap_or(&[])
+    let dir = node_path.parent().unwrap_or(node_path);
+    let links = inst.links.as_deref().unwrap_or(&[]);
+    let mut out: HashSet<PathBuf> = links
         .iter()
         .filter_map(|l| l.target.as_ref())
         .map(|t| normalize(&dir.join(t)))
         .collect();
+    out.extend(
+        links
+            .iter()
+            .filter_map(|l| l.source.as_deref())
+            .filter(|s| !s.trim().is_empty())
+            .flat_map(|s| source_targets(dir, catalog, s)),
+    );
+    out.extend(
+        quotations
+            .named_entries(&crate::paths::class_of_path(node_path), inst)
+            .iter()
+            .flat_map(|of| source_targets(dir, catalog, of)),
+    );
     out.extend(
         prose_links(rel, dir, text)
             .into_iter()
@@ -1796,10 +2606,12 @@ fn linked_paths_from(
     out
 }
 
-/// [`linked_paths_from`] for a [`Node`], which carries everything it needs.
-fn linked_paths_of(node: &Node) -> HashSet<PathBuf> {
-    let dir = node.path.parent().unwrap_or(&node.path);
-    linked_paths_from(&node.inst, dir, &node.rel, &node.text)
+/// [`linked_paths_from`] for a [`Node`], which carries everything it needs but the catalog
+/// and the declarations.
+fn linked_paths_of(node: &Node, catalog: &Path, quotations: &Declared) -> HashSet<PathBuf> {
+    linked_paths_from(
+        &node.inst, &node.path, &node.rel, &node.text, catalog, quotations,
+    )
 }
 
 /// Corpus nodes citing each source, by repo-relative path.
@@ -1818,14 +2630,26 @@ fn linked_paths_of(node: &Node) -> HashSet<PathBuf> {
 /// The finding named a file whose text contains no citation, so the diagnosis ran through
 /// "which node cites this?" before arriving at "none of them do".
 ///
-/// Both edge forms count: a `links:` entry and a markdown link in the prose. The prose scan
-/// is [`prose_links`], the same function `broken-prose-link` uses, so a link shown as an
-/// example in code is not read as a citation here either.
-pub fn citations(sources: &[Source], nodes: &[Node]) -> Vec<Vec<String>> {
+/// Four forms count: a `links:` entry, a markdown link in the prose, an edge's `source:`
+/// naming the entry by stem or by path (#1158), and a declared quotation's `of:` naming it the
+/// same way (#1174). The prose scan is [`prose_links`], the same function `broken-prose-link`
+/// uses, so a link shown as an example in code is not read as a citation here either. The edge
+/// source and the quotation are resolved by [`source_targets`], the same function
+/// `edge-source-unresolved` and `quotation-unresolved` resolve them with, so an entry every
+/// edge or quotation citing it resolves to cannot be reported as cited by nothing.
+pub fn citations(
+    sources: &[Source],
+    nodes: &[Node],
+    catalog: &Path,
+    quotations: &Declared,
+) -> Vec<Vec<String>> {
     // Resolved once per node rather than once per (node, source) pair, and from [`Node::text`]
     // rather than from a parallel `Vec<String>` the caller built by re-reading every instance.
     // The gate's hot path read the corpus twice and held two copies of it to run one check.
-    let linked: Vec<HashSet<PathBuf>> = nodes.iter().map(linked_paths_of).collect();
+    let linked: Vec<HashSet<PathBuf>> = nodes
+        .iter()
+        .map(|n| linked_paths_of(n, catalog, quotations))
+        .collect();
 
     sources
         .iter()
@@ -1863,9 +2687,10 @@ pub fn citations(sources: &[Source], nodes: &[Node]) -> Vec<Vec<String>> {
 ///
 /// # What counts as resting on something
 ///
-/// A link that resolves to a file under `.yidam/catalog/`. That is the same resolution
-/// [`citations`] performs, so a node this check calls unsourced is exactly a node absent from
-/// every entry's citation list — the two cannot come to disagree about what a citation is.
+/// A link that resolves to a file under `.yidam/catalog/`, or an edge `source:` or a declared
+/// quotation's `of:` that names one. That is the same resolution [`citations`] performs, so a
+/// node this check calls unsourced is exactly a node absent from every entry's citation list —
+/// the two cannot come to disagree about what a citation is.
 ///
 /// **A `cites:` into a dependency does not count**, and that is RFC-0019's rule rather than a
 /// simplification. A foreign tag is the producer's tag: it records what *that* corpus's
@@ -1888,6 +2713,8 @@ pub fn verified_unsourced(
     nodes: &[Node],
     sources: &[Source],
     fields: &crate::claims::ClaimFields,
+    catalog: &Path,
+    quotations: &Declared,
 ) -> Check {
     let registered: HashSet<PathBuf> = sources.iter().map(|s| normalize(&s.path)).collect();
     let violations = nodes
@@ -1904,7 +2731,7 @@ pub fn verified_unsourced(
             if verified == 0 {
                 return None;
             }
-            let links = linked_paths_of(n);
+            let links = linked_paths_of(n, catalog, quotations);
             if links.iter().any(|p| registered.contains(p)) {
                 return None;
             }
@@ -2231,24 +3058,14 @@ pub fn catalog_artifact_malformed(sources: &[Source]) -> Check {
     for s in sources {
         for (i, a) in s.artifacts.iter().enumerate() {
             let mut problems = Vec::new();
-            match a.sha256.as_deref().map(str::trim) {
-                None | Some("") => problems.push("no `sha256`".to_string()),
-                Some(h) if h.len() != 64 => {
-                    problems.push(format!("`sha256` is {} characters, not 64: {h:?}", h.len()))
+            problems.extend(digest_problem("sha256", a.sha256.as_deref()));
+            // A text reading (#1172) is a second digest, and the extractor it names is what
+            // lets a person reproduce it — a reading without one is text of unknown origin.
+            if let Some(t) = &a.text {
+                problems.extend(digest_problem("text.sha256", t.sha256.as_deref()));
+                if t.extractor.as_deref().is_none_or(|e| e.trim().is_empty()) {
+                    problems.push("`text` names no `extractor`".to_string());
                 }
-                Some(h) if !h.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')) => {
-                    // Uppercase named separately: hex is case-insensitive and a store is not,
-                    // so the two spellings would be two keys for one artifact.
-                    if h.chars().any(|c| c.is_ascii_uppercase()) {
-                        problems.push(format!(
-                            "`sha256` is uppercase; vault keys are lowercase hex — use {}",
-                            h.to_ascii_lowercase()
-                        ));
-                    } else {
-                        problems.push(format!("`sha256` is not hex: {h:?}"));
-                    }
-                }
-                Some(_) => {}
             }
             // A `from:` index naming no location is the one cross-field error worth having:
             // it means the record cites a provenance the entry does not carry.
@@ -2279,6 +3096,30 @@ pub fn catalog_artifact_malformed(sources: &[Source]) -> Check {
          is settled entirely by files in this repository.",
         violations,
     )
+}
+
+/// What is wrong with a recorded digest, if anything. `field` is how the finding names it.
+fn digest_problem(field: &str, digest: Option<&str>) -> Option<String> {
+    match digest.map(str::trim) {
+        None | Some("") => Some(format!("no `{field}`")),
+        Some(h) if h.len() != 64 => Some(format!(
+            "`{field}` is {} characters, not 64: {h:?}",
+            h.len()
+        )),
+        // Uppercase named separately: hex is case-insensitive and a store is not, so the two
+        // spellings would be two keys for one artifact.
+        Some(h) if !h.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')) => {
+            Some(if h.chars().any(|c| c.is_ascii_uppercase()) {
+                format!(
+                    "`{field}` is uppercase; vault keys are lowercase hex — use {}",
+                    h.to_ascii_lowercase()
+                )
+            } else {
+                format!("`{field}` is not hex: {h:?}")
+            })
+        }
+        Some(_) => None,
+    }
 }
 
 /// An artifact routed to a vault this repository does not declare.
@@ -2541,6 +3382,28 @@ pub fn malformed_table(files: &[(String, String)]) -> Check {
 
 #[cfg(test)]
 mod tests {
+    /// The catalog directory every staged node here resolves an edge `source:` against.
+    /// `/repo/.yidam/catalog`, which is where `catalog_source` and `source` put their entries.
+    fn catalog_dir() -> PathBuf {
+        PathBuf::from("/repo/.yidam/catalog")
+    }
+
+    /// An ontology that declares no quotation, for every citation test that is not about one.
+    fn no_quotations() -> Declared<'static> {
+        static UNIVERSAL: std::sync::LazyLock<crate::universal::Universal> =
+            std::sync::LazyLock::new(Default::default);
+        Declared::new(&[], &UNIVERSAL)
+    }
+
+    /// The `concept` class the quotation tests read through (#1174). `anchors` is declared a
+    /// quotation, and `note` is declared prose.
+    fn quoting() -> Vec<Class> {
+        vec![Class::parse(
+            "concept.ont.yml",
+            "properties:\n  - name: anchors\n    type: quotation\n  \
+             - name: note\n    type: string\n",
+        )]
+    }
 
     /// The resolved graph for a slice of test nodes.
     ///
@@ -2832,6 +3695,7 @@ mod tests {
             relationship: relationship.into(),
             target: target.into(),
             direction: Some(direction.into()),
+            description: String::new(),
         }
     }
 
@@ -2879,9 +3743,31 @@ mod tests {
         }
     }
 
-    /// Both populations, in the order the corpus is read in.
+    /// A catalog entry at `rel`, read the way [`crate::corpus::load_sources`] reads one — so a
+    /// fixture cannot hand the check a `malformed` that disagrees with the bytes beside it.
+    fn catalog(rel: &str, text: &str) -> Source {
+        let (fm, malformed) = crate::parse::parse_frontmatter_reporting(text);
+        Source {
+            rel: rel.to_string(),
+            path: PathBuf::from(rel),
+            obtained: fm.obtained.unwrap_or(true),
+            used_by: fm.used_by,
+            locations: fm.location.unwrap_or_default(),
+            retrieved: fm.retrieved,
+            ttl_days: fm.ttl_days,
+            artifacts: fm.artifacts.unwrap_or_default(),
+            text: text.to_string(),
+            malformed,
+        }
+    }
+
+    fn decision(rel: &str, text: &str) -> DecisionRecord {
+        DecisionRecord::parse(PathBuf::from(rel), rel, text)
+    }
+
+    /// All four populations, in the order the corpus is read in.
     #[test]
-    fn the_check_reports_instances_and_classes_alike() {
+    fn the_check_reports_every_record_a_repository_is_written_in() {
         let broken = Node::parse(PathBuf::from("c/x.yml"), "c/x.yml", "label: \"unclosed\n");
         let sound = node("c/y.yml", "class: c\n");
         let c = malformed_yaml(
@@ -2890,14 +3776,169 @@ mod tests {
                 Class::parse("c.ont.yml", "class: c\n"),
                 Class::parse("d.ont.yml", "label: \"unclosed\n"),
             ],
+            &[
+                catalog("cat/ok.md", "---\nobtained: true\n---\nbody\n"),
+                catalog("cat/bad.md", "---\nttl_days: \"30\n---\nbody\n"),
+            ],
+            &[
+                decision("dec/ok.yml", "id: d1\nsummary: fine\n"),
+                decision("dec/bad.yml", "summary: \"unclosed\n"),
+            ],
+            &NONE,
         );
         let named: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
-        assert_eq!(named, vec!["c/x.yml", "d.ont.yml"]);
+        assert_eq!(
+            named,
+            vec!["c/x.yml", "d.ont.yml", "cat/bad.md", "dec/bad.yml"]
+        );
         assert_eq!(
             c.severity,
             Severity::Error,
             "a gate that cannot read a file"
         );
+    }
+
+    /// The #1081 arm. Asserted two ways round, because the defect was an absence: a corpus
+    /// whose universal declarations do not parse has to be *named*, and one whose declarations
+    /// are merely empty must not be — `Universal::empty()` is the state every corpus starts in,
+    /// and reporting it would make this check fire on nearly every repository.
+    #[test]
+    fn declarations_that_do_not_parse_are_reported_and_an_absent_file_is_not() {
+        let broken = crate::universal::Universal::parse("properties:\n  - name: \"unclosed\n");
+        assert!(
+            broken.malformed().is_some(),
+            "the fixture has to be a parse failure for this case to be about anything"
+        );
+        let c = malformed_yaml(&[], &[], &[], &[], &broken);
+        let named: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
+        assert_eq!(named, vec![crate::universal::REL]);
+        assert!(
+            c.violations[0].detail.contains("does not parse as YAML"),
+            "{:?}",
+            c.violations[0].detail
+        );
+
+        // And the negative control, over the shapes a corpus legitimately has: no file at all,
+        // a file declaring an empty list, and a file declaring something.
+        for u in [
+            crate::universal::Universal::empty(),
+            crate::universal::Universal::parse(""),
+            crate::universal::Universal::parse("properties: []\n"),
+            crate::universal::Universal::parse(
+                "properties:\n  - name: verdict\n    type: string\n",
+            ),
+        ] {
+            let c = malformed_yaml(&[], &[], &[], &[], &u);
+            assert!(c.violations.is_empty(), "{:?}", c.violations);
+        }
+    }
+
+    /// The ordering promise the comment in [`malformed_yaml`] makes: `universal.yml` is
+    /// appended, so adding it moved no finding a report already had.
+    #[test]
+    fn the_universal_arm_is_reported_last() {
+        let c = malformed_yaml(
+            &[Node::parse(
+                PathBuf::from("c/x.yml"),
+                "c/x.yml",
+                "label: \"unclosed\n",
+            )],
+            &[],
+            &[],
+            &[decision("dec/bad.yml", "summary: \"unclosed\n")],
+            &crate::universal::Universal::parse("properties:\n  - name: \"unclosed\n"),
+        );
+        let named: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
+        assert_eq!(named, vec!["c/x.yml", "dec/bad.yml", crate::universal::REL]);
+    }
+
+    // ── findings-malformed ───────────────────────────────────────────────────
+
+    /// Both populations, and the shape that makes this a second check: the two documents below
+    /// parse — `Node::malformed` and `Source::malformed` are both `None` — so `malformed-yaml`
+    /// reports neither of them.
+    #[test]
+    fn a_findings_block_that_does_not_read_is_reported_on_both_populations() {
+        // An entry with an `id:` and nothing else is not a `Finding`.
+        const BROKEN: &str = "yidam:\n  findings:\n    - id: 7f3a1c94b2e1\n";
+        let bad_node = node("c/x.yml", &format!("class: c\n{BROKEN}"));
+        let bad_entry = catalog(
+            "cat/bad.md",
+            &format!("---\nobtained: true\n{BROKEN}---\nb\n"),
+        );
+        assert_eq!(bad_node.malformed, None, "the instance parses");
+        assert_eq!(bad_entry.malformed, None, "the entry parses");
+
+        let c = findings_malformed(&[bad_node], &[bad_entry]);
+        let named: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
+        assert_eq!(named, vec!["c/x.yml", "cat/bad.md"]);
+        assert!(
+            c.violations[0].detail.starts_with("`yidam:` block"),
+            "{:?}",
+            c.violations[0].detail
+        );
+        assert_eq!(c.severity, Severity::Error);
+    }
+
+    /// The negative control, over the corpus every repository actually has: no block anywhere,
+    /// and a block this tool wrote. A false positive here fires on every node in every corpus.
+    #[test]
+    fn a_corpus_whose_blocks_read_is_not_reported() {
+        let written = crate::findings::add(
+            "class: c\n",
+            &crate::findings::Finding::open("orphan-in", "nothing links here", "4f2a1c9"),
+        )
+        .expect("the tool writes its own block");
+        let c = findings_malformed(
+            &[node("c/x.yml", "class: c\n"), node("c/y.yml", &written)],
+            &[catalog("cat/ok.md", "---\nobtained: true\n---\nbody\n")],
+        );
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
+    }
+
+    /// The state #1056 is about, asserted on the record rather than through the check: an
+    /// unreadable header is not an entry that declared nothing, and every field it leaves
+    /// behind reads as a claim the entry never made.
+    #[test]
+    fn an_unreadable_catalog_header_reads_as_obtained_and_governed_by_nothing() {
+        let s = catalog(
+            "cat/bad.md",
+            "---\nobtained: false\nttl_days: \"30\n---\nbody\n",
+        );
+        assert!(s.malformed.is_some(), "the header does not parse");
+        assert!(s.obtained, "`obtained: false` was written and is not read");
+        assert_eq!(s.ttl_days, None, "the TTL the entry declared is gone");
+    }
+
+    /// A header that opens and never closes is the same empty record by a different route, and
+    /// it is the one a truncated write leaves behind.
+    #[test]
+    fn an_unclosed_frontmatter_fence_is_reported() {
+        let s = catalog("cat/cut.md", "---\nobtained: false\n");
+        assert!(s.malformed.is_some());
+        assert!(s.obtained);
+    }
+
+    /// No frontmatter at all is not a failure: the file has not contradicted anything, and the
+    /// surfaces reading a skill or a seed through the same parser are entitled to that reading.
+    #[test]
+    fn a_file_with_no_frontmatter_is_not_malformed() {
+        for text in ["", "\n", "# just prose\n", "Body with no header.\n"] {
+            assert_eq!(catalog("cat/x.md", text).malformed, None, "{text:?}");
+        }
+    }
+
+    /// A decision record whose bytes do not parse is the record the log renders under its file
+    /// stem with an em dash — [`crate::corpus::DecisionRecord::id`] cannot tell the two apart,
+    /// which is why the parse outcome has to be carried beside it.
+    #[test]
+    fn an_unreadable_decision_is_indistinguishable_from_an_unfilled_one() {
+        let bad = decision("dec/phase-two.yml", "summary: \"unclosed\n");
+        let empty = decision("dec/phase-three.yml", "");
+        assert_eq!(bad.id(), "phase-two");
+        assert_eq!(bad.decision.summary, None);
+        assert_eq!(empty.malformed, None, "an empty file is the absent value");
+        assert!(bad.malformed.is_some(), "and this one is not");
     }
 
     /// `None` and an empty drift are different answers, and the report emits them as
@@ -2970,6 +4011,8 @@ mod tests {
             retrieved: None,
             ttl_days: None,
             artifacts: Vec::new(),
+            text: String::new(),
+            malformed: None,
         }
     }
 
@@ -2985,6 +4028,26 @@ mod tests {
         )])
     }
 
+    /// A `[verified]` claim whose only source is the one an edge names (#1158). The edge
+    /// resolved under `edge-source-unresolved` and the node was still called unsourced, which
+    /// is the disagreement [`citations`] and this check promise not to have.
+    #[test]
+    fn a_verified_claim_resting_on_an_edge_source_is_sourced() {
+        let nodes = vec![corpus_node(
+            "a",
+            "class: c\ndescription: |\n  A statement. [verified]\nlinks:\n  \
+             - target: ../concept/b.yml\n    claim_tag: verified\n    source: nwis\n",
+        )];
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+            &no_quotations(),
+        );
+        assert!(c.passed(), "{:?}", c.violations);
+    }
+
     /// The finding: a claim at the strongest standing, and nothing registered beneath it.
     #[test]
     fn a_verified_claim_with_no_citation_is_reported() {
@@ -2993,7 +4056,13 @@ mod tests {
             "class: c\ndescription: |\n  A statement. [verified]\nlinks:\n  \
              - target: ../concept.ont.yml\n",
         )];
-        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+            &no_quotations(),
+        );
         assert_eq!(c.violations.len(), 1);
         assert_eq!(c.violations[0].node, ".yidam/corpus/concept/a.yml");
         assert!(
@@ -3012,7 +4081,13 @@ mod tests {
             "class: c\ndescription: |\n  A statement. [verified]\nlinks:\n  \
              - target: ../../catalog/nwis.md\n",
         )];
-        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+            &no_quotations(),
+        );
         assert!(c.passed(), "{:?}", c.violations);
     }
 
@@ -3030,7 +4105,13 @@ mod tests {
                 "class: c\ndescription: |\n  A question. [open]\nlinks: []\n",
             ),
         ];
-        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+            &no_quotations(),
+        );
         assert!(c.passed(), "{:?}", c.violations);
     }
 
@@ -3043,7 +4124,13 @@ mod tests {
             "class: c\ndescription: |\n  Prose with no marker.\nproperties:\n  \
              claim_tag: verified\nlinks: []\n",
         )];
-        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+            &no_quotations(),
+        );
         assert_eq!(c.violations.len(), 1, "the structural arm read nothing");
     }
 
@@ -3057,7 +4144,13 @@ mod tests {
             "class: c\ndescription: |\n  A statement. [verified]\ncites:\n  \
              - package: upstream\n    node: concept/x.yml\n    tag: verified\nlinks: []\n",
         )];
-        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+            &no_quotations(),
+        );
         assert_eq!(c.violations.len(), 1);
         assert!(
             c.violations[0].detail.contains("does not transfer"),
@@ -3076,7 +4169,13 @@ mod tests {
             "class: c\ndescription: |\n  One. [verified] Two. [verified] Three. \
              [verified]\nlinks: []\n",
         )];
-        let c = verified_unsourced(&nodes, &[catalog_source("nwis", true)], &claim_fields());
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+            &no_quotations(),
+        );
         assert_eq!(c.violations.len(), 1);
         assert!(
             c.violations[0].detail.starts_with("3 `[verified]` claims"),
@@ -3093,7 +4192,13 @@ mod tests {
             "a",
             "class: c\ndescription: |\n  A statement. [verified]\nlinks: []\n",
         )];
-        let c = verified_unsourced(&nodes, &[], &claim_fields());
+        let c = verified_unsourced(
+            &nodes,
+            &[],
+            &claim_fields(),
+            &catalog_dir(),
+            &no_quotations(),
+        );
         assert_eq!(c.violations.len(), 1);
     }
 
@@ -3105,7 +4210,13 @@ mod tests {
             "a",
             "class: c\ndescription: |\n  A statement. [verified]\nlinks: []\n",
         )];
-        let c = verified_unsourced(&nodes, &[], &claim_fields());
+        let c = verified_unsourced(
+            &nodes,
+            &[],
+            &claim_fields(),
+            &catalog_dir(),
+            &no_quotations(),
+        );
         assert_eq!(c.severity, Severity::Warn);
         assert!(!c.gates(&c.violations[0]));
     }
@@ -3146,6 +4257,8 @@ mod tests {
                 retrieved: a.retrieved.clone(),
                 ttl_days: a.ttl_days,
                 artifacts: Vec::new(),
+                text: String::new(),
+                malformed: None,
             })
             .collect();
         catalog_expired(ages, &sources, cites)
@@ -3342,6 +4455,148 @@ mod tests {
         );
     }
 
+    // ── only-instance-of (#1072) ─────────────────────────────────────────────
+
+    /// The flagged nodes of an `only_instance_of` run, as `(node, detail)`.
+    fn only_instance_of_findings(nodes: &[Node], classes: &[Class]) -> Vec<(String, String)> {
+        only_instance_of(nodes, &edges_of(nodes), classes)
+            .violations
+            .into_iter()
+            .map(|v| (v.node, v.detail))
+            .collect()
+    }
+
+    const VENUE: &str =
+        "edges:\n  - relationship: operated-by\n    target: partner\n    direction: out\n";
+
+    /// The reported shape: a `venue` whose ontology says it is operated by a partner, and
+    /// which links to nothing but its class. The finding names the relationship it lacks.
+    #[test]
+    fn a_node_linked_only_to_its_class_is_reported_with_what_its_class_declares() {
+        let nodes = [node(
+            "corpus/venue/hall.yml",
+            "class: venue\nlinks:\n  - target: ../venue.ont.yml\n    relationship: instance-of\n",
+        )];
+        let c = only_instance_of(&nodes, &edges_of(&nodes), &[class_from("venue", VENUE)]);
+        assert_eq!(c.severity, Severity::Warn);
+        assert_eq!(
+            only_instance_of_findings(&nodes, &[class_from("venue", VENUE)]),
+            vec![(
+                "corpus/venue/hall.yml".to_string(),
+                "links only to its class; `venue` declares `operated-by`".to_string()
+            )]
+        );
+    }
+
+    /// Any other link — to a node or into the catalog — is a relation to something, so the
+    /// node is not reported. Two nodes, so the flagged one is told apart from the other by
+    /// the rule and not by being the only node present.
+    #[test]
+    fn a_link_to_anything_but_the_class_clears_the_node() {
+        let nodes = [
+            node(
+                "corpus/venue/hall.yml",
+                "class: venue\nlinks:\n  - target: ../venue.ont.yml\n    relationship: instance-of\n  - target: ../partner/parks.yml\n    relationship: operated-by\n",
+            ),
+            node(
+                "corpus/venue/barn.yml",
+                "class: venue\nlinks:\n  - target: ../venue.ont.yml\n    relationship: instance-of\n  - target: ../../catalog/deed.md\n    relationship: sources-from\n",
+            ),
+            node(
+                "corpus/venue/shed.yml",
+                "class: venue\nlinks:\n  - target: ../venue.ont.yml\n    relationship: instance-of\n",
+            ),
+            node(
+                "corpus/partner/parks.yml",
+                "class: partner\nlinks:\n  - target: ../partner.ont.yml\n    relationship: instance-of\n  - target: ../venue/hall.yml\n    relationship: operates\n",
+            ),
+        ];
+        let flagged: Vec<String> = only_instance_of_findings(&nodes, &[class_from("venue", VENUE)])
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        assert_eq!(flagged, vec!["corpus/venue/shed.yml"]);
+    }
+
+    /// Membership is decided by the target, not the relationship's name: a corpus that calls
+    /// it `is-a` has still linked only to its class.
+    #[test]
+    fn membership_is_the_target_not_the_relationship_name() {
+        let nodes = [node(
+            "corpus/venue/hall.yml",
+            "class: venue\nlinks:\n  - target: ../venue.ont.yml\n    relationship: is-a\n",
+        )];
+        assert_eq!(
+            only_instance_of_findings(&nodes, &[class_from("venue", VENUE)]).len(),
+            1
+        );
+    }
+
+    /// A class that declares edges and authors none of them is a leaf by design — here
+    /// `jurisdiction`, which `fund` points at from its own side. Its instances are exempt,
+    /// and `fund`, which does author an edge, is not.
+    #[test]
+    fn instances_of_a_sink_class_are_exempt() {
+        let classes = [
+            class_from(
+                "jurisdiction",
+                "edges:\n  - relationship: appropriated-in\n    target: fund\n    direction: in\n",
+            ),
+            class_from(
+                "fund",
+                "edges:\n  - relationship: appropriated-in\n    target: jurisdiction\n    direction: out\n",
+            ),
+        ];
+        let nodes = [
+            node(
+                "corpus/jurisdiction/ohio.yml",
+                "class: jurisdiction\nlinks:\n  - target: ../jurisdiction.ont.yml\n    relationship: instance-of\n",
+            ),
+            node(
+                "corpus/fund/grf.yml",
+                "class: fund\nlinks:\n  - target: ../fund.ont.yml\n    relationship: instance-of\n",
+            ),
+        ];
+        assert_eq!(
+            only_instance_of_findings(&nodes, &classes),
+            vec![(
+                "corpus/fund/grf.yml".to_string(),
+                "links only to its class; `fund` declares `appropriated-in`".to_string()
+            )]
+        );
+    }
+
+    /// A class with no `edges:` has said nothing, and silence is not an exemption — the same
+    /// reading `orphan-in` gives it. The finding cannot name a relationship, so it does not.
+    #[test]
+    fn a_class_that_declares_no_edges_is_not_exempt() {
+        let nodes = [node(
+            "corpus/note/a.yml",
+            "class: note\nlinks:\n  - target: ../note.ont.yml\n    relationship: instance-of\n",
+        )];
+        assert_eq!(
+            only_instance_of_findings(&nodes, &[class_from("note", "label: Note\n")]),
+            vec![(
+                "corpus/note/a.yml".to_string(),
+                "links only to its class".to_string()
+            )]
+        );
+    }
+
+    /// No links is `orphan-out`'s finding and a link with no `target:` is `dangling-edge`'s;
+    /// neither is reported a second time here.
+    #[test]
+    fn another_checks_finding_is_not_reported_twice() {
+        let nodes = [
+            node("corpus/venue/bare.yml", "class: venue\nlinks: []\n"),
+            node(
+                "corpus/venue/half.yml",
+                "class: venue\nlinks:\n  - target: ../venue.ont.yml\n    relationship: instance-of\n  - relationship: operated-by\n",
+            ),
+        ];
+        assert!(only_instance_of_findings(&nodes, &[class_from("venue", VENUE)]).is_empty());
+    }
+
     /// A class declaring no `direction: in` edge says nothing points at its instances, so
     /// an orphan there is the ontology holding rather than the corpus failing.
     ///
@@ -3357,8 +4612,10 @@ mod tests {
             name: name.into(),
             properties: vec![],
             edges: vec![edge("cited-by", "recording", dir)],
+            label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -3401,8 +4658,10 @@ mod tests {
             name: "gage".into(),
             properties: vec![],
             edges: vec![edge("sources-from", "concept", "out")],
+            label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -3416,8 +4675,10 @@ mod tests {
             name: "concept".into(),
             properties: vec![],
             edges: vec![edge("refines", "concept", "out")],
+            label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -3451,8 +4712,10 @@ mod tests {
             name: "reach".into(),
             properties: vec![],
             edges: vec![edge("downstream-of", "reach", "out")],
+            label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -3477,9 +4740,12 @@ mod tests {
                 relationship: "relates-to".into(),
                 target: "b".into(),
                 direction: None,
+                description: String::new(),
             }],
+            label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -3493,8 +4759,10 @@ mod tests {
             name: "b".into(),
             properties: vec![],
             edges: vec![edge("other", "c", "out")],
+            label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -3518,8 +4786,10 @@ mod tests {
             name: "concept".into(),
             properties: vec![],
             edges: vec![],
+            label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -4052,6 +5322,203 @@ mod tests {
         assert!(!c.violations.iter().any(|v| c.gates(v)));
     }
 
+    // ── claim-property-undeclared (#1069) ─────────────────────────────────────
+
+    /// The shape #1069 is really about, from the corpus that has it.
+    ///
+    /// `bitrecover-bitwipe` carries `claim_tag` on 11 `question` nodes holding exactly the three
+    /// standings, and its `question.ont.yml` declares no such property. Every counter in this
+    /// repository reads that as no claim.
+    #[test]
+    fn a_standing_in_a_property_no_class_declared_as_a_claim_is_reported() {
+        let (_d, classes) = loaded_class(
+            "question",
+            "class: question\ndescription: A thing asked.\nproperties:\n  - name: claim_tag\n    type: string\n",
+        );
+        let nodes = vec![node(
+            ".yidam/corpus/question/whether-it-wipes.yml",
+            "class: question\nlabel: Whether it wipes\nclaim_tag: open\n",
+        )];
+        let c = claim_property_undeclared(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        let d = &c.violations[0].detail;
+        assert!(d.contains("`claim_tag: open`"), "{d}");
+        assert!(d.contains("type: claim"), "{d}");
+        // And the other repair, because for one of the three measured rows it is the right one.
+        assert!(d.contains("rename"), "{d}");
+    }
+
+    /// The declaration is what silences it, and silencing it is the counter starting to read.
+    ///
+    /// The two halves of the same fact: this check's population is exactly
+    /// `count_structural`'s blind spot, so a class that declares the field moves the node out of
+    /// here and into the count in one edit. Asserted together, because a check whose finding
+    /// could be cleared without the counter gaining anything would be advice for its own sake.
+    #[test]
+    fn declaring_the_property_clears_the_finding_and_starts_the_count() {
+        let body = "class: question\nlabel: Whether it wipes\nclaim_tag: open\n";
+        let nodes = vec![node(".yidam/corpus/question/w.yml", body)];
+
+        let (_d, undeclared) = loaded_class(
+            "question",
+            "class: question\ndescription: A thing asked.\nproperties:\n  - name: claim_tag\n    type: string\n",
+        );
+        assert_eq!(
+            claim_property_undeclared(&nodes, &undeclared)
+                .violations
+                .len(),
+            1
+        );
+        assert_eq!(
+            crate::claims::count_structural(body, &["claim_tag".to_string()]).open,
+            1,
+            "the counter must be the thing the declaration turns on"
+        );
+
+        let (_d2, declared) = loaded_class(
+            "question",
+            "class: question\ndescription: A thing asked.\nproperties:\n  - name: claim_tag\n    type: claim\n",
+        );
+        assert!(claim_property_undeclared(&nodes, &declared).passed());
+    }
+
+    /// A bracketed value is not reported, because it is already counted.
+    ///
+    /// Both halves asserted in one test, since the second is the whole reason for the first.
+    /// `registered_voters: "[open]"` is the measured shape — a placeholder for a value the
+    /// corpus does not have — and telling `demi-moore` to declare a voter count as a claim
+    /// field would be this check's only false positive across the population.
+    #[test]
+    fn a_bracketed_placeholder_is_left_to_the_prose_scan_that_already_counts_it() {
+        let (_d, classes) = loaded_class(
+            "precinct",
+            "class: precinct\ndescription: A voting precinct.\nproperties:\n  - name: registered_voters\n    type: string\n",
+        );
+        let body = "class: precinct\nlabel: Bath 1\nregistered_voters: \"[open]\"\n";
+        let nodes = vec![node(".yidam/corpus/precinct/bath-1.yml", body)];
+        assert!(
+            claim_property_undeclared(&nodes, &classes).passed(),
+            "{:?}",
+            claim_property_undeclared(&nodes, &classes).violations
+        );
+        // Visible already, which is what makes the exclusion safe rather than a gap. No
+        // declared field is passed because the class declares none — the shape this check
+        // reports — and the text scan reaches the bracketed bytes regardless.
+        assert_eq!(crate::claims::count_in_node(body, &[]).open, 1);
+    }
+
+    /// A link's standing belongs to its edge, and `edge-claims` grades it there.
+    #[test]
+    fn a_links_claim_tag_is_not_this_checks_finding() {
+        let (_d, classes) = loaded_class("concept", "class: concept\ndescription: An idea.\n");
+        let nodes = vec![node(
+            ".yidam/corpus/concept/a.yml",
+            "class: concept\nlabel: A\nlinks:\n  - target: ../concept/b.yml\n    relationship: reads\n    claim_tag: inference\n",
+        )];
+        assert!(claim_property_undeclared(&nodes, &classes).passed());
+    }
+
+    /// A carried finding's `standing: open` was written by the tool, not the corpus.
+    ///
+    /// `yidam propose` writes `yidam.findings[].standing: open` into a node, and the
+    /// `carried-findings` section of `GRAPH.evidence.md` is explicit that the block is counted
+    /// as nothing the corpus claims. A `migrate` test caught this walk reporting it before the
+    /// skip existed: telling a corpus to declare `standing` as a claim property because a tool
+    /// wrote one into its node would be this check's worst finding.
+    #[test]
+    fn a_carried_finding_the_tool_wrote_is_not_this_checks_finding() {
+        let (_d, classes) = loaded_class("concept", "class: concept\ndescription: An idea.\n");
+        let nodes = vec![node(
+            ".yidam/corpus/concept/a.yml",
+            "class: concept\nlabel: A\nyidam:\n  findings:\n    - id: 7f3a1c94b2e1\n      check: orphan-in\n      opened_at: 4f2a1c9\n      detail: nothing links to this node\n      standing: open\n",
+        )];
+        let c = claim_property_undeclared(&nodes, &classes);
+        assert!(c.passed(), "{:?}", c.violations);
+    }
+
+    /// A word that merely starts with a standing is not a standing.
+    ///
+    /// Measured, and not hypothetical: `allen-county-ohio` writes `event_type: opening` and
+    /// `parameter: open highway-rail grade crossings`, and a check that read `starts_with` would
+    /// report both. It does not read `starts_with` — it asks `claims::parse_tag`, the same reader
+    /// the counter uses — and this holds it to that.
+    #[test]
+    fn a_word_that_only_begins_with_a_standing_is_not_one() {
+        let (_d, classes) = loaded_class("event", "class: event\ndescription: A thing done.\n");
+        for value in [
+            "opening",
+            "open highway-rail grade crossings",
+            "verified — all three rows checked against the image by the repository owner",
+            "verified for the counts; the code expansions are inference from behaviour",
+        ] {
+            let nodes = vec![node(
+                ".yidam/corpus/event/e.yml",
+                &format!("class: event\nlabel: E\nevent_type: \"{value}\"\n"),
+            )];
+            let c = claim_property_undeclared(&nodes, &classes);
+            assert!(c.passed(), "reported {value:?}: {:?}", c.violations);
+        }
+    }
+
+    /// It reaches a nested key, because the counter it inverts does.
+    #[test]
+    fn a_standing_nested_under_properties_is_reached() {
+        let (_d, classes) = loaded_class("parcel", "class: parcel\ndescription: A parcel.\n");
+        let nodes = vec![node(
+            ".yidam/corpus/parcel/p.yml",
+            "class: parcel\nlabel: P\nproperties:\n  status: verified\n",
+        )];
+        let c = claim_property_undeclared(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert!(c.violations[0].detail.contains("`status: verified`"));
+    }
+
+    /// A class this corpus does not define is not reported against.
+    ///
+    /// `unknown-class` is that finding, and reading a missing declaration as *declares no claim
+    /// field* would report every node of an undefined class here as well.
+    #[test]
+    fn a_node_of_an_undefined_class_is_left_to_unknown_class() {
+        let (_d, classes) = loaded_class("concept", "class: concept\ndescription: An idea.\n");
+        let nodes = vec![node(
+            ".yidam/corpus/mystery/m.yml",
+            "class: mystery\nlabel: M\nstatus: open\n",
+        )];
+        assert!(claim_property_undeclared(&nodes, &classes).passed());
+    }
+
+    /// A paragraph-long qualified standing is reported on one line.
+    #[test]
+    fn a_long_value_is_elided_rather_than_reproduced() {
+        let (_d, classes) = loaded_class("parcel", "class: parcel\ndescription: A parcel.\n");
+        let nodes = vec![node(
+            ".yidam/corpus/parcel/p.yml",
+            "class: parcel\nlabel: P\nstatus: >-\n  verified for the host-parcel majority \
+             and the two roll joins and the clock comparison and the ground filtering\n",
+        )];
+        let c = claim_property_undeclared(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        let d = &c.violations[0].detail;
+        assert!(d.lines().count() == 1, "{d}");
+        assert!(d.contains('\u{2026}'), "{d}");
+    }
+
+    /// Info, and gates on nothing. The measured population includes one row whose right repair
+    /// is a rename, and a gate could not tell it from the two whose repair is the declaration.
+    #[test]
+    fn the_undeclared_claim_property_never_gates() {
+        let (_d, classes) =
+            loaded_class("question", "class: question\ndescription: A thing asked.\n");
+        let nodes = vec![node(
+            ".yidam/corpus/question/w.yml",
+            "class: question\nlabel: W\nclaim_tag: open\n",
+        )];
+        let c = claim_property_undeclared(&nodes, &classes);
+        assert_eq!(c.severity, Severity::Info);
+        assert!(!c.violations.is_empty());
+        assert!(!c.violations.iter().any(|v| c.gates(v)));
+    }
+
     /// A source at a known path, and a node in a directory that can reach it.
     fn catalog_source(slug: &str, obtained: bool) -> Source {
         Source {
@@ -4063,6 +5530,8 @@ mod tests {
             retrieved: None,
             ttl_days: None,
             artifacts: Vec::new(),
+            text: String::new(),
+            malformed: None,
         }
     }
 
@@ -4132,6 +5601,35 @@ mod tests {
         assert_eq!(v.len(), 2);
         assert!(v[0].detail.contains("not 64"), "{:?}", v[0].detail);
         assert!(v[1].detail.contains("not hex"), "{:?}", v[1].detail);
+    }
+
+    /// A text reading is a second digest held to the first one's form, and it names the
+    /// extractor that took it (#1172).
+    #[test]
+    fn a_text_reading_is_held_to_a_digest_and_an_extractor() {
+        let ok = with_artifacts(
+            "ok",
+            &format!("- sha256: {GOOD}\n  text:\n    sha256: {GOOD}\n    extractor: x 1\n"),
+        );
+        assert!(catalog_artifact_malformed(&[ok]).violations.is_empty());
+        let sources = vec![
+            with_artifacts(
+                "short",
+                &format!("- sha256: {GOOD}\n  text:\n    sha256: abc\n    extractor: x 1\n"),
+            ),
+            with_artifacts(
+                "anonymous",
+                &format!("- sha256: {GOOD}\n  text:\n    sha256: {GOOD}\n"),
+            ),
+        ];
+        let v = &catalog_artifact_malformed(&sources).violations;
+        assert_eq!(v.len(), 2, "{v:?}");
+        assert!(
+            v[0].detail.contains("`text.sha256` is 3"),
+            "{:?}",
+            v[0].detail
+        );
+        assert!(v[1].detail.contains("no `extractor`"), "{:?}", v[1].detail);
     }
 
     /// A `from:` index naming no location means the record cites a provenance the entry does
@@ -4265,7 +5763,7 @@ mod tests {
             "class: concept\nlabel: Gauge ingest\ndescription: The `nwis` crate fetches the \
              series; nwis is also the source name.\nlinks:\n  - target: ../concept/other.yml\n",
         );
-        let cites = citations(&sources, &[node]);
+        let cites = citations(&sources, &[node], &catalog_dir(), &no_quotations());
         assert_eq!(cites, vec![Vec::<String>::new()], "no link resolves to it");
         assert!(catalog_unobtained_but_cited(&sources, &cites).passed());
     }
@@ -4280,7 +5778,7 @@ mod tests {
             "class: concept\nlabel: Confounding\ndescription: Draws on \
              [Pearl 2009](../../catalog/pearl-2009.md).\nlinks:\n  - target: ../concept/o.yml\n",
         );
-        let cites = citations(&sources, &[node]);
+        let cites = citations(&sources, &[node], &catalog_dir(), &no_quotations());
         assert_eq!(
             cites[0],
             vec![".yidam/corpus/concept/confounding.yml".to_string()]
@@ -4302,9 +5800,230 @@ mod tests {
             "class: concept\nlabel: Confounding\ndescription: Draws on it.\nlinks:\n  \
              - target: ../../catalog/pearl-2009.md\n    relationship: cites\n",
         );
-        let cites = citations(&sources, &[node]);
+        let cites = citations(&sources, &[node], &catalog_dir(), &no_quotations());
         assert_eq!(cites[0].len(), 1);
         assert!(catalog_uncited(&sources, &cites).passed());
+    }
+
+    /// The reported case (#1158). A corpus that cites its sources from edges — 140 of them in
+    /// one derived repository, every one a catalog stem — had every such entry reported
+    /// uncited, while `edge-source-unresolved` resolved every one of the edges.
+    #[test]
+    fn an_edge_source_naming_the_entry_by_stem_is_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", true)];
+        let node = corpus_node(
+            "confounding",
+            "class: concept\nlabel: Confounding\ndescription: Draws on it.\nlinks:\n  \
+             - target: ../concept/o.yml\n    relationship: refines\n    claim_tag: verified\n    \
+             source: pearl-2009\n",
+        );
+        let cites = citations(&sources, &[node], &catalog_dir(), &no_quotations());
+        assert_eq!(
+            cites[0],
+            vec![".yidam/corpus/concept/confounding.yml".to_string()]
+        );
+        assert!(catalog_uncited(&sources, &cites).passed());
+    }
+
+    /// The second spelling `edge-source-unresolved` admits: a path written as a `links:`
+    /// target is. It resolves against the node's own directory, as a target does.
+    #[test]
+    fn an_edge_source_naming_the_entry_by_path_is_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", false)];
+        let node = corpus_node(
+            "confounding",
+            "class: concept\nlabel: Confounding\ndescription: Draws on it.\nlinks:\n  \
+             - target: ../concept/o.yml\n    source: ../../catalog/pearl-2009.md\n",
+        );
+        let cites = citations(&sources, &[node], &catalog_dir(), &no_quotations());
+        assert_eq!(cites[0].len(), 1);
+        assert_eq!(
+            catalog_unobtained_but_cited(&sources, &cites)
+                .violations
+                .len(),
+            1,
+            "an edge resting on an unfetched source gates as a prose citation of it does"
+        );
+    }
+
+    /// An edge source that resolves to nothing — a renamed entry, a decision record, a blank
+    /// — is not a citation of anything. A decision record in particular is not a catalog entry,
+    /// and the bare stem tried as a path lands in the node's own class directory.
+    #[test]
+    fn an_edge_source_naming_nothing_in_the_catalog_is_not_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", true)];
+        let node = corpus_node(
+            "confounding",
+            "class: concept\nlabel: Confounding\ndescription: Draws on it.\nlinks:\n  \
+             - target: ../concept/o.yml\n    source: pearl-2009-old\n  \
+             - target: ../concept/p.yml\n    source: sampling-frame\n  \
+             - target: ../concept/q.yml\n    source: ''\n",
+        );
+        let cites = citations(&sources, &[node], &catalog_dir(), &no_quotations());
+        assert_eq!(cites, vec![Vec::<String>::new()]);
+        assert_eq!(catalog_uncited(&sources, &cites).violations.len(), 1);
+    }
+
+    /// A node quoting pearl-2009 through `key`, with `of:` written as `of`.
+    fn quoting_node(key: &str, of: &str) -> Node {
+        corpus_node(
+            "confounding",
+            &format!(
+                "class: concept\nlabel: Confounding\ndescription: Quotes it.\nproperties:\n  \
+                 {key}:\n    of: {of}\n    span: the words\nlinks:\n  - target: ../concept/o.yml\n"
+            ),
+        )
+    }
+
+    /// The reported case (#1174). A quotation's `of:` resolves through the reading an edge
+    /// `source:` does, and `quotation-unresolved` resolved it, while the entry it named was
+    /// still reported uncited.
+    #[test]
+    fn a_quotation_naming_the_entry_by_stem_is_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", true)];
+        let classes = quoting();
+        let universal = crate::universal::Universal::default();
+        let quotations = Declared::new(&classes, &universal);
+        let cites = citations(
+            &sources,
+            &[quoting_node("anchors", "pearl-2009")],
+            &catalog_dir(),
+            &quotations,
+        );
+        assert_eq!(
+            cites[0],
+            vec![".yidam/corpus/concept/confounding.yml".to_string()]
+        );
+        assert!(catalog_uncited(&sources, &cites).passed());
+    }
+
+    /// The path spelling counts too, and a quotation of an unfetched source is a citation of
+    /// it, as an edge resting on one is.
+    #[test]
+    fn a_quotation_naming_the_entry_by_path_is_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", false)];
+        let classes = quoting();
+        let universal = crate::universal::Universal::default();
+        let quotations = Declared::new(&classes, &universal);
+        let cites = citations(
+            &sources,
+            &[quoting_node("anchors", "../../catalog/pearl-2009.md")],
+            &catalog_dir(),
+            &quotations,
+        );
+        assert_eq!(cites[0].len(), 1);
+        assert_eq!(
+            catalog_unobtained_but_cited(&sources, &cites)
+                .violations
+                .len(),
+            1
+        );
+    }
+
+    /// Only a declared quotation counts. The same mapping under a key the class declares as
+    /// prose, or under one nothing declares, is a value no quotation check reads. A class the
+    /// corpus does not define declares nothing.
+    #[test]
+    fn a_quotation_shape_under_an_undeclared_key_is_not_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", true)];
+        let classes = quoting();
+        let universal = crate::universal::Universal::default();
+        let quotations = Declared::new(&classes, &universal);
+        for node in [
+            quoting_node("note", "pearl-2009"),
+            quoting_node("stray", "pearl-2009"),
+        ] {
+            let cites = citations(&sources, &[node], &catalog_dir(), &quotations);
+            assert_eq!(cites, vec![Vec::<String>::new()]);
+        }
+        let cites = citations(
+            &sources,
+            &[quoting_node("anchors", "pearl-2009")],
+            &catalog_dir(),
+            &no_quotations(),
+        );
+        assert_eq!(cites, vec![Vec::<String>::new()], "no class is defined");
+    }
+
+    /// A value lint cannot read names nothing, and neither does an `of:` that resolves to no
+    /// entry. `property-type` and `quotation-unresolved` report those, so nothing can rest on
+    /// them here.
+    #[test]
+    fn a_malformed_or_unresolved_quotation_is_not_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", true)];
+        let classes = quoting();
+        let universal = crate::universal::Universal::default();
+        let quotations = Declared::new(&classes, &universal);
+        let malformed = corpus_node(
+            "confounding",
+            "class: concept\nlabel: C\ndescription: Quotes it.\nproperties:\n  anchors:\n    \
+             of: pearl-2009\nlinks:\n  - target: ../concept/o.yml\n",
+        );
+        for node in [malformed, quoting_node("anchors", "pearl-2009-old")] {
+            let cites = citations(&sources, &[node], &catalog_dir(), &quotations);
+            assert_eq!(cites, vec![Vec::<String>::new()]);
+        }
+    }
+
+    /// `universal.yml` declares a quotation for every class, and a class's own declaration of
+    /// the key wins over it. That is `property-type`'s order.
+    #[test]
+    fn a_universal_quotation_counts_unless_the_class_declares_the_key() {
+        let sources = vec![catalog_source("pearl-2009", true)];
+        let universal = crate::universal::Universal::parse(
+            "properties:\n  - name: anchors\n    type: quotation\n  \
+             - name: note\n    type: quotation\n",
+        );
+        let classes = vec![Class::parse(
+            "concept.ont.yml",
+            "properties:\n  - name: note\n    type: string\n",
+        )];
+        let quotations = Declared::new(&classes, &universal);
+        let cited = |key| {
+            citations(
+                &sources,
+                &[quoting_node(key, "pearl-2009")],
+                &catalog_dir(),
+                &quotations,
+            )[0]
+            .len()
+        };
+        assert_eq!(cited("anchors"), 1, "declared in universal.yml");
+        assert_eq!(cited("note"), 0, "the class declares it prose");
+    }
+
+    /// A `[verified]` claim that rests only on a quotation is not unsourced. It is the same
+    /// count, so the two checks cannot disagree on it.
+    #[test]
+    fn a_verified_claim_resting_on_a_quotation_is_sourced() {
+        let classes = quoting();
+        let universal = crate::universal::Universal::default();
+        let quotations = Declared::new(&classes, &universal);
+        let nodes = vec![corpus_node(
+            "a",
+            "class: c\ndescription: |\n  A statement. [verified]\nproperties:\n  anchors:\n    \
+             of: nwis\n    span: the words\nlinks:\n  - target: ../concept.ont.yml\n",
+        )];
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+            &quotations,
+        );
+        assert!(c.passed(), "{:?}", c.violations);
+        let undeclared = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+            &no_quotations(),
+        );
+        assert_eq!(
+            undeclared.violations.len(),
+            1,
+            "the quotation was all it had"
+        );
     }
 
     /// A link shown as an example is not a citation, for the same reason it is not a link.
@@ -4317,7 +6036,7 @@ mod tests {
              `[Pearl 2009](../../catalog/pearl-2009.md)` rather than a full \
              citation.\nlinks:\n  - target: ../concept/o.yml\n",
         );
-        let cites = citations(&sources, &[node]);
+        let cites = citations(&sources, &[node], &catalog_dir(), &no_quotations());
         assert_eq!(cites, vec![Vec::<String>::new()]);
     }
 
@@ -4330,7 +6049,10 @@ mod tests {
             "class: concept\nlabel: C\ndescription: See \
              [P](../../corpus/../catalog/pearl-2009.md).\nlinks:\n  - target: ../concept/o.yml\n",
         );
-        assert_eq!(citations(&sources, &[node])[0].len(), 1);
+        assert_eq!(
+            citations(&sources, &[node], &catalog_dir(), &no_quotations())[0].len(),
+            1
+        );
     }
 
     /// The two entry points are one implementation, and this is what says so. The `&str` form
@@ -4339,16 +6061,27 @@ mod tests {
     /// half of the answer.
     #[test]
     fn the_parsed_and_unparsed_entry_points_agree() {
+        let classes = quoting();
+        let universal = crate::universal::Universal::default();
+        let quotations = Declared::new(&classes, &universal);
         for text in [
             "class: concept\nlabel: C\ndescription: See \
              [P](../catalog/pearl-2009.md).\nlinks:\n  - target: ../concept/o.yml\n",
             "class: concept\nlabel: C\ndescription: no links here\n",
             "class: concept\n  label: broken\n\tdescription: [P](../catalog/pearl-2009.md)\n",
+            "class: concept\nlabel: C\ndescription: Quotes it.\nproperties:\n  anchors:\n    \
+             of: pearl-2009\n    span: the words\n",
         ] {
             let node = corpus_node("confounding", text);
             assert_eq!(
-                linked_paths_of(&node),
-                linked_paths(&node.path, &node.rel, &node.text),
+                linked_paths_of(&node, &catalog_dir(), &quotations),
+                linked_paths(
+                    &node.path,
+                    &node.rel,
+                    &node.text,
+                    &catalog_dir(),
+                    &quotations
+                ),
                 "diverged on {text:?}"
             );
         }
@@ -4760,6 +6493,402 @@ mod tests {
         Class::parse(format!(".yidam/corpus/{name}.ont.yml"), yaml)
     }
 
+    // ── interval-overlap ──────────────────────────────────────────────────────
+
+    const TENURE: &str = "properties:\n  - name: began\n    type: date\n  \
+                          - name: ended\n    type: date\n\
+                          edges:\n  - relationship: of-office\n    target: office\n    \
+                          direction: out\n";
+
+    /// A tenure class, with the interval declaration `interval` appended to [`TENURE`].
+    fn tenure(interval: &str) -> Class {
+        class_from("tenure", &format!("{TENURE}{interval}"))
+    }
+
+    const EXCLUSIVE: &str =
+        "interval:\n  start: began\n  end: ended\n  exclusive_over: of-office\n";
+
+    /// A tenure of `office` from `began` to `ended`, where `None` writes no end at all.
+    fn term(name: &str, office: &str, began: &str, ended: Option<&str>) -> Node {
+        let ended = ended
+            .map(|e| format!("  ended: \"{e}\"\n"))
+            .unwrap_or_default();
+        Node::parse(
+            PathBuf::from(format!("/repo/.yidam/corpus/tenure/{name}.yml")),
+            format!(".yidam/corpus/tenure/{name}.yml"),
+            format!(
+                "class: tenure\nlabel: {name}\nproperties:\n  began: \"{began}\"\n{ended}\
+                 links:\n  - target: ../office/{office}.yml\n    relationship: of-office\n"
+            ),
+        )
+    }
+
+    fn office(name: &str) -> Node {
+        Node::parse(
+            PathBuf::from(format!("/repo/.yidam/corpus/office/{name}.yml")),
+            format!(".yidam/corpus/office/{name}.yml"),
+            format!("class: office\nlabel: {name}\n"),
+        )
+    }
+
+    /// `interval-overlap` over the given tenures, with a `sheriff` and an `auditor` office.
+    fn overlaps(class: Class, terms: Vec<Node>) -> Check {
+        let mut nodes = vec![office("sheriff"), office("auditor")];
+        nodes.extend(terms);
+        let edges = Edges::build(&nodes);
+        interval_overlap(&nodes, &edges, &[class])
+    }
+
+    /// The reported case: two sheriffs for the same years. Reported once, on the holder who
+    /// began later, naming the other and the span they share.
+    #[test]
+    fn two_holders_of_one_office_over_the_same_years_overlap() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "1889", Some("1893")),
+                term("b", "sheriff", "1891-06-01", Some("1895")),
+            ],
+        );
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        let v = &c.violations[0];
+        assert_eq!(v.node, ".yidam/corpus/tenure/b.yml");
+        assert!(v.detail.contains("tenure/a.yml"), "{}", v.detail);
+        assert!(v.detail.contains("office/sheriff.yml"), "{}", v.detail);
+        assert!(v.detail.contains("from 1891-06-01 to 1893"), "{}", v.detail);
+        assert_eq!(c.severity, Severity::Error);
+    }
+
+    /// Exactly the same interval twice is the plainest overlap there is.
+    #[test]
+    fn an_exact_overlap_is_reported() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "1889-01-01", Some("1893-01-01")),
+                term("b", "sheriff", "1889-01-01", Some("1893-01-01")),
+            ],
+        );
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+    }
+
+    /// Mixed precision decided at the precision both sides share: `1893-06-01` begins before
+    /// a term ending `1894` ends, whatever day in 1894 that was.
+    #[test]
+    fn an_overlap_under_mixed_precision_is_reported() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "1889", Some("1894")),
+                term("b", "sheriff", "1893-06-01", Some("1897")),
+            ],
+        );
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+    }
+
+    /// And equality at that precision is not overlap. A term ending `1893` and one beginning
+    /// `1893-06-01` may have met in June; reporting them would invent a day nobody recorded.
+    #[test]
+    fn a_boundary_equal_only_at_the_coarser_precision_is_adjacent() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "1889", Some("1893")),
+                term("b", "sheriff", "1893-06-01", Some("1897")),
+            ],
+        );
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
+    }
+
+    /// A handover: one ends the day the next begins. Half-open, so they do not overlap.
+    #[test]
+    fn adjacent_intervals_do_not_overlap() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "1889-01-07", Some("1893-01-02")),
+                term("b", "sheriff", "1893-01-02", Some("1897-01-04")),
+                term("c", "sheriff", "1897-01-04", None),
+            ],
+        );
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
+    }
+
+    /// Two holders both still serving: open intervals over one target always overlap.
+    #[test]
+    fn two_open_intervals_over_one_target_overlap() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "2017", None),
+                term("b", "sheriff", "2021-01-04", None),
+            ],
+        );
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert!(
+            c.violations[0].detail.ends_with("to open"),
+            "{:?}",
+            c.violations
+        );
+    }
+
+    /// Exclusivity is per target: a sheriff and an auditor over the same years is two offices.
+    #[test]
+    fn holders_of_different_targets_do_not_overlap() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "1889", Some("1893")),
+                term("b", "auditor", "1889", Some("1893")),
+            ],
+        );
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
+    }
+
+    /// An interval with no `exclusive_over:` checks order and nothing else.
+    #[test]
+    fn an_end_before_its_start_is_reported_without_exclusivity() {
+        let c = overlaps(
+            tenure("interval:\n  start: began\n  end: ended\n"),
+            vec![
+                term("a", "sheriff", "1893", Some("1889")),
+                term("b", "sheriff", "1889", Some("1893")),
+                term("c", "sheriff", "1889", Some("1893")),
+            ],
+        );
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert_eq!(c.violations[0].node, ".yidam/corpus/tenure/a.yml");
+        assert!(c.violations[0]
+            .detail
+            .contains("`ended: 1889` precedes `began: 1893`"));
+    }
+
+    /// Silent for a class that declares nothing, which is every class that predates the field.
+    #[test]
+    fn a_class_declaring_no_interval_is_not_checked() {
+        let c = overlaps(
+            tenure(""),
+            vec![
+                term("a", "sheriff", "1893", Some("1889")),
+                term("b", "sheriff", "1880", Some("1899")),
+            ],
+        );
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
+    }
+
+    /// A declaration naming what the class does not declare is reported on the class, rather
+    /// than reading every instance as unplaceable and reporting nothing.
+    #[test]
+    fn a_declaration_naming_undeclared_fields_is_reported_on_the_class() {
+        let c = overlaps(
+            tenure("interval:\n  start: begun\n  end: ended\n  exclusive_over: holds\n"),
+            vec![
+                term("a", "sheriff", "1889", Some("1893")),
+                term("b", "sheriff", "1889", Some("1893")),
+            ],
+        );
+        let details: Vec<&str> = c.violations.iter().map(|v| v.detail.as_str()).collect();
+        assert_eq!(details.len(), 2, "{details:?}");
+        assert!(c
+            .violations
+            .iter()
+            .all(|v| v.node == ".yidam/corpus/tenure.ont.yml"));
+        assert!(
+            details[0].contains("`interval.start` names `begun`"),
+            "{details:?}"
+        );
+        assert!(
+            details[1].contains("`interval.exclusive_over` names `holds`"),
+            "{details:?}"
+        );
+    }
+
+    /// A half-written declaration does not parse, so `malformed-yaml` says so rather than the
+    /// class quietly declaring no interval — and a misspelled key is the same.
+    #[test]
+    fn a_declaration_missing_its_end_or_misspelling_a_key_is_malformed() {
+        for bad in [
+            "interval:\n  start: began\n",
+            "interval:\n  start: began\n  end: ended\n  exclusive: of-office\n",
+        ] {
+            let c = tenure(bad);
+            assert!(c.malformed.is_some(), "{bad}");
+        }
+        assert!(tenure(EXCLUSIVE).malformed.is_none());
+    }
+
+    const SEATED: &str = "interval:\n  start: began\n  end: ended\n  exclusive_over: of-office\n  \
+                          capacity: seats\n";
+
+    /// An office carrying `seats` as written, where `None` writes no `seats` at all.
+    fn seated_office(name: &str, seats: Option<&str>) -> Node {
+        let seats = seats
+            .map(|s| format!("properties:\n  seats: {s}\n"))
+            .unwrap_or_default();
+        Node::parse(
+            PathBuf::from(format!("/repo/.yidam/corpus/office/{name}.yml")),
+            format!(".yidam/corpus/office/{name}.yml"),
+            format!("class: office\nlabel: {name}\n{seats}"),
+        )
+    }
+
+    /// `interval-overlap` over the given tenures and offices, with an `office` class declaring
+    /// `seats` as the corpus that asked for it does: `type: string`.
+    fn seated(interval: &str, offices: Vec<Node>, terms: Vec<Node>) -> Check {
+        let office = class_from("office", "properties:\n  - name: seats\n    type: string\n");
+        let mut nodes = offices;
+        nodes.extend(terms);
+        let edges = Edges::build(&nodes);
+        interval_overlap(&nodes, &edges, &[tenure(interval), office])
+    }
+
+    /// The case #1205 measured: a board of three with staggered terms is three at once, and
+    /// correct. A holder who has left does not count against the one who arrives after.
+    #[test]
+    fn three_holders_of_three_seats_are_not_reported() {
+        let c = seated(
+            SEATED,
+            vec![seated_office("board", Some("\"3\""))],
+            vec![
+                term("a", "board", "1880", Some("1890")),
+                term("b", "board", "1882", Some("1892")),
+                term("c", "board", "1884", Some("1894")),
+                term("d", "board", "1890", Some("1900")),
+            ],
+        );
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
+    }
+
+    /// A fourth on a board of three is reported on the one who arrived fourth, naming the
+    /// three already there and the count it exceeds.
+    #[test]
+    fn a_fourth_holder_of_three_seats_is_reported() {
+        let c = seated(
+            SEATED,
+            vec![seated_office("board", Some("\"3\""))],
+            vec![
+                term("a", "board", "1880", Some("1890")),
+                term("b", "board", "1882", Some("1892")),
+                term("c", "board", "1884", Some("1894")),
+                term("d", "board", "1886", Some("1896")),
+            ],
+        );
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        let v = &c.violations[0];
+        assert_eq!(v.node, ".yidam/corpus/tenure/d.yml");
+        for other in ["tenure/a.yml", "tenure/b.yml", "tenure/c.yml"] {
+            assert!(v.detail.contains(other), "{}", v.detail);
+        }
+        assert!(v.detail.contains("beyond its `seats: 3`"), "{}", v.detail);
+        assert!(v.detail.ends_with("from 1886 to 1890"), "{}", v.detail);
+    }
+
+    /// A target that omits its count holds one, as the corpus's own calculator read it; and
+    /// an unquoted count is a count too.
+    #[test]
+    fn a_target_omitting_its_capacity_holds_one_and_a_number_counts() {
+        let c = seated(
+            SEATED,
+            vec![
+                seated_office("sheriff", None),
+                seated_office("bench", Some("2")),
+            ],
+            vec![
+                term("a", "sheriff", "1889", Some("1893")),
+                term("b", "sheriff", "1891", Some("1895")),
+                term("c", "bench", "1889", Some("1893")),
+                term("d", "bench", "1891", Some("1895")),
+            ],
+        );
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert_eq!(c.violations[0].node, ".yidam/corpus/tenure/b.yml");
+        assert!(
+            c.violations[0].detail.contains("beyond its `seats: 1`"),
+            "{}",
+            c.violations[0].detail
+        );
+    }
+
+    /// A count that is not a whole number of at least one is reported on the target, once,
+    /// and its holders are left unchecked rather than checked against a guess.
+    #[test]
+    fn an_unreadable_capacity_is_reported_on_the_target() {
+        for bad in ["three", "\"0\"", "1.5"] {
+            let c = seated(
+                SEATED,
+                vec![seated_office("board", Some(bad))],
+                vec![
+                    term("a", "board", "1880", Some("1890")),
+                    term("b", "board", "1882", Some("1892")),
+                ],
+            );
+            assert_eq!(c.violations.len(), 1, "{bad}: {:?}", c.violations);
+            assert_eq!(c.violations[0].node, ".yidam/corpus/office/board.yml");
+            assert!(
+                c.violations[0]
+                    .detail
+                    .contains("`seats` is not a whole number"),
+                "{}",
+                c.violations[0].detail
+            );
+        }
+    }
+
+    /// With one seat, a holder overlapping two earlier ones is one finding naming both.
+    #[test]
+    fn a_holder_overlapping_two_is_one_finding_naming_both() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "1880", Some("1895")),
+                term("b", "sheriff", "1885", Some("1895")),
+                term("c", "sheriff", "1890", Some("1895")),
+            ],
+        );
+        let nodes: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
+        assert_eq!(
+            nodes,
+            [".yidam/corpus/tenure/b.yml", ".yidam/corpus/tenure/c.yml"],
+            "{:?}",
+            c.violations
+        );
+        let c_detail = &c.violations[1].detail;
+        assert!(c_detail.contains("`.yidam/corpus/tenure/a.yml`, `.yidam/corpus/tenure/b.yml`"));
+        assert!(c_detail.ends_with("from 1890 to 1895"), "{c_detail}");
+    }
+
+    /// A `capacity` with nothing to bound, or naming what no target class declares, is
+    /// reported on the class rather than read as one seat everywhere.
+    #[test]
+    fn a_capacity_the_class_cannot_read_is_reported_on_the_class() {
+        let terms = || vec![term("a", "board", "1880", Some("1890"))];
+        let unbound = seated(
+            "interval:\n  start: began\n  end: ended\n  capacity: seats\n",
+            vec![seated_office("board", Some("\"3\""))],
+            terms(),
+        );
+        assert_eq!(unbound.violations.len(), 1, "{:?}", unbound.violations);
+        assert_eq!(unbound.violations[0].node, ".yidam/corpus/tenure.ont.yml");
+        assert!(unbound.violations[0].detail.contains("no `exclusive_over`"));
+
+        let undeclared = seated(
+            &SEATED.replace("capacity: seats", "capacity: chairs"),
+            vec![seated_office("board", Some("\"3\""))],
+            terms(),
+        );
+        assert_eq!(
+            undeclared.violations.len(),
+            1,
+            "{:?}",
+            undeclared.violations
+        );
+        assert_eq!(
+            undeclared.violations[0].node,
+            ".yidam/corpus/tenure.ont.yml"
+        );
+        assert!(undeclared.violations[0].detail.contains("which `office`"));
+    }
+
     // ── node-too-long ─────────────────────────────────────────────────────────
 
     /// A class of `name` whose instances may be `max` lines, or any length when `None`.
@@ -4771,8 +6900,10 @@ mod tests {
             name: name.into(),
             properties: vec![],
             edges: vec![],
+            label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: max,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -5085,8 +7216,10 @@ mod tests {
             name: name.into(),
             properties: vec![],
             edges: vec![],
+            label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: impl_by.map(str::to_string),
             foundational_type: None,
@@ -5293,6 +7426,45 @@ edges:
             !c.violations[0].detail.contains("required"),
             "a finding about a property nobody required must not mention requirement: {}",
             c.violations[0].detail
+        );
+    }
+
+    /// `required:` has three answers and they are three severities (#1055): `true` gates,
+    /// silence is reported, and `false` is not a finding at all.
+    ///
+    /// `false` and silence both mean an instance may omit the property, so neither gates.
+    /// What differs is whether anyone decided. A corpus that answered `required:` on every
+    /// property drew all 36 of its warnings from the 8 it had marked `false`, so warning
+    /// there kept the omissions it had licensed in the same list as the ones nobody chose.
+    #[test]
+    fn the_three_required_answers_are_three_different_severities() {
+        let declaring = "properties:\n  \
+                         - name: parameter\n    type: string\n    required: true\n  \
+                         - name: datum\n    type: string\n  \
+                         - name: vendor\n    type: string\n    required: false\n\
+                         edges: []\n";
+        let nodes = vec![node(
+            ".yidam/corpus/gage/outlet.yml",
+            "class: gage\nlinks: []\n",
+        )];
+        let classes = vec![class_from("gage", declaring)];
+
+        let c = missing_property(&nodes, &classes);
+        let found: Vec<_> = c
+            .violations
+            .iter()
+            .map(|v| {
+                let name = ["parameter", "datum", "vendor"]
+                    .into_iter()
+                    .find(|p| v.detail.contains(&format!("`{p}`")))
+                    .unwrap_or_else(|| panic!("names no declared property: {}", v.detail));
+                (name, c.severity_of(v))
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [("parameter", Severity::Error), ("datum", Severity::Warn)],
+            "`vendor` is `required: false` and must not be reported"
         );
     }
 
@@ -5641,6 +7813,34 @@ edges:
         }
     }
 
+    /// **A quotation names its document** (RFC-0046). Text in a `quotation` field is the
+    /// `type: text` anchors of hb-96 again: words that read like a quotation with nothing to
+    /// hold them against. The shape is this check's; the bytes are `quotation-span-drift`'s.
+    #[test]
+    fn a_quotation_field_holding_bare_text_is_reported() {
+        let classes = vec![class_from(
+            "provision",
+            "properties:\n  - name: anchors\n    type: quotation\n",
+        )];
+        let anchors = |v: &str| {
+            vec![node(
+                ".yidam/corpus/provision/item-12.yml",
+                &format!("class: provision\nproperties:\n  anchors:\n{v}links: []\n"),
+            )]
+        };
+        let held = anchors("    - of: veto-message\n      span: in the public interest\n");
+        assert!(property_type(&held, &classes, &NONE).passed());
+
+        let bare = property_type(&anchors("    in the public interest\n"), &classes, &NONE);
+        assert_eq!(bare.violations.len(), 1);
+        assert!(
+            bare.violations[0]
+                .detail
+                .contains("is declared `quotation` and is not a quotation"),
+            "{bare:#?}"
+        );
+    }
+
     #[test]
     fn a_date_field_holding_prose_is_reported() {
         let nodes = vec![node(
@@ -5658,6 +7858,69 @@ edges:
             "class: reach\nproperties:\n  surveyed: 2024-04-01\nlinks: []\n",
         )];
         assert!(property_type(&ok, &classes, &NONE).passed());
+    }
+
+    /// RFC-0044: the set is declared where the gate reads it, and a value outside it is the
+    /// finding that 33 instances across three corpora had been waiting for.
+    #[test]
+    fn a_string_outside_its_declared_values_is_reported() {
+        let classes = vec![class_from(
+            "site",
+            "properties:\n  - name: status\n    type: string\n    values: [extant, demolished, in operation]\n",
+        )];
+        let status = |v: &str| {
+            vec![node(
+                ".yidam/corpus/site/alpha.yml",
+                &format!("class: site\nproperties:\n  status: {v}\nlinks: []\n"),
+            )]
+        };
+        for v in ["extant", "demolished", "in operation", "\"in operation\""] {
+            assert!(
+                property_type(&status(v), &classes, &NONE).passed(),
+                "{v} is in the set"
+            );
+        }
+        // A widening nobody recorded, prose in a token field, and a spelling the set does
+        // not carry: each is one finding, and the finding names the set.
+        for v in ["abandoned", "\"demolished in 1971\"", "Extant"] {
+            let c = property_type(&status(v), &classes, &NONE);
+            assert_eq!(c.violations.len(), 1, "{v}: {c:#?}");
+            assert!(
+                c.violations[0]
+                    .detail
+                    .contains("`extant`, `demolished`, `in operation`"),
+                "{v}: {c:#?}"
+            );
+        }
+        // The shape first: a bare number under a `string` is "quote it", once, and not also
+        // "not one of the values".
+        let c = property_type(&status("7"), &classes, &NONE);
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert!(c.violations[0].detail.contains("quote it"), "{c:#?}");
+        assert!(!c.violations[0].detail.contains("values"), "{c:#?}");
+    }
+
+    /// Empty is absent, and the field binds `string` alone: `text` is prose, and a coined
+    /// type has said the gate does not know its shape.
+    #[test]
+    fn an_empty_or_misplaced_value_set_binds_nothing() {
+        let status = |v: &str| {
+            vec![node(
+                ".yidam/corpus/site/alpha.yml",
+                &format!("class: site\nproperties:\n  status: {v}\nlinks: []\n"),
+            )]
+        };
+        for declaration in [
+            "properties:\n  - name: status\n    type: string\n    values: []\n",
+            "properties:\n  - name: status\n    type: text\n    values: [extant]\n",
+            "properties:\n  - name: status\n    type: site-status\n    values: [extant]\n",
+        ] {
+            let classes = vec![class_from("site", declaration)];
+            assert!(
+                property_type(&status("abandoned"), &classes, &NONE).passed(),
+                "{declaration}"
+            );
+        }
     }
 
     /// **A date known to the year is a date.** Demanding a day where the corpus knows only
@@ -6040,6 +8303,82 @@ pub fn resolution_executor_unrecorded(
     )
 }
 
+/// A resolution record that does not say how its deliberation went: no `rounds:`, or no
+/// `positions:`.
+///
+/// PROTOCOL.md names both fields as what makes Article III *checkable rather than asserted*.
+/// `tips:` says which commits were read; `positions:` says which claims were contested and by
+/// whom, and `rounds:` says whether anyone read anyone else before the synthesis. Without them
+/// a later reader can audit the record only by trusting its prose. **The fields' presence is
+/// the point, not their size** — `rounds: 1` is a complete loop, and this check never asks for
+/// more than one.
+///
+/// A `rounds:` that is not a count of at least one is reported as well. A loop that ran zero
+/// times did not run, and `rounds: two` is a value no reader can compare; both are kept
+/// verbatim by the parser so this finding can say *malformed* rather than *missing*.
+///
+/// **Warn, and Error for a record written after the repository's own PROTOCOL.md asked for
+/// them.** `asked` is that set of records, decided by ancestry in
+/// [`super::deliberation::asked`]: the commit that added the record descends from the commit
+/// that put `rounds:` into the protocol's record format. Omitting the fields there was a
+/// choice rather than an inheritance, so that finding gates. Every other record is the debt
+/// `resolution-executor-unrecorded` describes: 32 of 32 in the repository that has run this
+/// protocol, written from a vendored PROTOCOL.md without the fields. They cannot be fixed
+/// mechanically — a round count is somebody's recollection — and gating on them is how a gate
+/// gets switched off.
+///
+/// **Not decided by the record's other fields.** A record carrying `synthesized-by:` or
+/// `independence:` looks newer than these two fields, but both can be added to an old record
+/// afterward — `resolution-independence-mismatch` asks for exactly that. A tell a repair can
+/// produce would turn an Info repair into an Error.
+pub fn resolution_deliberation_unrecorded(
+    records: &[crate::cmd::sangha::Resolution],
+    asked: &std::collections::BTreeSet<String>,
+) -> Check {
+    let violations = records
+        .iter()
+        .filter_map(|r| {
+            let mut gaps = Vec::new();
+            if r.rounds.is_empty() {
+                gaps.push("no `rounds:`".to_string());
+            } else if !r.rounds.parse::<u32>().is_ok_and(|n| n >= 1) {
+                gaps.push(format!(
+                    "`rounds: {}` is not a count of at least one",
+                    r.rounds
+                ));
+            }
+            if r.positions.is_empty() {
+                gaps.push("no `positions:`".to_string());
+            }
+            if gaps.is_empty() {
+                return None;
+            }
+            let knew = asked.contains(&r.file);
+            let why = if knew {
+                " — the record was added after this repository's PROTOCOL.md asked for them"
+            } else {
+                " — the record names which tips were read and not how the deliberation went"
+            };
+            let v = Violation::new(r.file.clone(), format!("{}{why}", gaps.join(" and ")));
+            Some(if knew { v.at(Severity::Error) } else { v })
+        })
+        .collect();
+    Check::new(
+        "resolution-deliberation-unrecorded",
+        "Resolution record does not name its rounds or the positions it read",
+        Severity::Warn,
+        "Article III asks for ancestry, and ancestry is not only which commits were read: it \
+         is which claims were contested and by whom. `positions:` names them and `rounds:` \
+         says whether the electors read each other before the synthesis. A record carrying \
+         both can be audited by someone who was not there; one without them can only be \
+         believed. `rounds: 1` is a complete loop, so the fields cost nothing to write. A \
+         record older than the fields warns, because nobody can recover a round count \
+         mechanically. A record added after the repository's own PROTOCOL.md asked for them \
+         gates, because there the omission was a choice.",
+        violations,
+    )
+}
+
 #[cfg(test)]
 mod resolution_record_tests {
     use super::*;
@@ -6053,8 +8392,24 @@ mod resolution_record_tests {
             tips: tips.iter().map(|t| t.to_string()).collect(),
             synthesized_by: by.iter().map(|b| b.to_string()).collect(),
             independence: String::new(),
+            rounds: "1".to_string(),
+            positions: vec!["positions/auditor-e.md".to_string()],
             branch_present: true,
         }
+    }
+
+    /// A record in the shape every one in the repository that has run this protocol takes:
+    /// `evolution`, `date` and `tips`, and nothing that says how the deliberation went.
+    fn predating(file: &str) -> Resolution {
+        Resolution {
+            rounds: String::new(),
+            positions: vec![],
+            ..record(file, &[], &["ma/auditor@a", "ma/advocate@b"])
+        }
+    }
+
+    fn none() -> std::collections::BTreeSet<String> {
+        std::collections::BTreeSet::new()
     }
 
     fn registered() -> Vec<String> {
@@ -6148,9 +8503,109 @@ mod resolution_record_tests {
         assert_eq!(c.severity, Severity::Error, "{c:#?}");
     }
 
+    /// A record naming its rounds and positions passes, and one round is enough: the
+    /// protocol's loop ends when a round adds nothing, and the check is not a quota.
+    #[test]
+    fn a_record_naming_one_round_and_its_positions_passes() {
+        let c =
+            resolution_deliberation_unrecorded(&[record("resolutions/e.md", &[], &[])], &none());
+        assert!(c.passed(), "{c:#?}");
+    }
+
+    /// The baseline #592 was filed on: 0 of 29 records carried either field, and 0 of 32 do
+    /// now. Every one is named, each once, and none of them gates — the fields postdate the
+    /// vendored protocol those records were written from.
+    #[test]
+    fn records_predating_the_fields_are_each_named_and_warn() {
+        let r = [predating("resolutions/a.md"), predating("resolutions/b.md")];
+        let c = resolution_deliberation_unrecorded(&r, &none());
+        assert_eq!(c.violations.len(), 2, "{c:#?}");
+        assert_eq!(c.severity, Severity::Warn);
+        for v in &c.violations {
+            assert_eq!(v.severity, None, "a predating record gated: {v:?}");
+            assert!(v.detail.contains("no `rounds:`"), "{v:?}");
+            assert!(v.detail.contains("no `positions:`"), "{v:?}");
+        }
+    }
+
+    /// Either field alone is the finding, and the finding says which one.
+    #[test]
+    fn each_field_is_asked_for_on_its_own() {
+        let no_positions = Resolution {
+            positions: vec![],
+            ..record("resolutions/p.md", &[], &[])
+        };
+        let no_rounds = Resolution {
+            rounds: String::new(),
+            ..record("resolutions/r.md", &[], &[])
+        };
+        let c = resolution_deliberation_unrecorded(&[no_positions, no_rounds], &none());
+        assert_eq!(c.violations.len(), 2, "{c:#?}");
+        assert!(
+            c.violations[0].detail.starts_with("no `positions:`"),
+            "{c:#?}"
+        );
+        assert!(!c.violations[0].detail.contains("rounds"), "{c:#?}");
+        assert!(c.violations[1].detail.starts_with("no `rounds:`"), "{c:#?}");
+    }
+
+    /// A loop that ran zero times did not run, and a count that is not a number cannot be
+    /// compared. Both are named as malformed rather than read as absent.
+    #[test]
+    fn a_rounds_value_that_is_not_a_count_is_named() {
+        for bad in ["0", "two", "-1", "1.5"] {
+            let r = Resolution {
+                rounds: bad.to_string(),
+                ..record("resolutions/e.md", &[], &[])
+            };
+            let c = resolution_deliberation_unrecorded(&[r], &none());
+            assert_eq!(c.violations.len(), 1, "{bad}: {c:#?}");
+            assert!(
+                c.violations[0]
+                    .detail
+                    .contains(&format!("`rounds: {bad}` is not a count")),
+                "{bad}: {c:#?}"
+            );
+        }
+    }
+
+    /// A record added after the repository's PROTOCOL.md asked for the fields gates; one added
+    /// before warns. The check stays Warn, so a consumer must read the finding's own level.
+    #[test]
+    fn a_record_added_after_the_protocol_asked_gates() {
+        let asked: std::collections::BTreeSet<String> = ["resolutions/new.md".to_string()].into();
+        let c = resolution_deliberation_unrecorded(
+            &[
+                predating("resolutions/new.md"),
+                predating("resolutions/old.md"),
+            ],
+            &asked,
+        );
+        assert_eq!(c.severity, Severity::Warn, "{c:#?}");
+        let levels: Vec<_> = c.violations.iter().map(|v| v.severity).collect();
+        assert_eq!(levels, [Some(Severity::Error), None], "{c:#?}");
+        assert!(c.violations[0].detail.contains("asked for them"), "{c:#?}");
+    }
+
+    /// The tell that was rejected: a record carrying `synthesized-by:` and `independence:` is
+    /// not thereby newer, because both can be added to an old record afterward. Only
+    /// ancestry decides.
+    #[test]
+    fn a_newer_field_on_an_old_record_does_not_gate() {
+        let retrofitted = Resolution {
+            synthesized_by: vec!["ma/auditor".to_string()],
+            independence: "distinct-seats".to_string(),
+            ..predating("resolutions/old.md")
+        };
+        let c = resolution_deliberation_unrecorded(&[retrofitted], &none());
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert_eq!(c.violations[0].severity, None, "{c:#?}");
+    }
+
     /// A repository with no sangha has no records, and both checks report that they ran.
     #[test]
     fn no_records_is_not_a_finding() {
+        assert!(resolution_deliberation_unrecorded(&[], &none()).passed());
         assert!(resolution_elector_unregistered(&[], &[]).passed());
         assert!(resolution_executor_unrecorded(&[], false).passed());
         // Escalated or not, a check with nothing to report reports nothing.
@@ -6340,20 +8795,20 @@ fn link_parts(raw: &str) -> (String, Option<super::line_citations::LineFragment>
     }
 }
 
-/// Every checkable markdown link in one file.
+/// The lines of `text` a reader takes as prose: each with its 1-based number, and with inline
+/// code spans blanked to spaces so byte offsets into it are offsets into the raw line.
 ///
-/// `dir` is the directory the file sits in — links resolve against it, not against the
-/// repository root.
+/// Fenced blocks are left out whole. The marker is remembered, so a ```` ``` ```` inside a
+/// `~~~` block does not close it.
 ///
-/// **Fenced code blocks are skipped.** A path inside a fence is an example, a shell
-/// command, or a directory tree drawing; these documents are full of them and every one
-/// would be a false positive. Inline code spans are skipped for the same reason.
-pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
+/// [`prose_links`] reads these lines, and so does `source-unregistered` (#1068). One reading
+/// of "what is an example" is what keeps a URL in a shell command from being a finding there
+/// when a link in the same command is not one here.
+pub(crate) fn prose_lines(text: &str) -> Vec<(usize, String)> {
     let mut out = Vec::new();
     let mut fence: Option<String> = None;
     for (i, raw) in text.lines().enumerate() {
         let trimmed = raw.trim_start();
-        // Fence open/close. The marker is repeated to allow ``` inside a ~~~ block.
         if let Some(open) = &fence {
             if trimmed.starts_with(open.as_str()) {
                 fence = None;
@@ -6364,8 +8819,22 @@ pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
             fence = Some(trimmed.chars().take(3).collect());
             continue;
         }
-        // Blank out inline code spans so a `[a](b)` shown as code is not read as a link.
-        let line = crate::markdown::mask_code_spans(raw);
+        out.push((i + 1, crate::markdown::mask_code_spans(raw)));
+    }
+    out
+}
+
+/// Every checkable markdown link in one file.
+///
+/// `dir` is the directory the file sits in — links resolve against it, not against the
+/// repository root.
+///
+/// **Fenced code blocks are skipped.** A path inside a fence is an example, a shell
+/// command, or a directory tree drawing; these documents are full of them and every one
+/// would be a false positive. Inline code spans are skipped for the same reason.
+pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
+    let mut out = Vec::new();
+    for (number, line) in prose_lines(text) {
         let bytes = line.as_bytes();
         let mut j = 0;
         while j < bytes.len() {
@@ -6405,7 +8874,7 @@ pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
             }
             out.push(ProseLink {
                 file: file.to_string(),
-                line: i + 1,
+                line: number,
                 target: target.clone(),
                 resolved: dir.join(&target),
                 fragment,
@@ -6438,6 +8907,45 @@ pub fn broken_prose_link(links: &[ProseLink]) -> Check {
          as a new break does, because a list permitted to be wrong drifts and one that \
          over-lists silently re-permits whatever it over-lists. Fenced and inline code are \
          not read, so an example path in a shell command is not a finding.",
+        violations,
+    )
+}
+
+/// A link from the artifact into the corpus whose target is not there (#577).
+///
+/// `links` are the ones [`crate::coupling::inbound`] found: every link in the artifact whose
+/// target lies under `.yidam/`, from files `broken-prose-link` does not already walk.
+pub fn broken_object_link(links: &[ProseLink]) -> Check {
+    let violations = links
+        .iter()
+        .filter(|l| !l.resolved.exists())
+        .map(|l| {
+            Violation::new(
+                format!("{}:{}", l.file, l.line),
+                format!(
+                    "`{}` names a corpus file that is not there. The record was moved, renamed \
+                     or removed without this citation being updated.",
+                    l.target
+                ),
+            )
+        })
+        .collect();
+    Check::new(
+        "broken-object-link",
+        "A link from the artifact into the corpus does not resolve",
+        Severity::Warn,
+        "The artifact that `[object] paths` declares cites its corpus the way the corpus cites \
+         it: with a relative markdown link. Links from the corpus into the artifact are in \
+         prose `broken-prose-link` already walks. The other direction was read by nothing: \
+         deleting a node that a crate's README linked to produced twenty findings in a derived \
+         corpus, and none of them named the README. Read over the tracked `.md`, `.rs` and \
+         `.ts` files the object globs claim, which is where those links sit across the derived \
+         corpora. Bare paths in code are not read, because a path string in code is as often \
+         a file the code writes as one it cites. Warn and not Error: the finding lands on a \
+         file the corpus gate has never judged, and the first run over a repository should \
+         report what it finds, not refuse it. A `#L` range on one of these links is held by \
+         the line-citation checks. Not read for a corpus whose kuten declares it `projected`, \
+         because that corpus is regenerated from the artifact.",
         violations,
     )
 }

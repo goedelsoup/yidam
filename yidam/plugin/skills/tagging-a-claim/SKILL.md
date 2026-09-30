@@ -36,6 +36,11 @@ how each may be written — tens of tokens instead of a prose file held in conte
   `[open]`. A node's standing there is its claim-typed field, not the weakest marker in its
   prose, and a node that declares none is compared to nothing. One-directional: an `open` edge
   between two `verified` nodes is not a defect. Prefer the demotion to the promotion.
+- **A `source:` on an edge must name something the repository holds.** A catalog entry by its
+  file stem, a catalog entry by a path written the way `target:` is, or a decision record by
+  its `id:` — when the edge rests on a rule this corpus wrote rather than on a document it
+  retrieved. `edge-source-unresolved` reports one that names none of them, on every edge that
+  writes a source whatever its tag, and it gates. Rename the citation when the entry is renamed.
 - **A tagged edge is reported, not only graded.** `open_questions` lists an edge tagged `open`
   in its own right, beside the node ones, and `claims` serves every tagged edge. So the tag
   goes on the link it is about: writing it into the node body keeps it out of both.

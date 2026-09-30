@@ -32,6 +32,7 @@ instance = """
     { "target": "../organization.ont.yml", "relationship": "instance-of", "claim_tag": null, "source": null }
   ],
   "references": null,
+  "refuses": null,
   "cites": null,
   "extra": {}
 }

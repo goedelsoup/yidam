@@ -26,6 +26,7 @@ origin    = "git@github.com:goedelsoup/yidam.git"
 commit    = "88edd17f4c2a1b09e3d5f7a8c6b4e2d1a9f0c3b5"
 template  = "v0.1.0"
 committed = "2026-08-27"
+cli       = "0.16.0 (ce5e738)"
 ```
 
 | Field | Meaning |
@@ -34,6 +35,7 @@ committed = "2026-08-27"
 | `commit` | **The resolvable pin** — what the re-vendor procedure and CI check out |
 | `template` | The template-layer release tag at that commit, or `"untagged"` |
 | `committed` | That commit's author date — i.e. how old the vendored prelude is |
+| `cli` | The `yidam` binary in use when the file was written: version and build commit |
 
 ### `[build]` — yours, and preserved
 
@@ -98,6 +100,7 @@ ttl_days = 180
 questions_after = 100
 phases_after = 60
 index_after = 25
+superseded_after = 14
 
 [due.declined]
 index = "due-clocks"
@@ -107,6 +110,9 @@ model = "BAAI/bge-small-en-v1.5"
 
 [object]
 paths = ["web/**", "crates/**"]
+
+[derive]
+paths = ["dossier/**"]
 
 [serve]
 act = true
@@ -213,12 +219,13 @@ never comes due.
 | `questions_after` | An open question | corpus-touching commits |
 | `phases_after` | A bounded inquiry ref not yet on the baseline | days |
 | `index_after` | Corpus files changed since the index was built | files |
+| `superseded_after` | A node citing a source that gained a new version since the node's last commit | days |
 
-**The fourth clock's interval is not here.** `due` also reads a source record's TTL, and that
+**The catalog clock's interval is not here.** `due` also reads a source record's TTL, and that
 is [`[catalog] ttl_days`](#catalog-ttl_days) and each entry's own `ttl_days:`, where it already
 lived. Restating it under `[due]` would create two places to set one number.
 
-**Two of these count days and one does not.** How long a question has gone unanswered is a fact
+**Two of these count days and two do not.** How long a question has gone unanswered is a fact
 about the repository, and the repository's clock is `HEAD`. A corpus that has not committed has
 not ignored anything. A phase's time in flight is a fact about the world, which is the same
 argument `ttl_days` makes. Work does not stop having been open for four months because nobody
@@ -226,6 +233,10 @@ committed to the corpus.
 
 `index_after = 1` means any change at all makes a rebuild due. A larger number is a corpus
 saying it is content for retrieval to lag its own edits by that much.
+
+`superseded_after` counts from the commit that recorded the new version, not from the node's
+last edit. A new version is a digest from a location the entry already held one from. A new
+text reading of a PDF is not one. Any commit touching the node discharges it.
 
 ### `[due.declined]`
 
@@ -236,8 +247,8 @@ Clocks this corpus decided it does not want, each naming the record that argues 
 index = "due-clocks"
 ```
 
-The key is the clock's id: `index`, `catalog`, `questions` or `phases`. The value is a
-decision record in `.yidam/decisions/`, by its `id:` or its file stem.
+The key is the clock's id: `index`, `catalog`, `questions`, `phases` or `superseded`. The value
+is a decision record in `.yidam/decisions/`, by its `id:` or its file stem.
 
 **Unset and declined are different states.** Without this key they report the same. A corpus
 that examined a vector index and chose against it looks like one that never considered it. The
@@ -295,7 +306,19 @@ Absent means the repository has **one** register, and every commit is corpus wor
 what every repository did before this key existed, and it is what all six defining corpora do
 today.
 
-**`yidam kuten check` is not scoped by this key.** It measures every authored commit, because
+**It also names the artifact `yidam lint` reads for links into the corpus.** Those are the
+tracked `.md`, `.rs` and `.ts` files these globs claim. A relative link from one of them into
+`.yidam/` must resolve. One that does not is a `broken-object-link` warning at the line that
+holds it. It warns and never fails the build. A file under a region in `.yidam/authorship.yml`
+is skipped, because its links are its upstream's citations. The other direction was already
+checked: a node's link into the artifact is held by `broken-prose-link`.
+
+**`yidam kuten check` counts the links both ways.** Its report adds a coupling section. It
+says how many nodes, decisions and catalog entries the artifact cites, and how many cite it.
+Nothing is a finding there, because no rule says a node must be cited. The section is empty
+when no object is declared, or when the kuten declares the corpus `projected`.
+
+**`kuten check`'s history is not scoped by this key.** It measures every authored commit, because
 its numbers are read against a band. Scoping them would let a corpus move its own reading by
 widening this list, with no commit written.
 
@@ -306,6 +329,21 @@ terminal, the VS Code commit box, and the MCP tool `check_subject`. All three st
 than fixed: closing it means changing a frozen MCP tool.
 
 **This project ships no commit-msg hook.** The stance is conformance, not hooks (RFC-0004).
+
+### `[derive] paths`
+
+Globs naming the arguments this repository derives from its corpus: the memos, dossiers and
+findings that carry a claim out. [`yidam derive check`](cli-reference.md#derive) reads them. It
+holds each one to the three rules in `agent-conduct.md` for a claim leaving the repository.
+
+The grammar is `[object] paths`'s. Under these globs, a `.yml` or `.yaml` file is an artifact.
+So is a `.md` file that opens with YAML frontmatter. A `.md` without frontmatter is prose kept
+beside the artifacts, and is skipped.
+
+No directory is compiled in. The repositories that built this gate keep their arguments in
+`dossier/`, `briefs/` and `analysis/`. Where an argument lives is a fact about a repository.
+
+Absent means `derive check` has nothing to read, and it passes.
 
 ### `[serve] act`
 
@@ -408,6 +446,11 @@ cannot authenticate. A plaintext record would be a file of their questions, accu
 working tree. The digest still answers every question above — *which queries came back empty* is a
 set with counts either way. It answers them identically on both transports, so no
 transport-conditional shape exists for anyone to reason about.
+
+**`yidam record` reads it.** It answers the four questions above in sentences, below a table of
+calls per tool. Pass `--format json` for the same counts as a report. A line from an older
+writer is read as far as its keys go. A line that is not JSON is counted as unreadable, not
+dropped.
 
 **The file is gitignored, and `serve` refuses to start until it is.** `.yidam/record/` must be
 ignored, on the same rule as `.yidam/vault/`. The reason is related: this project's protocols
@@ -532,6 +575,10 @@ from *an instance may have this*, and gating on the second reading asserts a con
 ontology never wrote. Defaulting it to true would demand a declaration nobody made, in every
 derived repository at once.
 
+Absent and `false` both mean an instance may omit the property, but they report differently.
+`missing-property` warns about an omission where the property says nothing. It is silent where
+the property says `required: false`, because the class has already answered.
+
 **`implemented_by:` is absent by default, and nothing is checked without it.** A class may
 name the `struct` or `enum` under `crates/` that implements it, and `unimplemented-class` then
 gates when the tree defines no type of that name — the class stated a fact about the code, and
@@ -543,9 +590,18 @@ a class with no type is the ordinary case rather than debt. Name the type as Rus
 `HTTPServer` and `HttpServer` are two types and one kebab-case name, so nothing is derived.
 
 **A property `type:` the corpus coins is carried through unconstrained.** `string`, `text`,
-`date`, `number`, `ref` and `claim` are the types the tooling understands; anything else is
-accepted and left alone rather than rejected. A `number` is written unquoted. Its unit, if it
-has one, is declared once on the property as `unit:` rather than in each value.
+`date`, `number`, `ref`, `claim` and `quotation` are the types the tooling understands; anything
+else is accepted and left alone rather than rejected. A `number` is written unquoted. Its unit,
+if it has one, is declared once on the property as `unit:` rather than in each value. A
+`quotation` holds `of:` and `span:`: a catalog entry and words copied from it. Lint compares
+the words with the entry's cached bytes. Add `sha256:` when the entry holds more than one
+artifact.
+
+**A `string` may declare the values it admits**, as `values: [extant, demolished, ruin]`
+beside `type:`. Declaring the set closes it. `property-type` reports an instance holding
+anything else and names the set. The compiled class schema carries the set as `enum`. The
+match is exact, as written. The field binds `string` only. On every other type it is carried
+through unchanged. A set on a coined type constrains nothing until the property is retyped.
 
 ## Environment variables
 

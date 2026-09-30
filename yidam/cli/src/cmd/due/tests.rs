@@ -58,15 +58,23 @@ fn find<'a>(clocks: &'a [Clock], id: &str) -> &'a Clock {
 fn a_corpus_that_declared_nothing_is_owed_nothing() {
     let tmp = repo();
     let all = clocks(tmp.path());
-    assert_eq!(all.len(), 4, "four clocks: {all:?}");
+    assert_eq!(all.len(), 5, "five clocks: {all:?}");
     for c in &all {
-        assert_eq!(
+        assert_ne!(
             c.state,
-            State::Undeclared,
+            State::Due,
             "{} came due against an interval nobody set",
             c.id
         );
         assert_eq!(c.overdue, 0, "{}", c.id);
+        // The row set does not vary by build. `Unbuildable` was added instead of dropping the
+        // clock precisely so that a reader comparing two `due` runs is comparing five rows to
+        // five rows — see [`State::Unbuildable`].
+        let expected = match (c.id, cfg!(feature = "index")) {
+            ("index", false) => State::Unbuildable,
+            _ => State::Undeclared,
+        };
+        assert_eq!(c.state, expected, "{}", c.id);
     }
     assert_eq!(DueReport::new(all, false).due, 0);
 }
@@ -96,22 +104,172 @@ fn an_unset_clock_still_says_what_it_measured() {
 
 // ── the index clock ───────────────────────────────────────────────────────────
 
-/// An index that was never built, against a corpus that asked for one.
+/// An index that was never built, against a corpus that asked for one — **in a build that can
+/// build one**.
+///
+/// `clock_index` is called directly with `can_build = true` rather than through
+/// [`clocks`], and that is the whole reason the argument exists. Under `cargo test` with the
+/// default features this assertion would otherwise be about the *other* arm, and the arm it
+/// means to check would be compiled-and-verified only by `ci (cli · full features)` — which
+/// runs on `main` and a Monday cron, never on the pull request that changes it.
 #[test]
 fn a_corpus_that_wants_an_index_and_has_none_is_due_one() {
     let tmp = repo();
-    config(tmp.path(), "[due]\nindex_after = 5\n");
-    let all = clocks(tmp.path());
-    let index = find(&all, "index");
+    let index = clock_index(tmp.path(), Some(5), true);
     assert_eq!(index.state, State::Due);
+    assert_eq!(index.overdue, 1);
+    assert_eq!(index.remedy.as_deref(), Some("yidam index-build"));
+    // And it does not hedge about a feature the reader has. The parenthetical was #1061's
+    // other half: the remedy named `index` whether or not the binary carried it.
     assert!(
-        index
+        !index
             .remedy
             .as_deref()
             .unwrap_or_default()
-            .contains("index-build"),
-        "{index:?}"
+            .contains("feature"),
+        "a build that can do it should not be told which feature would let it: {index:?}"
     );
+}
+
+/// The same corpus, read by a binary that cannot build an index: **not** due (#1061).
+///
+/// The row this replaces could not be discharged by anything the reader had. `index-build`
+/// refuses in this build and refusing is correct, so the clock reported a corpus doing nothing
+/// wrong as permanently owed — and both repositories that met it silenced the clock rather than
+/// repairing an index.
+#[test]
+fn a_build_that_cannot_make_an_index_is_not_owed_one() {
+    let tmp = repo();
+    let index = clock_index(tmp.path(), Some(5), false);
+    assert_eq!(index.state, State::Unbuildable, "{index:?}");
+    // Owed nothing. `overdue` counts subjects past an interval and there is no subject here.
+    assert_eq!(index.overdue, 0);
+    // Which means `--strict` passes over it, which is the cost the old row was really carrying.
+    assert!(DueReport::new(vec![index], true).passed);
+}
+
+/// It says which of the two facts is in the way, and what to do about it.
+///
+/// Asserted on the sentence rather than on the state, because a reader meeting this row has to
+/// be able to tell *my corpus has no index* from *my binary cannot make one*, and the state tag
+/// alone says neither.
+#[test]
+fn the_unbuildable_row_names_the_binary_and_the_install() {
+    let tmp = repo();
+    let index = clock_index(tmp.path(), Some(5), false);
+    assert!(
+        index.detail.contains("no index has been built")
+            && index.detail.contains("this binary cannot build one"),
+        "both facts, not one: {}",
+        index.detail
+    );
+    let remedy = index.remedy.as_deref().unwrap_or_default();
+    assert!(remedy.contains("--features index"), "{remedy}");
+    // The other route, because it is the cheaper one and needs no protoc: a light build can
+    // read an index it did not make.
+    assert!(remedy.contains("vault pull"), "{remedy}");
+    // And the row prints it. `render` shows a remedy on three states, and a state added to the
+    // enum without being added there is a row that names a problem and withholds the fix.
+    let out = render(&DueReport::new(vec![index], false), tmp.path());
+    assert!(out.contains("--features index"), "{out}");
+}
+
+/// A corpus that never declared the interval is told about the build **before** it is told to
+/// declare one.
+///
+/// This is the arm that made the defect self-inflicting. `Undeclared`'s remedy is *declare
+/// `[due] index_after`*, and following it in this build is what produces the permanently red
+/// row — so a reader of the light build must not be handed that advice first.
+#[test]
+fn an_undeclared_index_clock_does_not_advise_a_build_that_cannot_act_on_it() {
+    let tmp = repo();
+    let index = clock_index(tmp.path(), None, false);
+    assert_eq!(index.state, State::Unbuildable, "{index:?}");
+    assert!(
+        !index
+            .remedy
+            .as_deref()
+            .unwrap_or_default()
+            .contains("declare"),
+        "it advised declaring an interval it cannot satisfy: {index:?}"
+    );
+    // The build that can act on it still gets the advice.
+    let capable = clock_index(tmp.path(), None, true);
+    assert_eq!(capable.state, State::Undeclared);
+    assert_eq!(
+        capable.remedy.as_deref(),
+        Some("declare `[due] index_after` in .yidam/config.toml")
+    );
+}
+
+/// A declared interval is recorded on the unbuildable row, so a decline over it still reads as
+/// the contradiction it is.
+///
+/// `declined()` finds a corpus that declared and declined the same clock by reading
+/// `interval.is_some()`. Dropping the interval under this arm would take that contradiction out
+/// of view over a detail of the build the report happened to be run from.
+#[test]
+fn an_unbuildable_clock_still_carries_the_interval_the_corpus_declared() {
+    let tmp = repo();
+    assert_eq!(
+        clock_index(tmp.path(), Some(5), false).interval.as_deref(),
+        Some("[due] index_after = 5")
+    );
+    assert_eq!(clock_index(tmp.path(), None, false).interval, None);
+}
+
+/// A light build holding an index reads its freshness for real, and is due a rebuild.
+///
+/// The asymmetry this repository has to keep: `stale_nodes` is a `meta.json` and a walk of file
+/// times, so *reading* an index needs no feature. A corpus that pulled one with
+/// `yidam vault pull --index` gets the true verdict, and the act that would discharge it is
+/// available — the route it arrived by. Widening #1061's fix to every arm would have turned
+/// that into silence.
+#[test]
+fn a_build_that_cannot_make_an_index_still_grades_one_it_holds() {
+    let tmp = repo();
+    let root = tmp.path();
+    // Built before the node below is written, so the node is stale against it.
+    let dir = root.join(".yidam/index");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("meta.json"),
+        r#"{"generated_at":1,"model_name":"m","embedding_dim":1,"node_count":1}"#,
+    )
+    .unwrap();
+    node(
+        root,
+        "concept/c.yml",
+        "class: concept
+label: C
+",
+    );
+
+    let index = clock_index(root, Some(1), false);
+    assert_eq!(index.state, State::Due, "{index:?}");
+    assert!(index.overdue >= 1, "{index:?}");
+    // And the remedy is the one this build can reach, not `index-build`.
+    let remedy = index.remedy.as_deref().unwrap_or_default();
+    assert!(remedy.contains("vault pull"), "{remedy}");
+}
+
+/// The state tag is its own spelling.
+///
+/// A tag reused from another state is how two facts come to render identically, which is the
+/// whole argument `Declined` was added under.
+#[test]
+fn every_clock_state_has_its_own_tag() {
+    let tags = [
+        State::Due,
+        State::Ok,
+        State::Undeclared,
+        State::Declined,
+        State::Unmeasurable,
+        State::Unbuildable,
+    ]
+    .map(State::tag);
+    let unique: std::collections::BTreeSet<&str> = tags.iter().copied().collect();
+    assert_eq!(unique.len(), tags.len(), "{tags:?}");
 }
 
 // ── the questions clock ───────────────────────────────────────────────────────
@@ -149,10 +307,56 @@ fn a_question_past_its_declared_residence_is_due() {
     assert_eq!(held.overdue, 0);
 }
 
+/// A renamed question is still overdue (#1180).
+///
+/// The clock filters on the count before it sorts. So when a rename restarted the count, the
+/// question did not just drop to the bottom of the list. It dropped off it, and the clock
+/// read Ok over a question nobody had answered.
+#[test]
+fn a_question_moved_under_a_declared_origin_stays_overdue() {
+    let tmp = repo();
+    let root = tmp.path();
+    node(
+        root,
+        "concept/b.yml",
+        "class: concept\nlabel: B\ndescription: it is `[open]`\n",
+    );
+    commit(root, "2026-01-02", "open: whether b holds");
+    node(root, "concept/a.yml", "class: concept\nlabel: A2\n");
+    commit(root, "2026-01-03", "revise: a");
+    git(
+        root,
+        &[
+            "mv",
+            ".yidam/corpus/concept/b.yml",
+            ".yidam/corpus/concept/bee.yml",
+        ],
+    );
+    node(
+        root,
+        "concept/bee.yml",
+        "class: concept\nlabel: B\ndescription: it is `[open]`\nmoved-from: ../concept/b.yml\n",
+    );
+    commit(
+        root,
+        "2026-01-04",
+        "migrate: concept/b.yml → concept/bee.yml",
+    );
+
+    config(root, "[due]\nquestions_after = 3\n");
+    let due = find(&clocks(root), "questions").clone();
+    assert_eq!(due.state, State::Due, "{due:?}");
+    assert!(
+        due.detail
+            .ends_with("longest 3 (.yidam/corpus/concept/bee.yml)"),
+        "{due:?}"
+    );
+}
+
 /// Answering an open question is a resolution event, so the remedy must not name `propose`.
 ///
 /// RFC-0020 and `cmd/sangha.rs` both draw that line, and #289 proposed crossing it — "under
-/// E4, proposes the commits that would discharge them" is true of exactly one of the four
+/// E4, proposes the commits that would discharge them" is true of exactly one of the five
 /// clocks. A remedy pointing a person at `yidam propose` here would be telling them a tool
 /// can close a question, which it deliberately cannot.
 #[test]
@@ -296,6 +500,120 @@ fn an_expired_source_is_due_and_propose_is_what_discharges_it() {
     );
 }
 
+// ── the superseded clock ──────────────────────────────────────────────────────
+
+/// A catalog entry for `gauge`, holding one record per digest, each fetched from location 0.
+fn gauge(root: &Path, digests: &[&str]) {
+    let records: String = digests
+        .iter()
+        .map(|d| format!("  - sha256: {d}\n    retrieved: 2026-01-01\n    from: 0\n"))
+        .collect();
+    let dir = root.join(".yidam/catalog");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("gauge.md"),
+        format!("---\nid: gauge\nlocation:\n  - kind: file\n    value: sources/gauge.csv\nartifacts:\n{records}---\n\nA gauge record.\n"),
+    )
+    .unwrap();
+}
+
+fn citing(root: &Path, rel: &str, label: &str) {
+    node(
+        root,
+        rel,
+        &format!("class: concept\nlabel: {label}\nlinks:\n  - target: ../../catalog/gauge.md\n    relationship: sourced-from\n"),
+    );
+}
+
+/// The case #1200 names: one entry, two versions, a node citing it on each side of the new
+/// digest. The node read before it is owed; the node committed to after it is not.
+fn two_versions_one_node_either_side() -> tempfile::TempDir {
+    let tmp = repo();
+    let root = tmp.path();
+    gauge(root, &["aaaaaaaaaaaaaaaa"]);
+    citing(root, "concept/before.yml", "Before");
+    citing(root, "concept/after.yml", "After");
+    commit(root, "2026-01-10", "cite: the gauge, twice");
+    gauge(root, &["aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"]);
+    commit(root, "2026-02-01", "fetch: gauge changed");
+    citing(root, "concept/after.yml", "After, re-read");
+    commit(root, "2026-02-05", "revise: after, against the new gauge");
+    tmp
+}
+
+#[test]
+fn a_node_read_before_a_new_version_is_owed_and_one_touched_after_is_not() {
+    let tmp = two_versions_one_node_either_side();
+    let root = tmp.path();
+    config(root, "[due]\nsuperseded_after = 14\n");
+
+    let c = find(&clocks(root), "superseded").clone();
+    assert_eq!(c.state, State::Due, "{c:?}");
+    assert_eq!(c.overdue, 1, "{c:?}");
+    assert_eq!(c.subjects.len(), 1, "{c:?}");
+    let s = &c.subjects[0];
+    assert!(s.starts_with(".yidam/corpus/concept/before.yml"), "{s}");
+    assert!(s.contains("gauge"), "{s}");
+    assert!(s.contains("28 day(s)"), "{s}");
+    assert!(s.contains("sha256:bbbbbbbbbbbb"), "{s}");
+    assert!(!c.subjects.iter().any(|s| s.contains("after.yml")), "{c:?}");
+}
+
+/// Undeclared, the clock still names what it measured, and never comes due.
+#[test]
+fn an_unset_superseded_clock_measures_and_owes_nothing() {
+    let tmp = two_versions_one_node_either_side();
+    let c = find(&clocks(tmp.path()), "superseded").clone();
+    assert_eq!(c.state, State::Undeclared, "{c:?}");
+    assert_eq!(c.overdue, 0);
+    assert!(c.subjects.is_empty(), "{c:?}");
+    assert!(c.detail.contains("1 node(s) cite 1 of 1"), "{}", c.detail);
+}
+
+/// Inside its interval the node is not yet owed. The interval runs from the superseding
+/// commit, not from the node's own last touch.
+#[test]
+fn a_new_version_inside_its_interval_is_not_yet_due() {
+    let tmp = two_versions_one_node_either_side();
+    let root = tmp.path();
+    config(root, "[due]\nsuperseded_after = 60\n");
+    let c = find(&clocks(root), "superseded").clone();
+    assert_eq!(c.state, State::Ok, "{c:?}");
+    assert!(c.subjects.is_empty(), "{c:?}");
+}
+
+/// A commit to the node is what discharges it — any commit, since the corpus cannot tell a
+/// re-read from a typo fix, and a pin to the new digest is one such commit.
+#[test]
+fn a_commit_to_the_owed_node_discharges_it() {
+    let tmp = two_versions_one_node_either_side();
+    let root = tmp.path();
+    citing(root, "concept/before.yml", "Before, re-read");
+    commit(root, "2026-02-20", "revise: before, against the new gauge");
+    config(root, "[due]\nsuperseded_after = 14\n");
+    let c = find(&clocks(root), "superseded").clone();
+    assert_eq!(c.state, State::Ok, "{c:?}");
+    assert!(c.subjects.is_empty(), "{c:?}");
+}
+
+/// One version is not a supersession, however old the node citing it.
+#[test]
+fn a_source_with_one_version_owes_nothing() {
+    let tmp = repo();
+    let root = tmp.path();
+    gauge(root, &["aaaaaaaaaaaaaaaa"]);
+    citing(root, "concept/before.yml", "Before");
+    commit(root, "2026-01-10", "cite: the gauge");
+    config(root, "[due]\nsuperseded_after = 1\n");
+    let c = find(&clocks(root), "superseded").clone();
+    assert_eq!(c.state, State::Ok, "{c:?}");
+    assert!(
+        c.detail.contains("no source holds a second version"),
+        "{}",
+        c.detail
+    );
+}
+
 // ── the verdict, and the sentence about it ────────────────────────────────────
 
 /// Being owed is not a failure. `--strict` is the only thing that makes it one.
@@ -405,7 +723,7 @@ fn a_clock_declined_in_writing_is_not_a_clock_nobody_set() {
     // And it leaves the sentence about unset clocks to the clocks that really are unset.
     let report = DueReport::new(all, false);
     assert_eq!(report.declined, 1);
-    assert_eq!(report.undeclared, 3, "a decline was counted as an absence");
+    assert_eq!(report.undeclared, 4, "a decline was counted as an absence");
     assert_eq!(report.due, 0);
 }
 
@@ -416,10 +734,46 @@ fn a_declined_clock_still_says_what_it_measured() {
     let tmp = repo();
     let root = tmp.path();
     decision(root, "due-clocks", "declined");
-    config(root, "[due.declined]\nindex = \"due-clocks\"\n");
+    config(root, "[due.declined]\ncatalog = \"due-clocks\"\n");
 
-    let index = find(&clocks(root), "index").clone();
-    assert_eq!(index.detail, "no index has been built", "{index:?}");
+    let catalog = find(&clocks(root), "catalog").clone();
+    assert_eq!(
+        catalog.detail, "0 source(s), none under a TTL",
+        "{catalog:?}"
+    );
+}
+
+/// A decline is honoured over a clock this build could not have discharged anyway.
+///
+/// The two reasons a row goes quiet compose in one direction only. `Unbuildable` is a fact
+/// about the binary and says nothing about whether the corpus wants the clock, so a written
+/// decline still outranks it — and it must, or a corpus that argued its way out of the index
+/// would see its record go unread on exactly the build that cannot act on one.
+#[test]
+fn a_decline_outranks_a_build_that_cannot_act() {
+    let tmp = repo();
+    let root = tmp.path();
+    decision(root, "due-clocks", "declined");
+
+    // `can_build = false` passed directly, and the decline composed by hand, for exactly the
+    // reason [`a_corpus_that_wants_an_index_and_has_none_is_due_one`] gives. Read through
+    // [`clocks`] this asserted the *other* arm's detail: with the feature on there is no
+    // `Unbuildable` to outrank, so it passed on every pull request and failed on `main` under
+    // `ci (cli · full features)`. The `[due.declined] index` config route is not lost with it —
+    // [`a_clock_declined_in_writing_is_not_a_clock_nobody_set`] holds that, on assertions no
+    // build feature can move.
+    let index = clock_index(root, None, false)
+        .declined("due-clocks", &crate::paths::yidam_decisions_dir(root));
+
+    assert_eq!(index.state, State::Declined, "{index:?}");
+    assert!(index.record.is_some(), "{index:?}");
+    assert_eq!(index.remedy, None, "nothing discharges a decline");
+    // The measurement survives, build fact and all, for the reader revisiting the decision.
+    assert!(
+        index.detail.contains("this binary cannot build one"),
+        "{}",
+        index.detail
+    );
 }
 
 /// The property that keeps this from being a mute button, and the one `.yidam/lint-baseline.yml`
@@ -431,15 +785,19 @@ fn a_declined_clock_still_says_what_it_measured() {
 fn a_decline_whose_record_is_missing_is_not_honoured() {
     let tmp = repo();
     let root = tmp.path();
-    config(root, "[due.declined]\nindex = \"due-clocks\"\n");
+    config(root, "[due.declined]\ncatalog = \"due-clocks\"\n");
 
-    let index = find(&clocks(root), "index").clone();
-    assert_eq!(index.state, State::Undeclared, "{index:?}");
-    assert_eq!(index.record, None);
-    let remedy = index.remedy.unwrap_or_default();
+    let catalog = find(&clocks(root), "catalog").clone();
+    assert_eq!(catalog.state, State::Undeclared, "{catalog:?}");
+    assert_eq!(catalog.record, None);
+    let remedy = catalog.remedy.unwrap_or_default();
     assert!(remedy.contains("due-clocks"), "{remedy}");
     assert!(remedy.contains(".yidam/decisions/"), "{remedy}");
-    assert!(index.detail.contains("does not hold"), "{}", index.detail);
+    assert!(
+        catalog.detail.contains("does not hold"),
+        "{}",
+        catalog.detail
+    );
 }
 
 /// Declaring an interval and declining the same clock is a contradiction, and the interval
@@ -453,19 +811,27 @@ fn an_interval_beats_a_decline_of_the_same_clock() {
     let tmp = repo();
     let root = tmp.path();
     decision(root, "due-clocks", "declined");
+    let dir = root.join(".yidam/catalog");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("gauge.md"),
+        "---\nid: gauge\nlocation: https://example.test/gauge\nretrieved: 2026-01-01\n---\n\nA gauge record.\n",
+    )
+    .unwrap();
+    commit(root, "2026-01-01", "cite: the gauge record");
     config(
         root,
-        "[due]\nindex_after = 5\n\n[due.declined]\nindex = \"due-clocks\"\n",
+        "[catalog]\nttl_days = 30\n\n[due.declined]\ncatalog = \"due-clocks\"\n",
     );
 
-    let index = find(&clocks(root), "index").clone();
+    let catalog = find(&clocks(root), "catalog").clone();
     assert_eq!(
-        index.state,
+        catalog.state,
         State::Due,
-        "a decline silenced an interval: {index:?}"
+        "a decline silenced an interval: {catalog:?}"
     );
-    assert!(index.detail.contains("contradicts"), "{}", index.detail);
-    assert_eq!(index.record, None);
+    assert!(catalog.detail.contains("contradicts"), "{}", catalog.detail);
+    assert_eq!(catalog.record, None);
 }
 
 /// A decline keyed on a clock that does not exist does nothing, so the report says so.

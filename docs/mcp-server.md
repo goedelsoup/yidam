@@ -38,7 +38,7 @@ yidam --version
 If you want the semantic build, it needs protoc 31, a C toolchain and an ONNX runtime:
 
 ```sh
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.15.0 --locked \
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.17.0 --locked \
   --features index yidam
 ```
 
@@ -61,8 +61,8 @@ release](https://github.com/goedelsoup/yidam/releases) . Drag it onto Claude Des
 Extensions pane, or use a shell:
 
 ```sh
-open yidam-0.15.0-aarch64-apple-darwin.mcpb    # Apple silicon
-open yidam-0.15.0-x86_64-apple-darwin.mcpb     # Intel
+open yidam-0.17.0-aarch64-apple-darwin.mcpb    # Apple silicon
+open yidam-0.17.0-x86_64-apple-darwin.mcpb     # Intel
 ```
 
 An `.mcpb` is a zip holding a manifest and the `yidam` binary. The bundle installs nothing onto
@@ -76,7 +76,7 @@ says so on every call. The difference is in §1; every other tool is identical. 
 only**. Claude Desktop runs on macOS and Windows, and this repository cross-compiles no Windows
 target. A Linux user wants one of the routes below.
 
-The version is the CLI's own: `yidam-0.15.0-…` carries `yidam 0.15.0`. A bundle installed six
+The version is the CLI's own: `yidam-0.17.0-…` carries `yidam 0.17.0`. A bundle installed six
 months ago runs a binary these docs may no longer describe. Reinstalling is dragging a newer
 file onto the same pane.
 
@@ -556,6 +556,8 @@ answering from keyword search for a month.* *Did anything ever act on a clock.*
  "args_digest":"sha256:9f3a…","outcome":"ok","results":3,
  "degraded":true,"rejected":false,"ms":12}
 ```
+
+`yidam record` reads the file and answers those questions. It needs no `jq`.
 
 A refusal is recorded too, on the same shape with `outcome: "error"`. That is the path answering
 *which queries returned nothing*. Dropping it would drop the reason to keep the file.

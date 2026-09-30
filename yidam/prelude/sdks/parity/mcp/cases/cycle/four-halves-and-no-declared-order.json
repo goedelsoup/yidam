@@ -6,7 +6,7 @@
   "call": {},
   "expect": {
     "fields": ["owed", "in_flight", "blocking", "next", "practice", "due", "passed"],
-    "count": { "owed": 4, "in_flight": 0, "blocking": 0 },
+    "count": { "owed": 5, "in_flight": 0, "blocking": 0 },
     "each": { "owed": ["id", "question", "state", "detail"] },
     "nonEmpty": ["next"],
     "equals": { "due": 1, "passed": true },

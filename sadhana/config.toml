@@ -15,7 +15,7 @@
 
 # ── the clocks ────────────────────────────────────────────────────────────────
 #
-# `yidam due` reads four of them and gates on none: it answers *is it time*, where `yidam ci`
+# `yidam due` reads five of them and gates on none: it answers *is it time*, where `yidam ci`
 # answers *is anything wrong*. A clock with no interval reports what it measured and never
 # comes due. That is not a degraded mode — an interval nobody has chosen is a number whose
 # meaning nobody has decided — but it is also not a decision, and `[due.declined]` below is
@@ -38,13 +38,18 @@
 # by that much.
 # index_after = 25
 
+# Days a node may cite a source that gained a new version before it is due a re-read. The
+# clock starts at the commit that recorded the new digest, and any commit touching the node
+# discharges it.
+# superseded_after = 14
+
 # Clocks this corpus examined and does not want, each naming the record that argues it.
 # Unset and declined are different states and only one of them was a choice: without this,
 # a corpus that considered a vector index and chose against it reports identically to one
 # that has never heard of it, and the only remedy `due` can offer the first is to declare an
 # interval for work nobody intends. The key is the clock's id — `index`, `catalog`,
-# `questions`, `phases` — and the value is a record in `.yidam/decisions/`, by its `id:` or
-# its file stem. The record is required: a decline naming one this repository does not hold
+# `questions`, `phases`, `superseded` — and the value is a record in `.yidam/decisions/`,
+# by its `id:` or its file stem. The record is required: a decline naming one this repository does not hold
 # is not honoured, and `due` says so rather than going quiet.
 # [due.declined]
 # index = "due-clocks"
@@ -88,6 +93,14 @@
 # merge, which lists no paths at all. Absent means this repository has one register and the
 # corpus vocabulary governs every commit.
 # paths = ["web/**", "crates/**", "package.json"]
+
+[derive]
+# Globs naming the arguments this repository derives from its corpus — memos, dossiers,
+# findings — for `yidam derive check` to hold to the three outbound rules: each cites a span,
+# its tier is the weakest standing beneath it, and it answers every refusal declared in a
+# paragraph it rests on. A `.yml` file under these globs is an artifact, and so is a `.md` file
+# with YAML frontmatter. Absent means `derive check` reads nothing and passes.
+# paths = ["dossier/**"]
 
 [serve]
 # Whether a server started against this corpus may declare the `act` capability — that is,

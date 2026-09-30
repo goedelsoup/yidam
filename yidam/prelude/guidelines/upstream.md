@@ -61,6 +61,12 @@ well-served today. Defects have a form, a template and a track record. A misfit 
 argues that a rule is broken when what you mean is that it does not reach your case, and it will
 be answered as though the rule were broken.
 
+**A third report is about something the prelude lacks: a skill.** When a local skill in
+`.yidam/skills/` turns out to be one another derivation also wrote, it belongs in the prelude,
+and two independent copies are the argument — as a second repository is for a misfit. File it
+with the `from:derived-skill` label and the derived-skill template, and send a skill marked
+`status: built`: a stub names a procedure without being one, and there is nothing to promote.
+
 ## What a misfit report asks for
 
 Three answers are available, and a report that does not say which one it wants leaves the
@@ -90,8 +96,9 @@ All three already exist, and none of them is new here:
 - **`.yidam/policy/`** overrides a rule's severity, and is authoritative where it speaks. A local
   rule may be more permissive and may not be silent; the override is visible to `policy check`,
   `lint` and `doctor`. [directories.md](directories.md) has the layout.
-- **A domain extension to the constitution**, appended at genesis by a samudaya augmentation.
-  Permanent in the repository that took it, and consistent with Articles I–VI by construction.
+- **A domain article**, sealed into `.yidam/constitution/` at genesis by a samudaya augmentation.
+  Permanent in the repository that took it. Its rule can only refuse, so it adds to Articles I–VI
+  and cannot remove from them.
 
 **Measured, so you know what you are reaching for.** Across the same fifteen repositories on
 2026-09-22, two had adopted a kuten, none had a `.yidam/policy/` at all, and none carried a domain

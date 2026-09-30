@@ -26,23 +26,21 @@ use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::corpus::{resolve_target, Corpus};
+use crate::corpus::{resolve_target, Corpus, Omission};
 
-/// A class definition as the ontology writes it.
+/// One declared property, as this report serialises it.
 ///
-/// Local to this module rather than in `parse.rs`: `CorpusInstance` is read by six other
-/// commands and this shape by none of them.
-#[derive(Default, serde::Deserialize)]
-struct OntologyFile {
-    class: Option<String>,
-    label: Option<String>,
-    description: Option<String>,
-    #[serde(default)]
-    properties: Vec<OntProperty>,
-    #[serde(default)]
-    edges: Vec<OntEdge>,
-}
-
+/// **A wire shape, and since #1116 not a parser.** This module used to carry an
+/// `OntologyFile` and `serde_yaml::from_str` every `.ont.yml` itself — the fourth reader of a
+/// class file, beside `claims`, `prose`, `retrievable` and the corpus model that had already
+/// read the same bytes. What kept it here was that [`crate::corpus::ClassProperty`] declared
+/// no `description` and [`crate::corpus::Class`] no `label`, so the model could not answer
+/// for what this report prints. Those fields are on the model now and this is built from it.
+///
+/// It stays a type of its own because it is the *envelope*, not the record: `required` is
+/// serialised even when false (see below), the field set is frozen by `report.schema.json`,
+/// and the model is free to grow a field — `prose`, `retrievable` — without that reaching a
+/// consumer versioned separately from the binary.
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub struct OntProperty {
     pub name: String,
@@ -54,10 +52,15 @@ pub struct OntProperty {
     ///
     /// This report dropped the field until #606, and the omission had a shape worth naming.
     /// `yidam schema` describes `required` on a property and says why it is one declaration:
-    /// *"`missing-property` gates on a property declared `true` and reports the rest, and the
-    /// compiled class schema lists exactly these as JSON Schema `required` — one declaration
-    /// deciding both, so the editor and the gate cannot disagree."* An editor reading this
-    /// report could not see it, so along this route they could, and did.
+    /// *"The compiled class schema lists exactly the `true` ones as JSON Schema `required` —
+    /// one declaration deciding both, so the editor and the gate cannot disagree."* An editor
+    /// reading this report could not see it, so along this route they could, and did.
+    ///
+    /// **One bool still folds two answers.** `required: false` and silence both arrive as
+    /// `false`, and since #1055 `missing-property` reports the second and not the first. A
+    /// client labelling every `false` property "reported" is wrong about the ones declared
+    /// `false`. [`Self::omission`] keeps the three apart, and this field stays as it was for
+    /// the clients that already read it.
     ///
     /// What that cost is a client that cannot tell the one property whose omission fails CI
     /// from the four whose omission is reported and forgiven. It was found by a surface that
@@ -79,12 +82,30 @@ pub struct OntProperty {
     /// of `required` reads everything else exactly as before.
     #[serde(default)]
     pub required: bool,
+    /// What `missing-property` does when an instance omits this property: `gates`,
+    /// `reported`, or `licensed` (#1155).
+    ///
+    /// **The verdict, not the declaration.** Carrying `required` as `true | false | null`
+    /// would also keep the three answers apart, but every client then re-derives the check's
+    /// rule from it. It would also break the clients that exist: the web editor reads a
+    /// non-boolean `required` on any property as *this binary predates the field*, and would
+    /// drop the column for every class with one undeclared property. That is a consumer
+    /// mis-reading the report, which `report.schema.json` says only a `format_version` bump
+    /// may do.
+    ///
+    /// Always emitted, for `required`'s reason: absent means the binary predates the field.
+    pub omission: Omission,
 }
 
-/// One relationship a class may enter into.
+/// One relationship a class may enter into, as this report serialises it.
 ///
 /// `target` is a **class name**, not a path — `holds` on `person` targets `tenure`, and the
 /// instances it may point at are the ones in `tenure/`.
+///
+/// An envelope, for [`OntProperty`]'s reason. `direction` is a `String` here and an
+/// `Option<String>` on [`crate::corpus::ClassEdge`], and that difference is the point: the
+/// model has to tell *undeclared* from `out`, because `source_classes` reads silence as a
+/// third state; a consumer of this report reads the empty string as "the class did not say".
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub struct OntEdge {
     pub relationship: String,
@@ -251,32 +272,44 @@ pub(crate) fn graph_data(read: &Corpus) -> GraphReport {
         })
         .collect();
 
-    // Still parsed here, and not taken from [`Corpus::classes`]: this report carries the
-    // ontology's *own* property and edge records (`OntProperty`, `OntEdge`) and a consumer
-    // reads fields that [`crate::corpus::Class`] does not keep. The paths come from the one
-    // read, so the walk is not repeated.
+    // From [`Corpus::classes`], which read these files already. Until #1116 this opened and
+    // parsed every `.ont.yml` a second time, because the model kept neither `label` nor a
+    // `description` per property and per edge and so could not answer for what is printed
+    // here; it keeps all three now.
+    //
+    // `class` is [`crate::corpus::Class::name`] — the `<class>.ont.yml` stem — where this
+    // used to prefer the file's own `class:` field and fall back to the stem. The comment
+    // that stood here said the stem "is the name that actually governs", which is true and
+    // was the opposite of what the code did: `graph-check` matches an instance's directory
+    // against the stem. The argument and the measurement are on `Class::name`.
     let classes = read
-        .ont_paths()
+        .classes()
         .iter()
-        .map(|path| {
-            let text = std::fs::read_to_string(path).unwrap_or_default();
-            let ont: OntologyFile = serde_yaml::from_str(&text).unwrap_or_default();
-            // The filename is the class when the field is absent: `<class>.ont.yml` is what
-            // `graph-check` matches an instance's directory against, so it is the name that
-            // actually governs.
-            let from_name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .and_then(|n| n.strip_suffix(".ont.yml"))
-                .unwrap_or_default()
-                .to_string();
-            GraphClass {
-                class: ont.class.unwrap_or(from_name),
-                label: ont.label.unwrap_or_default(),
-                description: ont.description.unwrap_or_default(),
-                properties: ont.properties,
-                edges: ont.edges,
-            }
+        .map(|c| GraphClass {
+            class: c.name.clone(),
+            label: c.label.clone(),
+            description: c.description.clone(),
+            properties: c
+                .properties
+                .iter()
+                .map(|p| OntProperty {
+                    name: p.name.clone(),
+                    r#type: p.r#type.clone(),
+                    description: p.description.clone(),
+                    required: p.required(),
+                    omission: p.omission(),
+                })
+                .collect(),
+            edges: c
+                .edges
+                .iter()
+                .map(|e| OntEdge {
+                    relationship: e.relationship.clone(),
+                    target: e.target.clone(),
+                    direction: e.direction.clone().unwrap_or_default(),
+                    description: e.description.clone(),
+                })
+                .collect(),
         })
         .collect();
 
@@ -603,6 +636,42 @@ mod tests {
         );
     }
 
+    /// `required: false` and silence both serialise `required` as `false`, and
+    /// `missing-property` treats them differently (#1055). `omission` is what keeps them
+    /// apart in the report, so an editor does not label a licensed omission "reported" (#1155).
+    #[test]
+    fn a_property_carries_what_omitting_it_costs() {
+        let (_t, root, corpus) = corpus();
+        write(
+            &corpus.join("concept.ont.yml"),
+            "class: concept\nlabel: Concept\ndescription: A unit.\n\
+             properties:\n  - name: parameter\n    type: string\n    required: true\n    \
+             description: Gates.\n\
+             \x20 - name: datum\n    type: string\n    description: Nobody decided.\n\
+             \x20 - name: note\n    type: string\n    required: false\n    \
+             description: Licensed.\n",
+        );
+        let r = graph_data(&Corpus::open(&root));
+        let json = serde_json::to_value(&r.classes[0]).expect("classes serialise");
+        let omission: Vec<_> = json["properties"]
+            .as_array()
+            .expect("properties is an array")
+            .iter()
+            .map(|p| (p["name"].as_str().unwrap(), p["omission"].clone()))
+            .collect();
+        assert_eq!(
+            omission,
+            [
+                ("parameter", serde_json::json!("gates")),
+                ("datum", serde_json::json!("reported")),
+                ("note", serde_json::json!("licensed")),
+            ],
+        );
+        // The bool is unchanged for the clients that already read it, which is why it cannot
+        // tell the last two apart.
+        assert_eq!(json["properties"][2]["required"], serde_json::json!(false));
+    }
+
     /// The filename governs when the field is absent — `graph-check` matches an instance's
     /// directory against `<class>.ont.yml`, not against the `class:` field.
     #[test]
@@ -610,6 +679,21 @@ mod tests {
         let (_t, root, corpus) = corpus();
         write(&corpus.join("gauge.ont.yml"), "label: Gauge\n");
         assert_eq!(graph_data(&Corpus::open(&root)).classes[0].class, "gauge");
+    }
+
+    /// And it governs when the field is *present and different*, which is the behaviour
+    /// #1116 changed: this route preferred the declared field and fell back to the stem.
+    /// A consumer reads `class` to find the directory an instance of it lives in.
+    #[test]
+    fn a_class_declaring_another_name_is_still_named_by_its_file() {
+        let (_t, root, corpus) = corpus();
+        write(
+            &corpus.join("gauge.ont.yml"),
+            "class: measure\nlabel: Gauge\n",
+        );
+        let r = graph_data(&Corpus::open(&root));
+        assert_eq!(r.classes[0].class, "gauge");
+        assert_eq!(r.classes[0].label, "Gauge");
     }
 
     #[test]

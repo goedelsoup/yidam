@@ -132,9 +132,10 @@ server comparing text answers zero rows to both.
 - **Unit conversion.** `km` and `mi` are two columns. A query does not convert, and a
   comparison across two properties with different units is not a comparison this surface
   offers.
-- **`migrate retype`.** Retyping a `string` to `number` refuses when an instance holds
-  `"24"`, because the gate refuses it — a quoted number is text. Unquoting mechanically is a
-  follow-up; today the corpus edits the instances first.
+- **`migrate retype`.** Retyping a `string` to `number` refused when an instance held `"24"`,
+  because the gate refuses it — a quoted number is text. As of #1044 it unquotes the instance
+  instead, and quotes a bare value on the way back; the refusal is kept for a value carrying no
+  number to unquote, which is the only part of this the author has to decide.
 - **Coined types.** `integer`, `discharge`, `river-mile-range` compile to `true` and are
   refused an ordering, as before. Nothing about coining changed.
 

@@ -193,7 +193,57 @@ fn redact(out: &str, root: &Path) -> String {
             &format!("\"commit\": \"{}\"", env!("YIDAM_BUILD_COMMIT")),
             "\"commit\": \"<COMMIT>\"",
         );
-    redact_features(&redact_first_commit(&redacted))
+    redact_features(&redact_first_commit(&redact_conditional_checks(&redacted)))
+}
+
+/// Drop the checks whose *presence* in the report depends on the build, so one golden is the
+/// expected output of every feature set.
+///
+/// The same failure [`redact`] above records, arriving through the roster instead of through the
+/// envelope: `calculator-scope` and `calculator-type` typecheck a declared calculator, and
+/// `cmd::lint::Asked::WithTypechecker` leaves them out of the report where the binary has no
+/// typechecker (#1099). A golden recorded in the light build would then fail every
+/// `--all-features` run on main, which is the job nothing runs on a pull request.
+///
+/// Redacting loses nothing that is stated here. **Which** builds carry them is asserted directly,
+/// by `capability_run::lint_admits_a_declared_calculator_and_reports_the_typed_checks_only_where
+/// _it_can`, and what they say when they fire is asserted by their own tests. What this golden is
+/// for is the shape of the document and the checks a report carries in every build.
+fn redact_conditional_checks(out: &str) -> String {
+    // The two ids `Asked::WithTypechecker` gates. `calculator-script` is deliberately not here:
+    // it is `Asked::Always`, so it is in every report and the golden pins it.
+    const CONDITIONAL: [&str; 2] = ["calculator-scope", "calculator-type"];
+
+    let mut lines: Vec<String> = out.lines().map(str::to_string).collect();
+    for id in CONDITIONAL {
+        let needle = format!("\"id\": \"{id}\"");
+        let Some(at) = lines.iter().position(|l| l.contains(&needle)) else {
+            continue;
+        };
+        // A check is one element of the `checks` array, which `to_string_pretty` opens and closes
+        // at a fixed indent. Bounded by the lines rather than by brace counting, because a
+        // rationale is prose and may say anything at all about braces.
+        let start = lines[..at]
+            .iter()
+            .rposition(|l| l == "    {")
+            .unwrap_or_else(|| panic!("no element start above `{id}`"));
+        let end = at
+            + lines[at..]
+                .iter()
+                .position(|l| l == "    }" || l == "    },")
+                .unwrap_or_else(|| panic!("no element end below `{id}`"));
+        // Removing the array's last element leaves the one before it with a trailing comma.
+        let was_last = lines[end] == "    }";
+        lines.drain(start..=end);
+        if was_last && start > 0 && lines[start - 1] == "    }," {
+            lines[start - 1] = "    }".to_string();
+        }
+    }
+    let mut joined = lines.join("\n");
+    if out.ends_with('\n') {
+        joined.push('\n');
+    }
+    joined
 }
 
 /// Collapse `first_commit` — the commit a corpus-state finding dates from — to a
@@ -290,6 +340,17 @@ const COMMANDS: &[(&str, &[&str])] = &[
     ("open-questions", &["open-questions"]),
     ("corpus-index", &["corpus-index"]),
     ("catalog-audit", &["catalog-audit"]),
+    // A query expression, unlike the other three query-shaped commands in NO_REPORT. Those
+    // project rows, and a row golden over this fixture would pin the projection; `count`
+    // returns one integer, which is stable for a fixture whose corpus does not move.
+    ("count", &["count", "concept"]),
+    // The refused arm, as a second golden rather than as an `UNREACHED` excuse. Every other
+    // entry on that roster is unreachable because reaching it would mean *moving the fixture*
+    // — a class file that does not parse, a branch ahead of the baseline, a REGEN block
+    // naming nothing. This one needs no such thing: `count` reads, and a query naming a class
+    // the ontology does not declare is a different argument, not a different corpus. So the
+    // `rejected` family is held to the schema the same way every other field is.
+    ("count-refused", &["count", "nosuchclass"]),
     ("phases", &["phases"]),
     // `--every 0` so the golden holds every row: a sampled golden would pin the sampler
     // rather than the series, and would move whenever the fixture gained a commit.
@@ -302,6 +363,11 @@ const COMMANDS: &[(&str, &[&str])] = &[
     ("log-epistemic", &["log", "--epistemic"]),
     ("index-status", &["index-status"]),
     ("sangha", &["sangha"]),
+    // The fixture declares no `[serve] record` and holds no record file, so this pins the arm
+    // every clone and every CI runner is in: *nothing was recorded*, said as such, and not a
+    // table of zeros a reader would take for a corpus nobody asked. The populated arm needs a
+    // server to write the file, which is `mcp_serve.rs`'s to run.
+    ("record", &["record"]),
     ("graph", &["graph"]),
     // A plan, not a rename: the golden must not mutate the fixture the other goldens read.
     (
@@ -335,6 +401,10 @@ const COMMANDS: &[(&str, &[&str])] = &[
     // other twenty goldens — and is covered by `kuten_cluster.rs` against the six shapes
     // that defined the profile.
     ("kuten-check", &["kuten", "check"]),
+    // The fixture declares no `[derive] paths`, so this pins the arm every repository is in
+    // today: nothing to read, an empty report, a pass. The held arms are `derive.rs`'s unit
+    // tests, for `kuten-check`'s reason — an artifact here would move the other goldens.
+    ("derive-check", &["derive", "check"]),
     // `policy`'s four, none of which any golden covered before #893 — the roster could not
     // see a subcommand, so nothing required them. RFC-0024 named its dependency as *"RFC-0001
     // (the report contract `policy check --format json` emits on)"* and asked for these
@@ -393,6 +463,10 @@ const COMMANDS: &[(&str, &[&str])] = &[
     // `tailwater.yml`, which cites it — so the golden holds a real repair rather than a
     // "nothing to do".
     ("catalog-reconcile", &["catalog-reconcile", "--dry-run"]),
+    // Not the empty arm either: `stage-discharge.md` records one `application/pdf` artifact
+    // and no reading of it. `--dry-run` reads no cache, so the golden does not depend on what
+    // the machine running it has fetched; the reading itself is `tests/catalog_extract.rs`.
+    ("catalog-extract", &["catalog-extract", "--dry-run"]),
 ];
 
 /// Reports checked by running them, because they cannot have a golden.
@@ -519,19 +593,15 @@ const NO_REPORT: &[(&str, &str)] = &[
     ("estimate", "requires a query expression"),
 ];
 
-/// `--help` for a command or group, and `--help-all` for the binary itself.
+/// `--help` for a command or group.
 ///
-/// Since #921 the top-level `--help` is the thirteen commands a session usually needs. The
-/// population below is *every* command that emits the report contract, which is a question
-/// about the whole surface, so the top level is asked with `--help-all`.
+/// Never the top level: since #921 its `--help` is the thirteen commands a session usually
+/// needs, and the population below is *every* command that emits the report contract. That
+/// roster is [`common::commands_from_help`], read from `--help-all`.
 fn help(args: &[&str]) -> String {
     let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
         .args(args)
-        .arg(if args.is_empty() {
-            "--help-all"
-        } else {
-            "--help"
-        })
+        .arg("--help")
         .output()
         .expect("running --help");
     String::from_utf8_lossy(&out.stdout).to_string()
@@ -548,17 +618,17 @@ fn advertises_format(args: &[&str]) -> bool {
     })
 }
 
-/// Subcommand names under `args`, or none where it is not a group.
+/// Subcommand names under `group`, or none where it is not a group.
 ///
-/// Two parsers rather than one, because the two help screens are not the same document.
-/// `yidam --help-all` is [`yidam::help`]'s own template — grouped, with the `{subcommands}`
-/// slot replaced — and has no `Commands:` heading at all; a group's help is clap's, and does.
-/// A single parser would have to be loose enough to match both, and loose is how this scan
-/// ends up returning the empty set that satisfies every question asked of it.
+/// A group's help is clap's, with a `Commands:` block. The top level is not read here: `yidam
+/// --help-all` is [`yidam::help`]'s own template — grouped, with the `{subcommands}` slot
+/// replaced — and has no `Commands:` heading at all, so its reader is
+/// [`common::commands_from_help`]. One parser loose enough to match both would be how this
+/// scan ends up returning the empty set that satisfies every question asked of it.
 fn children(group: &[&str]) -> Vec<String> {
     let text = help(group);
     let mut out = Vec::new();
-    let mut inside = group.is_empty();
+    let mut inside = false;
     for line in text.lines() {
         if line.starts_with("Commands:") {
             inside = true;
@@ -567,9 +637,8 @@ fn children(group: &[&str]) -> Vec<String> {
         if !inside {
             continue;
         }
-        // A group's block ends at the first line that is not an entry; the top level has no
-        // block and is read whole, its headings being flush left.
-        if !group.is_empty() && !line.starts_with("  ") && !line.trim().is_empty() {
+        // The block ends at the first line that is not an entry.
+        if !line.starts_with("  ") && !line.trim().is_empty() {
             break;
         }
         let Some(rest) = line.strip_prefix("  ") else {
@@ -616,13 +685,7 @@ fn children(group: &[&str]) -> Vec<String> {
 ///
 /// Members are the argv path, space-joined: `lint`, `migrate`, `policy check`.
 fn reporting_commands() -> BTreeSet<String> {
-    let tops = children(&[]);
-    assert!(
-        tops.len() > 20,
-        "parsed only {} command(s) from --help-all — the output shape changed and this is no \
-         longer reading it: {tops:?}",
-        tops.len()
-    );
+    let tops = common::commands_from_help();
 
     let mut reporting = BTreeSet::new();
     let mut groups = 0usize;
@@ -1966,6 +2029,51 @@ fn the_feature_set_is_redacted_whatever_it_holds() {
     assert!(one.contains("<FEATURES>"), "{one}");
 }
 
+/// The conditional checks are dropped, and the ids naming them are the ones the roster uses.
+///
+/// Two failures in one test, and the second is the reason it is not just a string comparison. A
+/// typo in `redact_conditional_checks`'s list is invisible in the light build — the id is not in
+/// the report either way — and shows up as a golden mismatch on main, in the `--all-features` job
+/// nothing runs on a pull request. So the ids are asked of the binary that has them.
+#[cfg(feature = "calculators-gluon")]
+#[test]
+fn the_checks_a_build_may_not_carry_are_redacted_out_of_a_real_report() {
+    let tmp = stage();
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(tmp.path())
+        .args(["lint", "--format", "json"])
+        .output()
+        .unwrap();
+    let raw = String::from_utf8_lossy(&out.stdout);
+    let doc: serde_json::Value = serde_json::from_str(&raw).expect("a JSON report");
+    let reported: Vec<&str> = doc["checks"]
+        .as_array()
+        .expect("a checks array")
+        .iter()
+        .filter_map(|c| c["id"].as_str())
+        .collect();
+    for id in ["calculator-scope", "calculator-type"] {
+        assert!(
+            reported.contains(&id),
+            "this build has a typechecker and `{id}` is not in its report, so the redaction              below is about an id the roster no longer uses"
+        );
+    }
+    let redacted = redact(&raw, tmp.path());
+    for id in ["calculator-scope", "calculator-type"] {
+        assert!(
+            !redacted.contains(id),
+            "`{id}` survived redaction, so this golden is the full build's and fails in the              light one:\n{redacted}"
+        );
+    }
+    // And what stayed is still a document, with the array's last element unterminated by a comma.
+    serde_json::from_str::<serde_json::Value>(&redacted)
+        .expect("redaction left the report unparseable — a dropped last element takes a comma");
+    assert!(
+        redacted.contains("calculator-script"),
+        "the unconditional check was redacted too; it is in every report and the golden pins it"
+    );
+}
+
 /// The `state` enum and the states the code can emit must agree, both ways.
 ///
 /// `report.schema.json` declares `state` as a **closed enum**, and nothing compared it to
@@ -2213,6 +2321,13 @@ fn declarations(
 /// instead of here, and `NO_REPORT` says why `index-verify` cannot run at all.
 const UNREACHED: &[(&str, &str)] = &[
     (
+        "derivations[]",
+        "`derive check` emits an entry only for an artifact under `[derive] paths`, and this \
+         fixture declares none — the arm every repository is in, which the `derive-check` golden \
+         pins. Staging a dossier here would be a fact thirty goldens and three SDK runners carry. \
+         `derive_check.rs` stages both populated arms and holds every emitted path to this schema",
+    ),
+    (
         "blessed",
         "`lint --bless` rewrites the baseline, and every invocation in this file is read-only \
          against a fixture the next test reads",
@@ -2223,9 +2338,41 @@ const UNREACHED: &[(&str, &str)] = &[
          other goldens, so breaking one would move all of them to reach two declarations",
     ),
     (
+        "clocks[].subjects",
+        "the `superseded` clock names its subjects only when `due`, which needs a catalog entry \
+         whose committed history holds two digests from one location and a `[due] \
+         superseded_after` — a second fetch and a config key every other golden would read. \
+         `due/tests.rs` builds that history, and tests/catalog_fetch.rs runs it end to end",
+    ),
+    (
+        "owed[].subjects",
+        "`cycle`'s owed half is `due`'s clocks through `due`'s reader — see `clocks[].subjects`",
+    ),
+    (
+        "extracted[].commit.sha",
+        "the golden is a `--dry-run`, which commits nothing, against the fixture every other \
+         golden reads — the committed arm is tests/catalog_extract.rs, end to end",
+    ),
+    (
+        "extracted[].commit.subject",
+        "the golden is a `--dry-run`, which commits nothing — see `extracted[].commit.sha`",
+    ),
+    (
+        "extracted[].skipped",
+        "a PDF is skipped only when a run reads the cache, and a dry run does not, so the golden \
+         does not depend on what the machine running it has fetched — tests/catalog_extract.rs \
+         holds the not-in-cache arm",
+    ),
+    (
         "fetched",
         "`catalog-fetch`'s followable arm needs an entry with a `location:`, which would move the \
          other goldens — covered end to end in tests/fixtures/catalog-fetch/ (see stage.toml)",
+    ),
+    (
+        "sources[].artifacts[].text",
+        "a reading is recorded by `catalog-extract`, which the golden runs as a dry run; giving \
+         the fixture's PDF a recorded reading would move `lint` and `catalog-audit` for every \
+         other golden. The recorded arm is tests/catalog_extract.rs",
     ),
     (
         "findings[].region",
@@ -2277,6 +2424,23 @@ const UNREACHED: &[(&str, &str)] = &[
          kuten_cluster.rs against the six shapes that defined the profile (see stage.toml)",
     ),
     (
+        "kuten.coupling",
+        "needs `[object] paths`, and declaring an object in this fixture would split its tree \
+         into two registers under every golden that reads a commit or a path. The `null` arm \
+         IS reached — it is what `kuten-check` emits here, and what every repository without an \
+         object emits. The populated arm is covered end to end in `object_coupling.rs`, which \
+         builds the object-coupled shape #577 was measured on and holds every emitted path \
+         against this schema",
+    ),
+    (
+        "consumption.tools[]",
+        "`record` emits a row only for a tool the consumption record names, and the fixture \
+         holds no record — the file is gitignored by construction, so no committed corpus does. \
+         The `record` golden pins that arm. `mcp_serve.rs` runs a recording server, reads what \
+         it wrote with `yidam record --format json`, and holds every emitted path — each row \
+         field included — against this schema (#1019)",
+    ),
+    (
         "reconciled[].commit",
         "null on `--dry-run` by declaration, and a writing run would corrupt the shared fixture",
     ),
@@ -2289,6 +2453,17 @@ const UNREACHED: &[(&str, &str)] = &[
         "skipped",
         "`propose` reports findings it could not draft for — a description that is not a block \
          scalar, an entry with no closing fence — and this corpus carries none",
+    ),
+    (
+        "unclaimed",
+        "`regen --check` only, and it is non-empty only when the repository holds a REGEN block \
+         naming a generator that does not exist \u{2014} a defect. This fixture is the parity \
+         corpus three SDK runners are graded against and the stage `doctor` reports on here, so \
+         a marker naming nothing would be a fact about a broken repository sitting in the one \
+         that is supposed to be correct, and it would flip `doctor`'s regen check to fail for \
+         every reader of this stage. Covered end to end in `regen_check.rs`, which stages the \
+         block, asserts the text and the JSON, and holds every emitted path \u{2014} both item \
+         fields included \u{2014} against this schema (#1062)",
     ),
     (
         "written",

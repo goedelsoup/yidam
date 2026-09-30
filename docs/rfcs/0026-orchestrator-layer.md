@@ -34,6 +34,16 @@
   reads the manifest's staleness beside `due`'s clocks, because `due` has no clock for a
   receipt that no longer matches; and under `--format json` a pod's record sits under a
   `record` key in the report envelope rather than flattened into it.
+- **Amended 2026-09-27 (#1080):** §4.3 states the read half of the *input* — what a calculator
+  is handed. §4 said a step is invoked in a tree holding what `reads` resolves to, and that is
+  all it said, so the corpus arrived as bytes. Both example calculators answered *what does this
+  link point at* in awk, which was a second implementation of `corpus/edges.rs` that no gate
+  compared against the first.
+- **Amended 2026-09-29 (#1162):** §6's promise that an aged re-run whose answer had not moved
+  "still lands a commit" is scoped to the branch. On the proposal route the branch has not
+  moved, so the receipt names the same head and the tree is the one already proposed. Nothing
+  lands, and the pending proposal stands as the answer. The report said the opposite of what
+  happened, and now says where the tree was matched.
 - **Downstream reference case:** none yet. The first consumer is `examples/streamflow`, by
   construction — see "Why the first thing built is not the manifest".
 
@@ -84,8 +94,8 @@
 
 `prelude/GRAPH.md:566-640` closes the commit vocabulary, and seven of its operational verbs name
 acts a *pipeline* performs rather than acts a person performs. Four of them —
-[`extract`](../../yidam/prelude/GRAPH.md#L629), [`refresh`](../../yidam/prelude/GRAPH.md#L630),
-[`compute`](../../yidam/prelude/GRAPH.md#L631), [`reconcile`](../../yidam/prelude/GRAPH.md#L634) —
+[`extract`](../../yidam/prelude/GRAPH.md#L682), [`refresh`](../../yidam/prelude/GRAPH.md#L683),
+[`compute`](../../yidam/prelude/GRAPH.md#L684), [`reconcile`](../../yidam/prelude/GRAPH.md#L687) —
 name capabilities that exist nowhere in this repository. The other three have a command that
 produces an artifact and stops.
 
@@ -585,6 +595,46 @@ deliberate rather than pending: #1029 owns the local index schema, and `index-pu
 remote metadata from the local rows rather than from the embedding JSON, so filterable metadata
 follows that decision instead of duplicating it.
 
+### 4.3 — What a calculator is handed is resolved, not raw
+
+*Amended 2026-09-27 (#1080).*
+
+§4 says the step stands in a tree holding exactly what `reads` resolves to. That settles what a
+step may see and says nothing about the **form** it sees it in, and the form was bytes. A
+calculator over the corpus therefore began by writing a parser, and both of `examples/streamflow`'s
+did: a regex over node YAML, and an awk `function resolve(base, t)` re-deriving link targets.
+
+**A second resolver is the failure, not the awk.** `corpus/edges.rs`'s `resolve_target` is the one
+answer the rest of the system gives — `yidam graph`, `yidam lint` and every reader go through it —
+and a calculator that answered again could disagree with `yidam graph` about the same corpus with
+nothing in the repository able to notice. The line count was the symptom; the duplication was the
+defect, and it is the shape §4 already refuses everywhere else by making a declaration load-bearing
+rather than advisory.
+
+So the executor sets a fifth environment name beside `$YIDAM_IN`, `$YIDAM_OUT`, `$YIDAM_STEP` and
+`$YIDAM_INPUT_COMMIT`: **`$YIDAM_GRAPH`**, naming a file that holds the corpus as `yidam` read it —
+classes and their properties, nodes with their labels and properties, malformed nodes named as
+such, and every link with its target already resolved to a repository-relative path.
+
+**Tab-separated line records, and not `yidam graph --json`.** The obvious move is to reuse the
+report the CLI already emits, and it is the wrong one. Every consumer of this file is a shell
+script, and JSON parsed in awk is a worse parser than the YAML regex it replaces — the duplication
+would survive the change in a less honest form. Line records have a reader in every shell: one
+record per line, a leading field naming the kind, and a kind you do not know is a line you skip,
+which is what lets the format grow without breaking a consumer. `graph --json` also carries no node
+properties at all, and `claim_tag` — the value `travel-tier` exists to compute over — is one.
+
+**It is sliced to the step's `reads`, and `exists` is not.** The file describes the nodes the step
+may see, so it grants no view the scratch tree does not. But whether a link's target is present is
+answered against the whole input commit: a target outside the slice is not missing, it is not this
+step's business, and a calculator told otherwise would call every link out of its own subtree
+broken.
+
+**The digest is in the input state.** Changing how `yidam` resolves a link changes what every
+calculator read, so it makes their steps stale — the same argument §4 makes for a capability
+declaring its own script. That in turn forces one builder: `run` and `doctor` must agree about this
+file or every step reads stale forever, so both call the same function, and a test says so.
+
 ### 5 — The executor writes the way `propose` already writes
 
 The write half is not new code. `cmd/propose/write.rs` builds commits against a temporary index
@@ -624,6 +674,14 @@ A step re-run under an ageing rule whose answer had not moved still lands a comm
 the intent rather than an oversight: the receipt names a new input commit, and that commit is the
 record that somebody looked. The report distinguishes it from a step whose output changed, because
 those are different events and only one of them is a change to the corpus.
+
+That holds on the branch, and only there. An epistemic step lands on `propose/<head>` and the
+branch does not move, so its re-run names the same head, builds the same receipt, and reproduces
+the tree already proposed. Nothing lands. This is kept rather than worked around, because the
+receipt carries no clock and a second clock would be a second place to read age from. The
+pending proposal already holds the answer, and a person has not yet ruled on it. Until they do,
+the step's age does not reset, so each run re-checks it. That is `due`'s direction for a clock it
+cannot satisfy: the corpus that asked to be re-checked is owed the check, not reassured.
 
 ### 6.1 — A directory is not a capability
 

@@ -28,6 +28,21 @@
 //! a baseline permitted to be wrong drifts, and a baseline that over-lists silently permits
 //! re-introduction of whatever it over-lists. The fix is one command, and the failure
 //! message names it.
+//!
+//! # A check nobody asked is carried, not resolved
+//!
+//! Some checks run only when asked for — `unrecognized-verb` under `--commits`, and the two
+//! typed calculator checks only in a build with a typechecker (#1099). A run that did not
+//! ask one has no news about its entries, good or bad, so [`diff`] takes the ids the roster
+//! holds but this invocation left out and **carries** their entries: neither compared nor
+//! reported stale. The same list keeps [`Baseline::from_checks`] from dropping them on a
+//! blessing, so a baseline written by one build survives being read, and re-written, by
+//! the other (#1114).
+//!
+//! That is distinct from an id the roster no longer has at all. Such an entry describes a
+//! question no build asks any more, its entries really are stale, and they still gate.
+//! The caller draws the line by passing only ids it knows and did not ask; `diff` never
+//! guesses which of the two an unfamiliar id is.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -148,8 +163,20 @@ impl Baseline {
     /// `head` empty — a repository with no commits, or a git call that failed — stamps
     /// nothing. An entry with no clock never expires, which fails toward the ratchet's
     /// existing behaviour rather than toward a deadline nobody set.
-    pub fn from_checks(checks: &[Check], previous: &Self, head: &str) -> Self {
+    ///
+    /// `unasked` is every check id the roster holds that this run did not ask (#1114).
+    /// Entries `previous` carries under one of those ids are copied forward as they stand,
+    /// clock included: a blessing from a light build has no view of the typed calculator
+    /// checks, and one without `--commits` none of the log, and neither is grounds to
+    /// forget what a fuller run recorded. An id in neither `checks` nor `unasked` is one
+    /// the roster no longer has, and its entries are dropped as they always were.
+    pub fn from_checks(checks: &[Check], previous: &Self, head: &str, unasked: &[&str]) -> Self {
         let mut violations: BTreeMap<String, Vec<Entry>> = BTreeMap::new();
+        for (id, entries) in &previous.violations {
+            if unasked.contains(&id.as_str()) {
+                violations.insert(id.clone(), entries.clone());
+            }
+        }
         for check in checks {
             // Per violation, not per check: residence time can escalate one finding of an
             // Info check without escalating its siblings, and the baseline records what
@@ -213,6 +240,12 @@ pub struct Diff {
     pub introduced: Vec<(String, String)>,
     /// Baseline entries with no corresponding violation in the run.
     pub resolved: Vec<(String, String)>,
+    /// Baseline entries under a check this run did not ask, left as they stand.
+    ///
+    /// Not a disagreement and not a verdict: the run has no news about them either way.
+    /// Listed so a report can say which entries it did not compare, and which check would
+    /// have to be asked to compare them (#1114).
+    pub carried: Vec<(String, String)>,
     /// Entries that have outlived the declared expiry and no longer forgive.
     ///
     /// Reported separately from [`Self::introduced`] rather than folded into it, though
@@ -236,7 +269,17 @@ impl Diff {
 /// entry's `since` is read against. Empty disables expiry entirely, which is what happens
 /// outside a git repository and in a corpus with no history: an entry whose age cannot be
 /// established has not been shown to be old.
-pub fn diff(checks: &[Check], baseline: &Baseline, corpus_commits: &[String]) -> Diff {
+///
+/// `unasked` is every check id the roster holds that this run did not ask. Its entries are
+/// [`Diff::carried`] rather than [`Diff::resolved`]: absent from `checks` because nobody put
+/// the question, not because the answer changed (#1114). Pass only ids the roster knows —
+/// an id it no longer has is not on the list, and its entries resolve as stale.
+pub fn diff(
+    checks: &[Check],
+    baseline: &Baseline,
+    corpus_commits: &[String],
+    unasked: &[&str],
+) -> Diff {
     let mut out = Diff::default();
 
     // Which entries have run out of time. Computed up front so that the matching below can
@@ -292,13 +335,21 @@ pub fn diff(checks: &[Check], baseline: &Baseline, corpus_commits: &[String]) ->
     }
 
     for (id, leftover) in &remaining {
+        // A check that ran consumes from its pool above, so an unasked id's pool is still
+        // whole here — and it is whole because nothing looked, not because nothing matched.
+        let side = if unasked.contains(id) {
+            &mut out.carried
+        } else {
+            &mut out.resolved
+        };
         for entry in leftover {
-            out.resolved.push((id.to_string(), entry.node.clone()));
+            side.push((id.to_string(), entry.node.clone()));
         }
     }
 
     out.introduced.sort();
     out.resolved.sort();
+    out.carried.sort();
     out.expired
         .sort_by(|a, b| (&a.check, &a.node).cmp(&(&b.check, &b.node)));
     out
@@ -338,14 +389,24 @@ mod tests {
     #[test]
     fn a_baselined_violation_does_not_gate() {
         let checks = vec![err_check("dangling-edge", &["a.yml"])];
-        let d = diff(&checks, &baseline_of(&[("dangling-edge", "a.yml")]), &[]);
+        let d = diff(
+            &checks,
+            &baseline_of(&[("dangling-edge", "a.yml")]),
+            &[],
+            &[],
+        );
         assert!(d.is_clean(), "{d:?}");
     }
 
     #[test]
     fn a_new_violation_is_introduced() {
         let checks = vec![err_check("dangling-edge", &["a.yml", "b.yml"])];
-        let d = diff(&checks, &baseline_of(&[("dangling-edge", "a.yml")]), &[]);
+        let d = diff(
+            &checks,
+            &baseline_of(&[("dangling-edge", "a.yml")]),
+            &[],
+            &[],
+        );
         assert_eq!(d.introduced, vec![("dangling-edge".into(), "b.yml".into())]);
         assert!(d.resolved.is_empty());
     }
@@ -353,16 +414,96 @@ mod tests {
     #[test]
     fn a_fixed_violation_is_resolved_and_still_fails() {
         let checks = vec![err_check("dangling-edge", &[])];
-        let d = diff(&checks, &baseline_of(&[("dangling-edge", "a.yml")]), &[]);
+        let d = diff(
+            &checks,
+            &baseline_of(&[("dangling-edge", "a.yml")]),
+            &[],
+            &[],
+        );
         assert_eq!(d.resolved, vec![("dangling-edge".into(), "a.yml".into())]);
         assert!(!d.is_clean(), "a stale baseline must not pass");
+    }
+
+    /// A check nobody asked has no news about its entries. They are carried — listed, so the
+    /// report can say what it did not compare — and neither stale nor a failure (#1114).
+    ///
+    /// Before this, `remaining` was seeded from every entry the file carried whichever checks
+    /// ran, so a corpus that baselined a `--commits` finding failed as a *stale baseline* under
+    /// every invocation without the flag.
+    #[test]
+    fn an_unasked_check_carries_its_entries() {
+        let d = diff(
+            &[],
+            &baseline_of(&[("unrecognized-verb", "a.yml")]),
+            &[],
+            &["unrecognized-verb"],
+        );
+        assert_eq!(
+            d.carried,
+            vec![("unrecognized-verb".into(), "a.yml".into())]
+        );
+        assert!(d.resolved.is_empty(), "{d:?}");
+        assert!(d.is_clean(), "carried is not a disagreement: {d:?}");
+    }
+
+    /// The case `resolved` exists for, kept distinct: an id the roster no longer has is not
+    /// on the unasked list, and its entries are stale exactly as before.
+    #[test]
+    fn an_id_the_roster_no_longer_has_still_resolves() {
+        let d = diff(
+            &[],
+            &baseline_of(&[("retired-check", "a.yml")]),
+            &[],
+            &["unrecognized-verb"],
+        );
+        assert_eq!(d.resolved, vec![("retired-check".into(), "a.yml".into())]);
+        assert!(d.carried.is_empty(), "{d:?}");
+        assert!(!d.is_clean());
+    }
+
+    /// A baseline written by one build and read by another — the supported pair, since
+    /// `install.sh` downloads a light binary and CI runs a full one.
+    ///
+    /// Blessed where both checks ran; linted where one could not; blessed again there, which
+    /// must not forget the entry the light run could not see; linted again where both run.
+    #[test]
+    fn a_baseline_written_by_one_build_survives_the_other() {
+        let full = [
+            err_check("dangling-edge", &["a.yml"]),
+            err_check("calculator-type", &["c.yml"]),
+        ];
+        let light = [err_check("dangling-edge", &["a.yml"])];
+        let unasked = ["calculator-type"];
+
+        let blessed = Baseline::from_checks(&full, &Baseline::default(), "c1", &[]);
+        assert!(diff(&light, &blessed, &[], &unasked).is_clean());
+
+        let reblessed = Baseline::from_checks(&light, &blessed, "c2", &unasked);
+        assert_eq!(
+            reblessed.violations["calculator-type"], blessed.violations["calculator-type"],
+            "a blessing from the light build carries the entry, clock and all"
+        );
+        assert!(diff(&full, &reblessed, &[], &[]).is_clean());
+
+        // Without the list, a blessing drops what it did not see, and the full build
+        // reports the entry as introduced — the failure the list exists to prevent.
+        let forgetful = Baseline::from_checks(&light, &blessed, "c2", &[]);
+        assert_eq!(
+            diff(&full, &forgetful, &[], &[]).introduced,
+            vec![("calculator-type".into(), "c.yml".into())]
+        );
     }
 
     #[test]
     fn the_same_node_tripping_twice_is_not_collapsed() {
         // Multiset, not set: one baselined occurrence must not excuse two.
         let checks = vec![err_check("dangling-edge", &["a.yml", "a.yml"])];
-        let d = diff(&checks, &baseline_of(&[("dangling-edge", "a.yml")]), &[]);
+        let d = diff(
+            &checks,
+            &baseline_of(&[("dangling-edge", "a.yml")]),
+            &[],
+            &[],
+        );
         assert_eq!(
             d.introduced,
             vec![("dangling-edge".into(), "a.yml".into())],
@@ -379,7 +520,12 @@ mod tests {
             "r",
             vec![Violation::new("a.yml", "completely rewritten wording")],
         )];
-        let d = diff(&checks, &baseline_of(&[("dangling-edge", "a.yml")]), &[]);
+        let d = diff(
+            &checks,
+            &baseline_of(&[("dangling-edge", "a.yml")]),
+            &[],
+            &[],
+        );
         assert!(d.is_clean(), "rewording is not a corpus change");
     }
 
@@ -392,17 +538,19 @@ mod tests {
             "r",
             vec![Violation::new("a.yml", "d")],
         )];
-        assert!(Baseline::from_checks(&checks, &Baseline::default(), "")
-            .violations
-            .is_empty());
-        assert!(diff(&checks, &Baseline::default(), &[]).is_clean());
+        assert!(
+            Baseline::from_checks(&checks, &Baseline::default(), "", &[])
+                .violations
+                .is_empty()
+        );
+        assert!(diff(&checks, &Baseline::default(), &[], &[]).is_clean());
     }
 
     #[test]
     fn blessing_a_run_makes_it_clean() {
         let checks = vec![err_check("dangling-edge", &["b.yml", "a.yml"])];
-        let blessed = Baseline::from_checks(&checks, &Baseline::default(), "");
-        assert!(diff(&checks, &blessed, &[]).is_clean());
+        let blessed = Baseline::from_checks(&checks, &Baseline::default(), "", &[]);
+        assert!(diff(&checks, &blessed, &[], &[]).is_clean());
         // Stable ordering, so a re-bless produces no diff.
         assert_eq!(blessed.violations["dangling-edge"][0].node, "a.yml");
     }
@@ -412,11 +560,11 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path();
         let checks = vec![err_check("dangling-edge", &["a.yml"])];
-        Baseline::from_checks(&checks, &Baseline::default(), "")
+        Baseline::from_checks(&checks, &Baseline::default(), "", &[])
             .write(root)
             .unwrap();
         let loaded = Baseline::load(root).unwrap();
-        assert!(diff(&checks, &loaded, &[]).is_clean());
+        assert!(diff(&checks, &loaded, &[], &[]).is_clean());
     }
 
     #[test]
@@ -453,7 +601,7 @@ mod tests {
     #[test]
     fn an_entry_never_expires_when_the_corpus_declared_no_number() {
         let checks = [err_check("dangling-edge", &["a.yml"])];
-        let d = diff(&checks, &aged_baseline(None, "c1"), &commits());
+        let d = diff(&checks, &aged_baseline(None, "c1"), &commits(), &[]);
         assert!(d.is_clean(), "{d:?}");
     }
 
@@ -461,7 +609,7 @@ mod tests {
     fn an_entry_that_outlived_the_declared_expiry_stops_forgiving() {
         let checks = [err_check("dangling-edge", &["a.yml"])];
         // Recorded at the first of six corpus commits: it has stood for six.
-        let d = diff(&checks, &aged_baseline(Some(6), "c1"), &commits());
+        let d = diff(&checks, &aged_baseline(Some(6), "c1"), &commits(), &[]);
         assert_eq!(d.expired.len(), 1, "{d:?}");
         assert_eq!(d.expired[0].commits, 6);
         assert!(!d.is_clean());
@@ -473,7 +621,7 @@ mod tests {
     #[test]
     fn an_entry_inside_the_declared_expiry_still_forgives() {
         let checks = [err_check("dangling-edge", &["a.yml"])];
-        let d = diff(&checks, &aged_baseline(Some(7), "c1"), &commits());
+        let d = diff(&checks, &aged_baseline(Some(7), "c1"), &commits(), &[]);
         assert!(d.is_clean(), "six commits is inside seven: {d:?}");
     }
 
@@ -483,7 +631,12 @@ mod tests {
     #[test]
     fn an_entry_whose_commit_is_gone_does_not_expire() {
         let checks = [err_check("dangling-edge", &["a.yml"])];
-        let d = diff(&checks, &aged_baseline(Some(1), "rebased-away"), &commits());
+        let d = diff(
+            &checks,
+            &aged_baseline(Some(1), "rebased-away"),
+            &commits(),
+            &[],
+        );
         assert!(d.is_clean(), "{d:?}");
     }
 
@@ -494,7 +647,7 @@ mod tests {
         let checks = [err_check("dangling-edge", &["a.yml"])];
         let mut b = baseline_of(&[("dangling-edge", "a.yml")]);
         b.expire_after = Some(1);
-        assert!(diff(&checks, &b, &commits()).is_clean());
+        assert!(diff(&checks, &b, &commits(), &[]).is_clean());
     }
 
     // ── what a blessing preserves ─────────────────────────────────────────────
@@ -505,13 +658,13 @@ mod tests {
     #[test]
     fn blessing_again_carries_the_original_clock_forward() {
         let checks = [err_check("dangling-edge", &["a.yml"])];
-        let first = Baseline::from_checks(&checks, &Baseline::default(), "c1");
+        let first = Baseline::from_checks(&checks, &Baseline::default(), "c1", &[]);
         assert_eq!(
             first.violations["dangling-edge"][0].since.as_deref(),
             Some("c1")
         );
 
-        let second = Baseline::from_checks(&checks, &first, "c6");
+        let second = Baseline::from_checks(&checks, &first, "c6", &[]);
         assert_eq!(
             second.violations["dangling-edge"][0].since.as_deref(),
             Some("c1"),
@@ -524,10 +677,10 @@ mod tests {
     #[test]
     fn a_newly_blessed_entry_is_stamped_at_head() {
         let old = [err_check("dangling-edge", &["a.yml"])];
-        let first = Baseline::from_checks(&old, &Baseline::default(), "c1");
+        let first = Baseline::from_checks(&old, &Baseline::default(), "c1", &[]);
 
         let both = [err_check("dangling-edge", &["a.yml", "b.yml"])];
-        let second = Baseline::from_checks(&both, &first, "c6");
+        let second = Baseline::from_checks(&both, &first, "c6", &[]);
         let entries = &second.violations["dangling-edge"];
         assert_eq!(entries[0].since.as_deref(), Some("c1"), "a.yml is old debt");
         assert_eq!(entries[1].since.as_deref(), Some("c6"), "b.yml is new");
@@ -538,9 +691,9 @@ mod tests {
     #[test]
     fn a_node_tripping_one_check_twice_keeps_one_clock_per_occurrence() {
         let once = [err_check("dangling-edge", &["a.yml"])];
-        let first = Baseline::from_checks(&once, &Baseline::default(), "c1");
+        let first = Baseline::from_checks(&once, &Baseline::default(), "c1", &[]);
         let twice = [err_check("dangling-edge", &["a.yml", "a.yml"])];
-        let second = Baseline::from_checks(&twice, &first, "c6");
+        let second = Baseline::from_checks(&twice, &first, "c6", &[]);
         let stamps: Vec<Option<&str>> = second.violations["dangling-edge"]
             .iter()
             .map(|e| e.since.as_deref())
@@ -556,7 +709,7 @@ mod tests {
             expire_after: Some(200),
             ..Default::default()
         };
-        let blessed = Baseline::from_checks(&checks, &previous, "c1");
+        let blessed = Baseline::from_checks(&checks, &previous, "c1", &[]);
         assert_eq!(blessed.expire_after, Some(200));
     }
 
@@ -564,7 +717,7 @@ mod tests {
     #[test]
     fn a_repository_with_no_commits_stamps_no_clock() {
         let checks = [err_check("dangling-edge", &["a.yml"])];
-        let b = Baseline::from_checks(&checks, &Baseline::default(), "");
+        let b = Baseline::from_checks(&checks, &Baseline::default(), "", &[]);
         assert_eq!(b.violations["dangling-edge"][0].since, None);
     }
 

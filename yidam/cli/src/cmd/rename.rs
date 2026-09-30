@@ -6,7 +6,7 @@
 //! made *"choose the name well"* the whole defence. The hazard is documented three times and
 //! guarded zero.
 //!
-//! # Three edits, not one
+//! # Four edits, not one
 //!
 //! The obvious one is inbound: every other node's `target:` that resolves to the old path.
 //!
@@ -26,6 +26,14 @@
 //! The third is the file itself, via `git mv` where there is a repository, so history follows
 //! the node rather than stopping at its old name.
 //!
+//! The fourth is one line in the moved node: `moved-from:`, naming the path it left the way a
+//! `target:` would. `git log --follow` pairs a move's two halves by similarity, and the age
+//! replay deliberately does not: it reads every move as a delete plus an add, so that a move
+//! made by hand answers the same (#1171). So without the line, an orphan or an open question that was only renamed
+//! restarts its count of commits, and `orphan-in` and `due` read that count as neglect. With
+//! it, the age folds carry the count across the move (#1180). The line replaces any earlier
+//! one, because each move names only the path it left.
+//!
 //! # What it deliberately does not do
 //!
 //! **It does not commit.** RFC-0014 asks for one atomic commit so the tree never passes
@@ -38,12 +46,39 @@
 //! `[label](../concept/old.yml)` in a README is outside it. Those are *reported* rather than
 //! silently left: the difference between "renamed" and "renamed and quietly broke the README"
 //! is whether anybody was told.
+//!
+//! # Catalog entries
+//!
+//! A catalog entry is renamed the same way (#1159). The edges into it are every corpus
+//! `source:` that resolves to it, and every quotation's `of:` (RFC-0046), in either spelling `edge-source-unresolved` admits: the
+//! entry's stem, or a path written the way a `target:` is. Each is rewritten in the spelling
+//! its author chose — a stem stays a stem, a path is re-relativized — because the two mean
+//! the same thing and a rename is not the moment to change how a corpus writes it. Nothing
+//! else about the entry changes, and there is no class to move it between: the catalog is one
+//! directory deep, and a name with a slash in it is refused.
+//!
+//! One more thing is rewritten here that a node's rename leaves alone: a markdown link whose
+//! target resolves to the entry, in any file under `.yidam/` that lint reads. A link from a
+//! node's prose is the second of the three forms `catalog-uncited` and `verified-unsourced`
+//! count as a citation, and the first real corpus this was tried on carried seventy of them
+//! against thirty-seven `source:` lines; a link from another entry, a decision record or the
+//! catalog README is one `broken-prose-link` fails the build over, at Error. A rename that
+//! repaired the edges and severed the rest would have moved a source out from under every
+//! `[verified]` claim that rested on it and failed the gate besides. The links are read with
+//! the parser those checks read them with, so the two cannot disagree about what a link is.
+//! What is left — a label, a table cell, a sentence that names the file without linking it —
+//! is reported, as a node's prose is.
+//!
+//! The old name is reached as `catalog/old`, `catalog/old.md` or `.yidam/catalog/old.md`. A
+//! class that is itself called `catalog` is reached by its repository-relative path, which is
+//! the one spelling the two cannot share.
 
 use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::corpus::resolve_target;
+use crate::cmd::lint::checks::{prose_links, source_targets};
+use crate::corpus::{normalize, resolve_target};
 use crate::paths::{repo_root, yidam_corpus_dir};
 use crate::walk::{walk_corpus_instances, walk_linkable_files};
 
@@ -69,17 +104,31 @@ pub struct Unhandled {
 
 #[derive(Debug, serde::Serialize)]
 pub struct RenameReport {
+    /// What [`Self::from`] and [`Self::to`] are relative to: the corpus for a node, `.yidam`
+    /// for a catalog entry, so that the moved file is always `corpus_dir/to`.
     pub corpus_dir: String,
     /// Corpus-relative source, or empty when it did not resolve.
     pub from: String,
     /// Corpus-relative destination.
     pub to: String,
+    /// Whether the thing being moved is a catalog entry, whose inbound edges are `source:`
+    /// values rather than `target:` ones. Not emitted: a consumer can read it off
+    /// [`Self::corpus_dir`], and a new field is a contract change the wording is not worth.
+    #[serde(skip)]
+    pub(crate) catalog: bool,
     /// Whether anything was written. False for `--dry-run`, and false whenever `blocked` is
     /// non-empty.
     pub applied: bool,
     /// Repository-relative move. One entry, or none when blocked.
     pub moves: Vec<Edit>,
     pub edits: Vec<Edit>,
+    /// The `moved-from:` line written into the moved node, so that its ages carry across the
+    /// move (#1180). Reported under the node's new path. `line` is where the line lands: past
+    /// the end when the node declared none, and replacing the old line when it did, whose
+    /// value `from` then carries. Absent for a catalog entry, which has no age, and when
+    /// blocked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub moved_from: Option<Edit>,
     /// Markdown references to the old path. Reported, never rewritten.
     pub unhandled: Vec<Unhandled>,
     /// Why this cannot proceed. Non-empty means nothing was touched.
@@ -143,10 +192,63 @@ pub(crate) fn relative_target(from_id: &str, to_id: &str) -> String {
     format!("{up}{}", to.join("/"))
 }
 
+/// `catalog/old`, `catalog/old.md` or `.yidam/catalog/old.md` → `catalog/old.md`. A corpus
+/// id, or anything else, is none.
+///
+/// `.yidam/corpus/catalog/x.yml` is a node in a class called `catalog`, and stays one: only
+/// the leading `.yidam/` is stripped before the prefix is read.
+pub(crate) fn catalog_id(id: &str) -> Option<String> {
+    let want = id.trim().trim_start_matches('/');
+    let want = want.strip_prefix(".yidam/").unwrap_or(want);
+    let name = want.strip_prefix("catalog/")?;
+    Some(catalog_entry(name))
+}
+
+/// A new name for a catalog entry, in every form the old one is accepted in and as a bare
+/// stem besides: `new`, `new.md`, `catalog/new`, `.yidam/catalog/new.md` → `catalog/new.md`.
+fn catalog_entry(name: &str) -> String {
+    let name = name.trim().trim_start_matches('/');
+    let name = name.strip_prefix(".yidam/").unwrap_or(name);
+    let name = name.strip_prefix("catalog/").unwrap_or(name);
+    match name.ends_with(".md") {
+        true => format!("catalog/{name}"),
+        false => format!("catalog/{name}.md"),
+    }
+}
+
+/// `.yidam/catalog/new.md` seen from `.yidam/corpus/concept/x.yml` → `../../catalog/new.md`.
+///
+/// The general case of [`relative_target`], which can assume every node sits exactly one
+/// class directory below the corpus. A catalog entry and a node share only `.yidam/`.
+fn relative_from(node: &str, target: &str) -> String {
+    let node: Vec<&str> = node.split('/').collect();
+    let dir = &node[..node.len().saturating_sub(1)];
+    let target: Vec<&str> = target.split('/').collect();
+    let common = dir.iter().zip(&target).take_while(|(a, b)| a == b).count();
+    format!(
+        "{}{}",
+        "../".repeat(dir.len() - common),
+        target[common..].join("/")
+    )
+}
+
 /// The `target:` value on this line, with its byte range, or none.
 pub(crate) fn target_on(line: &str) -> Option<(usize, usize, String)> {
-    let key = line.find("target:")?;
-    let after = key + "target:".len();
+    value_on(line, "target")
+}
+
+/// The value of `key:` on this line, with its byte range, or none.
+///
+/// The key has to be in key position — nothing but indentation and a list dash before it —
+/// because a `resource:` is not a `source:`, and `target_on` matched by substring for as long
+/// as no other key ended in its name.
+pub(crate) fn value_on(line: &str, key: &str) -> Option<(usize, usize, String)> {
+    let needle = format!("{key}:");
+    let at = line.find(&needle)?;
+    if !line[..at].chars().all(|c| c.is_whitespace() || c == '-') {
+        return None;
+    }
+    let after = at + needle.len();
     let rest = &line[after..];
     let lead = rest.len() - rest.trim_start().len();
     let mut value = rest.trim_start();
@@ -170,6 +272,9 @@ pub(crate) fn target_on(line: &str) -> Option<(usize, usize, String)> {
 }
 
 pub(crate) fn plan(root: &Path, corpus: &Path, old: &str, new: &str) -> RenameReport {
+    if let Some(from) = catalog_id(old) {
+        return plan_catalog(root, corpus, from, new);
+    }
     let corpus_dir = slash(corpus.strip_prefix(root).unwrap_or(corpus));
     let from = corpus_id(&corpus_dir, old);
     let to = corpus_id(&corpus_dir, new);
@@ -178,9 +283,11 @@ pub(crate) fn plan(root: &Path, corpus: &Path, old: &str, new: &str) -> RenameRe
         corpus_dir,
         from: from.clone(),
         to: to.clone(),
+        catalog: false,
         applied: false,
         moves: vec![],
         edits: vec![],
+        moved_from: None,
         unhandled: vec![],
         blocked: vec![],
     };
@@ -312,11 +419,225 @@ pub(crate) fn plan(root: &Path, corpus: &Path, old: &str, new: &str) -> RenameRe
         from: from.clone(),
         to: to.clone(),
     });
+    let old_text = std::fs::read_to_string(&old_path).unwrap_or_default();
+    report.moved_from = Some(moved_from_line(
+        report.moved_file(),
+        &old_text,
+        relative_target(&to, &from),
+    ));
     report.commit_subject = format!(
         "migrate: {from} → {to} ({} inbound link(s) rewritten)",
         report.inbound().count()
     );
     report
+}
+
+/// Where the `moved-from:` line goes in `text`, and what it replaces.
+///
+/// Top level only: the key starts its line. A new line goes at the end, which is top level
+/// whatever the file ends with, and leaves every edit's line number where it was.
+///
+/// `migrate`'s class rename places one per instance it moves (#1192).
+pub(crate) fn moved_from_line(file: String, text: &str, to: String) -> Edit {
+    let lines: Vec<&str> = text.lines().collect();
+    let at = lines.iter().position(|l| l.starts_with("moved-from:"));
+    Edit {
+        file,
+        line: at.unwrap_or(lines.len()) + 1,
+        from: at
+            .and_then(|i| value_on(lines[i], "moved-from"))
+            .map(|(_, _, v)| v)
+            .unwrap_or_default(),
+        to,
+    }
+}
+
+/// The line [`moved_from_line`] placed.
+pub(crate) fn moved_from_text(e: &Edit) -> String {
+    format!("moved-from: {}", e.to)
+}
+
+/// Write the line [`moved_from_line`] placed into the moved file, at `path`.
+///
+/// After the link edits, which it cannot disturb: it replaces one line of its own or adds one
+/// past the last.
+pub(crate) fn write_moved_from(path: &Path, e: &Edit) -> Result<()> {
+    let text = std::fs::read_to_string(path)?;
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    match lines.get_mut(e.line - 1) {
+        Some(line) => *line = moved_from_text(e),
+        None => lines.push(moved_from_text(e)),
+    }
+    std::fs::write(path, lines.join("\n") + "\n")?;
+    Ok(())
+}
+
+/// The keys whose value names a catalog entry: an edge's `source:`, and a quotation's `of:`
+/// (RFC-0046), which lint resolves through the same function.
+const CATALOG_KEYS: [&str; 2] = ["source", "of"];
+
+/// The catalog half of [`plan`]. `from` is `catalog/old.md`, as [`catalog_id`] spells it.
+///
+/// Two kinds of edge come into a catalog entry, and both are rewritten. A `source:` on a
+/// corpus edge, or a quotation's `of:`, resolves the way `edge-source-unresolved` resolves it — the bare stem, or a
+/// path from the node's own directory — and is rewritten in the form it was written in. A
+/// markdown link, anywhere under `.yidam/` that lint reads, resolves the way
+/// `broken-prose-link` and `catalog-uncited` resolve it, through the same parser, and is
+/// re-relativized from the file that holds it.
+///
+/// A `source:` that resolves to nothing is not touched — it was broken before the rename and
+/// the rename did not break it — but the prose scan still shows it when it names the old
+/// file, which is the reader's cue to check. So is anything else that names the old file
+/// without linking to it: a link's label, a table cell, a sentence.
+fn plan_catalog(root: &Path, corpus: &Path, from: String, new: &str) -> RenameReport {
+    let to = catalog_entry(new);
+    let mut report = RenameReport {
+        commit_subject: String::new(),
+        corpus_dir: ".yidam".to_string(),
+        from: from.clone(),
+        to: to.clone(),
+        catalog: true,
+        applied: false,
+        moves: vec![],
+        edits: vec![],
+        moved_from: None,
+        unhandled: vec![],
+        blocked: vec![],
+    };
+
+    let yidam = root.join(".yidam");
+    let old_path = yidam.join(&from);
+    let new_path = yidam.join(&to);
+    let name = |id: &str| id.strip_prefix("catalog/").unwrap_or(id).to_string();
+    let (old_name, new_name) = (name(&from), name(&to));
+    // `README.md` is the one file in the directory the catalog walk does not read as an entry.
+    let is_entry = |n: &str| n != "README.md" && !n.contains('/');
+    if !old_path.is_file() || !is_entry(&old_name) {
+        report
+            .blocked
+            .push(format!("{from} is not a catalog entry"));
+    }
+    if !is_entry(&new_name) {
+        report.blocked.push(format!(
+            "{to} is not a catalog entry name — the catalog is one directory deep"
+        ));
+    }
+    if new_path.exists() {
+        report.blocked.push(format!(
+            "{to} already exists — renaming onto it would lose it"
+        ));
+    }
+    if from == to {
+        report
+            .blocked
+            .push("the two names are the same".to_string());
+    }
+    if !report.blocked.is_empty() {
+        return report;
+    }
+
+    let new_stem = new_name.trim_end_matches(".md").to_string();
+    let old_rel = format!(".yidam/{from}");
+    let new_rel = format!(".yidam/{to}");
+    for path in walk_corpus_instances(corpus) {
+        let rel = slash(path.strip_prefix(root).unwrap_or(&path));
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        for (i, line) in text.lines().enumerate() {
+            let Some((_, _, value)) = CATALOG_KEYS.iter().find_map(|k| value_on(line, k)) else {
+                continue;
+            };
+            // The two readings `edge-source-unresolved` admits, from the function it reads
+            // them with, so this cannot rewrite a value that check would not have resolved.
+            let dir = Path::new(&rel).parent().unwrap_or(Path::new(""));
+            let [by_stem, by_path] = source_targets(dir, Path::new(".yidam/catalog"), &value);
+            let rewritten = if slash(&by_stem) == old_rel {
+                new_stem.clone()
+            } else if slash(&by_path) == old_rel {
+                relative_from(&rel, &new_rel)
+            } else {
+                continue;
+            };
+            report.edits.push(Edit {
+                file: rel.clone(),
+                line: i + 1,
+                from: value,
+                to: rewritten,
+            });
+        }
+    }
+
+    // Markdown links, rewritten; every other mention, reported. One walk, because the second
+    // list is defined against the first: a line is shown when it names the old file more
+    // often than it is rewritten, so a mention beside a handled link is not lost and a
+    // handled link is not shown as both done and undone. The entry's own lines are under the
+    // name it ends up with, as every edit is. `.yidam/.vendor/` is excluded for the reason
+    // lint excludes it: it is read-only here, and a finding there is one nobody can act on.
+    let vendor = yidam.join(".vendor");
+    let moved_rel = report.moved_file();
+    for path in walk_linkable_files(&yidam) {
+        if path.starts_with(&vendor) {
+            continue;
+        }
+        let rel = match path == old_path {
+            true => moved_rel.clone(),
+            false => slash(path.strip_prefix(root).unwrap_or(&path)),
+        };
+        let dir = Path::new(&rel).parent().unwrap_or(Path::new(""));
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let mut handled: std::collections::HashMap<usize, usize> = report
+            .edits
+            .iter()
+            .filter(|e| e.file == rel)
+            .fold(Default::default(), |mut m, e| {
+                *m.entry(e.line).or_default() += 1;
+                m
+            });
+        for link in prose_links(&rel, dir, &text) {
+            if slash(&normalize(&link.resolved)) != old_rel {
+                continue;
+            }
+            *handled.entry(link.line).or_default() += 1;
+            report.edits.push(Edit {
+                file: rel.clone(),
+                line: link.line,
+                from: link.target,
+                to: relative_from(&rel, &new_rel),
+            });
+        }
+        for (i, line) in text.lines().enumerate() {
+            let mentions = line.matches(old_name.as_str()).count();
+            if mentions <= handled.get(&(i + 1)).copied().unwrap_or(0) {
+                continue;
+            }
+            report.unhandled.push(Unhandled {
+                file: rel.clone(),
+                line: i + 1,
+                text: line.trim().to_string(),
+            });
+        }
+    }
+
+    report.moves.push(Edit {
+        file: slash(old_path.strip_prefix(root).unwrap_or(&old_path)),
+        line: 0,
+        from: from.clone(),
+        to: to.clone(),
+    });
+    report.commit_subject = format!(
+        "migrate: {from} → {to} ({} citation(s) rewritten)",
+        report.inbound().count()
+    );
+    report
+}
+
+/// The byte range of `target` where this line writes `[label](target)` or
+/// `[label](target#fragment)`, or none.
+fn link_span(line: &str, target: &str) -> Option<(usize, usize)> {
+    let at = line
+        .find(&format!("]({target})"))
+        .or_else(|| line.find(&format!("]({target}#")))?;
+    let start = at + 2;
+    Some((start, start + target.len()))
 }
 
 /// `pub(crate)` for `migrate`, which moves a whole class directory one instance at a time
@@ -336,9 +657,10 @@ pub(crate) fn git_mv(root: &Path, from: &Path, to: &Path) -> bool {
 ///
 /// Nothing observes a half-state either way: the gate reads the working tree, and the tree is
 /// only read once the command returns.
-fn apply(root: &Path, corpus: &Path, report: &mut RenameReport) -> Result<()> {
-    let old_path = corpus.join(&report.from);
-    let new_path = corpus.join(&report.to);
+fn apply(root: &Path, report: &mut RenameReport) -> Result<()> {
+    let base = root.join(&report.corpus_dir);
+    let old_path = base.join(&report.from);
+    let new_path = base.join(&report.to);
     if let Some(parent) = new_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -360,14 +682,24 @@ fn apply(root: &Path, corpus: &Path, report: &mut RenameReport) -> Result<()> {
             let Some(line) = lines.get_mut(e.line - 1) else {
                 continue;
             };
-            let Some((start, end, value)) = target_on(line) else {
-                continue;
-            };
             // Re-read rather than trusting the recorded span: the plan and the apply are two
             // reads of the same file, and rewriting a range that has moved would corrupt it.
-            if value != e.from {
+            // A catalog entry's edits are `source:` and `of:` values and markdown links; the
+            // last is found by its own syntax, and a line holding two of them is rewritten
+            // twice, each pass finding the first one still spelled the old way.
+            let keys: &[&str] = if report.catalog {
+                &CATALOG_KEYS
+            } else {
+                &["target"]
+            };
+            let span = match keys.iter().find_map(|k| value_on(line, k)) {
+                Some((start, end, value)) if value == e.from => Some((start, end)),
+                _ if report.catalog => link_span(line, &e.from),
+                _ => None,
+            };
+            let Some((start, end)) = span else {
                 continue;
-            }
+            };
             line.replace_range(start..end, &e.to);
         }
         let mut out = lines.join("\n");
@@ -375,6 +707,10 @@ fn apply(root: &Path, corpus: &Path, report: &mut RenameReport) -> Result<()> {
             out.push('\n');
         }
         std::fs::write(&path, out)?;
+    }
+
+    if let Some(e) = &report.moved_from {
+        write_moved_from(&new_path, e)?;
     }
 
     report.applied = true;
@@ -393,11 +729,16 @@ pub(crate) fn render_rename(r: &RenameReport) -> String {
     // subject. One number for both is a summary that says four over a message that says three.
     let inbound: Vec<&Edit> = r.inbound().collect();
     let mut out = format!(
-        "{} {} → {}\n{} inbound link(s) rewritten across {} file(s)\n",
+        "{} {} → {}\n{} {} rewritten across {} file(s)\n",
         if r.applied { "Renamed" } else { "Would rename" },
         r.from,
         r.to,
         inbound.len(),
+        if r.catalog {
+            "citation(s)"
+        } else {
+            "inbound link(s)"
+        },
         inbound
             .iter()
             .map(|e| e.file.as_str())
@@ -412,12 +753,22 @@ pub(crate) fn render_rename(r: &RenameReport) -> String {
     if !own.is_empty() {
         let _ = write!(
             out,
-            "\n{} link(s) inside the moved node re-relativized:\n",
-            own.len()
+            "\n{} link(s) inside the moved {} re-relativized:\n",
+            own.len(),
+            if r.catalog { "entry" } else { "node" }
         );
         for e in &own {
             let _ = writeln!(out, "  {}:{}  {} → {}", e.file, e.line, e.from, e.to);
         }
+    }
+    if let Some(e) = &r.moved_from {
+        let _ = writeln!(
+            out,
+            "\nThe moved node records where it came from, so its ages carry:\n  {}:{}  {}",
+            e.file,
+            e.line,
+            moved_from_text(e)
+        );
     }
     if !r.unhandled.is_empty() {
         let _ = write!(
@@ -433,14 +784,14 @@ pub(crate) fn render_rename(r: &RenameReport) -> String {
     out.trim_end().to_string()
 }
 
-/// Rename a corpus node, rewriting every edge into it.
+/// Rename a corpus node or a catalog entry, rewriting every edge into it.
 pub fn rename(old: &str, new: &str, dry_run: bool, format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
     let corpus = yidam_corpus_dir(&root);
     let mut report = plan(&root, &corpus, old, new);
 
     if report.blocked.is_empty() && !dry_run {
-        apply(&root, &corpus, &mut report)?;
+        apply(&root, &mut report)?;
     }
 
     let blocked = !report.blocked.is_empty();
@@ -520,7 +871,7 @@ mod tests {
         let mut r = plan(&root, &corpus, "concept/old", "concept/new");
         assert!(r.blocked.is_empty(), "{:?}", r.blocked);
         assert_eq!(r.edits.len(), 2);
-        apply(&root, &corpus, &mut r).unwrap();
+        apply(&root, &mut r).unwrap();
 
         assert!(corpus.join("concept/new.yml").is_file());
         assert!(!corpus.join("concept/old.yml").exists());
@@ -544,12 +895,89 @@ mod tests {
 
         let mut r = plan(&root, &corpus, "concept/old", "gauge/moved");
         assert!(r.blocked.is_empty(), "{:?}", r.blocked);
-        apply(&root, &corpus, &mut r).unwrap();
+        apply(&root, &mut r).unwrap();
 
         let moved = read(&corpus.join("gauge/moved.yml"));
         assert!(
             moved.contains("target: ../concept/sibling.yml"),
             "the moved node still points at its old sibling: {moved}"
+        );
+    }
+
+    /// The fourth edit. The moved node names the path it left, so the age folds can carry
+    /// its counts across the move (#1180). It is not a link, so it is counted apart from the
+    /// links: the summary and the commit subject still count the same thing.
+    #[test]
+    fn the_moved_node_records_the_path_it_left() {
+        let (_t, root, corpus) = corpus();
+        write(
+            &corpus.join("concept/old.yml"),
+            "class: concept\nlabel: Old\n",
+        );
+
+        let mut r = plan(&root, &corpus, "concept/old", "gauge/moved");
+        assert!(r.edits.is_empty(), "not a link edit: {:?}", r.edits);
+        apply(&root, &mut r).unwrap();
+
+        assert_eq!(
+            read(&corpus.join("gauge/moved.yml")),
+            "class: concept\nlabel: Old\nmoved-from: ../concept/old.yml\n"
+        );
+        let e = r.moved_from.as_ref().unwrap();
+        assert_eq!(
+            (e.file.as_str(), e.line),
+            (".yidam/corpus/gauge/moved.yml", 3)
+        );
+        assert!(render_rename(&r).contains("gauge/moved.yml:3  moved-from: ../concept/old.yml"));
+        assert!(r.commit_subject.ends_with("(0 inbound link(s) rewritten)"));
+    }
+
+    /// Each move names only the path it left, so a second rename replaces the line rather
+    /// than adding another.
+    #[test]
+    fn a_second_move_replaces_the_line_the_first_wrote() {
+        let (_t, root, corpus) = corpus();
+        write(
+            &corpus.join("concept/mid.yml"),
+            "class: concept\nmoved-from: ../concept/first.yml\nlabel: Mid\n",
+        );
+
+        let mut r = plan(&root, &corpus, "concept/mid", "concept/last");
+        apply(&root, &mut r).unwrap();
+
+        assert_eq!(
+            read(&corpus.join("concept/last.yml")),
+            "class: concept\nmoved-from: ../concept/mid.yml\nlabel: Mid\n"
+        );
+        assert_eq!(r.moved_from.as_ref().unwrap().from, "../concept/first.yml");
+    }
+
+    /// The line `rename` writes is the one the history fold reads. Rename an uncited open
+    /// question, commit it, and both of its ages are still the ones it had.
+    #[test]
+    fn a_renamed_node_keeps_its_ages() {
+        use crate::cmd::lint::history::{open_question_age, uncited_age};
+        use crate::git::fixture::{commit_at, init};
+
+        let (_t, root, corpus) = corpus();
+        init(&root);
+        write(
+            &corpus.join("concept/old.yml"),
+            "class: concept\nlabel: Old\ndescription: it is `[open]`\n",
+        );
+        commit_at(&root, "open: old", "2026-01-01T00:00:00Z");
+        write(&corpus.join("gauge/g.yml"), "class: gauge\n");
+        commit_at(&root, "establish: g", "2026-01-05T00:00:00Z");
+
+        let mut r = plan(&root, &corpus, "concept/old", "gauge/moved");
+        apply(&root, &mut r).unwrap();
+        commit_at(&root, &r.commit_subject, "2026-01-09T00:00:00Z");
+
+        let key = ".yidam/corpus/gauge/moved.yml";
+        assert_eq!(uncited_age(&root).get(key).map(|a| a.commits), Some(3));
+        assert_eq!(
+            open_question_age(&root).get(key).map(|a| a.commits),
+            Some(3)
         );
     }
 
@@ -573,7 +1001,7 @@ mod tests {
             "nothing broke, so nothing moves: {:?}",
             r.edits
         );
-        apply(&root, &corpus, &mut r).unwrap();
+        apply(&root, &mut r).unwrap();
         assert!(read(&corpus.join("concept/new.yml")).contains("target: ./sibling.yml"));
     }
 
@@ -640,7 +1068,7 @@ mod tests {
             "class: concept\nlinks:\n  - target: ../concept/old.yml\n    relationship: r\n",
         );
         let mut r = plan(&root, &corpus, "concept/old", "concept/new");
-        apply(&root, &corpus, &mut r).unwrap();
+        apply(&root, &mut r).unwrap();
         assert!(read(&corpus.join("concept/new.yml")).contains("target: ../concept/new.yml"));
     }
 
@@ -746,7 +1174,7 @@ mod tests {
             "class: concept\nlinks:\n  - target: \"../concept/old.yml\" # why\n    relationship: r\n",
         );
         let mut r = plan(&root, &corpus, "concept/old", "concept/new");
-        apply(&root, &corpus, &mut r).unwrap();
+        apply(&root, &mut r).unwrap();
         assert!(
             read(&corpus.join("concept/b.yml")).contains("target: \"../concept/new.yml\" # why")
         );
@@ -761,10 +1189,259 @@ mod tests {
             "class: concept\n\n# a comment\nlinks:\n  - target: ../concept/old.yml\n    relationship: r\n";
         write(&corpus.join("concept/b.yml"), original);
         let mut r = plan(&root, &corpus, "concept/old", "concept/new");
-        apply(&root, &corpus, &mut r).unwrap();
+        apply(&root, &mut r).unwrap();
         assert_eq!(
             read(&corpus.join("concept/b.yml")),
             original.replace("old.yml", "new.yml")
         );
+    }
+
+    /// A catalog entry is renamed with its own tolerance for how the name is written.
+    #[test]
+    fn a_catalog_entry_is_reached_by_any_of_its_spellings() {
+        for id in [
+            "catalog/old",
+            "catalog/old.md",
+            ".yidam/catalog/old.md",
+            "/.yidam/catalog/old",
+        ] {
+            assert_eq!(catalog_id(id).as_deref(), Some("catalog/old.md"), "{id}");
+        }
+        assert_eq!(catalog_id("concept/old"), None);
+        assert_eq!(
+            catalog_id(".yidam/corpus/catalog/x.yml"),
+            None,
+            "a class called catalog"
+        );
+        for new in ["new", "new.md", "catalog/new", ".yidam/catalog/new.md"] {
+            assert_eq!(catalog_entry(new), "catalog/new.md", "{new}");
+        }
+    }
+
+    #[test]
+    fn a_source_path_is_relative_to_the_node_that_writes_it() {
+        assert_eq!(
+            relative_from(".yidam/corpus/concept/x.yml", ".yidam/catalog/new.md"),
+            "../../catalog/new.md"
+        );
+        assert_eq!(
+            relative_from(".yidam/corpus/a/b/x.yml", ".yidam/catalog/new.md"),
+            "../../../catalog/new.md"
+        );
+    }
+
+    /// `resource:` is not `source:`, and a value that mentions the key is not the key.
+    #[test]
+    fn a_key_is_read_only_in_key_position() {
+        assert_eq!(
+            value_on("    source: acs # why", "source").map(|v| v.2),
+            Some("acs".to_string())
+        );
+        assert_eq!(
+            value_on("  - source: \"../../catalog/a.md\"", "source").map(|v| v.2),
+            Some("../../catalog/a.md".to_string())
+        );
+        assert_eq!(value_on("    resource: acs", "source"), None);
+        assert_eq!(value_on("    note: the source: of it", "source"), None);
+        assert_eq!(
+            target_on("  - target: ../concept/a.yml").map(|v| v.2),
+            Some("../concept/a.yml".to_string())
+        );
+    }
+
+    fn catalog(root: &Path, name: &str, text: &str) {
+        let dir = root.join(".yidam/catalog");
+        std::fs::create_dir_all(&dir).unwrap();
+        write(&dir.join(name), text);
+    }
+
+    /// A quotation's `of:` names a catalog entry the way a `source:` does, and moves with it
+    /// (RFC-0046) — a rename that left it behind would turn every quotation of the entry into
+    /// `quotation-unresolved`.
+    #[test]
+    fn a_quotation_of_a_catalog_entry_is_rewritten_with_it() {
+        let (_t, root, corpus) = corpus();
+        catalog(&root, "old.md", "---\nobtained: true\n---\n# Old\n");
+        write(
+            &corpus.join("concept/a.yml"),
+            "class: concept\nanchors:\n  - of: old\n    span: the words\n  - of: ../../catalog/old.md\n    span: more words\n",
+        );
+
+        let mut r = plan(&root, &corpus, "catalog/old", "new");
+        assert!(r.blocked.is_empty(), "{:?}", r.blocked);
+        assert_eq!(r.edits.len(), 2, "{:?}", r.edits);
+        assert!(r.unhandled.is_empty(), "{:?}", r.unhandled);
+        apply(&root, &mut r).unwrap();
+
+        let a = read(&corpus.join("concept/a.yml"));
+        assert!(a.contains("  - of: new\n"), "{a}");
+        assert!(a.contains("  - of: ../../catalog/new.md\n"), "{a}");
+    }
+
+    /// Both spellings `edge-source-unresolved` admits, each rewritten in the form it was
+    /// written in (#1159).
+    #[test]
+    fn every_edge_source_into_a_catalog_entry_is_rewritten_in_its_own_spelling() {
+        let (_t, root, corpus) = corpus();
+        catalog(&root, "old.md", "---\nobtained: true\n---\n# Old\n");
+        write(
+            &corpus.join("concept/a.yml"),
+            "class: concept\nlinks:\n  - target: ../concept/b.yml\n    relationship: r\n    source: ../../catalog/old.md\n",
+        );
+        write(
+            &corpus.join("gauge/g.yml"),
+            "class: gauge\nlinks:\n  - target: ../concept/b.yml\n    relationship: r\n    source: old # by stem\n",
+        );
+        write(&corpus.join("concept/b.yml"), "class: concept\n");
+
+        let mut r = plan(&root, &corpus, "catalog/old", "new");
+        assert!(r.blocked.is_empty(), "{:?}", r.blocked);
+        assert_eq!(r.corpus_dir, ".yidam");
+        assert_eq!(
+            (r.from.as_str(), r.to.as_str()),
+            ("catalog/old.md", "catalog/new.md")
+        );
+        assert_eq!(r.edits.len(), 2, "{:?}", r.edits);
+        assert!(r.unhandled.is_empty(), "{:?}", r.unhandled);
+        assert_eq!(
+            r.commit_subject,
+            "migrate: catalog/old.md → catalog/new.md (2 citation(s) rewritten)"
+        );
+        apply(&root, &mut r).unwrap();
+
+        assert!(root.join(".yidam/catalog/new.md").is_file());
+        assert!(!root.join(".yidam/catalog/old.md").exists());
+        assert!(read(&corpus.join("concept/a.yml")).contains("source: ../../catalog/new.md\n"));
+        assert!(read(&corpus.join("gauge/g.yml")).contains("source: new # by stem\n"));
+        assert!(!read(&corpus.join("concept/a.yml")).contains("target: ../concept/new"));
+    }
+
+    /// A `source:` that resolved to nothing is not the rename's to fix — but the reader is
+    /// shown it when it names the old file, and a stem that merely contains the old one is
+    /// not it.
+    #[test]
+    fn an_unresolving_source_is_left_but_shown() {
+        let (_t, root, corpus) = corpus();
+        catalog(&root, "old.md", "---\nobtained: true\n---\n");
+        write(
+            &corpus.join("concept/a.yml"),
+            "class: concept\nlinks:\n  - target: ../concept/a.yml\n    relationship: r\n    source: old.md\n  - target: ../concept/a.yml\n    relationship: r\n    source: older\n",
+        );
+        let r = plan(&root, &corpus, "catalog/old", "new");
+        assert!(r.edits.is_empty(), "{:?}", r.edits);
+        assert_eq!(r.unhandled.len(), 1, "{:?}", r.unhandled);
+        assert!(r.unhandled[0].text.contains("source: old.md"));
+    }
+
+    /// A markdown link in a node's prose is a citation the gate reads, and is rewritten; `.md`
+    /// prose is reported and never rewritten, the entry's own under the name it ends up with.
+    /// A rewritten line is not also reported, unless it names the old file once more.
+    #[test]
+    fn prose_naming_a_catalog_entry_is_reported_under_the_name_it_ends_up_with() {
+        let (_t, root, corpus) = corpus();
+        catalog(
+            &root,
+            "old.md",
+            "---\nobtained: true\n---\nSee also [itself](old.md).\n",
+        );
+        catalog(
+            &root,
+            "other.md",
+            "---\nobtained: true\n---\nSupersedes [old](old.md), formerly old.md.\n",
+        );
+        write(
+            &corpus.join("concept/a.yml"),
+            "class: concept\ndescription: Drawn from [old](../../catalog/old.md) and [again](../../catalog/old.md#L3), see old.md.\nlinks:\n  - target: ../concept/a.yml\n    relationship: r\n    source: ../../catalog/old.md\n",
+        );
+        let mut r = plan(&root, &corpus, "catalog/old", "new");
+        assert_eq!(r.edits.len(), 5, "{:?}", r.edits);
+        let files: Vec<(&str, usize)> = r
+            .unhandled
+            .iter()
+            .map(|u| (u.file.as_str(), u.line))
+            .collect();
+        assert_eq!(
+            files,
+            vec![
+                (".yidam/catalog/other.md", 4),
+                (".yidam/corpus/concept/a.yml", 2),
+            ],
+            "{:?}",
+            r.unhandled
+        );
+        let rendered = render_rename(&r);
+        assert!(
+            rendered.contains("4 citation(s) rewritten across 2 file(s)"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("1 link(s) inside the moved entry re-relativized:"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("2 prose reference(s) NOT rewritten"),
+            "{rendered}"
+        );
+        apply(&root, &mut r).unwrap();
+        let a = read(&corpus.join("concept/a.yml"));
+        assert!(
+            a.contains(
+                "[old](../../catalog/new.md) and [again](../../catalog/new.md#L3), see old.md."
+            ),
+            "{a}"
+        );
+        assert!(a.contains("source: ../../catalog/new.md\n"), "{a}");
+        assert!(read(&root.join(".yidam/catalog/new.md")).contains("[itself](new.md)"));
+        assert!(
+            read(&root.join(".yidam/catalog/other.md")).contains("[old](new.md), formerly old.md.")
+        );
+    }
+
+    #[test]
+    fn a_catalog_rename_is_refused_where_it_would_lose_or_nest_something() {
+        let (_t, root, corpus) = corpus();
+        catalog(&root, "a.md", "---\nobtained: true\n---\n");
+        catalog(&root, "b.md", "---\nobtained: true\n---\n");
+        let r = plan(&root, &corpus, "catalog/a", "b");
+        assert!(
+            r.blocked.iter().any(|b| b.contains("already exists")),
+            "{:?}",
+            r.blocked
+        );
+        let r = plan(&root, &corpus, "catalog/a", "sub/a");
+        assert!(
+            r.blocked.iter().any(|b| b.contains("one directory deep")),
+            "{:?}",
+            r.blocked
+        );
+        let r = plan(&root, &corpus, "catalog/ghost", "a");
+        assert!(
+            r.blocked.iter().any(|b| b.contains("not a catalog entry")),
+            "{:?}",
+            r.blocked
+        );
+        let r = plan(&root, &corpus, "catalog/README", "a");
+        assert!(
+            r.blocked.iter().any(|b| b.contains("not a catalog entry")),
+            "{:?}",
+            r.blocked
+        );
+        let r = plan(&root, &corpus, "catalog/a", "a.md");
+        assert!(
+            r.blocked.iter().any(|b| b.contains("the same")),
+            "{:?}",
+            r.blocked
+        );
+    }
+
+    /// A catalog rename's suggested subject is in the vocabulary too.
+    #[test]
+    fn a_catalog_renames_commit_verb_is_in_the_vocabulary() {
+        let (_t, root, corpus) = corpus();
+        catalog(&root, "old.md", "---\nobtained: true\n---\n");
+        let r = plan(&root, &corpus, "catalog/old", "new");
+        assert!(r.blocked.is_empty(), "{:?}", r.blocked);
+        let verb = r.commit_subject.split(": ").next().unwrap();
+        assert!(yidam_core::git::is_recognized_verb(verb), "{verb}");
     }
 }

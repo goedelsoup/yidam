@@ -1,0 +1,17 @@
+function = "parse_markers"
+description = "A line may carry more than one inline block; the scan resumes after each close tag rather than inside the next block's body"
+
+[input]
+content = """
+<!-- REGEN: a -->12<!-- /REGEN --> of <!-- REGEN: b -->44<!-- /REGEN --> districts.
+"""
+
+[[expected]]
+kind = "Regen"
+command = "a"
+content = "12"
+
+[[expected]]
+kind = "Regen"
+command = "b"
+content = "44"

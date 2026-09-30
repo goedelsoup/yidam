@@ -1,7 +1,7 @@
 # What may run in this corpus, what it may read, and what it may write.
 #
-# Two entries forming one pipeline. `travel-tier` computes how far each node's assertions may
-# travel — the rule `guidelines/agent-conduct.md` states and says must be computed rather than
+# Three entries: two forming one pipeline, and a third that is the first one's rule in the other
+# arm. `travel-tier` computes how far each node's assertions may travel — the rule `guidelines/agent-conduct.md` states and says must be computed rather than
 # declared. `disclosure-envelope` reads that answer and partitions the corpus by where each
 # node may go, which is the question an operator asks before publishing anything.
 #
@@ -21,6 +21,13 @@
 # file it has to be given. That is not a formality to satisfy — reading the script there is
 # what puts it in the input state, so editing a calculator makes its step stale and re-runs
 # it. A capability that left it out is refused by name rather than failing in the shell.
+#
+# `travel-tier` declares `.yidam/corpus/**`, so it is handed `$YIDAM_GRAPH`: the corpus as
+# `yidam` parsed it, with every link already resolved. That is what lets its script be the chain
+# rule and nothing else — it used to carry a YAML regex and its own link resolver, which were a
+# second answer to a question `yidam` answers, and no gate compared them. `disclosure-envelope`
+# declares no corpus path and is handed no graph, which is the point of it: the second step of a
+# pipeline reads the first step's answer.
 #
 # Why the result is a file and not a property on the nodes: `decisions/base-flow-index-
 # carries-its-method.yml` settled that here already. A derived quantity carries its method
@@ -47,3 +54,33 @@ reads  = [".yidam/computed/travel-tier.yml", ".yidam/capabilities/**"]
 writes = [".yidam/computed/**"]
 verb   = "compute"
 after  = ["travel-tier"]
+
+# The third entry is the same rule as the first, in the other arm. `travel-tier-typed` is
+# RFC-0042's downstream reference case: a calculator declared `run = { gluon = … }`, whose
+# purity is a closed prelude and a typecheck against `Corpus -> Computed` rather than a norm the
+# executor enforces on the way out.
+#
+# It is *beside* `travel-tier` and not a replacement for it, and that is a property of the
+# feature and not a preference. `calculators-gluon` is outside the default set, so the released
+# binary declines this step by name and commits nothing — which is the right behaviour and also
+# the reason the shell arm has to stay: a corpus whose only route to the chain rule was a typed
+# one would have no route to it in most builds. Two arms over one rule is what the reference
+# case is for.
+#
+# It declares no `after`. It is not the pipeline's second stage and nothing reads it; it reads
+# `.yidam/corpus/**` exactly as `travel-tier` does, so the two are independent and a run may
+# order them either way.
+#
+# The signals it commits are not the ones `travel-tier` commits, and they could not be. A signal
+# name is corpus-wide — `Signals::load` refuses a name two computed files declare — so a second
+# calculator over the same rule either says something else or says nothing. This one commits the
+# rule's intermediate facts: `weakest_beneath`, the node whose claim set the tier, and
+# `chain_depth`, how many hops down that node is. `travel-tier` commits the tier and cannot say
+# where it came from; between them the answer and its account are both in the corpus.
+
+[capability.travel-tier-typed]
+kind   = "calculator"
+run    = { gluon = ".yidam/capabilities/travel-tier-typed.glu" }
+reads  = [".yidam/corpus/**", ".yidam/capabilities/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"

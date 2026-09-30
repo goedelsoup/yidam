@@ -103,6 +103,10 @@ A path `.yidam/private-paths` declares private that intersects one of those refu
 and names it. That is the same rule the release workflow applies to a bundle, for the reason it
 gives: *the artifact outlives the access.*
 
+**A text reading goes where its PDF goes.** `catalog-extract` records a reading under the PDF's
+record. The reading takes the PDF's `vault` and `redistributable`. The text of a document has the
+licence of the document.
+
 **`.yidam/private-paths` applies over the top of both**, and is checked first. It is a
 statement about this repository that the person running the command can act on. A licence is a
 fact about a third party they may not be able to change at all.

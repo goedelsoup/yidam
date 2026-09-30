@@ -377,6 +377,14 @@ jobs:
     concurrency:
       group: pages
       cancel-in-progress: false
+    # A job-level block replaces the workflow's, so all four are restated. `contents: write`
+    # is this job's alone, for the one unreferenced commit object the deploy step writes as
+    # its build version; it creates no ref and moves no branch.
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+      actions: read
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -425,23 +433,56 @@ jobs:
       # is the action's cancellation handling: cancelling this run leaves the Pages
       # deployment to reach its own terminal state rather than cancelling it.
       #
-      # If Pages ever refuses a build version that is not a bare sha, this step fails at the
-      # request rather than after it — loudly, before the check below — and the fix is to
-      # send a value it accepts, never to go back to sending the sha alone.
+      # It did refuse something. Every run from the one that shipped this step to #1085's
+      # fix failed at the request — `{"message":"Not Found"}`, naming nothing — and the site
+      # went twenty-five merges without publishing. #1085 then sent two values in an order,
+      # and `cli/v0.16.0` answered it: Pages 404'd `<sha>-<run id>` and accepted the bare
+      # commit, with the same artifact id both times. **A build version must be a real
+      # commit.** The bare commit was the one main's push had deployed ten minutes earlier,
+      # so the tag's deployment was accepted and published nothing — #992 again.
+      #
+      # So the build version is a commit made for this run: this run's commit's tree, with
+      # that commit as its parent, written through the Git Data API and referenced by
+      # nothing. It is real, so Pages can find it, and new, so Pages has never deployed it.
+      # Nothing points at it and nothing reads it after this step; git collects it.
       - name: Deploy to GitHub Pages
         id: deployment
         env:
           GH_TOKEN: ${{ github.token }}
-          # The whole fix. Deliberately not spelled `GITHUB_SHA`: that name belongs to the
-          # runner and this one does not.
-          BUILD_VERSION: ${{ github.sha }}-${{ github.run_id }}
         run: |
           set -euo pipefail
+
+          # ── every request this step makes names itself (#1085) ───────────────────
+          #
+          # `gh` writes its own diagnosis to stderr and exits 1, and `set -e` then ends the
+          # step with that message detached from the call that produced it. This step made
+          # three requests and printed nothing before the first, so for twenty-five
+          # consecutive runs the entire log was `gh: Not Found (HTTP 404)` — belonging to an
+          # unidentified one of them, while the site went a day without publishing.
+          #
+          # Every call goes through here instead. The label and the response body reach the
+          # log together, and the body is where the API says which resource it could not
+          # find. `>&2` is load-bearing: the caller reads this function through `$(…)`, so a
+          # label printed to stdout would be captured as data and reach nobody.
+          request() {
+            local label=$1
+            shift
+            local body
+            if ! body=$(gh api "$@" 2>&1); then
+              {
+                echo "::error::${label} failed"
+                echo "${body}"
+              } >&2
+              return 1
+            fi
+            printf '%s' "$body"
+          }
 
           # The artifact `upload-pages-artifact` left in this run. The action asks the
           # Actions results service for it by name; this is the REST spelling of the same
           # question, and it is what the `actions: read` permission above is for.
-          artifacts=$(gh api \
+          echo "GET  runs/${GITHUB_RUN_ID}/artifacts?name=github-pages"
+          artifacts=$(request "listing this run's github-pages artifact" \
             "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?name=github-pages")
           found=$(jq '.artifacts | length' <<<"$artifacts")
           if [ "$found" != "1" ]; then
@@ -451,23 +492,86 @@ jobs:
             exit 1
           fi
           artifact_id=$(jq '.artifacts[0].id' <<<"$artifacts")
+          echo "     $(jq -c '.artifacts[0] | {id, name, expired, size_in_bytes}' <<<"$artifacts")"
 
           # Pages authorises the deployment with an OIDC token, which is what this job's
           # `id-token: write` permission mints. Masked because it is a bearer credential and
           # everything below prints freely.
+          #
+          # Both variables are checked rather than read blind. A job granted no
+          # `id-token: write` has neither, and under `set -u` the step would end on the name
+          # of a variable instead of on the reason it is missing.
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] ||
+             [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "::error::this job was granted no id-token: write, so there is no OIDC"
+            echo "::error::request to mint the token Pages authorises a deployment with."
+            exit 1
+          fi
+          echo "GET  the OIDC token for this job"
           id_token=$(curl -fsS \
             -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}" | jq -r '.value')
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}" | jq -r '.value // ""')
           echo "::add-mask::${id_token}"
+          [ -n "$id_token" ] || {
+            echo "::error::the OIDC request returned a response with no token in it."
+            exit 1
+          }
+          echo "     token minted, ${#id_token} characters"
 
-          created=$(jq -nc \
+          # ── the build version: a commit Pages has never deployed (#992) ─────────
+          #
+          # Made from this run's commit rather than invented: same tree, that commit as its
+          # only parent, and a message naming the run, so a reader who finds the id in the
+          # deployments list can tell where it came from.
+          echo "GET  git/commits/${GITHUB_SHA}"
+          tree=$(request "reading this run's commit" \
+            "repos/${GITHUB_REPOSITORY}/git/commits/${GITHUB_SHA}" --jq '.tree.sha')
+          echo "     tree ${tree}"
+          echo "POST git/commits"
+          build_version=$(jq -nc \
+              --arg tree "$tree" \
+              --arg parent "$GITHUB_SHA" \
+              --arg message "Pages deployment of ${GITHUB_SHA} for ${GITHUB_REF} (run ${GITHUB_RUN_ID})" \
+              '{tree: $tree, parents: [$parent], message: $message}' \
+            | request "writing the commit this deployment is identified by" \
+                -X POST "repos/${GITHUB_REPOSITORY}/git/commits" --input - --jq '.sha') || build_version=""
+          echo "     ${build_version:-no commit written}"
+
+          payload() {
+            jq -nc \
               --argjson artifact_id "$artifact_id" \
-              --arg pages_build_version "$BUILD_VERSION" \
+              --arg pages_build_version "$1" \
               --arg oidc_token "$id_token" \
               '{artifact_id: $artifact_id,
                 pages_build_version: $pages_build_version,
-                oidc_token: $oidc_token}' \
-            | gh api -X POST "repos/${GITHUB_REPOSITORY}/pages/deployments" --input -)
+                oidc_token: $oidc_token}'
+          }
+          deploy() {
+            # To stderr: the caller reads this function through `$(…)`, as it does `request`.
+            {
+              echo "POST pages/deployments"
+              echo "     artifact_id ${artifact_id}, pages_build_version $1"
+            } >&2
+            payload "$1" | request "creating the Pages deployment ($2)" \
+              -X POST "repos/${GITHUB_REPOSITORY}/pages/deployments" --input -
+          }
+
+          # The bare commit is kept as a fallback, loudly. It publishes on a push to main,
+          # where the commit is always new; on a tag or a dispatch it is the #992 no-op, and
+          # the check after this step goes red on it. A site that publishes with a warning
+          # beats one that goes a day without publishing, which is what this step did once.
+          if [ -n "$build_version" ] &&
+             created=$(deploy "$build_version" "a commit written for this run"); then
+            sent=$build_version
+          else
+            echo "::warning::Pages did not take a commit written for this run, so this"
+            echo "::warning::deployment is identified by the bare commit instead. On a tag"
+            echo "::warning::or a dispatch, that commit is already live and the deployment"
+            echo "::warning::publishes nothing (#992); the check after this step says so."
+            created=$(deploy "$GITHUB_SHA" "the bare commit")
+            sent=$GITHUB_SHA
+          fi
+          echo "     Pages answered: ${created}"
 
           # Pages hands the build version back as the deployment's id. Read *that*, and not
           # the value this step declared: the server's copy is the only line here that is
@@ -478,7 +582,7 @@ jobs:
           [ -n "$id" ] || { echo "::error::Pages returned no deployment id"; exit 1; }
           page_url=$(jq -r '.page_url // ""' <<<"$created")
           [ -n "$page_url" ] || { echo "::error::Pages returned no page_url"; exit 1; }
-          echo "requested build version:      ${BUILD_VERSION}"
+          echo "build version Pages was sent: ${sent}"
           echo "Pages recorded deployment id: ${id}"
           echo "page_url=${page_url}" >> "$GITHUB_OUTPUT"
 
@@ -486,7 +590,8 @@ jobs:
           # spelling; the four failures below are terminal and everything else is progress.
           for _ in $(seq 1 60); do
             sleep 10
-            status=$(gh api "repos/${GITHUB_REPOSITORY}/pages/deployments/${id}" \
+            status=$(request "polling deployment ${id}" \
+              "repos/${GITHUB_REPOSITORY}/pages/deployments/${id}" \
               --jq '.status' || echo 'unknown_status')
             echo "  status: ${status}"
             case "${status}" in

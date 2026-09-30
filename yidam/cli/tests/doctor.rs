@@ -215,9 +215,13 @@ fn the_json_report_carries_the_envelope_and_every_check() {
         "index",
         "computed",
         "regen",
+        "routes",
+        "scaffold",
+        "ci",
         "catalog",
         "corpora",
         "corpus",
+        "contract",
         "vault",
         "remote-index",
         "policy",
@@ -419,4 +423,313 @@ fn a_repository_holding_no_kuten_is_not_asked_whether_anything_reads_one() {
     let r = run(tmp.path(), &["doctor", "--format", "json"]);
     let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
     assert_eq!(check(&v, "kuten-read")["verdict"], "skipped");
+}
+
+/// An `AGENTS.md` from before RFC-0039 has no `yidam routes` block, and `regen --check` cannot
+/// see a block that is missing. This is the one surface that says so (#1135).
+#[test]
+fn an_agents_md_with_no_routes_block_is_reported_with_the_migration() {
+    let tmp = stage();
+    std::fs::write(
+        tmp.path().join("AGENTS.md"),
+        "# Agents\n\n## Before taking substantive action\n\n\
+         - [Identity](.yidam/.vendor/prelude/IDENTITY.md)\n",
+    )
+    .unwrap();
+    let routes = tmp.path().join(".yidam/.vendor/prelude/routes.yml");
+    std::fs::create_dir_all(routes.parent().unwrap()).unwrap();
+    std::fs::write(&routes, "always: []\noccasions: []\nreference: []\n").unwrap();
+
+    let r = run(tmp.path(), &["doctor", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
+    let c = check(&v, "routes");
+    assert_eq!(c["verdict"], "warn", "{c:#?}");
+    assert_eq!(
+        c["remedy"], "yidam migrate routes, committed as a `migrate:` commit",
+        "{c:#?}"
+    );
+}
+
+/// Before a re-vendor there are no routes to migrate to, and the remedy says to fetch them first.
+#[test]
+fn a_routes_warning_before_a_revendor_names_the_revendor_first() {
+    let tmp = stage();
+    std::fs::write(tmp.path().join("AGENTS.md"), "# Agents\n").unwrap();
+    let r = run(tmp.path(), &["doctor", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
+    let c = check(&v, "routes");
+    assert_eq!(c["verdict"], "warn", "{c:#?}");
+    assert!(
+        c["remedy"]
+            .as_str()
+            .unwrap()
+            .starts_with("mise run yidam-vendor-update"),
+        "{c:#?}"
+    );
+}
+
+#[test]
+fn an_agents_md_carrying_the_routes_block_reads_as_held() {
+    let tmp = stage();
+    std::fs::write(
+        tmp.path().join("AGENTS.md"),
+        "# Agents\n\n<!-- REGEN: yidam routes\n-->\n_Run `yidam routes`._\n<!-- /REGEN -->\n",
+    )
+    .unwrap();
+    let r = run(tmp.path(), &["doctor", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
+    let c = check(&v, "routes");
+    assert_eq!(c["verdict"], "ok", "{c:#?}");
+    assert_eq!(c["remedy"], serde_json::Value::Null);
+}
+
+#[test]
+fn a_repository_with_no_agents_md_is_not_asked_about_routes() {
+    let tmp = stage();
+    let r = run(tmp.path(), &["doctor", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).expect("doctor emits JSON");
+    assert_eq!(check(&v, "routes")["verdict"], "skipped");
+}
+
+/// The scaffold's two files, as genesis installed them before #1054, or with their regions.
+fn with_scaffold(root: &Path, marked: bool) {
+    let (ci, claude) = if marked {
+        (
+            "jobs:\n  # <!-- YIDAM:CI -->\n  corpus:\n    steps:\n      - run: yidam graph-check\n  # <!-- /YIDAM:CI -->\n",
+            "# W\n\n<!-- YIDAM:CLAUDE -->\n\n## The short version\n\n<!-- /YIDAM:CLAUDE -->\n",
+        )
+    } else {
+        (
+            "jobs:\n  corpus:\n    steps:\n      - run: yidam graph-check\n",
+            "# W\n\n## The short version\n\n- a\n",
+        )
+    };
+    std::fs::create_dir_all(root.join(".github/workflows")).unwrap();
+    std::fs::create_dir_all(root.join(".claude")).unwrap();
+    std::fs::write(root.join(".github/workflows/ci.yml"), ci).unwrap();
+    std::fs::write(root.join(".claude/CLAUDE.md"), claude).unwrap();
+}
+
+fn doctor_json(root: &Path) -> serde_json::Value {
+    let r = run(root, &["doctor", "--format", "json"]);
+    serde_json::from_str(&r.stdout).expect("doctor emits JSON")
+}
+
+/// Without markers no re-vendor reaches `ci.yml` or `CLAUDE.md` (#1054), and nothing else says so.
+#[test]
+fn unmarked_scaffold_files_are_reported_with_the_migration() {
+    let tmp = stage();
+    with_scaffold(tmp.path(), false);
+    let v = doctor_json(tmp.path());
+    let c = check(&v, "scaffold");
+    assert_eq!(c["verdict"], "warn", "{c:#?}");
+    let detail = c["detail"].as_str().unwrap();
+    assert!(
+        detail.contains(".github/workflows/ci.yml") && detail.contains(".claude/CLAUDE.md"),
+        "{c:#?}"
+    );
+    assert!(
+        c["remedy"]
+            .as_str()
+            .unwrap()
+            .starts_with("yidam migrate scaffold"),
+        "{c:#?}"
+    );
+}
+
+#[test]
+fn marked_scaffold_files_read_as_held() {
+    let tmp = stage();
+    with_scaffold(tmp.path(), true);
+    let v = doctor_json(tmp.path());
+    assert_eq!(check(&v, "scaffold")["verdict"], "ok");
+    assert_eq!(check(&v, "scaffold")["remedy"], serde_json::Value::Null);
+}
+
+/// A `CLAUDE.md` the owner wrote whole is not asked for a region `migrate scaffold` would not
+/// give it: a warning with no way to clear it is one to live with forever.
+#[test]
+fn an_owner_written_claude_md_is_not_asked_for_a_region() {
+    let tmp = stage();
+    with_scaffold(tmp.path(), true);
+    std::fs::write(
+        tmp.path().join(".claude/CLAUDE.md"),
+        "# Ours\n\n## Our rules\n",
+    )
+    .unwrap();
+    let v = doctor_json(tmp.path());
+    assert_eq!(
+        check(&v, "scaffold")["verdict"],
+        "ok",
+        "{:#?}",
+        check(&v, "scaffold")
+    );
+}
+
+#[test]
+fn a_repository_with_neither_file_is_not_asked_about_the_scaffold() {
+    let tmp = stage();
+    let v = doctor_json(tmp.path());
+    assert_eq!(check(&v, "scaffold")["verdict"], "skipped");
+}
+
+#[test]
+fn a_workflow_that_runs_a_gate_reads_as_gated() {
+    let tmp = stage();
+    with_scaffold(tmp.path(), false);
+    let v = doctor_json(tmp.path());
+    let c = check(&v, "ci");
+    assert_eq!(c["verdict"], "ok", "{c:#?}");
+    assert_eq!(c["detail"], "runs yidam graph-check", "{c:#?}");
+}
+
+/// A gate named only in prose runs nothing, and a green check then says nothing about the graph.
+#[test]
+fn a_workflow_that_only_mentions_a_gate_is_reported() {
+    let tmp = stage();
+    with_scaffold(tmp.path(), false);
+    std::fs::write(
+        tmp.path().join(".github/workflows/ci.yml"),
+        "jobs:\n  # the corpus gate was `yidam graph-check`\n  test:\n    steps:\n      - run: cargo test\n",
+    )
+    .unwrap();
+    let v = doctor_json(tmp.path());
+    let c = check(&v, "ci");
+    assert_eq!(c["verdict"], "warn", "{c:#?}");
+    assert!(
+        c["detail"]
+            .as_str()
+            .unwrap()
+            .contains("none of 1 workflow(s)"),
+        "{c:#?}"
+    );
+}
+
+/// ohio-budget's shape: the workflow runs `mise run ci`, and the repository's own task gates.
+#[test]
+fn a_gate_reached_through_the_repository_s_own_task_counts() {
+    let tmp = stage();
+    with_scaffold(tmp.path(), false);
+    std::fs::write(
+        tmp.path().join(".github/workflows/ci.yml"),
+        "jobs:\n  gate:\n    steps:\n      - run: mise run ci\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.path().join("mise.toml"),
+        "[tasks.ci]\nrun = [\"cargo test\", \"yidam graph-check\"]\n",
+    )
+    .unwrap();
+    let v = doctor_json(tmp.path());
+    let c = check(&v, "ci");
+    assert_eq!(c["verdict"], "ok", "{c:#?}");
+    assert_eq!(
+        c["detail"], "runs mise run ci (yidam graph-check)",
+        "{c:#?}"
+    );
+}
+
+#[test]
+fn a_repository_with_no_workflows_is_warned_that_none_can_be_read() {
+    let tmp = stage();
+    let v = doctor_json(tmp.path());
+    let c = check(&v, "ci");
+    assert_eq!(c["verdict"], "warn", "{c:#?}");
+    assert!(
+        c["detail"]
+            .as_str()
+            .unwrap()
+            .contains("no `.github/workflows/`"),
+        "{c:#?}"
+    );
+}
+
+/// The line `yidam-vendor-update` runs to ask `contract` (#1078), out of the file that ships.
+///
+/// By content rather than by line number, and exactly one: the task keeps it on one line so
+/// this test runs what a re-vendor runs, and not a copy of it.
+fn vendor_contract_line() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../mise.yidam.toml");
+    let doc: toml::Table = std::fs::read_to_string(path)
+        .expect("mise.yidam.toml is readable")
+        .parse()
+        .expect("mise.yidam.toml parses");
+    let body = doc["yidam-vendor-update"]["run"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let found: Vec<&str> = body
+        .lines()
+        .filter(|l| l.contains("doctor --only contract"))
+        .collect();
+    assert_eq!(found.len(), 1, "one line asks `contract`: {found:?}");
+    found[0].trim().to_string()
+}
+
+/// Run the vendor task's line in `root`, under the task's own `set -eu`, with `bin` as the
+/// whole of `PATH`. Returns stdout, and fails the test if the line would stop a re-vendor.
+fn run_vendor_line(root: &Path, bin: &Path) -> String {
+    let out = Command::new("/bin/sh")
+        .args(["-euc", &vendor_contract_line()])
+        .current_dir(root)
+        .env("PATH", bin)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "the line must never fail a re-vendor: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+/// A directory holding only a `yidam` that is this build.
+fn bin_dir() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_yidam"), dir.path().join("yidam")).unwrap();
+    dir
+}
+
+/// **A re-vendor asks the question** (#1078). ohio-education-funding and matt-huffman both
+/// re-vendored past the commit that introduced `required:`, and neither was told. The line
+/// prints the warning when the ontology never answered, and prints nothing once it has.
+#[test]
+fn a_re_vendor_asks_whether_the_ontology_stated_its_contract() {
+    let tmp = stage();
+    let bin = bin_dir();
+
+    // The fixture answers `required:` on one class and states no `edge_policy:` anywhere.
+    let out = run_vendor_line(tmp.path(), bin.path());
+    assert!(out.contains("warn  contract"), "{out}");
+    assert!(out.contains("`edge_policy:`"), "{out}");
+
+    for class in ["concept", "gauge"] {
+        let path = tmp.path().join(format!(".yidam/corpus/{class}.ont.yml"));
+        let mut text = std::fs::read_to_string(&path).unwrap();
+        text.push_str("edge_policy: characteristic\n");
+        std::fs::write(&path, text).unwrap();
+    }
+    let out = run_vendor_line(tmp.path(), bin.path());
+    assert_eq!(out, "", "an ontology that answered is not told again");
+}
+
+/// With no `yidam` on `PATH`, or one too old to know `--only`, the line prints nothing and
+/// the re-vendor goes on. The old binary is a stand-in that refuses the flag the way clap
+/// does: usage on stderr, nothing on stdout, exit 2.
+#[test]
+fn a_re_vendor_without_a_binary_that_knows_the_question_is_quiet() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = stage();
+    let empty = tempfile::tempdir().unwrap();
+    assert_eq!(run_vendor_line(tmp.path(), empty.path()), "");
+
+    let old = tempfile::tempdir().unwrap();
+    let yidam = old.path().join("yidam");
+    std::fs::write(
+        &yidam,
+        "#!/bin/sh\necho \"error: unexpected argument '--only' found\" >&2\nexit 2\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&yidam, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(run_vendor_line(tmp.path(), old.path()), "");
 }

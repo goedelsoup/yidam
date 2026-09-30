@@ -1,0 +1,14 @@
+function = "update_regen"
+description = "A command names its block exactly, so a shorter command does not claim a longer one's block (#1058). With RFC-0043's `count` the argument is part of the command, which turns this from a naming accident into a property of the query text"
+
+[input]
+command = "yidam status"
+new_content = "new"
+content = """
+<!-- REGEN: yidam status-quo -->old<!-- /REGEN -->
+"""
+
+[expected]
+content = """
+<!-- REGEN: yidam status-quo -->old<!-- /REGEN -->
+"""

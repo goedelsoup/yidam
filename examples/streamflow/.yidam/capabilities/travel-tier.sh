@@ -20,27 +20,36 @@
 # illustrative.
 #
 # The contract it is invoked under: it stands in a tree holding exactly what the manifest
-# declares it reads, and it writes under $YIDAM_OUT. It never sees the working tree.
+# declares it reads, it is handed the resolved corpus at $YIDAM_GRAPH, and it writes under
+# $YIDAM_OUT. It never sees the working tree.
+#
+# ── what this script no longer does (#1080) ──────────────────────────────────
+#
+# It used to be 190 lines, and most of them were not the travel-tier rule. It parsed node
+# YAML by regex on `/^  claim_tag:/` and `/^  - target:/`; it re-implemented link resolution
+# as an awk `function resolve(base, t)`, which was a second answer to the question
+# `corpus/edges.rs`'s `resolve_target` already answers and which nothing compared against it;
+# and it opened with a `find | sort` and an `LC_ALL=C` so that the order awk saw files in was
+# a property of the corpus rather than of the locale.
+#
+# All three are gone, because `yidam run` now hands the resolved corpus over: `$YIDAM_GRAPH`
+# is the CLI's own parse, the CLI's own link resolution, and the CLI's own walk order, in
+# tab-separated records. What is left below is the rule.
 
 set -eu
-
-# Byte ordering, so the row order is a property of the corpus and not of the locale the run
-# happened to start in.
-LC_ALL=C
-export LC_ALL
 
 out="$YIDAM_OUT/.yidam/computed"
 mkdir -p "$out"
 
-# The node files, in byte order, as arguments rather than on stdin: awk keys each record on
-# FILENAME, and a list piped in would be read as the corpus rather than as the names of it.
-# Built one line at a time so a path holding a space stays one path.
-set --
-while IFS= read -r f; do set -- "$@" "$f"; done <<LIST
-$(find .yidam/corpus -name '*.yml' ! -name '*.ont.yml' | sort)
-LIST
+# Stated rather than left to `awk` reading an empty name. A step is handed no resolved corpus
+# when its declared `reads` admit no node, and a calculator over the corpus that finds itself
+# in that position has a manifest problem rather than an empty corpus.
+if [ -z "${YIDAM_GRAPH:-}" ]; then
+  echo "travel-tier: no resolved corpus. Does this step's \`reads\` cover .yidam/corpus?" >&2
+  exit 1
+fi
 
-awk '
+awk -F'\t' '
 # ── the claim vocabulary, weakest first ──────────────────────────────────────
 #
 # `unmarked` ranks below `open` deliberately. A node that has not declared its evidence
@@ -56,67 +65,39 @@ BEGIN {
   name[0] = "unmarked"; name[1] = "open"; name[2] = "inference"; name[3] = "verified"
 }
 
-# ── read one node per file ───────────────────────────────────────────────────
-FILENAME != seen {
-  seen = FILENAME
-  id = FILENAME
-  sub(/^\.yidam\/corpus\//, "", id)
-  sub(/\.yml$/, "", id)
-  nodes[++n] = id
-  here = id
-  sub(/\/[^\/]*$/, "", here)   # the directory the file sits in, for relative targets
-  dir[id] = here
-  declared[id] = "unmarked"
-  current = id
-  pending = ""
-}
-
-/^  claim_tag:/ {
-  v = $2
-  gsub(/["\[\]]/, "", v)
-  if (v in rank) declared[current] = v
-  next
-}
-
-# A link is two lines: the target, then the relationship it is drawn under.
-/^  - target:/ { pending = $3; next }
-
-/^    relationship:/ {
-  if (pending == "") next
-  rel = $2
-  target = pending
-  pending = ""
-  # `instance-of` points at the class definition, which carries no claim and is not part of
-  # any supporting chain. Every other outgoing link is.
-  if (rel == "instance-of") next
-  add_edge(current, resolve(dir[current], target))
-  next
-}
-
-# ── resolving a link target to a node id ─────────────────────────────────────
+# ── the node id this corpus reports signals against ──────────────────────────
 #
-# Targets are relative to the file the link is written in, which is how the corpus is
-# authored and how every other reader of it resolves them.
-function resolve(base, t,   parts, i, k, stack, outp) {
-  t = base "/" t
-  k = split(t, parts, "/")
-  outp = 0
-  for (i = 1; i <= k; i++) {
-    if (parts[i] == "." || parts[i] == "") continue
-    if (parts[i] == "..") { if (outp > 0) outp--; continue }
-    stack[++outp] = parts[i]
-  }
-  t = ""
-  for (i = 1; i <= outp; i++) t = (i == 1 ? stack[i] : t "/" stack[i])
-  sub(/\.yml$/, "", t)
-  return t
+# The resolved corpus identifies a node by its repository-relative path, which is the
+# spelling `reads` and the receipt use. A signal table names nodes in the reference grammar —
+# `concept/base-flow-separation` — so the prefix and the extension come off here, once, and
+# by string surgery rather than by a regex: `.yidam/corpus/` holds two dots and a pattern
+# built from it would also match `Xyidam/corpus/`.
+function id(p) {
+  if (substr(p, 1, length(prefix)) == prefix) p = substr(p, length(prefix) + 1)
+  if (substr(p, length(p) - 3) == ".yml") p = substr(p, 1, length(p) - 4)
+  return p
 }
 
-# Every outgoing link that is not `instance-of`. Whether its target is part of the chain is
-# decided at END and not here: a link may point at a node whose file has not been read yet,
-# so a target is classified against the whole corpus or against nothing.
-function add_edge(a, b) {
-  edges[++e] = a SUBSEP b
+$1 == "corpus_dir" { prefix = $2 "/"; next }
+
+$1 == "node" {
+  nodes[++n] = id($2)
+  declared[id($2)] = "unmarked"
+  next
+}
+
+$1 == "prop" && $3 == "claim_tag" {
+  if ($5 in rank) declared[id($2)] = $5
+  next
+}
+
+# `instance-of` points at the class definition, which carries no claim and is not part of any
+# supporting chain. Every other outgoing link is. Whether the target is one of this corpus
+# nodes is decided at END and not here: a link may point at a node whose record has not been
+# read yet, so a target is classified against the whole corpus or against nothing.
+$1 == "link" && $4 != "instance-of" {
+  edges[++e] = id($2) SUBSEP id($6)
+  next
 }
 
 # ── the fixed point, and the report ──────────────────────────────────────────
@@ -127,8 +108,7 @@ END {
   # of any supporting chain — a class definition, a catalog anchor, or a target that is not
   # there at all. Counted rather than silently dropped: a chain rule that quietly ignored
   # part of the outgoing links of a node would compute a tier that travels further than it
-  # should,
-  # which is the one direction this vocabulary exists to prevent.
+  # should, which is the one direction this vocabulary exists to prevent.
   for (j = 1; j <= e; j++) {
     split(edges[j], ab, SUBSEP)
     if (!(ab[2] in tier)) off++
@@ -175,16 +155,16 @@ END {
   # that node — which is what makes `travels_as` reach a search rather than only a reader.
   printf "signals:\n"
   for (i = 1; i <= n; i++) {
-    id = nodes[i]
-    printf "  - node: %s\n", id
-    printf "    declared: %s\n", declared[id]
-    printf "    travels_as: %s\n", name[tier[id]]
-    printf "    downgraded: %s\n", (rank[declared[id]] > tier[id] ? "true" : "false")
-    if (rank[declared[id]] > tier[id]) down++
+    nd = nodes[i]
+    printf "  - node: %s\n", nd
+    printf "    declared: %s\n", declared[nd]
+    printf "    travels_as: %s\n", name[tier[nd]]
+    printf "    downgraded: %s\n", (rank[declared[nd]] > tier[nd] ? "true" : "false")
+    if (rank[declared[nd]] > tier[nd]) down++
   }
   printf "summary:\n"
   printf "  nodes: %d\n", n
   printf "  downgraded: %d\n", down + 0
   printf "  links_to_non_nodes: %d\n", off + 0
 }
-' "$@" > "$out/travel-tier.yml"
+' "$YIDAM_GRAPH" > "$out/travel-tier.yml"

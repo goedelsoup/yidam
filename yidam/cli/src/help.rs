@@ -42,8 +42,9 @@
 //! existence and no-duplicate gates already cover it. Its order is [`GROUPS`]' own, which
 //! is why that order is by what a reader wants first.
 //!
-//! A short list is only worth having while it is short, and nothing about printing thirteen
-//! rows resists a fourteenth. [`tests::the_short_help_stays_short`] is the resistance.
+//! A short list is only worth having while it is short, and nothing about printing fourteen
+//! rows resists a fifteenth. [`tests::the_short_help_stays_short`] is the resistance, and it
+//! is now at its ceiling: the next command to claim a row has to say which comes off.
 
 use std::fmt::Write as _;
 
@@ -61,7 +62,7 @@ pub struct Entry {
     /// Whether it prints on the short `--help`, rather than only on `--help-all`.
     ///
     /// The test is **what a reader needs before they know the tool**, which is not the same
-    /// as what anyone uses most. `regen` is on it and the eleven generators it runs are not:
+    /// as what anyone uses most. `regen` is on it and the thirteen generators it runs are not:
     /// one row saying the blocks can be refreshed is the whole of what a first reader needs
     /// to know about that family, and eleven rows above `query` is what #921 measured.
     pub short: bool,
@@ -114,6 +115,7 @@ pub const GROUPS: &[Group] = &[
     Group {
         title: "Checks and gates — read-only, and exit nonzero on a problem",
         commands: &[
+            r("derive"),
             r("doctor").short(),
             r("graph-check").short(),
             r("lint").short(),
@@ -168,6 +170,8 @@ pub const GROUPS: &[Group] = &[
             w("packages-index"),
             w("bundle-status"),
             w("vault-status"),
+            w("gates"),
+            w("routes"),
         ],
     },
     Group {
@@ -183,6 +187,13 @@ pub const GROUPS: &[Group] = &[
             r("query").short(),
             r("pack"),
             r("estimate"),
+            // Beside `query` and `estimate` rather than under the README generators, though
+            // it is `w` and one of them. What the generators write is a block they own at a
+            // path they know; what this writes is a number inside somebody's sentence, and
+            // the query that produces it is the reason a reader is here. `w` because the
+            // default form — `yidam count`, no query — is the refresh: with a query it reads
+            // and prints, which is the arm its long help leads with.
+            w("count"),
             r("diff"),
             // Beside `diff` rather than with the gates: it reads a code diff the way `diff`
             // reads a corpus one, and it cannot fail. A command filed under "exit nonzero on
@@ -254,7 +265,16 @@ pub const GROUPS: &[Group] = &[
         // `catalog-reconcile` sits beside it because the pair is the point — one keeps what a
         // source gave, the other keeps what the corpus says about it — and separating them
         // would put the two halves of `catalog:`'s row in #460's table in different groups.
-        commands: &[w("vault"), w("catalog-fetch"), w("catalog-reconcile")],
+        //
+        // `catalog-extract` follows `catalog-fetch` for the reason `catalog-fetch` follows
+        // `vault`: it takes bytes already held, files new ones under their digest, and records
+        // them (#1172). What it writes is the entry's `text:` and an `extract:` commit.
+        commands: &[
+            w("vault"),
+            w("catalog-fetch"),
+            w("catalog-extract"),
+            w("catalog-reconcile"),
+        ],
     },
     Group {
         // Its own group rather than beside the gates. Every command there answers *is this
@@ -274,7 +294,11 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         title: "Serving the domain computer",
-        commands: &[r("serve").short()],
+        // `record` beside `serve` because it reads what `serve` wrote, and nothing else does.
+        // Not with the gates, though its findings are claims about corpus health: its input is
+        // a gitignored file most checkouts do not have, and a gate over that would either pass
+        // on absence or fail every build that never served anything.
+        commands: &[r("serve").short(), r("record")],
     },
     Group {
         // Its own group rather than beside the gates: `bench` measures and does not gate,
@@ -284,7 +308,18 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         title: "Deriving and maintaining a repository",
-        commands: &[w("clone").short(), w("overlay"), w("backfill"), w("tonpa")],
+        // `init` before `clone`, because it is the one of the two that works where the
+        // reader is standing. `clone` and `overlay` copy the template out of the checkout
+        // the shell is in, so in somebody's own project neither does anything (#913,
+        // #1033) — and that was the whole of #1035: the three routes to a first corpus
+        // were two commands that only run here and a documentation page.
+        commands: &[
+            w("init").short(),
+            w("clone").short(),
+            w("overlay"),
+            w("backfill"),
+            w("tonpa"),
+        ],
     },
 ];
 
@@ -521,7 +556,11 @@ mod tests {
             .iter()
             .find(|g| g.title.starts_with("README blocks"))
             .expect("the README-block group");
-        assert_eq!(readme.commands.len(), 12, "eleven generators plus `regen`");
+        assert_eq!(
+            readme.commands.len(),
+            14,
+            "thirteen generators plus `regen`"
+        );
         for entry in readme.commands {
             assert!(entry.writes, "{} must be marked as writing", entry.name);
         }
@@ -644,7 +683,7 @@ mod tests {
         let short = short();
         assert!(
             short.contains(&"regen"),
-            "`regen` is the one row that stands for the eleven generators, and it is not on \
+            "`regen` is the one row that stands for the twelve generators, and it is not on \
              the short `--help`: {short:?}"
         );
         let generators: Vec<&str> = yidam::regen_generator_names()

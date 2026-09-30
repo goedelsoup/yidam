@@ -13,7 +13,10 @@
 FROM rust:1.88-bookworm AS build
 WORKDIR /src
 COPY . .
-RUN cargo build --release --manifest-path yidam/cli/Cargo.toml --bin yidam
+# `calculators-gluon`, because a pod runs whatever arm the manifest declares: an image
+# without it refuses a whole plan that holds one typed calculator.
+RUN cargo build --release --manifest-path yidam/cli/Cargo.toml --bin yidam \
+      --features calculators-gluon
 
 FROM debian:bookworm-slim
 RUN apt-get update \

@@ -1,10 +1,11 @@
 //! What a corpus is made of, independent of what any command does with it.
 //!
-//! [`crate::corpus::Node`], [`crate::corpus::Class`] and [`crate::corpus::Source`] are the three records a yidam
-//! repository is written in, and the loaders here are the one way bytes on disk become
-//! them. They lived inside `cmd/lint/checks.rs` until #924, which is where they were first
-//! needed — and by then twenty-two files outside `lint` were importing them, including
-//! `claims`, `universal`, `retrievable` and nine other commands. The library depended on
+//! [`crate::corpus::Node`], [`crate::corpus::Class`], [`crate::corpus::Source`] and
+//! [`crate::corpus::DecisionRecord`] are the four records a yidam repository is written in, and
+//! the loaders here are the one way bytes on disk become them. They lived inside
+//! `cmd/lint/checks.rs` until #924, which is where they were first needed — and by then
+//! twenty-two files outside `lint` were importing them, including `claims`, `universal`,
+//! `retrievable` and nine other commands. The library depended on
 //! one subcommand's internals, `checks.rs` could not be split because of it, and `pack`
 //! had to spell a corpus type as `cmd::lint::checks::Node`.
 //!
@@ -16,6 +17,7 @@
 //! reassembled from paths whatever part of a corpus it needed.
 
 pub(crate) mod class;
+pub(crate) mod decision;
 pub(crate) mod edges;
 pub(crate) mod load;
 pub(crate) mod node;
@@ -29,6 +31,7 @@ pub(crate) mod source;
 // and would emit an unused-import warning (a denied lint here) for every name the non-test
 // build happens not to mention.
 pub(crate) use class::*;
+pub(crate) use decision::*;
 pub(crate) use edges::*;
 pub(crate) use load::*;
 pub(crate) use node::*;

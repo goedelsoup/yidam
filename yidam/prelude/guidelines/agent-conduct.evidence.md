@@ -97,6 +97,20 @@ The check is one-directional because an `open` edge between two `verified` nodes
 it says the corpus knows both things and not that they are related, which is what the vocabulary
 is for.
 
+## edge-source-unresolved
+
+A `source:` naming a catalog entry that was renamed, or that never existed, passed
+`edge-verified-unsourced` exactly as one that resolves, because that check reads only whether a
+name is present. The corpus that filed the gap had written the resolving check itself.
+
+Three spellings are admitted because three were measured across four derived corpora, and every
+one of their 1,985 link sources resolves under them; a check that picked one would open with a
+thousand findings against citations that are sound.
+
+It gates where its siblings warn because whether the cited thing is in this tree is not a
+judgement — it is `dangling-edge`'s question, one key over — and because its population was
+zero in every corpus measured, so nothing that predates it is put in debt.
+
 ## edge-tags-reported-beside
 
 An edge tagged `open` is an open question in its own right, because the triple is what it

@@ -606,7 +606,9 @@ jobs:
         run: |
           set -euo pipefail
           expected="${{ needs.edit-released.outputs.version }}"
-          curl -sS https://registry.npmjs.org/@goedelsoup/yidam-edit > packument.json
+          # Cache-busted: the CDN holds the packument for 300s, so a dispatch right
+          # after a publish would otherwise read the previous `latest` (see #909).
+          curl -sS "https://registry.npmjs.org/@goedelsoup/yidam-edit?t=$(date +%s%N)" > packument.json
           # Fetched to a file rather than piped, for `mcpb-bundle`'s reason: under
           # `pipefail` a failed request inside a pipeline is indistinguishable from
           # a key that is absent, and a transient outage would green this forever.

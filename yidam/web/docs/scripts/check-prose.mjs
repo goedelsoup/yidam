@@ -38,6 +38,12 @@ const rootArg = process.argv.indexOf('--root');
 const baseArg = process.argv.indexOf('--baseline');
 const DOCS = rootArg > 0 ? process.argv[rootArg + 1] : join(here, '../../../../docs');
 const BASELINE = baseArg > 0 ? process.argv[baseArg + 1] : join(here, 'prose-baseline.json');
+// Staged upgrade notes: `.changes/upgrading/`, one note per file until a release files them into
+// `upgrading.md`. Only read by default when the real tree is, so a fixture run sees only what
+// it was handed.
+const notesArg = process.argv.indexOf('--notes');
+const NOTES = notesArg > 0 ? process.argv[notesArg + 1]
+  : rootArg > 0 ? null : join(here, '../../../../.changes/upgrading');
 
 /** Pages the site does not publish, so the standard does not reach them. */
 const UNPUBLISHED = new Set(['README.md']);
@@ -143,6 +149,22 @@ export function wordCount(s) {
     .split(/\s+/).filter((w) => /\w/.test(w)).length;
 }
 
+/**
+ * Staged upgrade notes, each held to the Tier 1 ceiling with **no** allowance.
+ *
+ * A note becomes part of `upgrading.md` when its release is filed, and that page's baseline
+ * permits no regression. Measured only after filing, a long sentence would fail the person
+ * cutting the release rather than the pull request that wrote it. Zero rather than a baseline
+ * of its own, because each file is new text: there is no history for a ratchet to hold.
+ */
+export function notesOverCeiling(dir) {
+  let names;
+  try { names = readdirSync(dir); } catch { return []; }
+  return names.filter((n) => n.endsWith('.md') && n !== 'README.md').sort()
+    .map((n) => ({ name: n, over: measure(readFileSync(join(dir, n), 'utf8'), CEILING[1]).over }))
+    .filter((n) => n.over > 0);
+}
+
 /** Over-ceiling sentence count, and whether the page skips from `#` to `###`. */
 export function measure(md, ceiling) {
   let over = 0, total = 0;
@@ -219,6 +241,13 @@ if (skipped.length) {
   problems.push(`${skipped.length} page(s) skip from '#' to '###':\n` +
     skipped.map((p) => `  ${p}`).join('\n') +
     `\nA page's first subheading is '##'. See docs/style-guide.md.`);
+}
+
+const longNotes = NOTES ? notesOverCeiling(NOTES) : [];
+if (longNotes.length) {
+  problems.push(`${longNotes.length} staged upgrade note(s) run past the Tier 1 ceiling of ${CEILING[1]} words:\n` +
+    longNotes.map((n) => `  ${n.name}: ${n.over} sentence(s)`).join('\n') +
+    `\nThey will be filed into upgrading.md, whose baseline allows no regression. Split them now.`);
 }
 
 if (problems.length) {

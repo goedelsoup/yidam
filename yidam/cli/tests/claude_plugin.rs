@@ -431,28 +431,99 @@ fn the_mcp_manifest_names_an_executable_launcher() {
     }
 }
 
+/// Every subcommand a script prescribes, read out of the script rather than listed here.
+///
+/// The form is a backticked `` `yidam <name>` ``, optionally backslash-escaped because the
+/// launcher's message is inside a shell double-quoted string. Backticks are the
+/// discriminator: a script writes an instruction as `` `yidam init` `` and writes prose as
+/// *"is not a yidam corpus"* or *"disable the yidam plugin"*, so quoting separates the two
+/// without an exception list of English words that happen to follow the binary's name.
+fn prescribed_subcommands(text: &str) -> BTreeSet<String> {
+    let mut found = BTreeSet::new();
+    for (i, part) in text.split('`').enumerate() {
+        // Odd-indexed parts are inside backticks. A `\` immediately before the closing
+        // backtick is the shell escape and not part of the command.
+        if i % 2 == 0 {
+            continue;
+        }
+        let Some(rest) = part.trim_end_matches('\\').trim().strip_prefix("yidam ") else {
+            continue;
+        };
+        let name = rest.split_whitespace().next().unwrap_or("");
+        if !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            found.insert(name.to_string());
+        }
+    }
+    found
+}
+
+/// The floor under [`the_launcher_prescribes_commands_that_exist`]: a parser that recognised
+/// nothing would leave its loop iterating an empty set and passing over everything.
+///
+/// Asserted against a literal rather than against the scripts, so that both halves are
+/// pinned — the two forms it must recognise, *and* the prose it must not mistake for a
+/// command. A scanner that simply matched `yidam <word>` would read "a yidam corpus" as a
+/// prescription of a `corpus` subcommand, fail, and be widened with an exception list of
+/// English words instead of being fixed.
+#[test]
+fn the_prescription_parser_reads_commands_and_not_prose() {
+    let sample = "\
+# It used to name `yidam clone` and `yidam overlay`.
+    \"yidam: $root is not a yidam corpus (no .yidam/ directory).\" \\
+    \"  Run \\`yidam init\\` here, then edit what it wrote.\" \\
+    \"  If this project is not a corpus, disable the yidam plugin for it.\" \\
+exec \"$bin\" serve --mcp   # `yidam serve --mcp`
+";
+    let found = prescribed_subcommands(sample);
+    assert_eq!(
+        found,
+        ["clone", "init", "overlay", "serve"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<BTreeSet<_>>(),
+        "the parser read the wrong set — `corpus` and `plugin` are prose, and the escaped \
+         `init` is the form the refusal actually uses"
+    );
+}
+
+/// And the floor under the floor: the shipped launcher really is prescribing something, so
+/// that the test above cannot be satisfied by a script that stopped saying anything.
+#[test]
+fn the_shipped_launcher_prescribes_the_repair_for_the_state_it_refuses_on() {
+    for (plugin, dir) in marketplace_plugins() {
+        let mut across = BTreeSet::new();
+        for entry in common::repo_walk(&dir.join("scripts")).filter(|e| e.file_type().is_file()) {
+            let text = std::fs::read_to_string(entry.path()).expect("a script is readable");
+            across.extend(prescribed_subcommands(&text));
+        }
+        assert!(
+            across.contains("init"),
+            "`{plugin}`'s scripts prescribe {across:?} and not `yidam init`. The launcher \
+             refuses in a project that is not a corpus, and `init` is the command that \
+             makes one where the reader is standing (#1035)."
+        );
+    }
+}
+
 /// The launcher's whole value is what it says when it refuses, so what it says has to be true.
 ///
-/// It names an install line and two subcommands. An install line that has moved on is worse
-/// than no message — the person follows it and it fails — and a subcommand that was renamed
-/// sends them to a `yidam --help-all` that does not list it.
+/// It names an install line and the subcommands that repair the state it refused on. An
+/// install line that has moved on is worse than no message — the person follows it and it
+/// fails — and a subcommand that was renamed sends them to a `yidam --help-all` that does not
+/// list it.
 ///
 /// `--help-all` is the whole surface; `--help` has been the short listing since #921, and
-/// `overlay` — one of the three names checked below — is not on it.
+/// `overlay` — one of the names the scripts still mention — is not on it.
 #[test]
 fn the_launcher_prescribes_commands_that_exist() {
     let installation = read("docs/installation.md");
-    let help = {
-        let out = std::process::Command::new(env!("CARGO_BIN_EXE_yidam"))
-            .arg("--help-all")
-            .output()
-            .expect("running yidam --help-all");
-        format!(
-            "{}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        )
-    };
+    // A row of the listing, not a substring of it: `help.contains("init")` would be satisfied
+    // by the word appearing anywhere in any description, which is most of what a help text is.
+    let commands = common::commands_from_help();
 
     for (name, dir) in marketplace_plugins() {
         for entry in common::repo_walk(&dir.join("scripts")).filter(|e| e.file_type().is_file()) {
@@ -469,13 +540,17 @@ fn the_launcher_prescribes_commands_that_exist() {
                     }
                 }
             }
-            for sub in ["clone", "overlay", "serve"] {
-                if text.contains(&format!("yidam {sub}")) {
-                    assert!(
-                        help.contains(sub),
-                        "`{name}`'s launcher names `yidam {sub}`, which the binary does not list"
-                    );
-                }
+            // Discovered, not listed. A hardcoded roster of three stopped covering the
+            // fourth the day `yidam init` was added to the refusal (#1035), and would have
+            // gone on passing while the launcher prescribed a command that did not exist —
+            // which is the one thing this test is for. The discriminator is the backtick:
+            // the scripts write a command as `yidam init` and write prose as "a yidam
+            // corpus", so quoting is what separates an instruction from a noun.
+            for sub in prescribed_subcommands(&text) {
+                assert!(
+                    commands.contains(&sub),
+                    "`{name}`'s launcher names `yidam {sub}`, which the binary does not list"
+                );
             }
         }
     }

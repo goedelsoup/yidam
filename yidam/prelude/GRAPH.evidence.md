@@ -53,6 +53,36 @@ One corpus declares a claim property named `attestation_standing`; its `techniqu
 unsettled. That is the field working exactly as designed, on a node that is plainly not a
 question.
 
+## claim-property-undeclared
+
+A standing written into a property the class did not declare `type: claim` is read by nothing —
+not `yidam status`, not `open-questions`, not the `due` questions clock, not the MCP `claims`
+resource. The declaration is what makes it reachable, and the corpus gets no signal that it is
+missing.
+
+Run over the sixteen corpora and 2,770 nodes, the check reports **18 findings in 3 corpora**,
+which are three `(class, property)` pairs:
+
+| Corpus | Property | Nodes | Values |
+|---|---|---|---|
+| `bitrecover-bitwipe` | `question.claim_tag` | 11 | `verified` 5, `inference` 5, `open` 1 |
+| `allen-recorder` | `parcel.status` | 3 | `verified` |
+| `hegeomai` | `inquiry.status` | 4 | `open` |
+
+**It never gates, because the repair differs by row.** The first is a claim field by name,
+vocabulary and intent, and wants the declaration. The third holds `narrowing` and `answered` on
+its other nodes: that is a question's lifecycle, not an evidence standing, and declaring it
+`type: claim` would make the corpus assert something it did not — renaming the property is the
+fix. Deciding which a word is remains the judgement Article V refuses to delegate, so both fixes
+are named and neither is imposed.
+
+**Bare spellings only.** A bracketed `[open]` is already counted wherever it sits, because the
+prose scan reads the file's bytes. Measured with the same walk and the bracket test inverted,
+every such value in the population is the literal `[open]` standing in for a value the corpus
+does not have yet — **4 of them, in `precinct.registered_voters`, `precinct.polling_location`,
+`election.margin` and `election.turnout`** — and reporting those would be telling two corpora to
+declare a turnout figure as a claim.
+
 ## date-precision
 
 What `property-type` catches in a date field is prose, and `1985` is not prose: it is the
@@ -67,6 +97,41 @@ in the cell makes every instance repeat a fact the class already knows, and make
 ordering depend on conversion, which is a library and not an operator. The trap RFC-0018
 refused the ordering operators over was a numeric value compared as text; the unquoted
 number is what keeps a `number` from ever being one.
+
+## quotation-bytes
+
+A quotation in a `text` property reads like a quotation whether or not it is one. One corpus
+retyped five of its anchors from the wrong revision of a bill, and nothing could tell. Naming
+the entry makes the words checkable. Pinning the artifact is required only when an entry
+holds several revisions, because a check that passed when any revision held the words would
+pass exactly that mistake. The bytes come from this machine's vault cache, because git holds
+only the record of them. A runner with no cache reports every quotation unchecked, at Info:
+an unchecked quotation is not a compared one, and an empty cache is not a defect in the corpus.
+
+## values-closed
+
+Before the field existed a class spelled its set in the description — `extant | demolished |
+ruin` — where nothing reads it, and across seven corpora 40 properties did so while 33
+instances held a value outside the set their own class documented. Each is one of two things:
+a widening nobody recorded, or prose in a token field, and a query for the token silently
+misses both. Declaring the set closes it because an open list is the description again. The
+match is exact because the compiled schema carries the set as `enum`, and a gate that admitted
+a spelling the schema refuses would be looser than the schema it exists to be no stricter than.
+
+## interval-overlap
+
+A `tenure` class exists so a corpus can answer *who held this office in 1893*, and two tenures
+of one office that overlap give that question two answers while every other check passes. The
+property names are declared because corpora spell the pair at least five ways. Equality at the
+shared precision is adjacency, not overlap: a term ending `1893` and one beginning `1893-06-01`
+may have met in June, and reporting them would invent a day nobody recorded. An absent end is
+open because that is what *still serving* looks like, and two holders both still serving is the
+corpus contradicting itself today. Gaps in coverage are not reported.
+
+The count is the target's, because one `office` class holds both a sheriff and a board of
+three. Measured on allen-county-ohio's 25 offices: without `capacity:` the check reported 19
+tenures, 13 of them correct terms on commissioner, judicial and council seats. With `capacity:
+seats` it reported 6, all overlapping one 1842 mayoralty whose end the corpus never recorded.
 
 ## silence-is-not-a-contract
 
@@ -84,6 +149,23 @@ declaration that nothing points at it, while the ontology said elsewhere that so
 the inverse of the over-read in [silence-is-not-a-contract](#silence-is-not-a-contract). It was
 measured on the worked example, where all three classes derived as source classes and
 `orphan-in` could not fire anywhere in the corpus.
+
+## sink-classes
+
+A node linked only to its class passes `orphan-out`, and `orphan-in` sees it only when nothing
+points back. One derived repository wrote its own check after a bulk import left a set of them.
+
+Across sixteen derived corpora (2,772 nodes, 2026-09-29), 79 nodes link only to their class. 28
+are instances of a sink class — a `jurisdiction` or a `party` other classes point at. Every one
+of the other 51 belongs to a class that declares a relationship it authors, such as a `venue`
+declaring `operated-by` with no operator. So the exemption is read from the ontology rather
+than switched on per class. A class no declaration mentions is not exempt, for the reason in
+[silence-is-not-a-contract](#silence-is-not-a-contract).
+
+A sink may be named from the other end. `examples/property`'s `party` writes `edges: []`, while
+`instrument` declares `grantor` and `grantee` at it. Requiring the class's own list to be
+non-empty reported a party the ontology says is only pointed at. Reading both ends changed
+nothing in the sixteen corpora.
 
 ## edge-policy
 
@@ -131,6 +213,26 @@ nodes is not a defect: that is a corpus saying it knows both things and not that
 related, which is what the vocabulary is for. And it never gates — both sides of the comparison
 are opted into separately, so a corpus can adopt edge tags on a graph whose nodes were graded
 years earlier and inherit findings it did not create.
+
+## edge-source-unresolved
+
+`edge-verified-unsourced` asks whether a `verified` edge names a source, and until this check
+that was the whole question: a `source:` naming an entry that was renamed, or never existed,
+passed exactly as one that resolves. The corpus that filed it had written the check locally.
+
+Three spellings are admitted because three were measured. Over 1,985 link sources in four
+derived corpora, one writes a catalog stem or a decision `id:`, two write the stem, and one
+writes a path relative to the node — and all 1,985 resolve. A check that picked one spelling
+would open with a thousand findings in a corpus whose every citation is sound.
+
+A decision record is admitted because an edge can rest on a rule the corpus wrote rather than
+on a document it retrieved — a `peer-of` edge rests on a comparator rule, for which a catalog
+entry would be the wrong citation.
+
+It gates because the population is empty in a corpus that writes no `source:` and was zero in
+every corpus that writes one, so no repository that predates it is put in debt. And because it
+is `dangling-edge`'s kind of finding, one key over: not a judgement about standing, which every
+sibling here reports as Warn, but a name that names nothing.
 
 ## prose-keys
 
@@ -246,6 +348,12 @@ trip `edge-target-class`. That is a strong incentive to leave a definition wrong
 **A retype is refused rather than guessed.** `type: string` → `type: date` over a value reading
 `last spring` has no mechanical conversion, and writing it back unchanged while reporting success
 would leave the corpus in a state its own gate rejects.
+
+Requoting is not one of the guesses, and refusing it was asking the author to carry out an
+instruction by hand. `property-type` tells a `number` holding `"24"` to *unquote it* and a
+`string` holding a bare `24` to *quote it*; a scalar has exactly one other spelling, so there is
+nothing to choose between. What stays refused is a value with no number in it to unquote —
+`about 24` keeps prose the number cannot carry, and `~24` keeps an approximation.
 
 The migration record carries the mechanical half and `.yidam/decisions/` the argument, because a
 record that also had to carry the reasoning would make `decisions-log` a list of two different

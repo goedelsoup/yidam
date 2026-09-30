@@ -94,6 +94,13 @@ export type Exec = (
   options: { cwd: string; input: string },
 ) => Promise<{ stdout: string; stderr: string; code: number | null }>
 
+/**
+ * The argv, held here so `test/boundary.mjs` can see it: the MCP server and nothing else.
+ * `--root` follows it at the call — `serve` has taken the flag since cli/v0.10.0, below the
+ * act tier's own floor (cli/v0.13.0).
+ */
+export const MCP_ARGS = ['serve', '--mcp']
+
 const INITIALIZE_ID = 1
 const CALL_ID = 2
 
@@ -135,7 +142,7 @@ export async function spawnAct<T>(
   let stdout = ''
   let stderr = ''
   try {
-    const out = await exec(input.command, ['serve', '--mcp'], {
+    const out = await exec(input.command, [...MCP_ARGS, '--root', input.root], {
       cwd: input.root,
       input: frame(tool, dryRun),
     })

@@ -1,0 +1,14 @@
+function = "update_regen"
+description = "An inline block is written back inline; the sentence around it is untouched. Before RFC-0043 this rewrote the block into block form and broke the sentence, with nothing reported"
+
+[input]
+command = "yidam count district"
+new_content = "44"
+content = """
+Ohio has <!-- REGEN: yidam count district -->43<!-- /REGEN --> districts.
+"""
+
+[expected]
+content = """
+Ohio has <!-- REGEN: yidam count district -->44<!-- /REGEN --> districts.
+"""

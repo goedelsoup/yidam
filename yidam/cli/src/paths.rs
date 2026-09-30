@@ -156,8 +156,10 @@ pub fn require_yidam_repo(root: &Path) -> Result<()> {
     if in_git {
         anyhow::bail!(
             "not a yidam repository: {} has no .yidam/ directory\n  \
-             This is a git repository, but not one yidam bootstrapped. Derive one with \
-             `yidam clone <target>`, or overlay this one with `yidam overlay .`.",
+             This is a git repository, but not one yidam bootstrapped. Write the smallest \
+             corpus here with `yidam init`, then edit what it wrote. (`yidam clone` and \
+             `yidam overlay` copy the template out of a yidam checkout, so they only run \
+             from one — which is why they are not the first suggestion.)",
             root.display()
         )
     }
@@ -294,6 +296,14 @@ pub fn yidam_decisions_dir(root: &Path) -> PathBuf {
 /// disagree with it.
 pub fn yidam_policy_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("policy")
+}
+
+/// The domain articles this repository was born with (#593): each one's prose, and where it
+/// has one, its rule and the rule's test. Written in the genesis commit and never after, so
+/// lint reads each rule from that commit and reports this directory's drift from it.
+/// Absent in every repository whose bootstrap consumed no constitutional augmentation.
+pub fn yidam_constitution_dir(root: &Path) -> PathBuf {
+    root.join(".yidam").join("constitution")
 }
 
 /// The sangha's governance records: `PROTOCOL.md`, `electors.md`, `positions/`,

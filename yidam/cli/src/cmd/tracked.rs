@@ -21,13 +21,18 @@
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
-/// Every path git tracks at `root`, repository-relative.
+/// Every path git tracks at `root`, repository-relative. **Empty is an answer.**
 ///
-/// It refuses rather than falling back to a walk. A fallback would restore the whole hole in
-/// exactly the circumstance nobody tests, and the source of either copy has to be a checkout
-/// for a reason that predates this: [`crate::provenance::Provenance`] reads the commit being
-/// pinned out of the same git directory.
-pub(super) fn paths(root: &Path) -> Result<Vec<String>> {
+/// The reading half, with no verdict attached. A repository that tracks nothing is a
+/// repository that tracks nothing: for a copy that is a refusal, and [`paths`] states it —
+/// but for a reader asking which files exist, it is simply the empty set, and borrowing a
+/// refusal written for the copy would hand that reader a message about the template it was
+/// never asking about.
+///
+/// Measured: `yidam regen --check` against an initialised-but-uncommitted derived repository
+/// printed *"cannot read the template … Run this from a git checkout of yidam"*, the one
+/// sentence that is untrue of where it was run.
+pub(crate) fn list(root: &Path) -> Result<Vec<String>> {
     // Through [`crate::git::Git`], which is the only production code that spawns git
     // (#929). It owns `-C`, strips an inherited `GIT_DIR` that would otherwise redirect
     // this read past the directory named here, and pins the config — all three of which
@@ -36,16 +41,24 @@ pub(super) fn paths(root: &Path) -> Result<Vec<String>> {
         .args(["ls-files", "-z", "--full-name"])
         .output()?;
 
-    let paths: Vec<String> = if out.status.success() {
-        String::from_utf8_lossy(&out.stdout)
-            .split('\0')
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .collect()
-    } else {
-        Vec::new()
-    };
+    if !out.status.success() {
+        return Ok(Vec::new());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .split('\0')
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect())
+}
 
+/// The tracked set **as a copy source**, which may not be empty.
+///
+/// It refuses rather than falling back to a walk. A fallback would restore the whole hole in
+/// exactly the circumstance nobody tests, and the source of either copy has to be a checkout
+/// for a reason that predates this: [`crate::provenance::Provenance`] reads the commit being
+/// pinned out of the same git directory.
+pub(super) fn paths(root: &Path) -> Result<Vec<String>> {
+    let paths = list(root)?;
     if paths.is_empty() {
         bail!(
             "cannot read the template: git tracks nothing at {}\n  \

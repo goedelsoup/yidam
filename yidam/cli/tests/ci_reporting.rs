@@ -808,7 +808,62 @@ fn job_block(name: &str) -> String {
     out.join("\n")
 }
 
-/// Every step that runs work in the full-feature job streams resource samples while it runs.
+/// The jobs that build the CLI under a non-default feature set, discovered.
+///
+/// Until #1016 this was one job, `cli-full`, and the guards below read it by name. Splitting
+/// it put `coverage-full` — the step #539 was measured on — in a job those guards would never
+/// have opened. So the population is read off what each job runs: a job belongs here when a
+/// task it invokes compiles something other than a clippy check under `--features` or
+/// `--all-features`. Clippy is excluded because it links nothing, and linking is what
+/// runs a runner out of memory. That keeps `cli-features` out, and it has neither the
+/// sampler nor the need for it.
+fn feature_build_jobs() -> Vec<(String, String)> {
+    ci_jobs()
+        .into_iter()
+        .filter(|(_, body)| {
+            matrix_rows(body).iter().any(|row| {
+                body.lines()
+                    .filter(|l| l.contains("mise run "))
+                    .map(|l| expand(l, row))
+                    .filter_map(|l| {
+                        l.split_once("mise run ")
+                            .and_then(|(_, rest)| rest.split_whitespace().next())
+                            .map(str::to_string)
+                    })
+                    .flat_map(|task| task_script_lines(&task))
+                    .any(|c| !c.contains("cargo clippy") && !feature_flags(&c).is_empty())
+            })
+        })
+        .collect()
+}
+
+/// Every line of shell one task runs, from a parsed `mise.toml`.
+///
+/// Not `task_commands`, which reads the one-command-per-line forms and refuses anything else.
+/// This walks every job, and `ci-domains` is a `"""` script — a loop over manifests that
+/// is exactly the shape a line-per-command parser cannot see into.
+fn task_script_lines(name: &str) -> Vec<String> {
+    // The raw file: `mise_toml()` strips from `#`, which is also shell inside a script body.
+    let mise: toml::Table = read("mise.toml").parse().expect("mise.toml parses");
+    let task = mise
+        .get("tasks")
+        .and_then(|t| t.get(name))
+        .unwrap_or_else(|| panic!("ci.yml runs `mise run {name}` and mise.toml has no such task"));
+    let steps: Vec<String> = match task.get("run") {
+        Some(toml::Value::String(one)) => vec![one.clone()],
+        Some(toml::Value::Array(many)) => many
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect(),
+        _ => Vec::new(),
+    };
+    steps
+        .iter()
+        .flat_map(|step| step.lines().map(str::to_string).collect::<Vec<_>>())
+        .collect()
+}
+
+/// Every step that runs work in a full-feature job streams resource samples while it runs.
 ///
 /// A GitHub-hosted runner killed for memory names no resource: the step ends with "The runner
 /// has received a shutdown signal" and an exit code, and memory and disk are equally good
@@ -817,37 +872,54 @@ fn job_block(name: &str) -> String {
 /// and left exactly the empty log #539 had started from — a second undiagnosable kill, from a
 /// fix that closed the instance and not the class.
 ///
-/// So the rule is the class: **anything in this job that runs a mise task goes through the
-/// wrapper.** Discovered by walking the job's own steps, because a list of heavy steps kept
+/// So the rule is the class: **anything in such a job that runs a mise task goes through the
+/// wrapper.** Discovered by walking the jobs' own steps, because a list of heavy steps kept
 /// here would stop covering whatever was added next without ever going red — which is the
 /// same failure one level up.
+///
+/// The converse is checked too. A job already wearing the sampler that the discovery does
+/// not see is the discovery going blind, and a blind discovery passes the rule by looking at
+/// nothing.
 #[test]
-fn every_heavy_step_in_the_full_feature_job_is_sampled() {
-    let block = job_block("cli-full");
-    let invocations: Vec<&str> = block
-        .lines()
-        .map(str::trim)
-        .filter(|l| l.contains("mise run "))
-        .collect();
+fn every_heavy_step_in_the_full_feature_jobs_is_sampled() {
+    let jobs = feature_build_jobs();
+    let names: Vec<&str> = jobs.iter().map(|(n, _)| n.as_str()).collect();
     assert!(
-        !invocations.is_empty(),
-        "the full-feature job runs no mise task. Either the job stopped doing the work this \
-         gate exists for, or this parser is reading the wrong block — and both make the \
-         assertion below vacuous."
+        names.contains(&"cli-full"),
+        "no feature build was discovered in `cli-full`, which runs `ci-cli-full` \
+         (`--features vector-read`). Discovered: {names:?}"
     );
 
-    let unsampled: Vec<&str> = invocations
-        .iter()
-        .filter(|l| !l.contains("with-sampler.sh"))
-        .copied()
-        .collect();
-    assert!(
-        unsampled.is_empty(),
-        "these steps in `cli-full` run without a resource sampler:\n  {}\nThis job has been \
-         killed for memory twice, and each time the log named no resource. Wrap it: \
-         `.github/scripts/with-sampler.sh mise run <task>`.",
-        unsampled.join("\n  ")
-    );
+    for (name, _) in ci_jobs() {
+        if job_block(&name).contains("with-sampler.sh") {
+            assert!(
+                names.contains(&name.as_str()),
+                "`{name}` runs under the resource sampler and is not among the discovered \
+                 feature builds {names:?}. Either it stopped building a feature set, or the \
+                 discovery can no longer see the build it does."
+            );
+        }
+    }
+
+    for (name, block) in &jobs {
+        let invocations: Vec<&str> = block
+            .lines()
+            .map(str::trim)
+            .filter(|l| l.contains("mise run "))
+            .collect();
+        let unsampled: Vec<&str> = invocations
+            .iter()
+            .filter(|l| !l.contains("with-sampler.sh"))
+            .copied()
+            .collect();
+        assert!(
+            unsampled.is_empty(),
+            "these steps in `{name}` run without a resource sampler:\n  {}\nThe full-feature \
+             build has been killed for memory twice, and each time the log named no \
+             resource. Wrap it: `.github/scripts/with-sampler.sh mise run <task>`.",
+            unsampled.join("\n  ")
+        );
+    }
 }
 
 /// The sampler the steps call still samples.
@@ -867,24 +939,81 @@ fn the_sampler_the_steps_call_still_reports_both_resources() {
     }
 }
 
-/// The compile-job cap belongs to the job, not to a step inside it.
+/// The compile-job cap belongs to each full-feature job, not to a step inside one.
 ///
 /// #539 capped `CARGO_BUILD_JOBS` on `coverage-full`, the step that happened to be failing.
 /// d596634 was killed in `ci-cli-full`, which had no cap, for the same reason. A four-space
 /// `env:` covers every step; a step-level one covers exactly the instance that was last seen
-/// to fail, and moving it back would be invisible in review.
+/// to fail, and moving it back would be invisible in review. Since #1016 those two steps are
+/// in two jobs, and each needs it.
 #[test]
-fn the_build_job_cap_covers_the_whole_full_feature_job() {
-    let block = job_block("cli-full");
-    let at_job_level = block
-        .lines()
-        .any(|l| l.starts_with("      CARGO_BUILD_JOBS:") && !l.starts_with("       "));
+fn the_build_job_cap_covers_every_full_feature_job() {
+    for (name, _) in feature_build_jobs() {
+        let block = job_block(&name);
+        let at_job_level = block
+            .lines()
+            .any(|l| l.starts_with("      CARGO_BUILD_JOBS:") && !l.starts_with("       "));
+        assert!(
+            at_job_level,
+            "`CARGO_BUILD_JOBS` is not set at `{name}`'s own `env:` (six-space key under a \
+             four-space `env:`). Every heavy step in these jobs links test binaries against \
+             lancedb, arrow and ort; a cap on one step is a cap on the step that failed last \
+             time.\n{block}"
+        );
+    }
+}
+
+/// Every cache in `ci.yml` is written by main, or by nothing (#1017).
+///
+/// A cache saved by a pull request lands in that PR's own scope: no other ref can read it,
+/// and it counts against the repository's 10GB until eviction. Of 315 PRs over the month to
+/// 2026-09-30, 248 ran CI exactly once, so the scope is almost never read even by the PR
+/// that paid for it. What it does do is push the repository toward the limit, where GitHub
+/// evicts by last use — and at 9.48GB (#1017) the victim is as likely to be one of main's
+/// trees, which then comes back as a twenty-minute build in a job normally measured in
+/// seconds.
+///
+/// Every step, discovered: a rule kept for the steps someone remembered is the rule #1008
+/// applied to one job while four others went on saving.
+#[test]
+fn every_cache_in_ci_is_saved_only_from_main() {
+    const MAIN: &str = "${{ github.ref == 'refs/heads/main' }}";
+    const NEVER: &str = "${{ false }}";
+    let yml = ci_yml();
+    let lines: Vec<&str> = yml.lines().collect();
+
+    let mut checked = 0usize;
+    for (at, line) in lines.iter().enumerate() {
+        let key = if line.contains("uses: Swatinem/rust-cache@") {
+            "save-if"
+        } else if line.contains("uses: jdx/mise-action@") {
+            "cache_save"
+        } else {
+            continue;
+        };
+        let indent = line.len() - line.trim_start().len();
+        let value = lines[at + 1..]
+            .iter()
+            .take_while(|l| l.trim().is_empty() || l.len() - l.trim_start().len() > indent)
+            .filter_map(|l| l.trim().strip_prefix(&format!("{key}:")))
+            .map(str::trim)
+            .next();
+        assert!(
+            value == Some(MAIN) || value == Some(NEVER),
+            "ci.yml line {}: `{}` saves its cache with `{key}: {}`. Say `{key}: {MAIN}`, or \
+             `{NEVER}` for a job that only borrows — a pull request's save lands in a scope \
+             nothing else can read.",
+            at + 1,
+            line.trim(),
+            value.unwrap_or("<unset, which saves on every event>")
+        );
+        checked += 1;
+    }
     assert!(
-        at_job_level,
-        "`CARGO_BUILD_JOBS` is not set at the job's own `env:` (six-space key under a \
-         four-space `env:`). Every heavy step in this job links the same 59 test binaries \
-         against the same dependency tree; a cap on one of them is a cap on the step that \
-         failed last time.\n{block}"
+        checked >= 28,
+        "only {checked} cache steps found in ci.yml, which had 28 when this was written (16 \
+         mise, 12 rust-cache). Fewer means the scan stopped recognising them and passed by \
+         looking at nothing — or a job was deleted, and this floor comes down with it."
     );
 }
 

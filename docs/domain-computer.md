@@ -19,6 +19,13 @@ single connector source, invoke the connector inline rather than deferring.
 - No network, no filesystem; same input always produces same output
 - Named by what they compute: `lowflow`, `curve-number`, `et`
 - The right home for domain-specific math
+- Written as a command, or as a typed function of the corpus
+  ([RFC-0042](rfcs/0042-typed-calculator-arm.md))
+- The first two properties above are a norm for a command. For a typed calculator they are a
+  refusal. Its entry point is declared `Corpus -> Computed`. It is applied in process. The names an
+  effect would need are not bound
+- That arm sits behind a cargo feature outside the default set. A build without it declines the step
+  by name
 
 ## Feature engineering
 
@@ -175,6 +182,10 @@ into a single plaintext file for dropping into any LLM's context window — the 
 maximum-reach export. Each node becomes a short named section (`## <class>/<name>`, label,
 description, `[[link]]` targets) under a provenance header (domain, generation date, commit,
 node count).
+
+Without `--out` the pack goes to stdout and the summary to stderr, so
+`yidam export --format llms | pbcopy` copies the pack alone. Reading a corpus this way writes
+nothing into it. Pass `--out llms.txt` to keep a file.
 
 With `--token-budget` the output is capped at approximately `budget × 4` characters
 (1 token ≈ 4 chars — deliberately an approximation, not a tokenizer). A budget degrades

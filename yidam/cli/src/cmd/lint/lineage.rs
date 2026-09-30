@@ -580,6 +580,29 @@ mod tests {
         );
     }
 
+    /// **The false finding a rename produced** (#1171). `main` renames `first`'s record as a
+    /// delete plus an add after the branch was cut. Keyed on path, the rename commit became
+    /// `first`'s settlement, and a branch standing on `first` read as never having seen it, at
+    /// Error.
+    #[test]
+    fn a_settlement_whose_record_is_renamed_later_is_still_held() {
+        let tmp = repo();
+        let root = tmp.path();
+        git(root, &["switch", "-q", "ma/one"]);
+        commit(root, "revise: my position\n\nBaseline: rigpa/first@0000000");
+        git(root, &["switch", "-q", "main"]);
+
+        let dir = root.join(".yidam/sangha/resolutions");
+        let text = std::fs::read_to_string(dir.join("first.md")).unwrap();
+        std::fs::remove_file(dir.join("first.md")).unwrap();
+        std::fs::write(dir.join("2026-01-01-first.md"), text).unwrap();
+        commit(root, "chore: date-prefix the resolution records");
+
+        let [unmet, undeclared, _] = run(root);
+        assert!(unmet.passed(), "{unmet:?}");
+        assert!(undeclared.passed(), "{undeclared:?}");
+    }
+
     #[test]
     fn a_branch_declaring_an_evolution_that_does_not_exist_is_caught() {
         let tmp = repo();

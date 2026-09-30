@@ -13,7 +13,7 @@
 # volume holding a checkout. Pod logs are not provenance: everything that matters is
 # in the receipt, in the commit, on the ref.
 #
-# steps: travel-tier → disclosure-envelope
+# steps: travel-tier → disclosure-envelope → travel-tier-typed
 apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
 metadata:
@@ -102,6 +102,22 @@ spec:
                 parameters:
                   - name: step-output
                     value: "{{tasks.step-disclosure-envelope.outputs.parameters.output}}"
+            - name: step-travel-tier-typed
+              template: step
+              depends: land-disclosure-envelope
+              arguments:
+                parameters:
+                  - name: step
+                    value: "travel-tier-typed"
+                  - name: bundle
+                    value: "{{=jsonpath(tasks.land-disclosure-envelope.outputs.parameters.output, '$.next.bundle')}}"
+            - name: land-travel-tier-typed
+              template: land
+              depends: step-travel-tier-typed
+              arguments:
+                parameters:
+                  - name: step-output
+                    value: "{{tasks.step-travel-tier-typed.outputs.parameters.output}}"
       - name: pin
         outputs:
           parameters:

@@ -67,6 +67,8 @@
 pub mod exec;
 pub mod manifest;
 pub mod receipt;
+/// The resolved corpus a step is handed beside its bytes (#1080).
+pub mod resolved;
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -76,7 +78,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::cmd::propose::write::{commit_tree, current_branch, git, head, short_of, TempIndex};
 use crate::paths::{repo_root, require_yidam_repo};
-use manifest::{Capability, Kind, Manifest, Route};
+use manifest::{Capability, Manifest, Route};
 use receipt::{sha256, File, Input, Receipt};
 
 /// The author every commit a run writes carries.
@@ -179,10 +181,13 @@ pub struct StepReport {
     /// Whether the step ran and produced the bytes that were already committed.
     ///
     /// The ordinary result of an ageing rule firing over something whose answer had not moved,
-    /// and a materially different event from a step that recomputed and found a change: the
-    /// commit that lands carries a new receipt and the same outputs, which is the record of
-    /// *having looked*. `cmd/due.rs` draws the same distinction about a source's TTL — *"An
-    /// expiry does not claim the upstream changed. It claims nobody has looked."* A report
+    /// and a materially different event from a step that recomputed and found a change. On the
+    /// branch, the commit that lands carries a new receipt and the same outputs, which is the
+    /// record of *having looked*. On a proposal it is not recorded (#1162). The receipt names
+    /// the head the inputs came from, which has not moved, so it reproduces the proposal
+    /// already there and no commit lands. `cmd/due.rs` draws the same distinction about a
+    /// source's TTL — *"An expiry does not claim the upstream changed. It claims nobody has
+    /// looked."* A report
     /// that said `wrote` here would be claiming the first thing while recording the second.
     pub unchanged_outputs: bool,
     /// Anything the step said on stderr, kept because a calculator's own account of what it
@@ -201,8 +206,10 @@ pub struct RunReport {
     pub steps: Vec<StepReport>,
     pub ran: usize,
     pub skipped: usize,
-    /// How many steps landed a commit. Never more than `ran`, and often fewer: a step that
-    /// was re-run under an ageing rule and computed the same bytes lands nothing.
+    /// How many steps landed a commit. Never more than `ran`, and fewer when an epistemic
+    /// step re-run under an ageing rule reproduced the proposal already on `propose/<head>`.
+    /// On the branch an aged re-run lands: the last run's own commit is now the head, so the
+    /// new receipt names a different commit from the old one.
     pub committed: usize,
 }
 
@@ -264,31 +271,31 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
     // two commits and then refuse, leaving a corpus half advanced by a run that never had a
     // chance of finishing.
     //
-    // The reason comes from the kind rather than from here. Two of the three are unrunnable and
-    // for unrelated reasons — see [`manifest::Kind::unrunnable_because`] — so a message written
-    // once, in the words of whichever kind was unrunnable when it was written, would send a
+    // The reason comes from the declaration rather than from here, and it quotes back the part of
+    // it that refused — see [`manifest::Capability::unrunnable_because`]. Three refusals share this
+    // site and they are unrelated: a connector reaches a network, nobody built a featurizer's
+    // executor, and a typed calculator needs a feature this build may not carry. A message written
+    // once, in the words of whichever one was unrunnable when it was written, would send a
     // featurizer's author to read about credentials.
     //
     // Each step is collected with its reason rather than with its name alone, so that the reason
-    // is the thing that put it in the list. Looking the kind back up at the bail site would make
-    // the reason an `Option` that cannot be `None` — a panic path, and an assertion about this
-    // filter restated a few lines below it.
-    let unrunnable: Vec<(&str, Kind, &'static str)> = plan
+    // is the thing that put it in the list. Looking the declaration back up at the bail site would
+    // make the reason an `Option` that cannot be `None` — a panic path, and an assertion about
+    // this filter restated a few lines below it.
+    let unrunnable: Vec<(&str, manifest::Unrunnable)> = plan
         .iter()
         .copied()
-        .filter_map(|n| {
-            let kind = m.get(n).ok()?.kind;
-            Some((n, kind, kind.unrunnable_because()?))
-        })
+        .filter_map(|n| Some((n, m.get(n).ok()?.unrunnable_because()?)))
         .collect();
-    if let Some((first, kind, reason)) = unrunnable.first() {
-        let names: Vec<&str> = unrunnable.iter().map(|(n, ..)| *n).collect();
+    if let Some((first, why)) = unrunnable.first() {
+        let names: Vec<&str> = unrunnable.iter().map(|(n, _)| *n).collect();
         bail!(
-            "`{first}` declares `kind = \"{}\"` and this binary invokes calculators only, so \
-             this plan cannot run.\n  \
-             {reason}.\n  \
+            "`{first}` declares `{}`, which this binary does not invoke, so this plan cannot \
+             run.\n  \
+             {}.\n  \
              In this plan: {}",
-            kind.as_str(),
+            why.declared,
+            why.because,
             names.join(", ")
         );
     }
@@ -359,8 +366,16 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
         }
 
         let inputs = exec::materialize(root, &full, cap)?;
-        let input_state =
-            Receipt::input_state(cap, &manifest_sha256, &config_sha256, &inputs.files)?;
+        let resolved_digest = inputs.resolved.as_ref().map(|r| r.sha256.clone());
+        let script_digest = Receipt::script_sha256(cap, &inputs.files);
+        let input_state = Receipt::input_state(
+            cap,
+            &manifest_sha256,
+            &config_sha256,
+            &inputs.files,
+            resolved_digest.as_deref(),
+            script_digest.as_deref(),
+        )?;
         let verdict = freshness(root, cap, &parent, &receipt_path, &input_state, today);
 
         let mut report = StepReport {
@@ -408,6 +423,8 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
                 config_sha256: config_sha256.clone(),
                 reads: cap.reads.clone(),
                 files: inputs.files.clone(),
+                resolved_graph_sha256: resolved_digest.clone(),
+                script_sha256: script_digest.clone(),
             },
             writes: cap.writes.clone(),
             outputs: produced
@@ -607,6 +624,8 @@ pub(crate) fn standing(root: &Path) -> Result<Vec<Standing>> {
     let config_sha256 = digest_of(root, ".yidam/config.toml");
     let today = crate::dates::today_days();
     let tracked = tracked_paths(root);
+    let held: BTreeSet<&str> = tracked.iter().map(String::as_str).collect();
+    let read = crate::corpus::Corpus::open(root);
 
     let mut out = Vec::new();
     for name in m.plan(None)? {
@@ -617,7 +636,24 @@ pub(crate) fn standing(root: &Path) -> Result<Vec<Standing>> {
             .as_deref()
             .and_then(Receipt::landed);
         let files = resolve_reads(root, cap, &tracked);
-        let input_state = Receipt::input_state(cap, &manifest_sha256, &config_sha256, &files)?;
+        // The same document the run would hand this step, built by the same function over the
+        // working tree — see [`resolved::build`] for why it must be the same function and not a
+        // second reading. `read` is opened once outside the loop: every step asks about the
+        // same corpus, and `Corpus` caches its walk.
+        let resolved_digest = resolved::build(
+            &read,
+            &|p| cap.reads.iter().any(|g| crate::kuten::glob_covers(g, p)),
+            &|p| held.contains(p),
+        )
+        .map(|text| sha256(text.as_bytes()));
+        let input_state = Receipt::input_state(
+            cap,
+            &manifest_sha256,
+            &config_sha256,
+            &files,
+            resolved_digest.as_deref(),
+            Receipt::script_sha256(cap, &files).as_deref(),
+        )?;
 
         let verdict = match &landed {
             None => Verdict::Stale("it has never run against this corpus".to_string()),
@@ -761,9 +797,11 @@ struct Landing<'a> {
 /// blank line identical — and `hash-object` is the identity the commit will be built from
 /// anyway.
 ///
-/// This decides what the report says, never whether the commit is written. A step that ran
-/// because its corpus asked to be re-checked has looked, and the receipt that records it is
-/// worth a commit whether or not the answer moved.
+/// This decides what the report says, never whether the commit is written. [`commit`] decides
+/// that from the tree. On the branch, a step that ran because its corpus asked to be re-checked
+/// lands a receipt naming the new head, so the check is recorded whether or not the answer
+/// moved. On a proposal the head has not moved, the tree is the one already proposed, and
+/// nothing lands (#1162). The pending proposal is the answer until a person acts on it.
 pub(crate) fn outputs_already_committed(
     root: &Path,
     parent: &str,
@@ -940,7 +978,7 @@ fn message(
     let _ = writeln!(
         body,
         "`{}` ran against {short_parent}, reading what `{step}` declares it reads and nothing\nelse from the repository.\n",
-        cap.run.join(" ")
+        cap.run.shown()
     );
     for (path, bytes) in landing {
         let _ = writeln!(body, "  {path}  sha256:{}", &sha256(bytes)[..16]);
@@ -1007,25 +1045,39 @@ fn render(r: &RunReport) -> String {
                 }
             );
         }
-        if s.unchanged_outputs {
-            let _ = writeln!(
-                out,
-                "           the answer had not moved; the commit records that it was checked"
-            );
-        }
         match &s.committed {
             Some(c) => {
+                if s.unchanged_outputs {
+                    let _ = writeln!(
+                        out,
+                        "           the answer had not moved; the commit records that it was \
+                         checked"
+                    );
+                }
                 let _ = writeln!(out, "           {}  {}", c.commit, c.subject);
                 let _ = writeln!(out, "           on {}", c.branch);
             }
             // Only ever reached for a step that ran: a skipped step wrote nothing to say this
             // about, and a planned one was never invoked.
+            //
+            // Named by where the tree was compared, which is not the same commit on both routes
+            // (#1162). An epistemic step lands on top of the proposal it already made, so what it
+            // reproduced is that proposal's tip, not the head its inputs came from.
             None if s.outcome == Outcome::Ran => {
-                let _ = writeln!(
-                    out,
-                    "           it reproduced the tree already at {}, so no commit was written",
-                    s.input_commit.as_deref().unwrap_or("HEAD")
-                );
+                let short = s.input_commit.as_deref().unwrap_or("HEAD");
+                let _ = match s.route == Route::Proposal.as_str() {
+                    true => writeln!(
+                        out,
+                        "           it reproduced what {} already proposes, so no commit was \
+                         written",
+                        crate::cmd::propose::write::branch_for(short)
+                    ),
+                    false => writeln!(
+                        out,
+                        "           it reproduced the tree already at {short}, so no commit was \
+                         written"
+                    ),
+                };
             }
             None => {}
         }
@@ -1112,9 +1164,9 @@ fn summary(r: &RunReport) -> String {
         r.ran, r.skipped, r.committed
     );
     // Said rather than left to the arithmetic. A run that invoked something and landed
-    // nothing is the ordinary result of an ageing rule firing over a calculator whose answer
-    // did not move, and a reader who has just watched three steps run needs to be told that
-    // an empty log is what success looks like.
+    // nothing is the ordinary result of an ageing rule firing over an epistemic step whose
+    // pending proposal already holds the answer (#1162), and a reader who has just watched
+    // three steps run needs to be told that an empty log is what success looks like.
     if r.ran > 0 && r.committed < r.ran {
         let _ = write!(
             out,
@@ -1383,6 +1435,46 @@ mod tests {
         );
     }
 
+    /// An aged re-run that lands nothing on its proposal says where it looked, and does not
+    /// claim a commit it did not write.
+    #[test]
+    fn an_aged_proposal_that_reproduced_itself_names_the_proposal_and_claims_no_commit() {
+        // #1162: the report said "the commit records that it was checked" and then "no commit
+        // was written" about one step, and named the head where the tree it matched was the
+        // proposal's tip.
+        let mut ran = step(
+            "tier",
+            Route::Proposal,
+            "revise",
+            Outcome::Ran,
+            Freshness::Stale,
+        );
+        ran.committed = None;
+        ran.unchanged_outputs = true;
+        let out = render(&plan(false, vec![ran]));
+        assert!(
+            out.contains("it reproduced what propose/abc1234 already proposes, so no commit"),
+            "{out}"
+        );
+        assert!(!out.contains("records that it was checked"), "{out}");
+        assert!(!out.contains("already at abc1234"), "{out}");
+
+        // And the branch, where the look does land, still says so.
+        let mut landed = step(
+            "tier",
+            Route::Branch,
+            "compute",
+            Outcome::Ran,
+            Freshness::Stale,
+        );
+        landed.unchanged_outputs = true;
+        let out = render(&plan(false, vec![landed]));
+        assert!(
+            out.contains("the answer had not moved; the commit records that it was checked"),
+            "{out}"
+        );
+    }
+
     /// A step that ran and landed nothing says so rather than leaving a reader to subtract.
     #[test]
     fn a_step_that_reproduced_the_committed_tree_is_reported_as_having_landed_nothing() {
@@ -1418,7 +1510,7 @@ mod tests {
     fn no_line_of_a_commit_body_carries_stray_indentation() {
         let cap = Capability {
             kind: crate::cmd::run::manifest::Kind::Calculator,
-            run: vec!["true".into()],
+            run: manifest::Run::Argv(vec!["true".into()]),
             reads: vec![],
             writes: vec![".yidam/computed/**".into()],
             verb: "compute".into(),

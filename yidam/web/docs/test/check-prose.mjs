@@ -107,6 +107,26 @@ console.error('a clean tree passes, and a regressed one does not…');
   rmSync(root, { recursive: true, force: true });
 }
 
+console.error('a staged upgrade note is held to the tier 1 ceiling, with no allowance…');
+{
+  const root = tree({ 'quickstart.md': SHORT });
+  const base = join(root, 'b.json');
+  writeFileSync(base, JSON.stringify({ 'quickstart.md': 0 }));
+  // Beside the docs root, not inside it, as `.changes/upgrading/` sits beside `docs/`.
+  const notes = mkdtempSync(join(tmpdir(), 'notes-'));
+  writeFileSync(join(notes, 'README.md'), LONG);
+  writeFileSync(join(notes, '1-short.md'), SHORT.replace('## A section', '### A note'));
+  check('a short note passes, and the README is not a note', run(root, base, '--notes', notes).code === 0,
+    run(root, base, '--notes', notes).out);
+
+  writeFileSync(join(notes, '2-long.md'), LONG.replace('## A section', '### A note'));
+  const bad = run(root, base, '--notes', notes);
+  check('a long note fails', bad.code === 1);
+  check('and names the note', bad.out.includes('2-long.md'), bad.out);
+  rmSync(root, { recursive: true, force: true });
+  rmSync(notes, { recursive: true, force: true });
+}
+
 console.error('a page nobody tiered is a failure, not a skip…');
 {
   const root = tree({ 'brand-new-page.md': SHORT });

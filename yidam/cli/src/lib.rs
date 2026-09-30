@@ -41,13 +41,27 @@ mod config;
 /// a [`corpus::Node`] today, and the point of the module is which way the dependency runs —
 /// the library owns the corpus model and `lint` consumes it, rather than the reverse.
 mod corpus;
+/// What the artifact cites of its corpus (RFC-0028 A6, #577). Private: its types reach the
+/// API through [`kuten::Report`], and the walk is `lint`'s and `kuten check`'s alone.
+mod coupling;
 pub mod dates;
 pub mod deps;
+mod derive;
 pub mod embed_config;
 #[cfg(feature = "vector-read")]
 pub mod embedding;
 mod findings;
 pub mod git;
+/// The typed calculator arm (RFC-0042) — its vocabulary always, its engine behind a feature.
+///
+/// **Not gated, since #1099.** The engine — the VM, the budget, the marshalling and the typecheck
+/// — is behind `calculators-gluon` and outside the default set, and the module declares which of
+/// its items are which. What is left in every build is the *vocabulary*: the closed prelude, the
+/// excluded modules and the macro refusal, which are text and need no gluon. `yidam lint` reads
+/// them, so the light binary refuses a calculator script that invokes a macro exactly as the full
+/// one does. The module note explains why the arm's purity needs two mechanisms rather than the
+/// one the RFC argued for, and where the feature line now falls.
+pub mod gluon_arm;
 /// What a corpus declares its practice is aimed at (RFC-0028). Public so the guards over
 /// the shipped profiles can parse them the way the binary does, rather than a second way.
 pub mod kuten;
@@ -59,6 +73,7 @@ mod paths;
 pub mod policy;
 mod prose;
 pub mod provenance;
+mod reading;
 mod regen;
 pub mod report;
 /// Which of a node's properties belong in its embedding although they are not prose (#717).
@@ -128,21 +143,22 @@ pub use cmd::SAMUDAYA_KINDS;
 pub use cmd::TEMPLATE_MARKERS;
 #[doc(hidden)]
 pub use cmd::{
-    agents_index, backfill, bench, bundle, bundle_status, catalog_audit, catalog_fetch,
-    catalog_reconcile, check_diff, citation_label_not_cited, citation_range_stated_twice, clone,
-    cohort, collect_line_citations, corpus_index, crates_index, cycle, dead_line_citation,
-    decisions_log, diff_corpus, doctor, due, embed, estimate, export, graph, graph_check,
-    index_status, index_verify, label_range, label_symbols, lint, list_formats, log, migrate,
-    neighbors, open_questions, overlay, pack, packages_index, parse_bench_goals, parse_binding,
-    phases, propose, query, regen, relocate, rename, replay, retrieve, run_capability, run_cluster,
+    agents_index, backfill, bench, bundle, bundle_status, catalog_audit, catalog_extract,
+    catalog_fetch, catalog_reconcile, check_diff, citation_label_not_cited,
+    citation_range_stated_twice, clone, cohort, collect_line_citations, corpus_index, count,
+    crates_index, cycle, dead_line_citation, decisions_log, diff_corpus, doctor, due, embed,
+    estimate, export, gates, graph, graph_check, index_status, index_verify, init, label_range,
+    label_symbols, lint, list_formats, log, migrate, neighbors, open_questions, overlay, pack,
+    packages_index, parse_bench_goals, parse_binding, phases, propose, query, record, regen,
+    relocate, rename, replay, retrieve, routes, run_capability, run_cluster, run_derive,
     run_export, run_kuten, run_phase, run_policy, run_practice, run_score, run_vault,
     samudaya_audit, sangha, schema, serve_lsp, serve_mcp, skills_index, slid_line_citation, status,
     unverified_line_citation, vault_status, vocabulary, BenchGoal, BenchGoalSet, ClusterCommand,
-    CohortOptions, EmbedOptions, ExportFormat, ExportOptions, FetchOptions, KutenCommand,
-    LineCitation, LineFragment, LintCheck, LintOptions, LintViolation, LogFilter, MigrateOperation,
-    PhaseCommand, PolicyCommand, PreludeNorm, ProposeOptions, RdfFormat, ReconcileOptions,
-    Relocation, RetrieveOptions, RunOptions, VaultCommand, COMMIT_KINDS, LINT_SEVERITIES,
-    PRELUDE_NORMS,
+    CohortOptions, DeriveCommand, EmbedOptions, ExportFormat, ExportOptions, ExtractOptions,
+    FetchOptions, KutenCommand, LineCitation, LineFragment, LintCheck, LintOptions, LintViolation,
+    LogFilter, MigrateOperation, PhaseCommand, PolicyCommand, PreludeNorm, ProposeOptions,
+    RdfFormat, ReconcileOptions, Relocation, RetrieveOptions, RunOptions, VaultCommand,
+    COMMIT_KINDS, DEFAULT_CLASSES, LINT_SEVERITIES, PRELUDE_NORMS,
 };
 
 /// The remote transport (#423). Gated because the feature is what pulls the server, and

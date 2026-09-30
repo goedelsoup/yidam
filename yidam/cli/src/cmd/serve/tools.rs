@@ -99,6 +99,28 @@ fn contract() -> Value {
     serde_json::from_str(CONTRACT).expect("the compiled-in MCP contract is valid JSON")
 }
 
+/// Every tool the contract carries and its tier, in the contract's order.
+///
+/// For `yidam record`, which reports the tools a record never names. It asks the contract
+/// rather than [`list`], because it runs without a server: *which tools were never called* is
+/// a question about the surface, and a tier this corpus does not back is still a tool nobody
+/// called.
+pub(crate) fn contract_tools() -> Vec<(String, String)> {
+    contract()["tools"]
+        .as_array()
+        .map(|tools| {
+            tools
+                .iter()
+                .filter_map(|t| {
+                    let name = t["name"].as_str()?.to_string();
+                    let tier = t["tier"].as_str().unwrap_or("core").to_string();
+                    Some((name, tier))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Whether a tier is backed, given what this server declares.
 fn backs(tier: &str, capabilities: &Value) -> bool {
     tier == "core" || capabilities[tier].as_bool().unwrap_or(false)

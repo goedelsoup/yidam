@@ -1,12 +1,12 @@
 # RFC-0039 — A read is scoped to the occasion, not to the repository
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** G9
 - **Relates to:**
   - RFC-0038 (the rules/evidence split, which took 6,687 words off the recurring read and 7,819 off the bootstrap path and stopped where the remaining weight is reference rather than essay — this RFC is the move its ceiling docstring said would be needed next)
   - RFC-0028 (the kuten layer, whose phase types are one of the two vocabularies an occasion can be named in)
   - RFC-0036 (an yidam-level change — the routes this RFC rewrites are vendored read-only into every derivation)
-- **Versioning layers touched:** template only. `AGENTS.md`, `sadhana/root/AGENTS.md` and bootstrap step 1 are rewritten to name sections rather than files; `yidam/cli/tests/prelude_rules_and_evidence.rs` gains per-occasion ceilings and anchor resolution. **No contract bump, no CLI surface change.**
+- **Versioning layers touched:** template only. `AGENTS.md`, `sadhana/root/AGENTS.md` and bootstrap step 1 are rewritten to name sections rather than files; `yidam/cli/tests/prelude_rules_and_evidence.rs` gains per-occasion ceilings and anchor resolution. **No contract bump.** One new command, `yidam routes`, the REGEN generator #969 chose (#972).
 - **Downstream reference case:** the two recurring read routes and the bootstrap path, measured 2026-09-24 at 17,686, 22,993 and 26,323 words.
 
 ## Summary
@@ -198,6 +198,27 @@ measured floor: the smallest occasion is *Retrieve* at 2,624, the largest post-g
 is *Run a phase* at 4,179, and the bootstrap is 18,937. #933 is closed on those numbers, not
 on 3,000, and the ceilings hold each of them separately.
 
+**As shipped (#972, #973).** The route charges more than the table, for three reasons. The
+route file itself is charged, because the agent reads it to find its occasion: 726 words in
+the template and 1,920 in a derivation. Core is 1,092 rather than 1,483, since GRAPH's preamble
+and agent-conduct's short rules moved to *Reference*. And *Write or revise a node* reads the
+class contract and *Mark claim confidence* whole, not their first subsections. The contract's
+lead alone is 327 words and says nothing about properties, and a cut inside a `##` is a range
+no link can name. The ceilings, template then derivation:
+
+| occasion | template | derivation | vs. 18,836 |
+|---|---:|---:|---:|
+| Write or revise a node | 6,157 | 7,351 | −67% |
+| Run a phase | 4,584 | 5,778 | −76% |
+| A claim crosses a corpus boundary | 4,310 | 5,504 | −77% |
+| Change a class | 4,564 | 5,758 | −76% |
+| Retrieve | 2,959 | 4,153 | −84% |
+
+Without the route file, the four post-genesis occasions are 3,584 to 5,431 and *Retrieve*
+is 2,233. #933 is closed on these
+numbers. There is no ceiling on their union, because the union is the old whole-file read by
+another route.
+
 ## What this does not touch
 
 - **The files.** No prelude file is split, moved or renamed by this RFC. Sections are addressed
@@ -220,8 +241,8 @@ yidam-vendor-update` replaces `.yidam/.vendor/prelude/` — but a derivation's `
 installed once, at genesis, from `sadhana/root/AGENTS.md`, and nothing re-installs it. So the
 occasion headings reach **new** derivations at their next bootstrap and reach **existing** ones
 only by hand, or by a REGEN block that does not exist yet (a generator is registered in four
-places, and that is its own change). This is the honest cost of the proposal and the open
-question below asks which. Nothing in any corpus moves. An agent that ignores the occasion
+places, and that is its own change). This is the honest cost of the proposal. The open
+question below asked which, and #969 answered it: the REGEN block. Nothing in any corpus moves. An agent that ignores the occasion
 headings and reads "Full context" behaves exactly as before.
 
 **Consumers of the routes.** `routes()` in the gate discovers a route by three file links; a
@@ -265,20 +286,31 @@ records twice.
   falsifier is to count, over the routes' current file links, how often a read of `GRAPH.md` is
   whole-file versus ranged. If it is whole-file every time, the route must say *stop at* the
   next heading, in words, and the ceiling should be measured on the file the agent will actually
-  open. Run this before writing the routes.
+  open. Run this before writing the routes. *Resolved by #967: read as the section.* Six runs
+  handed a fragment link read the section and none opened the file; three runs handed the file
+  link read it whole. The routes ship as section links and the ceilings are measured per
+  section.
 - **Is the census a gap in the skill?** "Mark claim confidence" is 1,203 words no step names.
   Either a bootstrap seeds no claim that needs a tag — in which case it is reference and comes
   off the bootstrap read — or step 6 is missing a sentence. The answer decides 1,203 words of
-  the bootstrap ceiling and is a question for whoever last seeded a corpus.
+  the bootstrap ceiling and is a question for whoever last seeded a corpus. *Resolved by #968:
+  a gap.* 599 of 624 genesis nodes across 19 corpora carry a claim tag, and this section was the
+  only instruction behind them. Step 6 now names the tags, and the section stays on the
+  bootstrap read.
 - **Which vocabulary names the occasion?** The table uses commit verbs because every agent must
   choose one; PHASES.md's phase types are the alternative and RFC-0028's kuten profiles already
   speak that vocabulary. If the two disagree about where an act belongs, the verb wins here and
-  the disagreement is a finding about the phase types.
-- **How does an existing derivation get the headings?** Its `AGENTS.md` is its own file. The
-  choices are a documented hand-edit in the upgrade notes, or a `<!-- REGEN: yidam routes -->`
-  block that `yidam regen` fills from the vendored prelude — which puts the occasion table under
-  a generator and makes it data rather than prose. The second is the better shape and the larger
-  change; decide it before the routes are written, because the block's boundaries decide what
-  hand-edited text survives a regen.
+  the disagreement is a finding about the phase types. *Resolved by #972: the verb.* The three
+  places the two disagree are #1136.
+- **How does an existing derivation get the headings?** *Resolved by #969: a
+  `<!-- REGEN: yidam routes -->` block.* A vendored prelude data file fills it, so the occasion
+  table is data rather than prose. `yidam migrate routes` installs its markers once, and
+  `yidam doctor` reports an `AGENTS.md` that has none. A marker is not something to hand-write,
+  for the reason `kuten adopt` inserts its own. The block owns only the bullet list under
+  *Before taking substantive action*, not the heading or the prose after it. Across nine
+  derivations on disk, that list held zero owner edits, and the rest of each `AGENTS.md` was
+  heavily edited. Route lines added to the template reached derivations 2 times in 16, and
+  nothing reported the other 14. A stale block turns red in each derivation's own CI, which
+  already runs `regen`. The measurement is on the issue.
 - **The per-step skill.** Deferred, not declined. The trigger is the bootstrap ceiling's next
   raise: if the skill grows again, the argument that it is one occasion has been lost.

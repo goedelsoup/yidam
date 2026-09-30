@@ -117,7 +117,12 @@ fn catalogs(root: &Path) -> Vec<(String, String)> {
 /// way, and the finding is the same.
 fn gating(root: &Path, checks: &[lint::model::Check]) -> Result<BTreeSet<(String, String)>> {
     let committed = baseline::Baseline::load(root)?;
-    let d = baseline::diff(checks, &committed, &history::corpus_commits(root));
+    let d = baseline::diff(
+        checks,
+        &committed,
+        &history::corpus_commits(root),
+        &lint::unasked(checks),
+    );
     let mut out: BTreeSet<(String, String)> = d.introduced.into_iter().collect();
     out.extend(d.expired.into_iter().map(|e| (e.check, e.node)));
     Ok(out)

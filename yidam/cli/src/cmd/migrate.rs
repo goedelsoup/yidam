@@ -14,7 +14,8 @@
 //! |---|---|
 //! | class rename | the class file, its directory, every instance's `class:`, every edge `target:` at both ends, and every link that resolved into the directory |
 //! | property rename | the declaration, and the key on every instance carrying it |
-//! | property retype | the declaration — and it **refuses** when an instance's value would not satisfy the new type |
+//! | property retype | the declaration, plus every instance value the new type only rewrites the *quoting* of — and it **refuses** a value the new type cannot admit at all |
+//! | value rename | one item of the declaration's `values:` list, and the value on every instance holding it |
 //! | edge re-target | the declaration at both ends, plus a report of the instances now in violation |
 //!
 //! # What it refuses to guess
@@ -25,10 +26,25 @@
 //! state its own gate rejects while reporting success. So a retype that cannot be performed
 //! is `blocked`, listing the instances and their values, and **nothing is written**.
 //!
-//! The check that decides is [`crate::cmd::lint::checks::property_type_satisfied`] — the
+//! The check that decides is [`crate::cmd::lint::checks::property_type_violation`] — the
 //! same predicate `property-type` gates on, not a second reading of it. A migration that
 //! disagreed with the gate about what a valid value is would be a migration into a failing
 //! build.
+//!
+//! A retype *into* `string` on a property that declares `values:` (RFC-0044) is held to that
+//! set by the same rule: the set was carried and ignored on the type the property had, it
+//! binds on `string`, and an instance outside it is reported and blocks. Widening the set or
+//! fixing the value is a judgment about what the instance meant, and both are the author's.
+//!
+//! **Requoting is not guessing**, and it was refused along with the guesses until #1044. Two
+//! of `property-type`'s messages name their own repair: a `number` holding `"24"` is told to
+//! *unquote it*, and a `string` holding a bare `24` — or a `date` holding a bare `1985` — is
+//! told to *quote it*. Those are the same bytes written the other way, and a retype that
+//! refused them was asking an author to carry out an instruction character for character
+//! before it would run. So it performs them, on the instances and nowhere else, and verifies
+//! each one by parsing what it would write and putting that back through the gate's
+//! predicate. `about 24` and `~24` still refuse: there is no number in them to unquote, and
+//! the tilde was carrying a meaning the number cannot.
 //!
 //! # Line edits, not a YAML round-trip
 //!
@@ -66,6 +82,18 @@ pub enum Operation {
         property: String,
         new_type: String,
     },
+    /// One value of a declared `values:` set (RFC-0044) changes name on the class and on every
+    /// instance holding it.
+    ///
+    /// `property-rename`'s shape one level down: the set is closed, so a value cannot be
+    /// renamed on the instances without the declaration, or on the declaration without every
+    /// instance tripping `property-type` in the interval.
+    ValueRename {
+        class: String,
+        property: String,
+        from: String,
+        to: String,
+    },
     /// A declared relationship points at a different class.
     EdgeRetarget {
         class: String,
@@ -86,6 +114,17 @@ pub enum Operation {
     /// across every node under one commit subject, with a record of what it refused. See
     /// [`crate::cmd::migrate_findings`].
     Findings,
+    /// `AGENTS.md`'s whole-file reading list becomes the `yidam routes` block (#1135).
+    ///
+    /// Migrates neither the ontology nor the data but the scaffold, and belongs here for the
+    /// same reason the two lifts do: a one-time mechanical rewrite with a record of what it
+    /// refused. See [`crate::cmd::migrate_routes`].
+    Routes,
+    /// `ci.yml` and `CLAUDE.md` get the regions `yidam-vendor-update` rewrites (#1054).
+    ///
+    /// Migrates the scaffold, as [`Self::Routes`] does, and for the same reason. See
+    /// [`crate::cmd::migrate_scaffold`].
+    Scaffold,
 }
 
 impl Operation {
@@ -95,9 +134,12 @@ impl Operation {
             Self::ClassRename { .. } => "class-rename",
             Self::PropertyRename { .. } => "property-rename",
             Self::PropertyRetype { .. } => "property-retype",
+            Self::ValueRename { .. } => "value-rename",
             Self::EdgeRetarget { .. } => "edge-retarget",
             Self::References => "references",
             Self::Findings => "findings",
+            Self::Routes => "routes",
+            Self::Scaffold => "scaffold",
         }
     }
 
@@ -113,6 +155,12 @@ impl Operation {
                 property,
                 new_type,
             } => format!("`{class}.{property}` is now `{new_type}`"),
+            Self::ValueRename {
+                class,
+                property,
+                from,
+                to,
+            } => format!("`{class}.{property}`: `{from}` → `{to}`"),
             Self::EdgeRetarget {
                 class,
                 relationship,
@@ -126,6 +174,10 @@ impl Operation {
             // Replaced once planned, for the reason above, and a stable form that does not
             // begin with the operation's own name for the same one.
             Self::Findings => "legacy propose paragraphs into records".to_string(),
+            // Replaced once planned, and for the same reasons as the two above.
+            Self::Routes => "AGENTS.md reading list into a generated block".to_string(),
+            // A stable form that does not begin with the operation's own name, as above.
+            Self::Scaffold => "ci.yml and CLAUDE.md regions a re-vendor updates".to_string(),
         }
     }
 }
@@ -145,7 +197,7 @@ pub struct Violation {
 #[derive(Debug, serde::Serialize)]
 pub struct MigrateReport {
     pub corpus_dir: String,
-    /// `class-rename`, `property-rename`, `property-retype`, `edge-retarget`.
+    /// `class-rename`, `property-rename`, `property-retype`, `value-rename`, `edge-retarget`.
     pub operation: &'static str,
     pub summary: String,
     /// Whether anything was written. False for `--dry-run`, and false whenever `blocked` is
@@ -154,6 +206,11 @@ pub struct MigrateReport {
     /// File moves. One per instance for a class rename; empty otherwise.
     pub moves: Vec<Edit>,
     pub edits: Vec<Edit>,
+    /// The `moved-from:` line written into each instance a class rename moves, so that its
+    /// ages carry across the move (#1192) — the line `rename` writes, placed the same way.
+    /// Reported under the instance's new path. Empty for every other operation.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub moved_from: Vec<Edit>,
     /// Instances this migration leaves in violation. Reported, never silently fixed.
     pub violations: Vec<Violation>,
     /// Markdown references to a renamed path. Reported, never rewritten.
@@ -178,6 +235,14 @@ pub struct MigrateReport {
     /// somebody's prose now, and listing them would read as work to do.
     #[serde(skip_serializing_if = "is_zero")]
     pub prose_findings: usize,
+    /// The reading list `migrate routes` replaces, and the block it writes. `None` for every
+    /// other operation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routes: Option<super::migrate_routes::Routes>,
+    /// The two files `migrate scaffold` marks, and what goes inside each region. `None` for
+    /// every other operation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scaffold: Option<super::migrate_scaffold::Scaffold>,
     /// Why this cannot proceed. Non-empty means nothing was touched.
     pub blocked: Vec<String>,
     /// Where the migration record was written, once applied.
@@ -207,12 +272,15 @@ impl MigrateReport {
             applied: false,
             moves: vec![],
             edits: vec![],
+            moved_from: vec![],
             violations: vec![],
             unhandled: vec![],
             lifted: vec![],
             prose_details: 0,
             findings: vec![],
             prose_findings: 0,
+            routes: None,
+            scaffold: None,
             blocked: vec![],
             record: String::new(),
             commit_subject: String::new(),
@@ -225,11 +293,16 @@ fn ont_path(corpus: &Path, name: &str) -> PathBuf {
     corpus.join(format!("{name}.ont.yml"))
 }
 
-/// The value of a `key: value` line at any indent, with its byte range.
+/// The value of a `key: value` line at any indent **as written**, quotes and all, with its
+/// byte range.
 ///
 /// Deliberately not a YAML parse: this is used to rewrite one scalar in place, leaving
 /// every other byte of the file — comments, block scalars, key order — exactly as written.
-fn scalar_on(line: &str, key: &str) -> Option<(usize, usize, String)> {
+///
+/// [`scalar_on`] is this same reading with the quotes stripped off, which is what every
+/// rename here wants and the exact opposite of what a requote wants: the value *inside* the
+/// quotes of `"24"` is `24` already, so rewriting that span would write the same bytes back.
+fn raw_scalar_on(line: &str, key: &str) -> Option<(usize, usize, String)> {
     let trimmed = line.trim_start();
     let indent = line.len() - trimmed.len();
     let body = trimmed
@@ -246,16 +319,28 @@ fn scalar_on(line: &str, key: &str) -> Option<(usize, usize, String)> {
     if value.is_empty() {
         return None;
     }
-    let quoted = value.len() > 1
-        && ((value.starts_with('"') && value.ends_with('"'))
-            || (value.starts_with('\'') && value.ends_with('\'')));
-    let inner = if quoted {
-        &value[1..value.len() - 1]
-    } else {
-        value
-    };
-    let start = indent + body.0 + key.len() + 1 + lead + usize::from(quoted);
-    Some((start, start + inner.len(), inner.to_string()))
+    let start = indent + body.0 + key.len() + 1 + lead;
+    Some((start, start + value.len(), value.to_string()))
+}
+
+/// The value of a `key: value` line, inside its quotes where it has them.
+fn scalar_on(line: &str, key: &str) -> Option<(usize, usize, String)> {
+    let (start, end, value) = raw_scalar_on(line, key)?;
+    match unquoted(&value) {
+        Some(inner) => Some((start + 1, end - 1, inner.to_string())),
+        None => Some((start, end, value)),
+    }
+}
+
+/// The inside of a quoted scalar, or `None` when it carries no quotes.
+///
+/// The length test is not redundant: a lone `"` both starts and ends with one.
+fn unquoted(value: &str) -> Option<&str> {
+    let quote = value.chars().next()?;
+    if !matches!(quote, '"' | '\'') || value.len() < 2 || !value.ends_with(quote) {
+        return None;
+    }
+    Some(&value[1..value.len() - 1])
 }
 
 /// A mapping key line — `  <name>:` — with the key's byte range.
@@ -273,6 +358,94 @@ fn mapping_key_on(line: &str, key: &str) -> Option<(usize, usize)> {
         return None;
     }
     Some((indent, indent + key.len()))
+}
+
+/// An item of a flow-form `values: [a, b, c]` line reading `value`, with its byte range.
+///
+/// The item is matched as written or inside its quotes, and the range is the item as written,
+/// quotes included — a value rename rewrites the whole token, as a requote does. Not a YAML
+/// parse, for the reason [`raw_scalar_on`] is not: every other byte of the line stays.
+fn values_item_on(line: &str, value: &str) -> Option<(usize, usize)> {
+    let (start, _, list) = raw_scalar_on(line, "values")?;
+    let inner = list.strip_prefix('[')?.strip_suffix(']')?;
+    let mut quote: Option<char> = None;
+    let mut item_start = 0;
+    for (i, c) in inner
+        .char_indices()
+        .chain(std::iter::once((inner.len(), ',')))
+    {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None if matches!(c, '"' | '\'') => quote = Some(c),
+            None if c == ',' => {
+                let raw = &inner[item_start..i];
+                let lead = raw.len() - raw.trim_start().len();
+                let item = raw.trim();
+                if !item.is_empty() && (item == value || unquoted(item) == Some(value)) {
+                    let s = start + 1 + item_start + lead;
+                    return Some((s, s + item.len()));
+                }
+                item_start = i + 1;
+            }
+            None => {}
+        }
+    }
+    None
+}
+
+/// A block-form list item — `  - <value>` — reading `value`, with the item's byte range.
+///
+/// The block spelling of [`values_item_on`]. A trailing ` #` comment is left where it is.
+fn list_item_on(line: &str, value: &str) -> Option<(usize, usize)> {
+    let trimmed = line.trim_start();
+    let indent = line.len() - trimmed.len();
+    let rest = trimmed.strip_prefix("- ")?;
+    let lead = rest.len() - rest.trim_start().len();
+    let mut item = rest.trim_start();
+    if let Some(hash) = item.find(" #") {
+        item = &item[..hash];
+    }
+    let item = item.trim_end();
+    if item.is_empty() || (item != value && unquoted(item) != Some(value)) {
+        return None;
+    }
+    let s = indent + 2 + lead;
+    Some((s, s + item.len()))
+}
+
+/// `value` spelled so that YAML reads it back as exactly that string.
+///
+/// Bare where bare reads back as itself — the candidate is parsed rather than reasoned about,
+/// which is what keeps `true`, `24` and `null` from silently leaving the set they were renamed
+/// into — and double-quoted otherwise. The flow-list separators are quoted whether or not the
+/// parser would mind them in a block, because the declaration may be written either way.
+fn yaml_token(value: &str) -> String {
+    let plain = !value.is_empty()
+        && value.trim() == value
+        && !value.contains(['"', '\'', ',', '[', ']', '{', '}', '#', '\n'])
+        && matches!(
+            serde_yaml::from_str::<serde_yaml::Value>(value),
+            Ok(serde_yaml::Value::String(s)) if s == value
+        );
+    if plain {
+        value.to_string()
+    } else if !value.contains('"') {
+        format!("\"{value}\"")
+    } else {
+        format!("'{}'", value.replace('\'', "''"))
+    }
+}
+
+/// `to`, written the way `written` was: quoted with the same quote where it had one, bare
+/// where a bare spelling reads back as itself, and otherwise quoted.
+fn written_like(written: &str, to: &str) -> String {
+    match written.chars().next() {
+        Some(q @ ('"' | '\'')) if unquoted(written).is_some() && !to.contains(q) => {
+            format!("{q}{to}{q}")
+        }
+        _ => yaml_token(to),
+    }
 }
 
 fn push_edit(edits: &mut Vec<Edit>, file: &str, line: usize, from: &str, to: &str) {
@@ -304,6 +477,12 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
             property,
             new_type,
         } => plan_property_retype(root, corpus, class, property, new_type, &mut report),
+        Operation::ValueRename {
+            class,
+            property,
+            from,
+            to,
+        } => plan_value_rename(root, corpus, class, property, from, to, &mut report),
         Operation::EdgeRetarget {
             class,
             relationship,
@@ -316,6 +495,14 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
         Operation::Findings => {
             super::migrate_findings::plan(root, corpus, &mut report);
             report.summary = super::migrate_findings::summary(&report);
+        }
+        Operation::Routes => {
+            super::migrate_routes::plan(root, &mut report);
+            report.summary = super::migrate_routes::summary(&report);
+        }
+        Operation::Scaffold => {
+            super::migrate_scaffold::plan(root, &mut report);
+            report.summary = super::migrate_scaffold::summary(&report);
         }
     }
     if report.blocked.is_empty() {
@@ -345,6 +532,18 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
                     .collect::<BTreeSet<_>>()
                     .len(),
             )
+        } else if let Some(routes) = &report.routes {
+            // A routes migration makes no edits either: its unit is a bullet of the list the
+            // block replaces, in the one file it writes.
+            (
+                routes.replaced.len(),
+                "bullet",
+                usize::from(!routes.already),
+            )
+        } else if let Some(scaffold) = &report.scaffold {
+            // Nor a scaffold migration: its unit is a file given a region.
+            let n = scaffold.files.iter().filter(|f| f.to_write()).count();
+            (n, "file", n)
         } else {
             (
                 report.edits.len(),
@@ -459,6 +658,15 @@ fn plan_class_rename(root: &Path, corpus: &Path, old: &str, new: &str, report: &
                 from: format!("{}/{id}", report.corpus_dir),
                 to: format!("{}/{new}/{name}", report.corpus_dir),
             });
+            // Without it the history replay sees a delete and an add, and every instance
+            // restarts its uncited and open-question ages: a class rename would reset each
+            // orphan's escalation clock and drop each overdue question off `due` (#1192).
+            let to = format!("{new}/{name}");
+            report.moved_from.push(super::rename::moved_from_line(
+                format!("{}/{to}", report.corpus_dir),
+                &text,
+                super::rename::relative_target(&to, &id),
+            ));
         }
 
         // Links, from both sides. A link written by a moving instance keeps its
@@ -558,6 +766,251 @@ fn plan_property_rename(
     }
 }
 
+fn plan_value_rename(
+    root: &Path,
+    corpus: &Path,
+    class: &str,
+    property: &str,
+    from: &str,
+    to: &str,
+    report: &mut MigrateReport,
+) {
+    if !check_class(corpus, class, report) {
+        return;
+    }
+    if from == to {
+        report.blocked.push("the two values are the same".into());
+    }
+    if to.is_empty() {
+        report.blocked.push("the new value is empty".into());
+    }
+    if !declared_properties(corpus, class)
+        .iter()
+        .any(|(n, _)| n == property)
+    {
+        report
+            .blocked
+            .push(format!("`{class}` declares no property `{property}`"));
+        return;
+    }
+    // The set as the gate reads it, so a value the declaration spells in a form this cannot
+    // locate is refused below rather than half-renamed.
+    let set = declared_values(corpus, class, property);
+    if set.is_empty() {
+        report.blocked.push(format!(
+            "`{class}.{property}` declares no `values:` — there is no set to rename within"
+        ));
+    } else {
+        if !set.iter().any(|v| v == from) {
+            report.blocked.push(format!(
+                "`{class}.{property}` declares no value `{from}` — its set is [{}]",
+                set.join(", ")
+            ));
+        }
+        if set.iter().any(|v| v == to) {
+            report.blocked.push(format!(
+                "`{class}.{property}` already declares `{to}` — renaming onto it would merge two values"
+            ));
+        }
+    }
+    if !report.blocked.is_empty() {
+        return;
+    }
+
+    // The declaration: the one item of the property's `values:` list, in whichever of the
+    // two list spellings the class wrote it. Scoped to the property by its `name:` line, as
+    // the file is a list of property mappings and two of them may declare the same value.
+    let ont = ont_path(corpus, class);
+    let ont_rel = rel(root, &ont);
+    let text = std::fs::read_to_string(&ont).unwrap_or_default();
+    let mut current: Option<String> = None;
+    let mut block: Option<usize> = None;
+    let mut found = false;
+    for (i, line) in text.lines().enumerate() {
+        if let Some((_, _, name)) = scalar_on(line, "name") {
+            current = Some(name);
+            block = None;
+            continue;
+        }
+        if current.as_deref() != Some(property) || line.trim().is_empty() {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        if let Some(open) = block {
+            if indent > open {
+                if let Some((s, e)) = list_item_on(line, from) {
+                    let written = &line[s..e];
+                    push_edit(
+                        &mut report.edits,
+                        &ont_rel,
+                        i + 1,
+                        written,
+                        &written_like(written, to),
+                    );
+                    found = true;
+                }
+                continue;
+            }
+            block = None;
+        }
+        if let Some((s, e)) = values_item_on(line, from) {
+            let written = &line[s..e];
+            push_edit(
+                &mut report.edits,
+                &ont_rel,
+                i + 1,
+                written,
+                &written_like(written, to),
+            );
+            found = true;
+        } else if line
+            .trim_start()
+            .strip_prefix("values:")
+            .is_some_and(|rest| rest.trim().is_empty() || rest.trim_start().starts_with('#'))
+        {
+            block = Some(indent);
+        }
+    }
+    if !found {
+        // The parser saw the value and the line scan did not: a flow list broken across
+        // lines, or a spelling this does not read. Refusing keeps the two halves together.
+        report.blocked.push(format!(
+            "`{class}.{property}` declares `{from}` in a form this cannot rewrite in place — \
+             edit the `values:` list by hand"
+        ));
+        return;
+    }
+
+    // Every instance holding it, as written or inside its quotes. An instance holding some
+    // other value is outside this rename: in the set, it stays; outside it, `property-type`
+    // already reports it and a rename is not the repair.
+    for path in instances_of(corpus, class) {
+        let file = rel(root, &path);
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let Some((line, written)) = property_value_line(&text, property) else {
+            continue;
+        };
+        if written == from || unquoted(&written) == Some(from) {
+            push_edit(
+                &mut report.edits,
+                &file,
+                line,
+                &written,
+                &written_like(&written, to),
+            );
+        }
+    }
+}
+
+/// The line an instance writes a property's value on, and that value exactly as written.
+///
+/// Scoped to the top-level `properties:` block. A property's name can also be a key under
+/// `links:`, or inside another property's own mapping, and a value edit that landed on one of
+/// those would rewrite something the retype never named.
+fn property_value_line(text: &str, property: &str) -> Option<(usize, String)> {
+    let mut in_properties = false;
+    for (i, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if !line.starts_with(char::is_whitespace) {
+            in_properties = line.trim_end() == "properties:";
+            continue;
+        }
+        if !in_properties {
+            continue;
+        }
+        if let Some((_, _, written)) = raw_scalar_on(line, property) {
+            return Some((i + 1, written));
+        }
+    }
+    None
+}
+
+/// What a retype can do with one instance value.
+enum Requote {
+    /// The bytes to write in place of the ones there now.
+    Write(String),
+    /// The other spelling was tried and is no better, and this says what it would have been
+    /// and what is wrong with it.
+    ///
+    /// Worth a sentence of its own because `property-type`'s cannot serve here: its `number`
+    /// arm reads *unquote it* whether or not unquoting helps, so a refusal that printed only
+    /// the gate's finding would tell an author to do the thing this just declined to do.
+    Refused(String),
+    /// Nothing to try: no quotes to drop, and nothing a quote would change.
+    Nothing,
+}
+
+/// Write one value the other way, or say why that cannot be done.
+///
+/// The two conversions `property-type` already names in its own findings: *unquote it* for a
+/// `number` holding `"24"`, and *quote it* for a type that wants text holding a bare `24`. A
+/// scalar has exactly one other spelling, so there is nothing here to choose between — which
+/// is what separates this from the guesses the module note refuses.
+///
+/// The candidate is **parsed and re-checked** rather than reasoned about, and two things are
+/// asked of it:
+///
+/// 1. The new type admits it, by [`super::lint::checks::property_type_violation`] — the
+///    predicate that gates, for the reason the refusal in [`plan_property_retype`] gives.
+///    Whether dropping a pair of quotes produces a number is a question about YAML and not
+///    about quotes: serde_yaml reads `00060` and `1__0` as text, so unquoting either would
+///    leave `property-type` reporting the instance it reported before.
+/// 2. It still says what the corpus wrote. `"0x1A"` unquoted is the number **26** — serde_yaml
+///    reads bases the gate's own parser does not — and a retype that turned a code into 26
+///    while reporting success would be the invention this module exists to refuse.
+fn requote(new_type: &str, value: &serde_yaml::Value, written: &str) -> Requote {
+    use serde_yaml::Value;
+    // The line has to be the one this value was read from. `written` comes from a text scan
+    // and `value` from a parse of the whole document, and a key that is not the property's
+    // own — or a block scalar, whose value is not on this line at all — would offer bytes
+    // that say something else.
+    if serde_yaml::from_str::<Value>(written).ok().as_ref() != Some(value) {
+        return Requote::Nothing;
+    }
+    // Which way to write it is the *value's* shape and not the new type's: text in quotes has
+    // quotes to lose, and a number or a boolean has bytes to quote. A bare string has neither,
+    // which is why `cubic feet per second` retyped to `date` is refused rather than quoted —
+    // it is already text, and the quotes were never what was wrong with it.
+    let (candidate, verb) = match (value, unquoted(written)) {
+        (Value::String(_), Some(bare)) => (bare.to_string(), "unquoting"),
+        (Value::Number(_) | Value::Bool(_), None) => (format!("\"{written}\""), "quoting"),
+        _ => return Requote::Nothing,
+    };
+    let Ok(parsed) = serde_yaml::from_str::<Value>(&candidate) else {
+        return Requote::Nothing;
+    };
+    if super::lint::checks::property_type_violation(new_type, &parsed).is_some() {
+        return Requote::Refused(format!(
+            "{verb} it gives `{candidate}`, which `{new_type}` does not accept either"
+        ));
+    }
+    let reads_back = match (&parsed, &value) {
+        // Unquoted: the same quantity the text spelled, read by the parser the gate and
+        // `query`'s ordering share rather than by a third one.
+        (Value::Number(n), Value::String(text)) => {
+            let read = super::lint::checks::numeric_value(&n.to_string());
+            read.is_some() && read == super::lint::checks::numeric_value(text)
+        }
+        // Quoted: the bare bytes, now text — byte for byte, so `0x1A` becomes `"0x1A"` and
+        // never `"26"`. What the corpus wrote is what it meant.
+        (Value::String(s), _) => *s == written,
+        _ => false,
+    };
+    if !reads_back {
+        let read = serde_yaml::to_string(&parsed)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        return Requote::Refused(format!(
+            "{verb} it gives `{candidate}`, which YAML reads as `{read}` rather than as what \
+             is written"
+        ));
+    }
+    Requote::Write(candidate)
+}
+
 fn plan_property_retype(
     root: &Path,
     corpus: &Path,
@@ -583,9 +1036,25 @@ fn plan_property_retype(
         return;
     }
 
-    // The refusal. Every instance's value is tested against the new type by the predicate
-    // `property-type` gates on — so a migration that succeeds leaves a corpus its own gate
-    // accepts, and one that would not is not performed at all.
+    // The refusal, and the one conversion that is not a guess. Every instance's value is
+    // tested against the new type by the predicate `property-type` gates on — so a migration
+    // that succeeds leaves a corpus its own gate accepts, and one that would not is not
+    // performed at all. A value the new type rejects only for how it is *written* is requoted
+    // instead; see [`requote`].
+    //
+    // Held back rather than pushed as they are found: an instance further down may have no
+    // conversion, and a retype that rewrote half a class before refusing would leave the
+    // corpus in a state neither type describes.
+    let mut values: Vec<(String, usize, String, String)> = Vec::new();
+    // A `string` may declare a closed set (RFC-0044), and a retype *into* `string` is the
+    // moment the set starts to bind — on the type the property had, it was carried and
+    // ignored. Consulted for the reason the type predicate is: a migration that left an
+    // instance outside the set would be a migration into a failing build. Read once, here,
+    // and empty on every other type.
+    let set = match new_type {
+        "string" => declared_values(corpus, class, property),
+        _ => vec![],
+    };
     for path in instances_of(corpus, class) {
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         let inst = crate::parse::parse_instance(&text);
@@ -596,9 +1065,48 @@ fn plan_property_retype(
         else {
             continue;
         };
-        if let Some(why) = super::lint::checks::property_type_violation(new_type, value) {
+        // What the new type will see: the value as it stands, or as the requote writes it.
+        // `None` is a value that was refused above, which needs no second finding.
+        let admitted = match super::lint::checks::property_type_violation(new_type, value) {
+            None => Some(value.clone()),
+            Some(why) => {
+                let located = property_value_line(&text, property);
+                let outcome = located.as_ref().map_or(Requote::Nothing, |(_, written)| {
+                    requote(new_type, value, written)
+                });
+                match (outcome, located) {
+                    (Requote::Write(to), Some((line, from))) => {
+                        let parsed = serde_yaml::from_str(&to).ok();
+                        values.push((rel(root, &path), line, from, to));
+                        parsed
+                    }
+                    // The gate's finding, then what this tried. Both, because the finding is
+                    // what a reader will search for and the clause is the part that says what
+                    // to do next.
+                    (outcome, _) => {
+                        let clause = match outcome {
+                            Requote::Refused(why) => format!(": {why}"),
+                            _ => String::new(),
+                        };
+                        report.blocked.push(format!(
+                            "{}: `{property}` {why} — no mechanical conversion to \
+                             `{new_type}`{clause}",
+                            rel(root, &path)
+                        ));
+                        None
+                    }
+                }
+            }
+        };
+        if let Some(why) = admitted
+            .as_ref()
+            .and_then(|v| super::lint::checks::declared_value_violation(&set, v))
+        {
+            // Not a conversion this can make: `resigned to enter Congress` against
+            // `resigned` is a judgment about what the instance meant, which is the guess the
+            // module note refuses. The two repairs are both the author's.
             report.blocked.push(format!(
-                "{}: `{property}` {why} — no mechanical conversion to `{new_type}`",
+                "{}: `{property}` {why} — widen `values:` on the declaration, or fix the value",
                 rel(root, &path)
             ));
         }
@@ -632,6 +1140,12 @@ fn plan_property_retype(
         report.blocked.push(format!(
             "`{class}.{property}` declares no `type:` to change — add one by hand"
         ));
+        return;
+    }
+    // After the declaration, never before it: the test above is asking whether the class file
+    // was rewritten, and an instance's edit would have answered it for something else.
+    for (file, line, from, to) in values {
+        push_edit(&mut report.edits, &file, line, &from, &to);
     }
 }
 
@@ -737,6 +1251,17 @@ fn declared_properties(corpus: &Path, class: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The closed set a property declares (RFC-0044), or empty.
+fn declared_values(corpus: &Path, class: &str, property: &str) -> Vec<String> {
+    let text = std::fs::read_to_string(ont_path(corpus, class)).unwrap_or_default();
+    yidam_core::ontology::parse_class(class, &text)
+        .properties
+        .into_iter()
+        .find(|p| p.name == property)
+        .map(|p| p.values)
+        .unwrap_or_default()
+}
+
 /// The class a relationship declares as its other end.
 fn declared_edge_target(corpus: &Path, class: &str, relationship: &str) -> Option<String> {
     let text = std::fs::read_to_string(ont_path(corpus, class)).unwrap_or_default();
@@ -803,7 +1328,7 @@ fn prose_mentions(root: &Path, needle: &str) -> Vec<Unhandled> {
 /// not — a corpus is free to carry its own fields there and this is generated output.
 #[derive(Debug, serde::Serialize)]
 pub struct MigrationRecord {
-    /// `class-rename`, `property-rename`, `property-retype`, `edge-retarget`.
+    /// `class-rename`, `property-rename`, `property-retype`, `value-rename`, `edge-retarget`.
     pub operation: &'static str,
     pub summary: String,
     /// Files rewritten, repository-relative.
@@ -892,6 +1417,23 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
         let files: BTreeSet<String> = report.findings.iter().map(|l| l.node.clone()).collect();
         return write_record(root, op, report, files.into_iter().collect());
     }
+    // A routes migration replaces a run of lines with a block of a different length, which a
+    // one-for-one line edit cannot express. The same escape as the two lifts above.
+    if matches!(op, Operation::Routes) {
+        let Some(routes) = report.routes.clone().filter(|r| !r.already) else {
+            return Ok(());
+        };
+        super::migrate_routes::apply(root, report)?;
+        return write_record(root, op, report, vec![routes.file]);
+    }
+    // A scaffold migration wraps a span of lines in markers, and may move one: the same escape.
+    if matches!(op, Operation::Scaffold) {
+        if report.scaffold.as_ref().is_none_or(|s| s.nothing_to_do()) {
+            return Ok(());
+        }
+        let written = super::migrate_scaffold::apply(root, report)?;
+        return write_record(root, op, report, written);
+    }
     let mut by_file: BTreeMap<&str, Vec<&Edit>> = Default::default();
     for e in &report.edits {
         by_file.entry(&e.file).or_default().push(e);
@@ -910,6 +1452,31 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
                 .iter()
                 .find_map(|key| scalar_on(line, key).filter(|(_, _, v)| *v == e.from))
                 .map(|(s, t, _)| (s, t))
+                .or_else(|| {
+                    // A retype's instance edits change the *quoting* of a value, on a key the
+                    // class names rather than one of the five above: `length_km: "24"` becomes
+                    // `length_km: 24`. The span is the value as written, quotes included —
+                    // `scalar_on` reports the value inside them, and rewriting that range puts
+                    // the same bytes back.
+                    let Operation::PropertyRetype { property, .. } = op else {
+                        return None;
+                    };
+                    raw_scalar_on(line, property)
+                        .filter(|(_, _, v)| *v == e.from)
+                        .map(|(s, t, _)| (s, t))
+                })
+                .or_else(|| {
+                    // A value rename's edits are all whole tokens: the instance value as
+                    // written, or one item of the declaration's list in either spelling.
+                    let Operation::ValueRename { property, .. } = op else {
+                        return None;
+                    };
+                    raw_scalar_on(line, property)
+                        .filter(|(_, _, v)| *v == e.from)
+                        .map(|(s, t, _)| (s, t))
+                        .or_else(|| values_item_on(line, &e.from))
+                        .or_else(|| list_item_on(line, &e.from))
+                })
                 .or_else(|| mapping_key_on(line, &e.from));
             let Some((start, end)) = span else { continue };
             line.replace_range(start..end, &e.to);
@@ -931,6 +1498,11 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
             // outcome — `git mv` is for history, not for correctness.
             std::fs::rename(&from, &to)?;
         }
+    }
+
+    // After the moves: each line is written into the file at its new name.
+    for e in &report.moved_from {
+        super::rename::write_moved_from(&root.join(&e.file), e)?;
     }
 
     // The now-empty class directory. Left behind, `walk_ont_files` ignores it and
@@ -990,6 +1562,13 @@ fn write_record(
 }
 
 pub(crate) fn render_migrate(r: &MigrateReport) -> String {
+    // Before the generic refusal, which cannot print the block a refusal hands over to paste.
+    if matches!(r.operation, "routes") {
+        return render_routes(r);
+    }
+    if matches!(r.operation, "scaffold") {
+        return render_scaffold(r);
+    }
     if !r.blocked.is_empty() {
         let mut out = format!("Cannot migrate — {}:\n", r.summary);
         for b in &r.blocked {
@@ -1023,6 +1602,21 @@ pub(crate) fn render_migrate(r: &MigrateReport) -> String {
     }
     for m in &r.moves {
         let _ = writeln!(out, "  move  {} → {}", m.from, m.to);
+    }
+    if !r.moved_from.is_empty() {
+        let _ = writeln!(
+            out,
+            "\nThe moved instances record where they came from, so their ages carry:"
+        );
+        for e in &r.moved_from {
+            let _ = writeln!(
+                out,
+                "  {}:{}  {}",
+                e.file,
+                e.line,
+                super::rename::moved_from_text(e)
+            );
+        }
     }
     if !r.violations.is_empty() {
         let _ = write!(
@@ -1172,6 +1766,125 @@ fn render_findings(r: &MigrateReport) -> String {
     out.trim_end().to_string()
 }
 
+/// A routes migration: the list it replaces, and the block — written, or to paste.
+fn render_routes(r: &MigrateReport) -> String {
+    let Some(routes) = &r.routes else {
+        // Refused before there was a block to print: no `AGENTS.md`, or no routes vendored.
+        let mut out = format!("Cannot migrate — {}:\n", r.summary);
+        for b in &r.blocked {
+            let _ = writeln!(out, "  {b}");
+        }
+        return out.trim_end().to_string();
+    };
+    if routes.already {
+        // Not "would migrate 0 bullets": the answer is that the generator already reaches it.
+        return format!(
+            "Nothing to migrate — {} already carries the `yidam routes` block, and \
+             `yidam regen` keeps it current.",
+            routes.file
+        );
+    }
+    if !r.blocked.is_empty() {
+        let mut out = format!("Cannot migrate — {}:\n", r.summary);
+        for b in &r.blocked {
+            let _ = writeln!(out, "  {b}");
+        }
+        let _ = write!(
+            out,
+            "\n{} is left as it was. Paste this where its reading list belongs, then run \
+             `yidam regen`:\n\n{}",
+            routes.file, routes.block
+        );
+        return out;
+    }
+    let mut out = format!(
+        "{} {}\n  {}:{}-{}  replaced by the block\n",
+        if r.applied {
+            "Migrated"
+        } else {
+            "Would migrate"
+        },
+        r.summary,
+        routes.file,
+        routes.line,
+        routes.line + routes.lines - 1,
+    );
+    for b in &routes.replaced {
+        let _ = writeln!(out, "    {b}");
+    }
+    if !r.record.is_empty() {
+        let _ = write!(out, "\nrecord: {}", r.record);
+    }
+    let _ = write!(out, "\ncommit: {}", r.commit_subject);
+    out.trim_end().to_string()
+}
+
+/// A scaffold migration: each file, and what its region takes in.
+fn render_scaffold(r: &MigrateReport) -> String {
+    let mut out = String::new();
+    if !r.blocked.is_empty() {
+        let _ = writeln!(out, "Cannot migrate — {}:", r.summary);
+        for b in &r.blocked {
+            let _ = writeln!(out, "  {b}");
+        }
+        let _ = write!(out, "\nNothing was written.");
+        return out;
+    }
+    let Some(scaffold) = &r.scaffold else {
+        return out;
+    };
+    if scaffold.nothing_to_do() {
+        let _ = writeln!(out, "Nothing to migrate:");
+    } else {
+        let verb = if r.applied {
+            "Migrated"
+        } else {
+            "Would migrate"
+        };
+        let _ = writeln!(out, "{verb} {}:", r.summary);
+    }
+    for f in &scaffold.files {
+        if f.absent {
+            let _ = writeln!(out, "  {}  absent, so there is nothing to mark", f.file);
+        } else if f.already {
+            let _ = writeln!(out, "  {}  already carries its region", f.file);
+        } else if f.owned {
+            let _ = writeln!(
+                out,
+                "  {}  carries none of the template's sections, so none of it is the re-vendor's",
+                f.file
+            );
+        } else if f.wrapped.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {}  an empty region, which the next re-vendor fills with the corpus gate",
+                f.file
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "  {}  the region takes in: {}",
+                f.file,
+                f.wrapped.join(", ")
+            );
+        }
+    }
+    if scaffold.nothing_to_do() {
+        return out.trim_end().to_string();
+    }
+    let _ = write!(
+        out,
+        "\nEverything inside a region is replaced by the scaffold's at the next \
+         `mise run yidam-vendor-update`, so a step added inside one of those jobs or sections \
+         shows up in that diff as removed. Move it to a job or section of its own, outside.\n"
+    );
+    if !r.record.is_empty() {
+        let _ = write!(out, "\nrecord: {}", r.record);
+    }
+    let _ = write!(out, "\ncommit: {}", r.commit_subject);
+    out.trim_end().to_string()
+}
+
 /// Perform one ontology migration.
 pub fn migrate(op: Operation, dry_run: bool, format: crate::report::Format) -> Result<()> {
     let root = repo_root()?;
@@ -1190,4 +1903,283 @@ pub fn migrate(op: Operation, dry_run: bool, format: crate::report::Format) -> R
         anyhow::bail!("migrate: blocked");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two classes, `concept` and `gauge`, as `rename`'s tests build them.
+    fn corpus() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path().to_path_buf();
+        let corpus = root.join(".yidam/corpus");
+        for class in ["concept", "gauge"] {
+            std::fs::create_dir_all(corpus.join(class)).unwrap();
+            std::fs::write(
+                corpus.join(format!("{class}.ont.yml")),
+                format!("class: {class}\nlabel: {class}\n"),
+            )
+            .unwrap();
+        }
+        (tmp, root, corpus)
+    }
+
+    fn class_rename(old: &str, new: &str) -> Operation {
+        Operation::ClassRename {
+            old: old.into(),
+            new: new.into(),
+        }
+    }
+
+    /// Each moved instance names the path it left, as a node `rename` moves does (#1192). A
+    /// line already there is replaced, not doubled.
+    #[test]
+    fn a_class_rename_records_where_each_instance_came_from() {
+        let (_t, root, corpus) = corpus();
+        std::fs::write(corpus.join("gauge/a.yml"), "class: gauge\nlabel: A\n").unwrap();
+        std::fs::write(
+            corpus.join("gauge/b.yml"),
+            "class: gauge\nmoved-from: ../concept/b.yml\nlabel: B\n",
+        )
+        .unwrap();
+        std::fs::write(corpus.join("concept/c.yml"), "class: concept\n").unwrap();
+
+        let op = class_rename("gauge", "station");
+        let mut r = plan(&root, &corpus, &op);
+        assert!(r.blocked.is_empty(), "{:?}", r.blocked);
+        apply(&root, &corpus, &op, &mut r).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(corpus.join("station/a.yml")).unwrap(),
+            "class: station\nlabel: A\nmoved-from: ../gauge/a.yml\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(corpus.join("station/b.yml")).unwrap(),
+            "class: station\nmoved-from: ../gauge/b.yml\nlabel: B\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(corpus.join("concept/c.yml")).unwrap(),
+            "class: concept\n",
+            "an instance that did not move records nothing"
+        );
+        let placed: Vec<_> = r
+            .moved_from
+            .iter()
+            .map(|e| (e.file.as_str(), e.line, e.from.as_str()))
+            .collect();
+        assert_eq!(
+            placed,
+            [
+                (".yidam/corpus/station/a.yml", 3, ""),
+                (".yidam/corpus/station/b.yml", 2, "../concept/b.yml"),
+            ]
+        );
+        assert!(render_migrate(&r).contains("station/a.yml:3  moved-from: ../gauge/a.yml"));
+    }
+
+    /// The line is the one the history fold reads. Rename the class of an uncited open
+    /// question, commit it, and both of its ages are still the ones it had.
+    #[test]
+    fn a_class_rename_keeps_each_instances_ages() {
+        use crate::cmd::lint::history::{open_question_age, uncited_age};
+        use crate::git::fixture::{commit_at, init};
+
+        let (_t, root, corpus) = corpus();
+        init(&root);
+        std::fs::write(
+            corpus.join("gauge/g.yml"),
+            "class: gauge\nlabel: G\ndescription: it is `[open]`\n",
+        )
+        .unwrap();
+        commit_at(&root, "open: g", "2026-01-01T00:00:00Z");
+        std::fs::write(corpus.join("concept/c.yml"), "class: concept\n").unwrap();
+        commit_at(&root, "establish: c", "2026-01-05T00:00:00Z");
+
+        let op = class_rename("gauge", "station");
+        let mut r = plan(&root, &corpus, &op);
+        apply(&root, &corpus, &op, &mut r).unwrap();
+        commit_at(&root, &r.commit_subject, "2026-01-09T00:00:00Z");
+
+        let key = ".yidam/corpus/station/g.yml";
+        assert_eq!(uncited_age(&root).get(key).map(|a| a.commits), Some(3));
+        assert_eq!(
+            open_question_age(&root).get(key).map(|a| a.commits),
+            Some(3)
+        );
+    }
+
+    fn yaml(text: &str) -> serde_yaml::Value {
+        serde_yaml::from_str(text).unwrap()
+    }
+
+    /// The conversion, or the clause explaining why there is none. `Nothing` reads as an empty
+    /// clause so one assertion covers all three outcomes.
+    fn tried(new_type: &str, written: &str) -> Result<String, String> {
+        match requote(new_type, &yaml(written), written) {
+            Requote::Write(to) => Ok(to),
+            Requote::Refused(why) => Err(why),
+            Requote::Nothing => Err(String::new()),
+        }
+    }
+
+    /// The split that made a requote expressible. A rename wants the value inside the quotes
+    /// and a requote wants the quotes themselves, and one reader with the stripping pulled out
+    /// is how the two cannot come to disagree about where a value starts.
+    #[test]
+    fn the_two_readings_of_one_line_differ_only_in_the_quotes() {
+        let line = "  length_km: \"24\"";
+        let (start, end, raw) = raw_scalar_on(line, "length_km").unwrap();
+        assert_eq!(raw, "\"24\"");
+        assert_eq!(&line[start..end], "\"24\"");
+        let (start, end, inner) = scalar_on(line, "length_km").unwrap();
+        assert_eq!(inner, "24");
+        assert_eq!(&line[start..end], "24");
+    }
+
+    /// The two spellings of a `values:` list read the same item to the same token: as written,
+    /// quotes included, so a rename replaces the whole of it and never half a quoted value.
+    #[test]
+    fn a_values_item_is_located_in_either_list_spelling() {
+        let flow = "    values: [extant, \"in operation\", ruin]  # closed";
+        let (s, e) = values_item_on(flow, "in operation").unwrap();
+        assert_eq!(&flow[s..e], "\"in operation\"");
+        let (s, e) = values_item_on(flow, "ruin").unwrap();
+        assert_eq!(&flow[s..e], "ruin");
+        assert_eq!(values_item_on(flow, "extan"), None);
+        assert_eq!(values_item_on(flow, "operation"), None);
+        // A comma inside quotes does not split the item.
+        let quoted = "    values: [\"a, b\", c]";
+        let (s, e) = values_item_on(quoted, "a, b").unwrap();
+        assert_eq!(&quoted[s..e], "\"a, b\"");
+
+        let block = "      - 'in operation'  # the quoted one";
+        let (s, e) = list_item_on(block, "in operation").unwrap();
+        assert_eq!(&block[s..e], "'in operation'");
+        assert_eq!(list_item_on("      - extant", "extant"), Some((8, 14)));
+        assert_eq!(list_item_on("  - name: extant", "extant"), None);
+    }
+
+    /// The new spelling follows the old one, and a bare token is bare only where YAML reads it
+    /// back as the same string: `true` renamed in bare would leave the set, not join it.
+    #[test]
+    fn a_renamed_value_keeps_its_quoting_and_stays_a_string() {
+        assert_eq!(written_like("extant", "standing"), "standing");
+        assert_eq!(
+            written_like("\"in operation\"", "operating"),
+            "\"operating\""
+        );
+        assert_eq!(written_like("'ruin'", "in ruins"), "'in ruins'");
+        assert_eq!(written_like("extant", "in operation"), "in operation");
+        assert_eq!(written_like("extant", "true"), "\"true\"");
+        assert_eq!(written_like("extant", "24"), "\"24\"");
+        assert_eq!(written_like("extant", "a, b"), "\"a, b\"");
+        assert_eq!(written_like("extant", "say \"so\""), "'say \"so\"'");
+    }
+
+    /// A lone quote both opens and closes.
+    #[test]
+    fn a_one_character_value_is_not_a_quoted_one() {
+        assert_eq!(unquoted("\""), None);
+        assert_eq!(unquoted("'"), None);
+        assert_eq!(unquoted("\"\""), Some(""));
+        assert_eq!(unquoted("24"), None);
+    }
+
+    /// The finding in #1044: `property-type` says *unquote it*, and this carries that out.
+    #[test]
+    fn a_quoted_number_unquotes() {
+        assert_eq!(tried("number", "\"24\""), Ok("24".to_string()));
+        assert_eq!(tried("number", "'24.5'"), Ok("24.5".to_string()));
+        assert_eq!(tried("number", "\"-1e3\""), Ok("-1e3".to_string()));
+    }
+
+    /// The mirror the issue left to decide. `property-type`'s `string` arm says *quote it*, so
+    /// a retype that left the values bare would put the corpus in the same
+    /// one-violation-per-instance state from the other side.
+    #[test]
+    fn a_bare_value_a_type_wants_as_text_is_quoted() {
+        assert_eq!(tried("string", "24"), Ok("\"24\"".to_string()));
+        assert_eq!(tried("text", "true"), Ok("\"true\"".to_string()));
+        // A `date` refuses a bare year for the reason a `string` refuses a bare number, and
+        // 71 instances in one derived corpus write one.
+        assert_eq!(tried("date", "1985"), Ok("\"1985\"".to_string()));
+        // Byte for byte: serde_yaml reads `0x1A` as 26, and the corpus wrote the hex.
+        assert_eq!(tried("string", "0x1A"), Ok("\"0x1A\"".to_string()));
+    }
+
+    /// What stays a refusal. There is no number in `about 24` to unquote, and the tilde was
+    /// carrying a meaning the number cannot.
+    #[test]
+    fn prose_that_mentions_a_number_is_not_one() {
+        for written in ["\"about 24\"", "\"~24\"", "\"24 km\"", "\"\""] {
+            assert!(
+                tried("number", written).is_err(),
+                "{written} was converted to a number"
+            );
+        }
+    }
+
+    /// A bare string is already text. Quoting it changes nothing, and the quotes were never
+    /// what the `date` arm was complaining about — so this is `Nothing`, not a clause claiming
+    /// something was attempted.
+    #[test]
+    fn a_bare_string_the_new_type_rejects_has_nothing_to_try() {
+        assert_eq!(tried("date", "cubic feet per second"), Err(String::new()));
+    }
+
+    /// The first guard, and the reason it is a parse rather than an argument: dropping the
+    /// quotes is not the same thing as producing a number. `00060` is text to serde_yaml, so
+    /// unquoting it would leave `property-type` reporting the instance it reported before.
+    #[test]
+    fn an_unquoted_candidate_that_is_still_not_a_number_is_refused() {
+        assert_eq!(
+            tried("number", "\"00060\""),
+            Err("unquoting it gives `00060`, which `number` does not accept either".to_string())
+        );
+        // `1__0` likewise, and `.inf` is a number serde_yaml reads and the gate will not admit.
+        assert!(tried("number", "\"1__0\"").is_err());
+        assert!(tried("number", "\".inf\"").is_err());
+    }
+
+    /// The second guard. serde_yaml reads bases the gate's own parser does not, so unquoting
+    /// `"0x1A"` produces a valid number that is not the value the corpus wrote.
+    #[test]
+    fn an_unquoted_candidate_that_changes_the_value_is_refused() {
+        let why = tried("number", "\"0x1A\"").unwrap_err();
+        assert!(why.contains("reads as `26`"), "{why}");
+        assert!(tried("number", "\"0b101\"").is_err());
+    }
+
+    /// The line has to be the value's own. A key repeated deeper in the document offers bytes
+    /// that say something else, and rewriting those would corrupt a file the retype never named.
+    #[test]
+    fn a_line_that_does_not_read_back_as_the_value_is_refused() {
+        assert!(matches!(
+            requote("number", &yaml("\"24\""), "\"6\""),
+            Requote::Nothing
+        ));
+        // A block scalar keeps its value on the lines after this one.
+        assert!(matches!(
+            requote("string", &yaml("24"), "|"),
+            Requote::Nothing
+        ));
+    }
+
+    #[test]
+    fn the_value_line_is_the_one_under_properties() {
+        let text = "class: reach\nproperties:\n  length_km: 24\n  regulated: \"yes\"\nlinks:\n  - target: ../x.yml\n    length_km: 9\n";
+        assert_eq!(
+            property_value_line(text, "length_km"),
+            Some((3, "24".to_string()))
+        );
+        assert_eq!(property_value_line(text, "nonesuch"), None);
+    }
+
+    /// A property's name under `links:` and nowhere else is not a property value.
+    #[test]
+    fn a_key_outside_the_properties_block_is_not_read() {
+        let text = "class: reach\nlinks:\n  - target: ../x.yml\n    length_km: 9\n";
+        assert_eq!(property_value_line(text, "length_km"), None);
+    }
 }

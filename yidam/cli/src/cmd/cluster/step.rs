@@ -115,7 +115,16 @@ pub(super) fn step_in(
     let manifest_sha256 = digest_of(root, crate::cmd::run::manifest::MANIFEST);
     let config_sha256 = digest_of(root, ".yidam/config.toml");
     let inputs = exec::materialize(root, input, cap)?;
-    let input_state = Receipt::input_state(cap, &manifest_sha256, &config_sha256, &inputs.files)?;
+    let resolved_digest = inputs.resolved.as_ref().map(|r| r.sha256.clone());
+    let script_digest = Receipt::script_sha256(cap, &inputs.files);
+    let input_state = Receipt::input_state(
+        cap,
+        &manifest_sha256,
+        &config_sha256,
+        &inputs.files,
+        resolved_digest.as_deref(),
+        script_digest.as_deref(),
+    )?;
 
     let produced = exec::invoke(cap, &inputs, name, input)?;
     exec::check_declared(cap, &produced.outputs)?;
@@ -137,6 +146,8 @@ pub(super) fn step_in(
             config_sha256,
             reads: cap.reads.clone(),
             files: inputs.files.clone(),
+            resolved_graph_sha256: resolved_digest,
+            script_sha256: script_digest,
         },
         writes: cap.writes.clone(),
         outputs: produced

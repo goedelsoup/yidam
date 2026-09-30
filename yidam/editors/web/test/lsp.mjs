@@ -118,7 +118,7 @@ function start(fake) {
 test('initialize goes first, carries the root as a file URI, and is followed by initialized', async () => {
   const fake = fakeChild()
   const { client, spawned } = start(fake)
-  assert.deepEqual(spawned().args, ['serve', '--lsp'])
+  assert.deepEqual(spawned().args, ['serve', '--lsp', '--root', '/tmp/corpus'])
   assert.equal(spawned().options.cwd, '/tmp/corpus')
 
   const pending = client.initialize('/tmp/corpus')

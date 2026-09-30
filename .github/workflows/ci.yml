@@ -77,7 +77,16 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      # Every cache in this workflow — this one, and every rust-cache and mise-action step
+      # below — is saved by main and only restored by a pull request (#1017). A PR's save
+      # lands in the PR's own scope, where no other ref can read it; 248 of 315 PRs in the
+      # month to 2026-09-30 ran CI once, so it was almost never read even by the PR itself.
+      # What it did do was hold the repository at 9.48GB of a 10GB budget, where eviction
+      # by last use takes main's trees as readily as anything. Restoring still works: a PR
+      # reads main's scope. `ci_reporting.rs` requires the condition on every step.
       - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       # When the mise cache hits, `mise install` is a no-op and the rust
       # toolchain gets auto-installed by rustup at the first cargo call —
       # with the runner's default minimal profile, which lacks rustfmt and
@@ -98,6 +107,7 @@ jobs:
             ${{ matrix.path }}
             yidam/tests/harness
           key: ${{ matrix.workspace }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # One step, and for the CLI row one compile and one test run: coverage is not a second
       # pass over the suite here, it is how the suite is run. The harness row stays
       # uninstrumented — 82 tests over a test harness, where the instrumented rebuild would
@@ -125,7 +135,7 @@ jobs:
           # is what keeps this list and `[features] default` in step — it reads this line
           # and the manifest and requires them equal. (It used to say `light_build.rs`,
           # which never read this file.)
-          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch' || '' }}
+          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text' || '' }}
           # No `list-features`: both rows ran their suite under the default set, and that is
           # what an unqualified listing resolves. The `cli` row's run is the instrumented one
           # (`ci-cli-cov`), so its listing is taken against `llvm-cov-target` rather than
@@ -156,6 +166,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - name: Ensure rustfmt for the pinned toolchain
         run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt
       - run: mise run ci-domains
@@ -180,12 +192,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             yidam/cli
             yidam/tests/harness
           key: vscode-cli
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The light default (`reports`) — no protoc, no fastembed. The extension needs a
       # binary that speaks the contract, not the full feature set.
       - name: Install the yidam CLI so the contract tests have something to read
@@ -230,6 +245,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       # No `npm install` step: every npm-backed mise task installs when `node_modules`
       # is absent, through `scripts/npm-ensure.sh`. One recipe rather than two that can
       # disagree — and the workflow step was what kept #646 invisible, since CI was the
@@ -271,12 +288,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             yidam/prelude/sdks/rust
             yidam/tests/harness
           key: parity
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # `parity` depends on `parity-check`, which enforces the fixture rules in both
       # directions: every parity function has a fixture, and every fixture directory has a
       # runner that reads it.
@@ -316,6 +336,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       # elan only. Every `build`/`test`/`lint` input is off because `mise run verify` does
       # the building, and lean-action is here for one thing mise cannot do: `elan` ships as
       # `elan-init`, a bootstrapper, so there is no mise pin for `lake`.
@@ -345,6 +367,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run design-lint
       # The logo gate renders every mark and measures it, so it needs a rasteriser. Installed
       # here rather than skipped when absent: a guard that turns itself off on the machine
@@ -367,6 +391,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run supply-chain
 
   semver:
@@ -391,10 +417,13 @@ jobs:
       # requires every `@stable` to carry a reason, and this is that reason.
       - uses: dtolnay/rust-toolchain@stable
       - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: yidam/prelude/sdks/rust
           key: semver
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run semver-check
 
   cross:
@@ -440,6 +469,7 @@ jobs:
         with:
           workspaces: yidam/cli
           key: cross-aarch64
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Named rather than inferred, for the reason release.yml gives: cc-rs
       # guesses `<target>-gcc`, and a guess that falls back to the host compiler
       # produces host objects for an aarch64 link.
@@ -480,10 +510,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: yidam/cli
           key: cli
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run bench-scaling
 
   cli-full:
@@ -495,6 +528,21 @@ jobs:
     # What a pull request gets instead is `cli-features` below: this job's two clippy legs
     # and none of its tests. That is the compile half, which is where all three of the
     # recorded outages were; running the gated suite is still a thing only the merge does.
+    #
+    # ── two jobs, and why they are two (#1016) ────────────────────────────────
+    #
+    # This and `cli-full-coverage` below were one runner doing four builds in series:
+    # 697–1172s on main (runs 36665022662, 36666622107, 36671499326) against ≤ 5.5m for
+    # every other job. The legs share no codegen — `vector-read`, `index` and instrumented
+    # `--all-features` are three feature unifications, and llvm-cov's RUSTFLAGS put its tree
+    # in `llvm-cov-target` where nothing else reads it — so a second runner duplicates no
+    # link work, only its setup (~15s of mise, 40–60s of cache restore). #1010's objection
+    # to `--partition` is about shards of ONE build, and does not reach this.
+    #
+    # The benchmark stays here rather than taking a third runner: its `--features index`
+    # build is 45s warm against this job's tree, and a runner of its own would restore
+    # that tree to save those 45 seconds. This job is ~6 minutes; the coverage job, ~7, is
+    # the critical path either way.
     name: ci (cli · full features)
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -543,6 +591,8 @@ jobs:
           # commit, because that one already fetches depth 0.
           fetch-depth: 0
       - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - name: Ensure rustfmt and clippy for the pinned toolchain
         run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
       # `shared-key`, not `key`, and the difference is what makes `cli-features` possible.
@@ -550,13 +600,17 @@ jobs:
       # cache through it; `shared-key` replaces that component with a name both can spell.
       # Changing it costs one cold run on main — this key has no prior entry — and buys the
       # PR gate below an 8.5s clippy instead of a 20-minute dependency build.
+      #
+      # Only the instrumented tree left this key when coverage moved out, and nothing that
+      # borrows it — `cli-features`, `bench-example` below — ever read that half.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: yidam/cli
           shared-key: cli-full
-      # Where the runner died on d596634, with no line in the log naming a resource — the
-      # sampler was on `coverage-full`, two steps later. Every heavy step in this job goes
-      # through the wrapper now, and `ci_reporting.rs` asserts that rather than trusting it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Where the runner died on d596634, with no line in the log naming a resource. Every
+      # heavy step in this job goes through the wrapper, and `ci_reporting.rs` asserts that —
+      # for every job running a non-default feature build — rather than trusting it.
       - name: Full-feature build and tests, with a resource sampler
         run: .github/scripts/with-sampler.sh mise run ci-cli-full
       # #264: "Run it in CI against `examples/streamflow`." It lives here rather than in the
@@ -570,6 +624,59 @@ jobs:
       # hole one step over: a kill here would leave the log d596634 left.
       - name: Benchmark against examples/streamflow, with a resource sampler
         run: .github/scripts/with-sampler.sh mise run bench-example
+      # The `vector-read` leg's own results. Before #1016 this job's one summary rendered
+      # them only when the leg failed and skipped `coverage-full` — the fallback the old
+      # `if: always()` note described — and the published report never saw them at all.
+      # With coverage on its own runner that fallback is gone, so the leg reports what it
+      # ran as a gate of its own. `ci (cli · full features)` stays the `--all-features`
+      # suite, from one place.
+      - uses: ./.github/actions/test-summary
+        if: always()
+        with:
+          gate: ci (cli · vector-read)
+          job: ci (cli · full features)
+          junit: yidam/cli/target/nextest/ci/junit.xml
+          manifest: yidam/cli/Cargo.toml
+          artifact: test-results-cli-vector-read
+          json: "true"
+          # The last nextest `ci-cli-full` runs; `bench-example` runs none.
+          list-features: --features vector-read
+
+  cli-full-coverage:
+    # The `--all-features` suite, run once and instrumented (#1013), on a runner of its own
+    # since #1016 — `cli-full` above says why. Same triggers as that job: it needs protoc,
+    # an ONNX runtime and SQLite from source, which the pull request is spared.
+    name: ci (cli · full-feature coverage)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      # The memory cap `cli-full` documents, and it was measured HERE first (#539): four
+      # rustc processes holding instrumented LLVM modules for lancedb/lance/datafusion do not
+      # fit a 16GB runner. The narrative is on the step below.
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Tags and full history, because this job runs the whole CLI suite and part of it
+          # reads *this repository's* git: `release_script`'s misfiled-note gate resolves
+          # `cli/v*` tags and walks `docs/upgrading.md`'s history with `git log -S`. A bare
+          # checkout has neither, so the gate refused — by design, rather than passing over
+          # nothing — and this job was red on main while `ci (cli)` was green on the same
+          # commit, because that one already fetches depth 0.
+          fetch-depth: 0
+      - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+      - name: Ensure rustfmt and clippy for the pinned toolchain
+        run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
+      # Its own key, saved on main. The instrumented tree shares nothing with `cli-full`'s —
+      # llvm-cov's RUSTFLAGS change every fingerprint — so borrowing that key would restore
+      # gigabytes this job cannot use. The first main run after #1016 builds it cold.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/cli
+          key: cli-full-coverage
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The number that covers the gated paths. Retained rather than only summarised: P7's
       # series is a sequence of these, and a series cannot start later than its first point.
       #
@@ -606,25 +713,19 @@ jobs:
       # so the last `[res]` line to reach the log survives precisely the failure it explains.
       - name: Coverage (full features), with a resource sampler
         run: .github/scripts/with-sampler.sh mise run coverage-full
-      # Last, not straight after the tests, and the order is what makes the number right.
+      # This gate's JUnit is `coverage-full`'s: it is the only nextest this job runs, and
+      # nextest's store is anchored to the workspace root's `target/` whatever llvm-cov does
+      # with the objects (measured; see `[tasks.ci-cli-cov]` in mise.toml). Before #1016 the
+      # order of steps in a shared job decided which run this read, and #1013 nearly moved
+      # it to the `vector-read` leg by accident.
       #
-      # This step reads whichever nextest wrote `target/nextest/ci/junit.xml` most recently,
-      # and nextest's store is anchored to the workspace root's `target/` — an instrumented
-      # run redirects its *objects* to `target/llvm-cov-target/debug` and its JUnit not at all
-      # (measured; see `[tasks.ci-cli-cov]` in mise.toml). Sitting straight after the tests, this
-      # step used to read the plain `--all-features` run, because that was the last nextest
-      # `ci-cli-full` invoked. #1013 deleted that run, which left `coverage-full` as the only
-      # thing that executes that feature set — two steps further down, after the benchmark.
-      # Left where it was, the step would have quietly changed this gate's number from the
-      # `--all-features` suite to the `vector-read` leg, the last nextest `ci-cli-full` now runs.
-      #
-      # `if: always()` and the two steps above having no such condition is the rest of it: a
-      # failure in `ci-cli-full` skips them, and this still renders the `vector-read` leg's
-      # JUnit — the one that failed — rather than nothing.
+      # The gate keeps its name, so the series and the pages read one history across the
+      # split; `job:` says which runner it now comes from (#516).
       - uses: ./.github/actions/test-summary
         if: always()
         with:
           gate: ci (cli · full features)
+          job: ci (cli · full-feature coverage)
           junit: yidam/cli/target/nextest/ci/junit.xml
           manifest: yidam/cli/Cargo.toml
           artifact: test-results-cli-full
@@ -671,6 +772,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - name: Ensure clippy for the pinned toolchain
         run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component clippy
       # Read-only, by the same `shared-key` `cli-full` saves under. A pull request's cache
@@ -708,7 +811,7 @@ jobs:
     # failed.
     name: ci (quality report)
     if: always()
-    needs: [ci, vscode, editor-web, parity, cli-full]
+    needs: [ci, vscode, editor-web, parity, cli-full, cli-full-coverage]
     # Declared rather than inherited. The repository's default is read-all today, which grants
     # the jobs API by accident; a settings change to "restricted" would take it away and the
     # step that reads conclusions would fail with a report that still merges — quietly losing
@@ -721,10 +824,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: yidam/tests/harness
           key: quality
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the reporter
         run: |
           mise exec -- cargo build --locked \
@@ -839,10 +945,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: yidam/tests/harness
           key: quality
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the reporter
         run: |
           mise exec -- cargo build --locked \
@@ -937,10 +1046,13 @@ jobs:
           # applied a single mutation.
           fetch-depth: 0
       - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: yidam/cli
           key: mutants
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Hunt
         id: hunt
         run: |

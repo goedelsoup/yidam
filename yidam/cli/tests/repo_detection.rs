@@ -256,26 +256,10 @@ fn files(dir: &Path) -> Vec<String> {
 /// marks all thirty-two. The tests below assert a property of *every* writing command, and
 /// reading the short one would have quietly narrowed that to five.
 fn writing_commands() -> Vec<String> {
-    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
-        .arg("--help-all")
-        .output()
-        .unwrap();
-    let help = String::from_utf8_lossy(&out.stdout).to_string();
-    let mut names: Vec<String> = help
-        .lines()
-        .filter_map(|l| {
-            let rest = l.strip_prefix("  ")?;
-            let (name, after) = rest.split_once(char::is_whitespace)?;
-            after
-                .trim_start()
-                .strip_prefix("* ")
-                .map(|_| name.to_string())
-        })
-        .filter(|n| !n.is_empty() && !n.starts_with('-'))
-        .collect();
-    names.sort();
-    names.dedup();
-    names
+    common::writers_from_help()
+        .into_iter()
+        .filter_map(|(name, writes)| writes.then_some(name))
+        .collect()
 }
 
 /// The floor under the two tests below. A parser that stops recognising the `*` legend would
@@ -296,6 +280,114 @@ fn the_writing_commands_are_discovered_from_the_help_legend() {
     }
 }
 
+/// The writers whose whole job is to write where no corpus is.
+///
+/// One entry, and it earns its exemption rather than inheriting it. Every other `*` command
+/// reads a corpus and writes into it, so "wrote something outside one" is unambiguously the
+/// #1035-era defect [`no_writing_command_creates_a_file_outside_a_corpus`] exists to catch.
+/// `yidam init` is the inverse: a directory with no `.yidam/` is the only place it will run,
+/// and refusing to write there would be refusing to do anything at all.
+///
+/// **An exemption list is a hole, and this one is held shut from two sides**, both derived
+/// from the list itself rather than restated beside it. Every name on it is asserted to be a
+/// discovered `*` writer, so an entry that stops writing — or is renamed — fails rather than
+/// lingering. And every name is run in a plain git repository and asserted to write
+/// something, so a command that regressed into writing nothing anywhere is not covered by
+/// its own exemption.
+///
+/// It is deliberately *not* asserted non-empty. An empty list exempts nothing and the main
+/// guard then covers every writer, which is the safe state rather than the vacuous one —
+/// and clippy is right that the assert could never have fired.
+const WRITES_WHERE_NO_CORPUS_IS: &[&str] = &["init"];
+
+#[test]
+fn the_exemption_names_commands_that_exist_and_write() {
+    let writers = writing_commands();
+    for name in WRITES_WHERE_NO_CORPUS_IS {
+        assert!(
+            writers.iter().any(|n| n == name),
+            "`{name}` is exempted from the no-write guard and is not a `*` command: \
+             {writers:?}. Either it stopped writing — in which case delete the exemption — \
+             or it was renamed and the exemption now covers nothing while reading as though \
+             it covers something."
+        );
+    }
+}
+
+/// The positive half of the exemption, **derived from the list** so it cannot fall behind it.
+///
+/// Without this, removing every `std::fs::write` from an exempted command would leave the
+/// suite green — the guard skips it, and nothing else asserts a file appears. It is the same
+/// shape as `a_bootstrapped_repository_with_an_empty_corpus_can_still_export`: a gate that
+/// refuses everything satisfies a guard written only as "wrote nothing".
+///
+/// Looping over the constant rather than naming `init` is what makes the pairing structural.
+/// A textual check — "this file contains a test whose name mentions the command" — is
+/// satisfied by [`init_writes_nothing_outside_a_git_repository`], which asserts the
+/// opposite; a second exempted command would inherit that false pairing on the day it was
+/// added.
+#[test]
+fn every_exempted_writer_writes_where_the_guard_stopped_looking() {
+    for name in WRITES_WHERE_NO_CORPUS_IS {
+        let d = plain_git();
+        let before = files(d.path());
+        let r = run(d.path(), &[name]);
+        assert_eq!(
+            r.code, 0,
+            "`yidam {name}` is exempted from the no-write guard because it writes outside a \
+             corpus, and it failed in a plain git repository\nstdout: {}\nstderr: {}",
+            r.stdout, r.stderr
+        );
+        assert_ne!(
+            before,
+            files(d.path()),
+            "`yidam {name}` is exempted from the no-write guard and wrote nothing: {}",
+            r.stdout
+        );
+    }
+}
+
+/// And what `init` in particular writes. The loop above only asserts that *a* file appeared;
+/// a corpus is the thing #1035 asked for.
+///
+/// **Measured, and it runs the other way too.** Deleting the `std::fs::write` from
+/// `init_into` fails the loop above and leaves *this* test green: `create_dir_all` still
+/// runs, so `.yidam/corpus` is a directory holding nothing. Neither test subsumes the
+/// other, which is why both are here.
+#[test]
+fn init_writes_a_corpus_into_a_git_repository_that_has_none() {
+    let d = plain_git();
+    let before = files(d.path());
+    let r = run(d.path(), &["init"]);
+    assert_eq!(r.code, 0, "stdout: {}\nstderr: {}", r.stdout, r.stderr);
+    let after = files(d.path());
+    assert!(
+        d.path().join(".yidam/corpus").is_dir(),
+        "`yidam init` wrote {} file(s) and no corpus directory",
+        after.len().saturating_sub(before.len())
+    );
+}
+
+/// And the half of the guard that still covers it. `init` asks for a repository rather than
+/// creating one: a corpus is a git history with a gate over it — `lint` dates a finding
+/// against that history and `export` reads the domain off the genesis subject — and running
+/// `git init` in a directory somebody is standing in is a larger thing to do unasked than to
+/// name in one line of a refusal.
+#[test]
+fn init_writes_nothing_outside_a_git_repository() {
+    let d = bare();
+    let before = files(d.path());
+    let r = run(d.path(), &["init"]);
+    let after = files(d.path());
+    assert_eq!(before, after, "`yidam init` wrote outside a repository");
+    assert_ne!(r.code, 0, "stdout: {}", r.stdout);
+    assert!(
+        r.stderr.contains("git init"),
+        "the refusal names no remedy: {}",
+        r.stderr
+    );
+}
+
 /// The defect: `export` and `schema` skipped `require_yidam_repo`, so in a directory that was
 /// not a corpus every export format wrote an artefact and exited 0.
 ///
@@ -313,8 +405,14 @@ fn no_writing_command_creates_a_file_outside_a_corpus() {
     // other command refused the unknown argument, wrote nothing for that reason, and satisfied
     // the assertion without its gate being exercised at all. Mutating away `schema`'s gate left
     // this test green, which is how the flaw showed. `export` gets its own loop below.
-    let mut invocations: Vec<Vec<String>> =
-        writing_commands().into_iter().map(|n| vec![n]).collect();
+    //
+    // `WRITES_WHERE_NO_CORPUS_IS` comes out here and nowhere else. See its docstring for why
+    // the hole that opens is held shut from three directions rather than one.
+    let mut invocations: Vec<Vec<String>> = writing_commands()
+        .into_iter()
+        .filter(|n| !WRITES_WHERE_NO_CORPUS_IS.contains(&n.as_str()))
+        .map(|n| vec![n])
+        .collect();
     for format in ["bundle", "rdf", "graphml", "llms", "web"] {
         invocations.push(vec!["export".into(), "--format".into(), format.into()]);
     }
@@ -395,6 +493,33 @@ fn a_bootstrapped_repository_with_an_empty_corpus_can_still_export() {
             r.stderr
         );
     }
+}
+
+/// #919: `export --format llms` is how an agent reads a corpus, and with no `--out` it used to
+/// leave an untracked `llms.txt` at the root. It prints the pack instead, and the tree it read is
+/// the tree it leaves.
+#[test]
+fn export_llms_without_out_prints_and_writes_nothing() {
+    let d = bootstrapped_but_empty();
+    let before = files(d.path());
+    let r = run(d.path(), &["export", "--format", "llms"]);
+    assert_eq!(r.code, 0, "stderr: {}", r.stderr);
+    assert_eq!(
+        before,
+        files(d.path()),
+        "export --format llms wrote into the corpus"
+    );
+    assert!(
+        r.stdout.contains("Nodes: 0"),
+        "no pack on stdout: {}",
+        r.stdout
+    );
+    assert!(
+        !r.stdout.contains("llms.txt written"),
+        "the report landed in the pack: {}",
+        r.stdout
+    );
+    assert!(r.stderr.contains("→ stdout"), "{}", r.stderr);
 }
 
 /// `schema --settings` prints a compiled-in editor configuration and reads nothing from disk,

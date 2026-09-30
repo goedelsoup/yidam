@@ -4,7 +4,7 @@ Every command `yidam` carries, grouped as `yidam --help-all` groups them. This p
 `yidam <command> --help` is the detail. A gate holds the two *surfaces* equal: a command the
 binary offers and this page omits fails `cli_reference.rs`.
 
-`yidam --help` is a shorter listing: the thirteen commands a session usually needs. Everything
+`yidam --help` is a shorter listing: the fourteen commands a session usually needs. Everything
 on this page is on `--help-all`.
 
 So the roster below is the roster you have. It says nothing about the prose. A description
@@ -13,9 +13,9 @@ which is what #873 was.
 
 Three conventions run through the whole surface.
 
-**A `*` means the command rewrites files in the repository it is run against.** Twenty-three
-do. That was previously visible only in each command's long help, where you had to already
-suspect it to go looking. That is the wrong way round for a tool people point at a checkout
+**A `*` means the command rewrites files in the repository it is run against.** That was
+previously visible only in each command's long help, where you had to already suspect it to go
+looking. That is the wrong way round for a tool people point at a checkout
 they only meant to inspect.
 
 **`--format json` is available on most commands** and emits the machine-readable report contract
@@ -51,11 +51,12 @@ Read-only, and they exit nonzero on a problem — which is what makes them usabl
 
 | Command | What it answers |
 |---|---|
-| `doctor` | Is this setup sound? One verdict per check, and a remedy where something is owed. `--strict` makes warnings fail. See [Troubleshooting](troubleshooting.md) |
+| `doctor` | Is this setup sound? One verdict per check, and a remedy where something is owed. `--strict` makes warnings fail. `--only <id>` reports only that check. See [Troubleshooting](troubleshooting.md) |
 | `graph-check` | The graph gate: orphans, broken links, missing labels |
 | `lint` | Corpus quality checks against the baseline ratchet |
 | `index-verify` | Does an embedding provider reproduce this index's contract? `--remote` reads the contract from the vector index `[index.remote]` declares |
 | `samudaya-audit` | Inspect and validate `samudaya/` seed files *(no flags)* |
+| `derive check` | Does each argument under `[derive] paths` hold to the corpus it cites? See [below](#derive) |
 
 `lint` carries the most flags of any command, because it is the one with a ratchet:
 
@@ -71,6 +72,47 @@ Read-only, and they exit nonzero on a problem — which is what makes them usabl
 `lint` answers *did this change make the corpus less clean?* — not *is the corpus clean?* The
 baseline is what makes that the question. — see
 [Configuration](configuration.md#yidamlint-baselineyml).
+
+### `derive`
+
+A memo, dossier or finding carries a claim out of the repository. `agent-conduct.md` gives
+that claim three rules, and `derive check` holds it to them
+([RFC-0045](rfcs/0045-derivation-check.md)). It reads every artifact under
+[`[derive] paths`](configuration.md#derive-paths):
+
+```yaml
+claim: The dam's release schedule governs discharge below it.
+reach: attributed
+cites:
+  - node: reach/tailwater
+    span: Discharge tracks the release schedule
+answers:
+  - node: reach/tailwater
+    refusal: The record does not say the dam caused the 2019 avulsion.
+    answer: This memo claims the schedule, not the avulsion.
+```
+
+**Each span must sit in one paragraph of the node it names.** Resolution, drift and a declared
+`tag:` are checked as `lint` checks a node's own local citation.
+
+**The tier is computed.** It is the weakest standing beneath the spans. `public` admits
+`[verified]` only, `attributed` admits `[inference]` and stronger, and `internal` admits
+anything. An artifact citing nothing is `[open]`.
+
+**A declared refusal is owed an answer.** A node declares one under `refuses:`. When an
+artifact cites that paragraph, it names the refusal under `answers:` and says why the claim
+survives it. Quoting the refusal itself owes nothing.
+
+| Finding | Severity |
+|---|---|
+| `derive-unresolved`, `derive-span-drift`, `derive-span-crosses-paragraph`, `derive-tag-drift` | error |
+| `derive-beyond-reach`, `derive-no-reach` | error |
+| `derive-unanswered-refusal`, `derive-stale-answer` | error |
+| `derive-refusal-candidate` | info |
+
+The candidate is a cited paragraph that reads like a refusal and declares none. It is a
+question for a person and never fails the check. No `[derive] paths` means nothing is read, and
+the check passes.
 
 ## The practice
 
@@ -95,7 +137,7 @@ a session runs none of them, or one.
 
 | Half | What it reads |
 |---|---|
-| **owed** | `due`'s four clocks, through `due`'s own reader |
+| **owed** | `due`'s five clocks, through `due`'s own reader |
 | **in flight** | the unsettled inquiry refs `yidam phases` lists — `active`, never a settled phase or a standing position |
 | **blocked** | what `lint`'s baseline ratchet and `graph-check` would fail on **today** |
 | **next** | one act per half, each carrying the finding, clock or declaration behind it |
@@ -189,6 +231,13 @@ this repository *vendored*, not the current ones. A repository whose vendored `G
 have moved past the revision the decision record names. The report says so, and the numbers
 stay readable.
 
+**It also counts what the artifact cites.** A repository that declares
+[`[object] paths`](configuration.md#object-paths) gets a coupling section. It counts the
+relative links between the corpus and the artifact, in both directions. It says how many
+nodes, decisions and catalog entries the artifact cites. The JSON lists the uncited ones by id.
+They are not findings, because no rule says a node must be cited. A dead link from the artifact
+is a `broken-object-link` warning in `yidam lint`.
+
 ### `score` reads a contribution, not a repository
 
 The genesis rubric scores a repository's birth. It fires once. After that nothing said whether
@@ -245,6 +294,7 @@ corpus said about itself, never a number in the binary. The reasoning is
 | `catalog` | How long since a source record was retrieved | `[catalog] ttl_days`, or an entry's own | days |
 | `questions` | How long a question has gone unanswered | `[due] questions_after` | corpus commits |
 | `phases` | How long a bounded inquiry has been in flight | `[due] phases_after` | days |
+| `superseded` | How long a node has cited a source that changed since it was last committed | `[due] superseded_after` | days |
 
 The catalog clock reads the interval [where it already lived](configuration.md#catalog-ttl_days)
 rather than restating it under `[due]`. A source's TTL is a statement about the source. Two places
@@ -260,14 +310,14 @@ one. The clock reads `declined`, still prints what it measured, and prints the d
 behind it. The record is required, so a decline is something a corpus wrote down and can be
 asked about.
 
-Two of the four count days and two do not, which is deliberate. How long a question has gone
+Three of the five count days and two do not, which is deliberate. How long a question has gone
 unanswered is a fact about the repository, so its clock is `HEAD`. A corpus that has not committed
-has not ignored anything. A source's TTL and a phase's time in flight are facts about the world.
+has not ignored anything. A source's TTL, a phase's time in flight and a source's new version are facts about the world.
 The world does not stop moving because nobody committed.
 
 ### What discharges a clock
 
-`due` reports; it does not act. Only one of the four clocks is discharged by something
+`due` reports; it does not act. Only one of the five clocks is discharged by something
 [`propose`](#propose-is-deliberately-small) can draft:
 
 | Clock | What discharges it |
@@ -276,6 +326,7 @@ The world does not stop moving because nobody committed.
 | `catalog` | `yidam propose`, which already drafts an `open:` against each expired source |
 | `questions` | A person. Deciding a question is answered is a resolution event, and Article V confines those to a sangha |
 | `phases` | A person. Settling a phase or abandoning it is not a mechanical consequence of a finding |
+| `superseded` | A person re-reading the source, and a commit to each node it lists. Any commit touching the node counts |
 
 Each clock names its own remedy in the report. The distinction is visible where it matters, not
 only here.
@@ -294,17 +345,37 @@ That is their purpose, and it is why every one carries a `*`.
 | `catalog-audit` * | Which catalog sources the corpus cites, and which it does not |
 | `index-status` * | Whether the vector index is present, and how stale against the corpus |
 | `agents-index` * | The domain agents in `.yidam/agents/` *(no flags)* |
-| `skills-index` * | The domain skills in `.yidam/skills/` *(no flags)* |
+| `skills-index` * | The domain skills in `.yidam/skills/`, each with its `status:` *(no flags)* |
 | `crates-index` * | The domain-computer crates in `crates/`, each with the capability that runs it *(no flags)* |
 | `packages-index` * | The domain-computer packages in `packages/`, each with the capability that runs it *(no flags)* |
 | `bundle-status` * | Freshness of `.yidam/bundle.yiz` against the corpus it was built from *(no flags)* |
+| `gates` * | The gate table: every `run:` step of every job in `.github/workflows/ci.yml`, in order *(no flags)* |
+| `routes` * | The reading routes in `AGENTS.md`, by occasion, from the vendored `routes.yml` *(no flags)* |
 
-Three more generators are filed by what they report, not by the fact that they generate:
-[`vault-status`](#artifacts), [`decisions-log`](#the-corpus-and-its-history) and
-[`kuten`](#the-practice). `yidam regen` runs all thirteen.
+Four more generators are filed by what they report, not by the fact that they generate.
+They are [`vault-status`](#artifacts), [`decisions-log`](#the-corpus-and-its-history),
+[`kuten`](#the-practice) and [`practice`](#the-practice). `yidam regen` runs all sixteen.
+
+`gates` reads the workflow and nothing else. A derived repository's README used to say in a
+sentence which checks CI runs. The sentence could not follow the workflow. The table can.
+A job that only runs once a layer exists says which path switches it on. A step that reports
+without gating says so.
 
 In a derived repository a stale REGEN block is a failing build. Run `mise run regen` before
 committing; `yidam regen --check` is what CI runs.
+
+**A block naming a generator that does not exist is a failing build too.** No generator
+answers for it, so `yidam regen` never writes it and it keeps whatever it holds. A typo in a
+marker name would otherwise turn a generated block into a hand-maintained one, silently.
+`yidam regen --check` names the file, the command and every generator there is. Correct the
+name, or delete the block.
+
+Only `yidam` commands are judged. A block another program refreshes is left alone, and so is
+one a page only shows inside a code fence.
+
+**The `yidam ` prefix is reserved.** A block marked `yidam <name>` belongs to yidam, and
+`yidam regen` rewrites it whatever wrote it. Mark your own generator's blocks with your own
+program's name: `<!-- REGEN: my-tool <name> -->`.
 
 **A gated block holds only what every checkout of the commit agrees on.** The tree is all they
 share. So a block may not report anything read from outside it.
@@ -339,6 +410,7 @@ the read-only overview.
 | `query <query>` | A typed path over the resolved graph |
 | `pack <query>` | A query's full answer filled to a token budget, with an account of what did not fit |
 | `estimate <query>` | What a query would cost before you run it |
+| `count [query]` * | How many nodes a query matches. With no query, refreshes every `<!-- REGEN: yidam count <query> -->` block in the tracked markdown set — the form `regen` runs ([RFC-0043](rfcs/0043-inline-regen-and-count.md)) |
 | `diff <range>` | Node and edge changes between two git refs |
 | `check-diff [range]` | What a code diff names that the ontology does not ([RFC-0021](rfcs/0021-diff-alignment.md)). Defaults to the merge-base with `main` — this branch's work |
 | `log [range]` | Commit history classified as testimony or pipeline work. `--epistemic`, `--operational` |
@@ -348,7 +420,7 @@ the read-only overview.
 | `decisions-log` * | Decision records in `.yidam/decisions/`, newest first. Writes the `<!-- REGEN: yidam decisions-log -->` block where that directory has a README carrying one *(no flags)* |
 | `sangha` | Electors, positions, and settled resolutions |
 | `vocabulary` | The closed commit vocabulary. `--check <subject>` tests a subject line before the commit exists |
-| `rename <old> <new>` * | Rename a node, rewriting every edge into it. `--dry-run` |
+| `rename <old> <new>` * | Rename a node or a catalog entry (`catalog/old`), rewriting every edge into it. `--dry-run` |
 | `migrate <sub>` * | Change an ontology and every instance that adopted it, as one event. `--dry-run` |
 | `propose` * | Draft findings as proposed epistemic commits on a `propose/<head>` branch |
 | `run [step]` * | Invoke the stale capabilities declared in `.yidam/capabilities.toml`, in dependency order, and commit what each produced with a receipt. Named with a step, runs that step and everything it declares it comes `after`; with nothing, the whole manifest. `--dry-run` plans and writes nothing |
@@ -482,10 +554,25 @@ record of what they touched.
 |---|---|
 | `class` | Rename a class: its definition, its directory, and every edge that named it |
 | `property` | Rename a declared property on a class and on every instance carrying it |
-| `retype` | Change a declared property's type; refuses when an instance would not satisfy it |
+| `retype` | Change a declared property's type; requotes an instance value where only the quoting differs, refuses the rest |
+| `value` | Rename one value of a declared `values:` set, on the declaration and on every instance holding it |
 | `edge` | Point a declared relationship at a different class, at both ends |
 | `references` | Lift every reference written inside an evidence tag into the node's `references:` field |
 | `findings` | Lift every paragraph an earlier `propose` spliced into prose into a `yidam:` record |
+| `routes` | Put the `yidam routes` block into `AGENTS.md`, in place of its whole-file reading list |
+| `scaffold` | Mark the part of `ci.yml` and `CLAUDE.md` that a re-vendor updates |
+
+`retype` converts an instance value where the two types differ only in how the value is
+written. A `number` is an unquoted YAML number. So retyping to `number` unquotes `"24"`, and
+retyping to `string` quotes a bare `24`. Each is a repair `property-type` already names. A value
+holding no number — `about 24`, `~24` — is refused, and the refusal says what it tried. A retype
+into `string` on a property that declares `values:` is held to the set. An instance outside it
+is reported and blocks. Widening the set or fixing the value is the author's call.
+
+`value` renames one item of a closed set. The set is closed, so neither half can go first. It
+rewrites the item on the declaration and the value on every instance holding it, in one event.
+The quoting follows what was written. A value outside the set is refused. So is a rename onto a
+value the set already holds, which would merge two.
 
 `references` and `findings` are the two that migrate data rather than the ontology over it.
 
@@ -557,7 +644,7 @@ too: a negative result about coverage is the only durable record that coverage w
 Members are lettered rather than named. Most derived repositories are private, and this report
 is written to be pasted somewhere. `--paths` opts back in.
 
-### `run` is one step, and a run authors operational commits only
+### `run` is a plan, and only an operational commit advances your branch
 
 `.yidam/capabilities.toml` declares what may run. Per entry: a `kind`, the argv to invoke, the
 globs it `reads` and `writes`, and the commit verb it authors.
@@ -579,7 +666,14 @@ verb   = "compute"
 
 `yidam run travel-tier` checks the declared `reads` out of `HEAD` into a scratch directory. It
 invokes the step there, with `$YIDAM_IN`, `$YIDAM_OUT`, `$YIDAM_STEP` and `$YIDAM_INPUT_COMMIT`
-set. What the step wrote lands as one commit on the current branch. A receipt lands with it, at
+set. A step whose `reads` admit a corpus node gets a fifth, `$YIDAM_GRAPH`. It names a file
+holding the corpus as `yidam` parsed it. Classes, labels, properties, and every link with its
+target already resolved. So a calculator writes no parser of its own.
+
+That file is sliced to what the step reads. Its digest is part of the input state. Changing how
+`yidam` resolves a link therefore makes every calculator's step stale. A step that reads no corpus
+node is handed no `$YIDAM_GRAPH`. The name is removed from the environment rather than left empty,
+so a script can test for it. What the step wrote lands as one commit on the current branch. A receipt lands with it, at
 `.yidam/runs/<step>.yml`, naming the input commit and every digest.
 
 Both declarations are load-bearing. The step sees what `reads` resolves to and nothing else. It
@@ -594,13 +688,80 @@ accept it, or deletes it to reject it. So a run may open a question and may not 
 There is no route field and no policy key. A corpus that could write that permission for
 itself could license its own runs to author `establish:` on its baseline.
 
-It writes git objects and one ref. The working tree and the index are untouched, so it is safe to
-run mid-edit. It therefore leaves your checkout one commit behind. The report says so, and names
+It writes git objects and refs: the current branch, `propose/<head>`, or both when a plan holds
+both kinds of verb. The working tree and the index are untouched, so it is safe to run mid-edit. It therefore leaves your checkout behind `HEAD`. The report says so, and names
 the path-scoped `git restore` that syncs it. A re-run whose inputs have not moved writes no commit
 at all.
 
-One step per invocation: dependency order, freshness and `--dry-run` are not built yet.
-[RFC-0026](rfcs/0026-orchestrator-layer.md) has the argument for what a run may author.
+A manifest is a plan. An entry's `after` names the steps it waits for. `yidam run travel-tier`
+runs that step and everything it comes `after`, dependencies first. `yidam run` alone runs the
+whole manifest. An `after` that forms a cycle is refused with the cycle named, and nothing runs.
+A step may not come `after` an epistemic one. That step's output is on `propose/<head>`, not in
+the tree a dependent is checked out from.
+
+A step whose input state matches its committed receipt is skipped, not invoked. The report names
+each skipped step and why. A step that reads what the repository does not hold declares
+`ageing_days`. It is re-run on that cadence even when its inputs have not moved. On the branch,
+that re-run lands a commit even when the answer is the same. The commit records the check. An
+epistemic re-run that reproduces its pending proposal lands nothing. The proposal already holds
+that answer.
+
+`--dry-run` resolves the plan and reports what is stale. It invokes nothing and writes nothing: no
+commit, no ref, no receipt.
+
+[RFC-0026](rfcs/0026-orchestrator-layer.md) has the argument for what a run may author. Its §6
+has the argument for freshness.
+
+### The second arm: a calculator that is a typed function
+
+`run` takes a second shape. A table naming one script declares a **typed calculator**
+([RFC-0042](rfcs/0042-typed-calculator-arm.md)).
+
+```toml
+[capability.class-of]
+kind   = "calculator"
+run    = { gluon = ".yidam/capabilities/class-of.glu", calls = 2000000 }
+reads  = [".yidam/corpus/**", ".yidam/capabilities/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"
+```
+
+The script's entry point is declared `Corpus -> Computed`. It is applied to the resolved corpus in
+this process. There is no scratch tree and no child process, so none of the five variables is set.
+A calculator that cannot perform an effect needs no sandbox to stand in.
+
+`Corpus` is a record of three fields. `nodes` is every corpus node its `reads` cover, with each
+node's properties, its links and where each link resolves. `classes` is the ontology. `signals` is
+what the calculators before it committed. It is read back from the `.yidam/computed/` files its
+`reads` cover. One row per node, in the shape the entry point returns.
+
+That third field is what lets a pipeline's second stage be typed. A calculator whose input is
+another capability's answer declares that file under `reads`, and is handed it. One that declares no
+computed path is handed an empty `signals`. So is one in a corpus where nothing has been computed,
+and a script cannot tell those apart.
+
+A row's `node` is a reference — `gage/canyon-outlet` — and so is a node's `id`. A script that wants
+both matches one against the other. The signals are not attached to the nodes, and the reason is the
+declaration. A second stage may read a computed file and no corpus path. Its signals are then about
+nodes that are not in `nodes`. Attaching them would mean the typed arm needed a *wider* declaration
+than the shell arm to compute the same rule.
+
+`Computed` is a record of two fields and both are required. `signals` is the table below, one row
+per node. `summary` is what the calculator counted about the run as a whole. It is
+written under a top-level `summary:`, not against any node. A calculator that summarizes nothing writes
+`summary = []` and the key is left out of the document. Gluon records are exact, so a script that
+omits either field is refused as not a calculator.
+
+It must still declare its own script under `reads`. A declaration that does not is refused by name,
+because the script's digest belongs in the input state. That digest goes in the receipt too. So
+editing a typed calculator makes its step stale, exactly as it does for the shell arm.
+
+`calls` caps how many calls the script may make. Omitted, the binary's default applies. A
+calculator that does not finish is refused rather than warned about.
+
+**The arm is outside the default build.** The downloaded binary parses this declaration and plans
+it. It then declines the step by name, and says which feature would run it. A corpus that wants the
+downloaded binary to run it writes the sequence form.
 
 ### What a run computes, and how it reaches a search
 
@@ -676,11 +837,19 @@ Until every step of the resolved plan is recorded, the phase reads `interrupted`
 in `yidam phases`, in `yidam status` and in `yidam due`'s phase clock. The state has no ref
 shape — only the record knows it.
 
-**`settle`** checks the phase produced outputs and drafts the merge subject. **It authors
-nothing.** `phase:` is an epistemic verb, and [RFC-0026 §2](rfcs/0026-orchestrator-layer.md)
-holds that nothing merges itself. `due` reached the same limit first, of this very clock: *a
-person.* *Merging a phase, or abandoning it, is not a mechanical consequence of a finding.* So
-`settle` validates and hands back the three commands to run.
+**`settle`** refreshes the REGEN blocks, checks the phase produced outputs and drafts the
+merge subject. **It commits nothing.** `phase:` is an epistemic verb, and
+[RFC-0026 §2](rfcs/0026-orchestrator-layer.md) holds that nothing merges itself. `due` reached
+the same limit first, of this very clock: *a person.* *Merging a phase, or abandoning it, is
+not a mechanical consequence of a finding.* So `settle` validates and hands back the commands
+to run.
+
+The REGEN step is `regen --check`, then `regen`, then `regen --check` again. A stale block is
+refreshed and staged. The printed sequence then opens with the `regen:` commit, because
+`git merge --no-ff` refuses a dirty index. A block still stale after the refresh, or one no
+generator writes, is *not ready*, with the remedy `regen --check` prints. Nothing is refreshed
+from a checkout that differs from `HEAD`. A block generated from that tree would not hold
+against the commit. `settle` names the files and the sync instead.
 
 Like `run` and `propose`, all three write git objects and one ref. They touch neither the
 working tree nor the index, so they are safe mid-edit. They therefore leave your checkout
@@ -797,6 +966,7 @@ knowledge claim, only the time to re-fetch.
 | `vault materialize` | Hardlink cached artifacts into `.yidam/vault/<slug>/` under names a person can open; `--entry` narrows |
 | `vault-status` * | Writes the `<!-- REGEN: yidam vault-status -->` block in README.md. Committed files only — never the cache, never the network. `yidam vault status`, a hyphen apart, is the read-only report; `yidam regen` runs this one with the rest |
 | `catalog-fetch [entry]` * | Follow a catalog entry's declared address, cache the bytes under their digest, record them in `artifacts:`, and commit it as `refresh:`. `--location` narrows to one address; `--bind name=value` fills a `url_template` slot; `--dry-run` resolves and writes nothing |
+| `catalog-extract [entry]` * | Take a text reading of each PDF artifact that has none, file it in the cache, record it under the PDF as `text:`, and commit it as `extract:`. `--dry-run` reports and reads nothing |
 | `catalog-reconcile [entry]` * | Rewrite a drifted `used-by` list to the citations, which are authoritative, and commit it as `reconcile:`. `--dry-run` reports and writes nothing |
 
 ### Following an address
@@ -856,14 +1026,60 @@ It never uploads. Bytes land in the machine-wide cache. Sending them is `vault p
 consults `redistributable`. That is a decision a person makes after looking at what arrived.
 
 The record carries the digest, the size, the media type the server declared, the date, and the
-location. It omits two fields deliberately. `vault:` is left out because routing is
-`.yidam/config.toml`'s decision, and freezing it per record would make that routing dead.
-`redistributable:` is left out because it is a licensing fact, and no HTTP 200 establishes one.
+location. On a **first** capture it omits two fields deliberately. `vault:` is left out because
+routing is `.yidam/config.toml`'s decision, and freezing it per record would make that routing
+dead. `redistributable:` is left out because it is a licensing fact, and no HTTP 200 establishes
+one.
+
+On a **re-capture** of a location the entry already holds a record for, both are carried forward
+from that record. They are your statements, not the command's. Carrying one reproduces a
+decision you made about that source. Inventing one would assert a licence on the strength of a
+response code.
+
+Only the latest record for that location is consulted. Change your answer and every edition
+after it inherits the new one. A record that says nothing carries nothing forward.
+
+A re-capture with **new bytes** is a new version of the source. Every node citing the entry was
+read against an earlier one. The report and the `refresh:` commit both name them, and `yidam due`
+keeps naming each one until a commit touches it:
+
+```console
+$ yidam catalog-fetch local-registry --location 0
+local-registry
+  location 0 — /repo/sources/registry-2026.csv
+    sha256:4be1… (131 bytes)
+    push route: sources (s3://newsroom-sources/yidam)
+  c07d2e9 refresh: local-registry from sources/registry-2026.csv
+  a new version — 1 node(s) cite an earlier one, and `yidam due` holds them until each is re-read:
+    .yidam/corpus/record/hydrant-count.yml
+```
+
+The `refresh:` commit body names each field it carried and the digest it came from. So a licence
+appearing on a new record is reviewable as continued rather than established.
+
+Without this, one licensing decision had to be re-entered by hand per edition. `vault push`
+refused every re-capture of a source you had already cleared. A `vault: none` hold-back lapsed
+the same way, routing new bytes to a store you kept the previous edition out of.
 
 Re-running is free. A fetch that finds bytes the entry already records writes nothing and
 commits nothing. That is what makes it safe to put on a `ttl_days` clock. A source that
 *changed* appends a second record beside the first rather than replacing it. Overwriting would
 delete the provenance of every claim resting on the older bytes.
+
+### Reading a PDF
+
+A quotation of a PDF is compared with a text reading of the PDF. Lint never extracts text
+itself. Run `catalog-extract` once, on the machine that holds the PDF:
+
+1. Run `yidam vault pull` if the cache lacks the PDF.
+2. Run `yidam catalog-extract <entry>`.
+3. Run `yidam vault push` to share the reading with the other machines.
+
+The command records the reading's digest and its extractor under the PDF's record. A record
+that has a reading keeps it. To take a new reading, delete the `text:` lines and run it again.
+
+A scanned page has no text layer. The command refuses a reading with no letters or digits. It
+reports that PDF as skipped.
 
 ### Reconciling a `used-by` list
 
@@ -1163,7 +1379,7 @@ deciding *quietly*.
 |---|---|
 | `export` * | Export the domain model. `--format`, `--out`, `--list` |
 | `bundle` * | Alias for `export --format bundle`, kept for compatibility *(no flags)* |
-| `schema` * | Emit JSON Schema for the corpus shapes into `.yidam/schemas/`. `--settings` prints the editor `yaml.schemas` mapping instead |
+| `schema` * | Emit JSON Schema for the corpus shapes into `.yidam/schemas/`. A file it did not write is left alone, and the run refuses; `--force` replaces it. `--settings` prints the editor `yaml.schemas` mapping instead |
 
 `yidam export --list` reports each format and its implementation status in *your* build. That is
 the reliable answer, because two of the six are feature-gated:
@@ -1173,7 +1389,7 @@ the reliable answer, because two of the six are feature-gated:
 | `bundle` | `.yidam/bundle.yiz` — corpus, ontology, skills, decisions, index | default |
 | `web` | Feeds for the browser shell. `--webllm-model` names the chat panel's model | default |
 | `graphml` | GraphML for graph tools | default |
-| `llms` | A flattened corpus for a context window. `--token-budget` | default |
+| `llms` | A flattened corpus for a context window, on stdout unless `--out` names a file. `--token-budget` | default |
 | `rdf` | Turtle and JSON-LD. `--rdf-format` picks one | `export-graph` |
 | `sqlite` | SQLite + sqlite-vec | `export-sqlite` |
 
@@ -1188,6 +1404,7 @@ compiled-in mapping and reads no corpus.
 | `serve --mcp` | MCP over stdio — the agent surface. See [Connecting an agent](mcp-server.md) |
 | `serve --mcp --http` | The same server over HTTP, for a client that takes a URL rather than spawning a process. `--bind` (loopback by default), `--port`, `--allow-origin` |
 | `serve --lsp` | LSP over stdio — the editor surface. See [Editor setup](editor-setup.md) |
+| `record` | What `serve --mcp` was asked, read from the record `[serve] record` keeps. Reads only, and exits 0 |
 
 **`--root <DIR>` matters most here**, and `serve` is where it started (#421). A client
 configures a command line, not a working directory. Without the flag the corpus depends on
@@ -1207,6 +1424,12 @@ retrieval was degraded, and the corpus commit it answered from. Never the query 
 `.yidam/record/` must be gitignored and the server refuses to start until it is. See
 [Configuration](configuration.md#serve-record).
 
+**`yidam record` reads that file.** It prints the calls per tool, then one sentence per
+question the record answers. Those are the empty answers, degraded retrieval, `act`-tier calls,
+and tools never called. A missing file is reported as *nothing was recorded*. That is not the same
+as *nothing was asked*, and the command says which one it found. It never gates: the file is
+gitignored, so a fresh clone or CI runner does not have it.
+
 ## Measuring the corpus
 
 | Command | What it does |
@@ -1221,10 +1444,30 @@ rather than by omission.
 
 | Command | What it does |
 |---|---|
+| `init` * | Write the smallest runnable corpus into the repository you are standing in. `--class` (repeatable) |
 | `clone <target>` * | Copy the template into a new directory and `git init` it. Target must not exist |
 | `overlay <target>` * | Add yidam infrastructure to an existing git repo. `--backfill`, `--backfill-ref` |
 | `backfill` * | Write a decision record for each epistemic commit in history. `--since` |
 | `tonpa <sub>` * | Manage bundle dependencies in `.yidam/tonpa/`. **Needs `tonpa`** (a default) |
+
+`init` is the one of these that runs anywhere. `clone` and `overlay` copy the template out of
+the yidam checkout the shell is standing in. In your own project neither of them does anything.
+That was the whole of #1035.
+
+`init` reads no template. It writes a class file per `--class`, one example node in each, and a
+catalog entry. `--class` defaults to `concept` and `observation`. The tree it leaves passes
+`graph-check` and `lint` as written. Every placeholder says what to replace it with. Each node
+carries an `[open]` claim, so the first `open-questions` answers with something.
+
+Two things it deliberately does not do. It does not run `git init`. A corpus is a git history
+with a gate over it. Creating one where you are standing is a larger thing to do unasked.
+`init` refuses and names the one line instead. It does not commit either. The first commit's
+subject is a `genesis:` naming your domain. `export` and `bundle` read it back later, and only
+you know the domain.
+
+It refuses a tree that already holds a `.yidam/`, the way `clone` and `overlay` do. To add a
+class to a corpus that exists, write its `.ont.yml` beside the others.
+[first-corpus-by-hand.md](first-corpus-by-hand.md) explains the shape `init` writes.
 
 `clone` copies everything except the top-level paths `NOT_INHERITED` names in `cmd/clone.rs`.
 Two of them are `docs/` and `examples/`. The documentation here describes yidam itself. An example

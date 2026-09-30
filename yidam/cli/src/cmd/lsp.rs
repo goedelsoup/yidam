@@ -553,23 +553,36 @@ impl Server {
             return Err(plan.blocked.join("; "));
         }
 
+        let old_path = self.corpus.join(&plan.from);
+        let new_path = self.corpus.join(&plan.to);
         let mut changes: HashMap<String, Vec<Value>> = HashMap::new();
+        // The mover's own edits, which `plan` reports under its new name. That file does not
+        // exist until the move is applied, so its text is read at the old name — the move does
+        // not change it — and the edits go after the move (#1193). Read at the new name, every
+        // one of them came back empty and was dropped, and a cross-class rename left each of
+        // the node's relative links pointing one directory wrong.
+        let mut mover: Vec<Value> = vec![];
         for e in &plan.edits {
             let path = self.root.join(&e.file);
-            let text = self.overlay.read(&path);
+            let moving = path == new_path;
+            let text = self.overlay.read(if moving { &old_path } else { &path });
             let Some(line_text) = text.lines().nth(e.line - 1) else {
                 continue;
             };
             let Some(column) = line_text.find(&e.from) else {
                 continue;
             };
-            changes.entry(path_to_uri(&path)).or_default().push(json!({
+            let edit = json!({
                 "range": {
                     "start": {"line": e.line - 1, "character": column},
                     "end": {"line": e.line - 1, "character": column + e.from.chars().count()},
                 },
                 "newText": e.to,
-            }));
+            });
+            match moving {
+                true => mover.push(edit),
+                false => changes.entry(path_to_uri(&path)).or_default().push(edit),
+            }
         }
 
         // `documentChanges` rather than `changes`: only the former can carry the file
@@ -581,9 +594,46 @@ impl Server {
             .collect();
         document_changes.push(json!({
             "kind": "rename",
-            "oldUri": path_to_uri(&self.corpus.join(&plan.from)),
-            "newUri": path_to_uri(&self.corpus.join(&plan.to)),
+            "oldUri": path_to_uri(&old_path),
+            "newUri": path_to_uri(&new_path),
         }));
+        // After the move, because it edits the file at its new name. The text is the old
+        // name's: the move does not change it. One edit list with the mover's link edits,
+        // whose lines it cannot share: it replaces a `moved-from:` line or adds one past the
+        // last.
+        if let Some(e) = &plan.moved_from {
+            let text = self.overlay.read(&old_path);
+            let lines: Vec<&str> = text.lines().collect();
+            let line = rename::moved_from_text(e);
+            let (range, new_text) = match lines.get(e.line - 1) {
+                Some(old) => (
+                    json!({"start": {"line": e.line - 1, "character": 0},
+                           "end": {"line": e.line - 1, "character": old.chars().count()}}),
+                    line,
+                ),
+                // Past the end. A file without a final newline needs one before the new line.
+                None => {
+                    let (at, new_text) = match lines.last() {
+                        Some(last) if !text.ends_with('\n') => (
+                            json!({"line": lines.len() - 1, "character": last.chars().count()}),
+                            format!("\n{line}\n"),
+                        ),
+                        _ => (
+                            json!({"line": lines.len(), "character": 0}),
+                            format!("{line}\n"),
+                        ),
+                    };
+                    (json!({"start": at, "end": at}), new_text)
+                }
+            };
+            mover.push(json!({"range": range, "newText": new_text}));
+        }
+        if !mover.is_empty() {
+            document_changes.push(json!({
+                "textDocument": {"uri": path_to_uri(&new_path), "version": null},
+                "edits": mover,
+            }));
+        }
 
         Ok(json!({"documentChanges": document_changes}))
     }
@@ -1171,6 +1221,112 @@ mod tests {
 
         // Nothing was written: the client applies it, which is what keeps undo working.
         assert!(root.join(".yidam/corpus/concept/b.yml").is_file());
+    }
+
+    /// F2 is a mover like the command, so it records where the node came from (#1180). The
+    /// edit follows the move and names the new file, which is the only one that exists once
+    /// the move has been applied.
+    #[test]
+    fn a_rename_records_where_the_node_came_from_after_the_move() {
+        let (_t, root) = fixture();
+        let out = exchange(
+            &root,
+            vec![json!({
+                "jsonrpc": "2.0", "id": 6, "method": "textDocument/rename",
+                "params": {
+                    "textDocument": {"uri": uri(&root, "concept/b.yml")},
+                    "position": {"line": 0, "character": 0},
+                    "newName": "beta",
+                },
+            })],
+        );
+        let changes = out.iter().find(|m| m["id"] == 6).unwrap()["result"]["documentChanges"]
+            .as_array()
+            .unwrap()
+            .clone();
+
+        let mv = changes.iter().position(|c| c["kind"] == "rename").unwrap();
+        let at = changes
+            .iter()
+            .position(|c| c["textDocument"]["uri"] == uri(&root, "concept/beta.yml"))
+            .expect("an edit to the moved node under its new name");
+        assert!(at > mv, "the edit must follow the move: {changes:?}");
+        let edit = &changes[at]["edits"][0];
+        assert_eq!(edit["newText"], "moved-from: ../concept/b.yml\n");
+        let text = std::fs::read_to_string(root.join(".yidam/corpus/concept/b.yml")).unwrap();
+        assert_eq!(
+            edit["range"]["start"]["line"],
+            text.lines().count(),
+            "{edit}"
+        );
+    }
+
+    /// A cross-class move re-relativizes the mover's own links, and F2 carries those edits
+    /// (#1193). They name the file at its new path, which exists only once the move is
+    /// applied, so they must follow it — and their text is the old path's.
+    #[test]
+    fn a_cross_class_rename_rewrites_the_movers_own_links_after_the_move() {
+        let (_t, root) = fixture();
+        let corpus = root.join(".yidam/corpus");
+        std::fs::write(
+            corpus.join("gauge.ont.yml"),
+            "class: gauge\nlabel: Gauge\ndescription: An instrument.\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(corpus.join("gauge")).unwrap();
+        std::fs::write(
+            corpus.join("concept/c.yml"),
+            "class: concept\nlabel: C\ndescription: The third.\nlinks:\n  - target: ./a.yml\n    relationship: relates-to\n",
+        )
+        .unwrap();
+        let out = exchange(
+            &root,
+            vec![json!({
+                "jsonrpc": "2.0", "id": 6, "method": "textDocument/rename",
+                "params": {
+                    "textDocument": {"uri": uri(&root, "concept/c.yml")},
+                    "position": {"line": 0, "character": 0},
+                    "newName": "gauge/c",
+                },
+            })],
+        );
+        let changes = out.iter().find(|m| m["id"] == 6).unwrap()["result"]["documentChanges"]
+            .as_array()
+            .unwrap()
+            .clone();
+
+        let mv = changes.iter().position(|c| c["kind"] == "rename").unwrap();
+        let at = changes
+            .iter()
+            .position(|c| c["textDocument"]["uri"] == uri(&root, "gauge/c.yml"))
+            .expect("edits to the moved node under its new name");
+        assert!(at > mv, "the edits must follow the move: {changes:?}");
+        let edits = changes[at]["edits"].as_array().unwrap();
+        let link = edits
+            .iter()
+            .find(|e| e["newText"] == "../concept/a.yml")
+            .unwrap_or_else(|| panic!("the mover's link edit was dropped: {edits:?}"));
+        let range = &link["range"];
+        assert_eq!(range["start"]["line"], 4);
+        let text = std::fs::read_to_string(corpus.join("concept/c.yml")).unwrap();
+        let line = text.lines().nth(4).unwrap();
+        let start = range["start"]["character"].as_u64().unwrap() as usize;
+        let end = range["end"]["character"].as_u64().unwrap() as usize;
+        assert_eq!(&line[start..end], "./a.yml");
+        assert!(
+            edits
+                .iter()
+                .any(|e| e["newText"] == "moved-from: ../concept/c.yml\n"),
+            "{edits:?}"
+        );
+        assert_eq!(
+            changes
+                .iter()
+                .filter(|c| c["textDocument"]["uri"] == uri(&root, "gauge/c.yml"))
+                .count(),
+            1,
+            "one edit list for the moved node: {changes:?}"
+        );
     }
 
     /// A refusal is an error, not an empty edit.

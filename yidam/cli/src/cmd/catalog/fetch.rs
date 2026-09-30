@@ -33,6 +33,7 @@ use anyhow::{Context, Result};
 use super::commit::{self, Commit};
 use super::location::{self, Plan};
 use super::record;
+use super::superseded;
 use super::transport;
 use crate::parse::{parse_frontmatter, ArtifactOrigin, CatalogArtifact, CatalogLocation};
 use crate::paths::{repo_root, yidam_catalog_dir};
@@ -84,6 +85,13 @@ struct EntryOutcome {
     skipped: Vec<Skipped>,
     /// Absent when nothing changed, which is the ordinary result of a re-run.
     commit: Option<Commit>,
+    /// Nodes citing this entry that were read against an earlier version of it, when this run
+    /// recorded a new one (#1200). Repo-relative and sorted; empty on every other run.
+    ///
+    /// Every node citing the entry, and not a subset, because the version did not exist until
+    /// this run: nothing can have been written against it yet. `yidam due` keeps the list after
+    /// this report is gone, and drops a node once a commit touches it.
+    superseded: Vec<String>,
 }
 
 /// `fetched`, and deliberately not `entries`.
@@ -104,7 +112,7 @@ fn today_iso() -> String {
 }
 
 /// The entries this run is about.
-fn select(catalog: &Path, filter: Option<&str>) -> Result<Vec<PathBuf>> {
+pub(super) fn select(catalog: &Path, filter: Option<&str>) -> Result<Vec<PathBuf>> {
     let all = walk_md_files(catalog);
     let Some(want) = filter else {
         // README.md is the REGEN target `catalog-audit` writes, not a source. Excluded here
@@ -141,7 +149,7 @@ fn select(catalog: &Path, filter: Option<&str>) -> Result<Vec<PathBuf>> {
 /// into place under its digest, and `rename` is atomic only within a filesystem. This is the
 /// same reasoning `Cache::put_file` states about its `.part` files, and staging across a
 /// filesystem boundary would silently undo it.
-fn staging(cache: &Cache, n: usize) -> PathBuf {
+pub(super) fn staging(cache: &Cache, n: usize) -> PathBuf {
     cache
         .root()
         .join("staging")
@@ -197,29 +205,86 @@ fn obtain(
     })
 }
 
+/// The record an entry already holds for this same location, if any — the one whose
+/// decisions a new capture continues.
+///
+/// **The last such record wins, whatever it says.** The list is chronological, because
+/// [`record::append_artifacts`] appends, so the last entry naming this origin is the most
+/// recent statement about it. An operator who wrote `redistributable: true` for one edition
+/// and `false` for the next has changed their answer, and a third edition must carry the
+/// second one; a rule that reached for any `true` in the history would be a ratchet that
+/// only ever opens.
+///
+/// **Keyed on the origin, and only the origin.** A licence and a routing override are facts
+/// about the publisher at one address. An entry commonly lists a human-facing page beside a
+/// machine endpoint, and carrying the endpoint's permissions onto the page would assert one
+/// publisher's terms about another's bytes.
+///
+/// **A record with no `from:` is no origin, and matches nothing.** Every record
+/// [`artifact_for`] writes carries one, so this only skips records written by hand or by a
+/// bulk importer — for which the origin genuinely is not known, and guessing it would be
+/// lending one publisher's permissions to whatever location a later fetch happens to follow.
+/// Measured: a derived corpus holding 35 vault-imported entries and 19 records in one of them
+/// has `from:` on none of them, and declares no `location:` either, so a fetch skips all 35
+/// before this is reached.
+///
+/// A record that says nothing is still the most recent record, and nothing is what it
+/// carries. Reaching past it to an older one that did speak would be guessing: a silent
+/// record written by a person who no longer asserts the field and a silent record written by
+/// a machine that never could are the same four lines in the file, and this cannot tell them
+/// apart. Entries already carrying a machine-written silence are repaired by an operator
+/// editing the latest record once; from there it carries.
+fn prior_for<'a>(
+    held: &'a [CatalogArtifact],
+    origin: &ArtifactOrigin,
+) -> Option<&'a CatalogArtifact> {
+    held.iter()
+        .filter(|a| a.from.as_ref() == Some(origin))
+        .next_back()
+}
+
 /// The record that lands in the entry's frontmatter.
 ///
-/// **`vault:` is deliberately absent, and `redistributable:` too.**
+/// **`vault:` and `redistributable:` are never this command's answer — but they are not
+/// dropped either.** On a first capture both are absent, for the reasons below. On a
+/// re-capture of a location an entry already holds a record for, both are carried forward
+/// from that record: they are the operator's own statement about that source, and this
+/// command reproduces it rather than either inventing or discarding it.
 ///
 /// `vault:` on a record is an override of what the config's `holds` already decides, and the
 /// config is the place that decision belongs: a corpus reorganising its storage edits one
-/// file, not every record it has ever written. Stamping the current route into each record
-/// would freeze a routing answer at fetch time and make the config's own routing dead.
+/// file, not every record it has ever written. Stamping the *current route* into each record
+/// would freeze a routing answer at fetch time and make the config's own routing dead — and
+/// carrying a prior record's override forward is not that. `vault: none` is a decision to
+/// keep particular bytes in the local cache and nowhere else, which RFC-0023 relies on being
+/// durable where it says `gc` must warn about *"the artifact recorded `vault: none` — the
+/// local cache and nowhere else, by decision — for which the cache is the only copy there
+/// will ever be."* Letting that lapse at the next edition would
+/// route to a store the operator held the previous edition back from, which is the failing
+/// direction that loses bytes to a third party rather than merely inconveniencing someone.
 ///
 /// `redistributable:` is a licensing fact about the source — whether these bytes may leave
 /// this machine at all — and nothing a fetch observes can establish it. Its own field note
 /// says a route is edited casually and a licence is not something that edit may undo. A
-/// machine writing a default here would be a machine asserting a licence, in a committed
-/// file, on the strength of an HTTP 200.
-fn artifact_for(o: &Obtained) -> CatalogArtifact {
+/// machine writing a *default* here would be a machine asserting a licence, in a committed
+/// file, on the strength of an HTTP 200. Carrying a prior record's value is a different act:
+/// the assertion is still the operator's, about the same publisher, and #1074 is what its
+/// absence cost — an entry whose earlier records were cleared for redistribution had every
+/// re-capture silently refused by `vault push`, one licensing decision re-entered by hand per
+/// edition. What a carried value is not is unreviewed: [`message`] names every field it
+/// carried and which digest it came from, so the `refresh:` commit a person reads says that a
+/// licence was continued and not established.
+fn artifact_for(o: &Obtained, prior: Option<&CatalogArtifact>) -> CatalogArtifact {
     CatalogArtifact {
         sha256: Some(o.sha256.clone()),
         bytes: Some(o.bytes),
         media_type: o.media_type.clone(),
         retrieved: Some(today_iso()),
         from: Some(ArtifactOrigin::Location(o.location)),
-        vault: None,
-        redistributable: None,
+        vault: prior.and_then(|p| p.vault.clone()),
+        redistributable: prior.and_then(|p| p.redistributable),
+        // A reading is of these bytes, and a prior record's was of others.
+        text: None,
     }
 }
 
@@ -265,7 +330,18 @@ fn declared_of(loc: &CatalogLocation) -> String {
 /// this is the record RFC-0026 asks a run to leave: *what ran, against what, producing which
 /// bytes.* A commit saying only `refresh: usgs-nwis` is the thing that RFC opens by objecting
 /// to — a person's account of what a tool did, checkable against nothing.
-fn message(entry: &str, obtained: &[Obtained]) -> (String, String) {
+///
+/// **And it names every field carried forward, with the digest it came from.** A licence in a
+/// committed file is the one value here a person must be able to see arrive. [`artifact_for`]
+/// reproduces the operator's own assertion rather than establishing one, and this line is what
+/// makes that reviewable: the diff alone shows `redistributable: true` on a new record and
+/// cannot show whose claim it is or which record it continues.
+fn message(
+    entry: &str,
+    obtained: &[Obtained],
+    held: &[CatalogArtifact],
+    records: &[CatalogArtifact],
+) -> (String, String) {
     let subject = match obtained.len() {
         1 => format!("refresh: {entry} from {}", obtained[0].declared),
         n => format!("refresh: {entry} from {n} of its locations"),
@@ -285,6 +361,35 @@ fn message(entry: &str, obtained: &[Obtained]) -> (String, String) {
             o.location,
             o.followed
         );
+        // Matched by digest rather than by position: `append_artifacts` drops a record whose
+        // digest the entry already holds, so `records` and `obtained` are not index-aligned
+        // on a run that refreshed one location and found another unchanged.
+        let Some(r) = records
+            .iter()
+            .find(|r| r.sha256.as_deref() == Some(&o.sha256))
+        else {
+            continue;
+        };
+        let origin = ArtifactOrigin::Location(o.location);
+        let Some(p) = prior_for(held, &origin) else {
+            continue;
+        };
+        let mut carried: Vec<String> = Vec::new();
+        if let Some(v) = &r.vault {
+            carried.push(format!("vault: {v}"));
+        }
+        if let Some(d) = r.redistributable {
+            carried.push(format!("redistributable: {d}"));
+        }
+        if carried.is_empty() {
+            continue;
+        }
+        let _ = writeln!(
+            body,
+            "  carried forward from sha256:{}: {}",
+            p.sha256.as_deref().unwrap_or("(no digest)"),
+            carried.join(", ")
+        );
     }
     (subject, body)
 }
@@ -298,6 +403,9 @@ pub fn fetch(opts: &FetchOptions) -> Result<()> {
 
     let mut out: Vec<EntryOutcome> = Vec::new();
     let mut n = 0usize;
+    // Read once, and only if some entry records a new version: a corpus walk to answer a
+    // question no entry in this run is asking would be the ordinary run's whole cost.
+    let mut citing: Option<std::collections::HashMap<PathBuf, Vec<String>>> = None;
     for path in &entries {
         let rel = path
             .strip_prefix(&root)
@@ -324,6 +432,7 @@ pub fn fetch(opts: &FetchOptions) -> Result<()> {
                     obtained: vec![],
                     skipped,
                     commit: None,
+                    superseded: vec![],
                 });
             }
             continue;
@@ -359,14 +468,30 @@ pub fn fetch(opts: &FetchOptions) -> Result<()> {
         }
 
         let mut written = None;
+        let mut owed: Vec<String> = Vec::new();
         if !opts.dry_run {
-            let records: Vec<CatalogArtifact> = obtained.iter().map(artifact_for).collect();
+            // Read from `text` — the entry as it was before this run — so a carry consults
+            // the operator's records and never one this same run appended.
+            let held = parse_frontmatter(&text).artifacts.unwrap_or_default();
+            let records: Vec<CatalogArtifact> = obtained
+                .iter()
+                .map(|o| artifact_for(o, prior_for(&held, &ArtifactOrigin::Location(o.location))))
+                .collect();
             let updated = record::append_artifacts(&text, &records)
                 .with_context(|| format!("recording what {rel} obtained"))?;
             if updated != text {
+                if records.iter().any(|r| superseded::supersedes(&held, r)) {
+                    owed = citing
+                        .get_or_insert_with(|| superseded::citing_nodes(&root))
+                        .get(&crate::corpus::normalize(path))
+                        .cloned()
+                        .unwrap_or_default();
+                    owed.sort();
+                }
                 std::fs::write(path, &updated)
                     .with_context(|| format!("writing {}", path.display()))?;
-                let (subject, body) = message(&name, &obtained);
+                let (subject, mut body) = message(&name, &obtained, &held, &records);
+                body.push_str(&owed_lines(&owed));
                 written = commit::author(&root, &subject, &body, &[rel.clone()])?;
             }
         }
@@ -376,12 +501,33 @@ pub fn fetch(opts: &FetchOptions) -> Result<()> {
             obtained,
             skipped,
             commit: written,
+            superseded: owed,
         });
     }
 
     crate::report::finish(&root, opts.format, FetchReport { fetched: out }, |r| {
         print!("{}", render(&r.fetched, opts.dry_run))
     })
+}
+
+/// The paragraph a `refresh:` commit carries when it records a new version of a cited source.
+///
+/// In the commit and not only in the report, because the commit is what outlives the run: a
+/// person reading `git log` for why a node was re-read finds the list where the version
+/// arrived. Empty when nothing is owed, so an ordinary refresh reads as it always did.
+fn owed_lines(owed: &[String]) -> String {
+    use std::fmt::Write as _;
+    if owed.is_empty() {
+        return String::new();
+    }
+    let mut s = format!(
+        "\nA new version of a source {} node(s) cite, each read against an earlier one:\n",
+        owed.len()
+    );
+    for n in owed {
+        let _ = writeln!(s, "  - {n}");
+    }
+    s
 }
 
 /// Indent a message's continuation lines to sit under the line that introduced it.
@@ -444,6 +590,17 @@ fn render(entries: &[EntryOutcome], dry_run: bool) -> String {
         match &e.commit {
             Some(c) => {
                 let _ = writeln!(s, "  {} {}", c.sha, c.subject);
+                if !e.superseded.is_empty() {
+                    let _ = writeln!(
+                        s,
+                        "  a new version — {} node(s) cite an earlier one, and `yidam due` \
+                         holds them until each is re-read:",
+                        e.superseded.len()
+                    );
+                    for n in &e.superseded {
+                        let _ = writeln!(s, "    {n}");
+                    }
+                }
             }
             None if !dry_run && !e.obtained.is_empty() => {
                 let _ = writeln!(s, "  nothing new to record");
@@ -537,21 +694,38 @@ mod tests {
         assert_eq!(plans[0].0, 1);
     }
 
-    /// The record is what a person reviews in the `refresh:` commit, so what it omits matters
-    /// as much as what it carries.
-    #[test]
-    fn a_record_asserts_no_licence_and_freezes_no_route() {
-        let o = Obtained {
-            location: 0,
+    fn obtained(sha: &str, at: usize) -> Obtained {
+        Obtained {
+            location: at,
             declared: "d".into(),
             followed: "f".into(),
-            sha256: "aa".into(),
+            sha256: sha.into(),
             bytes: 12,
             media_type: Some("application/json".into()),
             cached: false,
             route: "sources (s3://x)".into(),
-        };
-        let a = artifact_for(&o);
+        }
+    }
+
+    /// A record carrying a licence and a route, as an operator would have written it.
+    fn decided(sha: &str, at: usize, vault: Option<&str>, r: Option<bool>) -> CatalogArtifact {
+        CatalogArtifact {
+            sha256: Some(sha.into()),
+            bytes: Some(1),
+            media_type: None,
+            retrieved: Some("2026-01-01".into()),
+            from: Some(ArtifactOrigin::Location(at)),
+            vault: vault.map(str::to_string),
+            redistributable: r,
+            text: None,
+        }
+    }
+
+    /// The record is what a person reviews in the `refresh:` commit, so what it omits matters
+    /// as much as what it carries. On a first capture it omits both decisions.
+    #[test]
+    fn a_first_capture_asserts_no_licence_and_freezes_no_route() {
+        let a = artifact_for(&obtained("aa", 0), None);
         assert_eq!(a.sha256.as_deref(), Some("aa"));
         assert_eq!(a.bytes, Some(12));
         assert!(matches!(a.from, Some(ArtifactOrigin::Location(0))));
@@ -563,6 +737,91 @@ mod tests {
             a.vault.is_none(),
             "routing is the config's decision, not a value frozen per record"
         );
+    }
+
+    /// #1074. An operator cleared a source for redistribution and held its bytes local; the
+    /// next edition of the same source keeps both, or they re-enter them once per edition.
+    #[test]
+    fn a_re_capture_carries_the_decisions_the_entry_already_made() {
+        let held = vec![decided("aa", 0, Some("none"), Some(true))];
+        let a = artifact_for(
+            &obtained("bb", 0),
+            prior_for(&held, &ArtifactOrigin::Location(0)),
+        );
+        assert_eq!(a.redistributable, Some(true));
+        assert_eq!(a.vault.as_deref(), Some("none"));
+        assert_eq!(
+            a.sha256.as_deref(),
+            Some("bb"),
+            "the new bytes, not the old"
+        );
+    }
+
+    /// `false` is carried exactly as `true` is. A rule that forwarded only permission would be
+    /// a ratchet that never closes, and `redistributable: false` is the value that has to hold.
+    #[test]
+    fn a_refusal_is_carried_as_readily_as_a_permission() {
+        let held = vec![decided("aa", 0, None, Some(false))];
+        let a = artifact_for(
+            &obtained("bb", 0),
+            prior_for(&held, &ArtifactOrigin::Location(0)),
+        );
+        assert_eq!(a.redistributable, Some(false));
+    }
+
+    /// The operator's latest answer, not their first. A publisher that tightened its terms
+    /// between editions was recorded once, and every edition after it inherits that.
+    #[test]
+    fn the_most_recent_record_for_the_location_is_the_one_carried() {
+        let held = vec![
+            decided("aa", 0, Some("sources"), Some(true)),
+            decided("bb", 0, Some("none"), Some(false)),
+        ];
+        let a = artifact_for(
+            &obtained("cc", 0),
+            prior_for(&held, &ArtifactOrigin::Location(0)),
+        );
+        assert_eq!(a.redistributable, Some(false));
+        assert_eq!(a.vault.as_deref(), Some("none"));
+    }
+
+    /// A permission belongs to one publisher at one address. An entry listing a cleared
+    /// endpoint beside an uncleared page must not lend the first's licence to the second.
+    #[test]
+    fn a_decision_does_not_cross_between_locations() {
+        let held = vec![decided("aa", 0, Some("none"), Some(true))];
+        assert!(prior_for(&held, &ArtifactOrigin::Location(1)).is_none());
+        let a = artifact_for(
+            &obtained("bb", 1),
+            prior_for(&held, &ArtifactOrigin::Location(1)),
+        );
+        assert!(a.redistributable.is_none(), "location 1 was never cleared");
+        assert!(a.vault.is_none());
+    }
+
+    /// A record naming a literal URL is a different origin from the index that happens to
+    /// resolve to it, because nothing here can tell whether it still does.
+    #[test]
+    fn a_url_origin_is_not_the_same_source_as_a_location_index() {
+        let mut held = vec![decided("aa", 0, None, Some(true))];
+        held[0].from = Some(ArtifactOrigin::Url("https://x/y".into()));
+        assert!(prior_for(&held, &ArtifactOrigin::Location(0)).is_none());
+    }
+
+    /// A silent record is still the most recent one. Reaching past it to an older record that
+    /// did speak would be this command guessing which silences were a person's.
+    #[test]
+    fn a_silent_latest_record_carries_nothing_forward() {
+        let held = vec![
+            decided("aa", 0, Some("none"), Some(true)),
+            decided("bb", 0, None, None),
+        ];
+        let a = artifact_for(
+            &obtained("cc", 0),
+            prior_for(&held, &ArtifactOrigin::Location(0)),
+        );
+        assert!(a.redistributable.is_none());
+        assert!(a.vault.is_none());
     }
 
     /// A two-line repair suggestion has to read as one message, not as two entries.
@@ -578,9 +837,8 @@ mod tests {
         assert_eq!(hang("one line", "    "), "one line");
     }
 
-    #[test]
-    fn the_subject_names_the_entry_and_the_body_names_every_digest() {
-        let o = |sha: &str, at: usize| Obtained {
+    fn at_location(sha: &str, at: usize) -> Obtained {
+        Obtained {
             location: at,
             declared: format!("https://x/{at}"),
             followed: format!("https://x/{at}"),
@@ -589,14 +847,84 @@ mod tests {
             media_type: None,
             cached: false,
             route: String::new(),
-        };
-        let (subject, body) = message("usgs-nwis", &[o("aa", 0)]);
+        }
+    }
+
+    #[test]
+    fn the_subject_names_the_entry_and_the_body_names_every_digest() {
+        let o = at_location;
+        let (subject, body) = message("usgs-nwis", &[o("aa", 0)], &[], &[]);
         assert_eq!(subject, "refresh: usgs-nwis from https://x/0");
         assert!(body.contains("sha256:aa (3 bytes) from location 0"));
 
-        let (subject, body) = message("usgs-nwis", &[o("aa", 0), o("bb", 1)]);
+        let (subject, body) = message("usgs-nwis", &[o("aa", 0), o("bb", 1)], &[], &[]);
         assert_eq!(subject, "refresh: usgs-nwis from 2 of its locations");
         assert!(body.contains("sha256:aa") && body.contains("sha256:bb"));
+    }
+
+    /// A carried licence is reviewable only if the commit says it was carried and from where.
+    /// The diff shows `redistributable: true` on a new record and cannot show whose claim it is.
+    #[test]
+    fn the_body_names_what_it_carried_and_which_record_it_came_from() {
+        let held = vec![decided("aa", 0, Some("none"), Some(true))];
+        let o = at_location("bb", 0);
+        let records = vec![artifact_for(
+            &o,
+            prior_for(&held, &ArtifactOrigin::Location(0)),
+        )];
+        let (_, body) = message("usgs-nwis", &[o], &held, &records);
+        assert!(
+            body.contains("carried forward from sha256:aa: vault: none, redistributable: true"),
+            "{body}"
+        );
+    }
+
+    /// A first capture has nothing to disclose, and a line saying so would make every
+    /// ordinary `refresh:` commit longer for no reader.
+    #[test]
+    fn a_first_capture_adds_no_carry_line() {
+        let o = at_location("bb", 0);
+        let records = vec![artifact_for(&o, None)];
+        let (_, body) = message("usgs-nwis", &[o], &[], &records);
+        assert!(!body.contains("carried forward"), "{body}");
+    }
+
+    /// A prior record that decided nothing is not a carry. The line is about a decision
+    /// travelling, not about a previous record existing.
+    #[test]
+    fn a_prior_record_with_no_decisions_adds_no_carry_line() {
+        let held = vec![decided("aa", 0, None, None)];
+        let o = at_location("bb", 0);
+        let records = vec![artifact_for(
+            &o,
+            prior_for(&held, &ArtifactOrigin::Location(0)),
+        )];
+        let (_, body) = message("usgs-nwis", &[o], &held, &records);
+        assert!(!body.contains("carried forward"), "{body}");
+    }
+
+    /// `append_artifacts` drops a record whose digest the entry already holds, so a run that
+    /// refreshed location 1 and found location 0 unchanged hands `message` a `records` list
+    /// shorter than `obtained`. Matched by digest, the carry line still lands on the right one.
+    #[test]
+    fn a_carry_line_follows_the_digest_and_not_the_position() {
+        let held = vec![
+            decided("aa", 0, None, Some(true)),
+            decided("cc", 1, None, Some(false)),
+        ];
+        let unchanged = at_location("aa", 0);
+        let fresh = at_location("dd", 1);
+        // Only location 1 produced a new record; location 0's digest was already held.
+        let records = vec![artifact_for(
+            &fresh,
+            prior_for(&held, &ArtifactOrigin::Location(1)),
+        )];
+        let (_, body) = message("usgs-nwis", &[unchanged, fresh], &held, &records);
+        assert!(
+            body.contains("carried forward from sha256:cc: redistributable: false"),
+            "{body}"
+        );
+        assert_eq!(body.matches("carried forward").count(), 1, "{body}");
     }
 
     /// The subject has to survive the invariant check the commit writer applies, or the
@@ -614,7 +942,7 @@ mod tests {
             route: String::new(),
         };
         for obtained in [vec![o.clone()], vec![o.clone(), o.clone()]] {
-            let (subject, _) = message("e", &obtained);
+            let (subject, _) = message("e", &obtained, &[], &[]);
             assert_eq!(
                 yidam_core::git::classify_commit("", &subject).kind,
                 yidam_core::git::CommitKind::Operational,

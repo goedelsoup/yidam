@@ -115,13 +115,18 @@ sourceClasses(classes) : Set<string>
 
 OntologyProperty
   name        : string
-  type        : string             — string | text | date | number | ref | claim, or a type
-                                     this corpus coined, which is carried through unconstrained
+  type        : string             — string | text | date | number | ref | claim | quotation,
+                                     or a type this corpus coined, which is carried through
+                                     unconstrained. A quotation is {of, span, sha256?}, or a
+                                     non-empty list of them
   description : string
   required    : boolean            — must every instance carry it? absent means false
   unit        : string             — what a number is written in; empty is dimensionless.
                                      A fact about the column, declared once, so an ordering
                                      never compares across units. Published as x-yidam-unit
+  values      : string[]           — the closed set a string may hold; empty is unbounded.
+                                     Declaring it closes it: the gate reports a value outside
+                                     it, and the schema carries it as enum, a constraint
 
 OntologyEdge
   relationship : string
@@ -265,14 +270,27 @@ classify_commit(message: string) -> CommitEvent
   Unknown verbs are treated as Epistemic.
 
 parse_markers(text: string) -> Marker[]
-  Find all <!-- TEMPLATE ... --> and <!-- REGEN: cmd --> ... <!-- /REGEN --> blocks.
-  Return them in document order with their spans.
+  Every TEMPLATE marker and every REGEN block, in document order.
+  A REGEN block may stand on its own lines or sit inside one: an open tag whose arrow
+  is followed, on the same line, by the block's own close tag ends there, and a line
+  may carry more than one. The rest of the line is prose and stays prose.
+  scan_markers is this plus two more channels — each well-formed block's extent, and
+  the blocks that are malformed. An extent is an offset, and an offset is not a parity
+  contract: Rust counts bytes, JavaScript UTF-16 code units, Python code points. No
+  fixture asserts one. See RFC-0043.
 
 update_regen(text: string, command: string, new_content: string) -> string
-  Replace the content between <!-- REGEN: command --> and <!-- /REGEN --> with new_content.
+  Replace the body of every REGEN block whose command is exactly `command` — exactly,
+  so that a command does not claim a block whose command merely begins with it.
+  Defined over scan_markers' extents rather than a search of its own, so the writer and
+  the reader cannot disagree about where a block is or whether there is one.
   Leaves all other text — including other REGEN sections — unchanged exactly.
+  A block written on one line is written back on one line, and one spread over several
+  keeps its newlines. New content that will not fit on one line goes back in block form
+  whichever the block was, which is what keeps the next call a no-op.
   Idempotent: calling it twice with the same new_content returns the same string.
-  Empty new_content clears the body with no blank line left between the markers.
+  Empty new_content clears the body: no blank line between block-form markers, and
+  nothing at all between the markers of an inline block.
 
 find_reachable(edges: GraphEdge[], node_path: string) -> string[]
   All nodes reachable from node_path following directed edges (BFS).
@@ -315,23 +333,37 @@ can state as method postconditions and verify automatically.
 lemma UpdateRegenSpec(text: string, command: string, newContent: string)
   requires HasRegenFor(text, command)
   requires ContainsNo(newContent, RegenClose)
-  ensures  result[..sp.body] == text[..sp.body]              // frame, before
-  ensures  result[sp.body + |body|..] == text[sp.close..]    // frame, after
-  ensures  RegenSpan(result, command) == Some(...)           // the section, exactly
-  ensures  UpdateRegen(result, command, newContent) == result // idempotency
+  ensures  result[..sp.body] == text[..sp.body]                        // frame, before
+  ensures  Hollow(result, command) == Hollow(text, command)            // frame, everywhere
+  ensures  RegenSpan(result, command) == Some(...)                     // the section, exactly
+  ensures  Commands(RegenScan(result)) == Commands(RegenScan(text))    // same blocks
+  ensures  EveryWritten(result, command, newContent)                   // every match
+  ensures  UpdateRegen(result, command, newContent) == result          // idempotency
 ```
-Everything outside the target REGEN section is byte-for-byte identical; the target section
-gets exactly `new_content`, still bracketed by the same open tag and arrow; and running it
-again with the same content changes nothing.
+`RegenScan` models `scan_markers`, and `RegenSpan` selects from it by equality of command,
+as `update_regen` does. `Hollow` is the text with the body of every block named `command`
+removed. So:
 
-The precondition is not decoration: a caller who writes `<!-- /REGEN -->` into
-`new_content` terminates the section early, and every clause above is false of that call.
+- Everything except those bodies is byte-for-byte identical.
+- The first such section gets exactly `new_content`, bracketed by the same open tag and arrow.
+- Every other block with the same command gets the same content.
+- The scan of the result reads the same blocks, in the same order.
+- Running it again with the same content changes nothing.
 
-A fourth clause — "no REGEN blocks are created or destroyed", over a count — used to be here
-and is not, because it was false and because it was the weaker instrument. Byte-for-byte
-equality says more about the blocks outside the section than a count of them can, and inside
-the section the content is the caller's. `RegenBlockCountWasTheWrongInstrument` proves the
-unconditional form false.
+The precondition is required. A caller who writes `<!-- /REGEN -->` into `new_content` ends
+the section early, and every clause above is false of that call.
+
+The block count was once stated as a count of open tags in the text, and in that form it was
+false: content can spell an open tag. Stated over the scan it is true, because the scan never
+searches a body for an open tag. `ContentThatSpellsATagIsNotABlock` is the document that
+separates the two forms.
+
+The model's scan reads a line at a time, as the code's does. A block-form open tag must start
+its line and its close tag must stand alone on its own line; an inline block has all three tags
+on one line. `ACloseTagMustStandAlone` proves that both sides read no block in a document whose
+close tag shares its line, and a test in `markers.rs` runs the same document against the code.
+`AnOpenTagMidSentenceIsProse` proves that an open tag mid-sentence is prose, so the scan reads
+the block on the next line.
 
 **`classify_commit` — totality and coverage**
 ```
@@ -368,9 +400,10 @@ sibling's open tag, closes on the sibling's close tag, and returns one well-form
 block with a marker quietly gone. `TheSwallowedBlockIsReported` and
 `ABlockThatClosesOnAnothersTagIsReported` prove both of the model.
 
-`parse_markers` is `scan_markers` without the second channel and keeps its signature: the
-marker sequence is the frozen contract and did not change. `yidam lint`'s
-`malformed-regen-block` is the first consumer either has had in this repository.
+`parse_markers` is `scan_markers` without the other two channels and keeps its signature:
+the marker sequence is the frozen contract and did not change. `yidam lint`'s
+`malformed-regen-block` is the first consumer either has had in this repository, and
+`update_regen` — rewritten over the extents in RFC-0043 — is the second.
 
 Grounding is stated over *lines*, not raw substrings. The version that said a marker's
 command appears in the source after `"<!-- REGEN: "` is false of the parser, which trims:

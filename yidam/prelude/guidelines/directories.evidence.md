@@ -296,6 +296,20 @@ It is not a formality. The step stands in the scratch tree and nowhere else, so 
 there is what puts it in the input state — and a calculator whose script was not declared would
 compute a new answer while its receipt said nothing had changed.
 
+## resolved-corpus-is-handed-over
+
+One parser and one link resolver, or as many as there are calculators. The second is not a style
+preference: `yidam graph`, `yidam lint` and every consumer of a corpus answer *what does this link
+point at* through one function, and a shell calculator that answered it again in awk was the only
+place in the system where that question had two implementations and no test comparing them.
+
+## resolved-corpus-in-the-input-state
+
+The same argument as the script itself. A run and a `doctor` must agree about what a step read, so
+the digest of the resolved corpus goes in the input state and both sides compute it with the same
+function — two builders would disagree the day one of them changed, and every step would read as
+stale forever.
+
 ## after-epistemic
 
 What a step declaring an epistemic verb writes lands on a proposal branch and is not in the tree a
@@ -431,3 +445,20 @@ gap; that same repository spent four commits the same day removing the verb, on 
 reasoning that no gap existed in the prelude *it* could see. Both were right about their own
 evidence. Neither could see the other, and the derived repo ended further from upstream than it
 started.
+
+## typed-arm-outside-the-default-build
+
+The engine resolves 71 marginal packages against the policy engine's 8, for +6.8 MB on a binary
+whose whole argument is that it is small enough to download. The hermeticity case that ungated the
+policy engine does not transfer: a build that cannot evaluate policy cannot refuse anything, while a
+build that cannot run a typed calculator refuses that step by name and commits nothing. So the
+manifest still parses in every build — a corpus declaring the arm is not a malformed corpus — and
+the refusal names the feature rather than reading as a broken manifest.
+
+## constitution-sealed-at-genesis
+
+The constitution calls a domain article permanent. A file the corpus can edit is not permanent,
+and a hash pinned beside it can be edited in the same commit. The genesis commit cannot be
+changed without rewriting every commit after it, so `yidam lint` reads rules from there and
+compares this directory to it by blob id (RFC-0047). An article appended to the vendored
+`CONSTITUTION.md` did not survive either: every re-vendor deletes `.yidam/.vendor/prelude/`.

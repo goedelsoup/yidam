@@ -36,7 +36,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
-use crate::kuten::{Register, Registers};
+use crate::kuten::{glob_covers, Register, Registers};
 
 /// Where the manifest lives, relative to the corpus root.
 pub const MANIFEST: &str = ".yidam/capabilities.toml";
@@ -170,12 +170,251 @@ impl Route {
     }
 }
 
+/// How a step is invoked: argv, or a typed arm evaluated inside this process (RFC-0042).
+///
+/// # A sum rather than a second field
+///
+/// A `run` argv and a `gluon = "…"` beside it would be a declaration that can say both and a
+/// manifest that has to decide which wins. The two are alternatives — a step is a process or it
+/// is a function — so the type says so, and "both" and "neither" are shapes a corpus cannot
+/// write.
+///
+/// # Parsed in every build, evaluated in one
+///
+/// **This enum is not behind `calculators-gluon`, and that is the whole of the arm's
+/// compatibility story.** The feature is outside the default set and the released binary is the
+/// default set, so the overwhelmingly common reader of a manifest declaring a typed calculator is
+/// a build that cannot run one. A binary that could not *parse* the declaration would refuse the
+/// whole manifest — `yidam lint`, `yidam log`, `crates-index`, every surface that loads it — over
+/// a step it was never going to invoke, which is [`Kind::Featurizer`]'s lesson one field across:
+/// *"a refusal naming the issue is a better answer than a manifest that cannot express the other
+/// kind at all."*
+///
+/// So the shape, the validation and the refusal are here, and only evaluation is gated. The
+/// obvious implementation — `#[cfg(feature)]` on the variant — passes every test in the build
+/// that has the feature and is wrong in the build almost everybody has.
+///
+/// # Deserialized by hand
+///
+/// `#[serde(untagged)]` reads this shape correctly and reports `data did not match any variant
+/// of untagged enum Run` when it does not, naming neither the field nor what was wrong with it. A
+/// manifest is a file a person writes by hand, and the two arms are told apart by *array versus
+/// table* — a distinction an error message can state. So the impl below matches on the TOML value
+/// and says which arm it thought this was, which is worth the twenty lines.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(untagged)]
+pub enum Run {
+    /// argv, invoked directly — not through a shell. A corpus that wants a shell says `sh`.
+    Argv(Vec<String>),
+    /// A gluon script, applied as `Corpus -> Computed` in this process (RFC-0042).
+    Gluon {
+        /// The script, repository-relative. Covered by `reads` — see [`validate`].
+        gluon: String,
+        /// The call budget, or the binary's default where it is absent.
+        ///
+        /// Declarable for the reason [`Capability::ageing_days`] is: a number compiled in is one
+        /// corpus's judgement arriving in another that never agreed to it. A calculator over ten
+        /// thousand nodes and one over ten are not the same computation, and the corpus is the
+        /// only place that difference is known.
+        ///
+        /// Resolved where it is spent rather than here, because the default lives in
+        /// `gluon_arm::budget` and that module is behind the feature. A light build reads the
+        /// declaration, validates it, and never needs the number it would have defaulted to.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        calls: Option<usize>,
+    },
+}
+
+impl<'de> Deserialize<'de> for Run {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        use serde::de::Error as _;
+        // Through `toml::Value` because the manifest is TOML and nothing else — see
+        // [`Manifest::parse`]. A format-generic intermediate would buy the ability to read this
+        // enum out of a file no `.yidam/` document is written in.
+        match toml::Value::deserialize(d)? {
+            toml::Value::Array(items) => {
+                let mut argv = Vec::with_capacity(items.len());
+                for (i, item) in items.into_iter().enumerate() {
+                    match item {
+                        toml::Value::String(s) => argv.push(s),
+                        other => {
+                            return Err(D::Error::custom(format!(
+                                "`run` is argv and element {i} of it is {}, not a string. Every \
+                                 element is one argument, and a step that wants a number passes \
+                                 it as one: `run = [\"sh\", \"x.sh\", \"10\"]`",
+                                other.type_str()
+                            )))
+                        }
+                    }
+                }
+                Ok(Self::Argv(argv))
+            }
+            toml::Value::Table(mut t) => {
+                let gluon = match t.remove("gluon") {
+                    Some(toml::Value::String(s)) => s,
+                    Some(other) => {
+                        return Err(D::Error::custom(format!(
+                            "`run = {{ gluon = … }}` names the script to apply, and this one is \
+                             {}",
+                            other.type_str()
+                        )))
+                    }
+                    None => {
+                        return Err(D::Error::custom(format!(
+                            "a table-shaped `run` declares a typed arm, and `gluon` is the only \
+                             arm there is — this one declares {}.\n  \
+                             argv:  run = [\"sh\", \".yidam/capabilities/x.sh\"]\n  \
+                             typed: run = {{ gluon = \".yidam/capabilities/x.glu\" }}",
+                            named(&t)
+                        )))
+                    }
+                };
+                let calls = match t.remove("calls") {
+                    None => None,
+                    Some(toml::Value::Integer(n)) => Some(usize::try_from(n).map_err(|_| {
+                        D::Error::custom(format!(
+                            "`run = {{ calls = {n} }}` is not a number of calls a run could spend"
+                        ))
+                    })?),
+                    Some(other) => {
+                        return Err(D::Error::custom(format!(
+                            "`run = {{ calls = … }}` is a call budget, and this one is {}",
+                            other.type_str()
+                        )))
+                    }
+                };
+                // The same rule `deny_unknown_fields` gives the rest of the declaration, and for
+                // the same reason: a `call = 1000` this binary shrugged at would run the step
+                // under a budget the corpus did not declare and report success.
+                if !t.is_empty() {
+                    return Err(D::Error::custom(format!(
+                        "`run = {{ gluon = … }}` also declares {}, which the typed arm does not \
+                         read. It takes `gluon` and an optional `calls`",
+                        named(&t)
+                    )));
+                }
+                Ok(Self::Gluon { gluon, calls })
+            }
+            other => Err(D::Error::custom(format!(
+                "`run` is {}, and a step is invoked as one of two things.\n  \
+                 argv:  run = [\"sh\", \".yidam/capabilities/x.sh\"]\n  \
+                 typed: run = {{ gluon = \".yidam/capabilities/x.glu\" }}",
+                other.type_str()
+            ))),
+        }
+    }
+}
+
+/// The keys of a table, quoted, for an error message about the ones that should not be there.
+fn named(t: &toml::Table) -> String {
+    match t.is_empty() {
+        true => "nothing".to_string(),
+        false => t
+            .keys()
+            .map(|k| format!("`{k}`"))
+            .collect::<Vec<_>>()
+            .join(", "),
+    }
+}
+
+impl Run {
+    /// Every token in the declaration that could name a file this repository tracks.
+    ///
+    /// The one question two callers ask of a `run` without caring which arm it is: `cmd/build.rs`
+    /// asks which crate implements a capability, and [`super::exec::materialize`] asks whether the
+    /// step declared the file it is about to be pointed at. Both are about paths, and for the
+    /// typed arm the script is the only one there is.
+    pub fn file_candidates(&self) -> &[String] {
+        match self {
+            Self::Argv(argv) => argv,
+            // A slice of the one field rather than a `Vec` built per call: the caller wants to
+            // iterate, and the borrow is already there.
+            Self::Gluon { gluon, .. } => std::slice::from_ref(gluon),
+        }
+    }
+
+    /// The script and its declared budget, where this is the typed arm.
+    ///
+    /// The budget stays an `Option` here: the default is `gluon_arm::budget::DEFAULT_CALLS` and
+    /// that module is behind the feature, so the one caller that can spend calls is the one that
+    /// can name the number.
+    pub fn gluon(&self) -> Option<(&str, Option<usize>)> {
+        match self {
+            Self::Argv(_) => None,
+            Self::Gluon { gluon, calls } => Some((gluon, *calls)),
+        }
+    }
+
+    /// The declaration as a corpus wrote it, TOML and all, for a refusal that quotes it back.
+    ///
+    /// Quoted as the file spells it rather than summarized, because the reader of this message is
+    /// about to go and look at that line. `[` versus `{` is the whole distinction between the two
+    /// arms, so a rendering that dropped the brackets would name the arm least clearly exactly
+    /// where it matters.
+    pub fn declared(&self) -> String {
+        match self {
+            Self::Argv(argv) => {
+                let quoted: Vec<String> = argv.iter().map(|a| format!("\"{a}\"")).collect();
+                format!("run = [{}]", quoted.join(", "))
+            }
+            Self::Gluon { gluon, .. } => format!("run = {{ gluon = \"{gluon}\" }}"),
+        }
+    }
+
+    /// What ran, for prose that is about the run rather than about the declaration.
+    ///
+    /// The commit message a run authors says *`x` ran against abc1234*, and for a typed arm the
+    /// thing that ran is the script. TOML brackets in the middle of an English sentence would be
+    /// the refusal's spelling used where nothing is being refused.
+    pub fn shown(&self) -> String {
+        match self {
+            Self::Argv(argv) => argv.join(" "),
+            Self::Gluon { gluon, .. } => gluon.clone(),
+        }
+    }
+
+    /// Why this binary does not invoke it — `None` for the arms it does.
+    ///
+    /// [`Kind::unrunnable_because`]'s sibling, and the reason it is a sibling rather than another
+    /// arm of it: that predicate is a property of the *kind*, the same in every build. This one is
+    /// a property of the build. A gluon calculator is runnable here or not depending on a feature,
+    /// and a corpus that declares one is declaring something correct either way — which is the
+    /// difference between "nobody built this" and "you are holding the wrong binary".
+    pub fn unrunnable_because(&self) -> Option<&'static str> {
+        match self {
+            Self::Argv(_) => None,
+            #[cfg(feature = "calculators-gluon")]
+            Self::Gluon { .. } => None,
+            #[cfg(not(feature = "calculators-gluon"))]
+            Self::Gluon { .. } => Some(
+                "The typed calculator arm is compiled out of this binary. It is evaluated by a \
+                 build carrying `--features calculators-gluon`, which RFC-0042 keeps outside the \
+                 default set because it costs 71 packages and +6.8 MB on the binary `install.sh` \
+                 downloads — so this declaration is correct and this build is not the one that \
+                 runs it",
+            ),
+        }
+    }
+}
+
+/// Why a step in a plan cannot be invoked, and which part of its declaration says so.
+///
+/// Both halves, because the two refusals this carries are about different fields. A message
+/// written from the reason alone would have to open with a sentence general enough to cover
+/// `kind = "connector"` and `run = { gluon = … }`, which is a sentence that names neither.
+pub struct Unrunnable {
+    /// The part of the declaration that cannot be invoked, spelled as a corpus writes it.
+    pub declared: String,
+    /// The sentence that refuses it.
+    pub because: &'static str,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Capability {
     pub kind: Kind,
-    /// argv, invoked directly — not through a shell. A corpus that wants a shell says `sh`.
-    pub run: Vec<String>,
+    /// How the step is invoked — argv, or the typed arm. See [`Run`].
+    pub run: Run,
     /// Globs, relative to the corpus root. Exactly what the step is given, and nothing else
     /// from the repository reaches it.
     #[serde(default)]
@@ -223,6 +462,32 @@ impl Capability {
             true => Route::Branch,
             false => Route::Proposal,
         }
+    }
+
+    /// Why this binary will not invoke this declaration — `None` when it will.
+    ///
+    /// Two predicates behind one, because a caller asking *can this step run here* is asking about
+    /// the declaration and not about one field of it. [`Kind::unrunnable_because`] answers for the
+    /// taxonomy and [`Run::unrunnable_because`] answers for this build, and only the whole
+    /// declaration knows it has to ask both. Before this existed the pre-pass in
+    /// [`super::plan_and_write`] asked the kind, which is why it could say *"this binary invokes
+    /// calculators only"* — a sentence that stopped being the whole rule the moment a calculator
+    /// could be declared in two arms.
+    ///
+    /// The kind first, deliberately. A featurizer declaring a gluon script is refused for being a
+    /// featurizer: nobody has built that executor in any build, so the feature is not the thing
+    /// its author can do something about.
+    pub fn unrunnable_because(&self) -> Option<Unrunnable> {
+        if let Some(because) = self.kind.unrunnable_because() {
+            return Some(Unrunnable {
+                declared: format!("kind = \"{}\"", self.kind.as_str()),
+                because,
+            });
+        }
+        self.run.unrunnable_because().map(|because| Unrunnable {
+            declared: self.run.declared(),
+            because,
+        })
     }
 }
 
@@ -383,7 +648,7 @@ impl Manifest {
 
 /// Every rule a declaration must satisfy, checked before anything runs.
 fn validate(name: &str, cap: &Capability, registers: &Registers) -> Result<()> {
-    if cap.run.is_empty() {
+    if cap.run.file_candidates().is_empty() {
         bail!("capability `{name}` declares an empty `run`, so there is nothing to invoke");
     }
 
@@ -411,6 +676,9 @@ fn validate(name: &str, cap: &Capability, registers: &Registers) -> Result<()> {
     for glob in cap.writes.iter().chain(cap.reads.iter()) {
         check_glob(name, glob)?;
     }
+    if let Some((script, calls)) = cap.run.gluon() {
+        validate_gluon(name, cap, script, calls)?;
+    }
     // RFC-0028 §4 arm (b): the invariant test's population is kept register-pure by refusing
     // a declaration that reaches the object register, checked at declaration time.
     for glob in &cap.writes {
@@ -423,6 +691,67 @@ fn validate(name: &str, cap: &Capability, registers: &Registers) -> Result<()> {
                  `feat:` and `fix:` live, and the commit vocabulary does not govern it."
             );
         }
+    }
+    Ok(())
+}
+
+/// The rules that apply to a typed declaration and to no other (RFC-0042).
+///
+/// At load, in every build, and that is the point of it being here rather than in the executor.
+/// The overwhelmingly common reader of a gluon declaration is a binary that cannot evaluate one —
+/// see [`Run`] — and a malformed declaration that only the rare build notices is one a corpus can
+/// commit, push and merge with every gate it has green.
+fn validate_gluon(name: &str, cap: &Capability, script: &str, calls: Option<usize>) -> Result<()> {
+    // The extension is a contract and not a convention, because the rule below is stated against
+    // it: a `reads` glob covering the script is what puts the program in the input state, and
+    // `.yidam/capabilities/**` covering a `.sh` is a glob an author already writes. A script named
+    // anything at all would make "is this the program" a question nothing can answer.
+    if !script.ends_with(".glu") {
+        bail!(
+            "capability `{name}` declares `run = {{ gluon = \"{script}\" }}`, and a gluon \
+             script is named `.glu`.\n  \
+             The extension is read by the rule below this one — a `reads` glob has to cover the \
+             script, which is what puts the program itself in the input state — so it is part of \
+             the declaration rather than a habit."
+        );
+    }
+
+    // A step's own implementation is a file it depends on, so it is a file it must declare.
+    //
+    // The shell arm learns this at materialization, from the tree: `exec::materialize` refuses a
+    // `run` token the commit tracks and `reads` does not cover, because the process would stand in
+    // a directory that does not hold the script. The typed arm is handed no process and no
+    // directory, so nothing about evaluation would fail — the script would be read from the input
+    // tree, or not be there, and *either* way the digest of the program would be missing from the
+    // input state. Editing a calculator would compute a new answer and the receipt would say the
+    // input had not moved.
+    //
+    // So it is checked here, from the declaration alone, with no tree to consult. Which is the
+    // stronger check of the two: it fails when the manifest is loaded rather than when the step is
+    // reached, and it fails in a build that cannot run the step at all.
+    if !cap.reads.iter().any(|g| glob_covers(g, script)) {
+        bail!(
+            "capability `{name}` applies `{script}` and does not declare reading it (`reads` is \
+             {}).\n  \
+             A typed calculator is handed a value rather than a tree, so a script outside `reads` \
+             is not a step that fails — it is a step whose *program* is outside its input state. \
+             Editing the script would compute a different answer and the receipt would report the \
+             input unchanged.\n  \
+             Declare it: `reads` is what makes editing a calculator re-run it.",
+            cap.reads.join(", ")
+        );
+    }
+
+    // Zero and not merely absent, because absent has a meaning: it takes the binary's default.
+    // A declared `calls = 0` is a budget the run is refused by before it makes its first call,
+    // which is a step that can never succeed and a manifest that looks like it declared a limit.
+    if calls == Some(0) {
+        bail!(
+            "capability `{name}` declares `calls = 0`, which refuses the run before its first \
+             call.\n  \
+             Leave `calls` out to take this binary's default, or declare a budget the calculator \
+             can finish inside."
+        );
     }
     Ok(())
 }
@@ -479,6 +808,207 @@ verb   = "compute"
 
     fn corpus_only() -> Registers {
         Registers::corpus_only()
+    }
+
+    /// The whole refusal, context and cause.
+    ///
+    /// `{:#}` and not `to_string()`: a `Deserialize` impl's message arrives as the *cause* of
+    /// `Manifest::parse`'s context, so `to_string()` reads `parsing .yidam/capabilities.toml` and
+    /// asserts nothing about what was wrong. A person sees the chain; so does a test.
+    fn parse_err(text: &str) -> String {
+        format!("{:#}", Manifest::parse(text, &corpus_only()).unwrap_err())
+    }
+
+    const TYPED: &str = r#"
+[capability.low-flow]
+kind   = "calculator"
+run    = { gluon = ".yidam/capabilities/low-flow.glu" }
+reads  = [".yidam/corpus/**", ".yidam/capabilities/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"
+"#;
+
+    /// The typed arm parses, and it parses in **this** build whichever one this is.
+    ///
+    /// The assertion that matters is `Manifest::parse(...).unwrap()` with no `cfg!` guarding it.
+    /// The released binary is the default set and the arm is outside it, so the common reader of a
+    /// manifest declaring a typed calculator is a build that cannot evaluate one — and a binary that
+    /// refused to parse would take down `lint`, `log` and `crates-index` over a step it was never
+    /// going to invoke.
+    #[test]
+    fn a_typed_declaration_parses_in_every_build() {
+        let m = Manifest::parse(TYPED, &corpus_only()).unwrap();
+        let c = m.get("low-flow").unwrap();
+        assert_eq!(
+            c.run.gluon(),
+            Some((".yidam/capabilities/low-flow.glu", None))
+        );
+        assert_eq!(c.kind, Kind::Calculator);
+        // It is a calculator, so the kind refuses nothing. What decides whether this binary runs it
+        // is the arm, and that answer is a property of the build.
+        assert!(c.kind.unrunnable_because().is_none());
+        assert_eq!(
+            c.unrunnable_because().is_none(),
+            cfg!(feature = "calculators-gluon"),
+            "the arm's runnability is not the feature that compiles it"
+        );
+    }
+
+    /// The refusal names the arm and the feature, not the kind.
+    ///
+    /// Only in the build that refuses: in the other one there is nothing to say. Asserted on the
+    /// sentence rather than on `is_some`, because the defect this is against is the pre-pass telling
+    /// a calculator's author that *this binary invokes calculators only*.
+    #[test]
+    #[cfg(not(feature = "calculators-gluon"))]
+    fn the_typed_refusal_names_the_arm_and_not_the_kind() {
+        let m = Manifest::parse(TYPED, &corpus_only()).unwrap();
+        let why = m.get("low-flow").unwrap().unrunnable_because().unwrap();
+        assert_eq!(
+            why.declared,
+            r#"run = { gluon = ".yidam/capabilities/low-flow.glu" }"#
+        );
+        assert!(why.because.contains("calculators-gluon"), "{}", why.because);
+        assert!(!why.because.contains("kind"), "{}", why.because);
+    }
+
+    /// A budget is declarable, and the number is the corpus's.
+    #[test]
+    fn a_declared_budget_parses() {
+        let text = TYPED.replace(
+            r#"run    = { gluon = ".yidam/capabilities/low-flow.glu" }"#,
+            r#"run    = { gluon = ".yidam/capabilities/low-flow.glu", calls = 250000 }"#,
+        );
+        let m = Manifest::parse(&text, &corpus_only()).unwrap();
+        assert_eq!(
+            m.get("low-flow").unwrap().run.gluon(),
+            Some((".yidam/capabilities/low-flow.glu", Some(250_000)))
+        );
+    }
+
+    /// The one budget that cannot be meant: a step refused before its first call.
+    #[test]
+    fn a_zero_budget_is_refused() {
+        let text = TYPED.replace(
+            r#"run    = { gluon = ".yidam/capabilities/low-flow.glu" }"#,
+            r#"run    = { gluon = ".yidam/capabilities/low-flow.glu", calls = 0 }"#,
+        );
+        let e = parse_err(&text);
+        assert!(e.contains("calls = 0"), "{e}");
+    }
+
+    /// A typed calculator declares reading its own script, or it does not load.
+    ///
+    /// The whole of why this rule is in the manifest rather than in the executor: the shell arm
+    /// learns it from the tree, because a process that cannot find its script fails. A typed
+    /// calculator is handed a value, so an undeclared script is not a step that breaks — it is a step
+    /// whose *program* is outside its input state, and editing the calculator would compute a new
+    /// answer over a receipt that reported the input unchanged.
+    #[test]
+    fn a_typed_calculator_declares_reading_its_own_script() {
+        let text = TYPED.replace(r#", ".yidam/capabilities/**""#, "");
+        let e = parse_err(&text);
+        assert!(e.contains("input state"), "{e}");
+        assert!(e.contains(".yidam/capabilities/low-flow.glu"), "{e}");
+    }
+
+    /// The extension is part of the declaration, because the rule above is stated against it.
+    #[test]
+    fn a_script_is_named_glu() {
+        for name in [
+            ".yidam/capabilities/low-flow.sh",
+            ".yidam/capabilities/low-flow",
+            ".yidam/capabilities/low-flow.gluon",
+        ] {
+            let text = TYPED.replace(".yidam/capabilities/low-flow.glu", name);
+            assert!(
+                Manifest::parse(&text, &corpus_only()).is_err(),
+                "`{name}` parses as a gluon script"
+            );
+        }
+    }
+
+    /// A table-shaped `run` that names no arm says which arms there are.
+    ///
+    /// The reason [`Run`] is deserialized by hand. `#[serde(untagged)]` reads the same two shapes and
+    /// reports `data did not match any variant of untagged enum Run`, which names neither the field
+    /// nor what was wrong with it — in a file a person writes by hand.
+    #[test]
+    fn a_run_that_is_neither_arm_says_what_the_two_arms_are() {
+        for bad in [
+            r#"run    = { script = ".yidam/capabilities/low-flow.glu" }"#,
+            r#"run    = ".yidam/capabilities/low-flow.sh""#,
+            r#"run    = 7"#,
+        ] {
+            let text = TYPED.replace(
+                r#"run    = { gluon = ".yidam/capabilities/low-flow.glu" }"#,
+                bad,
+            );
+            let e = parse_err(&text);
+            assert!(e.contains("gluon"), "{bad} reported: {e}");
+            assert!(e.contains("run = ["), "{bad} did not offer argv: {e}");
+        }
+    }
+
+    /// A key the typed arm does not read is refused, exactly as one on the declaration is.
+    ///
+    /// `deny_unknown_fields` does not reach inside a hand-written `Deserialize`, so this rule is
+    /// enforced by the impl. A `call = 1000` shrugged at would run the step under a budget the
+    /// corpus did not declare and report success.
+    #[test]
+    fn an_unread_key_in_a_typed_run_is_refused() {
+        let text = TYPED.replace(
+            r#"run    = { gluon = ".yidam/capabilities/low-flow.glu" }"#,
+            r#"run    = { gluon = ".yidam/capabilities/low-flow.glu", call = 1000 }"#,
+        );
+        let e = parse_err(&text);
+        assert!(e.contains("`call`"), "{e}");
+    }
+
+    /// An argv element that is not a string is refused by position.
+    #[test]
+    fn an_argv_element_that_is_not_a_string_is_refused() {
+        let text = CALC.replace(
+            r#"run    = ["sh", ".yidam/capabilities/low-flow.sh"]"#,
+            r#"run    = ["sh", 10]"#,
+        );
+        let e = parse_err(&text);
+        assert!(e.contains("element 1"), "{e}");
+    }
+
+    /// Both arms answer the one question two callers ask of a `run`.
+    ///
+    /// `cmd/build.rs` asks which crate implements a capability and `exec::materialize` asks whether
+    /// the step declared the file it is about to be pointed at. Neither cares which arm it is, and a
+    /// typed declaration whose script were invisible to them would be a capability no crate index
+    /// could attribute.
+    #[test]
+    fn a_run_names_its_files_whichever_arm_it_is() {
+        let argv = Manifest::parse(CALC, &corpus_only()).unwrap();
+        assert_eq!(
+            argv.get("low-flow").unwrap().run.file_candidates(),
+            ["sh", ".yidam/capabilities/low-flow.sh"]
+        );
+        let typed = Manifest::parse(TYPED, &corpus_only()).unwrap();
+        assert_eq!(
+            typed.get("low-flow").unwrap().run.file_candidates(),
+            [".yidam/capabilities/low-flow.glu"]
+        );
+    }
+
+    /// A `run` serializes as the manifest wrote it, because a receipt is a record of a declaration.
+    ///
+    /// The argv half is a compatibility assertion: every receipt already committed carries a
+    /// sequence, and the sum is serialized untagged so that adding a second arm did not rewrite the
+    /// first one's bytes.
+    #[test]
+    fn a_run_round_trips_to_what_a_receipt_records() {
+        let argv = Manifest::parse(CALC, &corpus_only()).unwrap();
+        let y = serde_yaml::to_string(&argv.get("low-flow").unwrap().run).unwrap();
+        assert_eq!(y, "- sh\n- .yidam/capabilities/low-flow.sh\n", "{y}");
+        let typed = Manifest::parse(TYPED, &corpus_only()).unwrap();
+        let y = serde_yaml::to_string(&typed.get("low-flow").unwrap().run).unwrap();
+        assert_eq!(y, "gluon: .yidam/capabilities/low-flow.glu\n", "{y}");
     }
 
     #[test]
@@ -607,7 +1137,7 @@ verb   = "compute"
     fn routes_are_a_total_function_of_the_verb() {
         let cap = |verb: &str| Capability {
             kind: Kind::Calculator,
-            run: vec!["true".into()],
+            run: Run::Argv(vec!["true".into()]),
             reads: vec![],
             writes: vec![".yidam/computed/**".into()],
             verb: verb.to_string(),

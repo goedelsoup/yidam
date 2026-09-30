@@ -35,7 +35,21 @@ struct Cluster {
 }
 
 impl Cluster {
+    /// Streamflow's shell pipeline: `travel-tier`, then `disclosure-envelope` after it.
+    ///
+    /// The typed calculator is dropped in every build. It declares no `after` and nothing
+    /// reads it, so it is not part of the chain these tests walk, and a light build refuses
+    /// a plan holding it. Whether a pod runs it is its own pair of tests, one per build,
+    /// under "the typed arm" below.
     fn new() -> Self {
+        let c = Self::as_declared();
+        c.drop_typed_steps();
+        c
+    }
+
+    /// Streamflow as the example declares it, typed step included. For what does not run a
+    /// step, such as generating the workflow, which is the same in either build.
+    fn as_declared() -> Self {
         let e = Example::materialize("streamflow");
         let work = tempfile::tempdir().unwrap();
         let remote = work.path().join("remote.git");
@@ -55,6 +69,57 @@ impl Cluster {
         );
         git(&e.path(), &["push", "-q", "origin", "HEAD:refs/heads/main"]);
         Self { e, work }
+    }
+
+    /// Remove every capability whose `run` is a table (the typed arm), commit, and push.
+    ///
+    /// Cut out of the text by section rather than re-serialized, so every other line of the
+    /// manifest stays byte-for-byte what the tests below edit by string replacement.
+    fn drop_typed_steps(&self) {
+        let path = self.e.path().join(".yidam/capabilities.toml");
+        let text = std::fs::read_to_string(&path).unwrap();
+        let manifest: toml::Table = toml::from_str(&text).unwrap();
+        let typed: Vec<String> = manifest["capability"]
+            .as_table()
+            .unwrap()
+            .iter()
+            .filter(|(_, c)| matches!(c.get("run"), Some(toml::Value::Table(_))))
+            .map(|(name, _)| format!("[capability.{name}]"))
+            .collect();
+        assert!(
+            !typed.is_empty(),
+            "streamflow declares no typed step, so this narrowing is dead code"
+        );
+        let mut skipping = false;
+        let kept: String = text
+            .lines()
+            .filter(|line| {
+                if line.starts_with('[') {
+                    skipping = typed.iter().any(|header| line.trim() == header);
+                }
+                !skipping
+            })
+            .map(|line| format!("{line}\n"))
+            .collect();
+        let narrowed: toml::Table = toml::from_str(&kept).unwrap();
+        assert_eq!(
+            narrowed["capability"].as_table().unwrap().len(),
+            manifest["capability"].as_table().unwrap().len() - typed.len(),
+            "the cut removed exactly the typed sections"
+        );
+        std::fs::write(&path, kept).unwrap();
+        git(
+            &self.e.path(),
+            &[
+                "commit",
+                "-qam",
+                "chore: drop the typed step this build cannot run",
+            ],
+        );
+        git(
+            &self.e.path(),
+            &["push", "-q", "origin", "HEAD:refs/heads/main"],
+        );
     }
 
     fn remote(&self) -> PathBuf {
@@ -541,6 +606,60 @@ fn a_landing_re_parents_over_an_unrelated_commit_and_refuses_over_a_moved_input(
     assert_eq!(c.main_tip(), moved, "main is where the edit left it");
 }
 
+// ── the typed arm ─────────────────────────────────────────────────────────────
+
+/// The image carries `calculators-gluon` (`docs/cluster/Dockerfile`), so a pod runs a typed
+/// calculator the way it runs a shell one: pinned bundle in, operational sha out, landed on
+/// `main` with its receipt.
+#[cfg(feature = "calculators-gluon")]
+#[test]
+fn a_typed_step_runs_in_a_pod_and_lands_with_its_receipt() {
+    let c = Cluster::as_declared();
+    let admission = c.admit();
+    assert_eq!(admission["admitted"], true, "{admission}");
+    assert!(
+        admission["stale"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s == "travel-tier-typed"),
+        "{admission}"
+    );
+
+    let pin = c.pin();
+    let step = c.step("travel-tier-typed", s(&pin["bundle"]));
+    assert_eq!(step["outcome"], "ran", "{step}");
+    assert_eq!(step["class"], "operational");
+    let landed = c.land(&step);
+    assert_eq!(landed["target"], "main");
+    assert_eq!(c.main_tip(), s(&step["sha"]));
+    assert!(succeeded(
+        &c.remote(),
+        &[
+            "cat-file",
+            "-e",
+            "refs/heads/main:.yidam/runs/travel-tier-typed.yml"
+        ]
+    ));
+}
+
+/// A build without the feature refuses the plan by name at admission, before any pod is
+/// scheduled — the sentence `run` gives, not a pod failing halfway through a workflow.
+#[cfg(not(feature = "calculators-gluon"))]
+#[test]
+fn a_light_build_refuses_a_typed_step_at_admission() {
+    let c = Cluster::as_declared();
+    let mut args = vec!["cluster".to_string(), "admit".to_string()];
+    args.extend(c.remote_args());
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let (stdout, stderr, code) = c.yidam(&args);
+    assert_ne!(code, 0, "admitted a plan this build cannot run:\n{stdout}");
+    assert!(
+        stderr.contains("travel-tier-typed") && stderr.contains("calculators-gluon"),
+        "{stderr}"
+    );
+}
+
 // ── the route ─────────────────────────────────────────────────────────────────
 
 /// RFC-0026 §2 on a cluster: an epistemic step's result reaches `propose/<input>` and `main`
@@ -657,7 +776,7 @@ fn an_epistemic_step_lands_on_a_proposal_branch_and_main_does_not_move() {
 /// document disagree, so the docs never show a workflow the binary would not write.
 #[test]
 fn the_documented_workflow_is_what_the_generator_writes() {
-    let c = Cluster::new();
+    let c = Cluster::as_declared();
     let docs = common::repo_root().join("docs/cluster");
     for (file, extra) in [
         ("streamflow.workflow.yml", vec![]),

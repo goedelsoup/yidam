@@ -10,6 +10,9 @@ ERROR [missing-property] Declared property the instance omits — 3 finding(s)
 WARN [edge-standing-unheld] An edge asserts a standing its own endpoints do not hold — 1 finding(s)
   .yidam/corpus/gauge/riffle-station.yml: `measured-by` → `../concept/low-flow.yml` asserts `[inference]` and `.yidam/corpus/concept/low-flow.yml` declares `[open]` — the edge claims more about the relationship than this corpus claims about what it relates. Demote the edge, or promote the node and say why
 
+ERROR [edge-source-unresolved] An edge's `source:` names nothing this repository holds — 1 finding(s)
+  .yidam/corpus/concept/tailwater.yml: `relates-to` → `../concept/low-flow.yml` names `source: stage-discharge-curve`, which is no catalog entry and no decision record — name a catalog entry by its file stem or by a path from this node, or a decision record by its `id:`
+
 WARN [verified-unsourced] A claim asserted at `[verified]` that rests on nothing — 1 finding(s)
   .yidam/corpus/gauge/riffle-station.yml: 1 `[verified]` claim, and this node draws on no source
 
@@ -24,6 +27,9 @@ ERROR [resolution-elector-unregistered] Resolution names a ma/* branch no electo
 
 WARN [resolution-executor-unrecorded] Resolution record does not name the seat that executed it — 1 finding(s)
   .yidam/sangha/resolutions/silt-budget.md: no `synthesized-by:` — the record names which tips were read and not who read them
+
+WARN [resolution-deliberation-unrecorded] Resolution record does not name its rounds or the positions it read — 1 finding(s)
+  .yidam/sangha/resolutions/silt-budget.md: no `rounds:` and no `positions:` — the record names which tips were read and not how the deliberation went
 
 INFO [resolution-independence-mismatch] Resolution's stated independence is not the one its seats derive — 1 finding(s)
   .yidam/sangha/resolutions/silt-budget.md: states `distinct-seats`; its seats derive `unrecorded` — at the tips it names, the registry could not be read at `ma/hydrologist@ccccccc` and `ma/dredger@ddddddd`, which name no commit in this clone

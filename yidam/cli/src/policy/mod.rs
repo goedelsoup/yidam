@@ -112,6 +112,17 @@ const EVAL_TIME_LIMIT: Duration = Duration::from_secs(5);
 /// check is not the cost.
 const EVAL_CHECK_INTERVAL: u32 = 10_000;
 
+/// An engine that stops a runaway rule after [`EVAL_TIME_LIMIT`]. Every engine here is one.
+fn timed_engine() -> regorus::Engine {
+    let mut engine = regorus::Engine::new();
+    engine.set_execution_timer_config(regorus::utils::limits::ExecutionTimerConfig {
+        limit: EVAL_TIME_LIMIT,
+        check_interval: std::num::NonZeroU32::new(EVAL_CHECK_INTERVAL)
+            .expect("EVAL_CHECK_INTERVAL is nonzero"),
+    });
+    engine
+}
+
 /// Where the rule that answered came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {
@@ -182,12 +193,7 @@ impl Policies {
     /// conflict. Overriding means *not adding* the default for a package the repository has
     /// claimed, and the package name is what `add_policy` returns.
     pub fn load(root: &Path) -> Result<Self> {
-        let mut engine = regorus::Engine::new();
-        engine.set_execution_timer_config(regorus::utils::limits::ExecutionTimerConfig {
-            limit: EVAL_TIME_LIMIT,
-            check_interval: std::num::NonZeroU32::new(EVAL_CHECK_INTERVAL)
-                .expect("EVAL_CHECK_INTERVAL is nonzero"),
-        });
+        let mut engine = timed_engine();
 
         let mut origins = BTreeMap::new();
         let mut sources = Vec::new();
@@ -232,6 +238,65 @@ impl Policies {
             origins,
             sources,
         })
+    }
+
+    /// Exactly these modules, with no default and nothing from `.yidam/policy/` (#593).
+    ///
+    /// This is how a domain article's rule is loaded. Under [`Self::load`] a repository's own
+    /// file supersedes the rule it names, which RFC-0024 chose for disclosure and which RFC-0026
+    /// refuses for a constitutional family: a family whose composition is written in the
+    /// artefact it composes can be loosened by editing that artefact. Here the caller supplies
+    /// the text, read from the genesis commit, and no file on disk is consulted. That absence is
+    /// the composition rule, and it lives in the Rust.
+    pub fn sealed(modules: &[(String, String)]) -> Result<Self> {
+        let mut engine = timed_engine();
+        for (name, text) in modules {
+            engine
+                .add_policy(name.clone(), text.clone())
+                .with_context(|| format!("{name} does not compile"))?;
+        }
+        Ok(Self {
+            engine,
+            origins: BTreeMap::new(),
+            sources: modules.to_vec(),
+        })
+    }
+
+    /// The members of `data.<package>.deny`, sorted, for a rule that refuses by message.
+    ///
+    /// `package` is as [`package_of`] reports it, `data.` included. A partial `deny contains`
+    /// that matches nothing is an empty set, and that is an answer. A `deny` that is undefined
+    /// — a complete rule whose body did not hold — or absent is an error instead, for the
+    /// reason [`Self::decide`] gives: a rule that cannot answer has not permitted anything.
+    pub fn refusals(&mut self, package: &str, input: &Json) -> Result<Vec<String>> {
+        let rule = format!("{package}.deny");
+        self.engine.set_input(
+            regorus::Value::from_json_str(&input.to_string())
+                .context("the rule input is not valid JSON")?,
+        );
+        let value = self
+            .engine
+            .eval_rule(rule.clone())
+            .with_context(|| format!("evaluating {rule}"))?;
+        if value == regorus::Value::Undefined {
+            bail!("{rule} is undefined — `deny` produced no value, so the rule did not answer");
+        }
+        let json: Json = serde_json::to_value(&value)
+            .with_context(|| format!("{rule} returned something that is not JSON"))?;
+        let Some(members) = json.as_array() else {
+            bail!("{rule} is {json}, not a set of messages");
+        };
+        let mut out: Vec<String> = members
+            .iter()
+            .map(|m| m.as_str().map_or_else(|| m.to_string(), str::to_string))
+            .collect();
+        out.sort();
+        Ok(out)
+    }
+
+    /// The package a module declares, as `data.<package>`.
+    pub fn package_of(text: &str) -> Option<String> {
+        package_of(text)
     }
 
     /// Where each decision's rule came from, in decision order.

@@ -115,6 +115,13 @@
 //! one of those was a false drift in the measured population. Words are what rot. An
 //! ellipsis in the quote is an elision: each piece must appear in the cited lines, in
 //! order.
+//!
+//! # No history is read
+//!
+//! Every check here decides a citation against the working tree as it stands. Nothing asks
+//! git what a file was called before, so a rename cannot be followed or missed (#1171). A
+//! citation whose target has moved away names a file that does not resolve. [`collect`]
+//! leaves that to `broken-prose-link`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -193,7 +200,7 @@ fn render_fragment(f: LineFragment) -> String {
 
 impl LineCitation {
     /// `path#L4` / `path#L4-L7`, as a reader would write it.
-    fn anchor(&self) -> String {
+    pub fn anchor(&self) -> String {
         format!("{}#{}", self.target, render_fragment(self.fragment))
     }
 
@@ -206,6 +213,12 @@ impl LineCitation {
             Some(f) => format!(" — the passage is now at {}", render_fragment(f)),
             None => String::new(),
         }
+    }
+
+    /// Live, and holding neither a quote nor a symbol label: the population
+    /// [`unverified_line_citation`] reports, and the one only existence was checked for.
+    pub fn is_unanchored(&self) -> bool {
+        self.dead_reason().is_none() && self.quotes.is_empty() && self.symbols.is_empty()
     }
 
     fn dead_reason(&self) -> Option<String> {
@@ -233,13 +246,13 @@ impl LineCitation {
 /// A link whose file does not resolve is skipped — that is `broken-prose-link`'s finding,
 /// and reporting the line of a file that is not there would be blaming the fragment for
 /// the path.
-pub fn collect(
+pub fn collect<'l>(
     root: &Path,
-    links: &[ProseLink],
+    links: impl IntoIterator<Item = &'l ProseLink>,
     read: &dyn Fn(&Path) -> String,
 ) -> Vec<LineCitation> {
     // The citing files, each read once: several citations per document is the norm.
-    let mut sources: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    let mut sources: BTreeMap<&'l str, Vec<String>> = BTreeMap::new();
     let mut out = Vec::new();
     for link in links {
         let Some(fragment) = link.fragment else {
@@ -940,7 +953,7 @@ pub fn citation_label_not_cited(citations: &[LineCitation]) -> Check {
 pub fn unverified_line_citation(citations: &[LineCitation]) -> Check {
     let violations = citations
         .iter()
-        .filter(|c| c.dead_reason().is_none() && c.quotes.is_empty() && c.symbols.is_empty())
+        .filter(|c| c.is_unanchored())
         .map(|c| {
             Violation::new(
                 format!("{}:{}", c.file, c.line),
@@ -970,7 +983,7 @@ pub fn unverified_line_citation(citations: &[LineCitation]) -> Check {
          widen to a stable range, or drop the fragment — is a judgement about the document \
          and not a defect in the corpus. Never gates, never baselined. The count is the \
          thing to watch: it is how much of the citation surface is taken on trust — and \
-         this repository does watch it, holding the number to a constant a person has to \
+         this repository does watch it, holding the population to a committed list a person has to \
          edit down, because a population nobody counts is one that grows (#899).",
         violations,
     )

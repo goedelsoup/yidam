@@ -95,7 +95,13 @@ against it:
 | `property-type` | a value contradicting the declared `type` | yes |
 | `unlicensed-edge` | a relationship the class does not declare | only under `edge_policy: exhaustive` |
 | `edge-target-class` | an edge resolving to a node of the wrong class | yes |
+| `interval-overlap` | more instances holding one target at once than it seats, or an end before its start | only where the class declares `interval:` |
 | `missing-property` | a declared property the instance omits | only where the class says `required: true` |
+| `claim-property-undeclared` | a value spelling a standing in a property the class did not declare `type: claim` | no |
+
+A standing in an undeclared property is counted by nothing. `claim-property-undeclared` never
+gates, because the repair is sometimes to rename the property rather than declare it.
+[why](GRAPH.evidence.md#claim-property-undeclared)
 
 `edge-target-class` is the one no other check could produce: `dangling-edge` catches an edge to
 nothing, and an edge to the *wrong* thing resolves, traverses, and exports, and is simply false.
@@ -107,6 +113,21 @@ nothing, and an edge to the *wrong* thing resolves, traverses, and exports, and 
 **A `number` is a YAML number, unquoted**, and its unit is declared on the class as
 `unit: km`, never in the value. `"24"` is text and fails.
 [why](GRAPH.evidence.md#number-unquoted)
+
+**A `string` that declares `values: [extant, demolished, ruin]` is closed to that set**, and
+an instance holding anything else fails, with the set named. The match is exact, as written.
+[why](GRAPH.evidence.md#values-closed)
+
+**An `interval:` names the `date` properties that start and end an instance**, as
+`start: began` and `end: ended`. `exclusive_over: of-office` adds that no two instances may
+hold one office at once, and `capacity: seats` lets each office say how many may. Intervals
+are half-open, compared at the precision both sides share, and open while the end is absent.
+[why](GRAPH.evidence.md#interval-overlap)
+
+**A `quotation` is words copied from a catalog entry**: `of:` names the entry, `span:` holds
+the words, and `sha256:` names the artifact when the entry holds more than one.
+`quotation-span-drift` fails when the fetched bytes lack the words; where they are not
+fetched, `quotation-unchecked` says so. [why](GRAPH.evidence.md#quotation-bytes)
 
 **Silence is not a contract**, read one field at a time. A class with no `properties:` has
 said nothing about properties and none are checked; a class with no `edges:` has said nothing
@@ -140,6 +161,11 @@ Two cases the derivation deliberately leaves alone:
 | a class with no `edges:` at all | **not** a source class — silence is not a contract |
 | a self-edge (`reach -downstream-of-> reach`) | says instances relate to each other, not that every instance is cited: any acyclic self-relation has an endpoint that is not, so it decides nothing either way |
 | an edge with no `direction:` | exempts neither end — it says a relationship exists, not which way it runs |
+
+**A sink class is the converse**: one some declaration names, from either end, and never as
+the author. Its instances link only to their class by design. `only-instance-of` warns on any other node whose
+only link is to its class, and names the relationships its class says it authors.
+[why](GRAPH.evidence.md#sink-classes)
 
 **A non-empty `edges:` is not a contract either.** Naming the relationships a class enters
 into says *these exist*; on its own it never said *and no others may*. `edge_policy:` is what
@@ -192,6 +218,7 @@ addressed by its triple, rather than promoting the node that authors it. The MCP
 | `edge-verified-unsourced` | an edge asserting `verified` and naming no `source:` | no — Warn |
 | `edge-untagged` | an empirical edge declaring no standing, or one spelling none | no — Warn, and only where the corpus asked |
 | `edge-standing-unheld` | an edge asserting a standing **stronger** than one its endpoints declare | no — Warn |
+| `edge-source-unresolved` | an edge whose `source:` names no catalog entry and no decision record | yes — Error |
 
 The first needs no declaration: writing `claim_tag: verified` is itself the opt-in. The second
 cannot be, so it runs only where the corpus says so, once, for the whole graph:
@@ -220,6 +247,13 @@ not the weakest marker in its prose. A node that declares no such property has n
 is compared to nothing. The end an edge is measured against is the **weaker** of the two that
 declare one, and the edge's own standing is the **strongest** it spells. It never gates.
 [why](GRAPH.evidence.md#edge-standing-unheld)
+
+`edge-source-unresolved` reads what a `source:` **names**, and it is the one check in the
+family that gates. A value may name a catalog entry by its file stem, a catalog entry by a path
+written the way a `links:` target is, or a decision record by its `id:`, and it is read on
+every edge that writes one, whatever the tag beside it. Which standing an edge deserves is a
+judgement; whether the thing it cites is in this tree is not.
+[why](GRAPH.evidence.md#edge-source-unresolved)
 
 ### Which keys hold prose
 
@@ -376,21 +410,38 @@ must carry it:
 properties:
   - name: parameter
     type: string
-    required: true          # absent means false
+    required: true          # absent: not required
     description: The measured quantity, by its publisher's parameter code.
 ```
 
-Omitting a `required: true` property is an **error**; omitting any other declared property is
-reported and does not gate. That is the same rule its four siblings follow — they gate on
-something the ontology actually *said* being contradicted. `unlicensed-edge` sits in the same
-place, gating only where the class said `exhaustive`.
+Omitting a `required: true` property is an **error**, as its four siblings gate on something
+the ontology *said* being contradicted. Omitting a `required: false` one is not reported: the
+class licensed it. Omitting one that says neither is reported and does not gate. These are
+`unlicensed-edge`'s three answers: `exhaustive`, `characteristic` and silence.
 
-**Absent means false**, and that default is load-bearing rather than timid.
+**Absent never gates**, and that default is load-bearing rather than timid.
 [why](GRAPH.evidence.md#required-absent-means-false)
 
 The declaration decides two things at once: the gate above, and the JSON Schema below, which
 lists exactly the required properties as its own `required`. One statement, so the editor and
 the build cannot come to disagree about which fields a node owes.
+
+### A refusal is declared beside the prose that makes it
+
+**A node that declines an inference may say so under `refuses:`:**
+
+```yaml
+refuses:
+  - span: The record does not say the dam caused the 2019 avulsion.
+    inference: the dam caused the 2019 avulsion    # optional
+```
+
+`span` quotes the node's own prose, whitespace aside. `refusal-span-drift` fails a span that
+prose no longer holds. An argument citing that paragraph must answer the refusal
+([`agent-conduct.md`](guidelines/agent-conduct.md#when-claims-leave-the-repository)).
+
+**Neither field is prose.** A span found only in `refuses:` is the node's declaration, not its
+words.
 
 ### Published, not only enforced
 
@@ -415,14 +466,16 @@ edge is licensed depends on where its target resolves and no schema can see that
 |---|---|
 | `migrate class <old> <new>` | the class file, its directory, every instance's `class:`, the `instance-of` edge into the class file, and every edge declaring the class at either end |
 | `migrate property <class> <old> <new>` | the declaration, and the key on every instance carrying it |
-| `migrate retype <class> <prop> <type>` | the declaration — and **refuses** if any instance's value would not satisfy the new type |
+| `migrate retype <class> <prop> <type>` | the declaration, plus any instance value it can requote — and **refuses** the rest |
+| `migrate value <class> <prop> <from> <to>` | one item of the declaration's `values:` list, and the value on every instance holding it |
 | `migrate edge <class> <rel> <target>` | the declaration at both ends, plus a report of the instances now in violation |
 
 `--dry-run` prints the plan and writes nothing.
 
-**A retype is refused rather than guessed.** The predicate that decides is the one
-`property-type` gates on, so a migration that succeeds leaves a corpus `yidam lint` still
-accepts.
+**A retype is refused rather than guessed** — except a requote, which is the same value
+written the other way: `"24"` unquotes under `number`, `24` gains quotes under `string`. The
+predicate that decides is the one `property-type` gates on, so a migration that succeeds leaves
+a corpus `yidam lint` still accepts.
 
 **An edge re-target reports what it cannot decide.** Which instances should now point elsewhere
 is a question about the corpus, not about the ontology. The migration names every one of them;

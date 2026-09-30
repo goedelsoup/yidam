@@ -55,7 +55,7 @@ pub struct OntologyClass {
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct OntologyProperty {
     pub name: String,
-    /// `string`, `text`, `date`, `number`, `ref`, `claim` — or a type this corpus coined,
+    /// `string`, `text`, `date`, `number`, `ref`, `claim`, `quotation` — or a type this corpus coined,
     /// which is carried through and left unconstrained.
     #[serde(default, rename = "type")]
     pub property_type: String,
@@ -74,6 +74,21 @@ pub struct OntologyProperty {
     /// treats it as a constraint.
     #[serde(default)]
     pub unit: String,
+    /// The closed set a `string` may hold — `[extant, demolished, ruin]` — or empty for an
+    /// unbounded one.
+    ///
+    /// **A value set is a fact about the column, declared where the gate can read it**
+    /// (RFC-0044). Before this field, a class spelled its set in the description —
+    /// `plant | refinery | canal` — which nothing reads, and across seven corpora 40
+    /// properties did so while 33 instances held a value outside the set their own class
+    /// documented. Declaring the set closes it: `property-type` reports a value outside it,
+    /// and the compiled schema carries it as `enum`, a constraint an editor underlines as it
+    /// is typed. There is no open marker, because an open list is the description again.
+    /// Empty is absent — a closed set of nothing would refuse every value — and the field is
+    /// honoured on `string` only; on any other type it is carried and ignored, as `unit` is
+    /// off `number`.
+    #[serde(default)]
+    pub values: Vec<String>,
     /// Whether every instance of the class must carry this property.
     ///
     /// **Absent means false**, and not out of timidity: every corpus written before this
@@ -199,8 +214,17 @@ pub fn parse_class(name: &str, content: &str) -> OntologyClass {
 /// Mirrors `lint`'s `property-type` check exactly, including what it declines to check: a
 /// type the corpus coined for itself compiles to `true` — valid against anything — because
 /// a schema that rejected every type it had not heard of would make coining one impossible.
-fn property_schema(property_type: &str) -> Value {
+///
+/// A `string` declaring `values:` compiles to that set as `enum` (RFC-0044): a constraint
+/// and not an annotation, because the gate refuses a value outside it, and a schema that
+/// admitted one would be looser than the check it exists to be no stricter than. The set is
+/// written as declared — no sorting, no trimming — so the three compilers cannot come apart
+/// on a normalisation none of them was asked for.
+fn property_schema(property_type: &str, values: &[String]) -> Value {
     match property_type {
+        "string" if !values.is_empty() => {
+            json!({ "type": "string", "minLength": 1, "enum": values })
+        }
         "string" | "text" | "ref" => json!({ "type": "string", "minLength": 1 }),
         // Structural, not a calendar: `2024-02-31` satisfies this and is somebody else's
         // finding. What it catches is a date field carrying prose — and **at whatever
@@ -222,6 +246,22 @@ fn property_schema(property_type: &str) -> Value {
                 { "type": "array", "items": { "enum": CLAIM_TOKENS } }
             ]
         }),
+        // A span and the catalog entry it is quoted from, one or a non-empty list of them
+        // (RFC-0046). Only the shape: whether the words are in the bytes needs the vault
+        // cache, which no schema can reach. No fourth key, because the gate refuses one.
+        "quotation" => {
+            let one = json!({
+                "type": "object",
+                "properties": {
+                    "of": { "type": "string", "minLength": 1 },
+                    "span": { "type": "string", "minLength": 1 },
+                    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+                },
+                "required": ["of", "span"],
+                "additionalProperties": false
+            });
+            json!({ "anyOf": [one, { "type": "array", "minItems": 1, "items": one }] })
+        }
         _ => Value::Bool(true),
     }
 }
@@ -276,7 +316,7 @@ pub fn compile_class_schema(class: &OntologyClass) -> Value {
     if !class.properties.is_empty() {
         let mut declared = Map::new();
         for p in &class.properties {
-            let mut schema = property_schema(&p.property_type);
+            let mut schema = property_schema(&p.property_type, &p.values);
             if let Value::Object(map) = &mut schema {
                 if !p.description.is_empty() {
                     map.insert("description".into(), json!(p.description));

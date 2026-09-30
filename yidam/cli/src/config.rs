@@ -22,6 +22,8 @@ pub struct YidamConfig {
     #[serde(default)]
     pub object: ObjectConfig,
     #[serde(default)]
+    pub derive: DeriveConfig,
+    #[serde(default)]
     pub serve: ServeConfig,
     /// The stores this corpus keeps artifacts in, by name.
     ///
@@ -245,7 +247,29 @@ pub struct DueConfig {
     /// [due]
     /// index_after = 25
     /// ```
+    ///
+    /// **Declarable in every build, and acted on by one.** `index-build` is behind the `index`
+    /// feature and the released binary does not carry it, so a corpus that declares this and
+    /// installs the default build cannot discharge the clock. `due` says so on the row rather
+    /// than reporting it as owed — see [`crate::cmd::due::State::Unbuildable`] — because the
+    /// alternative is what #1061 found: a permanently red clock, and two repositories that
+    /// silenced it rather than repaired anything. The key is still read in every build, for
+    /// [`IndexConfig::remote`]'s reason: this is a corpus's declaration about itself, it lives
+    /// in a committed file, and a build that cannot act on one should read it and say so.
     pub index_after: Option<usize>,
+    /// Days a node may go on citing a source from before its latest version before it is due
+    /// a re-read (#1200).
+    ///
+    /// **Days, counted from the commit that recorded the version**, for the TTL's reason: a
+    /// source changed in the world, and a node resting on the old bytes does not rest on them
+    /// any less for nobody having committed. `0` makes every such node due the day the version
+    /// arrives, which is what a corpus that means to re-read on every change will want.
+    ///
+    /// ```toml
+    /// [due]
+    /// superseded_after = 14
+    /// ```
+    pub superseded_after: Option<u32>,
     /// Clocks this corpus decided it does not want, each naming the record that argues it.
     ///
     /// **Unset and declined are different states, and only one of them was a choice.** A
@@ -254,8 +278,8 @@ pub struct DueConfig {
     /// second is to declare an interval for work nobody intends — a clock that is
     /// permanently due, which is a clock a reader learns to skip.
     ///
-    /// The key is the clock's `id` — `index`, `catalog`, `questions`, `phases` — and the
-    /// value is a decision record in `.yidam/decisions/`, by its `id:` or its file stem.
+    /// The key is the clock's `id` — `index`, `catalog`, `questions`, `phases`, `superseded` —
+    /// and the value is a decision record in `.yidam/decisions/`, by its `id:` or its file stem.
     /// **The record is required**, and that is the whole of what makes this a declaration
     /// rather than a mute button: a decline naming a record this repository does not hold
     /// is not honoured, and `due` says so. It is `.yidam/lint-baseline.yml`'s property —
@@ -300,6 +324,32 @@ pub struct ObjectConfig {
     /// ```toml
     /// [object]
     /// paths = ["web/**", "crates/**", "package.json"]
+    /// ```
+    #[serde(default)]
+    pub paths: Vec<String>,
+}
+
+/// Where this repository keeps the arguments it derives from its corpus (RFC-0045).
+///
+/// A derived repository writes its memos, dossiers and findings where its own practice puts them
+/// — `dossier/`, `briefs/`, `analysis/` in the three that built a gate for this — and no
+/// directory is compiled in for the same reason `[object]` has none: where an argument lives is a
+/// fact about a repository and not about the practice.
+///
+/// Absent means `derive check` has nothing to read, reports nothing, and passes. That is every
+/// repository before this key existed.
+#[derive(Debug, Default, Deserialize)]
+pub struct DeriveConfig {
+    /// Globs naming the artifacts `derive check` reads, relative to the repository root.
+    ///
+    /// The `[object] paths` grammar: `**` spans any number of segments, `*` any run within one,
+    /// and a glob claims everything beneath what it names. Under them, a `.yml` or `.yaml` file
+    /// is an artifact, and so is a `.md` file that opens with YAML frontmatter; a `.md` without
+    /// frontmatter is prose beside the artifacts and is skipped.
+    ///
+    /// ```toml
+    /// [derive]
+    /// paths = ["dossier/**"]
     /// ```
     #[serde(default)]
     pub paths: Vec<String>,
@@ -447,6 +497,11 @@ mod tests {
         // Spot-check the ends of the shape, so a parse that silently read nothing is not
         // mistaken for one that read everything.
         assert_eq!(config.due.questions_after, Some(100));
+        assert_eq!(
+            config.derive.paths,
+            ["dossier/**"],
+            "the [derive] offer did not survive"
+        );
         assert_eq!(config.vault.len(), 1, "the example vault did not survive");
         let vault = config.vault.values().next().unwrap();
         assert!(

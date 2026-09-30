@@ -42,17 +42,24 @@ export type ReportResult<T> =
       /**
        * The root the binary actually resolved, off the envelope.
        *
-       * Not the same question as the root that was asked for, and the difference is not
-       * hypothetical. **No subcommand takes a `--root` flag**: the corpus is resolved by
-       * `git rev-parse --show-toplevel` from the working directory (`paths.rs`), so pointing
-       * this surface at a corpus nested inside another git repository silently answers about
-       * the outer one. `examples/streamflow` is exactly that case, and `main.rs` says so.
+       * Not the same question as the root that was asked for. Handed `--root`, the binary
+       * walks up to the nearest `.yidam/` (`paths::resolve_root`), so a directory *inside* a
+       * corpus answers for the corpus around it. Without the flag, it resolves the working
+       * directory with `git rev-parse --show-toplevel`, which overshoots a corpus nested
+       * inside another git repository — `examples/streamflow` is exactly that case — and
+       * answers about the outer one with zero nodes.
        *
-       * A zero-node page is what that looks like from the browser, and a zero-node page is
-       * indistinguishable from an empty corpus. So the difference is carried rather than
-       * dropped, and the shell says it out loud.
+       * A zero-node page is indistinguishable from an empty corpus, so the difference is
+       * carried rather than dropped, and the shell says it out loud.
        */
       resolvedRoot: string | null
+      /**
+       * How the binary was told which corpus: `flag` when it took `--root`, `working-directory`
+       * when it predates the flag on this command (cli/v0.16.0, #918) and was asked again
+       * without it. Only the second can overshoot a nested corpus, and the shell's wording
+       * depends on which one answered.
+       */
+      resolvedBy: 'flag' | 'working-directory'
     }
   | {
       ok: false
@@ -66,12 +73,26 @@ export type ReportResult<T> =
        * wrong (#688).
        */
       handshake: Extract<Handshake, { ok: false }>
+      /**
+       * The binary's own refusal, when it printed one instead of an envelope.
+       *
+       * A named `--root` holding no corpus is refused (#1000): exit 1, nothing on stdout, and
+       * `Error: not a yidam repository: …` on stderr. The handshake reads empty stdout as
+       * `not-json` — a binary predating `--format json` — and its message would send the
+       * reader to re-pin a binary that is current. The refusal names the actual repair, so it
+       * is carried and shown instead. Null when stderr is anything else.
+       */
+      refusal: string | null
     }
 
 export interface SpawnInput {
   /** Absolute path to the binary `resolveBinary` found. */
   command: string
-  /** The corpus root, already resolved. */
+  /**
+   * The corpus root, already resolved. Passed as `--root` *and* as the working directory:
+   * the flag is what a current binary reads, the working directory is what one predating it
+   * reads, and the two cannot disagree when they are the same value.
+   */
   root: string
   /** Injected so tests need no binary. */
   exec?: (
@@ -93,25 +114,23 @@ export async function spawnReport<T>(
   command: ReportCommand,
 ): Promise<ReportResult<T>> {
   const exec = input.exec ?? defaultExec
-  let stdout = ''
-  let stderr = ''
-  try {
-    const out = await exec(input.command, [command, '--format', 'json'], { cwd: input.root })
-    stdout = out.stdout
-    stderr = out.stderr
-  } catch (e) {
-    // A nonzero exit is normal: `lint` exits nonzero when the gate fails and still prints a
-    // perfectly good envelope on stdout. Only a run that produced no readable envelope is a
-    // failure here, and `readHandshake` is what decides that — including the case clap
-    // rejects `--format` outright, which is a stale binary rather than a broken one.
-    const err = e as { stdout?: string; stderr?: string }
-    stdout = err.stdout ?? ''
-    stderr = err.stderr ?? ''
+  const args = [command, '--format', 'json']
+  let resolvedBy: 'flag' | 'working-directory' = 'flag'
+  // `--root` after `--format`: clap names the first argument it does not know, so a binary
+  // predating both is still reported as predating `--format`, which is the older and the
+  // more useful of the two answers.
+  let { stdout, stderr } = await capture(exec, input.command, [...args, '--root', input.root], input.root)
+  if (rejectsRootFlag(stderr)) {
+    // A binary before cli/v0.16.0 takes `--root` on `serve` and nothing else. Skew is normal
+    // here (`handshake.ts`), so the run is repeated the way every earlier version of this
+    // surface made it, and `resolvedBy` says so rather than the page failing outright.
+    ;({ stdout, stderr } = await capture(exec, input.command, args, input.root))
+    resolvedBy = 'working-directory'
   }
 
   const handshake = readHandshake(stdout, stderr)
   if (!handshake.ok) {
-    return { ok: false, handshake }
+    return { ok: false, handshake, refusal: stdout.trim() === '' ? refusalOf(stderr) : null }
   }
   const report = JSON.parse(stdout) as T
   const envelopeRoot = (report as { root?: unknown }).root
@@ -120,7 +139,43 @@ export async function spawnReport<T>(
     handshake,
     report,
     resolvedRoot: typeof envelopeRoot === 'string' ? envelopeRoot : null,
+    resolvedBy,
   }
+}
+
+async function capture(
+  exec: NonNullable<SpawnInput['exec']>,
+  command: string,
+  args: string[],
+  cwd: string,
+): Promise<{ stdout: string; stderr: string }> {
+  try {
+    return await exec(command, args, { cwd })
+  } catch (e) {
+    // A nonzero exit is normal: `lint` exits nonzero when the gate fails and still prints a
+    // perfectly good envelope on stdout. Only a run that produced no readable envelope is a
+    // failure here, and `readHandshake` is what decides that — including the case clap
+    // rejects `--format` outright, which is a stale binary rather than a broken one.
+    const err = e as { stdout?: string; stderr?: string }
+    return { stdout: err.stdout ?? '', stderr: err.stderr ?? '' }
+  }
+}
+
+/** Clap's rejection of `--root` by a binary that has the command and not the flag. */
+function rejectsRootFlag(stderr: string): boolean {
+  return /unexpected argument '--root'/.test(stderr)
+}
+
+/**
+ * The binary's `Error: …` text, without the prefix, or null when stderr is not one.
+ *
+ * `anyhow` prints a failed `main` as `Error: ` and the chain beneath it, and that is the only
+ * shape read here. A panic or a usage message is not a refusal, and passing it through as
+ * one would put a stack trace where a sentence about the corpus belongs.
+ */
+export function refusalOf(stderr: string): string | null {
+  const text = stderr.trim()
+  return text.startsWith('Error: ') ? text.slice('Error: '.length) : null
 }
 
 const defaultExec = async (

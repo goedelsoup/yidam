@@ -284,6 +284,25 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
+    /// Take a text reading of each PDF artifact the catalog records, for quotations of it.
+    ///
+    /// Reads the PDF from the local vault cache, files the extracted text there under its
+    /// own content address, records that digest and the extractor under the PDF's record as
+    /// `text:`, and commits it as `extract:`. Lint compares a quotation of the PDF with that
+    /// reading and never runs an extractor itself.
+    ///
+    /// A record that already has a reading keeps it. Extraction needs the `pdf-text`
+    /// feature, which is in the default build.
+    #[command(name = "catalog-extract")]
+    CatalogExtract {
+        /// One entry, by file stem or `name:`. Absent means every entry recording a PDF.
+        entry: Option<String>,
+        /// Report which PDFs would be read. Reads and writes nothing.
+        #[arg(long)]
+        dry_run: bool,
+        #[command(flatten)]
+        format: FormatArg,
+    },
     /// Bring a catalog entry's `used-by` list back into agreement with the citations.
     ///
     /// The citations are authoritative — they cannot drift from the corpus and a
@@ -302,6 +321,22 @@ enum Command {
         dry_run: bool,
         #[command(flatten)]
         format: FormatArg,
+    },
+    /// The gate table, from `.github/workflows/ci.yml`.
+    ///
+    /// Writes the `<!-- REGEN: yidam gates -->` block in the repository's README: every
+    /// `run:` step of every job, in the order they run, with what switches a job on.
+    Gates {
+        #[command(flatten)]
+        root: RootArg,
+    },
+    /// The reading routes, by occasion, from the vendored `routes.yml`.
+    ///
+    /// Writes the `<!-- REGEN: yidam routes -->` block in the repository's `AGENTS.md`: what
+    /// every occasion reads, then each occasion's sections, then the reference list (RFC-0039).
+    Routes {
+        #[command(flatten)]
+        root: RootArg,
     },
     /// Index the domain agents in `.yidam/agents/`.
     ///
@@ -368,6 +403,9 @@ enum Command {
         /// Treat warnings as failures. For a CI job that wants the strictest reading.
         #[arg(long)]
         strict: bool,
+        /// Report only this check, by its id. Repeat to name more than one.
+        #[arg(long, value_name = "ID")]
+        only: Vec<String>,
         #[command(flatten)]
         format: FormatArg,
     },
@@ -432,11 +470,11 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
-    /// Rename a corpus node, rewriting every edge into it
+    /// Rename a corpus node or a catalog entry, rewriting every edge into it
     Rename {
-        /// Node to rename, e.g. `concept/old.yml` or `concept/old`
+        /// Node to rename, e.g. `concept/old.yml` or `concept/old`; or a catalog entry, `catalog/old`
         old: String,
-        /// Its new id, e.g. `concept/new` — may move it to another class
+        /// Its new id, e.g. `concept/new` — may move it to another class. For a catalog entry, `new`
         new: String,
         /// Print the plan and change nothing
         #[arg(long)]
@@ -584,6 +622,26 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
+    /// Count what a query matches, and keep that number in prose current — `count district`
+    ///
+    /// A figure worth publishing twice — in the graph, where it is computed, and in a
+    /// sentence, where it is remembered — should be computed once. With a query, this prints
+    /// the number the graph holds. With none, it refreshes every
+    /// `<!-- REGEN: yidam count <query> -->44<!-- /REGEN -->` block in the tracked markdown
+    /// set, including the ones sitting mid-sentence, which is the form RFC-0043 added the
+    /// marker contract for.
+    ///
+    /// A query that does not typecheck refuses its block and exits 1. It never writes a `0`:
+    /// a query that cannot run has not counted zero of anything.
+    Count {
+        #[command(flatten)]
+        root: RootArg,
+        /// The query to count, in `yidam query`'s language. Omit it to refresh every `count`
+        /// block instead — the form `yidam regen` runs
+        query: Option<String>,
+        #[command(flatten)]
+        format: FormatArg,
+    },
     /// Report the corpus graph: nodes, resolved edges, and the classes that license them
     Graph {
         #[command(flatten)]
@@ -668,7 +726,7 @@ enum Command {
         /// Output format (use --list to see available formats and their status)
         #[arg(long, value_enum, required_unless_present = "list")]
         format: Option<ExportFormat>,
-        /// Output path (default: format-specific, e.g. .yidam/bundle.yiz for bundle)
+        /// Output path (default: format-specific, e.g. .yidam/bundle.yiz for bundle; stdout for llms)
         #[arg(long)]
         out: Option<PathBuf>,
         /// WebLLM model id for the web format's chat panel (default: Llama-3.2-1B-Instruct)
@@ -723,6 +781,18 @@ enum Command {
         /// creation and cannot be changed afterwards, so this is deliberately not the default.
         #[arg(long)]
         create: bool,
+    },
+    /// Write the smallest runnable corpus into the current repository
+    ///
+    /// A class per `--class`, an example node in each, and a catalog entry — five files
+    /// by default, and they pass `graph-check` and `lint` as written. Every placeholder
+    /// says what to replace it with. Derives nothing, reads no template, and does not
+    /// commit: the first commit's `genesis:` subject names your domain, and only you
+    /// know it.
+    Init {
+        /// A class to declare; repeat for each. Defaults to `concept` and `observation`
+        #[arg(long = "class", value_name = "NAME")]
+        class: Vec<String>,
     },
     /// Copy the yidam template into TARGET and initialise a fresh git repo
     Clone {
@@ -885,6 +955,11 @@ enum Command {
         /// Print the editor `yaml.schemas` mapping instead of writing schema files
         #[arg(long)]
         settings: bool,
+        /// Replace a schema file `yidam schema` did not write, rather than refusing the run.
+        /// For files an earlier release wrote before it marked its output; a repository
+        /// that compiles its own schemas into .yidam/schemas/ should not run this at all
+        #[arg(long, conflicts_with = "settings")]
+        force: bool,
     },
     /// Inspect and validate samudaya/ seed files
     #[command(name = "samudaya-audit")]
@@ -1001,6 +1076,19 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
+    /// Report what `serve --mcp` was asked, from the record `[serve] record` keeps
+    ///
+    /// Reads `.yidam/record/calls.jsonl` and answers the four questions it exists for: which
+    /// calls came back empty, whether retrieval was served degraded, whether anything acted on
+    /// a clock, and which tools were never called. A corpus that keeps no record is told so —
+    /// *nothing was recorded* is not *nothing was asked*. Reads only, and exits 0 whatever the
+    /// record says.
+    Record {
+        #[command(flatten)]
+        root: RootArg,
+        #[command(flatten)]
+        format: FormatArg,
+    },
     /// Report the sangha: electors, positions, and settled resolutions
     Sangha {
         #[command(flatten)]
@@ -1039,6 +1127,19 @@ enum Command {
         root: RootArg,
         #[command(subcommand)]
         sub: yidam::PolicyCommand,
+    },
+    /// Check the arguments this repository derives from its corpus (RFC-0045)
+    ///
+    /// A memo, dossier or finding under `[derive] paths` declares a `reach:` and `cites:`
+    /// spans of corpus nodes. `check` holds it to the three rules for a claim leaving the
+    /// repository: each span sits in one paragraph of the node it names, the tier is the
+    /// weakest standing beneath them and must be one the reach admits, and every refusal a
+    /// cited paragraph declares under `refuses:` is answered under `answers:`.
+    Derive {
+        #[command(flatten)]
+        root: RootArg,
+        #[command(subcommand)]
+        sub: yidam::DeriveCommand,
     },
     /// Declare what this corpus's practice is aimed at, and read the corpus against it
     ///
@@ -1121,15 +1222,26 @@ enum MigrateCommand {
         /// What it becomes
         new: String,
     },
-    /// Change a declared property's type; refuses when an instance would not satisfy it
+    /// Change a declared property's type; requotes an instance value where only the quoting differs, refuses the rest
     Retype {
         /// The class that declares it
         class: String,
         /// The property to retype
         property: String,
-        /// The new type — `string`, `text`, `date`, `number`, `ref`, `claim`, or one this
-        /// corpus coined
+        /// The new type — `string`, `text`, `date`, `number`, `ref`, `claim`, `quotation`, or
+        /// one this corpus coined
         new_type: String,
+    },
+    /// Rename one value of a declared `values:` set, on the declaration and on every instance holding it
+    Value {
+        /// The class that declares it
+        class: String,
+        /// The property whose `values:` list holds it
+        property: String,
+        /// The value as it is now
+        from: String,
+        /// What it becomes
+        to: String,
     },
     /// Lift every reference written inside an evidence tag into the node's `references:` field
     ///
@@ -1149,6 +1261,22 @@ enum MigrateCommand {
     /// their prose now, and this will not guess where the tool's sentence ended. Idempotent;
     /// run it with `--dry-run` first.
     Findings,
+    /// Put the `yidam routes` block into `AGENTS.md`, in place of its whole-file reading list
+    ///
+    /// A derivation made before RFC-0039 has no markers for `yidam routes` to write between,
+    /// so `yidam regen` leaves its reading list as genesis installed it. This replaces the
+    /// bullet list under *Before taking substantive action* with the block, once, and touches
+    /// no other line. A list holding a line that links no vendored prelude file is refused,
+    /// with the block printed to paste. Idempotent; run it with `--dry-run` first.
+    Routes,
+    /// Mark the part of `ci.yml` and `CLAUDE.md` that a re-vendor updates
+    ///
+    /// Genesis installs both files once, and a derivation made before #1054 has no markers, so
+    /// `mise run yidam-vendor-update` reaches neither and a gate added upstream never reaches
+    /// its CI. This wraps the `privacy` and `corpus` jobs, and the template's `CLAUDE.md`
+    /// sections, in the regions the re-vendor rewrites. A workflow with neither job gets an
+    /// empty region the re-vendor fills. Idempotent; run it with `--dry-run` first.
+    Scaffold,
     /// Point a declared relationship at a different class, at both ends
     Edge {
         /// The class that declares it
@@ -1176,8 +1304,21 @@ impl From<MigrateCommand> for yidam::MigrateOperation {
                 property,
                 new_type,
             },
+            MigrateCommand::Value {
+                class,
+                property,
+                from,
+                to,
+            } => Self::ValueRename {
+                class,
+                property,
+                from,
+                to,
+            },
             MigrateCommand::References => Self::References,
             MigrateCommand::Findings => Self::Findings,
+            MigrateCommand::Routes => Self::Routes,
+            MigrateCommand::Scaffold => Self::Scaffold,
             MigrateCommand::Edge {
                 class,
                 relationship,
@@ -1309,6 +1450,15 @@ fn run() -> Result<()> {
                 format: format.value,
             })
         }
+        Command::CatalogExtract {
+            entry,
+            dry_run,
+            format,
+        } => yidam::catalog_extract(&yidam::ExtractOptions {
+            entry,
+            dry_run,
+            format: format.value,
+        }),
         Command::CatalogReconcile {
             entry,
             dry_run,
@@ -1318,6 +1468,8 @@ fn run() -> Result<()> {
             dry_run,
             format: format.value,
         }),
+        Command::Gates { root } => yidam::gates(root.as_deref()),
+        Command::Routes { root } => yidam::routes(root.as_deref()),
         Command::AgentsIndex { root } => yidam::agents_index(root.as_deref()),
         Command::SkillsIndex { root } => yidam::skills_index(root.as_deref()),
         Command::CratesIndex { root } => yidam::crates_index(root.as_deref()),
@@ -1327,8 +1479,9 @@ fn run() -> Result<()> {
         Command::Doctor {
             root,
             strict,
+            only,
             format,
-        } => yidam::doctor(root.as_deref(), strict, format.value),
+        } => yidam::doctor(root.as_deref(), strict, &only, format.value),
         Command::Due {
             root,
             strict,
@@ -1458,6 +1611,11 @@ fn run() -> Result<()> {
             anchor_k,
             format.value,
         ),
+        Command::Count {
+            root,
+            query,
+            format,
+        } => yidam::count(root.as_deref(), query.as_deref(), format.value),
         Command::Graph { root, format } => yidam::graph(root.as_deref(), format.value),
         Command::Neighbors {
             root,
@@ -1542,6 +1700,7 @@ fn run() -> Result<()> {
                 )
             }
         }
+        Command::Init { class } => yidam::init(&class),
         Command::Clone { target } => yidam::clone(&target),
         Command::Overlay {
             target,
@@ -1633,8 +1792,9 @@ fn run() -> Result<()> {
             dry_run,
             format,
         } => yidam::migrate(operation.into(), dry_run, format.value),
-        Command::Schema { settings } => yidam::schema(settings),
+        Command::Schema { settings, force } => yidam::schema(settings, force),
         Command::SamudayaAudit { root } => yidam::samudaya_audit(root.as_deref()),
+        Command::Record { root, format } => yidam::record(root.as_deref(), format.value),
         Command::Sangha { root, format } => yidam::sangha(root.as_deref(), format.value),
         Command::Vocabulary {
             root,
@@ -1648,6 +1808,7 @@ fn run() -> Result<()> {
         // putting one in the signature of the ungated half. See `vault/store.rs`.
         Command::Vault { sub } => yidam::run_vault(sub),
         Command::Policy { root, sub } => yidam::run_policy(root.as_deref(), sub),
+        Command::Derive { root, sub } => yidam::run_derive(root.as_deref(), sub),
         Command::Kuten { root, sub } => yidam::run_kuten(root.as_deref(), sub),
         Command::Practice { root } => yidam::run_practice(root.as_deref()),
         Command::Score {

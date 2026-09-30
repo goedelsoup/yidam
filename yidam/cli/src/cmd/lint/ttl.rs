@@ -181,6 +181,9 @@ mod tests {
             retrieved: retrieved.map(str::to_string),
             ttl_days: ttl,
             artifacts: Vec::new(),
+            // No bytes: this fixture is about the dates, and nothing in `ttl` reads the text.
+            text: String::new(),
+            malformed: None,
         }
     }
 

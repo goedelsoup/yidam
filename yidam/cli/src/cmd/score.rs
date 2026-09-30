@@ -248,15 +248,7 @@ fn measure(
     // From the ontology at the tip rather than a second walk of the working tree — `pack`'s
     // reason, and here also a correctness one: a range ending at a past commit must be read
     // against that commit's classes.
-    let fields = crate::claims::ClaimFields::from_declarations(after.classes.iter().map(|c| {
-        let claim_fields = c
-            .properties
-            .iter()
-            .filter(|p| p.r#type == crate::claims::CLAIM_PROPERTY_TYPE)
-            .map(|p| p.name.clone())
-            .collect();
-        (c.name.clone(), claim_fields)
-    }));
+    let fields = crate::claims::ClaimFields::from_classes(after.classes.iter());
 
     let added = after
         .nodes

@@ -31,6 +31,18 @@ export interface ExternalCitation {
   span: string | null
 }
 
+/**
+ * One refusal a node declares in its own prose (RFC-0045).
+ *
+ * `span` quotes the sentence verbatim, for the reason a citation quotes one; `inference` says in a
+ * few words what it declines to conclude, and no check reads it. A field rather than a fourth tag:
+ * a refusal is not a standing, and the sentence usually carries a tag of its own.
+ */
+export interface Refusal {
+  span: string | null
+  inference: string | null
+}
+
 /** A corpus node: `.yidam/corpus/<class>/<name>.yml`. */
 export interface CorpusInstance {
   class: string | null
@@ -50,12 +62,17 @@ export interface CorpusInstance {
    * nothing can read them.
    */
   references: string[] | null
+  /**
+   * The refusals this node's prose makes, each quoted verbatim (RFC-0045). Named for
+   * `references`' reason: a field that is named is one a check can read.
+   */
+  refuses: Refusal[] | null
   /** Every other top-level key, kept rather than dropped. */
   extra: Record<string, unknown>
 }
 
 const DECLARED = new Set([
-  'class', 'label', 'description', 'properties', 'links', 'cites', 'references',
+  'class', 'label', 'description', 'properties', 'links', 'cites', 'references', 'refuses',
 ])
 
 function str(v: unknown): string | null {
@@ -75,6 +92,7 @@ export function emptyInstance(): CorpusInstance {
     links: null,
     cites: null,
     references: null,
+    refuses: null,
     extra: {},
   }
 }
@@ -131,6 +149,13 @@ export function parseInstance(text: string): CorpusInstance {
     ? doc.references.map(r => (typeof r === 'string' ? r : String(r)))
     : null
 
+  const refuses = Array.isArray(doc.refuses)
+    ? doc.refuses.map((r): Refusal => {
+        const m = isRecord(r) ? r : {}
+        return { span: str(m.span), inference: str(m.inference) }
+      })
+    : null
+
   const extra: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(doc)) {
     if (!DECLARED.has(k)) extra[k] = v
@@ -143,6 +168,7 @@ export function parseInstance(text: string): CorpusInstance {
     properties: isRecord(doc.properties) ? doc.properties : null,
     links,
     references,
+    refuses,
     cites,
     extra,
   }
@@ -163,6 +189,7 @@ export function instanceToJson(i: CorpusInstance): Record<string, unknown> {
     properties: i.properties,
     links: i.links,
     references: i.references,
+    refuses: i.refuses,
     cites: i.cites,
     extra: i.extra,
   }

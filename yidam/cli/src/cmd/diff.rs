@@ -236,8 +236,21 @@ fn git_show(root: &Path, git_ref: &str, path: &Path) -> Option<String> {
     }
 }
 
+/// One instance out of one blob, for a revision that is not checked out.
+///
+/// **Not a duplicate of [`crate::corpus`]'s read** (#1116). What it reads is a `git show` of
+/// a past revision, where the corpus model's loaders read paths on disk. `query::at` does
+/// reconstruct a corpus from blobs, so the bar is not that the model cannot see history — it
+/// is that this wants one deserialized instance and `at` wants a whole commit's corpus,
+/// resolved edges and ontology included, at the cost of a tree listing and a blob fill.
+///
+/// The record is the model's: [`crate::corpus::parse_or_default`] is the one place bytes
+/// become a [`CorpusInstance`], so a revision that does not parse degrades here exactly as
+/// it would under the gate. The outcome is dropped because `diff` reports what changed
+/// between two revisions and has no place to say a side was unreadable — a limitation, and
+/// the honest description of it is that an unparseable past revision reads as an empty node.
 fn parse_inst(yaml: &str) -> CorpusInstance {
-    serde_yaml::from_str(yaml).unwrap_or_default()
+    crate::corpus::parse_or_default(yaml).0
 }
 
 fn inst_label(inst: &CorpusInstance, path: &Path) -> String {

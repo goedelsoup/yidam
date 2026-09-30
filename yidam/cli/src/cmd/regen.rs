@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 /// Every generator takes the corpus rather than resolving one, because `regen --root` has to
 /// mean the same thing as running each of these commands with `--root` (#918). A generator
 /// that resolved its own root would refresh *this* repository's blocks while the reader had
-/// named another — and the fourteen would not even agree with each other about which.
+/// named another — and the seventeen would not even agree with each other about which.
 type Generator = (&'static str, fn(Option<&std::path::Path>) -> Result<()>);
 
 /// Every generator that writes a REGEN block.
@@ -51,6 +51,12 @@ const GENERATORS: &[Generator] = &[
     ("crates-index", super::crates_index),
     ("packages-index", super::packages_index),
     ("bundle-status", super::bundle_status),
+    // The gate table, from `.github/workflows/ci.yml` (#1066). The sentence it replaces was
+    // hand-maintained in three files of the reporting corpus and wrong in all three.
+    ("gates", super::gates),
+    // The reading routes, into `AGENTS.md` (RFC-0039, #972). That file is installed once at
+    // genesis, and of sixteen route lines the template added later, two reached a derivation.
+    ("routes", super::routes),
     // `vault-status` and `decisions-log` were generators that this list did not name (#831),
     // so `yidam regen` did not populate their blocks and `--check` did not report them stale.
     // In the corpus that reported it, the vault block held its "run this to populate"
@@ -68,7 +74,58 @@ const GENERATORS: &[Generator] = &[
     // than authored (#287). A repository keeping no `PRACTICE.md` has opted out, and the
     // generator is its own no-op there, before `update_file_regen`'s.
     ("practice", super::practice::block),
+    // The one generator that is not handed its file. The other sixteen write a block at a
+    // path they know; this one reads the tracked markdown set for blocks whose command is
+    // `yidam count <query>` and answers each with a number (RFC-0043). A repository with no
+    // such block is its own no-op, which is every repository the day this lands.
+    (super::count::NAME, super::count::block),
 ];
+
+/// The generators whose command carries an argument, and what the argument is called.
+///
+/// One entry, and the shape is general because the reason is. Every other generator's command
+/// is its name and nothing else, so `unclaimed_in` can ask whether a block's command *is* a
+/// generator. `count`'s is `count <query>`: the bare name writes nothing, and the name plus an
+/// argument writes the block. Both halves matter.
+///
+/// Without the split, registering `count` would make `<!-- REGEN: yidam count -->` — a block
+/// naming no query, which no generator can ever write — go from correctly reported by #1062's
+/// gate to silently claimed by a generator that will never visit it. That is the exact defect
+/// that gate exists to close, so the name is kept out of the whole-match set and matched only
+/// with its separator.
+///
+/// The label is for the reader of a failed `--check`: [`render_regen_check`] prints the
+/// generators as `count <query>`, so a bare block's remedy is visible in the list rather than
+/// described in a sentence.
+const PARAMETERISED: &[(&str, &str)] = &[(super::count::NAME, "<query>")];
+
+/// The generator names `unclaimed_in` matches whole, and the prefixes it matches with an
+/// argument. See [`PARAMETERISED`].
+fn claimable() -> (Vec<&'static str>, Vec<&'static str>) {
+    let prefixes: Vec<&'static str> = PARAMETERISED.iter().map(|(name, _)| *name).collect();
+    let whole = generator_names()
+        .into_iter()
+        .filter(|name| !prefixes.contains(name))
+        .collect();
+    (whole, prefixes)
+}
+
+/// How each generator is spelled in the remedy a failed `--check` prints.
+///
+/// `count <query>` rather than `count`, because a reader whose block says `yidam count` has
+/// been told it names no generator this binary can write for, and the list is where they find
+/// out what is missing.
+fn generator_usages() -> Vec<String> {
+    generator_names()
+        .into_iter()
+        .map(
+            |name| match PARAMETERISED.iter().find(|(n, _)| *n == name) {
+                Some((_, argument)) => format!("{name} {argument}"),
+                None => name.to_string(),
+            },
+        )
+        .collect()
+}
 
 /// The names of every generator this command runs, in order.
 ///
@@ -88,18 +145,54 @@ pub struct RegenReport {
     pub passed: bool,
     /// The blocks that do not. Empty when `passed`.
     pub stale: Vec<crate::regen::Stale>,
+    /// The blocks no generator answers for. Empty when `passed`.
+    ///
+    /// A second list rather than more rows in `stale`, because the two verdicts have
+    /// different remedies and `stale`'s is printed as an instruction. `yidam regen` fixes a
+    /// stale block; it cannot fix a block it has no generator for, and a gate whose
+    /// prescribed remedy does not clear it is the unsatisfiable gate
+    /// [`require_whole_history`] refuses for the same reason.
+    pub unclaimed: Vec<crate::regen::Unclaimed>,
 }
 
 pub(crate) fn render_regen_check(r: &RegenReport) -> String {
     if r.passed {
         return "Every REGEN block is current.".to_string();
     }
-    let mut out = format!("{} REGEN block(s) stale:\n", r.stale.len());
-    for s in &r.stale {
-        let _ = writeln!(out, "  {}  ({})", s.file, s.generator);
+    let mut out = String::new();
+    if !r.stale.is_empty() {
+        let _ = writeln!(out, "{} REGEN block(s) stale:", r.stale.len());
+        for s in &r.stale {
+            let _ = writeln!(out, "  {}  ({})", s.file, s.generator);
+        }
+        out.push_str("\nRun `yidam regen` and commit the result as a `regen:` commit.\n");
     }
-    out.push_str("\nRun `yidam regen` and commit the result as a `regen:` commit.");
-    out
+    if !r.unclaimed.is_empty() {
+        if !r.stale.is_empty() {
+            out.push('\n');
+        }
+        let _ = writeln!(
+            out,
+            "{} REGEN block(s) name a command no generator writes:",
+            r.unclaimed.len()
+        );
+        for u in &r.unclaimed {
+            let _ = writeln!(out, "  {}  (yidam {})", u.file, u.generator);
+        }
+        // "a command no generator writes" rather than "a generator that does not exist",
+        // because since RFC-0043 those are two things. `yidam statsu` names nothing; `yidam
+        // count` names a generator that exists and cannot write a block with no query in it.
+        // The old wording contradicted itself on the second — it said `count` did not exist,
+        // above a list containing `count`.
+        let _ = writeln!(
+            out,
+            "\n`yidam regen` writes no block for those, so they keep whatever they hold. \
+             Correct the command or delete the block.\n\
+             The generators are: {}",
+            generator_usages().join(", ")
+        );
+    }
+    out.trim_end().to_string()
 }
 
 /// Which REGEN blocks are not what their generators produce. **Writes nothing.**
@@ -124,6 +217,72 @@ pub(crate) fn stale_blocks(root: Option<&std::path::Path>) -> Result<Vec<crate::
     Ok(crate::regen::end_check())
 }
 
+/// Refresh every REGEN block and say nothing on stdout.
+///
+/// What `yidam regen` does, minus the `── name` headings and the *updated* lines, for a
+/// caller whose stdout is its own report: `phase settle` refreshes the blocks and stages them
+/// on the way to closing a phase (#1066), and under `--format json` its output has to stay
+/// one document. Same [`GENERATORS`] list, so what this refreshes is exactly what `--check`
+/// would have reported — a second list here would be the one this module exists to prevent.
+///
+/// [`require_whole_history`] applies, for the reason given there: a block generated from a
+/// truncated history holds a date the clone invented, and staging it would commit it.
+pub(crate) fn refresh_quietly(root: &std::path::Path) -> Result<()> {
+    require_whole_history(root)?;
+    crate::regen::begin_quiet();
+    let outcome = GENERATORS
+        .iter()
+        .try_for_each(|(name, run)| run(Some(root)).with_context(|| format!("running {name}")));
+    crate::regen::end_quiet();
+    outcome
+}
+
+/// Which REGEN blocks name a command no generator writes. **Writes nothing.**
+///
+/// The other half of [`stale_blocks`], and it runs the other way round. That one asks each
+/// generator what its block should hold; this one asks each document what it claims a
+/// generator for. Neither question finds the other's answer: a block nothing is pushed into
+/// is a block nothing records, which is how `<!-- REGEN: yidam statsu -->` survived
+/// `yidam regen` and was called current by `yidam regen --check` (#1062).
+///
+/// **The tracked set, and markdown within it.** `git ls-files` rather than a walk, for the
+/// reason [`crate::cmd::tracked`] gives at length: a list of what to skip grows one entry per
+/// accident, and the entry is always written after the accident. It also lands the walk on
+/// the right population — this gate answers about the commit, so an uncommitted document is
+/// not yet a block this repository has. The prose walk `lint` uses would have been the near
+/// miss: it reads `.yidam/`, `docs/` and the root `README.md`, and five generators write
+/// outside all three (`crates/`, `packages/`, `web/`, `AGENTS.md`, `PRACTICE.md`).
+///
+/// [`crate::cmd::tracked::list`] and not [`crate::cmd::tracked::paths`]: the latter refuses
+/// an empty tracked set, because a *copy* from one is a copy of nothing. A read from one is
+/// a read of nothing, which is a fine thing to report. Borrowing the refusal made this gate
+/// tell an initialised-but-uncommitted derived repository to run somewhere else.
+pub(crate) fn unclaimed_blocks(root: &std::path::Path) -> Result<Vec<crate::regen::Unclaimed>> {
+    let (known, parameterised) = claimable();
+    let mut found = Vec::new();
+    for rel in super::tracked::list(root)? {
+        if !rel.ends_with(".md") {
+            continue;
+        }
+        let path = root.join(&rel);
+        // Tracked and not in the worktree — a deleted file staged but not committed. There
+        // is nothing to read and nothing to say about it.
+        if !path.exists() {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).with_context(|| format!("reading {rel}"))?;
+        found.extend(
+            crate::regen::unclaimed_in(&text, &known, &parameterised)
+                .into_iter()
+                .map(|generator| crate::regen::Unclaimed {
+                    file: rel.clone(),
+                    generator,
+                }),
+        );
+    }
+    Ok(found)
+}
+
 /// Refresh every REGEN block, or — with `check` — report which ones would change.
 ///
 /// `--check` runs the same [`GENERATORS`] list, which is the whole point: a check that
@@ -137,7 +296,8 @@ pub fn regen(
     require_whole_history(&resolved)?;
     if check {
         let stale = stale_blocks(root)?;
-        return report_check(&resolved, stale, format);
+        let unclaimed = unclaimed_blocks(&resolved)?;
+        return report_check(&resolved, stale, unclaimed, format);
     }
     for (name, run) in GENERATORS {
         println!("── {name}");
@@ -184,11 +344,13 @@ fn require_whole_history(root: &std::path::Path) -> Result<()> {
 fn report_check(
     root: &std::path::Path,
     stale: Vec<crate::regen::Stale>,
+    unclaimed: Vec<crate::regen::Unclaimed>,
     format: crate::report::Format,
 ) -> Result<()> {
     let report = RegenReport {
-        passed: stale.is_empty(),
+        passed: stale.is_empty() && unclaimed.is_empty(),
         stale,
+        unclaimed,
     };
     let passed = report.passed;
     // The root is the caller's, not `repo_root()`'s. It was the latter until #918, which is
@@ -253,12 +415,47 @@ mod tests {
                     let rest = &window[start + 1..];
                     if let Some(end) = rest.find('"') {
                         named += 1;
-                        found.insert(rest[..end].trim_start_matches("yidam ").to_string());
+                        found.insert(generator_named_by(&rest[..end]).to_string());
                     }
                 }
             }
         }
         (found, call_sites, named)
+    }
+
+    /// The generator a `"yidam …"` literal names.
+    ///
+    /// Fourteen call sites spell their command whole — `"yidam status"` — and the name is
+    /// what follows the prefix. `count`'s cannot: its command carries a query the *document*
+    /// wrote, so the literal at the call site is a `format!` template, `"yidam count {}"`.
+    ///
+    /// The amendment RFC-0043 specifies is to read a brace-bearing literal as a **prefix**:
+    /// take what precedes the first `{` and require it, below, to be a listed generator. That
+    /// keeps the site inside this scan rather than exempt from it, which is the whole of what
+    /// the `named == call_sites` clause is for. A site naming neither — no literal, or a
+    /// template whose prefix is not a generator — still fails.
+    fn generator_named_by(literal: &str) -> &str {
+        let name = literal.trim_start_matches("yidam ");
+        match name.find('{') {
+            Some(brace) => name[..brace].trim_end(),
+            None => name,
+        }
+    }
+
+    /// The prefix rule reads a template as its generator, and reads nothing else differently.
+    ///
+    /// Written against the helper rather than against the scan, because the scan's answer is
+    /// the union over the crate: a bug that returned the empty string for every literal would
+    /// still leave `found` non-empty and `missing` empty as long as one site happened to
+    /// parse. This is the case-by-case version, including the two that must still fail.
+    #[test]
+    fn a_template_literal_names_its_generator() {
+        assert_eq!(generator_named_by("yidam status"), "status");
+        assert_eq!(generator_named_by("yidam open-questions"), "open-questions");
+        assert_eq!(generator_named_by("yidam count {}"), "count");
+        // Nothing before the brace is nothing named, and the assertion below rejects it.
+        assert_eq!(generator_named_by("yidam {}"), "");
+        assert!(!generator_names().contains(&""));
     }
 
     /// Every generator the crate has is one this command runs.
@@ -296,6 +493,50 @@ mod tests {
             "{missing:?} write REGEN blocks and are not in GENERATORS — `yidam regen` will \
              not populate them and `--check` will not report them stale"
         );
+    }
+
+    /// Every parameterised generator is a generator.
+    ///
+    /// [`PARAMETERISED`] subtracts from the set `unclaimed_in` matches whole, so an entry
+    /// naming nothing would remove nothing and quietly do so — and one naming a generator
+    /// that was later renamed would leave the old name matched-with-an-argument forever,
+    /// which is a block claimed by nothing.
+    #[test]
+    fn every_parameterised_generator_is_one() {
+        let listed = generator_names();
+        for (name, argument) in PARAMETERISED {
+            assert!(
+                listed.contains(name),
+                "`{name}` is parameterised and is not a generator: {listed:?}"
+            );
+            assert!(!argument.is_empty(), "`{name}`'s argument has no name");
+        }
+    }
+
+    /// The partition is a partition: every generator is in exactly one half.
+    #[test]
+    fn the_two_halves_cover_the_generators_once_each() {
+        let (whole, prefixes) = claimable();
+        let mut both: Vec<&str> = whole.iter().chain(prefixes.iter()).copied().collect();
+        both.sort_unstable();
+        let mut listed = generator_names();
+        listed.sort_unstable();
+        assert_eq!(both, listed);
+        assert!(
+            !whole.contains(&super::super::count::NAME),
+            "`count` is matched whole, so a block naming it with no query is claimed by a \
+             generator that cannot write one"
+        );
+        assert!(prefixes.contains(&super::super::count::NAME));
+    }
+
+    /// The remedy names the argument a parameterised generator needs.
+    #[test]
+    fn the_usage_list_shows_a_parameterised_generator_its_argument() {
+        let usages = generator_usages();
+        assert!(usages.contains(&"status".to_string()), "{usages:?}");
+        assert!(usages.contains(&"count <query>".to_string()), "{usages:?}");
+        assert_eq!(usages.len(), generator_names().len());
     }
 
     #[test]

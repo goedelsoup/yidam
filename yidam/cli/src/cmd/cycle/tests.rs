@@ -46,6 +46,23 @@ fn repo() -> tempfile::TempDir {
     tmp
 }
 
+/// Puts the fixture one open question past its interval, and returns nothing.
+///
+/// The three tests below need *a* due clock and nothing more; `[due] index_after` used to be
+/// the cheapest way to get one. It is no longer a way to get one at all in the build `cargo
+/// test` compiles — an index clock this binary cannot discharge reports
+/// [`State::Unbuildable`] rather than `Due` (#1061) — and a test that reaches for the owed
+/// half through the one clock whose verdict depends on the enabled features is a test that
+/// says something different on `main` than on the pull request.
+fn owe_a_question(root: &Path) {
+    node(
+        root,
+        "concept/c.yml",
+        "class: concept\nlabel: C\ndescription: whether c holds is `[open]`\nlinks:\n  - target: ../concept/a.yml\n    relationship: reads\n",
+    );
+    commit(root, "2026-02-01", "open: whether c holds");
+}
+
 /// The fixture is clear, asserted rather than assumed.
 ///
 /// Every test below that distinguishes blocked from clear rests on this, and the first shape
@@ -76,9 +93,10 @@ fn read(root: &Path) -> CycleReport {
 fn an_owed_corpus_passes() {
     let tmp = repo();
     let root = tmp.path();
+    owe_a_question(root);
     std::fs::write(
         root.join(".yidam/config.toml"),
-        "[due]\nquestions_after = 1\nindex_after = 1\n",
+        "[due]\nquestions_after = 1\n",
     )
     .unwrap();
 
@@ -96,7 +114,12 @@ fn an_owed_corpus_passes() {
 fn strict_is_what_fails_and_the_report_says_so() {
     let tmp = repo();
     let root = tmp.path();
-    std::fs::write(root.join(".yidam/config.toml"), "[due]\nindex_after = 1\n").unwrap();
+    owe_a_question(root);
+    std::fs::write(
+        root.join(".yidam/config.toml"),
+        "[due]\nquestions_after = 1\n",
+    )
+    .unwrap();
 
     let r = read_cycle(root, true, today()).unwrap();
     assert!(!r.passed);
@@ -122,27 +145,35 @@ fn the_quiet_run_still_says_being_owed_is_not_being_broken() {
 
 // ── it composes, and does not recompute ───────────────────────────────────────
 
-/// The owed half is `due`'s four clocks, by the ids `due` publishes — not a second set
+/// The owed half is `due`'s five clocks, by the ids `due` publishes — not a second set
 /// measured here.
 #[test]
 fn the_owed_half_is_dues_own_clocks() {
     let tmp = repo();
     let r = read(tmp.path());
     let ids: Vec<&str> = r.owed.iter().map(|c| c.id).collect();
-    assert_eq!(ids, vec!["index", "catalog", "questions", "phases"]);
+    assert_eq!(
+        ids,
+        vec!["index", "catalog", "questions", "phases", "superseded"]
+    );
 }
 
-/// A due clock contributes the remedy `due` computed, verbatim. Three of the four clocks are
+/// A due clock contributes the remedy `due` computed, verbatim. Four of the five clocks are
 /// discharged by something that is not a command, and inventing a remedy here would be this
 /// report claiming an agent can do what `due.rs`'s table says it cannot.
 #[test]
 fn an_owed_act_is_dues_remedy_verbatim() {
     let tmp = repo();
     let root = tmp.path();
-    std::fs::write(root.join(".yidam/config.toml"), "[due]\nindex_after = 1\n").unwrap();
+    owe_a_question(root);
+    std::fs::write(
+        root.join(".yidam/config.toml"),
+        "[due]\nquestions_after = 1\n",
+    )
+    .unwrap();
 
     let r = read(root);
-    let clock = r.owed.iter().find(|c| c.id == "index").unwrap();
+    let clock = r.owed.iter().find(|c| c.id == "questions").unwrap();
     assert_eq!(clock.state, State::Due);
     let act = r
         .next
@@ -150,6 +181,35 @@ fn an_owed_act_is_dues_remedy_verbatim() {
         .find(|a| a.source == Source::Owed)
         .expect("a due clock names an act");
     assert_eq!(Some(&act.act), clock.remedy.as_ref());
+}
+
+/// A clock this build cannot discharge names no act, and is not counted as due.
+///
+/// This command's `owed` half is `due`'s clocks unchanged, and its acts are the remedies on
+/// the ones that are `Due`. Both filters already key on that state, so a clock in
+/// [`State::Unbuildable`] falls out of them — but falling out by omission is a property one
+/// added match arm can end silently, and the act it would otherwise propose is
+/// `cargo install`: a change to the reader's machine, offered as the next thing to do to
+/// their corpus.
+#[test]
+#[cfg_attr(feature = "index", ignore = "this build can build an index")]
+fn a_clock_this_build_cannot_discharge_proposes_no_act() {
+    let tmp = repo();
+    let root = tmp.path();
+    std::fs::write(root.join(".yidam/config.toml"), "[due]\nindex_after = 1\n").unwrap();
+
+    let r = read(root);
+    let index = r.owed.iter().find(|c| c.id == "index").unwrap();
+    assert_eq!(index.state, State::Unbuildable, "{index:?}");
+    assert_eq!(r.due, 0, "{:?}", r.owed);
+    assert!(r.passed);
+    assert!(
+        !r.next.iter().any(|a| a.source == Source::Owed),
+        "it proposed an act off a clock nothing here can discharge: {:?}",
+        r.next
+    );
+    // And the row is still there. The owed half is `due`'s clock set, whole.
+    assert_eq!(r.owed.len(), 5);
 }
 
 /// A phase that has already landed is not in flight. `phases` publishes the classification
@@ -251,7 +311,7 @@ fn a_blessed_finding_does_not_block() {
         .last()
         .cloned()
         .unwrap_or_default();
-    crate::cmd::lint::baseline::Baseline::from_checks(&all, &previous, &head)
+    crate::cmd::lint::baseline::Baseline::from_checks(&all, &previous, &head, &[])
         .write(root)
         .unwrap();
 
@@ -305,7 +365,7 @@ fn a_repository_with_no_kuten_is_told_so_and_keeps_the_rest() {
     assert!(why.contains("supported state"), "{why}");
 
     // The other three halves are unaffected — they need no declaration at all.
-    assert_eq!(r.owed.len(), 4);
+    assert_eq!(r.owed.len(), 5);
     assert!(render(&r, root).contains("in flight"));
     assert!(render(&r, root).contains("blocked"));
 }

@@ -12,7 +12,8 @@
 //! Spawning the server to re-cover a message loop that is already covered in memory would
 //! buy one thing — that the wiring is real — at the cost of a slow, platform-sensitive test.
 
-use std::collections::HashSet;
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -31,22 +32,16 @@ fn read_guide() -> String {
     std::fs::read_to_string(guide()).expect("yidam/editors/README.md")
 }
 
-/// `--help` for a subcommand, or `--help-all` for the binary itself when `args` is empty.
+/// A subcommand's own `--help`, which is clap's listing and not [`yidam::help`]'s.
 ///
-/// Since #921 those are two different listings, not the same one at two depths: `yidam
-/// --help` prints the thirteen commands a session usually needs, and `--help-all` prints all
-/// fifty-eight. This guide names commands from well outside the thirteen, so the whole
-/// surface is what it has to be checked against.
+/// The top level is not asked here. Its listing is a different document, and its reader is
+/// [`common::commands_from_help`].
 fn help(args: &[&str]) -> String {
     let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
         .args(args)
-        .arg(if args.is_empty() {
-            "--help-all"
-        } else {
-            "--help"
-        })
+        .arg("--help")
         .output()
-        .expect("running yidam --help, or --help-all");
+        .expect("running yidam <command> --help");
     // clap writes long help to stdout and errors to stderr; take both so an unknown
     // subcommand surfaces as an empty command list rather than as a silent pass.
     format!(
@@ -54,28 +49,6 @@ fn help(args: &[&str]) -> String {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     )
-}
-
-/// Every subcommand `yidam --help-all` lists.
-///
-/// The listing is `help::render`'s, not clap's flat `Commands:` block: group headings sit
-/// flush left, command rows are indented two spaces, and the trailing legend's continuation
-/// line is indented four. Anything between the usage line and `Options:` that is indented
-/// exactly two spaces is a command row.
-fn subcommands() -> HashSet<String> {
-    let text = help(&[]);
-    let body = text
-        .split_once("Usage:")
-        .expect("top-level help carries a usage line")
-        .1;
-    body.lines()
-        .take_while(|l| !l.starts_with("Options:"))
-        .filter(|l| l.starts_with("  ") && !l.starts_with("   "))
-        .filter_map(|l| l.split_whitespace().next())
-        // `-` opens an option, `*` opens the write-marker legend.
-        .filter(|w| !w.starts_with('-') && *w != "*")
-        .map(str::to_string)
-        .collect()
 }
 
 /// Inline code spans outside fenced blocks — where this guide names its commands.
@@ -126,7 +99,7 @@ fn assert_accepted(argv: &[&str], where_: &str) {
         .split_first()
         .expect("an invocation names a subcommand");
     assert!(
-        subcommands().contains(*sub),
+        common::commands_from_help().contains(*sub),
         "the guide names {where_}, and this binary has no `{sub}` subcommand"
     );
     let sub_help = help(&[sub]);
@@ -148,7 +121,7 @@ fn assert_accepted(argv: &[&str], where_: &str) {
 #[test]
 fn every_command_the_guide_names_is_one_the_binary_accepts() {
     let text = read_guide();
-    let subs = subcommands();
+    let subs = common::commands_from_help();
     let mut checked = 0usize;
 
     for span in prose_spans(&text) {

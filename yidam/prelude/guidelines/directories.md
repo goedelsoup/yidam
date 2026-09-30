@@ -444,7 +444,7 @@ rationale: |
 
 **Lifecycle:** Written during bootstrap for genesis-level choices; written by agents or the
 sangha for subsequent choices. Decision files are permanent records — they are not updated when
-a decision is superseded, but a new decision may reference a prior one by `id`.
+a decision is superseded; the new one names the prior one by `id` in `supersedes:`.
 
 ---
 
@@ -569,6 +569,19 @@ which is read-only and re-vendored like the rest of the prelude. Read it there; 
 
 ---
 
+## `.yidam/constitution/` (optional)
+
+Domain articles, written once at genesis from a `constitutional: true` samudaya augmentation.
+
+**What belongs here:** each article as `<stem>.md`, with an optional rule `<stem>.rego` (a
+`deny` set) and its cases in `<stem>_test.rego`.
+
+**Do not edit it.** `yidam lint` reads each rule from the genesis commit. An edit or a new file
+here is reported as `domain-article-edited` and not obeyed. A new norm belongs in
+`.yidam/policy/`. [why](directories.evidence.md#constitution-sealed-at-genesis)
+
+---
+
 ## `.yidam/bin/`
 
 The `yidam` binary this repository runs, installed by `mise run yidam-build` from the commit
@@ -660,6 +673,62 @@ nowhere else, **a capability must declare its own implementation**. Both entries
 `.yidam/capabilities/**` for that reason, and reading the script there is what puts it in the
 input state — so editing a calculator is what makes its step stale.
 [why](directories.evidence.md#capability-declares-its-own-implementation)
+
+### `run` takes two arms, and the second one is a typed function
+
+A sequence is an argv, invoked as above. A table naming one script is a **typed calculator**: a
+`.glu` file whose entry point is declared `Corpus -> Computed`, applied to the resolved corpus in
+this process, with no scratch tree and no child process at all.
+
+```toml
+[capability.class-of]
+kind   = "calculator"
+run    = { gluon = ".yidam/capabilities/class-of.glu", calls = 2000000 }
+```
+
+**Its entry point returns two fields and both are required**: `signals`, one row per node, and
+`summary`, what it counted about the run as a whole. A calculator that summarizes nothing returns an
+empty `summary` and no `summary:` key is written. Gluon records are exact, so omitting either is
+refused as not a calculator rather than defaulted.
+
+**A typed calculator declares its own script under `reads` too**, and a declaration that does not
+is refused by name. The digest of the script goes in the receipt and in the input state, so editing
+one makes its step stale — the same rule as above, reached a different way rather than for free.
+`calls` caps how many calls the script may make; omitted, the binary's default applies, and a
+calculator that does not finish is a refusal and not a warning.
+
+**The arm is behind a cargo feature outside the default set.** The binary `install.sh` downloads
+reads this declaration, plans it, and then declines the step by name, saying which feature would
+run it. So the arm a capability is written in is a statement about who can run this repository.
+[why](directories.evidence.md#typed-arm-outside-the-default-build)
+
+### `$YIDAM_GRAPH` — the corpus already parsed, and already resolved
+
+The step is invoked with four names in its environment — `$YIDAM_IN`, `$YIDAM_OUT`, `$YIDAM_STEP`
+and `$YIDAM_INPUT_COMMIT` — and, when its `reads` admit any corpus node, a fifth: `$YIDAM_GRAPH`
+names a file holding the corpus as `yidam` itself parsed it. Node classes, labels and properties,
+and every link with its target already resolved to a repository-relative path.
+
+**A step that is handed bytes parses them, and a second parser is a second answer.** The reason
+this is in the contract rather than left to each calculator is that the alternative is not
+hypothetical: `travel-tier` used to carry a regex over node YAML and an awk re-implementation of
+link resolution, neither of which anything compared against `yidam`'s own, and either of which
+could disagree with `yidam graph` about the same corpus without any gate noticing.
+[why](directories.evidence.md#resolved-corpus-is-handed-over)
+
+**It is sliced to what the step reads, and `exists` is not.** The file describes exactly the nodes
+the step's `reads` admit, so it grants no view the scratch tree does not already grant. But
+whether a link's target *is there in the repository* is answered against the whole input commit,
+because a target outside the slice is not missing — it is merely not this step's business, and a
+calculator told otherwise would report every link out of its own subtree as broken.
+
+**Its digest is part of the input state.** Changing how `yidam` resolves a link changes what every
+calculator reads, so it makes their steps stale, exactly as editing a calculator's own script
+does. [why](directories.evidence.md#resolved-corpus-in-the-input-state)
+
+A step whose `reads` admit no corpus node is handed no `$YIDAM_GRAPH` and the name is removed from
+the environment rather than left empty, so a script may test for it. `disclosure-envelope` above
+is such a step: it reads the first step's answer, not the first step's inputs.
 
 ### `after` — what must be up to date first
 
@@ -863,6 +932,7 @@ origin    = "git@github.com:goedelsoup/yidam.git"
 commit    = "4f2a…"      # the resolvable pin — what re-vendor and CI check out
 template  = "v0.1.0"     # release tag at that commit, or "untagged"
 committed = "2026-08-08" # that commit's date — how old this prelude is
+cli       = "0.16.0 (ce5e738)" # the yidam binary in use when this was written
 ```
 
 `commit` is the field that does the work. `template` is a semantic version and is only

@@ -7,6 +7,16 @@
 //!
 //! The schemas are written into the repo rather than served, because an editor mapping has
 //! to name a path. They are generated output: regenerate rather than edit.
+//!
+//! **A file this command did not write is the repository's, and is left alone.** Every file
+//! written here carries [`MARKER`] in its `$comment`. One derived repository compiles its
+//! own, stricter schemas into `.yidam/schemas/` from the zod mirror its web editor validates
+//! with, and every `mise run schema` put the generic ones back (#1057) — silently, so the
+//! damage was caught by a test comparing the two documents whole, and the repository grew a
+//! second task file whose only job was to make the inherited task refuse. Now a target
+//! without the marker refuses the whole run before anything is written, and `--force` is the
+//! override for the one legitimate case: a file an earlier release wrote before it marked
+//! them.
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -88,7 +98,17 @@ pub fn corpus_node_schema() -> Value {
                         // the failure the `additionalProperties: true` note describes
                         // arriving through the one sub-object that stayed closed.
                         "claim_tag": claim_standing(),
-                        "source": non_empty_string()
+                        "source": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "What this edge rests on: a catalog entry by its \
+                                            file stem, a catalog entry by a path written the \
+                                            way `target` is, or a decision record by its \
+                                            `id`. `edge-source-unresolved` reports a value \
+                                            that names none of them, on every edge that \
+                                            writes one; `edge-verified-unsourced` reports a \
+                                            `verified` edge that writes none."
+                        }
                     },
                     "required": ["target", "relationship"],
                     "additionalProperties": false
@@ -171,7 +191,7 @@ pub fn corpus_ontology_schema() -> Value {
                         "name": non_empty_string(),
                         "type": {
                             "type": "string",
-                            "enum": ["string", "date", "number", "ref", "text", "claim"],
+                            "enum": ["string", "date", "number", "ref", "text", "claim", "quotation"],
                             "description": "`claim` marks a property whose value IS an \
                                             evidence tag — `verified`, `inference`, or \
                                             `open` — rather than prose that mentions one. \
@@ -179,7 +199,11 @@ pub fn corpus_ontology_schema() -> Value {
                                             claim vocabulary be counted at all: without it, \
                                             only the bracketed token in serialized text is \
                                             seen, and a consumer storing `claim_tag: open` \
-                                            had 2 of its 26 open questions found."
+                                            had 2 of its 26 open questions found. \
+                                            `quotation` marks a value that is a verbatim \
+                                            span of a catalogued document, written \
+                                            `{of, span, sha256?}`; lint holds the span to \
+                                            the artifact's cached bytes (RFC-0046)."
                         },
                         "description": non_empty_string(),
                         "required": {
@@ -187,15 +211,17 @@ pub fn corpus_ontology_schema() -> Value {
                             "default": false,
                             "description": "Whether every instance of this class must \
                                             carry the property. `missing-property` gates on \
-                                            a property declared `true` and reports the \
-                                            rest, and the compiled class schema lists \
-                                            exactly these as JSON Schema `required` — one \
-                                            declaration deciding both, so the editor and \
-                                            the gate cannot disagree. Absent means false: \
-                                            every corpus predating this field was written \
-                                            where the question could not be asked, and \
-                                            defaulting to true would demand a declaration \
-                                            nobody made."
+                                            a property declared `true`, reports one that \
+                                            says nothing, and is silent on one declared \
+                                            `false`. The compiled class schema lists \
+                                            exactly the `true` ones as JSON Schema \
+                                            `required` — one declaration deciding both, so \
+                                            the editor and the gate cannot disagree. Absent \
+                                            is not required: every corpus predating this \
+                                            field was written where the question could not \
+                                            be asked, and defaulting to true would demand a \
+                                            declaration nobody made. Write `false` to say \
+                                            an instance may omit it and nothing is owed."
                         },
                         "prose": {
                             "type": "boolean",
@@ -252,6 +278,24 @@ pub fn corpus_ontology_schema() -> Value {
                                             validator treats as a constraint. Meaningful on \
                                             `number` only; a unit on any other type is \
                                             carried and ignored."
+                        },
+                        "values": {
+                            "type": "array",
+                            "items": { "type": "string", "minLength": 1 },
+                            "description": "The closed set a `string` may hold — \
+                                            `[extant, demolished, ruin]` — or absent for an \
+                                            unbounded one. Declaring it closes it: \
+                                            `property-type` reports an instance holding a \
+                                            value outside the set, and the compiled class \
+                                            schema carries it as `enum`, so the editor and \
+                                            the gate refuse the same value. There is no \
+                                            open marker, because an open list is the \
+                                            description again — which is where 40 \
+                                            properties across seven corpora spelled a set \
+                                            nothing read, while 33 instances drifted off \
+                                            it. Matched exactly, as written. An empty list \
+                                            declares no set. Meaningful on `string` only; \
+                                            a set on any other type is carried and ignored."
                         }
                     },
                     "required": ["name", "type", "description"],
@@ -302,6 +346,30 @@ pub fn corpus_ontology_schema() -> Value {
                                 the class is where the number lives. Declared here so a \
                                 misspelling is underlined as it is typed rather than \
                                 silently read as no ceiling at all."
+            },
+            "interval": {
+                "type": "object",
+                "description": "Which two `date` properties bound an instance in time, and \
+                                optionally the relationship over which no two instances may \
+                                overlap. `interval-overlap` gates on an end before its start, \
+                                and — with `exclusive_over` — on two instances linking one \
+                                target by that relationship at once: two tenures of one \
+                                office. Intervals are half-open and compared as `query` \
+                                orders dates, at the precision both sides share; an absent \
+                                end is still open. The names are declared because corpora \
+                                spell the pair at least five ways. `capacity` names the \
+                                target's property counting how many may hold it at once — \
+                                `seats` on an office — so a board of three is not three \
+                                overlaps; a target omitting it holds one. A class that omits \
+                                the field is not checked.",
+                "properties": {
+                    "start": non_empty_string(),
+                    "end": non_empty_string(),
+                    "exclusive_over": non_empty_string(),
+                    "capacity": non_empty_string()
+                },
+                "required": ["start", "end"],
+                "additionalProperties": false
             },
             "implemented_by": {
                 "type": "string",
@@ -393,10 +461,10 @@ pub fn corpus_universal_schema() -> Value {
                                         written before the field existed tags no edges, so \
                                         a default of true would open with one finding per \
                                         edge in the graph. `edge-untagged` runs only where \
-                                        this is true; `edge-verified-unsourced` and \
-                                        `edge-standing-unheld` need no declaration, because \
-                                        an edge that wrote a standing opted in by writing \
-                                        it."
+                                        this is true; `edge-verified-unsourced`, \
+                                        `edge-standing-unheld` and `edge-source-unresolved` \
+                                        need no declaration, because an edge that wrote a \
+                                        standing or a source opted in by writing it."
                     },
                     "structural": {
                         "type": "array",
@@ -433,7 +501,7 @@ pub fn corpus_universal_schema() -> Value {
                         },
                         "type": {
                             "type": "string",
-                            "enum": ["string", "date", "number", "ref", "text", "claim"],
+                            "enum": ["string", "date", "number", "ref", "text", "claim", "quotation"],
                             "description": "Universal does not mean untyped — `property-type` \
                                             checks these exactly as it checks a class's own, \
                                             and a class naming the same property wins."
@@ -739,6 +807,7 @@ pub fn class_schemas(root: &Path) -> Vec<(String, String, Value)> {
                         description: "Declared for every class in .yidam/corpus/universal.yml"
                             .to_string(),
                         unit: String::new(),
+                        values: vec![],
                         // A universal is never required. `universal.yml` has no `required`
                         // field to say so with, and a property declared for EVERY class
                         // that every instance must also carry would gate the whole corpus
@@ -782,6 +851,7 @@ fn with_pattern_properties(schema: &mut Value, universal: &crate::universal::Uni
                     description: "Permitted for every class by .yidam/corpus/universal.yml"
                         .to_string(),
                     unit: String::new(),
+                    values: vec![],
                     // A *pattern* is a permission, not a demand — the name is not even
                     // known until an instance writes one. Requiring it is not expressible
                     // and would not mean anything if it were.
@@ -814,7 +884,73 @@ fn with_pattern_properties(schema: &mut Value, universal: &crate::universal::Uni
     bag.insert("patternProperties".into(), Value::Object(patterns));
 }
 
-pub fn schema(print_settings: bool) -> Result<()> {
+/// What every file this command writes carries in its `$comment`, and what it looks for
+/// before overwriting one.
+///
+/// `$comment` because it is the keyword draft 2020-12 reserves for exactly this: a note to
+/// the schema's maintainers that no validator reads, so carrying it changes what nothing
+/// accepts. A file in `.yidam/schemas/` without this line was written by something else — a
+/// repository's own generator, or a release before the marker existed — and only the person
+/// can tell those two apart, which is why the refusal names `--force` rather than guessing.
+pub const MARKER: &str = "Generated by `yidam schema`. Regenerate rather than edit. A schema \
+                          file without this line is the repository's own, and `yidam schema` \
+                          refuses to overwrite it.";
+
+/// The part of [`MARKER`] a later release may not change.
+///
+/// Recognized by prefix rather than equality, so the note can be reworded without disowning
+/// every file the previous release wrote.
+const MARKER_PREFIX: &str = "Generated by `yidam schema`";
+
+fn stamp(mut body: Value) -> Value {
+    if let Some(map) = body.as_object_mut() {
+        map.insert("$comment".into(), json!(MARKER));
+    }
+    body
+}
+
+/// Whether the file at `path` is one this command may not overwrite: present, and not
+/// carrying [`MARKER_PREFIX`] in its `$comment`.
+///
+/// A file that is not JSON at all is the repository's too — whatever put it there, it was
+/// not this command. Absent is not owned: there is nothing to protect.
+fn owned_by_repo(path: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return path.exists();
+    };
+    let marked = serde_json::from_str::<Value>(&text)
+        .ok()
+        .and_then(|v| {
+            v.get("$comment")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .is_some_and(|c| c.starts_with(MARKER_PREFIX));
+    !marked
+}
+
+fn refusal(owned: &[String]) -> String {
+    let count = match owned.len() {
+        1 => "a file".to_string(),
+        n => format!("{n} files"),
+    };
+    let files: Vec<String> = owned
+        .iter()
+        .map(|file| format!("  .yidam/schemas/{file}"))
+        .collect();
+    format!(
+        ".yidam/schemas/ holds {count} `yidam schema` did not write:\n{}\n\
+         Nothing was written. A schema file without the `yidam schema` marker in its \
+         `$comment` is this repository's own.\n\
+         \n\
+         If an earlier yidam release wrote them, before it marked its output:\n\
+           yidam schema --force\n\
+         If this repository compiles its own schemas: keep them, and do not run this command.",
+        files.join("\n")
+    )
+}
+
+pub fn schema(print_settings: bool, force: bool) -> Result<()> {
     let root = repo_root()?;
 
     if print_settings {
@@ -833,20 +969,38 @@ pub fn schema(print_settings: bool) -> Result<()> {
     crate::paths::require_yidam_repo(&root)?;
 
     let dir = schemas_dir(&root);
+    let targets: Vec<(String, String, Value)> = all()
+        .into_iter()
+        .map(|(f, g, b)| (f.to_string(), g.to_string(), b))
+        .chain(class_schemas(&root))
+        .collect();
+
+    // Before the first write, over every target at once. A refusal that arrived at the
+    // second file would leave the first replaced — the failure the check exists to prevent,
+    // just smaller. Only the targets are examined: a file the repository keeps beside them
+    // under a name this command never writes is not this command's business.
+    if !force {
+        let owned: Vec<String> = targets
+            .iter()
+            .map(|(file, _, _)| file.clone())
+            .filter(|file| owned_by_repo(&dir.join(file)))
+            .collect();
+        if !owned.is_empty() {
+            anyhow::bail!("{}", refusal(&owned));
+        }
+    }
+
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
 
-    let fixed = all()
-        .into_iter()
-        .map(|(f, g, b)| (f.to_string(), g.to_string(), b));
     let mut wrote_a_class = false;
-    for (file, glob, body) in fixed.chain(class_schemas(&root)) {
+    for (file, glob, body) in targets {
         let path = dir.join(&file);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating {}", parent.display()))?;
         }
         wrote_a_class |= file.starts_with("class/");
-        let text = format!("{}\n", serde_json::to_string_pretty(&body)?);
+        let text = format!("{}\n", serde_json::to_string_pretty(&stamp(body))?);
         std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
         println!("wrote .yidam/schemas/{file}  ({glob})");
     }
@@ -865,6 +1019,51 @@ pub fn schema(print_settings: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The marker is what makes the refusal below decidable, so every written body carries
+    /// it — the fixed five and a compiled class alike — and it carries the prefix the reader
+    /// looks for. A `MARKER` reworded past its own prefix would disown every file on disk.
+    #[test]
+    fn every_written_schema_carries_the_marker() {
+        assert!(MARKER.starts_with(MARKER_PREFIX));
+        for (file, _, body) in all() {
+            let stamped = stamp(body);
+            let comment = stamped["$comment"].as_str().unwrap_or_default();
+            assert!(
+                comment.starts_with(MARKER_PREFIX),
+                "{file} would be written unmarked, and refused on the next run"
+            );
+        }
+        let class = stamp(yidam_core::ontology::compile_class_schema(
+            &yidam_core::ontology::OntologyClass::default(),
+        ));
+        assert_eq!(class["$comment"], MARKER);
+    }
+
+    /// What is the repository's and what is not. A `$comment` of the repository's own is not
+    /// the marker: the keyword is anyone's to use, and a generator that writes one for its
+    /// own reasons has not thereby handed the file over.
+    #[test]
+    fn a_file_without_the_marker_is_the_repository_s() {
+        let dir = tempfile::tempdir().unwrap();
+        let at = |name: &str, text: &str| {
+            let p = dir.path().join(name);
+            std::fs::write(&p, text).unwrap();
+            p
+        };
+        assert!(!owned_by_repo(&dir.path().join("absent.json")));
+        let ours = serde_json::to_string(&stamp(corpus_node_schema())).unwrap();
+        assert!(!owned_by_repo(&at("ours.json", &ours)));
+        assert!(owned_by_repo(&at("theirs.json", r#"{"title": "theirs"}"#)));
+        assert!(owned_by_repo(&at(
+            "commented.json",
+            r#"{"$comment": "generated by pnpm --dir web schemas"}"#
+        )));
+        assert!(owned_by_repo(&at(
+            "not-json.json",
+            "additionalProperties: false"
+        )));
+    }
 
     /// A corpus may carry its own fields at the top level of a node or a class.
     ///
@@ -981,6 +1180,31 @@ mod tests {
                 .map(|e| e.to_string())
                 .collect::<Vec<_>>()
         );
+    }
+
+    /// The schema and the parse agree about `interval:` in both directions: what the gate
+    /// reads validates, and what `Class::parse` reads as malformed is underlined — a misspelled
+    /// `exclusive:` and a declaration with no `end` (#1201).
+    #[test]
+    fn the_schema_accepts_the_interval_the_gate_reads_and_refuses_what_it_cannot() {
+        let validator = jsonschema::validator_for(&corpus_ontology_schema()).unwrap();
+        let class = |interval: &str| -> Value {
+            serde_yaml::from_str(&format!(
+                "class: tenure\nlabel: Tenure\ndescription: A holding.\ninterval:\n{interval}"
+            ))
+            .unwrap()
+        };
+        let good = class("  start: began\n  end: ended\n  exclusive_over: of-office\n");
+        assert!(validator.validate(&good).is_ok());
+        let seated =
+            class("  start: began\n  end: ended\n  exclusive_over: of-office\n  capacity: seats\n");
+        assert!(validator.validate(&seated).is_ok());
+        for bad in [
+            "  start: began\n",
+            "  start: began\n  end: ended\n  exclusive: of-office\n",
+        ] {
+            assert!(validator.validate(&class(bad)).is_err(), "{bad}");
+        }
     }
 
     /// And a node keeping its prose in a declared field validates without a `description`.

@@ -306,7 +306,7 @@ fn the_docs_workflow_fires_on_the_tags_its_version_list_is_built_from() {
     );
 }
 
-/// A Pages deployment must be identified by more than the commit it was built from.
+/// A Pages deployment must be identified by a commit Pages has never deployed.
 ///
 /// A deployment is identified by `pages_build_version` and nothing else. Pages treats that
 /// string as the deployment's id, and re-deploying an id already live is accepted,
@@ -320,22 +320,19 @@ fn the_docs_workflow_fires_on_the_tags_its_version_list_is_built_from() {
 /// trigger fired; its deploy was a no-op. `workflow_dispatch` — `docs.yml`'s documented way
 /// to redeploy without a commit — has the same defect for the same reason.
 ///
-/// The assembled tree is a function of the commit *and the tag set*, so the run is the
-/// smallest thing that identifies it.
-///
-/// The first attempt at that was an override of `GITHUB_SHA`, which `actions/deploy-pages`
-/// reads and exposes no input for, and **the override never reached the action** (#992).
-/// The runner loads a step's declared `env:` and then overwrites every name the `github`
-/// context carries, before a step of either kind runs — an action or a script. At
-/// `cli/v0.15.0` the log printed the suffixed value in the step's `env:` block and sent the
-/// bare sha three lines later: the echo is the declaration, not the process environment.
+/// Two routes to a run-scoped id have failed. An override of `GITHUB_SHA` **never reached
+/// the action** (#992): the runner overwrites every name the `github` context carries before
+/// a step runs, and the log echoes the declaration rather than the process environment. Then
+/// `<sha>-<run id>` sent as an argument reached Pages and was refused: at `cli/v0.16.0` Pages
+/// 404'd it and accepted the bare commit with the same artifact id. **A build version must be
+/// a real commit.** So the step writes one per run — this run's tree, this run's commit as
+/// parent, a message naming the run — and sends its sha.
 ///
 /// This test is written against the request for that reason, and it pins the dead route
 /// shut at the end.
 #[test]
-fn the_pages_deployment_is_identified_by_more_than_the_commit() {
-    let step = deploy_step();
-    let script = script_of(&step);
+fn the_pages_deployment_is_identified_by_a_commit_written_for_the_run() {
+    let script = script_of(&deploy_step());
 
     assert!(
         script.contains("pages_build_version: $pages_build_version"),
@@ -343,39 +340,175 @@ fn the_pages_deployment_is_identified_by_more_than_the_commit() {
          resolved below, so what this test grades is not what Pages is sent"
     );
 
-    // Resolved rather than assumed: the jq argument names a shell variable, and that
-    // variable is an `env:` entry. A check that found `github.run_id` somewhere in the step
-    // would pass on a run id the request never carries — which is exactly how the
-    // `GITHUB_SHA` override passed for six weeks.
-    let binding = script
+    // Resolved rather than assumed, and resolved through two indirections: the payload builder
+    // fills the jq argument from its own parameter, and `deploy` passes the payload builder its
+    // own. Which value Pages is sent is decided by the calls to `deploy` and not by the line
+    // that names the field. A check that found `github.run_id` somewhere in the step would
+    // pass on a run id the request never carries — which is how the `GITHUB_SHA` override
+    // passed for six weeks.
+    assert!(
+        script.contains(r#"--arg pages_build_version "$1""#),
+        "the deploy step's payload no longer takes its build version as its first argument, \
+         so the attempts read below are not what fills `pages_build_version`."
+    );
+    assert!(
+        script.contains(r#"payload "$1" |"#),
+        "`deploy` no longer hands the payload builder its own first argument, so the calls to \
+         `deploy` read below are not what fills `pages_build_version`."
+    );
+    let attempts: Vec<String> = script
         .lines()
-        .map(str::trim)
-        .find_map(|l| l.strip_prefix("--arg pages_build_version "))
-        .unwrap_or_else(|| {
-            panic!(
-                "the deploy step builds no `pages_build_version` argument. It has to send \
-                 one: the default is the bare commit, and a tag shares its commit with the \
-                 push it was cut from."
-            )
-        });
-    let name = binding
-        .trim_end_matches('\\')
-        .trim()
-        .trim_matches('"')
-        .trim_start_matches('$')
-        .trim_matches(|c| c == '{' || c == '}');
-    let version = step["env"][name].as_str().unwrap_or_else(|| {
+        .filter_map(|l| l.split_once("deploy \""))
+        .map(|(_, rest)| {
+            rest.split('"')
+                .next()
+                .expect("split always yields a first field")
+                .trim()
+                .trim_start_matches('$')
+                .trim_matches(|c| c == '{' || c == '}')
+                .to_string()
+        })
+        .collect();
+    let (first, fallbacks) = attempts.split_first().unwrap_or_else(|| {
         panic!(
-            "the deploy step fills `pages_build_version` from `${name}`, which its `env:` \
-             does not declare. Whatever the request carries, it is not this."
+            "the deploy step never calls `deploy`. It has to send a build version: the \
+             default is the bare commit, and a tag shares its commit with the push it was \
+             cut from."
         )
     });
+
+    // The first attempt's value is a commit this step writes, and nothing else. Found by its
+    // assignment, and the assignment graded on the request it reads: a POST to the Git Data
+    // API's commits endpoint, parented on this run's commit, whose `.sha` is the value.
+    let assignment = script
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with(&format!("{first}=")))
+        .unwrap_or_else(|| {
+            panic!(
+                "the deploy step's first attempt sends `${first}`, which the step never \
+                 assigns. Whatever the request carries, it is not this."
+            )
+        });
+    let written = script
+        .split_once(assignment)
+        .expect("the assignment was found in this script")
+        .1
+        .split("\n\n")
+        .next()
+        .unwrap_or_default();
+    let written = format!("{assignment}\n{written}");
+    for (needle, why) in [
+        (
+            "/git/commits\"",
+            "is not a commit this step writes. Pages refuses a build version that is not a \
+             real commit (it 404'd `<sha>-<run id>` at `cli/v0.16.0`), and a real commit that \
+             is not new is the #992 no-op.",
+        ),
+        (
+            "-X POST",
+            "reads a commit rather than writing one. Every commit that already exists is one \
+             Pages may already have deployed.",
+        ),
+        (
+            "parents: [$parent]",
+            "writes a commit with no parent, so nothing ties the deployment's id to the \
+             commit it was built from.",
+        ),
+        (
+            "--jq '.sha'",
+            "does not take the written commit's sha, so what Pages is sent is not the commit \
+             this step wrote.",
+        ),
+    ] {
+        assert!(
+            written.contains(needle),
+            "the deploy step's first build version `${first}` {why} Assigned by:\n{written}"
+        );
+    }
     assert!(
-        version.contains("github.run_id") || version.contains("github.run_number"),
-        "the deploy step's build version is `{version}`. It has to differ between two \
-         deploys of the same commit — a release tag and the push it was cut from, or a \
-         `workflow_dispatch` redeploy — and only the run distinguishes those."
+        script.contains(r#"--arg parent "$GITHUB_SHA""#),
+        "the commit the deploy step writes is not parented on `$GITHUB_SHA`, the commit this \
+         run built."
     );
+    // The message line itself, not the script: the artifact listing names the run too, so a
+    // check over the whole step is satisfied by a request that has nothing to do with this.
+    let message = written
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("--arg message "))
+        .unwrap_or_else(|| {
+            panic!("the commit the deploy step writes takes no `--arg message`:\n{written}")
+        });
+    assert!(
+        message.contains("${GITHUB_RUN_ID}"),
+        "the commit the deploy step writes does not name the run ({message}). Two runs on one \
+         commit — a release tag and the push it was cut from — must write two different \
+         commits."
+    );
+
+    // Writing a commit object takes `contents: write`, and the job is the scope for it: a
+    // job-level block replaces the workflow's, so the others must be restated too, or the
+    // deploy loses the OIDC token and the Pages write it was already making.
+    let workflow: serde_yaml::Value =
+        serde_yaml::from_str(&read(".github/workflows/docs.yml")).expect("docs.yml parses");
+    let permissions = &workflow["jobs"]["deploy"]["permissions"];
+    for (scope, level) in [
+        ("contents", "write"),
+        ("pages", "write"),
+        ("id-token", "write"),
+        ("actions", "read"),
+    ] {
+        assert_eq!(
+            permissions[scope].as_str(),
+            Some(level),
+            "the deploy job does not grant `{scope}: {level}`. It writes a commit object \
+             (contents), mints an OIDC token (id-token), lists this run's artifact (actions) \
+             and creates the deployment (pages); a job-level block replaces the workflow's, \
+             so each must be stated here."
+        );
+    }
+    assert_eq!(
+        workflow["permissions"]["contents"].as_str(),
+        Some("read"),
+        "docs.yml grants `contents` beyond `read` at the workflow level. Only the deploy job \
+         writes, and only a commit object; the build jobs run the site's npm dependencies."
+    );
+
+    // A second attempt is allowed, and only a second: the bare commit, announced. It is what
+    // a push to main needs if the written commit is refused — main's commit is always new —
+    // and on a tag it is the #992 no-op, which the check after this step reports.
+    assert!(
+        fallbacks.len() <= 1,
+        "the deploy step attempts the deployment {} times: {attempts:?}. One fallback is a \
+         safety net; more is a step guessing.",
+        attempts.len()
+    );
+    if let Some(fallback) = fallbacks.first() {
+        assert_eq!(
+            fallback, "GITHUB_SHA",
+            "the deploy step falls back to `${fallback}`. The only other value Pages is known \
+             to accept is the bare commit."
+        );
+        // Graded on what the warning says, phrase by phrase, rather than on there being one.
+        // The step prints several `::warning::` lines and any single one of them satisfies a
+        // check for the marker, so deleting the line that says what went wrong would pass a
+        // step that had stopped reporting it.
+        let warned = script
+            .lines()
+            .filter(|l| l.contains("::warning::"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        for phrase in ["did not take", "publishes nothing"] {
+            assert!(
+                warned.contains(phrase),
+                "the deploy step falls back to the bare commit and its warning never says \
+                 `{phrase}`. The fallback reintroduces #992 — two deploys of one commit, the \
+                 second accepted and publishing nothing — so the warning has to say both what \
+                 Pages would not take and what accepting the commit costs. Warned: {warned:?}"
+            );
+        }
+    }
 
     // The route that looked like it worked, held shut. It is the obvious thing to reach for
     // again, the runner accepts it without complaint, and the log prints the declaration
@@ -393,6 +526,95 @@ fn the_pages_deployment_is_identified_by_more_than_the_commit() {
                  declaration rather than the process environment (#992)."
             );
         }
+    }
+}
+
+/// A request that fails anonymously cannot be diagnosed from the log it failed in.
+///
+/// The deploy step makes three requests and, before #1085, printed nothing before the first
+/// of them — so twenty-five consecutive failures carried one line, `gh: Not Found (HTTP
+/// 404)`, belonging to an unidentified one of the three while the site went a day without
+/// publishing. What this grades is not that the step logs *something*. It is that no request
+/// can fail without naming itself, which holds only while every call goes through one
+/// labelled call site.
+///
+/// `script_of` strips the comments first, so the argument this workflow makes about its own
+/// requests cannot answer for the requests.
+#[test]
+fn no_request_the_deploy_makes_can_fail_anonymously() {
+    let script = script_of(&deploy_step());
+
+    // One call site, and it is the helper's. A second bare `gh api` is a second anonymous
+    // 404: `gh` writes its diagnosis to stderr and exits 1, and `set -e` then ends the step
+    // with that message detached from the call that produced it.
+    let calls: Vec<&str> = script
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.contains("gh api"))
+        .collect();
+    assert_eq!(
+        calls,
+        vec![r#"if ! body=$(gh api "$@" 2>&1); then"#],
+        "the deploy step's `gh api` calls are not the single labelled one. Every extra call \
+         site is a request that can fail with a message the log cannot attribute to it."
+    );
+
+    // Captured, and then printed where a reader is. `2>&1` above puts the API's own answer
+    // in `body` — which is where it says *which* resource it could not find; `>&2` puts it
+    // in the log rather than in the caller's `$(…)`, which would capture it as data.
+    for fragment in [
+        r#"echo "::error::${label} failed""#,
+        r#"echo "${body}""#,
+        "} >&2",
+        "return 1",
+    ] {
+        assert!(
+            script.contains(fragment),
+            "the deploy step's request helper is missing `{fragment}`. Without it a failed \
+             request says nothing, says it where nobody reads, or is swallowed and the step \
+             continues with an empty body."
+        );
+    }
+
+    // Every request, named. A count rather than a floor: the defect is a *new* request added
+    // without a label, and a floor of three passes that.
+    let labels: Vec<&str> = script
+        .lines()
+        .filter_map(|l| l.split_once(r#"request ""#))
+        .filter_map(|(_, rest)| rest.split_once('"'))
+        .map(|(label, _)| label)
+        .collect();
+    assert_eq!(
+        labels.len(),
+        5,
+        "the deploy step makes {} labelled requests, not the five it is written around (the \
+         artifact, this run's commit, the commit written as the build version, the \
+         deployment — one call site for both attempts — and the poll). A request added \
+         without a label fails the way #1085 did; one removed leaves this count lying. \
+         Found: {labels:?}",
+        labels.len()
+    );
+    for label in &labels {
+        assert!(
+            label.split_whitespace().count() > 2,
+            "`{label}` does not name a request well enough to find it in a step that makes \
+             five. The label is the whole of what the log will carry."
+        );
+    }
+
+    // The one request that is not `gh api`. Its two variables exist only in a job granted
+    // `id-token: write`; read blind under `set -u`, a job without it ends on a variable
+    // name instead of on the reason, and that reason is a one-line fix in this file.
+    for fragment in [
+        "${ACTIONS_ID_TOKEN_REQUEST_URL:-}",
+        "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}",
+    ] {
+        assert!(
+            script.contains(fragment),
+            "the deploy step reads `{fragment}` without checking it. The OIDC request is \
+             the one call here that is not `gh api`, and it is the one that stops existing \
+             when a permission is dropped."
+        );
     }
 }
 

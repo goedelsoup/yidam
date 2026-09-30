@@ -177,6 +177,12 @@ const sidebar = [
       { slug: 'rfcs/0039-occasion-scoped-read', label: '0039 · A read is scoped to the occasion' },
       { slug: 'rfcs/0040-numeric-property-type', label: '0040 · A numeric property type' },
       { slug: 'rfcs/0041-typed-property-columns', label: '0041 · Typed property columns' },
+      { slug: 'rfcs/0042-typed-calculator-arm', label: '0042 · A calculator whose purity is a closed scope and a typecheck' },
+      { slug: 'rfcs/0043-inline-regen-and-count', label: '0043 · An inline REGEN block and the count generator' },
+      { slug: 'rfcs/0044-declared-value-set', label: '0044 · A declared value set' },
+      { slug: 'rfcs/0045-derivation-check', label: '0045 · A refusal is declared, and a derivation is checked' },
+      { slug: 'rfcs/0046-quotation-property-type', label: '0046 · A quotation property type' },
+      { slug: 'rfcs/0047-sealed-domain-articles', label: '0047 · A domain article is sealed by the genesis commit' },
     ],
   },
   {
