@@ -11,7 +11,8 @@ use crate::parse::CATALOG_LOCATION_KINDS;
 
 use super::model::{Check, Severity, Violation};
 use crate::corpus::{
-    edge_views, normalize, source_classes, Class, DecisionRecord, EdgePolicy, Edges, Node, Source,
+    edge_views, normalize, source_classes, Class, DecisionRecord, EdgePolicy, Edges, Node,
+    Omission, Source,
 };
 
 /// One corpus file's prose and where it lives — all [`claim_tag_malformed`] reads.
@@ -1209,30 +1210,31 @@ pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
             // property drew all 36 of its warnings from the 8 it had marked `false`, and the
             // deliberate omissions were indistinguishable from the ones nobody decided.
             // Silence stays reported: absent means the ontology was never asked.
-            if declared.declared_required == Some(false) {
-                continue;
-            }
+            //
             // The severity is a function of the DECLARATION, not a blanket judgement about
             // omissions — the shape `orphan-in` already has, where residence time rather
             // than the check's level decides. A class that said `required: true` has
             // written the contract this instance contradicts, and contradiction is what the
             // other four checks gate on. A class that said nothing has not, and gating
             // there would assert a contract the ontology never wrote.
+            //
+            // Read through `omission()` because `graph` reports the same verdict to editors,
+            // and a second derivation is how the two came to disagree (#1155).
+            let (qualifier, escalated) = match declared.omission() {
+                Omission::Licensed => continue,
+                Omission::Gates => (" as `required: true`", Some(Severity::Error)),
+                Omission::Reported => ("", None),
+            };
             let violation = Violation::new(
                 &n.rel,
                 format!(
-                    "`{}` is declared by `{}`{} and this instance does not carry it",
-                    declared.name,
-                    class.rel,
-                    match declared.required() {
-                        true => " as `required: true`",
-                        false => "",
-                    }
+                    "`{}` is declared by `{}`{qualifier} and this instance does not carry it",
+                    declared.name, class.rel,
                 ),
             );
-            violations.push(match declared.required() {
-                true => violation.at(Severity::Error),
-                false => violation,
+            violations.push(match escalated {
+                Some(severity) => violation.at(severity),
+                None => violation,
             });
         }
     }

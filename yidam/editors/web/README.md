@@ -38,10 +38,17 @@ envelope's `resolved` path and never on the raw `target`, which is relative to t
 node's directory: comparing that text would be this process doing the path resolution
 `dangling_edge` owns, arriving as a three-line convenience.
 
-The properties table says what omitting each one costs — **fails the gate** or **reported** —
-rather than "required" and "optional". That distinction is `missing-property`'s: it gates on a
-property declared `required: true` and reports the rest, and a reader looking at a node wants
-to know which findings fail CI more than they want the ontology's vocabulary for it.
+The properties table says what omitting each one costs — **fails the gate**, **reported** or
+**allowed** — rather than "required" and "optional". That distinction is `missing-property`'s:
+it gates on a property declared `required: true`, reports one whose class says nothing, and
+says nothing about one declared `required: false`. A reader looking at a node wants to know
+which findings fail CI more than they want the ontology's vocabulary for it.
+
+The page reads the verdict from the report's `omission` field, not from `required`. `required`
+is one bool, so `required: false` and silence both arrive as `false`, and a table built on it
+labelled every allowed omission **reported** (#1155). A binary older than `omission` still
+sends `required`, which separates what gates from the rest and nothing more, so the page says
+**does not gate** there instead of guessing.
 
 It did not reach this surface at first. `OntProperty` in
 [`cmd/graph.rs`](../../cli/src/cmd/graph.rs) serialised `name`, `type` and `description` and

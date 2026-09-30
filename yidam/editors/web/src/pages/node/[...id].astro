@@ -26,6 +26,8 @@ import {
   classOf,
   nodeById,
   nodeHref,
+  OMISSION_LABEL,
+  omissionOf,
   referencesTo,
   reportsRequired,
   type GraphReport,
@@ -135,8 +137,8 @@ if (!node) {
                           whose whole content here is which findings fail CI, and a reader
                           looking at a node wants that rather than the vocabulary. */}
                       {hasRequired && (
-                        <td class={property.required ? 'gates' : undefined}>
-                          {property.required ? 'fails the gate' : 'reported'}
+                        <td class={omissionOf(property) === 'gates' ? 'gates' : undefined}>
+                          {OMISSION_LABEL[omissionOf(property) ?? 'ungated']}
                         </td>
                       )}
                       <td>{property.description || '—'}</td>

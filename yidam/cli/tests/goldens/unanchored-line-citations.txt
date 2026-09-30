@@ -38,12 +38,6 @@ docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/lib.rs#L27
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/main.rs#L18-L146
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/export_llms.rs#L34
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/graph.rs#L12
-docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/graph.rs#L336
-docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/checks.rs#L322-L347
-docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/checks.rs#L493-L497
-docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/checks.rs#L661
-docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/checks.rs#L663-L670
-docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/checks.rs#L875
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/history.rs#L225-L267
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/history.rs#L41-L62
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/history.rs#L82
@@ -59,7 +53,6 @@ docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/report.rs#L32
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/report.rs#L75-L80
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/retrieval/mod.rs#L56
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/universal.rs#L57-L69
-docs/rfcs/0019-external-citation.md → ../../yidam/cli/src/cmd/lint/checks.rs#L94-L111
 docs/rfcs/0020-proposal-surface.md → ../../yidam/cli/src/claims.rs#L587-L593
 docs/rfcs/0020-proposal-surface.md → ../../yidam/cli/src/cmd/lint/citations.rs#L855-L865
 docs/rfcs/0020-proposal-surface.md → ../../yidam/cli/src/cmd/lint/citations.rs#L974-L987
@@ -92,7 +85,6 @@ docs/rfcs/0030-standalone-editor.md → ../../yidam/editors/web/astro.config.mjs
 docs/rfcs/0030-standalone-editor.md → ../../yidam/editors/web/src/lib/act.ts#L136
 docs/rfcs/0030-standalone-editor.md → ../../yidam/editors/web/src/lib/overlay.ts#L396
 docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/embed.rs#L111
-docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/lint/checks.rs#L994-L999
 docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/schema.rs#L100
 docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/schema.rs#L136-L138
 docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/schema.rs#L136-L138
@@ -104,7 +96,5 @@ docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/export_rdf.rs#L3
 docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/serve/resources.rs#L56
 docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/serve/resources.rs#L56
 docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/serve/resources.rs#L56
-docs/rfcs/0032-reference-grammar.md → ../../yidam/editors/web/src/lib/graph.ts#L145
-docs/rfcs/0032-reference-grammar.md → ../../yidam/editors/web/src/lib/graph.ts#L145
 docs/rfcs/0035-class-extent.md → ../../yidam/cli/src/cmd/corpus.rs#L131
 docs/rfcs/0035-class-extent.md → ../../yidam/cli/src/kuten.rs#L769-L777

@@ -96,6 +96,18 @@ It is now silent on `required: false`. A property that says nothing still warns,
 `required: true` still gates. To accept a standing `missing-property` floor, write
 `required: false` on the properties an instance may omit. No baseline is needed.
 
+### The graph report says what omitting a property costs
+
+**A new field, `omission`, on each class property in `yidam graph --format json` (#1155).**
+Its value is `gates`, `reported` or `licensed`: the verdict `missing-property` gives when an
+instance omits the property. Before, the report carried only `required`, one bool. A property
+marked `required: false` and one that said nothing both arrived as `false`. The web
+editor labelled a licensed omission **reported**.
+
+`required` is unchanged. The web editor reads `omission` and labels a licensed property
+**allowed**. Against a binary older than the field, it labels a `false` property **does not
+gate** rather than guessing. Nothing changes for a corpus.
+
 ### `yidam schema` leaves a schema file it did not write alone
 
 **Repo-owned schemas (#1057).** Every file `yidam schema` writes now carries a marker in its
