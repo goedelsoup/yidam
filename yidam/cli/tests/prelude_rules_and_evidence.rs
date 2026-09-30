@@ -324,7 +324,31 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// delta is **56 words in `bootstrap.md`**, and 28,342 + 56 is this figure exactly, so nothing
 /// else on the path moved. The 119 further words of argument are in `bootstrap.evidence.md`
 /// and charged to [`PAIR_FLOOR`].
-const BOOTSTRAP_CEILING: usize = 28_398;
+///
+/// **Lowered to 20,043 when step 1 stopped charging the sections about a corpus that exists
+/// (#971, RFC-0039).** From here the path is measured per section, not per file: a step 1 row
+/// may link sections to skip or to read alone, and [`step_one_rows`] charges what the row says.
+/// That rests on #967's finding that an agent handed a section link reads the section and not
+/// the file. Were it otherwise, this figure would describe a read nobody performs. Four files
+/// fall, by **8,489 words**. Each figure is the whole file less what the row keeps:
+///
+/// - **`directories.md`, 4,745:** `.yidam/catalog/`, `.yidam/tonpa.toml`,
+///   `.yidam/private-paths`, `.yidam/policy/`, `.yidam/bin/`, `.yidam/capabilities.toml` with
+///   its six subsections, and `.yidam/authorship.yml`. This retires the #1028 note's reason for
+///   charging `.yidam/computed/`. The scaffold copies a `gitignore` line for it, and nothing in
+///   the skill needs the section to do that.
+/// - **`agent-conduct.md`, 1,560:** *Prefer a base rate to a refusal* with its subsection, and
+///   the five sections from *When claims leave the repository* to *The safeguards were built
+///   against carelessness*. *Mark claim confidence* stays, because #968 found every derived
+///   corpus tagging claims at genesis from it.
+/// - **`PHASES.md`, 1,330:** everything but *Phase types*.
+/// - **`GRAPH.md`, 854:** *Residence time*, *The baseline, and its own clock* and *Branches as
+///   inquiry*.
+///
+/// The issue's census found 7,386; the other 1,103 are words these sections gained after it was
+/// filed. Against that, **`bootstrap.md` rose by 134 words** to carry the links and the
+/// paragraph saying what a skipped section is. 28,398 − 8,489 + 134 is this figure exactly.
+const BOOTSTRAP_CEILING: usize = 20_043;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -442,11 +466,18 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// measurement behind them. 10,810 + 175 is this figure exactly, so the pair carried no slack
 /// before this edit and carries none after it, and the 56 are the same 56 [`BOOTSTRAP_CEILING`]
 /// moved by.
+///
+/// **`bootstrap.md` re-measured to 11,119 for #971.** 134 words arrived, all in the rules half:
+/// step 1's section links and the paragraph that says what a skipped section is. 10,985 + 134
+/// is this figure exactly, and the 134 are the same 134 [`BOOTSTRAP_CEILING`] set against
+/// what it dropped. Nothing arrived in the evidence half. The argument is #967's measurement
+/// and RFC-0039's own.
+///
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_686),
     ("yidam/prelude/GRAPH.md", 9_948),
     ("yidam/prelude/guidelines/directories.md", 12_618),
-    ("yidam/prelude/skills/bootstrap.md", 10_985),
+    ("yidam/prelude/skills/bootstrap.md", 11_119),
 ];
 
 fn read(rel: &str) -> String {
@@ -701,14 +732,96 @@ fn bootstrap_path() -> Vec<(String, usize)> {
         "step 1 of {BOOTSTRAP_SKILL} lists no files; the parse broke rather than the list \
          emptying, and the ceiling would be measuring three files instead of ten"
     );
+    let rows = step_one_rows();
+    assert_eq!(
+        rows.iter()
+            .map(|(file, _)| file.clone())
+            .collect::<Vec<_>>(),
+        step_one,
+        "this file's reading of step 1 and `step_one_read_list`'s disagree on which files it \
+         lists; one of the two parses broke"
+    );
     ENTRY
         .iter()
-        .map(|s| s.to_string())
-        .chain(std::iter::once(BOOTSTRAP_SKILL.to_string()))
-        .chain(step_one)
-        .map(|rel| {
-            let w = words(&read(&rel));
-            (rel, w)
+        .chain(std::iter::once(&BOOTSTRAP_SKILL))
+        .map(|s| {
+            let w = words(&read(s));
+            (s.to_string(), w)
+        })
+        .chain(rows.into_iter().map(|(file, charged)| {
+            let w = read(&file)
+                .lines()
+                .enumerate()
+                .filter(|(i, _)| charged.contains(i))
+                .map(|(_, l)| words(l))
+                .sum();
+            (file, w)
+        }))
+        .collect()
+}
+
+/// Each row of step 1's read list, as the file it names and the 0-based lines it charges.
+///
+/// A row with no section links charges the whole file. One that says **Skip** charges the file
+/// less each linked section, and one that says **Read only** charges the linked sections alone;
+/// a section runs to the next heading at its level or higher, as [`section_lines`] has it.
+/// The links are what an agent is handed (#967 measured that it reads a linked section and not
+/// the file), and [`every_prelude_fragment_resolves_to_a_heading`] holds each to a heading. A row
+/// that links a section with neither word, or links a file other than its own, fails here
+/// rather than being charged whole: it would read dearer than it is and nobody would ask why.
+fn step_one_rows() -> Vec<(String, BTreeSet<usize>)> {
+    let skill = read(BOOTSTRAP_SKILL);
+    let (_, after) = skill
+        .split_once("### 1. Internalize the prelude")
+        .expect("step 1's heading");
+    let body = after.split("\n### ").next().unwrap_or(after);
+    let mut rows: Vec<(String, String)> = Vec::new();
+    for line in body.lines() {
+        let row = line
+            .split_once(". `")
+            .filter(|(n, _)| n.parse::<usize>().is_ok());
+        if let Some((_, rest)) = row {
+            let file = rest.split('`').next().unwrap_or_default().to_string();
+            rows.push((file, format!("{line}\n")));
+        } else if line.starts_with(' ') && !line.trim().is_empty() {
+            if let Some((_, text)) = rows.last_mut() {
+                text.push_str(line);
+                text.push('\n');
+            }
+        } else if !rows.is_empty() {
+            break;
+        }
+    }
+    let installed = installed_prelude();
+    rows.into_iter()
+        .map(|(file, text)| {
+            let total = read(&file).lines().count();
+            let sections: BTreeSet<usize> = fragment_links(&text)
+                .into_iter()
+                .flat_map(|(_, target, fragment)| {
+                    let landed = prelude_target(BOOTSTRAP_SKILL, &target, &installed);
+                    assert_eq!(
+                        landed.as_deref(),
+                        Some(file.as_str()),
+                        "step 1's row for {file} links `{target}#{fragment}`, which is not a \
+                         section of the file the row names"
+                    );
+                    section_lines(&file, Some(&fragment))
+                })
+                .collect();
+            let charged = if sections.is_empty() {
+                (0..total).collect()
+            } else if text.contains("Read only") {
+                sections
+            } else if text.contains("Skip") {
+                (0..total).filter(|i| !sections.contains(i)).collect()
+            } else {
+                panic!(
+                    "step 1's row for {file} links sections and says neither `Skip` nor `Read \
+                     only`, so what it charges is a guess:\n{text}"
+                )
+            };
+            (file, charged)
         })
         .collect()
 }
