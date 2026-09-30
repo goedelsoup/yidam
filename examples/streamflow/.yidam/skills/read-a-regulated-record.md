@@ -1,6 +1,7 @@
 ---
 name: read-a-regulated-record
 description: How to read a discharge record from a regulated reach without importing the assumptions that only hold on an unregulated one.
+status: built
 ---
 
 # Reading a regulated record

@@ -1,6 +1,7 @@
 ---
 name: trace-a-chain-of-title
 description: How to walk a chain of title backwards, and how to tell where it actually stops from where you stopped looking.
+status: built
 ---
 
 # Tracing a chain of title
