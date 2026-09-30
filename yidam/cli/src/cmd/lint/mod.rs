@@ -27,6 +27,7 @@ pub(crate) mod model;
 pub(crate) mod quotations;
 pub(crate) mod refusals;
 pub(crate) mod scope;
+pub(crate) mod skills;
 pub(crate) mod ttl;
 pub(crate) mod uncited;
 
@@ -759,6 +760,11 @@ const ROSTER: &[Entry] = &[
         id: "policy-override",
         asked: Asked::Always,
         run: |i| checks::policy_override(i.policy_overrides()),
+    },
+    Entry {
+        id: skills::SKILL_STATUS_UNSTATED,
+        asked: Asked::Always,
+        run: |i| skills::skill_status_unstated(i.skills()),
     },
     // The typed calculator arm, refused from the manifest rather than from a step (#1099). Two
     // of the three are in the report only where the build has a typechecker; see

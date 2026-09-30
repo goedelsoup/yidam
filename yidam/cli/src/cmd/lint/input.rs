@@ -55,6 +55,7 @@ pub(crate) struct Input<'a> {
     prose_fields: OnceLock<crate::prose::ProseFields>,
     catalog_ages: OnceLock<Vec<ttl::Age>>,
     tables: OnceLock<Vec<(String, String)>>,
+    skills: OnceLock<Vec<(String, String)>>,
     annotations: OnceLock<Vec<checks::Annotation>>,
     sangha: OnceLock<crate::cmd::sangha::SanghaReport>,
     registered: OnceLock<Vec<String>>,
@@ -118,6 +119,7 @@ impl<'a> Input<'a> {
             prose_fields: OnceLock::new(),
             catalog_ages: OnceLock::new(),
             tables: OnceLock::new(),
+            skills: OnceLock::new(),
             annotations: OnceLock::new(),
             sangha: OnceLock::new(),
             registered: OnceLock::new(),
@@ -355,6 +357,17 @@ impl<'a> Input<'a> {
                 .catalog_paths()
                 .iter()
                 .chain(readmes.iter().filter(|p| p.exists()))
+                .map(|p| (self.rel(p), self.overlay.read(p)))
+                .collect()
+        })
+    }
+
+    /// The domain skills `skills-index` lists — `.yidam/skills/*.md` but its README — read
+    /// through the overlay, so the editor reports a `status:` as it is being typed.
+    pub(crate) fn skills(&self) -> &[(String, String)] {
+        self.skills.get_or_init(|| {
+            crate::walk::walk_md_files(&crate::paths::yidam_skills_dir(self.root))
+                .iter()
                 .map(|p| (self.rel(p), self.overlay.read(p)))
                 .collect()
         })

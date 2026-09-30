@@ -147,6 +147,41 @@ fn lint_is_clean_over_what_init_wrote() {
     }
 }
 
+/// A skill added to that tree without a `status:` is reported, and the gate still passes (#1182).
+///
+/// `skill-status-unstated` is Info, because every skill written before #1063 is in its
+/// population. Held here through the binary rather than only in the check's unit tests: the
+/// reading of `.yidam/skills/` is `lint`'s own, and a check whose input never reaches it passes
+/// its unit tests and reports nothing.
+#[test]
+fn a_skill_that_does_not_say_whether_it_is_built_is_reported_not_gated() {
+    let d = initialised(&[]);
+    let skills = d.path().join(".yidam/skills");
+    std::fs::create_dir_all(&skills).unwrap();
+    std::fs::write(skills.join("unstated.md"), "---\nname: unstated\n---\n").unwrap();
+    std::fs::write(
+        skills.join("stub.md"),
+        "---\nname: stub\nstatus: stub\n---\n",
+    )
+    .unwrap();
+    std::fs::write(skills.join("README.md"), "# skills\n").unwrap();
+
+    let r = run(d.path(), &["lint"]);
+    assert_eq!(
+        r.code, 0,
+        "an Info finding gated\n{}\n{}",
+        r.stdout, r.stderr
+    );
+    assert!(
+        r.stdout.contains("INFO [skill-status-unstated]")
+            && r.stdout.contains(".yidam/skills/unstated.md")
+            && !r.stdout.contains(".yidam/skills/stub.md")
+            && !r.stdout.contains(".yidam/skills/README.md"),
+        "{}",
+        r.stdout
+    );
+}
+
 /// #1035's second requirement: the first run of this report must not be empty.
 ///
 /// It is a weak assertion on its own and is kept for what it is — the report the issue
