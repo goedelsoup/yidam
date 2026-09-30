@@ -135,6 +135,23 @@ the inverse of the over-read in [silence-is-not-a-contract](#silence-is-not-a-co
 measured on the worked example, where all three classes derived as source classes and
 `orphan-in` could not fire anywhere in the corpus.
 
+## sink-classes
+
+A node linked only to its class passes `orphan-out`, and `orphan-in` sees it only when nothing
+points back. One derived repository wrote its own check after a bulk import left a set of them.
+
+Across sixteen derived corpora (2,772 nodes, 2026-09-29), 79 nodes link only to their class. 28
+are instances of a sink class — a `jurisdiction` or a `party` other classes point at. Every one
+of the other 51 belongs to a class that declares a relationship it authors, such as a `venue`
+declaring `operated-by` with no operator. So the exemption is read from the ontology rather
+than switched on per class. A class no declaration mentions is not exempt, for the reason in
+[silence-is-not-a-contract](#silence-is-not-a-contract).
+
+A sink may be named from the other end. `examples/property`'s `party` writes `edges: []`, while
+`instrument` declares `grantor` and `grantee` at it. Requiring the class's own list to be
+non-empty reported a party the ontology says is only pointed at. Reading both ends changed
+nothing in the sixteen corpora.
+
 ## edge-policy
 
 **This is the part that was got wrong.** Reading a non-empty `edges:` as *and no others may*

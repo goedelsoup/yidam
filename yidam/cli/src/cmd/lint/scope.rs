@@ -375,6 +375,19 @@ fn git_stdin(root: &Path, args: &[&str], input: &str) -> String {
 ///
 /// The *first* add wins. A record deleted and restored is one resolution that happened once.
 ///
+/// **So does a record deleted and restored somewhere else** (#1171). Keyed on path alone, a
+/// renamed record was a new record, settled by the commit that renamed it: [`super::lineage`]
+/// then told every elector branch cut before the rename that it did not hold the settlement it
+/// declared, at Error, and [`audit`] diffed the rename commit and found nothing seated. The
+/// identity that survives is the one [`crate::cmd::sangha::evolution_of`] reads. An add whose
+/// evolution matches a record that has left the tree continues that record.
+///
+/// Rename detection cannot do this. `git mv` and a delete plus add are the same commit to git,
+/// and `-M` pairs the two halves only while the text stays half the same. It never pairs a
+/// delete and an add in separate commits. The evolution is also the thing a settlement is a
+/// settlement *of*. A copy made while the original is still in the tree matches nothing that
+/// has left, so it is settled by its own commit.
+///
 /// Shared with [`super::lineage`], which needs the same commit to say which settlements a branch
 /// holds. Two readings of *when did this resolution happen* would be two answers.
 pub(super) fn adding_commits(root: &Path) -> HashMap<String, String> {
@@ -391,19 +404,59 @@ pub(super) fn adding_commits(root: &Path) -> HashMap<String, String> {
             RESOLUTIONS,
         ],
     );
-    let mut sha = String::new();
-    let mut adds: HashMap<String, String> = HashMap::new();
+    // (status, blob, path). The blob is the pre-image for a deletion and the post-image
+    // otherwise — the revision whose evolution is the question.
+    type RecordChange = (u8, String, String);
+    let mut commits: Vec<(String, Vec<RecordChange>)> = Vec::new();
     for line in out.lines() {
         if let Some(h) = line.strip_prefix("C ") {
-            sha = h.trim().to_string();
+            commits.push((h.trim().to_string(), Vec::new()));
         } else if let Some(rest) = line.strip_prefix(':') {
             let Some((meta, path)) = rest.split_once('\t') else {
                 continue;
             };
             let f: Vec<&str> = meta.split_whitespace().collect();
-            if f.len() >= 5 && f[4].starts_with('A') {
-                adds.entry(path.to_string()).or_insert_with(|| sha.clone());
+            if f.len() < 5 {
+                continue;
             }
+            let status = f[4].as_bytes()[0];
+            let blob = if status == b'D' { f[2] } else { f[3] };
+            if let Some((_, changes)) = commits.last_mut() {
+                changes.push((status, blob.to_string(), path.to_string()));
+            }
+        }
+    }
+
+    let wanted: Vec<String> = commits
+        .iter()
+        .flat_map(|(_, cs)| cs.iter())
+        .filter(|(status, _, _)| matches!(status, b'A' | b'D'))
+        .map(|(_, blob, _)| blob.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let blobs = read_blobs(root, &wanted);
+    let evolution = |path: &str, blob: &str| {
+        crate::cmd::sangha::evolution_of(path, blobs.get(blob).map_or("", String::as_str))
+    };
+
+    let mut adds: HashMap<String, String> = HashMap::new();
+    // Evolutions whose record has left the tree, and the commit that first settled each.
+    let mut departed: HashMap<String, String> = HashMap::new();
+    for (sha, changes) in &commits {
+        // Deletions first. `--raw` lists a commit's paths in path order, so a rename's add can
+        // come before the delete it continues.
+        for (_, blob, path) in changes.iter().filter(|(s, _, _)| *s == b'D') {
+            if let Some(first) = adds.get(path) {
+                departed
+                    .entry(evolution(path, blob))
+                    .or_insert_with(|| first.clone());
+            }
+        }
+        for (_, blob, path) in changes.iter().filter(|(s, _, _)| *s == b'A') {
+            let settled = departed.remove(&evolution(path, blob));
+            adds.entry(path.clone())
+                .or_insert_with(|| settled.unwrap_or_else(|| sha.clone()));
         }
     }
     adds
@@ -1259,5 +1312,119 @@ mod tests {
 
         let [unheld, _] = run(root);
         assert!(unheld.passed(), "{unheld:?}");
+    }
+
+    // ── a record that moves (#1171) ───────────────────────────────────────────
+
+    fn full_head(dir: &Path) -> String {
+        super::git(dir, &["rev-parse", "HEAD"]).trim().to_string()
+    }
+
+    /// **The finding a rename used to erase.** The record is renamed as a delete plus an add,
+    /// and its text is rewritten on the way, so `-M` would not pair the two halves either. Keyed
+    /// on path, the audit diffed the rename commit, found nothing seated, and passed.
+    #[test]
+    fn a_record_renamed_by_delete_plus_add_is_still_audited_against_its_settlement() {
+        let (tmp, tip) = repo();
+        let root = tmp.path();
+        write(
+            root,
+            ".yidam/corpus/concept/seated-unheld.yml",
+            "class: concept\n",
+        );
+        write(
+            root,
+            ".yidam/sangha/resolutions/e.md",
+            &record(&[format!("ma/one@{tip}")], "Nothing."),
+        );
+        commit(root, "synthesize: e");
+
+        std::fs::remove_file(root.join(".yidam/sangha/resolutions/e.md")).unwrap();
+        write(
+            root,
+            ".yidam/sangha/resolutions/2026-01-02-e.md",
+            &record(
+                &[format!("ma/one@{tip}")],
+                "Rewritten from top to bottom in the same commit that moved it, so that no \
+                 similarity index pairs the delete with the add.",
+            ),
+        );
+        commit(root, "chore: date-prefix the resolution records");
+        // `excepted` reads the node's stem as a substring of that section, so the rewrite
+        // must not name it by accident.
+        assert!(
+            !std::fs::read_to_string(root.join(".yidam/sangha/resolutions/2026-01-02-e.md"))
+                .unwrap()
+                .contains("seated-unheld")
+        );
+
+        let [unheld, unreadable] = run(root);
+        assert!(unreadable.passed(), "{unreadable:?}");
+        assert_eq!(unheld.violations.len(), 1, "{unheld:?}");
+        assert!(
+            unheld.violations[0]
+                .detail
+                .contains("concept/seated-unheld"),
+            "{}",
+            unheld.violations[0].detail
+        );
+    }
+
+    /// The four shapes, against the commit each record must be settled by.
+    #[test]
+    fn a_record_keeps_its_settlement_through_every_shape_of_move() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        crate::git::fixture::init(root);
+        let dir = ".yidam/sangha/resolutions";
+        let body = |evo: &str| format!("---\nevolution: {evo}\ntips:\n  - ma/one@0\n---\n");
+
+        write(root, &format!("{dir}/a.md"), &body("a"));
+        write(root, &format!("{dir}/b.md"), &body("b"));
+        write(root, &format!("{dir}/c.md"), &body("c"));
+        write(root, &format!("{dir}/d.md"), &body("d"));
+        commit(root, "synthesize: a, b, c and d");
+        let settled = full_head(root);
+
+        // `git mv`.
+        git(
+            root,
+            &["mv", &format!("{dir}/a.md"), &format!("{dir}/a-moved.md")],
+        );
+        // Delete plus add in one commit, with the text rewritten.
+        std::fs::remove_file(root.join(format!("{dir}/b.md"))).unwrap();
+        write(
+            root,
+            &format!("{dir}/b-moved.md"),
+            &format!(
+                "{}\n## What was resolved\n\nEntirely new prose.\n",
+                body("b")
+            ),
+        );
+        // Copied, with the original left standing.
+        write(root, &format!("{dir}/d-copy.md"), &body("d"));
+        commit(root, "chore: move things");
+        let moved = full_head(root);
+
+        // Delete in one commit and add in the next.
+        std::fs::remove_file(root.join(format!("{dir}/c.md"))).unwrap();
+        commit(root, "chore: drop c");
+        write(root, &format!("{dir}/c-restored.md"), &body("c"));
+        commit(root, "chore: restore c elsewhere");
+
+        let adds = adding_commits(root);
+        for moved_record in ["a-moved", "b-moved", "c-restored"] {
+            assert_eq!(
+                adds.get(&format!("{dir}/{moved_record}.md")),
+                Some(&settled),
+                "{moved_record}: {adds:?}"
+            );
+        }
+        // A copy continues nothing: `d.md` never left the tree.
+        assert_eq!(
+            adds.get(&format!("{dir}/d-copy.md")),
+            Some(&moved),
+            "{adds:?}"
+        );
     }
 }

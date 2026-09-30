@@ -283,6 +283,27 @@ pub(crate) struct RecordHead {
     pub positions: Vec<String>,
 }
 
+/// The evolution a resolution record names, from its text and path: the `evolution:` field,
+/// falling back to the filename stem.
+///
+/// The one derivation of [`Resolution::evolution`]. [`crate::cmd::lint::scope`] asks it of a
+/// record's past revisions, where there is no file on disk to read, and a second derivation
+/// would let the past and the present disagree about which resolution a record is.
+pub(crate) fn evolution_of(path: &str, text: &str) -> String {
+    evolution_or_stem(parse_resolution(text).evolution, Path::new(path))
+}
+
+fn evolution_or_stem(declared: String, path: &Path) -> String {
+    if declared.is_empty() {
+        path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string()
+    } else {
+        declared
+    }
+}
+
 /// Read a resolution record's frontmatter.
 ///
 /// Hand-rolled rather than `serde_yaml`, because a resolution record's frontmatter is
@@ -411,15 +432,8 @@ pub(crate) fn sangha_data(root: &Path) -> SanghaReport {
         .iter()
         .map(|p| {
             let text = std::fs::read_to_string(p).unwrap_or_default();
-            let head = parse_resolution(&text);
-            let evolution = if head.evolution.is_empty() {
-                p.file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or_default()
-                    .to_string()
-            } else {
-                head.evolution
-            };
+            let mut head = parse_resolution(&text);
+            let evolution = evolution_or_stem(std::mem::take(&mut head.evolution), p);
             Resolution {
                 branch_present: refs.contains(&format!("rigpa/{evolution}")),
                 file: rel(root, p),
