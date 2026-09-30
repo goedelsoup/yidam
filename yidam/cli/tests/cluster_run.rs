@@ -26,6 +26,7 @@ use std::process::Command;
 
 use common::git::{git, out, succeeded};
 use common::Example;
+use serde::Deserialize as _;
 use serde_json::Value;
 
 /// A corpus, the bare remote it pushes to, a vault directory, and a workspace for records.
@@ -1048,6 +1049,162 @@ fn a_manifest_that_shadows_a_builtin_has_no_workflow() {
     );
 }
 
+// ── one corpus, one credential ────────────────────────────────────────────────
+
+/// Every object a manifest refers to by name, by the field that names it.
+///
+/// Walked from the parsed document rather than searched for in its text, so a name in a
+/// comment is not a name in the manifest, and `yidam-a-git-write` is not mistaken for a
+/// match of `yidam-a-git`.
+fn named_objects(doc: &serde_yaml::Value) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    let mut stack = vec![doc];
+    while let Some(v) = stack.pop() {
+        match v {
+            serde_yaml::Value::Mapping(m) => {
+                for (k, v) in m {
+                    let field = k.as_str().unwrap_or_default();
+                    match (field, v) {
+                        (
+                            "serviceAccountName" | "secretName" | "claimName",
+                            serde_yaml::Value::String(name),
+                        ) => found.push((field.to_string(), name.clone())),
+                        ("secretRef", _) => {
+                            if let Some(name) = v["name"].as_str() {
+                                found.push(("secretRef".to_string(), name.to_string()));
+                            }
+                        }
+                        _ => {}
+                    }
+                    stack.push(v);
+                }
+            }
+            serde_yaml::Value::Sequence(s) => stack.extend(s),
+            _ => {}
+        }
+    }
+    found
+}
+
+/// #1228: two corpora in one namespace share no credential, account, or vault.
+///
+/// These names were constants, so a namespace running two corpora held one `yidam-git-write`.
+/// Either one corpus's lander could not push, or one key could push to both, and either lander
+/// could land the other's refs. The invariant (#460 decision 7) is that exactly one component
+/// holds the credential that moves a ref, and that holds only if the credential is one
+/// corpus's alone.
+#[test]
+fn two_corpora_in_one_namespace_share_no_named_object() {
+    let c = Cluster::as_declared();
+    // The same corpus under a second name: everything the generator reads is identical but
+    // the identity it derives names from.
+    let other = c.work.path().join("rivergage");
+    let copied = Command::new("cp")
+        .args(["-R"])
+        .arg(c.e.path())
+        .arg(&other)
+        .status()
+        .unwrap();
+    assert!(copied.success());
+
+    let generate = |dir: &Path| -> serde_yaml::Value {
+        let o = Command::new(env!("CARGO_BIN_EXE_yidam"))
+            .current_dir(dir)
+            .args([
+                "cluster",
+                "workflow",
+                "--remote",
+                "git@example.com:corpus.git",
+                "--image",
+                "ghcr.io/goedelsoup/yidam-cluster:test",
+                "--vault-url",
+                "file:///var/yidam/vault",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            o.status.success(),
+            "cluster workflow failed in {}:\n{}",
+            dir.display(),
+            String::from_utf8_lossy(&o.stderr)
+        );
+        serde_yaml::from_slice(&o.stdout).expect("the manifest parses")
+    };
+    let a = named_objects(&generate(&c.e.path()));
+    let b = named_objects(&generate(&other));
+
+    // Every kind of reference is present, so an empty intersection is not a blind walker's.
+    for field in ["serviceAccountName", "secretName", "claimName", "secretRef"] {
+        for (corpus, found) in [("streamflow", &a), ("rivergage", &b)] {
+            assert!(
+                found.iter().any(|(f, _)| f == field),
+                "{corpus}'s manifest names no `{field}`; found {found:?}"
+            );
+        }
+    }
+    let names = |found: &[(String, String)]| -> std::collections::BTreeSet<String> {
+        found.iter().map(|(_, n)| n.clone()).collect()
+    };
+    let shared: Vec<String> = names(&a).intersection(&names(&b)).cloned().collect();
+    assert!(
+        shared.is_empty(),
+        "two corpora's manifests name the same objects: {shared:?}. In one namespace they \
+         would share a credential, and either lander could move the other's refs."
+    );
+    assert!(
+        a.iter()
+            .any(|(f, n)| f == "secretName" && n == "yidam-streamflow-git-write"),
+        "the write secret is not named for its corpus: {a:?}"
+    );
+}
+
+/// `[cluster.names]` overrides a derived name, and a name Kubernetes would refuse is refused
+/// here first.
+#[test]
+fn a_declared_name_overrides_the_derived_one() {
+    let c = Cluster::as_declared();
+    let config = c.e.path().join(".yidam/config.toml");
+    let before = std::fs::read_to_string(&config).unwrap_or_default();
+    let generate = |names: &str| {
+        std::fs::write(&config, format!("{before}\n[cluster.names]\n{names}\n")).unwrap();
+        Command::new(env!("CARGO_BIN_EXE_yidam"))
+            .current_dir(c.e.path())
+            .args([
+                "cluster",
+                "workflow",
+                "--remote",
+                "git@example.com:corpus.git",
+                "--image",
+                "img",
+                "--vault-url",
+                "file:///var/yidam/vault",
+            ])
+            .output()
+            .unwrap()
+    };
+
+    let o = generate("git_write = \"streamflow-lander\"");
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let doc: serde_yaml::Value = serde_yaml::from_slice(&o.stdout).unwrap();
+    let found = named_objects(&doc);
+    assert!(
+        found.contains(&("secretName".into(), "streamflow-lander".into())),
+        "{found:?}"
+    );
+    assert!(
+        found.contains(&("secretName".into(), "yidam-streamflow-git-read".into())),
+        "an override of one name moved another: {found:?}"
+    );
+
+    let o = generate("git_write = \"Streamflow_Lander\"");
+    assert!(!o.status.success(), "an invalid object name was written");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains("git_write") && err.contains("Streamflow_Lander"),
+        "{err}"
+    );
+}
+
 // ── the worked example ────────────────────────────────────────────────────────
 
 /// The manifest under `docs/cluster/` is generated from the streamflow example and checked
@@ -1103,6 +1260,50 @@ fn the_documented_workflow_is_what_the_generator_writes() {
         serde_yaml::from_str::<Value>(&actual)
             .unwrap_or_else(|e| panic!("{file} is not YAML: {e}"));
     }
+}
+
+/// `argo-rbac.yml` creates the account the worked example runs as. Its names were a constant
+/// the generator no longer writes (#1228), so pin them to the golden's rather than to a
+/// literal: a rename in the generator reddens this instead of leaving a dead account.
+#[test]
+fn the_documented_rbac_binds_the_account_the_workflow_runs_as() {
+    let docs = common::repo_root().join("docs/cluster");
+    let workflow: serde_yaml::Value = serde_yaml::from_str(
+        &std::fs::read_to_string(docs.join("streamflow.workflow.yml")).unwrap(),
+    )
+    .unwrap();
+    let account = workflow["spec"]["serviceAccountName"]
+        .as_str()
+        .expect("the worked example names a service account")
+        .to_string();
+    assert_eq!(
+        workflow["spec"]["executor"]["serviceAccountName"].as_str(),
+        Some(account.as_str())
+    );
+
+    let rbac = std::fs::read_to_string(docs.join("argo-rbac.yml")).unwrap();
+    let mut kinds = Vec::new();
+    for doc in serde_yaml::Deserializer::from_str(&rbac) {
+        let doc = serde_yaml::Value::deserialize(doc).unwrap();
+        let kind = doc["kind"].as_str().unwrap_or_default().to_string();
+        let mut named = vec![doc["metadata"]["name"].as_str()];
+        if kind == "RoleBinding" {
+            named.push(doc["roleRef"]["name"].as_str());
+            for s in doc["subjects"].as_sequence().into_iter().flatten() {
+                named.push(s["name"].as_str());
+            }
+        }
+        for name in named {
+            assert_eq!(
+                name,
+                Some(account.as_str()),
+                "argo-rbac.yml's {kind} names {name:?}, and the worked example runs as \
+                 {account:?}"
+            );
+        }
+        kinds.push(kind);
+    }
+    assert_eq!(kinds, ["ServiceAccount", "Role", "RoleBinding"]);
 }
 
 // ── a gather as a cluster step (#1217) ────────────────────────────────────────

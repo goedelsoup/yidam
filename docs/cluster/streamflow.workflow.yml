@@ -5,10 +5,11 @@
 # run authors operational commits and only proposes epistemic ones is not a check any
 # of these pods performs; it is which pod holds the credential:
 #
-#   pin, admit  mount yidam-git-read   and can read the remote
-#   step        mounts no git secret   and has no flag that names a ref
-#   land        mounts yidam-git-write and is the only pod that can move one
+#   pin, admit  mount  yidam-streamflow-git-read   and can read the remote
+#   step        mounts no git secret               and has no flag that names a ref
+#   land        mounts yidam-streamflow-git-write  and is the only pod that can move one
 #
+# Every name is this corpus's own, so no other corpus's lander holds its write key.
 # What crosses between tasks is the vault digest of a git bundle, never a shared
 # volume holding a checkout. Pod logs are not provenance: everything that matters is
 # in the receipt, in the commit, on the ref.
@@ -22,11 +23,11 @@ metadata:
     yidam.dev/corpus: "streamflow"
 spec:
   entrypoint: run
-  serviceAccountName: yidam-run
+  serviceAccountName: "yidam-streamflow-run"
   # No pod gets a Kubernetes token in its main container; the executor sidecar has its own.
   automountServiceAccountToken: false
   executor:
-    serviceAccountName: yidam-run
+    serviceAccountName: "yidam-streamflow-run"
   arguments:
     parameters:
       - name: image
@@ -40,19 +41,19 @@ spec:
   volumes:
     - name: git-read
       secret:
-        secretName: yidam-git-read
+        secretName: "yidam-streamflow-git-read"
         defaultMode: 256
     # The one credential that can move a ref. Mounted by `land` and by nothing else.
     - name: git-write
       secret:
-        secretName: yidam-git-write
+        secretName: "yidam-streamflow-git-write"
         defaultMode: 256
     # A file:// vault: a content-addressed store of immutable bundles, mounted at
     # /var/yidam/vault on every pod. This is not a corpus checkout on a shared volume — nothing
     # in it is a working tree, and no pod writes anything but a new digest into it.
     - name: vault
       persistentVolumeClaim:
-        claimName: yidam-vault
+        claimName: "yidam-streamflow-vault"
   templates:
     - name: run
       dag:
@@ -179,7 +180,7 @@ spec:
         # Vault credentials, for an s3:// vault; absent for file://, which needs none.
         envFrom:
           - secretRef:
-              name: yidam-vault
+              name: "yidam-streamflow-vault"
               optional: true
         volumeMounts:
           - name: git-read
@@ -213,7 +214,7 @@ spec:
         # Vault credentials, for an s3:// vault; absent for file://, which needs none.
         envFrom:
           - secretRef:
-              name: yidam-vault
+              name: "yidam-streamflow-vault"
               optional: true
         volumeMounts:
           - name: vault
@@ -249,7 +250,7 @@ spec:
         # Vault credentials, for an s3:// vault; absent for file://, which needs none.
         envFrom:
           - secretRef:
-              name: yidam-vault
+              name: "yidam-streamflow-vault"
               optional: true
         volumeMounts:
           - name: git-write

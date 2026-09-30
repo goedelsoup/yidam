@@ -82,6 +82,35 @@ pub struct ClusterConfig {
     /// workflow (#460 decision 8). Unset means the cap is undeclared, and `admit` says so.
     #[serde(default)]
     pub max_open_proposals: Option<usize>,
+    /// The Kubernetes objects the manifest names. Each defaults to one derived from this
+    /// corpus, so two corpora in one namespace share no credential (#1228).
+    #[serde(default)]
+    pub names: ClusterNamesConfig,
+}
+
+/// `[cluster.names]`: an override for each object a generated workflow refers to by name.
+///
+/// Unset is the per-corpus default, `yidam-<corpus>-<role>`. There is no shared default to
+/// fall back to: a constant name here is one write key for every corpus in the namespace,
+/// which is the one-credential invariant (#460 decision 7) undone by a `kubectl` habit.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClusterNamesConfig {
+    /// The service account the pods and the executor run as.
+    #[serde(default)]
+    pub service_account: Option<String>,
+    /// The secret `pin` and `admit` mount to read the remote.
+    #[serde(default)]
+    pub git_read: Option<String>,
+    /// The secret `land` mounts to move a ref: the only credential that can.
+    #[serde(default)]
+    pub git_write: Option<String>,
+    /// The secret every pod reads vault credentials from, for an `s3://` vault.
+    #[serde(default)]
+    pub vault_secret: Option<String>,
+    /// The `PersistentVolumeClaim` a `file://` vault is mounted from.
+    #[serde(default)]
+    pub vault_claim: Option<String>,
 }
 
 impl Default for ClusterConfig {
@@ -93,6 +122,7 @@ impl Default for ClusterConfig {
             vault: default_vault(),
             namespace: None,
             max_open_proposals: None,
+            names: ClusterNamesConfig::default(),
         }
     }
 }
