@@ -126,8 +126,12 @@ property names are declared because corpora spell the pair at least five ways. E
 shared precision is adjacency, not overlap: a term ending `1893` and one beginning `1893-06-01`
 may have met in June, and reporting them would invent a day nobody recorded. An absent end is
 open because that is what *still serving* looks like, and two holders both still serving is the
-corpus contradicting itself today. `exclusive_over:` means one holder at a time; an office with
-several seats cannot declare it truthfully, and gaps in coverage are not reported.
+corpus contradicting itself today. Gaps in coverage are not reported.
+
+The count is the target's, because one `office` class holds both a sheriff and a board of
+three. Measured on allen-county-ohio's 25 offices: without `capacity:` the check reported 19
+tenures, 13 of them correct terms on commissioner, judicial and council seats. With `capacity:
+seats` it reported 6, all overlapping one 1842 mayoralty whose end the corpus never recorded.
 
 ## silence-is-not-a-contract
 

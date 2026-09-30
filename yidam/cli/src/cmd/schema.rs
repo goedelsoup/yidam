@@ -357,12 +357,16 @@ pub fn corpus_ontology_schema() -> Value {
                                 office. Intervals are half-open and compared as `query` \
                                 orders dates, at the precision both sides share; an absent \
                                 end is still open. The names are declared because corpora \
-                                spell the pair at least five ways. A class that omits the \
-                                field is not checked.",
+                                spell the pair at least five ways. `capacity` names the \
+                                target's property counting how many may hold it at once — \
+                                `seats` on an office — so a board of three is not three \
+                                overlaps; a target omitting it holds one. A class that omits \
+                                the field is not checked.",
                 "properties": {
                     "start": non_empty_string(),
                     "end": non_empty_string(),
-                    "exclusive_over": non_empty_string()
+                    "exclusive_over": non_empty_string(),
+                    "capacity": non_empty_string()
                 },
                 "required": ["start", "end"],
                 "additionalProperties": false
@@ -1192,6 +1196,9 @@ mod tests {
         };
         let good = class("  start: began\n  end: ended\n  exclusive_over: of-office\n");
         assert!(validator.validate(&good).is_ok());
+        let seated =
+            class("  start: began\n  end: ended\n  exclusive_over: of-office\n  capacity: seats\n");
+        assert!(validator.validate(&seated).is_ok());
         for bad in [
             "  start: began\n",
             "  start: began\n  end: ended\n  exclusive: of-office\n",
