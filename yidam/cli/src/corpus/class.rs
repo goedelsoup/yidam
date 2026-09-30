@@ -313,6 +313,11 @@ pub struct Interval {
     /// overlaps. A target that omits it holds one (#1205). `None` is one for every target.
     #[serde(default)]
     pub capacity: Option<String>,
+    /// The property on the `exclusive_over` target saying its line of holders is finished:
+    /// `line_complete: true` on an office asks `interval-gap` to report a span inside the line
+    /// that fewer hold than it seats (#1213). A target that omits it, and `None`, are unchecked.
+    #[serde(default)]
+    pub complete: Option<String>,
 }
 
 /// One relationship a class declares.

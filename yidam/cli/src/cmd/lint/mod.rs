@@ -383,6 +383,11 @@ const ROSTER: &[Entry] = &[
         run: |i| checks::interval_overlap(i.nodes(), i.edges(), i.classes()),
     },
     Entry {
+        id: "interval-gap",
+        asked: Asked::Always,
+        run: |i| checks::interval_gap(i.nodes(), i.edges(), i.classes()),
+    },
+    Entry {
         id: edge_claims::UNTAGGED,
         asked: Asked::Always,
         run: |i| i.edge_claim_checks()[0].clone(),
