@@ -535,6 +535,11 @@ const ROSTER: &[Entry] = &[
         run: orphan_in_dated,
     },
     Entry {
+        id: "only-instance-of",
+        asked: Asked::Always,
+        run: |i| checks::only_instance_of(i.nodes(), i.edges(), i.classes()),
+    },
+    Entry {
         id: "catalog-uncited",
         asked: Asked::Always,
         run: |i| checks::catalog_uncited(i.sources(), i.cites()),

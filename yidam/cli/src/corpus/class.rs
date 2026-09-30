@@ -1,6 +1,6 @@
-//! The ontology: `<class>.ont.yml` parsed once, and the two derivations over `direction:`.
+//! The ontology: `<class>.ont.yml` parsed once, and the derivations over `direction:`.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 /// Whether a class's `edges:` list bounds what may be said about it, or merely describes it.
@@ -395,6 +395,66 @@ pub fn pointed_classes<'a>(view: &[EdgeView<'a>]) -> HashSet<&'a str> {
     pointed
 }
 
+/// The relationships the ontology says each class's instances author, by class.
+///
+/// The other half of [`pointed_classes`], read with the same three arms from the other end:
+/// `out` on a class is authored by that class, `in` is authored by its target, and a
+/// declaration with no direction names both ends. A self-edge authors nothing here for the
+/// reason it points at nothing there — `reach -downstream-of-> reach` holds for every reach but
+/// the terminal one, and every river has one.
+///
+/// A class the ontology says authors nothing has no entry.
+pub fn authored_relationships<'a>(view: &[EdgeView<'a>]) -> HashMap<&'a str, BTreeSet<&'a str>> {
+    let mut authored: HashMap<&str, BTreeSet<&str>> = HashMap::new();
+    for v in view {
+        for e in v.edges.iter().filter(|e| e.target != v.name) {
+            let rel = e.relationship.as_str();
+            match e.direction.as_deref() {
+                Some("in") => {
+                    authored.entry(e.target.as_str()).or_default().insert(rel);
+                }
+                Some("out") => {
+                    authored.entry(v.name).or_default().insert(rel);
+                }
+                _ => {
+                    authored.entry(v.name).or_default().insert(rel);
+                    authored.entry(e.target.as_str()).or_default().insert(rel);
+                }
+            }
+        }
+    }
+    authored
+}
+
+/// Classes the ontology says point at nothing: the converse of [`source_classes`].
+///
+/// An instance of such a class links to its class and to nothing else *by design* — a
+/// `jurisdiction` other classes are appropriated in, a `party` other classes name — so
+/// reporting it under `only-instance-of` would report the ontology working. Measured over
+/// sixteen derived corpora (2,772 nodes, 2026-09-29): 79 nodes link only to their class, and
+/// 28 of them are instances of a class derived here.
+///
+/// **Either end may say it, which is where this departs from [`source_classes`].** A class is
+/// a sink when the ontology names it in some declaration — its own `edges:`, or another
+/// class's edge that points at it — and names it as the author of none. `party` in
+/// `examples/property` writes `edges: []` while `instrument` declares `grantor` and `grantee`
+/// at it, `direction: out`: the ontology has said parties are pointed at and author nothing,
+/// and reading the empty list alone would call that silence. The widening is free on the
+/// sixteen corpora above — the same 28 nodes either way.
+///
+/// What stays refused: a class no declaration mentions has said nothing and is **not** a
+/// sink, and a declaration with no direction names both ends as authors, so it exempts
+/// neither.
+pub fn sink_classes(view: &[EdgeView<'_>]) -> HashSet<String> {
+    let authored = authored_relationships(view);
+    let pointed = pointed_classes(view);
+    view.iter()
+        .filter(|v| !v.edges.is_empty() || pointed.contains(v.name))
+        .filter(|v| !authored.contains_key(v.name))
+        .map(|v| v.name.to_string())
+        .collect()
+}
+
 /// The [`EdgeView`]s of a parsed ontology.
 pub fn edge_views(classes: &[Class]) -> Vec<EdgeView<'_>> {
     classes
@@ -522,6 +582,81 @@ impl Class {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn classes(pairs: &[(&str, &str)]) -> Vec<Class> {
+        pairs
+            .iter()
+            .map(|(name, yaml)| Class::parse(format!(".yidam/corpus/{name}.ont.yml"), *yaml))
+            .collect()
+    }
+
+    /// Either end may state who authors an edge, and each arm of `direction:` is read the way
+    /// [`pointed_classes`] reads it from the other end.
+    #[test]
+    fn authorship_is_read_from_whichever_end_declares_it() {
+        let cs = classes(&[
+            (
+                "gage",
+                "edges:\n  - relationship: sources-from\n    target: concept\n    direction: out\n",
+            ),
+            (
+                "fund",
+                "edges:\n  - relationship: appropriated-in\n    target: jurisdiction\n    direction: in\n",
+            ),
+            ("jurisdiction", "edges: []\n"),
+            ("concept", "edges:\n  - relationship: refines\n    target: concept\n    direction: out\n"),
+        ]);
+        let authored = authored_relationships(&edge_views(&cs));
+        assert_eq!(authored["gage"], BTreeSet::from(["sources-from"]));
+        assert_eq!(
+            authored["jurisdiction"],
+            BTreeSet::from(["appropriated-in"])
+        );
+        assert!(
+            !authored.contains_key("fund"),
+            "`in` is authored by the other end"
+        );
+        assert!(
+            !authored.contains_key("concept"),
+            "a self-edge authors nothing"
+        );
+
+        // `concept` declares only a self-edge; `fund` declares only an inbound one.
+        // `jurisdiction` authors, so it is no sink however little it declares itself.
+        let sinks = sink_classes(&edge_views(&cs));
+        assert_eq!(
+            sinks,
+            HashSet::from(["concept".to_string(), "fund".to_string()])
+        );
+    }
+
+    /// A class whose own list is empty is still a sink when another class points at it —
+    /// `examples/property`'s `party`. One no declaration mentions has said nothing.
+    #[test]
+    fn a_class_pointed_at_from_the_other_end_is_a_sink_and_an_unmentioned_one_is_not() {
+        let cs = classes(&[
+            (
+                "instrument",
+                "edges:\n  - relationship: grantee\n    target: party\n    direction: out\n",
+            ),
+            ("party", "edges: []\n"),
+            ("note", "label: Note\n"),
+        ]);
+        assert_eq!(
+            sink_classes(&edge_views(&cs)),
+            HashSet::from(["party".to_string()])
+        );
+    }
+
+    /// A declaration with no direction names both ends as authors, so it exempts neither.
+    #[test]
+    fn a_directionless_declaration_makes_neither_end_a_sink() {
+        let cs = classes(&[
+            ("a", "edges:\n  - relationship: relates-to\n    target: b\n"),
+            ("b", "edges:\n  - relationship: relates-to\n    target: a\n"),
+        ]);
+        assert!(sink_classes(&edge_views(&cs)).is_empty());
+    }
 
     /// **The stem governs, and it governs against a declared `class:`** rather than only in
     /// its absence.

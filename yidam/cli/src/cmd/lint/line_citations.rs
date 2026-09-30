@@ -115,6 +115,13 @@
 //! one of those was a false drift in the measured population. Words are what rot. An
 //! ellipsis in the quote is an elision: each piece must appear in the cited lines, in
 //! order.
+//!
+//! # No history is read
+//!
+//! Every check here decides a citation against the working tree as it stands. Nothing asks
+//! git what a file was called before, so a rename cannot be followed or missed (#1171). A
+//! citation whose target has moved away names a file that does not resolve. [`collect`]
+//! leaves that to `broken-prose-link`.
 
 use std::collections::BTreeMap;
 use std::path::Path;

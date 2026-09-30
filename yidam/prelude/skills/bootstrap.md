@@ -730,9 +730,16 @@ instances to produce a meaningful result, run it now and commit the output with 
 
 ```
 .yidam/skills/<calculator-name>.md
+---
+name: <calculator-name>
+description: <one line>
+status: stub
+---
 ```
 
 The stub should describe what it computes, which corpus nodes it reads, and what it returns.
+`status: stub` keeps `yidam skills-index` from counting it as a capability; change it to
+`built` when an agent can follow it.
 
 **Do not commit anything in this step.** The implied edges are an `establish:` and the
 remaining stubs are an `implement:`; both are written in step 8, after the genesis commit.

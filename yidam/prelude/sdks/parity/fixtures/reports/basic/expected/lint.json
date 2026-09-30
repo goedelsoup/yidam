@@ -458,6 +458,14 @@
       ]
     },
     {
+      "id": "only-instance-of",
+      "title": "Node linked only to its class",
+      "severity": "warn",
+      "rationale": "A node whose only link is to its own class records that something exists without relating it to anything — a stub, or what a bulk import left behind. Instances of a class the ontology names only as a target are exempt: a leaf there is the model working. What remains is a class that declares relationships its instances author, and a node carrying none of them.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "catalog-uncited",
       "title": "Registered source nothing draws from",
       "severity": "info",

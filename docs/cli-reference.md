@@ -343,7 +343,7 @@ That is their purpose, and it is why every one carries a `*`.
 | `catalog-audit` * | Which catalog sources the corpus cites, and which it does not |
 | `index-status` * | Whether the vector index is present, and how stale against the corpus |
 | `agents-index` * | The domain agents in `.yidam/agents/` *(no flags)* |
-| `skills-index` * | The domain skills in `.yidam/skills/` *(no flags)* |
+| `skills-index` * | The domain skills in `.yidam/skills/`, each with its `status:` *(no flags)* |
 | `crates-index` * | The domain-computer crates in `crates/`, each with the capability that runs it *(no flags)* |
 | `packages-index` * | The domain-computer packages in `packages/`, each with the capability that runs it *(no flags)* |
 | `bundle-status` * | Freshness of `.yidam/bundle.yiz` against the corpus it was built from *(no flags)* |

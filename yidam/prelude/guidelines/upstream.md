@@ -61,6 +61,12 @@ well-served today. Defects have a form, a template and a track record. A misfit 
 argues that a rule is broken when what you mean is that it does not reach your case, and it will
 be answered as though the rule were broken.
 
+**A third report is about something the prelude lacks: a skill.** When a local skill in
+`.yidam/skills/` turns out to be one another derivation also wrote, it belongs in the prelude,
+and two independent copies are the argument — as a second repository is for a misfit. File it
+with the `from:derived-skill` label and the derived-skill template, and send a skill marked
+`status: built`: a stub names a procedure without being one, and there is nothing to promote.
+
 ## What a misfit report asks for
 
 Three answers are available, and a report that does not say which one it wants leaves the
