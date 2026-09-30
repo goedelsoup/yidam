@@ -150,6 +150,17 @@ relationship: it satisfies the count and adds no knowledge. The `instance-of` li
 that most often stands in for an edge, because every instance has one and it is correctly typed —
 which is exactly why it cannot discharge the requirement.
 
+## seeded-claims-carry-tags
+
+A bootstrap seeds claims, not only structure: a description and an edge each assert something,
+and part of what they assert is more than the seed material can yet support. Measured across 19
+derived corpora at their genesis commits, 599 of 624 instance nodes carry a claim tag and 405
+carry `[open]` — a bootstrap tags about as much as later work does. The skill never named the
+tags; the only instruction behind them was reading agent-conduct.md whole at step 1, so a read
+scoped to named sections (RFC-0039) would drop the one instruction the tags depend on. Naming
+them here is why "Mark claim confidence" stays on the bootstrap read even once that scoping
+lands (#968).
+
 ## one-level-of-abstraction
 
 A corpus whose nodes are three fields and one named specimen reads as two corpora, and the edges

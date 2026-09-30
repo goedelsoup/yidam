@@ -609,6 +609,12 @@ An edge is a claim that two things are related, and the `relationship` says how.
 instance needs at least one edge to another *instance*.
 [why](bootstrap.evidence.md#a-link-is-not-an-edge)
 
+A description makes claims too, and a seeded node tags them the way any later node does — with
+the `[verified]`, `[inference]` and `[open]` tags agent-conduct.md defines under "Mark claim
+confidence". A claim the seed material cannot yet support carries the `[open]` tag; it is not
+left out, and it is not stated as fact.
+[why](bootstrap.evidence.md#seeded-claims-carry-tags)
+
 Keep the seed set at one level of abstraction.
 [why](bootstrap.evidence.md#one-level-of-abstraction)
 
