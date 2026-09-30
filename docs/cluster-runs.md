@@ -11,6 +11,8 @@ pod that computes holds no credential that could.**
 ## What runs where
 
 A workflow is a pin, then a step and a landing for each capability, in dependency order.
+The catalog's own steps come first in every workflow: `catalog-fetch`, `catalog-extract` and
+`catalog-reconcile`.
 
 | Task | Command | Reads | Writes | Git secret |
 |---|---|---|---|---|
@@ -81,6 +83,13 @@ A pod holds no git identity. The commits it builds carry `yidam run` as author a
 
 ```sh
 docker build -f docs/cluster/Dockerfile -t ghcr.io/you/yidam-cluster:latest .
+```
+
+Pass `--image` by digest to record which image ran. Each step receipt then carries
+`image_digest`. A tag can move, so a tag records nothing.
+
+```sh
+yidam cluster workflow --image ghcr.io/you/yidam-cluster@sha256:<hex> > yidam.workflow.yml
 ```
 
 ## Secrets and the service account
