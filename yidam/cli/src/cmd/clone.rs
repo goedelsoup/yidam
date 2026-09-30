@@ -59,6 +59,7 @@ pub const NOT_INHERITED: &[&str] = &[
     ".github",
     ".oxlintrc.json",
     ".vscode",
+    "changes",
     "deny.toml",
     "docs",
     "examples",
