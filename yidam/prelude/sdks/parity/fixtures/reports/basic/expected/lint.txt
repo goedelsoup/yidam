@@ -28,6 +28,9 @@ ERROR [resolution-elector-unregistered] Resolution names a ma/* branch no electo
 WARN [resolution-executor-unrecorded] Resolution record does not name the seat that executed it — 1 finding(s)
   .yidam/sangha/resolutions/silt-budget.md: no `synthesized-by:` — the record names which tips were read and not who read them
 
+WARN [resolution-deliberation-unrecorded] Resolution record does not name its rounds or the positions it read — 1 finding(s)
+  .yidam/sangha/resolutions/silt-budget.md: no `rounds:` and no `positions:` — the record names which tips were read and not how the deliberation went
+
 INFO [resolution-independence-mismatch] Resolution's stated independence is not the one its seats derive — 1 finding(s)
   .yidam/sangha/resolutions/silt-budget.md: states `distinct-seats`; its seats derive `unrecorded` — at the tips it names, the registry could not be read at `ma/hydrologist@ccccccc` and `ma/dredger@ddddddd`, which name no commit in this clone
 

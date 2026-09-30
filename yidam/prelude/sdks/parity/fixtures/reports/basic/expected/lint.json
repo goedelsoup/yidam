@@ -458,6 +458,14 @@
       ]
     },
     {
+      "id": "only-instance-of",
+      "title": "Node linked only to its class",
+      "severity": "warn",
+      "rationale": "A node whose only link is to its own class records that something exists without relating it to anything — a stub, or what a bulk import left behind. Instances of a class the ontology names only as a target are exempt: a leaf there is the model working. What remains is a class that declares relationships its instances author, and a node carrying none of them.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "catalog-uncited",
       "title": "Registered source nothing draws from",
       "severity": "info",
@@ -571,6 +579,21 @@
       ]
     },
     {
+      "id": "resolution-deliberation-unrecorded",
+      "title": "Resolution record does not name its rounds or the positions it read",
+      "severity": "warn",
+      "rationale": "Article III asks for ancestry, and ancestry is not only which commits were read: it is which claims were contested and by whom. `positions:` names them and `rounds:` says whether the electors read each other before the synthesis. A record carrying both can be audited by someone who was not there; one without them can only be believed. `rounds: 1` is a complete loop, so the fields cost nothing to write. A record older than the fields warns, because nobody can recover a round count mechanically. A record added after the repository's own PROTOCOL.md asked for them gates, because there the omission was a choice.",
+      "escalation_eligible": false,
+      "violations": [
+        {
+          "node": ".yidam/sangha/resolutions/silt-budget.md",
+          "detail": "no `rounds:` and no `positions:` — the record names which tips were read and not how the deliberation went",
+          "severity": "warn",
+          "in_baseline": false
+        }
+      ]
+    },
+    {
       "id": "resolution-independence-mismatch",
       "title": "Resolution's stated independence is not the one its seats derive",
       "severity": "info",
@@ -593,6 +616,38 @@
       "title": "Elector branch tip does not verify against the key its row binds",
       "severity": "error",
       "rationale": "RFC-0012, amended: a signature buys integrity and third-party verification, and it is worth having for those and claimed for nothing more — under one operator it does not distinguish seats from one another, and `electors.md` says so. This gates rather than warns because the repository decided it: the check is vacuous until a row binds a key, and binding one is a declaration that this seat's commits verify against it. The allowed-signers file is generated from the registry at verification time and never committed, so the trust anchor cannot drift from the record, and a key the registry does not carry verifies nothing.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "domain-article-violated",
+      "title": "The corpus breaks a domain article this repository was born with",
+      "severity": "error",
+      "rationale": "A domain article is part of this repository's constitution, committed at genesis and permanent. Its rule is evaluated as the genesis commit holds it, so each finding here is a refusal the article made before any of today's work existed. The repair is to the corpus, never to the rule.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "domain-article-edited",
+      "title": "A file under .yidam/constitution/ differs from the genesis commit",
+      "severity": "error",
+      "rationale": "A domain article binds permanently, so an edit to it is detected rather than obeyed: lint keeps evaluating the genesis text. Leaving the edit in place makes the file on disk say something the repository does not enforce. Restoring the genesis text is always possible, so this gates.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "domain-article-unproven",
+      "title": "A domain article's rule has no passing test beside it",
+      "severity": "warn",
+      "rationale": "A rule with no case beside it may refuse nothing its article says, and nothing would show it. This warns rather than gates: the rule and its test are sealed at genesis, so no commit this repository can make would repair them.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "domain-article-unverifiable",
+      "title": "Domain articles are present and the genesis commit cannot be read",
+      "severity": "warn",
+      "rationale": "The genesis commit is what seals a domain article. Without it, evaluating the working tree's rule would obey whatever it says now, so nothing is evaluated and this says so. Fetch the full history to check them.",
       "escalation_eligible": false,
       "violations": []
     },

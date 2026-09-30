@@ -28,6 +28,43 @@ next one. The repair is to rename the heading to the tag.
 
 ## Unreleased
 
+### A domain article is checked, as the genesis commit holds it
+
+**Four new checks read `.yidam/constitution/` (#593, RFC-0047).** Bootstrap now writes a
+constitutional augmentation there, with its Rego rule and cases. `yidam lint` reads each rule
+from the genesis commit. `domain-article-violated` fails on a rule's refusal.
+`domain-article-edited` fails when a file there differs from the genesis commit.
+`domain-article-unproven` warns on a rule with no cases, or a failing case.
+`domain-article-unverifiable` warns in a shallow clone, where no rule is read.
+
+**Nothing changes without the directory.** No derived repository has one yet. An article appended
+to the vendored `CONSTITUTION.md` did not survive `yidam-vendor-update`, and none was found.
+
+### A resolution record must name its rounds and positions
+
+**New check, `resolution-deliberation-unrecorded` (#592).** It names a resolution record missing
+`rounds:` or `positions:`. It also names a `rounds:` that is not a count of at least one.
+PROTOCOL.md has asked for both fields since 2026-08-20. No record in any derived repository
+carries them.
+
+**Old records warn. New ones gate.** Git ancestry decides which is which. A record gates when the
+commit that added it descends from the commit that put `rounds:` into your PROTOCOL.md. A
+repository bootstrapped after 2026-08-20 has that line from genesis, so every record it adds
+gates. A repository whose vendored PROTOCOL.md lacks the line only warns, until it re-vendors.
+
+**The repair is two lines of frontmatter.** Write `rounds: 1` if the loop ran once. List every
+position file the loop read under `positions:`. A shallow clone cannot see the ancestry, so there
+every finding warns.
+
+### Lint warns on a node linked only to its class
+
+**`only-instance-of` is a new warning (#1072).** It reports a node whose only link is to its
+own `.ont.yml`. The finding names the relationships its class declares. Add one of them to
+the node, or delete the node if it is a stub.
+
+A class the ontology names only as an edge's target is a leaf by design. Its instances are
+exempt. The warning never fails the gate.
+
 ### `skills-index` reports whether a skill is built
 
 **A skill's frontmatter may say `status: built` or `status: stub` (#1063).** `yidam

@@ -155,6 +155,11 @@ Two cases the derivation deliberately leaves alone:
 | a self-edge (`reach -downstream-of-> reach`) | says instances relate to each other, not that every instance is cited: any acyclic self-relation has an endpoint that is not, so it decides nothing either way |
 | an edge with no `direction:` | exempts neither end — it says a relationship exists, not which way it runs |
 
+**A sink class is the converse**: one some declaration names, from either end, and never as
+the author. Its instances link only to their class by design. `only-instance-of` warns on any other node whose
+only link is to its class, and names the relationships its class says it authors.
+[why](GRAPH.evidence.md#sink-classes)
+
 **A non-empty `edges:` is not a contract either.** Naming the relationships a class enters
 into says *these exist*; on its own it never said *and no others may*. `edge_policy:` is what
 makes the difference sayable:

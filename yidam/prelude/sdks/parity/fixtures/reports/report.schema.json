@@ -1352,6 +1352,17 @@
           "independence": {
             "type": "string",
             "description": "The `independence:` field, verbatim \u2014 what the record says `electors.md` distinguishes among the seats it read, drawn from a closed vocabulary of `distinct-seats` / `shared-configuration` / `unrecorded`. NOT REQUIRED, for the reason `synthesized_by` records: a released CLI predates the field and every record written before it existed carries none. Verbatim and not normalized \u2014 a value outside the vocabulary is reported (`resolution-independence-mismatch`) rather than rounded to the nearest member, because `unrecorded` is not a weaker `distinct-seats`: a consumer MUST NOT read it as either other value. An empty string means the record does not say, which is the state of every record written before the field existed and is itself distinct from a stated `unrecorded`."
+          },
+          "rounds": {
+            "type": "string",
+            "description": "The `rounds:` field, verbatim \u2014 how many times the resolution loop ran. A STRING, not an integer, and not normalized: `rounds: two` or `rounds: 0` is a finding (`resolution-deliberation-unrecorded`) rather than a value to coerce, and parsing it would turn a malformed count into an absent one. NOT REQUIRED, for the reason `synthesized_by` records. An empty string means the record does not say."
+          },
+          "positions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The `positions:` the record says the loop read, verbatim \u2014 `positions/<elector>-<question>.md`, relative to the sangha directory. With `rounds`, what makes Article III checkable rather than asserted: `tips` names the commits read, and this names the claims contested and by whom. NOT REQUIRED, for the reason `synthesized_by` records. Empty means the record does not say, which is a finding (`resolution-deliberation-unrecorded`)."
           }
         }
       }

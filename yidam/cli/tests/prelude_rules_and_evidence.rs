@@ -175,20 +175,25 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// The delta is **47 words in `GRAPH.md`**, under *The class contract*, on *Before you write or
 /// revise a node* and *Before you change a class* — the two occasions that link it. The
 /// argument is in `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
+///
+/// **Raised on the same two occasions when `GRAPH.md` gained sink classes (#1072).** The delta
+/// is **50 words in `GRAPH.md`**, under *Which classes are source classes*: the paragraph naming
+/// the converse and the `only-instance-of` warning it exempts from. The measurement is in
+/// `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
 const READ_CEILING: &[(&str, &str, usize)] = &[
-    ("AGENTS.md", "Before you write or revise a node", 6_483),
+    ("AGENTS.md", "Before you write or revise a node", 6_533),
     ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
         4_382,
     ),
-    ("AGENTS.md", "Before you change a class", 4_805),
+    ("AGENTS.md", "Before you change a class", 4_855),
     ("AGENTS.md", "Before you retrieve", 2_959),
     (
         "sadhana/root/AGENTS.md",
         "Before you write or revise a node",
-        7_677,
+        7_727,
     ),
     ("sadhana/root/AGENTS.md", "Before you run a phase", 5_800),
     (
@@ -196,7 +201,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
         "Before a claim crosses a corpus boundary",
         5_576,
     ),
-    ("sadhana/root/AGENTS.md", "Before you change a class", 5_999),
+    ("sadhana/root/AGENTS.md", "Before you change a class", 6_049),
     ("sadhana/root/AGENTS.md", "Before you retrieve", 4_153),
 ];
 
@@ -360,7 +365,17 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// is **30 words in `bootstrap.md`**: the stub's frontmatter and the sentence saying what the
 /// field keeps `skills-index` from counting. 20,043 + 30 is this figure exactly, so nothing else
 /// on the path moved. Nothing is argued in the evidence half.
-const BOOTSTRAP_CEILING: usize = 20_073;
+///
+/// **Raised on the same path when `GRAPH.md` gained sink classes (#1072).** The delta is **50
+/// words in `GRAPH.md`**, the same 50 both recurring routes moved by. 20,073 + 50 is this figure
+/// exactly, so nothing else on the path moved.
+///
+/// **Raised to 20,221 when a domain article moved to `.yidam/constitution/` (#593, RFC-0047).**
+/// The delta is **98 words**: 70 in `directories.md` for the new section, which a bootstrap reads
+/// because step 1 is where the article is written; 16 in `CONSTITUTION.md`'s Domain extensions;
+/// and 12 in `bootstrap.md`'s augmentation bullet. 20,123 + 98 is this figure exactly. The
+/// argument for sealing by the genesis commit is in `directories.evidence.md`.
+const BOOTSTRAP_CEILING: usize = 20_221;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -489,11 +504,24 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// step 7's stub frontmatter and its `status:` sentence. 11,119 + 30 is this figure exactly, and
 /// the 30 are the same 30 [`BOOTSTRAP_CEILING`] moved by.
 ///
+/// **`GRAPH.md` re-measured to 10,330 for #1072.** 218 words arrived — 50 in the rules half, the
+/// sink-class paragraph that [`BOOTSTRAP_CEILING`] moved by, and 168 in the evidence half, which
+/// carries the 79 / 28 / 51 measurement over sixteen derived corpora. The floor moves by 382,
+/// because 164 had been standing as slack: the #1070 raise moved the ceilings for its words and
+/// left this number where it was. 10,112 + 218 is this figure exactly, and the slack is closed
+/// here, for the reason the `bootstrap.md` note gives.
+///
+/// **`directories.md` re-measured to 12,820 and `bootstrap.md` to 11,161 for #593.** The
+/// directories pair gained 145 words — 70 in the rules half, the `.yidam/constitution/`
+/// section, and 75 in the evidence half, why the genesis commit is the seal — and the floor
+/// moves by 202, because 57 had been standing as slack. Closed rather than carried forward, for
+/// the reason the `bootstrap.md` note gives. `bootstrap.md` gained 12 in its rules half and none
+/// in its evidence half, and 11,149 carried no slack.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_686),
-    ("yidam/prelude/GRAPH.md", 9_948),
-    ("yidam/prelude/guidelines/directories.md", 12_618),
-    ("yidam/prelude/skills/bootstrap.md", 11_149),
+    ("yidam/prelude/GRAPH.md", 10_330),
+    ("yidam/prelude/guidelines/directories.md", 12_820),
+    ("yidam/prelude/skills/bootstrap.md", 11_161),
 ];
 
 /// The `##` sections of the seven step-1 files that no read reaches, as `file#slug` under

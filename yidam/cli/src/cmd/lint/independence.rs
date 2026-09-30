@@ -822,6 +822,8 @@ mod tests {
             tips: tips.to_vec(),
             synthesized_by: vec!["ma/auditor".to_string()],
             independence: stated.to_string(),
+            rounds: "1".to_string(),
+            positions: vec![],
             branch_present: true,
         }
     }

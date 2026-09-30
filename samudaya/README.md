@@ -39,9 +39,11 @@ surface it during discovery but may discard it if the user's answers do not supp
 **`augmentation`** — Additional prelude content: guidelines, conduct norms, or constitutional
 extensions that apply to this derived repo. Treated as if part of the prelude during the
 bootstrap run. Constitutional augmentations (`constitutional: true`; extensions to
-[CONSTITUTION.md](../yidam/prelude/CONSTITUTION.md)) are committed into the derived repo
-permanently — they become domain-specific articles that govern that repo's sangha resolutions
-for its lifetime. Non-constitutional augmentations (`constitutional: false`; guidelines,
+[CONSTITUTION.md](../yidam/prelude/CONSTITUTION.md)) are sealed into the derived repo's
+`.yidam/constitution/` by the genesis commit — they become domain-specific articles that govern
+that repo's sangha resolutions for its lifetime. Put the article's rule beside it as
+`<stem>.rego`, with its cases in `<stem>_test.rego`, and `yidam lint` checks the repository
+against it. Non-constitutional augmentations (`constitutional: false`; guidelines,
 conduct norms) do not persist once samudaya is consumed.
 
 `yidam samudaya-audit` validates all of this — unknown kinds, missing titles, augmentations

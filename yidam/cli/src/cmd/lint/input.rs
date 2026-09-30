@@ -27,8 +27,8 @@ use crate::authorship::{Authorship, Region};
 use crate::corpus::{Class, Corpus, DecisionRecord, Edges, Node, Overlay, Source};
 
 use super::{
-    attest, calculators, checks, citations, commitments, edge_claims, independence, line_citations,
-    lineage, local_citations, quotations, scope, ttl, Check, Options,
+    articles, attest, calculators, checks, citations, commitments, deliberation, edge_claims,
+    independence, line_citations, lineage, local_citations, quotations, scope, ttl, Check, Options,
 };
 
 /// The corpus, the options, and every reading the checks are answered from.
@@ -60,6 +60,7 @@ pub(crate) struct Input<'a> {
     attestations: OnceLock<Vec<attest::Attestation>>,
     scope_audits: OnceLock<Vec<scope::ScopeAudit>>,
     independence_audits: OnceLock<Vec<independence::IndependenceAudit>>,
+    deliberation_asked: OnceLock<std::collections::BTreeSet<String>>,
     standings: OnceLock<Vec<lineage::Standing>>,
     commitments: OnceLock<Vec<commitments::Commitments>>,
     prose_paths: OnceLock<Vec<PathBuf>>,
@@ -84,6 +85,7 @@ pub(crate) struct Input<'a> {
     local_citation_checks: OnceLock<[Check; 4]>,
     quotation_checks: OnceLock<[Check; 3]>,
     edge_claim_checks: OnceLock<[Check; 4]>,
+    article_checks: OnceLock<[Check; 4]>,
     scope_checks: OnceLock<[Check; 2]>,
     lineage_checks: OnceLock<[Check; 3]>,
     commitment_checks: OnceLock<[Check; 4]>,
@@ -120,6 +122,7 @@ impl<'a> Input<'a> {
             attestations: OnceLock::new(),
             scope_audits: OnceLock::new(),
             independence_audits: OnceLock::new(),
+            deliberation_asked: OnceLock::new(),
             standings: OnceLock::new(),
             commitments: OnceLock::new(),
             prose_paths: OnceLock::new(),
@@ -136,6 +139,7 @@ impl<'a> Input<'a> {
             local_citation_checks: OnceLock::new(),
             quotation_checks: OnceLock::new(),
             edge_claim_checks: OnceLock::new(),
+            article_checks: OnceLock::new(),
             scope_checks: OnceLock::new(),
             lineage_checks: OnceLock::new(),
             commitment_checks: OnceLock::new(),
@@ -422,6 +426,14 @@ impl<'a> Input<'a> {
     pub(crate) fn independence_audits(&self) -> &[independence::IndependenceAudit] {
         self.independence_audits
             .get_or_init(|| independence::audit(self.root, &self.sangha().resolutions))
+    }
+
+    /// The resolution records added after this repository's PROTOCOL.md asked for `rounds:`
+    /// and `positions:` (#592). Decided by ancestry, here where there is a repository, so
+    /// `resolution-deliberation-unrecorded` stays pure. Empty in a shallow clone.
+    pub(crate) fn deliberation_asked(&self) -> &std::collections::BTreeSet<String> {
+        self.deliberation_asked
+            .get_or_init(|| deliberation::asked(self.root, &self.sangha().resolutions))
     }
 
     /// Where each elector branch stands in the settled line, and what it says about where it
@@ -715,6 +727,15 @@ impl<'a> Input<'a> {
                 self.decisions(),
                 self.catalog_dir(),
             )
+        })
+    }
+
+    /// The domain articles, read from the genesis commit and evaluated (#593).
+    pub(crate) fn article_checks(&self) -> &[Check; 4] {
+        self.article_checks.get_or_init(|| {
+            articles::checks(&articles::read(self.root, || {
+                articles::input(self.sangha(), self.nodes())
+            }))
         })
     }
 

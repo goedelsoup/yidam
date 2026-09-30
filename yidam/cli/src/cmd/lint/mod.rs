@@ -5,6 +5,7 @@
 //! Conflating the two is what produces a gate that is either permanently red or
 //! permanently ignored; see [`baseline`].
 
+pub(crate) mod articles;
 pub(crate) mod attest;
 pub(crate) mod baseline;
 pub(crate) mod calculators;
@@ -12,6 +13,7 @@ pub(crate) mod checks;
 pub(crate) mod citations;
 pub(crate) mod commitments;
 pub(crate) mod commits;
+pub(crate) mod deliberation;
 pub(crate) mod edge_claims;
 pub(crate) mod history;
 pub(crate) mod independence;
@@ -539,6 +541,11 @@ const ROSTER: &[Entry] = &[
         run: orphan_in_dated,
     },
     Entry {
+        id: "only-instance-of",
+        asked: Asked::Always,
+        run: |i| checks::only_instance_of(i.nodes(), i.edges(), i.classes()),
+    },
+    Entry {
         id: "catalog-uncited",
         asked: Asked::Always,
         run: |i| checks::catalog_uncited(i.sources(), i.cites()),
@@ -603,6 +610,16 @@ const ROSTER: &[Entry] = &[
         },
     },
     Entry {
+        id: "resolution-deliberation-unrecorded",
+        asked: Asked::Always,
+        run: |i| {
+            checks::resolution_deliberation_unrecorded(
+                &i.sangha().resolutions,
+                i.deliberation_asked(),
+            )
+        },
+    },
+    Entry {
         id: "resolution-independence-mismatch",
         asked: Asked::Always,
         run: |i| independence::independence_mismatch(i.independence_audits()),
@@ -611,6 +628,26 @@ const ROSTER: &[Entry] = &[
         id: "elector-signature-unverified",
         asked: Asked::Always,
         run: |i| attest::elector_signature_unverified(i.attestations()),
+    },
+    Entry {
+        id: "domain-article-violated",
+        asked: Asked::Always,
+        run: |i| i.article_checks()[0].clone(),
+    },
+    Entry {
+        id: "domain-article-edited",
+        asked: Asked::Always,
+        run: |i| i.article_checks()[1].clone(),
+    },
+    Entry {
+        id: "domain-article-unproven",
+        asked: Asked::Always,
+        run: |i| i.article_checks()[2].clone(),
+    },
+    Entry {
+        id: "domain-article-unverifiable",
+        asked: Asked::Always,
+        run: |i| i.article_checks()[3].clone(),
     },
     Entry {
         id: "resolution-scope-unheld",
@@ -1459,6 +1496,15 @@ decision := {"allow": true, "deny": []}
         // prose: a repository with no `electors.md` at all still hears both answer.
         assert!(ids.contains("resolution-elector-unregistered"));
         assert!(ids.contains("resolution-executor-unrecorded"));
+        assert!(ids.contains("resolution-deliberation-unrecorded"));
+        for id in [
+            "domain-article-violated",
+            "domain-article-edited",
+            "domain-article-unproven",
+            "domain-article-unverifiable",
+        ] {
+            assert!(ids.contains(id), "{id}");
+        }
         // Same reason again, and this one is the most silent of all: RFC-0012's verification
         // is vacuous until a registry row binds a signing key, so a check that vanished when
         // it found no keys would be indistinguishable from one nobody wired in.
