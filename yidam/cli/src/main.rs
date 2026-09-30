@@ -550,20 +550,36 @@ enum Command {
         format: FormatArg,
     },
     /// Execute a typed path over the resolved graph — `reach -measured-by-> gage`
+    ///
+    /// `--paths FROM TO` prints the typed paths that connect two nodes instead, each one a
+    /// query that has been run and returns TO.
     Query {
         #[command(flatten)]
         root: RootArg,
         /// The query. Whitespace around a hop is required: `-rel->` and `<-rel-` are single
         /// tokens, which is what makes a hyphenated relationship unambiguous
-        query: String,
+        #[arg(required_unless_present = "paths")]
+        query: Option<String>,
+        /// Print the typed paths between two nodes, fewest hops first, as runnable queries.
+        /// Nodes are written `class/name`, as `query` prints them
+        #[arg(long, num_args = 2, value_names = ["FROM", "TO"],
+              conflicts_with_all = ["query", "select", "anchor_k", "at", "between", "across"])]
+        paths: Option<Vec<String>>,
+        /// With `--paths`: the most hops a path may take [default: 4]
+        // `conflicts_with` and not only `requires`: clap waives a required argument that
+        // conflicts with one present, and `--paths` conflicts with the query, so `requires`
+        // alone let `query reach --max-hops 3` through with the flag ignored.
+        #[arg(long, requires = "paths", conflicts_with = "query")]
+        max_hops: Option<usize>,
         /// Fields to project, comma-separated: node, class, label, description, body, or
         /// `properties.<name>`
         #[arg(long)]
         select: Option<String>,
         /// Maximum results shown. The count reported is always the full one — a limit
-        /// bounds the projection, not the traversal
-        #[arg(long, default_value_t = yidam::QUERY_DEFAULT_LIMIT)]
-        limit: usize,
+        /// bounds the projection, not the traversal. With `--paths`, the paths shown
+        /// [default: 50, or 5 with --paths]
+        #[arg(long)]
+        limit: Option<usize>,
         /// How many entry nodes a `class~"…"` anchor opens on. An anchor is a starting
         /// point, not an answer — widening it walks from every entry
         #[arg(long, default_value_t = yidam::QUERY_DEFAULT_ANCHOR_K)]
@@ -1633,6 +1649,21 @@ fn run() -> Result<()> {
         } => yidam::bench(root.as_deref(), budget, scaling, format.value),
         Command::Query {
             root,
+            paths: Some(ends),
+            max_hops,
+            limit,
+            format,
+            ..
+        } => yidam::query_paths(
+            root.as_deref(),
+            &ends[0],
+            &ends[1],
+            max_hops.unwrap_or(yidam::QUERY_PATHS_DEFAULT_MAX_HOPS),
+            limit.unwrap_or(yidam::QUERY_PATHS_DEFAULT_LIMIT),
+            format.value,
+        ),
+        Command::Query {
+            root,
             query,
             select,
             limit,
@@ -1641,11 +1672,13 @@ fn run() -> Result<()> {
             between,
             across,
             format,
+            ..
         } => yidam::query(
             root.as_deref(),
-            &query,
+            // Clap requires the query unless `--paths` is present, and that arm is above.
+            &query.unwrap_or_default(),
             select,
-            limit,
+            limit.unwrap_or(yidam::QUERY_DEFAULT_LIMIT),
             anchor_k,
             // Clap has already refused every combination of the three; this is where that
             // becomes a fact the rest of the command can rely on rather than a convention.

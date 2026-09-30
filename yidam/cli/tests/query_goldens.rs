@@ -150,6 +150,7 @@ fn redact_run(out: &str) -> String {
 struct Case {
     /// Golden filename stem, and what the case is for.
     name: &'static str,
+    /// Empty for a case that takes no query — `--paths` names two nodes instead.
     query: &'static str,
     /// Everything after the query, before `--format json`.
     args: &'static [&'static str],
@@ -276,10 +277,29 @@ const CASES: &[Case] = &[
         args: &["--between", "HEAD~1..HEAD"],
         code: 1,
     },
+    // #1202: the paths between two nodes, as queries. Every one has been run and returns the
+    // target, and the fourth reads an edge against its authoring direction — the case a
+    // reader is least likely to write unprompted.
+    Case {
+        name: "paths",
+        query: "",
+        args: &["--paths", "reach/tailwater", "concept/hydropeaking"],
+        code: 0,
+    },
+    // A node that is not there is refused by name, not answered with "no path".
+    Case {
+        name: "paths-unknown-node",
+        query: "",
+        args: &["--paths", "reach/tailwater", "gage/cannon-outlet"],
+        code: 1,
+    },
 ];
 
 fn argv<'a>(case: &'a Case, extra: &[&'a str]) -> Vec<&'a str> {
-    let mut argv = vec!["query", case.query];
+    let mut argv = vec!["query"];
+    if !case.query.is_empty() {
+        argv.push(case.query);
+    }
     argv.extend_from_slice(case.args);
     argv.extend_from_slice(extra);
     argv
@@ -368,4 +388,61 @@ fn the_text_and_json_paths_agree_on_the_verdict() {
             case.name
         );
     }
+}
+
+/// #1202's acceptance, through the binary: every path `--paths` prints, fed back to `query`,
+/// returns the target.
+///
+/// Over every ordered pair of distinct nodes in the example rather than a chosen few, so a
+/// path shape nobody thought to pick — a hop read backwards, a class revisited — is covered
+/// because the corpus has it.
+#[test]
+fn every_printed_path_returns_the_target_when_run() {
+    let dir = stage();
+    let json = |args: &[&str]| -> serde_json::Value {
+        let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+            .args(args)
+            .args(["--format", "json"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        serde_json::from_slice(&out.stdout)
+            .unwrap_or_else(|e| panic!("{args:?}: {e}\n{}", String::from_utf8_lossy(&out.stdout)))
+    };
+    let nodes: Vec<String> = json(&["query", "*", "--limit", "1000"])["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["node"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(nodes.len(), 8, "the example's node count moved: {nodes:?}");
+
+    let mut checked = 0;
+    for from in &nodes {
+        for to in nodes.iter().filter(|to| *to != from) {
+            let report = json(&["query", "--paths", from, to]);
+            assert!(report["rejected"].is_null(), "{from} → {to}: {report}");
+            assert_eq!(report["withheld"], serde_json::json!([]), "{from} → {to}");
+            for path in report["paths"].as_array().unwrap() {
+                let text = path["query"].as_str().unwrap();
+                let ran = json(&["query", text, "--limit", "1000"]);
+                assert!(ran["rejected"].is_null(), "`{text}`: {ran}");
+                let returned: Vec<&str> = ran["results"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|row| row["node"].as_str().unwrap())
+                    .collect();
+                assert!(
+                    returned.contains(&to.as_str()),
+                    "{from} → {to}: `{text}` returned {returned:?}"
+                );
+                assert_eq!(ran["matched"], path["matched"], "`{text}`");
+                checked += 1;
+            }
+        }
+    }
+    // A floor, so a `--paths` that printed nothing for every pair cannot pass this vacuously.
+    // The example is connected, so every one of the 56 pairs has at least one path.
+    assert!(checked >= 56, "only {checked} path(s) checked");
 }

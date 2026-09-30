@@ -155,16 +155,16 @@ pub use cmd::{
     embed, estimate, export, gates, gather, graph, graph_check, index_status, index_verify, init,
     label_range, label_symbols, lint, list_formats, log, migrate, neighbors, open_questions,
     overlay, pack, packages_index, parse_bench_goals, parse_binding, phases, propose, query,
-    record, regen, relocate, rename, replay, retrieve, routes, run_capability, run_cluster,
-    run_derive, run_export, run_kuten, run_phase, run_policy, run_practice, run_score, run_vault,
-    samudaya_audit, sangha, schema, serve_lsp, serve_mcp, skills_index, slid_line_citation, status,
-    unverified_line_citation, vault_status, vocabulary, BenchGoal, BenchGoalSet, ClusterCommand,
-    CohortOptions, DeriveCommand, DispatchOptions, EmbedOptions, ExportFormat, ExportOptions,
-    ExtractOptions, FetchOptions, GatherOptions, KutenCommand, LineCitation, LineFragment,
-    LintCheck, LintOptions, LintViolation, LogFilter, MigrateOperation, PhaseCommand,
-    PolicyCommand, PreludeNorm, ProposeOptions, RdfFormat, ReconcileOptions, Relocation,
-    RetrieveOptions, RunOptions, VaultCommand, COMMIT_KINDS, DEFAULT_CLASSES, LINT_SEVERITIES,
-    PRELUDE_NORMS,
+    query_paths, record, regen, relocate, rename, replay, retrieve, routes, run_capability,
+    run_cluster, run_derive, run_export, run_kuten, run_phase, run_policy, run_practice, run_score,
+    run_vault, samudaya_audit, sangha, schema, serve_lsp, serve_mcp, skills_index,
+    slid_line_citation, status, unverified_line_citation, vault_status, vocabulary, BenchGoal,
+    BenchGoalSet, ClusterCommand, CohortOptions, DeriveCommand, DispatchOptions, EmbedOptions,
+    ExportFormat, ExportOptions, ExtractOptions, FetchOptions, GatherOptions, KutenCommand,
+    LineCitation, LineFragment, LintCheck, LintOptions, LintViolation, LogFilter, MigrateOperation,
+    PhaseCommand, PolicyCommand, PreludeNorm, ProposeOptions, RdfFormat, ReconcileOptions,
+    Relocation, RetrieveOptions, RunOptions, VaultCommand, COMMIT_KINDS, DEFAULT_CLASSES,
+    LINT_SEVERITIES, PRELUDE_NORMS,
 };
 
 /// The remote transport (#423). Gated because the feature is what pulls the server, and
@@ -196,6 +196,10 @@ pub fn class_schemas_at(root: &std::path::Path) -> Vec<(String, String, serde_js
     cmd::class_schemas(root)
 }
 
+#[doc(hidden)]
+pub use cmd::query::paths::DEFAULT_LIMIT as QUERY_PATHS_DEFAULT_LIMIT;
+#[doc(hidden)]
+pub use cmd::query::paths::DEFAULT_MAX_HOPS as QUERY_PATHS_DEFAULT_MAX_HOPS;
 #[doc(hidden)]
 pub use cmd::query::Scope as QueryScope;
 #[doc(hidden)]

@@ -2379,7 +2379,8 @@ mod tests {
     /// `anchor-at-revision` and `history-unreadable` answer `--at` and `--between`, and the
     /// MCP surface supplies neither — the contract's `at` is null for a server answering
     /// about its loaded corpus. Freezing them would put two more never-taken branches in a
-    /// client's `match`, which is the half of this that is hardest to notice.
+    /// client's `match`, which is the half of this that is hardest to notice. `unknown-node`
+    /// answers `--paths`, which #1202 keeps off MCP until the CLI surface has been used.
     ///
     /// **Not implied by the test above.** That one asserts the two lists agree, and would
     /// stay green if a revision-only code were added to `SURFACED` and to the contract
@@ -2391,12 +2392,16 @@ mod tests {
         use crate::cmd::query::check::{code, diagnostic_code};
 
         let rejections = frozen_set(&contract(), "query", FROZEN_CODES);
-        for cli_only in [code::ANCHOR_AT_REVISION, code::HISTORY_UNREADABLE] {
+        for cli_only in [
+            code::ANCHOR_AT_REVISION,
+            code::HISTORY_UNREADABLE,
+            code::UNKNOWN_NODE,
+        ] {
             assert!(
                 !rejections.contains(&cli_only.to_string()),
-                "the contract freezes `{cli_only}`, which is reachable only through `--at` \
-                 or `--between` — no MCP call can supply either, so the code is a branch no \
-                 client will ever take"
+                "the contract freezes `{cli_only}`, which is reachable only through `--at`, \
+                 `--between` or `--paths` — no MCP call can supply any of them, so the code \
+                 is a branch no client will ever take"
             );
         }
         // `ontology-moved` says the vocabulary moved *between the revision asked about and

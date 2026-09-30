@@ -32,6 +32,7 @@ pub mod at;
 pub mod check;
 pub mod exec;
 pub mod lang;
+pub mod paths;
 
 use anyhow::Result;
 use std::fmt::Write as _;
