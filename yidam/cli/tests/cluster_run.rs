@@ -1274,9 +1274,18 @@ fn refused_as_a_gather(subject: &str) {
     // A commit holding exactly what a gather writes, under a subject that would put it on the
     // branch — built by hand, the way a pod that lied would build it.
     let forge = c.work.path().join("forge");
+    // The branch is named: the bare remote's HEAD follows `init.defaultBranch`, which is
+    // `master` on a runner with no config, and a clone of that would check out nothing.
     git(
         c.work.path(),
-        &["clone", "-q", c.remote().to_str().unwrap(), "forge"],
+        &[
+            "clone",
+            "-q",
+            "--branch",
+            "main",
+            c.remote().to_str().unwrap(),
+            "forge",
+        ],
     );
     for (path, body) in [
         (
