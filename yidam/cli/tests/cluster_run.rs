@@ -1104,3 +1104,238 @@ fn the_documented_workflow_is_what_the_generator_writes() {
             .unwrap_or_else(|e| panic!("{file} is not YAML: {e}"));
     }
 }
+
+// ── a gather as a cluster step (#1217) ────────────────────────────────────────
+
+/// A peer's `.yiz`: a manifest pinned to `commit`, and one station in the peer's own words.
+fn peer_yiz(commit: &str) -> Vec<u8> {
+    use std::io::Write as _;
+    let files = [
+        ("manifest.yml", format!("commit: \"{commit}\"\n")),
+        (
+            "corpus/station.ont.yml",
+            "class: station\nproperties:\n  - name: code\n    type: string\n  - name: unit\n    \
+             type: string\n"
+                .to_string(),
+        ),
+        (
+            "corpus/station/one.yml",
+            "class: station\nlabel: one\nproperties:\n  code: \"00060\"\n  unit: cfs\n".to_string(),
+        ),
+    ];
+    let gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    let mut tar = tar::Builder::new(gz);
+    for (path, body) in files {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(body.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar.append_data(&mut header, path, body.as_bytes()).unwrap();
+    }
+    let mut gz = tar.into_inner().unwrap();
+    gz.flush().unwrap();
+    gz.finish().unwrap()
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest as _;
+    hex::encode(sha2::Sha256::digest(bytes))
+}
+
+impl Cluster {
+    /// Put bytes in the `file://` vault under their digest, as a pod's `put` would.
+    fn vault_put(&self, bytes: &[u8]) -> String {
+        let hash = sha256_hex(bytes);
+        let dir = self.work.path().join("vault/sha256").join(&hash[..2]);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(&hash), bytes).unwrap();
+        hash
+    }
+
+    /// A gather over one locked peer whose url nothing serves, and whose bundle the vault
+    /// already holds — committed and pushed.
+    fn with_a_gather(&self) {
+        let bytes = peer_yiz("aaa1111");
+        let sha = self.vault_put(&bytes);
+        let root = self.e.path();
+        std::fs::create_dir_all(root.join(".yidam/gathers")).unwrap();
+        std::fs::write(
+            root.join(".yidam/gathers/units.toml"),
+            "question = \"What units does each gage publish?\"\nquery = \"gage\"\nanswer = \
+             \"units\"\nkey = \"parameter\"\nlands_as = \"concept\"\n\n[peers.alpha]\nclasses \
+             = { gage = \"station\" }\nproperties = { parameter = \"code\", units = \"unit\" }\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join(".yidam/tonpa")).unwrap();
+        std::fs::write(
+            root.join(".yidam/tonpa/tonpa.lock"),
+            format!(
+                "[[package]]\nname = \"alpha\"\nurl = \"http://127.0.0.1:9/alpha.yiz\"\nsha256 = \
+                 \"{sha}\"\ncommit = \"aaa1111\"\n"
+            ),
+        )
+        .unwrap();
+        git(
+            &root,
+            &["add", "-f", ".yidam/gathers", ".yidam/tonpa/tonpa.lock"],
+        );
+        git(
+            &root,
+            &["commit", "-qm", "configure: gather units from alpha"],
+        );
+        git(&root, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    }
+
+    /// survey → one ask per planned peer → gather, the way the workflow chains them.
+    fn gather_pods(&self, bundle: &str) -> Value {
+        let mut args = vec!["cluster", "survey", "units", "--bundle", bundle];
+        let vault = self.vault_args();
+        args.extend(vault.iter().map(String::as_str));
+        let survey = self.record(&args);
+        let mut asked = Vec::new();
+        for ask in survey["asks"].as_array().unwrap() {
+            let json = ask.to_string();
+            let mut args = vec!["cluster", "ask", "--ask", json.as_str()];
+            args.extend(vault.iter().map(String::as_str));
+            let out = self.record(&args);
+            assert_eq!(out["source"], "vault", "{out}");
+            asked.push(out.to_string());
+        }
+        let asked = serde_json::to_string(&asked).unwrap();
+        let mut args = vec![
+            "cluster", "gather", "units", "--bundle", bundle, "--asked", &asked,
+        ];
+        args.extend(vault.iter().map(String::as_str));
+        self.record(&args)
+    }
+}
+
+#[test]
+fn a_gather_runs_as_pods_and_lands_on_its_own_proposal_branch() {
+    let c = Cluster::new();
+    c.with_a_gather();
+    let main = c.main_tip();
+    let pin = c.pin();
+    let step = c.gather_pods(s(&pin["bundle"]));
+    assert_eq!(step["step"], "gather/units");
+    assert_eq!(step["outcome"], "ran");
+    assert_eq!(step["class"], "epistemic");
+
+    let landed = c.land(&step);
+    let target = s(&landed["target"]).to_string();
+    assert!(target.starts_with("propose/gather/units/"), "{landed}");
+    let tip = c
+        .remote_ref(&format!("refs/heads/{target}"))
+        .expect("the gather branch is on the remote");
+    assert_eq!(c.main_tip(), main, "a gather never moves the branch");
+    let receipt = out(
+        &c.remote(),
+        &["show", &format!("{tip}:.yidam/runs/gather/units/alpha.yml")],
+    );
+    assert!(receipt.contains("format_version: 2"), "{receipt}");
+    assert!(receipt.contains("commit: aaa1111"), "{receipt}");
+
+    // The same pins again: the same tree, and the lander writes nothing.
+    let pin = c.pin();
+    let again = c.land(&c.gather_pods(s(&pin["bundle"])));
+    assert!(again["landed"].is_null(), "{again}");
+    assert_eq!(c.remote_ref(&format!("refs/heads/{target}")), Some(tip));
+}
+
+#[test]
+fn the_lander_refuses_a_gather_record_that_names_another_gather() {
+    let c = Cluster::new();
+    c.with_a_gather();
+    let pin = c.pin();
+    let mut step = c.gather_pods(s(&pin["bundle"]));
+    // The commits are `units`'s; the record says they are some other gather's.
+    step["step"] = "gather/other".into();
+    step["receipt"] = ".yidam/runs/gather/other".into();
+    let (stdout, stderr, code) = c.land_raw(&step);
+    assert_ne!(code, 0, "{stdout}");
+    assert!(stderr.contains("only adds its own"), "{stderr}");
+    let branches = out(&c.remote(), &["for-each-ref", "refs/heads/propose"]);
+    assert_eq!(branches, "", "nothing landed");
+}
+
+#[test]
+fn the_lander_refuses_a_gather_whose_commit_is_not_an_open() {
+    // `regen:` is operational and would go to the branch; `chore:` is outside the vocabulary,
+    // which classifies as epistemic — so a class check alone would land it.
+    for subject in ["regen: gather units", "chore: gather units"] {
+        refused_as_a_gather(subject);
+    }
+}
+
+fn refused_as_a_gather(subject: &str) {
+    let c = Cluster::new();
+    c.with_a_gather();
+    let input = c.main_tip();
+    // A commit holding exactly what a gather writes, under a subject that would put it on the
+    // branch — built by hand, the way a pod that lied would build it.
+    let forge = c.work.path().join("forge");
+    git(
+        c.work.path(),
+        &["clone", "-q", c.remote().to_str().unwrap(), "forge"],
+    );
+    for (path, body) in [
+        (
+            ".yidam/corpus/concept/gather-units.yml",
+            "class: concept\nlabel: \"? units\"\n",
+        ),
+        (".yidam/runs/gather/units/alpha.yml", "format_version: 2\n"),
+    ] {
+        let file = forge.join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, body).unwrap();
+    }
+    git(&forge, &["add", "-A"]);
+    git(
+        &forge,
+        &[
+            "-c",
+            "user.name=pod",
+            "-c",
+            "user.email=pod@x",
+            "commit",
+            "-qm",
+            subject,
+        ],
+    );
+    let sha = out(&forge, &["rev-parse", "HEAD"]);
+    git(&forge, &["update-ref", "refs/yidam/out", &sha]);
+    let file = c.work.path().join("forged.bundle");
+    git(
+        &forge,
+        &[
+            "bundle",
+            "create",
+            "-q",
+            file.to_str().unwrap(),
+            &format!("{input}..refs/yidam/out"),
+        ],
+    );
+    let bundle = c.vault_put(&std::fs::read(&file).unwrap());
+    let step = serde_json::json!({
+        "format_version": 1,
+        "step": "gather/units",
+        "outcome": "ran",
+        "sha": sha,
+        "class": "epistemic",
+        "verb": "open",
+        "receipt": ".yidam/runs/gather/units",
+        "input": input,
+        "bundle": bundle,
+    });
+    let (stdout, stderr, code) = c.land_raw(&step);
+    assert_ne!(code, 0, "{stdout}");
+    assert!(
+        stderr.contains("only opens questions"),
+        "{subject}: {stderr}"
+    );
+    assert_eq!(c.main_tip(), input, "the branch did not move");
+    assert_eq!(
+        out(&c.remote(), &["for-each-ref", "refs/heads/propose"]),
+        ""
+    );
+}

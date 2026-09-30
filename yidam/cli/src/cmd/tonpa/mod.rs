@@ -1,6 +1,6 @@
 mod add;
 mod config;
-mod install;
+pub(crate) mod install;
 mod query;
 mod remove;
 
