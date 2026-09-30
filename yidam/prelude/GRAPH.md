@@ -117,6 +117,11 @@ nothing, and an edge to the *wrong* thing resolves, traverses, and exports, and 
 an instance holding anything else fails, with the set named. The match is exact, as written.
 [why](GRAPH.evidence.md#values-closed)
 
+**A `quotation` is words copied from a catalog entry**: `of:` names the entry, `span:` holds
+the words, and `sha256:` names the artifact when the entry holds more than one.
+`quotation-span-drift` fails when the fetched bytes lack the words; where they are not
+fetched, `quotation-unchecked` says so. [why](GRAPH.evidence.md#quotation-bytes)
+
 **Silence is not a contract**, read one field at a time. A class with no `properties:` has
 said nothing about properties and none are checked; a class with no `edges:` has said nothing
 about edges and none are licensed. The same rule decides which classes are source classes for

@@ -277,6 +277,30 @@
       "violations": []
     },
     {
+      "id": "quotation-unresolved",
+      "title": "A quotation names no artifact the catalog records",
+      "severity": "error",
+      "rationale": "A property declared `type: quotation` states that its words are in a document this corpus catalogued, and a quotation whose `of:` names no entry, or an entry that records no artifact, names no bytes those words could be in. An entry holding several artifacts is several revisions, and a quotation that does not pin one with `sha256:` would be satisfied by whichever revision happens to hold the words — the retyping from the wrong revision that motivated the type. Error: the population is empty in a corpus that declares no quotation, so no repository that predates it is put in debt.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "quotation-span-drift",
+      "title": "A quotation's span is not in the artifact it names",
+      "severity": "error",
+      "rationale": "The artifact's bytes are in this machine's vault cache, they hash to the digest the catalog records, and the span is not in them. Whitespace is normalized on both sides and nothing else is, so a re-wrapped quotation compares equal and a retyped one does not. A span read from a rendered page is compared with the bytes as stored, markup included. The repair is to read the document again and copy the words from it; editing the span until the finding clears is the one response that destroys what the check is for.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "quotation-unchecked",
+      "title": "A quotation whose artifact cannot be read here",
+      "severity": "info",
+      "rationale": "A vault stores bytes and git stores the record of them, so a lint run can compare only the bytes this machine has fetched, and only when they are text. On a CI runner every quotation lands here. Reported rather than passed, because a quotation nobody compared and one that held are different facts; Info, because an empty cache is not a defect in the corpus. `yidam vault pull` fetches the bytes, and a PDF waits on a text reading of one (#1172).",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "refusal-span-drift",
       "title": "A declared refusal quotes text its own node no longer holds",
       "severity": "error",

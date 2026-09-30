@@ -171,8 +171,8 @@ pub struct Class {
 pub struct ClassProperty {
     #[serde(default)]
     pub name: String,
-    /// `string`, `text`, `date`, `number`, `ref`, `claim` — or anything else, which is
-    /// unchecked.
+    /// `string`, `text`, `date`, `number`, `ref`, `claim`, `quotation` — or anything else,
+    /// which is unchecked.
     #[serde(default)]
     pub r#type: String,
     /// What the property is for, as the class writes it.

@@ -191,7 +191,7 @@ pub fn corpus_ontology_schema() -> Value {
                         "name": non_empty_string(),
                         "type": {
                             "type": "string",
-                            "enum": ["string", "date", "number", "ref", "text", "claim"],
+                            "enum": ["string", "date", "number", "ref", "text", "claim", "quotation"],
                             "description": "`claim` marks a property whose value IS an \
                                             evidence tag — `verified`, `inference`, or \
                                             `open` — rather than prose that mentions one. \
@@ -199,7 +199,11 @@ pub fn corpus_ontology_schema() -> Value {
                                             claim vocabulary be counted at all: without it, \
                                             only the bracketed token in serialized text is \
                                             seen, and a consumer storing `claim_tag: open` \
-                                            had 2 of its 26 open questions found."
+                                            had 2 of its 26 open questions found. \
+                                            `quotation` marks a value that is a verbatim \
+                                            span of a catalogued document, written \
+                                            `{of, span, sha256?}`; lint holds the span to \
+                                            the artifact's cached bytes (RFC-0046)."
                         },
                         "description": non_empty_string(),
                         "required": {
@@ -473,7 +477,7 @@ pub fn corpus_universal_schema() -> Value {
                         },
                         "type": {
                             "type": "string",
-                            "enum": ["string", "date", "number", "ref", "text", "claim"],
+                            "enum": ["string", "date", "number", "ref", "text", "claim", "quotation"],
                             "description": "Universal does not mean untyped — `property-type` \
                                             checks these exactly as it checks a class's own, \
                                             and a class naming the same property wins."

@@ -163,20 +163,25 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 ///
 /// The argument for the three spellings the check admits is in the evidence halves and charged
 /// to [`PAIR_FLOOR`].
+///
+/// **Raised on two occasions when `GRAPH.md` gained the `quotation` rule (#1070, RFC-0046).**
+/// The delta is **47 words in `GRAPH.md`**, under *The class contract*, on *Before you write or
+/// revise a node* and *Before you change a class* — the two occasions that link it. The
+/// argument is in `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
 const READ_CEILING: &[(&str, &str, usize)] = &[
-    ("AGENTS.md", "Before you write or revise a node", 6_436),
+    ("AGENTS.md", "Before you write or revise a node", 6_483),
     ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
         4_382,
     ),
-    ("AGENTS.md", "Before you change a class", 4_758),
+    ("AGENTS.md", "Before you change a class", 4_805),
     ("AGENTS.md", "Before you retrieve", 2_959),
     (
         "sadhana/root/AGENTS.md",
         "Before you write or revise a node",
-        7_630,
+        7_677,
     ),
     ("sadhana/root/AGENTS.md", "Before you run a phase", 5_800),
     (
@@ -184,7 +189,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
         "Before a claim crosses a corpus boundary",
         5_576,
     ),
-    ("sadhana/root/AGENTS.md", "Before you change a class", 5_952),
+    ("sadhana/root/AGENTS.md", "Before you change a class", 5_999),
     ("sadhana/root/AGENTS.md", "Before you retrieve", 4_153),
 ];
 
@@ -310,7 +315,16 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// path whole: **103 words in `GRAPH.md`** (the `edge-source-unresolved` row and paragraph)
 /// and **85 in `agent-conduct.md`** (the fourth bullet under *An edge is a claim*). 28,107 +
 /// 188 is this figure exactly, and the two deltas are the ones [`READ_CEILING`] moved by.
-const BOOTSTRAP_CEILING: usize = 28_295;
+///
+/// **Raised to 28,342 when `GRAPH.md` gained the `quotation` rule (#1070, RFC-0046).** The delta
+/// is **47 words in `GRAPH.md`**, the same 47 both recurring routes moved by, and 28,295 + 47 is
+/// this figure exactly, so nothing else on the path moved.
+///
+/// **Raised to 28,398 when step 6 named the claim tags a seeded node carries (#968).** The
+/// delta is **56 words in `bootstrap.md`**, and 28,342 + 56 is this figure exactly, so nothing
+/// else on the path moved. The 119 further words of argument are in `bootstrap.evidence.md`
+/// and charged to [`PAIR_FLOOR`].
+const BOOTSTRAP_CEILING: usize = 28_398;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -423,11 +437,16 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// figures exactly, so neither pair carried slack before this edit and neither carries any
 /// after it.
 ///
+/// **`bootstrap.md` re-measured to 10,985 for #968.** 175 words arrived — 56 in the rules half,
+/// where step 6 now names the claim tags, and 119 in the evidence half, which carries the
+/// measurement behind them. 10,810 + 175 is this figure exactly, so the pair carried no slack
+/// before this edit and carries none after it, and the 56 are the same 56 [`BOOTSTRAP_CEILING`]
+/// moved by.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_686),
     ("yidam/prelude/GRAPH.md", 9_948),
     ("yidam/prelude/guidelines/directories.md", 12_618),
-    ("yidam/prelude/skills/bootstrap.md", 10_810),
+    ("yidam/prelude/skills/bootstrap.md", 10_985),
 ];
 
 fn read(rel: &str) -> String {
