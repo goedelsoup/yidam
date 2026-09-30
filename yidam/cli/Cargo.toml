@@ -271,6 +271,14 @@ sqlite-vec = { version = "0.1.9", optional = true }
 oxrdf = { version = "0.3", optional = true }
 oxttl = { version = "0.2", optional = true }
 
+# ── optional: `pdf-text` — a text reading of a PDF artifact (#1172). Pure Rust. ─
+#
+# Pinned exactly: the reading a record names is the output of one extractor at one version,
+# and the record says which (`reading::EXTRACTOR`, which a test holds to this pin). Bumping
+# this changes what a new reading is, never what a recorded one was — lint compares against
+# the stored bytes.
+pdf-extract = { version = "=0.12.1", optional = true }
+
 # ── optional: `calculators-gluon` — the typed calculator arm (RFC-0042). ───
 #
 # A statically typed, effect-tracked embedded language, so that a calculator's purity is a
@@ -363,7 +371,7 @@ tokio-util = { version = "0.7", default-features = false, features = ["io"], opt
 # `unrecognized subcommand`, which is not "this feature is unavailable" but "a
 # documented workflow is impossible". Every other gated feature degrades to a
 # missing capability; this one degraded to a broken instruction.
-default = ["reports", "tonpa", "vault-s3", "s3-vectors", "export-graph", "serve-http", "catalog-fetch"]
+default = ["reports", "tonpa", "vault-s3", "s3-vectors", "export-graph", "serve-http", "catalog-fetch", "pdf-text"]
 # The name of the base build — and **not a supported feature set on its own.**
 #
 # It gates nothing. `reports = []` enables no dependency, and there is no
@@ -522,6 +530,21 @@ serve-http = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "tokio/net"]
 # follow — is ungated in `cmd/catalog/location.rs`, which is #460's stated mitigation:
 # anything gated takes gated facts as arguments.
 catalog-fetch = ["dep:reqwest", "dep:tokio"]
+# A text reading of a PDF artifact (#1172), taken by `yidam catalog-extract`.
+#
+# In the default set, measured rather than assumed. It adds 35 packages to the
+# default tree — 27 new crates (lopdf, adobe-cmap-parser, ttf-parser, aes, …)
+# and 8 second versions of crates already linked (sha2 0.10, digest, rand 0.10,
+# …). All are pure Rust: no C library, no build-time tool. The release binary
+# grows 1,473,728 bytes (18,350,992 → 19,824,720, +7.4%) on aarch64-darwin.
+#
+# Why pay it in the default: lint needs no extractor — it reads the stored
+# reading — but the command that takes one does, and it runs on the machine
+# that holds the PDFs, which is the machine a researcher installed yidam on.
+# Leaving it out would make the reading a `cargo install --features` away from
+# everyone who has a PDF to quote. Without it, `catalog-extract` reports each
+# PDF skipped and records nothing.
+pdf-text = ["dep:pdf-extract"]
 # Everything — reproduces the pre-partition monolith (`cargo install --features full`).
 full = [
   "reports",
@@ -534,6 +557,7 @@ full = [
   "s3-vectors",
   "serve-http",
   "catalog-fetch",
+  "pdf-text",
 ]
 # `index` implies `vector-read`, so `full` carries it without naming it.
 

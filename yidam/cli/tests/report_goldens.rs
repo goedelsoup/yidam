@@ -463,6 +463,10 @@ const COMMANDS: &[(&str, &[&str])] = &[
     // `tailwater.yml`, which cites it — so the golden holds a real repair rather than a
     // "nothing to do".
     ("catalog-reconcile", &["catalog-reconcile", "--dry-run"]),
+    // Not the empty arm either: `stage-discharge.md` records one `application/pdf` artifact
+    // and no reading of it. `--dry-run` reads no cache, so the golden does not depend on what
+    // the machine running it has fetched; the reading itself is `tests/catalog_extract.rs`.
+    ("catalog-extract", &["catalog-extract", "--dry-run"]),
 ];
 
 /// Reports checked by running them, because they cannot have a golden.
@@ -2311,9 +2315,30 @@ const UNREACHED: &[(&str, &str)] = &[
          other goldens, so breaking one would move all of them to reach two declarations",
     ),
     (
+        "extracted[].commit.sha",
+        "the golden is a `--dry-run`, which commits nothing, against the fixture every other \
+         golden reads — the committed arm is tests/catalog_extract.rs, end to end",
+    ),
+    (
+        "extracted[].commit.subject",
+        "the golden is a `--dry-run`, which commits nothing — see `extracted[].commit.sha`",
+    ),
+    (
+        "extracted[].skipped",
+        "a PDF is skipped only when a run reads the cache, and a dry run does not, so the golden \
+         does not depend on what the machine running it has fetched — tests/catalog_extract.rs \
+         holds the not-in-cache arm",
+    ),
+    (
         "fetched",
         "`catalog-fetch`'s followable arm needs an entry with a `location:`, which would move the \
          other goldens — covered end to end in tests/fixtures/catalog-fetch/ (see stage.toml)",
+    ),
+    (
+        "sources[].artifacts[].text",
+        "a reading is recorded by `catalog-extract`, which the golden runs as a dry run; giving \
+         the fixture's PDF a recorded reading would move `lint` and `catalog-audit` for every \
+         other golden. The recorded arm is tests/catalog_extract.rs",
     ),
     (
         "findings[].region",

@@ -109,6 +109,24 @@ pub struct CatalogArtifact {
     /// dozen entries between stores in an afternoon — and a licence is not something that
     /// edit is allowed to undo. Enforced where uploads happen, not here.
     pub redistributable: Option<bool>,
+    /// A text reading of these bytes, for an artifact that is not itself text (#1172).
+    ///
+    /// A quotation of a PDF is compared with this rather than with the PDF. It is nested here
+    /// rather than listed beside it because it is not a revision of the document: a quotation
+    /// pins the PDF, and the reading follows. It goes where the PDF goes — `vault push` routes
+    /// and licenses it by this record's `vault:` and `redistributable:`, because a reading
+    /// carries the same words the licence is about.
+    pub text: Option<TextReading>,
+}
+
+/// A text reading recorded on an artifact. See `reading.rs`.
+#[derive(serde::Deserialize, serde::Serialize, Default, Clone, Debug, PartialEq, Eq)]
+pub struct TextReading {
+    /// The reading's own content address, in the same cache as the artifact's.
+    pub sha256: Option<String>,
+    /// What produced it, as `<crate> <version>` — so a person can reproduce it. Never re-run
+    /// to check it: lint compares against the stored bytes.
+    pub extractor: Option<String>,
 }
 
 /// Where an obtained artifact came from.

@@ -37,7 +37,7 @@ yidam doctor — /home/you/my-domain
   ok    governance   single-elector — no .yidam/sangha/electors.md
   ok    kuten        none — the loop runs on the template's defaults
   skip  kuten-read   no kuten is declared, so nothing carries one
-  ok    build        <version> (<commit>) with features: reports, export-graph, tonpa, serve-http, vault-s3, s3-vectors, catalog-fetch
+  ok    build        <version> (<commit>) with features: reports, export-graph, tonpa, serve-http, vault-s3, s3-vectors, catalog-fetch, pdf-text
 
 2 failing check(s), 4 warning(s).
 ```

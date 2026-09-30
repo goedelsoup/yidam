@@ -262,7 +262,16 @@ pub const GROUPS: &[Group] = &[
         // `catalog-reconcile` sits beside it because the pair is the point — one keeps what a
         // source gave, the other keeps what the corpus says about it — and separating them
         // would put the two halves of `catalog:`'s row in #460's table in different groups.
-        commands: &[w("vault"), w("catalog-fetch"), w("catalog-reconcile")],
+        //
+        // `catalog-extract` follows `catalog-fetch` for the reason `catalog-fetch` follows
+        // `vault`: it takes bytes already held, files new ones under their digest, and records
+        // them (#1172). What it writes is the entry's `text:` and an `extract:` commit.
+        commands: &[
+            w("vault"),
+            w("catalog-fetch"),
+            w("catalog-extract"),
+            w("catalog-reconcile"),
+        ],
     },
     Group {
         // Its own group rather than beside the gates. Every command there answers *is this

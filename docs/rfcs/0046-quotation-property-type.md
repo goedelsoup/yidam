@@ -82,13 +82,36 @@ The cached bytes are hashed before they are read. A cache file that does not has
 is not the artifact the entry records. It is reported unchecked, because drift found in it
 would be a finding about the cache.
 
-### Text media only
+### Text media, and a PDF's recorded reading
 
 A span is compared with the bytes as stored, markup included, after the whitespace
 normalization every span check here uses. `text/*`, the `+xml` and `+json` suffixes, and
-`application/json`, `xml` and `yaml` are text. A PDF has no deterministic text reading yet,
-and building one is its own work (#1172). A quotation of a PDF is reported unchecked, and the
-finding names its media type.
+`application/json`, `xml` and `yaml` are text.
+
+A PDF is compared with a text reading of it (#1172). `yidam catalog-extract` takes the reading
+once, files it in the vault cache under its own digest, and records it beside the PDF:
+
+```yaml
+artifacts:
+  - sha256: 2a985bfe…
+    media_type: application/pdf
+    text:
+      sha256: 91c3e0d4…
+      extractor: pdf-extract 0.12.1
+```
+
+Lint loads the reading by that digest and hashes it, as it does any artifact. It never runs an
+extractor, so a crate bump cannot change a finding with nothing in the corpus changed. A PDF
+with no reading recorded is reported unchecked, and the finding names `catalog-extract`.
+
+The reading is nested under the PDF's record and not listed as a second artifact. A second
+record would be a second revision, and every quotation of a one-PDF entry would suddenly need a
+pin. The pin still names the PDF; the reading follows it.
+
+Extracted text keeps a hyphen a line broke at: `inter- est` where the page shows `interest` over
+a line break. The bytes do not say whether the hyphen was the author's. So at a hyphen that ends
+a line, a span matches with the hyphen, without it, or as extracted. Everywhere else a hyphen is
+compared like any other character.
 
 ### The pin is required exactly where there is a choice
 
@@ -123,7 +146,8 @@ or the cache says. A value lint cannot read counts nothing.
 
 - **Rename-blind history checks.** #1070 also asked whether `history.rs`, `lineage.rs` and
   `line_citations.rs` miss a rename written as a delete plus an add. That audit is #1171.
-- **PDF text.** #1172.
+- **Other media.** An image, a spreadsheet or an archive has no reading, and a quotation of one
+  is reported unchecked.
 
 ## Migration & compatibility
 

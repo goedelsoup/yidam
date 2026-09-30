@@ -104,7 +104,7 @@ fn today_iso() -> String {
 }
 
 /// The entries this run is about.
-fn select(catalog: &Path, filter: Option<&str>) -> Result<Vec<PathBuf>> {
+pub(super) fn select(catalog: &Path, filter: Option<&str>) -> Result<Vec<PathBuf>> {
     let all = walk_md_files(catalog);
     let Some(want) = filter else {
         // README.md is the REGEN target `catalog-audit` writes, not a source. Excluded here
@@ -141,7 +141,7 @@ fn select(catalog: &Path, filter: Option<&str>) -> Result<Vec<PathBuf>> {
 /// into place under its digest, and `rename` is atomic only within a filesystem. This is the
 /// same reasoning `Cache::put_file` states about its `.part` files, and staging across a
 /// filesystem boundary would silently undo it.
-fn staging(cache: &Cache, n: usize) -> PathBuf {
+pub(super) fn staging(cache: &Cache, n: usize) -> PathBuf {
     cache
         .root()
         .join("staging")
@@ -275,6 +275,8 @@ fn artifact_for(o: &Obtained, prior: Option<&CatalogArtifact>) -> CatalogArtifac
         from: Some(ArtifactOrigin::Location(o.location)),
         vault: prior.and_then(|p| p.vault.clone()),
         redistributable: prior.and_then(|p| p.redistributable),
+        // A reading is of these bytes, and a prior record's was of others.
+        text: None,
     }
 }
 
@@ -661,6 +663,7 @@ mod tests {
             from: Some(ArtifactOrigin::Location(at)),
             vault: vault.map(str::to_string),
             redistributable: r,
+            text: None,
         }
     }
 
