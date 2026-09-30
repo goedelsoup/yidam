@@ -408,6 +408,25 @@ pub(crate) fn deliver<T: Serialize>(
 ///
 /// `@path` reads a file, which is how the tests hand one over; anything else is the JSON
 /// itself, which is how Argo does — a task's output parameter arrives inline.
+///
+/// # Why an exact version match is safe here, and what would make it unsafe
+///
+/// The refusal is exact, not "this version or older", and that is only safe because of
+/// who writes a step record and what is in it. The step pod and the lander run one image
+/// (the workflow names it once), so the producer and the consumer of this record are the
+/// same binary and a mismatch means a workflow assembled from two releases — which is worth
+/// refusing loudly.
+///
+/// It is also safe because the record carries the receipt's *path*, not its fields. The
+/// receipt is committed in the tree under its own `receipt::FORMAT_VERSION` and read by
+/// every later binary that opens the corpus, and that number moves when what a run records
+/// moves. `CONTRACT_VERSION` moves only when what one pod tells the next moves.
+///
+/// Copying a receipt field into [`StepOutput`] would break that. Every receipt bump would
+/// then be a contract bump, and a lander one release behind its steps would refuse a record
+/// it could otherwise have landed — the *"additive fields strand old producers"* failure,
+/// in a spot where it strands a whole workflow. `the_step_record_carries_the_receipts_path_and_none_of_its_fields`
+/// is what goes red if that happens.
 pub(crate) fn read_step_output(arg: &str) -> Result<StepOutput> {
     let text = match arg.strip_prefix('@') {
         Some(path) => std::fs::read_to_string(path)
@@ -540,6 +559,92 @@ mod tests {
         assert_ne!(future, json);
         let err = read_step_output(&future).unwrap_err().to_string();
         assert!(err.contains("format_version 2"), "{err}");
+    }
+
+    /// Every key a value serializes to, at any depth.
+    fn keys(v: &serde_json::Value, into: &mut std::collections::BTreeSet<String>) {
+        match v {
+            serde_json::Value::Object(m) => {
+                for (k, v) in m {
+                    into.insert(k.clone());
+                    keys(v, into);
+                }
+            }
+            serde_json::Value::Array(a) => a.iter().for_each(|v| keys(v, into)),
+            _ => {}
+        }
+    }
+
+    /// The step record names the receipt by path and copies none of what it records, so a
+    /// receipt bump is never a contract bump — see [`read_step_output`].
+    ///
+    /// Both key sets are read off the serialized structs, so a field added to either side is
+    /// in the comparison the day it compiles. What is written by hand is the overlap the
+    /// contract *does* share with the receipt, and that is four names that identify the step,
+    /// not a list of what to look for. The receipt is built with every optional field
+    /// present, because a field skipped when absent is a key this would not see.
+    #[test]
+    fn the_step_record_carries_the_receipts_path_and_none_of_its_fields() {
+        use crate::cmd::run::manifest::Run;
+        use crate::cmd::run::receipt::{self, File, Input, Receipt};
+        let file = || File {
+            path: ".yidam/corpus/a.md".into(),
+            sha256: "d".repeat(64),
+        };
+        let receipt = Receipt {
+            format_version: receipt::FORMAT_VERSION,
+            step: "travel-tier".into(),
+            kind: "calculator",
+            verb: "compute".into(),
+            run: Run::Argv(vec!["sh".into(), "x.sh".into()]),
+            input_state: "e".repeat(64),
+            input: Input {
+                commit: "b".repeat(40),
+                manifest_sha256: "f".repeat(64),
+                config_sha256: "f".repeat(64),
+                reads: vec![".yidam/corpus/**".into()],
+                files: vec![file()],
+                resolved_graph_sha256: Some("g".repeat(64)),
+                script_sha256: Some("h".repeat(64)),
+            },
+            writes: vec![".yidam/computed/**".into()],
+            outputs: vec![file()],
+        };
+        let record = StepOutput {
+            format_version: CONTRACT_VERSION,
+            step: "travel-tier".into(),
+            outcome: StepOutcome::Ran,
+            sha: Some("a".repeat(40)),
+            class: "operational".into(),
+            verb: "compute".into(),
+            receipt: receipt::Receipt::path("travel-tier"),
+            input: "b".repeat(40),
+            bundle: Some("c".repeat(64)),
+        };
+
+        let mut recorded = std::collections::BTreeSet::new();
+        keys(&serde_json::to_value(&receipt).unwrap(), &mut recorded);
+        let mut contract = std::collections::BTreeSet::new();
+        keys(&serde_json::to_value(&record).unwrap(), &mut contract);
+        assert!(
+            recorded.len() > 10 && contract.len() > 5,
+            "the key walk saw nothing: {recorded:?} / {contract:?}"
+        );
+        let shared: Vec<&str> = contract
+            .intersection(&recorded)
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            shared,
+            ["format_version", "input", "step", "verb"],
+            "the step record holds a field the receipt records. A receipt bump would then be a \
+             contract bump, and a lander one release behind would refuse the record. Carry the \
+             receipt's path, which the record already does, and read the field from the tree."
+        );
+        assert!(
+            record.receipt.ends_with(".yml"),
+            "the record names the receipt by path"
+        );
     }
 
     #[test]
