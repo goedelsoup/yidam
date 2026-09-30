@@ -13,7 +13,7 @@ usually does not; a fix that makes a previously-quiet misconfiguration loud does
 
 ## How this reaches a release
 
-A note is written as its own file in [`changes/upgrading/`](https://github.com/goedelsoup/yidam/tree/main/changes/upgrading).
+A note is written as its own file in [`.changes/upgrading/`](https://github.com/goedelsoup/yidam/tree/main/.changes/upgrading).
 The version it ships in is unknown until the release is cut. Name the file `<issue>-<slug>.md` and
 open it with the note's `### ` heading.
 

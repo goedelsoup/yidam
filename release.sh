@@ -131,7 +131,7 @@ fi
 # `docs/upgrading.md` carries the sentence a version number cannot: your working
 # setup will behave differently, and here is the repair. `release.yml` prepends
 # that file's `## <tag>` section to the generated notes, so a note filed under the
-# tag reaches the release and a note still staged in `changes/upgrading/` does not.
+# tag reaches the release and a note still staged in `.changes/upgrading/` does not.
 #
 # Both ways that can go wrong are silent. The note is dropped from the release
 # being cut, or — if nobody notices — carried into the next one, describing a
@@ -144,7 +144,7 @@ fi
 # Read from HEAD for `WORKFLOWS`'s reason: the tag names a commit, and a note that
 # is only in the working tree is a note the tagged ref does not carry.
 NOTES="docs/upgrading.md"
-STAGED_NOTES="changes/upgrading"
+STAGED_NOTES=".changes/upgrading"
 if git cat-file -e "HEAD:$NOTES" 2>/dev/null; then
   # Every `.md` under the directory except its README, which explains the directory.
   staged=$(git ls-tree --name-only "HEAD:$STAGED_NOTES" 2>/dev/null | grep '\.md$' | grep -vx 'README.md' || true)

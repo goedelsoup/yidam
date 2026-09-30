@@ -38,12 +38,12 @@ const rootArg = process.argv.indexOf('--root');
 const baseArg = process.argv.indexOf('--baseline');
 const DOCS = rootArg > 0 ? process.argv[rootArg + 1] : join(here, '../../../../docs');
 const BASELINE = baseArg > 0 ? process.argv[baseArg + 1] : join(here, 'prose-baseline.json');
-// Staged upgrade notes: `changes/upgrading/`, one note per file until a release files them into
+// Staged upgrade notes: `.changes/upgrading/`, one note per file until a release files them into
 // `upgrading.md`. Only read by default when the real tree is, so a fixture run sees only what
 // it was handed.
 const notesArg = process.argv.indexOf('--notes');
 const NOTES = notesArg > 0 ? process.argv[notesArg + 1]
-  : rootArg > 0 ? null : join(here, '../../../../changes/upgrading');
+  : rootArg > 0 ? null : join(here, '../../../../.changes/upgrading');
 
 /** Pages the site does not publish, so the standard does not reach them. */
 const UNPUBLISHED = new Set(['README.md']);

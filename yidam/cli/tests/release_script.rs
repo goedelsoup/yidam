@@ -403,12 +403,12 @@ fn the_tag_exists_check_does_not_match_another_layers_tag() {
 }
 
 /// Where a note waits for its release, one file each.
-const STAGED_NOTES: &str = "changes/upgrading";
+const STAGED_NOTES: &str = ".changes/upgrading";
 
 /// The line `scripts/file-upgrade-notes.sh` inserts a release's section under.
 const FILING_ANCHOR: &str = "<!-- file-upgrade-notes: new release sections go below this line -->";
 
-/// The notes staged in `changes/upgrading/`, **as HEAD carries them** — file names, sorted.
+/// The notes staged in `.changes/upgrading/`, **as HEAD carries them** — file names, sorted.
 ///
 /// From HEAD and not the working tree, because that is where `release.sh` reads them and its
 /// reason is load-bearing: a tag names a commit, so a note only in the working tree is a note
@@ -787,7 +787,7 @@ fn upgrade_sections() -> Vec<(String, Vec<String>)> {
 /// `cli/v0.10.0` tag) and each filed under that heading; found while cutting `cli/v0.11.0`.
 ///
 /// This is a third way the mechanism fails silently, and it is not the one `release.sh` covers.
-/// A staged note sits in `changes/upgrading/`, where it looks unfinished. A misfiled note sits
+/// A staged note sits in `.changes/upgrading/`, where it looks unfinished. A misfiled note sits
 /// under a heading that looks **filed**, so every existing check reads it as done. Staging notes
 /// as files and filing them by task (`scripts/file-upgrade-notes.sh`) takes the heading out of
 /// the author's hands, which removes the usual way in; this still catches a hand edit.

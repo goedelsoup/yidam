@@ -320,7 +320,7 @@ jobs:
       # THIS tag goes above it, because the person who needs it is reading the top
       # of the page and stops there. A release with no section prepends nothing and
       # looks exactly as it did before; `release.sh` is what refuses a note still
-      # staged in `changes/upgrading/` rather than filed under the tag.
+      # staged in `.changes/upgrading/` rather than filed under the tag.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}

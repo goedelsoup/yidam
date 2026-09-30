@@ -4,7 +4,7 @@
 #   scripts/file-upgrade-notes.sh <tag>
 #   mise run file-upgrade-notes cli/v0.17.0
 #
-# A note is written as its own file under `changes/upgrading/`, one `### ` note per file, while
+# A note is written as its own file under `.changes/upgrading/`, one `### ` note per file, while
 # the version it ships in is still unknown. This moves every one of them into
 # `docs/upgrading.md` under `## <tag>` and deletes the files, staging both. The commit is left to
 # the person cutting the release, and `release.sh` refuses the tag while any note is unfiled.
@@ -32,7 +32,7 @@ fi
 cd "$(git rev-parse --show-toplevel)"
 
 DOC="docs/upgrading.md"
-DIR="changes/upgrading"
+DIR=".changes/upgrading"
 # The line new sections go under. A marker rather than "before the first `## `", because the
 # document opens with `## ` sections of its own that are not releases.
 ANCHOR='<!-- file-upgrade-notes: new release sections go below this line -->'

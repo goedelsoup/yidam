@@ -112,7 +112,7 @@ console.error('a staged upgrade note is held to the tier 1 ceiling, with no allo
   const root = tree({ 'quickstart.md': SHORT });
   const base = join(root, 'b.json');
   writeFileSync(base, JSON.stringify({ 'quickstart.md': 0 }));
-  // Beside the docs root, not inside it, as `changes/upgrading/` sits beside `docs/`.
+  // Beside the docs root, not inside it, as `.changes/upgrading/` sits beside `docs/`.
   const notes = mkdtempSync(join(tmpdir(), 'notes-'));
   writeFileSync(join(notes, 'README.md'), LONG);
   writeFileSync(join(notes, '1-short.md'), SHORT.replace('## A section', '### A note'));
