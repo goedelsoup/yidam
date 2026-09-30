@@ -1,7 +1,7 @@
 # RFC-0026 — A run is a commit somebody can refuse (the orchestrator layer)
 
 - **Status:** Implemented
-- **Commands:** `run`, `phase`
+- **Commands:** `run`, `phase`, `cluster`, `gather`
 - **Track:** I21
 - **Relates to:**
   - RFC-0020 (the carriage rule this extends from findings to executions)
@@ -49,6 +49,13 @@
   `catalog-fetch`, `catalog-extract` and `catalog-reconcile` ahead of the manifest, from a set
   compiled into the binary. The receipt is `format_version: 2`, and records what produced the
   output. Connectors stay unrunnable in `run` (#460 decision 9).
+- **Amended 2026-09-30 (#476):** §8 is new. `yidam gather` asks installed `tonpa` peers one
+  question on one machine and lands what they said as `cites:` on a `?` question node, on a
+  `propose/*` branch. Four premises in #476 were checked against the code and corrected there:
+  no `open:` frontmatter key exists (a question is a `?`-label node, RFC-0037); `citations::moved`
+  writes no `open:` either, it prints its questions; no class-correspondence mechanism existed;
+  and the vault's `has` is not on the local path, because `tonpa` fetches over HTTP. The cluster
+  fan-out is a follow-up child.
 - **Downstream reference case:** none yet. The first consumer is `examples/streamflow`, by
   construction — see "Why the first thing built is not the manifest".
 
@@ -822,6 +829,58 @@ both key sets off the serialized structs and fails if the record gains a field t
 **What is not built.** In a pod, the bytes a fetch obtains go to that pod's cache, not to the
 vault. `catalog-extract` in a later pod therefore records what it can read and skips the PDFs it
 cannot, saying why. Carrying fetched bytes into the vault between pods is not part of this.
+
+### 8 — A gather asks peers a question and lands what they said, cited
+
+#476 is the last of #460's children, and the one that crosses a corpus boundary. `tonpa` pins a
+peer and `query --across` can read it, and neither can *ask* it anything: `--across` matches
+class names by spelling, which is the alignment #460's failure table forbids, and it returns rows
+rather than landing anything a corpus keeps. `yidam gather <name>` is the surface, and this is
+the one-machine slice — a cluster fan-out reuses §7 and is its own child.
+
+**The question is a query in the gatherer's own classes, translated per peer by a file a person
+wrote.** `.yidam/gathers/<name>.toml` names a question in words, one RFC-0018 step, the property
+whose value is the answer, an optional key, the local class to land as, and a `[peers.<name>]`
+correspondence per peer mapping local class and property names to the peer's. The query is
+checked against the local schema first, so a spec the gathering corpus could not ask itself is
+refused before any peer is read. The translation rewrites the step's class and each predicate's
+property, then runs through the same `check` and `execute` `--across` uses, once per peer and
+against that peer's own schema. One step only: a hop would need a *relationship*
+correspondence, and an anchor would rank by an embedding the peer did not compute.
+
+**An answer is a citation, never an import.** Each matched value becomes an RFC-0019 `cites:`
+entry — package, node, the bundle manifest's `commit`, and a span quoted from the node's own
+bytes, `prop: value` where that form is there verbatim and the bare value where YAML quoting kept
+it out. Before landing, each entry is put to `citations::findings` — the predicate the four lint
+checks filter — and one the gate would fault is not landed; its node is reported `unquotable`.
+No `tag` is written: a peer's standing is the peer's, and the weakest-claim rule cannot be
+computed across the boundary. No `links:` entry is written, no node is copied, and no property
+of the landed node records a value of its own.
+
+**Disagreement is a second question, not a resolution.** Two peers disagree when rows with an
+equal key carry different answer sets. Each such key lands a second `?` node citing every answer
+given under it. Choosing between them is the resolution Article V confines to a sangha; a
+peer that disagrees with *itself* is that peer's question and is not compared.
+
+**Every peer has an outcome, and absence is one of them.** `answered`, `empty`, `unaligned` (a
+class or property the correspondence does not reach, or one the peer does not declare, or a
+translated query the peer's schema rejects), `refused` (a path dependency — a working tree has no
+commit to cite — or a bundle whose manifest records none, or one that is not what `tonpa.lock`
+pins), `missing` (named, not installed) and `undeclared` (installed, not named). The report
+carries all of them, and so does the landed node's description, so a reader of the corpus alone
+can see who was not heard from. A gather that silently asked fewer peers than it names would read
+as a consensus it does not have.
+
+**It writes the way §5 writes.** One `open:` commit per question node, authored `yidam gather`,
+built on a temporary index from `HEAD`, on `propose/gather/<name>/<head>`. `.yidam/` must be
+committed, for `propose`'s reason. The tree is built first: if `HEAD` or the branch already holds
+exactly it, nothing is committed and no ref moves, so a repeat over unchanged peers writes
+nothing. A branch holding a different answer is refused without `--force`.
+
+**What is not built.** Nothing is fetched: a gather reads what `tonpa install` left, and a
+bundle's lock hash is checked rather than refreshed. On a cluster, the vault's `has` would answer
+before a transfer; locally there is no transfer to skip. Open question 1 — how a corpus declines
+to be gathered from — stays open; a gather reads only what a peer published.
 
 ## What this does not do
 

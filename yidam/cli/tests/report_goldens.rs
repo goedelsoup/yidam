@@ -588,6 +588,12 @@ const NO_REPORT: &[(&str, &str)] = &[
          `due`'s reason for being live, plus a remote no fixture here holds. Covered in \
          `cluster_run.rs`",
     ),
+    (
+        "gather",
+        "requires `.yidam/gathers/<name>.toml` and installed peers, which the fixture holds \
+         neither of, and lands a branch when it has them. Exercised end to end in `gather.rs`, \
+         which asserts the envelope and every peer's outcome",
+    ),
     ("query", "requires a query expression"),
     ("pack", "requires a query expression"),
     ("estimate", "requires a query expression"),
