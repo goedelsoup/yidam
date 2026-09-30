@@ -527,6 +527,51 @@ fn a_prescribed_git_add_stages_no_cargo_install_bookkeeping() {
     );
 }
 
+/// `git add -A` after the editor extension activates stages no `.vscode/settings.json`.
+///
+/// The extension's vendor guard writes `files.readonlyInclude` at workspace scope, and that
+/// scope is a file in the working tree. Three derived repositories committed it inside a
+/// `vendor:` or `regen:` commit, and #1065 read the copies as hand-made. On the machine where
+/// those corpora are edited, the same file also carries interpreter paths under a home
+/// directory. So a tracked copy leaks machine paths.
+///
+/// `core.excludesFile` is pointed at nothing. A developer's global ignore often lists
+/// `.vscode/`, and under one this test passes with no rule in the scaffold at all. The commits
+/// were made on a machine without such a file, and that condition is what is reproduced here.
+/// `.vscode/launch.json` is the over-reach check: the rule names one file, not the directory.
+#[test]
+fn a_prescribed_git_add_stages_no_editor_workspace_settings() {
+    let repo = Derived::bootstrap();
+    let root = repo.path();
+
+    // What activation writes, as the three committed copies read.
+    std::fs::create_dir_all(root.join(".vscode")).unwrap();
+    std::fs::write(
+        root.join(".vscode/settings.json"),
+        "{\n    \"files.readonlyInclude\": {\n        \"**/.yidam/.vendor/**\": true\n    }\n}\n",
+    )
+    .unwrap();
+    std::fs::write(root.join(".vscode/launch.json"), "{}\n").unwrap();
+    // A subfolder opened as its own workspace gets its own copy.
+    std::fs::create_dir_all(root.join("web/.vscode")).unwrap();
+    std::fs::write(root.join("web/.vscode/settings.json"), "{}\n").unwrap();
+
+    git(root, &["-c", "core.excludesFile=/dev/null", "add", "-A"]);
+    let staged = common::git::out(root, &["diff", "--cached", "--name-only"]);
+    let staged: Vec<&str> = staged.lines().collect();
+
+    assert!(
+        !staged.iter().any(|p| p.ends_with(".vscode/settings.json")),
+        "the command bootstrap and PROTOCOL.md both prescribe staged the editor's workspace \
+         settings, which the extension writes on every activation. Fix it in \
+         `sadhana/root/gitignore`. Staged: {staged:?}"
+    );
+    assert!(
+        staged.contains(&".vscode/launch.json"),
+        "the ignore rule is too broad — it took all of `.vscode/`. Staged: {staged:?}"
+    );
+}
+
 /// Step 8.5 is load-bearing, and the skill still prescribes it.
 ///
 /// The bootstrap protocol used to end at the `vendor:` commit. It installed a CI workflow
