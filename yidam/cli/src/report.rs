@@ -107,6 +107,12 @@ impl YidamBlock {
         if cfg!(feature = "catalog-fetch") {
             features.push("catalog-fetch".to_string());
         }
+        // Not a subcommand gate: `catalog-extract` exists in every build. This says whether
+        // it can take a reading of a PDF, or only reports each one skipped (#1172). Lint
+        // needs none of it — it compares against readings already recorded.
+        if cfg!(feature = "pdf-text") {
+            features.push("pdf-text".to_string());
+        }
         Self {
             version: env!("CARGO_PKG_VERSION").to_string(),
             commit: env!("YIDAM_BUILD_COMMIT").to_string(),

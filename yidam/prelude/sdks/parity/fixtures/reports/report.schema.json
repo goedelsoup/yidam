@@ -884,6 +884,29 @@
                     "null"
                   ],
                   "description": "Whether these bytes may leave this machine at all \u2014 the licensing bit, which overrides `vault` above. Declared with no `type` until #650, and it is the field where an unasserted contract costs the most."
+                },
+                "text": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "description": "A text reading of these bytes, for an artifact that is not text \u2014 a PDF (#1172). Null where none was taken. A quotation of the artifact is compared with the reading, which is itself an artifact in the vault; lint never runs an extractor.",
+                  "properties": {
+                    "sha256": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Content address of the reading, 64 lowercase hex."
+                    },
+                    "extractor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "The extractor and version that took the reading, so a person can reproduce it. Never re-run to check one."
+                    }
+                  }
                 }
               }
             }
@@ -2357,6 +2380,101 @@
               "subject": {
                 "type": "string",
                 "description": "The subject line, leading verb included."
+              }
+            }
+          }
+        }
+      }
+    },
+    "extracted": {
+      "type": "array",
+      "description": "`catalog-extract` only. One row per catalog entry recording a PDF that has no text reading yet; an entry with none is absent. NOT `entries`, which this contract already gives to `log`'s commits. `read` is what was read and recorded, `skipped` is a PDF that was not, with the reason.",
+      "items": {
+        "type": "object",
+        "required": [
+          "entry",
+          "read",
+          "skipped",
+          "commit"
+        ],
+        "properties": {
+          "entry": {
+            "type": "string",
+            "description": "The catalog entry's file stem."
+          },
+          "read": {
+            "type": "array",
+            "description": "One row per PDF read. Under `--dry-run` the rows are present with `sha256` and `bytes` null, because a dry run reads nothing.",
+            "items": {
+              "type": "object",
+              "required": [
+                "artifact",
+                "sha256",
+                "extractor",
+                "bytes"
+              ],
+              "properties": {
+                "artifact": {
+                  "type": "string",
+                  "description": "Content address of the PDF read."
+                },
+                "sha256": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Content address of the reading, as recorded under the PDF's `text:`. Null under `--dry-run`."
+                },
+                "extractor": {
+                  "type": "string",
+                  "description": "The extractor and version that took the reading, as recorded."
+                },
+                "bytes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "Size of the reading. Null under `--dry-run`."
+                }
+              }
+            }
+          },
+          "skipped": {
+            "type": "array",
+            "description": "PDFs this run did not read: not in this machine's cache, corrupt there, unreadable by the extractor, or read as no text at all, which is what a scanned page gives.",
+            "items": {
+              "type": "object",
+              "required": [
+                "artifact",
+                "why"
+              ],
+              "properties": {
+                "artifact": {
+                  "type": "string"
+                },
+                "why": {
+                  "type": "string",
+                  "description": "Written for someone reading a terminal."
+                }
+              }
+            }
+          },
+          "commit": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The `extract:` commit this run authored, or null when nothing was recorded.",
+            "required": [
+              "sha",
+              "subject"
+            ],
+            "properties": {
+              "sha": {
+                "type": "string"
+              },
+              "subject": {
+                "type": "string"
               }
             }
           }

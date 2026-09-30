@@ -54,7 +54,8 @@
           "retrieved": "2026-08-22",
           "from": null,
           "vault": "none",
-          "redistributable": null
+          "redistributable": null,
+          "text": null
         }
       ]
     }

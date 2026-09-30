@@ -284,6 +284,25 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
+    /// Take a text reading of each PDF artifact the catalog records, for quotations of it.
+    ///
+    /// Reads the PDF from the local vault cache, files the extracted text there under its
+    /// own content address, records that digest and the extractor under the PDF's record as
+    /// `text:`, and commits it as `extract:`. Lint compares a quotation of the PDF with that
+    /// reading and never runs an extractor itself.
+    ///
+    /// A record that already has a reading keeps it. Extraction needs the `pdf-text`
+    /// feature, which is in the default build.
+    #[command(name = "catalog-extract")]
+    CatalogExtract {
+        /// One entry, by file stem or `name:`. Absent means every entry recording a PDF.
+        entry: Option<String>,
+        /// Report which PDFs would be read. Reads and writes nothing.
+        #[arg(long)]
+        dry_run: bool,
+        #[command(flatten)]
+        format: FormatArg,
+    },
     /// Bring a catalog entry's `used-by` list back into agreement with the citations.
     ///
     /// The citations are authoritative — they cannot drift from the corpus and a
@@ -1417,6 +1436,15 @@ fn run() -> Result<()> {
                 format: format.value,
             })
         }
+        Command::CatalogExtract {
+            entry,
+            dry_run,
+            format,
+        } => yidam::catalog_extract(&yidam::ExtractOptions {
+            entry,
+            dry_run,
+            format: format.value,
+        }),
         Command::CatalogReconcile {
             entry,
             dry_run,

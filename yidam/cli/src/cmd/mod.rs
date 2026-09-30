@@ -93,8 +93,8 @@ pub use bench::{
 pub use build::{crates_index, packages_index};
 pub use bundle::bundle;
 pub use catalog::{
-    catalog_audit, fetch as catalog_fetch, parse_binding, reconcile as catalog_reconcile,
-    FetchOptions, ReconcileOptions,
+    catalog_audit, extract as catalog_extract, fetch as catalog_fetch, parse_binding,
+    reconcile as catalog_reconcile, ExtractOptions, FetchOptions, ReconcileOptions,
 };
 pub use check_diff::check_diff;
 pub use clone::{clone, NOT_INHERITED, TEMPLATE_MARKERS};

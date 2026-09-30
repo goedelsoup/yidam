@@ -129,7 +129,7 @@ rather than a lower one — so #463 raised it to the pin, where every build veri
 
 ```console
 $ yidam --version
-yidam <version> (<commit>) [reports export-graph tonpa serve-http vault-s3 s3-vectors catalog-fetch]
+yidam <version> (<commit>) [reports export-graph tonpa serve-http vault-s3 s3-vectors catalog-fetch pdf-text]
 ```
 
 Three facts, and the third is the one that matters: the version, the commit it was built from,
@@ -160,6 +160,7 @@ artifacts — the script, the tap, binstall — carry the **default** set.
 | `export-graph` *(default)* | `export --format rdf` | Pure Rust |
 | `serve-http` *(default)* | `serve --mcp --http` — MCP over a URL, the transport every remote agent platform needs | hyper 1.x server features. **+1 package** (`httpdate`); hyper is already here for reqwest |
 | `catalog-fetch` *(default)* | `catalog-fetch` against a `url` or `url_template` location. The `kind: file` path — and everything that decides *what* would be fetched — is ungated | **+0 packages**; reqwest and tokio are already here for `tonpa` and `vault-s3` |
+| `pdf-text` *(default)* | `catalog-extract` taking a text reading of a PDF artifact. Lint compares a quotation with a recorded reading in every build | **+35 packages, +1.4 MB**, all pure Rust |
 | `calculators-gluon` | The typed calculator arm (RFC-0042) — a calculator whose entry point is typechecked `Corpus -> Computed`, so the executor can decline it before it runs. Declared as `run = { gluon = "…" }`; a build without it parses the declaration and declines the step by name | **+71 packages, +6.8 MB.** The largest cost in this table, and the reason this one is not in the default set |
 | `full` | All of the above | |
 

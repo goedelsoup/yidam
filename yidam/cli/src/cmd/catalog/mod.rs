@@ -16,6 +16,7 @@
 
 pub(crate) mod audit;
 mod commit;
+mod extract;
 mod fetch;
 mod location;
 mod reconcile;
@@ -23,6 +24,7 @@ mod record;
 mod transport;
 
 pub use audit::catalog_audit;
+pub use extract::{extract, ExtractOptions};
 pub use fetch::{fetch, FetchOptions};
 pub use location::parse_binding;
 pub use reconcile::{reconcile, ReconcileOptions};

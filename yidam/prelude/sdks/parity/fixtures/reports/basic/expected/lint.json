@@ -288,7 +288,7 @@
       "id": "quotation-span-drift",
       "title": "A quotation's span is not in the artifact it names",
       "severity": "error",
-      "rationale": "The artifact's bytes are in this machine's vault cache, they hash to the digest the catalog records, and the span is not in them. Whitespace is normalized on both sides and nothing else is, so a re-wrapped quotation compares equal and a retyped one does not. A span read from a rendered page is compared with the bytes as stored, markup included. The repair is to read the document again and copy the words from it; editing the span until the finding clears is the one response that destroys what the check is for.",
+      "rationale": "The artifact's bytes are in this machine's vault cache, they hash to the digest the catalog records, and the span is not in them. Whitespace is normalized on both sides and nothing else is, so a re-wrapped quotation compares equal and a retyped one does not. A span read from a rendered page is compared with the bytes as stored, markup included. A PDF is compared with the text reading its record names, where a word broken by a line-end hyphen also matches written whole. The repair is to read the document again and copy the words from it; editing the span until the finding clears is the one response that destroys what the check is for.",
       "escalation_eligible": false,
       "violations": []
     },
@@ -296,7 +296,7 @@
       "id": "quotation-unchecked",
       "title": "A quotation whose artifact cannot be read here",
       "severity": "info",
-      "rationale": "A vault stores bytes and git stores the record of them, so a lint run can compare only the bytes this machine has fetched, and only when they are text. On a CI runner every quotation lands here. Reported rather than passed, because a quotation nobody compared and one that held are different facts; Info, because an empty cache is not a defect in the corpus. `yidam vault pull` fetches the bytes, and a PDF waits on a text reading of one (#1172).",
+      "rationale": "A vault stores bytes and git stores the record of them, so a lint run can compare only the bytes this machine has fetched, and only when they are text. On a CI runner every quotation lands here. Reported rather than passed, because a quotation nobody compared and one that held are different facts; Info, because an empty cache is not a defect in the corpus. `yidam vault pull` fetches the bytes, and `yidam catalog-extract` takes the text reading a PDF is compared with.",
       "escalation_eligible": false,
       "violations": []
     },

@@ -25,7 +25,7 @@
 //!   the pin names none of its artifacts, or it holds several and nothing says which.
 //! - **`quotation-span-drift`** — the artifact's bytes are here, and the span is not in them.
 //! - **`quotation-unchecked`** — the quotation resolves and its bytes cannot be read here: not
-//!   in this machine's vault cache, or not text. Info.
+//!   in this machine's vault cache, or not text and with no text reading recorded. Info.
 //!
 //! # Why the bytes are read from the cache, and what that costs
 //!
@@ -41,12 +41,17 @@
 //! name is not the artifact the entry records, and a drift found in it would be a finding
 //! about the cache, so it is reported unchecked.
 //!
-//! # Text media only
+//! # Text media, and a PDF's recorded reading
 //!
 //! A span is compared with the bytes as stored, markup included, after the whitespace
 //! normalization [`super::citations::flatten`] gives every span check here. A PDF has no such
-//! reading. The case that motivated the type is a PDF, and a deterministic text reading of one
-//! is its own work (#1172), so a quotation of one is reported unchecked, naming its media type.
+//! reading of its own, so it is compared with the text reading its record names (#1172):
+//! `text: {sha256, extractor}`, which `yidam catalog-extract` takes once and files in the
+//! vault like any artifact. Lint loads that reading by its digest and hashes it as it would
+//! the PDF, and never runs an extractor, so the answer does not depend on which one this
+//! binary linked. The comparison is [`crate::reading::Reading::holds`], which also accepts a
+//! word the reading has broken with a line-end hyphen. A PDF with no reading recorded, and any
+//! other media that is not text, is reported unchecked.
 //!
 //! # Why the pin is optional
 //!
@@ -71,6 +76,7 @@ use super::citations::{flatten, truncate};
 use super::model::{Check, Severity, Violation};
 use crate::corpus::{normalize, Class, Node, Source};
 use crate::parse::CatalogArtifact;
+use crate::reading::Reading;
 use crate::vault::{Cache, ContentHash};
 
 /// The declared type, named once. `property_type_violation` and the schema compilers
@@ -239,41 +245,71 @@ fn is_text(media: &str) -> bool {
 
 /// What reading one artifact came to, kept per digest so a document quoted 364 times is
 /// hashed once.
-#[derive(Clone)]
 enum Bytes {
     Text(String),
+    /// A PDF's recorded text reading, and its digest for the finding.
+    Read(Reading, ContentHash),
     /// Why these bytes cannot be compared here, as the tail of a sentence.
     Unreadable(String),
 }
 
 fn load(cache: Option<&Cache>, artifact: &CatalogArtifact, hash: &ContentHash) -> Bytes {
-    if let Some(media) = artifact.media_type.as_deref().filter(|m| !is_text(m)) {
-        return Bytes::Unreadable(format!(
-            "is `{media}`, which lint cannot read as text (#1172)"
-        ));
+    let media = artifact.media_type.as_deref().filter(|m| !is_text(m));
+    if let Some(media) = media.filter(|m| !crate::reading::is_pdf(m)) {
+        return Bytes::Unreadable(format!("is `{media}`, which lint cannot read as text"));
     }
+    if let Some(media) = media {
+        let Some(reading) = artifact.text.as_ref().and_then(|t| t.sha256.as_deref()) else {
+            return Bytes::Unreadable(format!(
+                "is `{media}` and records no text reading — `yidam catalog-extract` takes one"
+            ));
+        };
+        let Ok(reading) = ContentHash::parse(reading) else {
+            return Bytes::Unreadable(format!(
+                "records a text reading `{reading}` that is not a digest"
+            ));
+        };
+        return match cached(cache, &reading) {
+            Ok(raw) => match String::from_utf8(raw) {
+                Ok(text) => Bytes::Read(Reading::new(&text), reading),
+                Err(_) => Bytes::Unreadable(format!(
+                    "has a text reading {} that is not UTF-8",
+                    short(&reading)
+                )),
+            },
+            Err(why) => {
+                Bytes::Unreadable(format!("has a text reading {} that {why}", short(&reading)))
+            }
+        };
+    }
+    match cached(cache, hash).map(String::from_utf8) {
+        Ok(Ok(text)) => Bytes::Text(flatten(&text)),
+        Ok(Err(_)) => Bytes::Unreadable("is not UTF-8 text".to_string()),
+        Err(why) => Bytes::Unreadable(why),
+    }
+}
+
+/// The cached bytes under `hash`, verified, or why there are none, as the tail of a sentence.
+fn cached(cache: Option<&Cache>, hash: &ContentHash) -> Result<Vec<u8>, String> {
     let Some(cache) = cache else {
-        return Bytes::Unreadable(
+        return Err(
             "cannot be looked for: this machine has no vault cache — set YIDAM_VAULT_CACHE"
                 .to_string(),
         );
     };
     let Ok(raw) = std::fs::read(cache.path_of(hash)) else {
-        return Bytes::Unreadable(
+        return Err(
             "is not in this machine's vault cache — `yidam vault pull` fetches it".to_string(),
         );
     };
     let found = ContentHash::of_bytes(&raw);
     if &found != hash {
-        return Bytes::Unreadable(format!(
+        return Err(format!(
             "is corrupt in this machine's vault cache: the file hashes to {}",
             found.as_str()
         ));
     }
-    match String::from_utf8(raw) {
-        Ok(text) => Bytes::Text(flatten(&text)),
-        Err(_) => Bytes::Unreadable("is not UTF-8 text".to_string()),
-    }
+    Ok(raw)
 }
 
 /// One finding, before it is filed under a check.
@@ -376,6 +412,16 @@ pub fn checks(
                         report(UNCHECKED, format!("the artifact {} {why}", short(hash)))
                     }
                     Bytes::Text(text) if text.contains(&flatten(&q.span)) => {}
+                    Bytes::Read(reading, _) if reading.holds(&q.span) => {}
+                    Bytes::Read(_, of) => report(
+                        SPAN_DRIFT,
+                        format!(
+                            "\"{}\" is not in the text reading {} of artifact {}",
+                            truncate(&q.span),
+                            short(of),
+                            short(hash)
+                        ),
+                    ),
                     Bytes::Text(_) => report(
                         SPAN_DRIFT,
                         format!(
@@ -435,7 +481,8 @@ fn quotation_span_drift(violations: Vec<Violation>) -> Check {
          catalog records, and the span is not in them. Whitespace is normalized on both sides \
          and nothing else is, so a re-wrapped quotation compares equal and a retyped one does \
          not. A span read from a rendered page is compared with the bytes as stored, markup \
-         included. The repair is to read the document again and copy the words from it; \
+         included. A PDF is compared with the text reading its record names, where a word \
+         broken by a line-end hyphen also matches written whole. The repair is to read the document again and copy the words from it; \
          editing the span until the finding clears is the one response that destroys what \
          the check is for.",
         violations,
@@ -451,8 +498,8 @@ fn quotation_unchecked(violations: Vec<Violation>) -> Check {
          only the bytes this machine has fetched, and only when they are text. On a CI runner \
          every quotation lands here. Reported rather than passed, because a quotation nobody \
          compared and one that held are different facts; Info, because an empty cache is not \
-         a defect in the corpus. `yidam vault pull` fetches the bytes, and a PDF waits on a \
-         text reading of one (#1172).",
+         a defect in the corpus. `yidam vault pull` fetches the bytes, and \
+         `yidam catalog-extract` takes the text reading a PDF is compared with.",
         violations,
     )
 }
@@ -664,7 +711,7 @@ mod tests {
     }
 
     #[test]
-    fn a_pdf_is_unchecked_by_its_media_type() {
+    fn a_pdf_with_no_reading_is_unchecked_and_says_how_to_take_one() {
         let f = Fixture::new(
             "    of: veto-message\n    span: veto\n",
             &artifact(b"%PDF-1.7", "application/pdf"),
@@ -673,6 +720,96 @@ mod tests {
         let (check, detail) = only(&f.run(true));
         assert_eq!(check, UNCHECKED);
         assert!(detail.contains("application/pdf"), "{detail}");
+        assert!(detail.contains("yidam catalog-extract"), "{detail}");
+    }
+
+    #[test]
+    fn media_that_is_neither_text_nor_a_pdf_is_unchecked() {
+        let f = Fixture::new(
+            "    of: veto-message\n    span: veto\n",
+            &artifact(b"\x89PNG", "image/png"),
+            &[b"\x89PNG"],
+        );
+        let (check, detail) = only(&f.run(true));
+        assert_eq!(check, UNCHECKED);
+        assert!(detail.contains("image/png"), "{detail}");
+    }
+
+    const PDF: &[u8] = b"%PDF-1.7 the bytes of the veto message";
+    const READ: &str = "Therefore, a veto of this item is in the public inter-\nest.\n";
+
+    /// A PDF record naming a reading, and optionally the reading itself in the cache.
+    fn pdf_quoting(span: &str, reading: &[u8]) -> Fixture {
+        let record = format!(
+            "{}    text:\n      sha256: {}\n      extractor: {}\n",
+            artifact(PDF, "application/pdf"),
+            ContentHash::of_bytes(READ.as_bytes()).as_str(),
+            crate::reading::EXTRACTOR
+        );
+        Fixture::new(
+            &format!("    of: veto-message\n    span: {span}\n"),
+            &record,
+            &[PDF, reading],
+        )
+    }
+
+    #[test]
+    fn a_pdf_is_compared_with_its_recorded_reading() {
+        let f = pdf_quoting(
+            "a veto of this item is in the public interest",
+            READ.as_bytes(),
+        );
+        assert!(
+            findings(&f.run(true)).is_empty(),
+            "{:?}",
+            findings(&f.run(true))
+        );
+    }
+
+    #[test]
+    fn a_span_not_in_the_reading_is_drift_naming_the_reading() {
+        let f = pdf_quoting("a veto of this item is in the public good", READ.as_bytes());
+        let (check, detail) = only(&f.run(true));
+        assert_eq!(check, SPAN_DRIFT);
+        let reading = ContentHash::of_bytes(READ.as_bytes());
+        assert!(detail.contains(&short(&reading)), "{detail}");
+        assert!(detail.contains("text reading"), "{detail}");
+    }
+
+    /// The reading is an artifact like any other: absent is unchecked, and a cache file that
+    /// no longer hashes to its name is unchecked, not drift.
+    #[test]
+    fn a_reading_not_held_or_corrupt_is_unchecked() {
+        let absent = pdf_quoting("a veto of this item", b"");
+        let (check, detail) = only(&absent.run(true));
+        assert_eq!(check, UNCHECKED);
+        assert!(detail.contains("text reading"), "{detail}");
+        assert!(detail.contains("yidam vault pull"), "{detail}");
+
+        let corrupt = pdf_quoting("not in the corrupted file", b"");
+        let cache = Cache::at(corrupt.dir.path().join("cache"));
+        let path = cache.path_of(&ContentHash::of_bytes(READ.as_bytes()));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "something else entirely").unwrap();
+        let (check, detail) = only(&corrupt.run(true));
+        assert_eq!(check, UNCHECKED);
+        assert!(detail.contains("corrupt"), "{detail}");
+    }
+
+    /// The PDF itself need not be here: what lint compares is the reading.
+    #[test]
+    fn the_reading_is_enough_without_the_pdf() {
+        let record = format!(
+            "{}    text:\n      sha256: {}\n      extractor: x\n",
+            artifact(PDF, "application/pdf"),
+            ContentHash::of_bytes(READ.as_bytes()).as_str(),
+        );
+        let f = Fixture::new(
+            "    of: veto-message\n    span: the public interest\n",
+            &record,
+            &[READ.as_bytes()],
+        );
+        assert!(findings(&f.run(true)).is_empty());
     }
 
     /// A cache file that no longer hashes to its name is not the artifact the entry records,

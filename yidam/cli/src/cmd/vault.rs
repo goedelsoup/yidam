@@ -1171,14 +1171,19 @@ fn materialize(entry: Option<&str>) -> Result<()> {
         // One entry may name several artifacts, and two files called `pearl-2009.pdf` in one
         // directory cannot both exist. The digest disambiguates only where it has to, so the
         // common case keeps the clean name.
-        let siblings = named.iter().filter(|o| o.rel == a.rel).count();
+        // Counted per extension: a PDF and its text reading (#1172) are two files already.
+        let ext = extension_for(a.media_type.as_deref());
+        let siblings = named
+            .iter()
+            .filter(|o| o.rel == a.rel && extension_for(o.media_type.as_deref()) == ext)
+            .count();
         let stem = match siblings {
             1 => slug.clone(),
             _ => format!("{slug}-{}", &a.hash.as_str()[..8]),
         };
         let dir = dest_root.join(&slug);
         std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-        let dest = dir.join(format!("{stem}.{}", extension_for(a.media_type.as_deref())));
+        let dest = dir.join(format!("{stem}.{ext}"));
         if dest.exists() {
             std::fs::remove_file(&dest).ok();
         }

@@ -1,0 +1,2 @@
+stage-discharge
+  would read sha256:419d61a7674cb5452c1bc6ba3f2f77cb45efb05bd2fc9ae0167c84ed586020a0 with pdf-extract 0.12.1
