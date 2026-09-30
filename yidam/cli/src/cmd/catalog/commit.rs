@@ -65,8 +65,8 @@ use crate::cmd::propose::write::{commit_tree, git as git_at, short_of, TempIndex
 /// borrowing an identity. It matters more here than there — an operational commit lands on
 /// the branch rather than on a proposal nobody has merged yet, so the record of what wrote it
 /// is the only thing distinguishing it from a person's own work.
-const AUTHOR_NAME: &str = "yidam catalog";
-const AUTHOR_EMAIL: &str = "catalog@yidam";
+pub(crate) const AUTHOR_NAME: &str = "yidam catalog";
+pub(crate) const AUTHOR_EMAIL: &str = "catalog@yidam";
 
 /// A commit this module wrote.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -119,7 +119,7 @@ pub(super) fn is_operational(subject: &str) -> bool {
 }
 
 /// Refuse a subject the vocabulary calls epistemic. Both write modes call this first.
-pub(super) fn refuse_epistemic(subject: &str) -> Result<()> {
+pub(crate) fn refuse_epistemic(subject: &str) -> Result<()> {
     if is_operational(subject) {
         return Ok(());
     }
@@ -145,13 +145,6 @@ pub enum Writer {
     /// The working tree and the current branch: the laptop, and every shipped command.
     WorkingTree,
     /// A temporary index and no ref: a pod, which hands back a sha for the lander.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "`cluster step` constructs it; until then only tests do"
-        )
-    )]
     Detached(Detached),
 }
 
@@ -164,13 +157,6 @@ pub struct Detached {
     written: Vec<(String, Vec<u8>)>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "`cluster step` constructs it; until then only tests do"
-    )
-)]
 impl Detached {
     /// A writer whose first commit has `parent` as its parent, starting from `parent`'s tree.
     pub fn new(root: &Path, parent: &str) -> Result<Self> {

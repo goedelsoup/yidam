@@ -8,6 +8,10 @@
 //! - `step` mounts no git credential and is handed no remote.
 //! - `land` mounts the write credential, and is the only template that does.
 //!
+//! The steps are [`super::builtin::BUILTINS`] — the catalog's connectors, compiled in — and
+//! then the manifest's plan. Every corpus gets the first three whatever it declares, and a
+//! corpus whose catalog has nothing to do gets three steps that build nothing.
+//!
 //! The DAG is a chain, because a run is a chain: `run` invokes each step against the commit
 //! the one before it landed, and so does this — `pin`, then `step-a`, `land-a`, `step-b`,
 //! `land-b`. A wider DAG that ran independent steps in parallel would have two landers
@@ -75,6 +79,7 @@ fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
     if plan.is_empty() {
         bail!("{MANIFEST} declares no capabilities, so there is no workflow to write");
     }
+    super::builtin::refuse_shadowing(&plan)?;
     for name in &plan {
         let kind: Kind = m.get(name)?.kind;
         if let Some(reason) = kind.unrunnable_because() {
@@ -137,7 +142,12 @@ fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
         vault_path_style: vault_cfg.and_then(|v| v.path_style).unwrap_or(false),
         namespace: cfg.cluster.namespace.clone(),
         cron: o.cron.clone(),
-        steps: plan.iter().map(|s| s.to_string()).collect(),
+        steps: super::builtin::BUILTINS
+            .iter()
+            .map(|b| b.name)
+            .chain(plan.iter().copied())
+            .map(str::to_string)
+            .collect(),
     })
 }
 

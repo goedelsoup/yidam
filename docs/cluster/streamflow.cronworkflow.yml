@@ -13,7 +13,7 @@
 # volume holding a checkout. Pod logs are not provenance: everything that matters is
 # in the receipt, in the commit, on the ref.
 #
-# steps: travel-tier → disclosure-envelope → travel-tier-typed
+# steps: catalog-fetch → catalog-extract → catalog-reconcile → travel-tier → disclosure-envelope → travel-tier-typed
 apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
 metadata:
@@ -70,15 +70,63 @@ spec:
               template: pin
               depends: admit
               when: "{{=jsonpath(tasks.admit.outputs.parameters.output, '$.admitted') == true}}"
-            - name: step-travel-tier
+            - name: step-catalog-fetch
               template: step
               depends: pin
               arguments:
                 parameters:
                   - name: step
-                    value: "travel-tier"
+                    value: "catalog-fetch"
                   - name: bundle
                     value: "{{=jsonpath(tasks.pin.outputs.parameters.output, '$.bundle')}}"
+            - name: land-catalog-fetch
+              template: land
+              depends: step-catalog-fetch
+              arguments:
+                parameters:
+                  - name: step-output
+                    value: "{{tasks.step-catalog-fetch.outputs.parameters.output}}"
+            - name: step-catalog-extract
+              template: step
+              depends: land-catalog-fetch
+              arguments:
+                parameters:
+                  - name: step
+                    value: "catalog-extract"
+                  - name: bundle
+                    value: "{{=jsonpath(tasks.land-catalog-fetch.outputs.parameters.output, '$.next.bundle')}}"
+            - name: land-catalog-extract
+              template: land
+              depends: step-catalog-extract
+              arguments:
+                parameters:
+                  - name: step-output
+                    value: "{{tasks.step-catalog-extract.outputs.parameters.output}}"
+            - name: step-catalog-reconcile
+              template: step
+              depends: land-catalog-extract
+              arguments:
+                parameters:
+                  - name: step
+                    value: "catalog-reconcile"
+                  - name: bundle
+                    value: "{{=jsonpath(tasks.land-catalog-extract.outputs.parameters.output, '$.next.bundle')}}"
+            - name: land-catalog-reconcile
+              template: land
+              depends: step-catalog-reconcile
+              arguments:
+                parameters:
+                  - name: step-output
+                    value: "{{tasks.step-catalog-reconcile.outputs.parameters.output}}"
+            - name: step-travel-tier
+              template: step
+              depends: land-catalog-reconcile
+              arguments:
+                parameters:
+                  - name: step
+                    value: "travel-tier"
+                  - name: bundle
+                    value: "{{=jsonpath(tasks.land-catalog-reconcile.outputs.parameters.output, '$.next.bundle')}}"
             - name: land-travel-tier
               template: land
               depends: step-travel-tier

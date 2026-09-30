@@ -54,6 +54,7 @@
 //! through to the pod's own, for whoever is debugging it, and recorded nowhere.
 
 pub mod admit;
+pub mod builtin;
 mod bundle;
 pub mod land;
 pub mod pin;
@@ -85,7 +86,8 @@ const OUT_REF: &str = "refs/yidam/out";
 pub enum ClusterCommand {
     /// Write the Argo Workflow that runs this corpus's capability manifest on a cluster
     ///
-    /// One `pin`, then for each capability in dependency order a `step` and a `land`. A
+    /// One `pin`, then a `step` and a `land` for each built-in catalog step (`catalog-fetch`,
+    /// `catalog-extract`, `catalog-reconcile`) and each capability in dependency order. A
     /// chain rather than a wider DAG because a run is a chain: each step is invoked against
     /// the commit the one before it landed. `--cron` writes a `CronWorkflow` whose first
     /// task is `admit`, and nothing below it runs unless admission says so.

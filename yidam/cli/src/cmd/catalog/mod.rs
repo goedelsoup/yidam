@@ -25,7 +25,11 @@ pub(crate) mod superseded;
 mod transport;
 
 pub use audit::catalog_audit;
+pub(crate) use commit::{refuse_epistemic, Detached, Writer, AUTHOR_EMAIL, AUTHOR_NAME};
+pub(crate) use extract::extract_in;
 pub use extract::{extract, ExtractOptions};
+pub(crate) use fetch::fetch_in;
 pub use fetch::{fetch, FetchOptions};
 pub use location::parse_binding;
+pub(crate) use reconcile::reconcile_in;
 pub use reconcile::{reconcile, ReconcileOptions};

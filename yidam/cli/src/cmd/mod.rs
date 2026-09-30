@@ -129,6 +129,7 @@ pub use lint::{
 pub use lsp::serve_lsp;
 pub use routes::routes;
 
+pub use cluster::builtin::BUILTINS as CLUSTER_BUILTINS;
 pub use cluster::{run as run_cluster, ClusterCommand};
 pub use log::{log, Filter as LogFilter};
 pub use overlay::overlay;

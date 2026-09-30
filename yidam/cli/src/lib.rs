@@ -128,6 +128,11 @@ pub use cmd::regen_generator_names;
 #[cfg(feature = "tonpa")]
 #[doc(hidden)]
 pub use cmd::tonpa;
+/// The steps every cluster workflow runs ahead of the manifest's. Public so the suite that
+/// drives a workflow's pods derives the steps it runs from the set the binary runs, rather
+/// than from a list of names that stops covering a fourth built-in without going red.
+#[doc(hidden)]
+pub use cmd::CLUSTER_BUILTINS;
 /// Top-level paths `yidam clone` leaves behind. Public so the guard that holds the template
 /// root to the bootstrap protocol can ask the copy what it excludes, rather than restating
 /// the list a third time.

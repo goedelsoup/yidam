@@ -41,7 +41,7 @@ use super::{
 };
 use crate::cmd::propose::write::{branch_for, commit_tree, git, short_of, TempIndex};
 use crate::cmd::run::exec::Scratch;
-use crate::cmd::run::manifest::{Capability, Manifest, MANIFEST};
+use crate::cmd::run::manifest::{Capability, MANIFEST};
 use crate::cmd::run::{AUTHOR_EMAIL, AUTHOR_NAME};
 use crate::git::Git;
 use crate::report::Format;
@@ -154,9 +154,9 @@ pub(super) fn land_in(
         );
     }
 
-    // The manifest at the tip, for what the step reads — the re-parent check needs it.
-    let m = Manifest::load(root)?;
-    let cap = m.get(&claim.step)?;
+    // What the step reads, as declared at the tip — the re-parent check needs it.
+    // A built-in's declaration is compiled in; anything else is the manifest's.
+    let cap = &super::builtin::capability(root, &claim.step)?;
 
     let input_short = short_of(root, &claim.input);
     let target = match class.as_str() {

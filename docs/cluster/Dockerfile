@@ -14,9 +14,11 @@ FROM rust:1.88-bookworm AS build
 WORKDIR /src
 COPY . .
 # `calculators-gluon`, because a pod runs whatever arm the manifest declares: an image
-# without it refuses a whole plan that holds one typed calculator.
+# without it refuses a whole plan that holds one typed calculator. `catalog-fetch`, because
+# every workflow runs the built-in `catalog-fetch` step, and without the feature a `url`
+# location is a refusal rather than a request.
 RUN cargo build --release --manifest-path yidam/cli/Cargo.toml --bin yidam \
-      --features calculators-gluon
+      --features calculators-gluon,catalog-fetch
 
 FROM debian:bookworm-slim
 RUN apt-get update \

@@ -22,10 +22,12 @@ use std::path::Path;
 
 use anyhow::{bail, Result};
 
+use super::builtin::{self, Builtin};
 use super::{
     bundle, class_of, deliver, StepOutcome, StepOutput, VaultArgs, CONTRACT_VERSION, OUT_REF,
 };
-use crate::cmd::propose::write::{git, short_of};
+use crate::cmd::catalog;
+use crate::cmd::propose::write::{commit_tree, git, short_of, TempIndex};
 use crate::cmd::run::exec::{self, Scratch};
 use crate::cmd::run::manifest::Manifest;
 use crate::cmd::run::receipt::{self, sha256, File, Input, Receipt};
@@ -60,6 +62,9 @@ pub(super) fn step_in(
     store: &dyn Store,
     scratch: &Path,
 ) -> Result<StepOutput> {
+    if let Some(b) = builtin::find(name) {
+        return builtin_in(root, b, input, store, scratch);
+    }
     let m = Manifest::load(root)?;
     let cap = m.get(name)?;
     if let Some(reason) = cap.kind.unrunnable_because() {
@@ -176,14 +181,7 @@ pub(super) fn step_in(
         });
     };
 
-    // A ref that is not a branch, so the bundle has a name to carry the commit under. The
-    // prerequisite is the input: the lander already holds it, and a bundle without one would
-    // carry the corpus's whole history back through the vault on every step.
-    git(root, None, &["update-ref", OUT_REF, &built.sha], None)?;
-    let file = scratch.join("out.bundle");
-    bundle::create(root, &file, &[&format!("{input}..{OUT_REF}")])?;
-    let digest = bundle::put(store, &file)?;
-
+    let digest = ship(root, input, &built.sha, store, scratch)?;
     Ok(StepOutput {
         format_version: CONTRACT_VERSION,
         step: name.to_string(),
@@ -195,6 +193,171 @@ pub(super) fn step_in(
         input: input.to_string(),
         bundle: Some(digest),
     })
+}
+
+/// Bundle `sha` against `input` and put it in the vault; the digest is what the lander fetches.
+fn ship(root: &Path, input: &str, sha: &str, store: &dyn Store, scratch: &Path) -> Result<String> {
+    // A ref that is not a branch, so the bundle has a name to carry the commit under. The
+    // prerequisite is the input: the lander already holds it, and a bundle without one would
+    // carry the corpus's whole history back through the vault on every step.
+    git(root, None, &["update-ref", OUT_REF, sha], None)?;
+    let file = scratch.join("out.bundle");
+    bundle::create(root, &file, &[&format!("{input}..{OUT_REF}")])?;
+    bundle::put(store, &file)
+}
+
+/// A built-in step: the catalog command, detached on `input`, folded into one commit with its
+/// receipt.
+///
+/// # No freshness check
+///
+/// A calculator is skipped when its committed receipt matches the input state, because its
+/// result is a function of that state. A connector's is not — it reads a world the
+/// repository does not hold — so a matching input state says nothing about whether a fetch
+/// would find something new. Whether one is owed is `due`'s catalog clocks, read at
+/// admission; once admitted, a built-in runs, and an unchanged world is an unchanged result.
+///
+/// # One commit, whatever the command wrote
+///
+/// `catalog-fetch` commits once per entry it changed. The step folds that chain into one
+/// commit on `input`, carrying every entry's message in its body and the receipt in its
+/// tree, because the lander's contract is one commit whose parent is the pin: that is what
+/// its parent check, its re-parent and its "already holds this result" decision are about.
+/// The subject is classified again after the fold, by the check the writer used.
+fn builtin_in(
+    root: &Path,
+    b: &Builtin,
+    input: &str,
+    store: &dyn Store,
+    scratch: &Path,
+) -> Result<StepOutput> {
+    let cap = b.capability();
+    let receipt_path = Receipt::path(b.name);
+    let record = |outcome, sha: Option<String>, bundle: Option<String>| StepOutput {
+        format_version: CONTRACT_VERSION,
+        step: b.name.to_string(),
+        outcome,
+        sha,
+        class: class_of(cap.route()).to_string(),
+        verb: cap.verb.clone(),
+        receipt: receipt_path.clone(),
+        input: input.to_string(),
+        bundle,
+    };
+
+    let chain = b.invoke_detached(root, input)?;
+    if !chain.moved() {
+        return Ok(record(StepOutcome::Unchanged, None, None));
+    }
+
+    let manifest_sha256 = digest_of(root, crate::cmd::run::manifest::MANIFEST);
+    let config_sha256 = digest_of(root, ".yidam/config.toml");
+    let inputs = exec::materialize(root, input, &cap)?;
+    let input_state = Receipt::input_state(
+        &cap,
+        &manifest_sha256,
+        &config_sha256,
+        &inputs.files,
+        None,
+        None,
+    )?;
+    let receipt = Receipt {
+        format_version: receipt::FORMAT_VERSION,
+        step: b.name.to_string(),
+        kind: cap.kind.as_str(),
+        verb: cap.verb.clone(),
+        run: cap.run.clone(),
+        input_state,
+        input: Input {
+            commit: input.to_string(),
+            manifest_sha256,
+            config_sha256,
+            reads: cap.reads.clone(),
+            files: inputs.files.clone(),
+            resolved_graph_sha256: None,
+            script_sha256: None,
+        },
+        writes: cap.writes.clone(),
+        outputs: chain
+            .written()
+            .iter()
+            .map(|(path, bytes)| File {
+                path: path.clone(),
+                sha256: sha256(bytes),
+            })
+            .collect(),
+    };
+
+    let sha = fold(
+        root,
+        input,
+        chain.tip(),
+        b.verb,
+        &receipt_path,
+        &receipt.to_yaml()?,
+    )?;
+    let digest = ship(root, input, &sha, store, scratch)?;
+    Ok(record(StepOutcome::Ran, Some(sha), Some(digest)))
+}
+
+/// One commit on `input` holding `tip`'s tree and the receipt, with every message on the way.
+fn fold(
+    root: &Path,
+    input: &str,
+    tip: &str,
+    verb: &str,
+    receipt_path: &str,
+    receipt: &str,
+) -> Result<String> {
+    let log = git(
+        root,
+        None,
+        &[
+            "log",
+            "--reverse",
+            "--format=%B%x00",
+            &format!("{input}..{tip}"),
+        ],
+        None,
+    )?;
+    let messages: Vec<&str> = log
+        .split('\0')
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .collect();
+    let message = match messages.as_slice() {
+        [one] => one.to_string(),
+        many => format!(
+            "{verb}: {} catalog entries\n\n{}",
+            many.len(),
+            many.join("\n\n")
+        ),
+    };
+    catalog::refuse_epistemic(message.lines().next().unwrap_or_default())?;
+
+    let index = TempIndex::new(root, "step")?;
+    let at = Some(index.path());
+    git(root, at, &["read-tree", tip], None)?;
+    let blob = git(root, at, &["hash-object", "-w", "--stdin"], Some(receipt))?;
+    git(
+        root,
+        at,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("100644,{blob},{receipt_path}"),
+        ],
+        None,
+    )?;
+    let tree = git(root, at, &["write-tree"], None)?;
+    commit_tree(
+        root,
+        &tree,
+        input,
+        &message,
+        (catalog::AUTHOR_NAME, catalog::AUTHOR_EMAIL),
+    )
 }
 
 pub(super) fn render(s: &StepOutput) -> String {

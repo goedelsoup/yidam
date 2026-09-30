@@ -273,6 +273,36 @@ impl Cluster {
         out(&self.e.path(), &["rev-parse", "HEAD"])
     }
 
+    /// Give the catalog one entry a pod can fetch with no network, and push it to `main`.
+    ///
+    /// A `kind: file` location over a file the corpus holds. Streamflow's own entry keeps its
+    /// `url_template`, which needs a `--bind` a workflow does not pass and is skipped, and
+    /// loses its bare `url`, which a pod built with `catalog-fetch` would really request.
+    fn declare_a_file_location(&self) -> String {
+        self.push_to_main("catalog: a gauge table a pod can read", |root| {
+            let nwis = root.join(".yidam/catalog/usgs-nwis.md");
+            let text = std::fs::read_to_string(&nwis).unwrap();
+            let url = "  - kind: url\n    value: https://waterdata.usgs.gov/nwis\n    \
+                       description: Human-facing query interface.\n";
+            assert!(
+                text.contains(url),
+                "streamflow's entry changed shape:\n{text}"
+            );
+            std::fs::write(&nwis, text.replace(url, "")).unwrap();
+            std::fs::create_dir_all(root.join("sources")).unwrap();
+            std::fs::write(root.join(GAUGES), "site,cfs\ncanyon-outlet,412\n").unwrap();
+            std::fs::write(
+                root.join(".yidam/catalog/gauge-table.md"),
+                format!(
+                    "---\nname: gauge-table\ndescription: A table of gauges.\ntype: dataset\n\
+                     obtained: true\nlocation:\n  - kind: file\n    value: {GAUGES}\n---\n\n\
+                     # Gauge table\n"
+                ),
+            )
+            .unwrap();
+        })
+    }
+
     /// Subjects on the remote's `main`, newest first.
     fn subjects(&self, n: usize) -> Vec<String> {
         out(
@@ -284,6 +314,9 @@ impl Cluster {
         .collect()
     }
 }
+
+/// The file `declare_a_file_location` points a catalog entry at.
+const GAUGES: &str = "sources/gauges.csv";
 
 fn s(v: &Value) -> &str {
     v.as_str().unwrap_or_else(|| panic!("not a string: {v}"))
@@ -429,11 +462,29 @@ fn set_mode_recursively(dir: &Path, dir_mode: u32, file_mode: u32) {
 #[test]
 fn a_valid_sha_without_the_write_credential_does_not_land() {
     let c = Cluster::new();
-    let before = c.main_tip();
     let pin = c.pin();
     let step = c.step("travel-tier", s(&pin["bundle"]));
     assert_eq!(step["outcome"], "ran", "{step}");
+    refused_without_the_write_credential(&c, &step);
+}
 
+/// The same boundary for a built-in step: its commit is built by compiled-in code rather than
+/// a declared argv, and the only thing between it and `main` is still the credential.
+#[test]
+fn a_builtin_steps_sha_without_the_write_credential_does_not_land() {
+    let c = Cluster::new();
+    c.declare_a_file_location();
+    let pin = c.pin();
+    let step = c.step("catalog-fetch", s(&pin["bundle"]));
+    assert_eq!(step["outcome"], "ran", "{step}");
+    assert_eq!(step["class"], "operational");
+    refused_without_the_write_credential(&c, &step);
+}
+
+/// Land `step` against a remote this process cannot write, and hold the refusal to being the
+/// remote's; then land it with the permission back, which shows nothing else refused it.
+fn refused_without_the_write_credential(c: &Cluster, step: &Value) {
+    let before = c.main_tip();
     set_mode_recursively(&c.remote(), 0o555, 0o444);
     let probe = std::fs::write(c.remote().join("objects").join("probe"), b"");
     if probe.is_ok() {
@@ -448,7 +499,7 @@ fn a_valid_sha_without_the_write_credential_does_not_land() {
         return;
     }
 
-    let (stdout, stderr, code) = c.land_raw(&step);
+    let (stdout, stderr, code) = c.land_raw(step);
     set_mode_recursively(&c.remote(), 0o755, 0o644);
 
     assert_ne!(code, 0, "landing without write access succeeded:\n{stdout}");
@@ -472,7 +523,7 @@ fn a_valid_sha_without_the_write_credential_does_not_land() {
 
     // The same record, once the process may write: it lands. Nothing about the record
     // changed between the two attempts, so the credential was the whole difference.
-    let landed = c.land(&step);
+    let landed = c.land(step);
     assert_eq!(s(&landed["landed"]), s(&step["sha"]));
     assert_eq!(c.main_tip(), s(&step["sha"]));
 }
@@ -767,6 +818,185 @@ fn an_epistemic_step_lands_on_a_proposal_branch_and_main_does_not_move() {
     let admission = c.admit();
     assert_eq!(admission["admitted"], true, "{admission}");
     assert_eq!(admission["open_proposals"], 0);
+}
+
+// ── the built-in steps ────────────────────────────────────────────────────────
+
+/// #475's definition of done: `catalog-fetch`, run the way a pod runs it — a pinned bundle, no
+/// checkout, no credential that names a ref — builds a `refresh:` commit the lander lands, with
+/// the receipt in its tree.
+#[test]
+fn a_catalog_fetch_step_run_as_a_pod_lands_a_refresh_commit_with_its_receipt() {
+    let c = Cluster::new();
+    let before = c.declare_a_file_location();
+    let pin = c.pin();
+    assert_eq!(s(&pin["sha"]), before);
+
+    let step = c.step("catalog-fetch", s(&pin["bundle"]));
+    assert_eq!(step["outcome"], "ran", "{step}");
+    assert_eq!(step["class"], "operational");
+    assert_eq!(step["verb"], "refresh");
+    assert_eq!(step["receipt"], ".yidam/runs/catalog-fetch.yml");
+    assert_eq!(step["input"], before.as_str());
+    let sha = s(&step["sha"]).to_string();
+    assert_eq!(c.main_tip(), before, "the step moved nothing");
+
+    let landed = c.land(&step);
+    assert_eq!(s(&landed["landed"]), sha);
+    assert_eq!(landed["target"], "main");
+    assert_eq!(c.main_tip(), sha);
+
+    let subject = &c.subjects(1)[0];
+    assert!(subject.starts_with("refresh: "), "{subject}");
+    assert_eq!(
+        yidam_core::git::classify_commit(&sha, subject).kind,
+        yidam_core::git::CommitKind::Operational,
+        "the lander's own classifier calls it operational: {subject}"
+    );
+    assert_eq!(
+        out(
+            &c.remote(),
+            &[
+                "log",
+                "-1",
+                "--format=%an <%ae> / %cn <%ce>",
+                "refs/heads/main"
+            ]
+        ),
+        "yidam catalog <catalog@yidam> / yidam cluster <cluster@yidam>",
+        "the tool authors, the pod commits"
+    );
+
+    let receipt: serde_yaml::Value = serde_yaml::from_str(&out(
+        &c.remote(),
+        &["show", "refs/heads/main:.yidam/runs/catalog-fetch.yml"],
+    ))
+    .unwrap();
+    assert_eq!(receipt["step"].as_str(), Some("catalog-fetch"));
+    assert_eq!(receipt["kind"].as_str(), Some("connector"));
+    assert_eq!(receipt["verb"].as_str(), Some("refresh"));
+    assert_eq!(receipt["input"]["commit"].as_str(), Some(before.as_str()));
+    let outputs: Vec<&str> = receipt["outputs"]
+        .as_sequence()
+        .unwrap()
+        .iter()
+        .filter_map(|o| o["path"].as_str())
+        .collect();
+    assert!(
+        outputs.contains(&".yidam/catalog/gauge-table.md"),
+        "the receipt names what the fetch wrote: {outputs:?}"
+    );
+    let entry = out(
+        &c.remote(),
+        &["show", "refs/heads/main:.yidam/catalog/gauge-table.md"],
+    );
+    assert!(
+        entry.contains("artifacts:"),
+        "the fetch was recorded:\n{entry}"
+    );
+}
+
+/// Every built-in the binary compiles in runs in a pod against streamflow, and whatever it
+/// builds lands. Derived from the set, so a built-in added there is run here.
+#[test]
+fn every_builtin_runs_in_a_pod_and_what_it_builds_lands() {
+    let c = Cluster::new();
+    c.declare_a_file_location();
+    let mut bundle = s(&c.pin()["bundle"]).to_string();
+    for b in yidam::CLUSTER_BUILTINS {
+        let step = c.step(b.name, &bundle);
+        assert_eq!(step["class"], "operational", "{}: {step}", b.name);
+        assert_eq!(step["verb"], b.verb, "{}", b.name);
+        let landed = c.land(&step);
+        if step["outcome"] == "ran" {
+            assert_eq!(landed["landed"], step["sha"], "{}", b.name);
+            assert!(
+                c.subjects(1)[0].starts_with(&format!("{}: ", b.verb)),
+                "{}: {:?}",
+                b.name,
+                c.subjects(1)
+            );
+        } else {
+            assert_eq!(step["outcome"], "unchanged", "{}: {step}", b.name);
+        }
+        bundle = s(&landed["next"]["bundle"]).to_string();
+    }
+}
+
+/// The generated workflow runs every built-in, in the set's order, before the manifest's first
+/// step — read off the DAG, not off a list of names written here.
+#[test]
+fn the_workflow_runs_every_builtin_ahead_of_the_manifest() {
+    let c = Cluster::as_declared();
+    let o = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(c.e.path())
+        .args([
+            "cluster",
+            "workflow",
+            "--remote",
+            "r",
+            "--image",
+            "i",
+            "--vault-url",
+            "file:///v",
+        ])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let doc: Value = serde_yaml::from_slice(&o.stdout).unwrap();
+    let steps: Vec<String> = doc["spec"]["templates"][0]["dag"]["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|t| t["template"] == "step")
+        .map(|t| s(&t["arguments"]["parameters"][0]["value"]).to_string())
+        .collect();
+    let builtins: Vec<&str> = yidam::CLUSTER_BUILTINS.iter().map(|b| b.name).collect();
+    assert!(!builtins.is_empty());
+    assert_eq!(&steps[..builtins.len()], builtins.as_slice(), "{steps:?}");
+    assert!(
+        steps.len() > builtins.len() && steps.contains(&"travel-tier".to_string()),
+        "the manifest's steps follow: {steps:?}"
+    );
+}
+
+/// A manifest declaring a built-in's name is refused where the workflow is written, rather than
+/// having one of the two quietly win.
+#[test]
+fn a_manifest_that_shadows_a_builtin_has_no_workflow() {
+    let c = Cluster::as_declared();
+    let name = yidam::CLUSTER_BUILTINS[0].name;
+    let path = c.e.path().join(".yidam/capabilities.toml");
+    let text = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(
+        &path,
+        text.replace("[capability.travel-tier]", &format!("[capability.{name}]"))
+            .replace("\"travel-tier\"", &format!("\"{name}\"")),
+    )
+    .unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(c.e.path())
+        .args([
+            "cluster",
+            "workflow",
+            "--remote",
+            "r",
+            "--image",
+            "i",
+            "--vault-url",
+            "file:///v",
+        ])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        !o.status.success(),
+        "a shadowing manifest generated a workflow"
+    );
+    assert!(
+        stderr.contains(name) && stderr.contains("Rename"),
+        "{stderr}"
+    );
 }
 
 // ── the worked example ────────────────────────────────────────────────────────
