@@ -989,11 +989,12 @@ fn every_job_that_runs_the_cli_suite_checks_out_tags_and_history() {
         |body: &str| body.contains("cargo mutants") || suite_tasks.iter().any(|t| names(body, t));
 
     let suite_jobs: Vec<&(String, String)> = jobs.iter().filter(|(_, b)| runs_suite(b)).collect();
-    // Three, and three is what this repository has: `ci (cli)`, `ci (cli · full features)` and
-    // `ci (mutants)`. No slack — a floor with room in it is a budget for a scanner going blind.
+    // Four, and four is what this repository has: `ci (cli)`, `ci (cli · full features)`, its
+    // coverage half `ci (cli · full-feature coverage)` since #1016, and `ci (mutants)`. No slack
+    // — a floor with room in it is a budget for a scanner going blind.
     assert!(
-        suite_jobs.len() >= 3,
-        "expected three jobs running the CLI suite, found {}: {:?}. Tasks searched for: \
+        suite_jobs.len() >= 4,
+        "expected four jobs running the CLI suite, found {}: {:?}. Tasks searched for: \
          {suite_tasks:?}",
         suite_jobs.len(),
         suite_jobs.iter().map(|(n, _)| n).collect::<Vec<_>>()
