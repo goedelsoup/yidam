@@ -20,6 +20,10 @@ The catalog's own steps come first in every workflow: `catalog-fetch`, `catalog-
 | `pin` | `yidam cluster pin` | the remote | a bundle, to the vault | `yidam-git-read` |
 | `step-<name>` | `yidam cluster step <name>` | a bundle, from the vault | a bundle, to the vault | none |
 | `land-<name>` | `yidam cluster land` | a bundle, from the vault | one ref, on the remote | `yidam-git-write` |
+| `survey-<g>` | `yidam cluster survey <g>` | the pin, from the vault | a plan: one ask per peer | none |
+| `ask-<g>` | `yidam cluster ask` | a peer's bundle, from the vault or its lock url | a record, to the vault | none |
+| `gather-<g>` | `yidam cluster gather <g>` | the pin and the records | a bundle, to the vault | none |
+| `land-gather-<g>` | `yidam cluster land` | a bundle, from the vault | `propose/gather/<g>/<pin>` | `yidam-git-write` |
 
 The step pod has no `--remote` flag and no `--branch` flag. It fetches a bundle, clones it into
 scratch, runs the capability there and bundles what it built. Its record names the commit's
@@ -31,6 +35,11 @@ off the record. An operational commit goes to the branch. An epistemic one goes 
 `propose/<input>`, and the branch stays where it was. The push uses `--force-with-lease`. If
 the branch moved, the lander rebuilds the commit on the new tip. That holds only when nothing
 the step reads moved. Otherwise it refuses.
+
+Each file in `.yidam/gathers/` adds the last four rows, after the last capability. One `ask` pod
+runs per peer, and a failed one does not stop the rest. Its peer is reported `refused`. The
+lander refuses a gather commit that is not `open:`. It also refuses one that touches anything
+but the gather's own nodes and receipts.
 
 ## Generate the manifest
 

@@ -121,6 +121,10 @@ pub(super) fn land_in(
         bail!("the bundle carries {incoming} and the step record claims {sha}; nothing was landed");
     }
 
+    if let Some(name) = claim.step.strip_prefix("gather/") {
+        return land_gather(root, scratch, claim, name, sha, remote, store);
+    }
+
     // ── what the commit says about itself, which is what decides ──────────────
     let subject = git(root, None, &["log", "-1", "--format=%s", sha], None)?;
     let event = yidam_core::git::classify_commit(sha, &subject);
@@ -207,9 +211,24 @@ pub(super) fn land_in(
         );
     };
 
-    // ── the branch after landing, as the next step reads it ───────────────────
-    // A proposal leaves the branch where it was, but "where it was" is where the remote says
-    // it is, not where this clone was taken; refresh before pinning.
+    let next = next_pin(root, branch, store, scratch)?;
+    Ok(Landed {
+        format_version: CONTRACT_VERSION,
+        step: claim.step.clone(),
+        landed,
+        target: Some(target),
+        class,
+        reparented,
+        attempts,
+        next,
+    })
+}
+
+/// The branch after landing, as the next step reads it.
+///
+/// A proposal leaves the branch where it was, but "where it was" is where the remote says it
+/// is, not where this clone was taken; refresh before pinning.
+fn next_pin(root: &Path, branch: &str, store: &dyn Store, scratch: &Path) -> Result<super::Pinned> {
     Git::new(root)
         .args(["fetch", "-q", "origin"])
         .arg(format!("+refs/heads/{branch}:refs/remotes/origin/{branch}"))
@@ -224,15 +243,150 @@ pub(super) fn land_in(
         ],
         None,
     )?;
-    let next = pin::pin_of(root, branch, store, scratch)?;
+    pin::pin_of(root, branch, store, scratch)
+}
 
+/// Land a gather's chain on `propose/gather/<name>/<input>` (#1217).
+///
+/// A gather is one `open:` commit per question node, so its record names the chain's tip and
+/// not a single commit on the pin. What the lander holds it to is what `yidam gather` holds
+/// its own branch to, read off the commits and never off the record:
+///
+/// - every commit from the pin to the tip is linear and an `open:`, the first on the pin;
+/// - together they add nothing but this gather's question nodes and its receipts;
+/// - the target is the gather's own proposal branch, which is never the branch. It is written
+///   only when absent — an empty lease — and a branch already holding exactly this tree is
+///   an unchanged repeat, which lands nothing. One holding something else is refused, for the
+///   reason `yidam gather` refuses it without `--force`: it may be a review in progress.
+fn land_gather(
+    root: &Path,
+    scratch: &Path,
+    claim: &StepOutput,
+    name: &str,
+    sha: &str,
+    remote: &RemoteArgs,
+    store: &dyn Store,
+) -> Result<Landed> {
+    if !crate::cmd::gather::valid_name(name) {
+        bail!("`{}` is not a gather step; nothing was landed", claim.step);
+    }
+    let chain = git(
+        root,
+        None,
+        &[
+            "rev-list",
+            "--reverse",
+            "--parents",
+            &format!("{}..{sha}", claim.input),
+        ],
+        None,
+    )?;
+    let mut expected_parent = claim.input.clone();
+    for line in chain.lines() {
+        let mut shas = line.split_whitespace();
+        let (Some(commit), Some(parent), None) = (shas.next(), shas.next(), shas.next()) else {
+            bail!("the gather's chain is not linear at `{line}`; nothing was landed");
+        };
+        if parent != expected_parent {
+            bail!(
+                "the gather's chain does not run from the pin {} to {sha}; nothing was landed",
+                claim.input
+            );
+        }
+        let subject = git(root, None, &["log", "-1", "--format=%s", commit], None)?;
+        let event = yidam_core::git::classify_commit(commit, &subject);
+        // Held to the verb and not only to the class: every verb outside the vocabulary
+        // classifies as epistemic, so a class check alone would land a `chore:`.
+        if event.verb != "open" {
+            let class = format!("{:?}", event.kind).to_lowercase();
+            bail!(
+                "the gather's commit {} is `{}:` ({class}) — its subject is `{subject}`.\n  \
+                 A gather only opens questions; nothing was landed.",
+                short_of(root, commit),
+                event.verb
+            );
+        }
+        expected_parent = commit.to_string();
+    }
+    if expected_parent != sha {
+        bail!(
+            "the gather's chain does not run from the pin {} to {sha}; nothing was landed",
+            claim.input
+        );
+    }
+    let receipts = format!(".yidam/runs/gather/{name}/");
+    let changed = git(
+        root,
+        None,
+        &["diff-tree", "-r", "--name-status", &claim.input, sha],
+        None,
+    )?;
+    for line in changed.lines() {
+        let Some((status, path)) = line.split_once('\t') else {
+            continue;
+        };
+        let file = path.rsplit('/').next().unwrap_or(path);
+        let node = path.starts_with(".yidam/corpus/")
+            && file.starts_with(&format!("gather-{name}"))
+            && file.ends_with(".yml");
+        if status != "A" || !(node || path.starts_with(&receipts)) {
+            bail!(
+                "the gather writes `{status} {path}`, and a gather only adds its own question \
+                 nodes and receipts; nothing was landed"
+            );
+        }
+    }
+    if !Git::new(root)
+        .args(["cat-file", "-e"])
+        .rev(format!("{sha}:{}", claim.receipt))
+        .succeeded()
+    {
+        bail!(
+            "the gather carries no receipts at {}; nothing was landed",
+            claim.receipt
+        );
+    }
+
+    let target = crate::cmd::gather::branch_for(name, &short_of(root, &claim.input));
+    let tree = |rev: &str| git(root, None, &["rev-parse", &format!("{rev}^{{tree}}")], None);
+    let mut attempts = 0;
+    let landed = loop {
+        attempts += 1;
+        if let Some(tip) = remote_tip(root, &target)? {
+            if tree(&tip)? == tree(sha)? {
+                break None;
+            }
+            bail!(
+                "{target} already exists on {} and holds a different answer — the peers moved, \
+                 or it was edited. Nothing was landed; delete it to gather again at this pin.",
+                remote.remote
+            );
+        }
+        let out = Git::new(root)
+            .args(["push", "-q", "origin"])
+            .arg(format!("{sha}:refs/heads/{target}"))
+            .arg(format!("--force-with-lease=refs/heads/{target}:"))
+            .output()?;
+        if out.status.success() {
+            break Some(sha.to_string());
+        }
+        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        if attempts < ATTEMPTS && stderr.contains("stale info") {
+            continue;
+        }
+        bail!(
+            "the lander could not write refs/heads/{target} on {}:\n{stderr}",
+            remote.remote
+        );
+    };
+    let next = next_pin(root, &remote.branch, store, scratch)?;
     Ok(Landed {
         format_version: CONTRACT_VERSION,
         step: claim.step.clone(),
         landed,
         target: Some(target),
-        class,
-        reparented,
+        class: "epistemic".to_string(),
+        reparented: false,
         attempts,
         next,
     })

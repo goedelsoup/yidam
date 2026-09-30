@@ -647,6 +647,7 @@ Nothing is imported, no edge is drawn, and no claim is merged. Deciding between 
 Every peer is reported: `answered`, `empty`, `unaligned`, `refused`, `missing` or `undeclared`.
 A path dependency is `refused`, because a working tree has no commit to cite.
 A repeat over unchanged peers writes nothing and reports `unchanged`.
+Each asked peer gets a v2 receipt at `.yidam/runs/gather/<name>/<peer>.yml`, in the first commit.
 
 ### `dispatch` runs an agent seat and proposes what it wrote
 
@@ -929,6 +930,9 @@ yidam cluster admit --remote git@host:corpus.git
 yidam cluster pin   --remote git@host:corpus.git --vault-url file:///var/yidam/vault --out pin.json
 yidam cluster step  travel-tier --bundle <digest> --vault-url file:///var/yidam/vault --out step.json
 yidam cluster land  --step-output @step.json --remote git@host:corpus.git --vault-url file:///var/yidam/vault
+yidam cluster survey units --bundle <digest> --vault-url file:///var/yidam/vault --out survey.json
+yidam cluster ask   --ask '<one of survey.asks>' --vault-url file:///var/yidam/vault --out ask.json
+yidam cluster gather units --bundle <digest> --asked '[…ask records…]' --vault-url file:///var/yidam/vault --out step.json
 ```
 
 **`workflow`** reads `.yidam/capabilities.toml` and `[cluster]` in `.yidam/config.toml`, and
@@ -954,7 +958,16 @@ off the record. Then it pushes the commit to `main` or to `propose/<input>`, wit
 only when nothing the step reads moved. Otherwise it refuses. Its last act is a fresh pin,
 which the next step reads.
 
-The four records are the pod contract, versioned by `format_version`. Under `--format json`
+**`survey`**, **`ask`** and **`gather`** run a gather, one pod per peer. None takes `--remote`.
+`survey` plans at the pin and translates each peer's query there. Its `asks` list feeds the fan-out.
+`ask` takes the peer's bundle from the vault, or fetches its lock url when the vault lacks it.
+It checks the bytes against the lock, runs the query, and always puts a record in the vault.
+`gather` holds every record to the plan. A peer with no record is `refused`, never dropped.
+It builds the tree a local `yidam gather` would, and `land` pushes it to `propose/gather/*`.
+The lander refuses a gather commit that is not `open:`, or that touches other files.
+The generated workflow adds these four tasks per file in `.yidam/gathers/`.
+
+The records are the pod contract, versioned by `format_version`. Under `--format json`
 each sits under a `record` key in the report envelope.
 
 ## Index and embeddings

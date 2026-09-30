@@ -42,6 +42,8 @@ use serde::{Deserialize, Serialize};
 use crate::cmd::lint::citations;
 use crate::cmd::propose::write::{self, TempIndex};
 use crate::cmd::query::{check, exec, lang, Foreign, Graph};
+use crate::cmd::run::manifest::{Capability, Kind, Run};
+use crate::cmd::run::receipt::{self, File, Input, Receipt};
 use crate::deps::DependencyKind;
 use crate::paths::{repo_root, require_yidam_repo};
 
@@ -85,6 +87,9 @@ pub struct Spec {
     /// One correspondence per peer, keyed by the dependency name `tonpa.toml` uses.
     #[serde(default)]
     pub peers: BTreeMap<String, Correspondence>,
+    /// The sha256 of the file as committed, which every peer's receipt records.
+    #[serde(skip)]
+    pub digest: String,
 }
 
 /// Which of a peer's classes and properties mean the same as this corpus's. Local name on the
@@ -102,7 +107,7 @@ pub fn gathers_dir(root: &Path) -> std::path::PathBuf {
     root.join(".yidam").join("gathers")
 }
 
-fn valid_name(name: &str) -> bool {
+pub(crate) fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name
             .chars()
@@ -121,8 +126,9 @@ pub fn load(root: &Path, name: &str, local: &Graph) -> Result<(Spec, lang::Query
     let path = gathers_dir(root).join(format!("{name}.toml"));
     let text = std::fs::read_to_string(&path)
         .with_context(|| format!("no gather named `{name}` — expected {}", path.display()))?;
-    let spec: Spec =
+    let mut spec: Spec =
         toml::from_str(&text).with_context(|| format!("{} does not parse", path.display()))?;
+    spec.digest = receipt::sha256(text.as_bytes());
 
     let question = spec.question.trim();
     if question.is_empty() {
@@ -205,7 +211,7 @@ pub fn load(root: &Path, name: &str, local: &Graph) -> Result<(Spec, lang::Query
 // ── the report ────────────────────────────────────────────────────────────────
 
 /// What happened when a peer was asked — or why it was not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Outcome {
     /// Asked, and at least one answer was cited.
@@ -237,7 +243,7 @@ impl Outcome {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerReport {
     pub package: String,
     pub outcome: Outcome,
@@ -272,7 +278,7 @@ impl PeerReport {
 
 /// One `cites:` entry, in RFC-0019's shape. No `tag`: a peer's standing is recorded by the
 /// peer, and the weakest-claim rule cannot be computed across the boundary.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Cite {
     pub package: String,
     pub node: String,
@@ -281,11 +287,11 @@ pub struct Cite {
 }
 
 /// An answer with the key it was given under, for disagreement detection.
-#[derive(Debug, Clone)]
-struct Answer {
-    cite: Cite,
-    value: String,
-    keys: Vec<String>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Answer {
+    pub cite: Cite,
+    pub value: String,
+    pub keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -302,6 +308,8 @@ pub struct Landed {
     pub commits: Vec<String>,
     /// Repo-relative paths of the question nodes.
     pub nodes: Vec<String>,
+    /// Repo-relative paths of the receipts, one per peer that answered or said nothing (#1217).
+    pub receipts: Vec<String>,
     /// The branch already held exactly this — or HEAD does — so nothing was written.
     pub unchanged: bool,
 }
@@ -365,7 +373,7 @@ fn translate(
 
 /// The query as text, for the report — rebuilt rather than rewritten, so what is shown is what
 /// ran.
-fn show(q: &lang::Query) -> String {
+pub(crate) fn show(q: &lang::Query) -> String {
     let step = &q.steps[0];
     let preds: Vec<String> = step.filter.iter().map(lang::Pred::spelled).collect();
     match preds.is_empty() {
@@ -374,28 +382,21 @@ fn show(q: &lang::Query) -> String {
     }
 }
 
-/// Ask one installed, pinned, aligned peer.
+/// Ask one installed, pinned peer the query `q`, already in its own words.
+#[allow(clippy::too_many_arguments)]
 fn ask(
     foreign: &Foreign,
     pin: &str,
-    query: &lang::Query,
-    corr: &Correspondence,
-    spec: &Spec,
+    q: &lang::Query,
+    class: &str,
+    answer: &str,
+    key: Option<&str>,
     deps: &BTreeMap<String, citations::Installed>,
 ) -> (PeerReport, Vec<Answer>) {
     let package = foreign.package.as_str();
-    let (q, class, answer, key) = match translate(query, corr, spec) {
-        Ok(t) => t,
-        Err(why) => {
-            return (
-                PeerReport::not_asked(package, Outcome::Unaligned, why),
-                vec![],
-            )
-        }
-    };
     let mut report = PeerReport {
         pin: Some(pin.to_string()),
-        asked: Some(show(&q)),
+        asked: Some(show(q)),
         ..PeerReport::not_asked(package, Outcome::Unaligned, String::new())
     };
     let declared = foreign.classes.iter().find(|c| c.name == class);
@@ -403,7 +404,7 @@ fn ask(
         report.reason = Some(format!("`{package}` declares no class `{class}`"));
         return (report, vec![]);
     }
-    for prop in std::iter::once(&answer).chain(key.as_ref()) {
+    for prop in std::iter::once(answer).chain(key) {
         if foreign
             .universal
             .declared_type_for(declared, prop)
@@ -420,7 +421,7 @@ fn ask(
         universal: &foreign.universal,
         authored: exec::authored(&foreign.nodes),
     };
-    let checked = match check::check(&q, &schema) {
+    let checked = match check::check(q, &schema) {
         Ok(c) => c,
         Err(r) => {
             report.reason = Some(format!(
@@ -431,7 +432,7 @@ fn ask(
         }
     };
     let outcome = exec::execute(
-        &q,
+        q,
         &checked,
         &foreign.nodes,
         &foreign.edges,
@@ -449,13 +450,10 @@ fn ask(
     for id in &outcome.matched {
         let Some(node) = by_id.get(id) else { continue };
         let node_ref = id.strip_suffix(".yml").unwrap_or(id).to_string();
-        let keys = key
-            .as_deref()
-            .map(|k| exec::node_scalars(node, k))
-            .unwrap_or_default();
+        let keys = key.map(|k| exec::node_scalars(node, k)).unwrap_or_default();
         let mut quoted = false;
-        for value in exec::node_scalars(node, &answer) {
-            let Some(span) = quote(&node.text, &answer, &value) else {
+        for value in exec::node_scalars(node, answer) {
+            let Some(span) = quote(&node.text, answer, &value) else {
                 continue;
             };
             let cite = Cite {
@@ -538,24 +536,131 @@ fn disagreements(answers: &[Answer]) -> Vec<Disagreement> {
     out
 }
 
-/// Every peer's outcome, in name order: the named ones asked or refused, and the installed
-/// ones nobody named.
-pub(crate) fn survey(
+// ── the plan, the asking, and the roll call ─────────────────────────────────────
+//
+// A gather is three phases, and they are three functions because a cluster runs them in three
+// kinds of pod (#1217). The gathering side *plans*: it decides who is asked and translates the
+// query, so the correspondence never leaves the one place that knows both vocabularies. Each
+// peer's asker *answers* from the peer's own bytes, in the peer's own words. The gathering side
+// then *settles*: every plan entry gets exactly one outcome, whether or not its asker came back.
+// On one machine the three run in one process, and the result is the same tree.
+
+/// Where the gathering side learns which peers exist and what they are pinned at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mode {
+    /// The bundles `tonpa install` unpacked under `.yidam/tonpa/`, pinned by their manifests.
+    Local,
+    /// `tonpa.lock`, pinned by its `commit`. A cluster's pin is a git bundle of the corpus,
+    /// which carries the lock and not what an install unpacked beside it; each asker fetches
+    /// its peer by the lock entry.
+    Cluster,
+}
+
+/// The lock entry an asker fetches its peer by.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Locked {
+    pub url: String,
+    /// The `.yiz`'s sha256, which is also the key a vault stores those bytes under.
+    pub sha256: String,
+}
+
+/// One peer the gathering side decided to ask, and everything its asker needs.
+///
+/// The query is **already translated**. An asker is handed the peer's own class and property
+/// names and never the correspondence, so there is one place that maps one vocabulary onto the
+/// other, and it is `.yidam/gathers/<name>.toml` on the gathering side.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ask {
+    pub gather: String,
+    pub peer: String,
+    /// The commit every citation into this peer carries.
+    pub pin: String,
+    /// Where the peer's bundle can be fetched, and what it must hash to. `None` for a peer
+    /// installed without a lock entry, which only a local gather asks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock: Option<Locked>,
+    /// RFC-0018, in the peer's classes and properties.
+    pub query: String,
+    pub class: String,
+    pub answer: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+}
+
+/// The version of [`Asked`]. An asker and its gatherer run one image, so a mismatch is a
+/// workflow assembled from two releases, and the peer is refused rather than half-read.
+pub const ASKED_VERSION: u32 = 1;
+
+/// What asking one peer produced: the record an asker hands back to the gathering side.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Asked {
+    pub format_version: u32,
+    /// The ask this answers, whole. The gathering side holds it to the plan it derives itself,
+    /// so a record answering some other question is refused and not cited.
+    pub ask: Ask,
+    pub report: PeerReport,
+    pub answers: Vec<Answer>,
+    /// The sha256 of the `.yiz` the answer was read from, where there was one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle_sha256: Option<String>,
+    /// The version of the binary that answered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// The image it ran in, where the asker's pod was started from a digest reference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_digest: Option<String>,
+}
+
+impl Asked {
+    /// A peer that was not asked after all. It keeps its place in the roll call, with the reason.
+    pub(crate) fn refused(ask: &Ask, reason: String, image_digest: Option<String>) -> Self {
+        Self {
+            format_version: ASKED_VERSION,
+            ask: ask.clone(),
+            report: PeerReport::not_asked(&ask.peer, Outcome::Refused, reason),
+            answers: vec![],
+            bundle_sha256: None,
+            version: receipt::this_version(),
+            image_digest,
+        }
+    }
+}
+
+const PATH_DEPENDENCY: &str = "a path dependency is a working tree, not a pinned commit — a \
+                               citation into it could not say what it quoted; install it as a \
+                               fetched bundle";
+const NOT_NAMED: &str = "installed, and the gather names no correspondence for it — not asked";
+const NOT_INSTALLED: &str = "named by the gather and not installed — declare it in \
+                             .yidam/tonpa.toml and run `yidam tonpa install`";
+const NO_MANIFEST_COMMIT: &str =
+    "its manifest.yml records no commit, so a citation could not be pinned";
+const NO_LOCKED_COMMIT: &str =
+    "tonpa.lock records no commit for it, so a citation could not be pinned";
+const NOT_THE_LOCKED_BUNDLE: &str =
+    "the unpacked bundle is not the one tonpa.lock pins — run `yidam tonpa install`";
+
+/// Every peer's name, and for each either an [`Ask`] or the outcome that means it is not asked.
+///
+/// Names come from the gather, from what is installed (or locked, on a cluster), and from the
+/// path dependencies. Refused, undeclared, missing and unaligned are all decided here, before
+/// any peer's bytes are read — so the same pin plans the same roll call wherever it is planned.
+pub(crate) fn plan(
     root: &Path,
+    name: &str,
     spec: &Spec,
     query: &lang::Query,
-) -> (Vec<PeerReport>, Vec<Cite>, Vec<Disagreement>) {
+    mode: Mode,
+) -> (Vec<PeerReport>, Vec<Ask>) {
     let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
     let deps = citations::installed(root);
     let lock = crate::deps::load_lock(&crate::paths::tonpa_lock_path(root)).unwrap_or_default();
-    let tonpa = crate::paths::tonpa_dir(root);
-    let foreign: BTreeMap<String, Foreign> = Graph::foreign(root)
-        .into_iter()
-        .map(|f| (f.package.clone(), f))
-        .collect();
+    let locked = |n: &str| lock.packages.iter().find(|p| p.name == n);
 
     let mut names: BTreeSet<String> = spec.peers.keys().cloned().collect();
-    names.extend(deps.keys().cloned());
+    match mode {
+        Mode::Local => names.extend(deps.keys().cloned()),
+        Mode::Cluster => names.extend(lock.packages.iter().map(|p| p.name.clone())),
+    }
     names.extend(
         config
             .dependencies
@@ -565,69 +670,227 @@ pub(crate) fn survey(
     );
 
     let mut peers = Vec::new();
-    let mut answers = Vec::new();
-    for name in names {
+    let mut asks = Vec::new();
+    for peer in names {
         let is_path = config
             .dependencies
-            .get(&name)
+            .get(&peer)
             .is_some_and(|d| d.path.is_some())
             || deps
-                .get(&name)
+                .get(&peer)
                 .is_some_and(|d| d.kind == DependencyKind::Path);
-        let report = if is_path {
-            PeerReport::not_asked(
-                &name,
-                Outcome::Refused,
-                "a path dependency is a working tree, not a pinned commit — a citation into \
-                 it could not say what it quoted; install it as a fetched bundle"
-                    .into(),
-            )
-        } else if !spec.peers.contains_key(&name) {
-            PeerReport::not_asked(
-                &name,
-                Outcome::Undeclared,
-                "installed, and the gather names no correspondence for it — not asked".into(),
-            )
-        } else if let (Some(dep), Some(f)) = (deps.get(&name), foreign.get(&name)) {
-            let locked = lock.packages.iter().find(|p| p.name == name);
-            match (&dep.pin, locked) {
-                (None, _) => PeerReport::not_asked(
-                    &name,
-                    Outcome::Refused,
-                    "its manifest.yml records no commit, so a citation could not be pinned".into(),
-                ),
-                (Some(_), Some(l))
-                    if !crate::deps::verify_installed(&name, &tonpa, l).unwrap_or(false) =>
-                {
-                    PeerReport::not_asked(
-                        &name,
-                        Outcome::Refused,
-                        "the unpacked bundle is not the one tonpa.lock pins — run \
-                         `yidam tonpa install`"
-                            .into(),
-                    )
-                }
-                (Some(pin), _) => {
-                    let (r, a) = ask(f, pin, query, &spec.peers[&name], spec, &deps);
-                    answers.extend(a);
-                    r
-                }
-            }
-        } else {
-            PeerReport::not_asked(
-                &name,
-                Outcome::Missing,
-                "named by the gather and not installed — declare it in .yidam/tonpa.toml \
-                 and run `yidam tonpa install`"
-                    .into(),
-            )
+        let not = |outcome, why: &str| PeerReport::not_asked(&peer, outcome, why.to_string());
+        if is_path {
+            peers.push(not(Outcome::Refused, PATH_DEPENDENCY));
+            continue;
+        }
+        if !spec.peers.contains_key(&peer) {
+            peers.push(not(Outcome::Undeclared, NOT_NAMED));
+            continue;
+        }
+        // `None`: not there. `Some(None)`: there, and pinned to nothing.
+        let pin: Option<Option<String>> = match mode {
+            Mode::Local => deps.get(&peer).map(|d| d.pin.clone()),
+            Mode::Cluster => locked(&peer).map(|l| l.commit.clone()),
         };
-        peers.push(report);
+        let pin = match pin {
+            None => {
+                peers.push(not(Outcome::Missing, NOT_INSTALLED));
+                continue;
+            }
+            Some(None) => {
+                let why = match mode {
+                    Mode::Local => NO_MANIFEST_COMMIT,
+                    Mode::Cluster => NO_LOCKED_COMMIT,
+                };
+                peers.push(not(Outcome::Refused, why));
+                continue;
+            }
+            Some(Some(pin)) => pin,
+        };
+        match translate(query, &spec.peers[&peer], spec) {
+            Err(why) => peers.push(not(Outcome::Unaligned, &why)),
+            Ok((q, class, answer, key)) => asks.push(Ask {
+                gather: name.to_string(),
+                pin,
+                lock: locked(&peer).map(|l| Locked {
+                    url: l.url.clone(),
+                    sha256: l.sha256.clone(),
+                }),
+                query: show(&q),
+                class,
+                answer,
+                key,
+                peer,
+            }),
+        }
     }
+    (peers, asks)
+}
+
+/// Ask one peer from a root where it is unpacked under `.yidam/tonpa/<peer>/`.
+///
+/// **Never fails.** Every way asking can go wrong is an outcome for this peer; an asker that
+/// errored out of the roll call would leave a gather reporting fewer peers than it named, which
+/// reads as a consensus it does not have.
+pub(crate) fn answer(root: &Path, ask: &Ask, image_digest: Option<String>) -> Asked {
+    let foreign: Vec<Foreign> = Graph::foreign(root)
+        .into_iter()
+        .filter(|f| f.package == ask.peer)
+        .collect();
+    answer_from(
+        root,
+        ask,
+        foreign.first(),
+        &citations::installed(root),
+        image_digest,
+    )
+}
+
+fn answer_from(
+    root: &Path,
+    ask: &Ask,
+    foreign: Option<&Foreign>,
+    deps: &BTreeMap<String, citations::Installed>,
+    image_digest: Option<String>,
+) -> Asked {
+    let refuse = |why: String| Asked::refused(ask, why, image_digest.clone());
+    let bundle_sha256 = std::fs::read(
+        crate::paths::tonpa_dir(root)
+            .join(&ask.peer)
+            .join("bundle.yiz"),
+    )
+    .ok()
+    .map(|b| crate::deps::sha256_hex(&b));
+    if let Some(l) = &ask.lock {
+        if bundle_sha256.as_deref() != Some(l.sha256.as_str()) {
+            return refuse(NOT_THE_LOCKED_BUNDLE.into());
+        }
+    }
+    let Some(foreign) = foreign else {
+        return refuse(NOT_INSTALLED.into());
+    };
+    match deps.get(&ask.peer).and_then(|d| d.pin.as_deref()) {
+        None => return refuse(NO_MANIFEST_COMMIT.into()),
+        Some(p) if p != ask.pin => {
+            return refuse(format!(
+                "its manifest.yml records commit {p}, and the gather was planned against {}",
+                ask.pin
+            ))
+        }
+        Some(_) => {}
+    }
+    let q = match lang::parse(&ask.query) {
+        Ok(q) => q,
+        Err(e) => {
+            return refuse(format!(
+                "the translated query `{}` does not parse: {e}",
+                ask.query
+            ))
+        }
+    };
+    let (report, answers) = self::ask(
+        foreign,
+        &ask.pin,
+        &q,
+        &ask.class,
+        &ask.answer,
+        ask.key.as_deref(),
+        deps,
+    );
+    Asked {
+        format_version: ASKED_VERSION,
+        ask: ask.clone(),
+        report,
+        answers,
+        bundle_sha256,
+        version: receipt::this_version(),
+        image_digest,
+    }
+}
+
+/// The plan and every asker's record, as one roll call.
+pub(crate) struct Settled {
+    pub peers: Vec<PeerReport>,
+    pub cites: Vec<Cite>,
+    pub found: Vec<Disagreement>,
+    /// The records of peers that were asked and answered — or said nothing — in name order.
+    /// Each gets a receipt.
+    pub asked: Vec<Asked>,
+}
+
+/// Give every planned ask exactly one outcome, whatever came back for it.
+///
+/// A plan entry with no record is `refused`, never dropped: on a cluster that is a pod that
+/// failed before it could say why, and it stays in the roll call saying so. A record is held
+/// to the ask the gathering side planned, and to the peer and pin it was asked about; one that
+/// is not is refused rather than cited.
+pub(crate) fn settle(
+    mut peers: Vec<PeerReport>,
+    asks: &[Ask],
+    mut records: BTreeMap<String, Asked>,
+) -> Settled {
+    let mut answers = Vec::new();
+    let mut asked = Vec::new();
+    for ask in asks {
+        let refused = |why: String| Asked::refused(ask, why, None);
+        let record = match records.remove(&ask.peer) {
+            None => {
+                refused("its asker returned no record — it failed before it could say why".into())
+            }
+            Some(r) if r.format_version != ASKED_VERSION => refused(format!(
+                "its asker's record is format_version {}, and this binary reads {ASKED_VERSION}",
+                r.format_version
+            )),
+            Some(r) if r.ask != *ask => {
+                refused("its asker's record answers a different ask than this pin plans".into())
+            }
+            Some(r)
+                if r.report.package != ask.peer
+                    || r.answers
+                        .iter()
+                        .any(|a| a.cite.package != ask.peer || a.cite.commit != ask.pin) =>
+            {
+                refused("its asker's record cites a peer or a commit it was not asked".into())
+            }
+            Some(r) => r,
+        };
+        peers.push(record.report.clone());
+        if matches!(record.report.outcome, Outcome::Answered | Outcome::Empty) {
+            answers.extend(record.answers.iter().cloned());
+            asked.push(record);
+        }
+    }
+    peers.sort_by(|a, b| a.package.cmp(&b.package));
     let found = disagreements(&answers);
     let mut cites: Vec<Cite> = answers.into_iter().map(|a| a.cite).collect();
     cites.sort();
-    (peers, cites, found)
+    Settled {
+        peers,
+        cites,
+        found,
+        asked,
+    }
+}
+
+/// The plan, asked in this process against what is unpacked here.
+fn survey(root: &Path, name: &str, spec: &Spec, query: &lang::Query) -> Settled {
+    let (peers, asks) = plan(root, name, spec, query, Mode::Local);
+    let deps = citations::installed(root);
+    let foreign: BTreeMap<String, Foreign> = Graph::foreign(root)
+        .into_iter()
+        .map(|f| (f.package.clone(), f))
+        .collect();
+    let records = asks
+        .iter()
+        .map(|a| {
+            (
+                a.peer.clone(),
+                answer_from(root, a, foreign.get(&a.peer), &deps, None),
+            )
+        })
+        .collect();
+    settle(peers, &asks, records)
 }
 
 // ── landing ───────────────────────────────────────────────────────────────────
@@ -674,38 +937,120 @@ fn roll_call(peers: &[PeerReport]) -> String {
     out
 }
 
-/// `(repo-relative path, file content, commit subject)` for every node this gather lands.
-fn draft(
+/// One commit's worth of a gather: the question node it opens, and every file it adds.
+pub(crate) struct Draft {
+    /// The node's repo-relative path.
+    pub path: String,
+    /// `(repo-relative path, content)`, the node first. The first draft also carries every
+    /// peer's receipt, so the receipts land with the question that cites them.
+    pub files: Vec<(String, String)>,
+    pub subject: String,
+}
+
+/// Where a gather's receipt for one peer is written: `.yidam/runs/gather/<name>/<peer>.yml`.
+pub fn receipt_step(name: &str, peer: &str) -> String {
+    format!("gather/{name}/{peer}")
+}
+
+/// A receipt for one peer's answer (#1217): what it was asked from, and what answered.
+///
+/// A gather is a connector in RFC-0026's sense — its answer depends on bytes this repository
+/// does not hold — so its receipt records the peer's bundle by digest beside the gather spec
+/// that planned the ask. Two runs over the same pins give the same input state; a new binary
+/// or a new image does not, by the rule [`Receipt`] states, change it.
+fn peer_receipt(
     name: &str,
     spec: &Spec,
-    peers: &[PeerReport],
-    cites: &[Cite],
-    found: &[Disagreement],
-) -> Result<Vec<(String, String, String)>> {
+    asked: &Asked,
+    outputs: &[(String, String)],
+) -> Result<(String, String)> {
+    let peer = &asked.ask.peer;
+    let spec_path = format!(".yidam/gathers/{name}.toml");
+    let cap = Capability {
+        kind: Kind::Connector,
+        run: Run::Argv(vec!["yidam".into(), "gather".into(), name.into()]),
+        reads: vec![spec_path.clone(), format!(".yidam/tonpa/{peer}/**")],
+        writes: vec![format!(
+            ".yidam/corpus/{}/gather-{name}*.yml",
+            spec.lands_as
+        )],
+        verb: "open".into(),
+        after: vec![],
+        ageing_days: None,
+    };
+    let mut files = vec![File {
+        path: spec_path,
+        sha256: spec.digest.clone(),
+    }];
+    if let Some(sha) = &asked.bundle_sha256 {
+        files.push(File {
+            path: format!(".yidam/tonpa/{peer}/bundle.yiz"),
+            sha256: sha.clone(),
+        });
+    }
+    let config_sha256 = receipt::sha256(b"");
+    let input_state = Receipt::input_state(&cap, &spec.digest, &config_sha256, &files, None, None)?;
+    let step = receipt_step(name, peer);
+    let r = Receipt {
+        format_version: receipt::FORMAT_VERSION,
+        step: step.clone(),
+        kind: "gather",
+        verb: cap.verb.clone(),
+        run: cap.run.clone(),
+        input_state,
+        input: Input {
+            commit: asked.ask.pin.clone(),
+            manifest_sha256: spec.digest.clone(),
+            config_sha256,
+            reads: cap.reads.clone(),
+            files,
+            resolved_graph_sha256: None,
+            script_sha256: None,
+        },
+        writes: cap.writes.clone(),
+        outputs: outputs
+            .iter()
+            .map(|(path, content)| File {
+                path: path.clone(),
+                sha256: receipt::sha256(content.as_bytes()),
+            })
+            .collect(),
+        model: None,
+        version: asked.version.clone(),
+        config: None,
+        image_digest: asked.image_digest.clone(),
+    };
+    Ok((Receipt::path(&step), r.to_yaml()?))
+}
+
+/// Every node this gather lands, one per commit, with the receipts in the first.
+fn draft(name: &str, spec: &Spec, settled: &Settled) -> Result<Vec<Draft>> {
     let dir = format!(".yidam/corpus/{}", spec.lands_as);
     let asked = format!(
         "Gathered by `yidam gather {name}`. Each answer below is cited, not imported: nothing \
          was merged and no claim was re-tagged. Peers:{}",
-        roll_call(peers)
+        roll_call(&settled.peers)
     );
-    let mut out = Vec::new();
+    // `(path, content, subject, the peers it cites)`
+    let mut nodes: Vec<(String, String, String, BTreeSet<String>)> = Vec::new();
     let label = format!("? {}", spec.question.trim());
     let node = QuestionNode {
         class: &spec.lands_as,
         label: label.clone(),
         description: asked.clone(),
-        cites,
+        cites: &settled.cites,
     };
-    out.push((
+    nodes.push((
         format!("{dir}/gather-{name}.yml"),
         serde_yaml::to_string(&node)?,
         label,
+        settled.cites.iter().map(|c| c.package.clone()).collect(),
     ));
-    for d in found {
+    for d in &settled.found {
         let packages: BTreeSet<&str> = d.answers.iter().map(|c| c.package.as_str()).collect();
         let label = format!(
             "? {} disagree on {} for {} = {}",
-            packages.into_iter().collect::<Vec<_>>().join(", "),
+            packages.iter().copied().collect::<Vec<_>>().join(", "),
             spec.answer,
             spec.key.as_deref().unwrap_or("key"),
             d.key
@@ -719,11 +1064,33 @@ fn draft(
             ),
             cites: &d.answers,
         };
-        out.push((
+        nodes.push((
             format!("{dir}/gather-{name}-{}.yml", slug(&d.key)),
             serde_yaml::to_string(&node)?,
             label,
+            packages.into_iter().map(str::to_string).collect(),
         ));
+    }
+
+    let mut receipts = Vec::new();
+    for a in &settled.asked {
+        let outputs: Vec<(String, String)> = nodes
+            .iter()
+            .filter(|(_, _, _, cited)| cited.contains(&a.ask.peer))
+            .map(|(p, c, _, _)| (p.clone(), c.clone()))
+            .collect();
+        receipts.push(peer_receipt(name, spec, a, &outputs)?);
+    }
+    let mut out: Vec<Draft> = nodes
+        .into_iter()
+        .map(|(path, content, subject, _)| Draft {
+            files: vec![(path.clone(), content)],
+            path,
+            subject,
+        })
+        .collect();
+    if let Some(first) = out.first_mut() {
+        first.files.extend(receipts);
     }
     Ok(out)
 }
@@ -736,53 +1103,90 @@ fn tree_of(root: &Path, rev: &str) -> Option<String> {
     write::git(root, None, &["rev-parse", &format!("{rev}^{{tree}}")], None).ok()
 }
 
+/// The tree after each draft, built on `base` in a temporary index.
+fn trees(root: &Path, base: &str, drafts: &[Draft]) -> Result<Vec<String>> {
+    let scratch = TempIndex::new(root, "gather")?;
+    let index = scratch.path().to_path_buf();
+    write::git(root, Some(&index), &["read-tree", base], None)?;
+    let mut trees = Vec::new();
+    for d in drafts {
+        for (path, content) in &d.files {
+            let blob = write::git(
+                root,
+                Some(&index),
+                &["hash-object", "-w", "--stdin"],
+                Some(content),
+            )?;
+            write::git(
+                root,
+                Some(&index),
+                &[
+                    "update-index",
+                    "--add",
+                    "--cacheinfo",
+                    &format!("100644,{blob},{path}"),
+                ],
+                None,
+            )?;
+        }
+        trees.push(write::git(root, Some(&index), &["write-tree"], None)?);
+    }
+    Ok(trees)
+}
+
+/// One `open:` commit per draft on top of `base`. Full shas, oldest first.
+fn chain(
+    root: &Path,
+    name: &str,
+    base: &str,
+    short: &str,
+    drafts: &[Draft],
+    trees: &[String],
+) -> Result<Vec<String>> {
+    let mut parent = base.to_string();
+    let mut commits = Vec::new();
+    for (d, tree) in drafts.iter().zip(trees) {
+        let message = format!(
+            "open: {}\n\nGathered by `yidam gather {name}`: {}\n\nNothing was imported and no \
+             claim was merged — every answer is a `cites:` entry pinned to the peer's \
+             commit.\n\nProposed-from: {short}\n",
+            d.subject, d.path
+        );
+        let sha = write::commit_tree(root, tree, &parent, &message, (AUTHOR_NAME, AUTHOR_EMAIL))?;
+        commits.push(sha.clone());
+        parent = sha;
+    }
+    Ok(commits)
+}
+
+fn receipts_of(drafts: &[Draft]) -> Vec<String> {
+    drafts
+        .iter()
+        .flat_map(|d| d.files.iter().skip(1).map(|(p, _)| p.clone()))
+        .collect()
+}
+
 /// One `open:` commit per question node, on `propose/gather/<name>/<head>`.
 ///
 /// **Unchanged is a result, not a refusal.** The tree is built first; if HEAD or the branch
 /// already holds exactly it, nothing is committed and no ref moves — a repeat gather over
 /// peers that have not moved writes nothing. A branch holding something *else* is refused
 /// unless `force`, for the reason `propose` refuses: it may be somebody's review in progress.
-fn land(
-    root: &Path,
-    name: &str,
-    nodes: &[(String, String, String)],
-    force: bool,
-) -> Result<Landed> {
+fn land(root: &Path, name: &str, drafts: &[Draft], force: bool) -> Result<Landed> {
     let (full, short) = write::head(root)?;
     let branch = branch_for(name, &short);
-    let paths: Vec<String> = nodes.iter().map(|(p, _, _)| p.clone()).collect();
+    let nodes: Vec<String> = drafts.iter().map(|d| d.path.clone()).collect();
+    let receipts = receipts_of(drafts);
 
-    let scratch = TempIndex::new(root, "gather")?;
-    let index = scratch.path().to_path_buf();
-    write::git(root, Some(&index), &["read-tree", "HEAD"], None)?;
-    let mut trees = Vec::new();
-    for (path, content, _) in nodes {
-        let blob = write::git(
-            root,
-            Some(&index),
-            &["hash-object", "-w", "--stdin"],
-            Some(content),
-        )?;
-        write::git(
-            root,
-            Some(&index),
-            &[
-                "update-index",
-                "--add",
-                "--cacheinfo",
-                &format!("100644,{blob},{path}"),
-            ],
-            None,
-        )?;
-        trees.push(write::git(root, Some(&index), &["write-tree"], None)?);
-    }
+    let trees = trees(root, "HEAD", drafts)?;
     let last = trees.last().cloned().unwrap_or_default();
     let existing = tree_of(root, &format!("refs/heads/{branch}"));
     if tree_of(root, "HEAD").as_deref() == Some(&last) || existing.as_deref() == Some(&last) {
         return Ok(Landed {
             branch,
             commits: vec![],
-            nodes: paths,
+            nodes,
+            receipts,
             unchanged: true,
         });
     }
@@ -794,30 +1198,89 @@ fn land(
         );
     }
 
-    let mut parent = full;
-    let mut commits = Vec::new();
-    for ((path, _, subject), tree) in nodes.iter().zip(&trees) {
-        let message = format!(
-            "open: {subject}\n\nGathered by `yidam gather {name}`: {path}\n\nNothing was \
-             imported and no claim was merged — every answer is a `cites:` entry pinned to \
-             the peer's commit.\n\nProposed-from: {short}\n"
-        );
-        let sha = write::commit_tree(root, tree, &parent, &message, (AUTHOR_NAME, AUTHOR_EMAIL))?;
-        commits.push(write::short_of(root, &sha));
-        parent = sha;
-    }
+    let commits = chain(root, name, &full, &short, drafts, &trees)?;
+    let tip = commits.last().cloned().unwrap_or(full);
     write::git(
         root,
         None,
-        &["update-ref", &format!("refs/heads/{branch}"), &parent],
+        &["update-ref", &format!("refs/heads/{branch}"), &tip],
         None,
     )?;
     Ok(Landed {
         branch,
-        commits,
-        nodes: paths,
+        commits: commits.iter().map(|c| write::short_of(root, c)).collect(),
+        nodes,
+        receipts,
         unchanged: false,
     })
+}
+
+/// A gather on a cluster, from the gathering pod's clone at `input` (#1217).
+///
+/// Plans from `tonpa.lock` and settles against the askers' records, then commits on `input`
+/// without moving any ref: the tip is shipped through the vault, and the lander alone pushes
+/// it. `None` for the tip when nothing answered, or when `input` already holds exactly this
+/// tree — the repeat run over pins that have not moved.
+pub(crate) fn gather_at(
+    root: &Path,
+    name: &str,
+    input: &str,
+    records: BTreeMap<String, Asked>,
+) -> Result<(GatherReport, Option<String>)> {
+    let local = Graph::load(root);
+    let (spec, query) = load(root, name, &local)?;
+    let (peers, asks) = plan(root, name, &spec, &query, Mode::Cluster);
+    let settled = settle(peers, &asks, records);
+    let short = write::short_of(root, input);
+    let mut tip = None;
+    let landed = if settled.cites.is_empty() {
+        None
+    } else {
+        let drafts = draft(name, &spec, &settled)?;
+        let trees = trees(root, input, &drafts)?;
+        let unchanged = trees.last() == tree_of(root, input).as_ref();
+        let commits = if unchanged {
+            vec![]
+        } else {
+            chain(root, name, input, &short, &drafts, &trees)?
+        };
+        tip = commits.last().cloned();
+        Some(Landed {
+            branch: branch_for(name, &short),
+            commits: commits.iter().map(|c| write::short_of(root, c)).collect(),
+            nodes: drafts.iter().map(|d| d.path.clone()).collect(),
+            receipts: receipts_of(&drafts),
+            unchanged,
+        })
+    };
+    Ok((report(name, &spec, settled, landed, false), tip))
+}
+
+/// The plan alone, from the gathering pod's clone — who is asked, and what.
+pub(crate) fn plan_at(root: &Path, name: &str) -> Result<(Vec<PeerReport>, Vec<Ask>)> {
+    let local = Graph::load(root);
+    let (spec, query) = load(root, name, &local)?;
+    Ok(plan(root, name, &spec, &query, Mode::Cluster))
+}
+
+fn report(
+    name: &str,
+    spec: &Spec,
+    settled: Settled,
+    landed: Option<Landed>,
+    dry_run: bool,
+) -> GatherReport {
+    GatherReport {
+        kind: "gather",
+        gather: name.to_string(),
+        question: spec.question.trim().to_string(),
+        query: spec.query.clone(),
+        peers: settled.peers,
+        cites: settled.cites,
+        disagreements: settled.found,
+        landed,
+        dry_run,
+    }
 }
 
 // ── the command ───────────────────────────────────────────────────────────────
@@ -833,26 +1296,16 @@ pub(crate) fn run(root: &Path, opts: &Options) -> Result<GatherReport> {
     write::require_committed_corpus(root)?;
     let local = Graph::load(root);
     let (spec, query) = load(root, &opts.name, &local)?;
-    let (peers, cites, found) = survey(root, &spec, &query);
+    let settled = survey(root, &opts.name, &spec, &query);
 
-    let landed = match opts.dry_run || cites.is_empty() {
+    let landed = match opts.dry_run || settled.cites.is_empty() {
         true => None,
         false => {
-            let nodes = draft(&opts.name, &spec, &peers, &cites, &found)?;
-            Some(land(root, &opts.name, &nodes, opts.force)?)
+            let drafts = draft(&opts.name, &spec, &settled)?;
+            Some(land(root, &opts.name, &drafts, opts.force)?)
         }
     };
-    Ok(GatherReport {
-        kind: "gather",
-        gather: opts.name.clone(),
-        question: spec.question.trim().to_string(),
-        query: spec.query.clone(),
-        peers,
-        cites,
-        disagreements: found,
-        landed,
-        dry_run: opts.dry_run,
-    })
+    Ok(report(&opts.name, &spec, settled, landed, opts.dry_run))
 }
 
 pub fn render(r: &GatherReport) -> String {

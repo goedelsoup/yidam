@@ -361,8 +361,26 @@ fn nothing_is_imported_and_no_link_leaves_the_corpus() {
         &root,
         &["diff", "--name-status", &format!("HEAD..{branch}")],
     );
-    let lines: Vec<&str> = changed.lines().collect();
+    let (receipts, lines): (Vec<&str>, Vec<&str>) = changed
+        .lines()
+        .partition(|l| l.contains("\t.yidam/runs/gather/peaks/"));
     assert_eq!(lines.len(), 2, "{changed}");
+    // One receipt per peer that was asked and answered or said nothing — and none for a peer
+    // that was never asked, so a receipt is never evidence of a question nobody put.
+    let receipts: Vec<&str> = receipts
+        .iter()
+        .map(|l| l.split_once('\t').unwrap().1)
+        .collect();
+    assert_eq!(
+        receipts,
+        [
+            ".yidam/runs/gather/peaks/alpha.yml",
+            ".yidam/runs/gather/peaks/beta.yml",
+            ".yidam/runs/gather/peaks/delta.yml",
+            ".yidam/runs/gather/peaks/gamma.yml",
+        ],
+        "{changed}"
+    );
     for line in lines {
         let (status, path) = line.split_once('\t').unwrap();
         assert_eq!(status, "A", "only new question nodes: {line}");

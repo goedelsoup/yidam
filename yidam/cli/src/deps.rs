@@ -390,6 +390,65 @@ pub fn shadowed(root: &Path) -> Vec<ShadowedDependency> {
     out
 }
 
+/// Unpack a bundle into `dest`, and decode the `manifest.yml` it carried.
+///
+/// Returns the reason the manifest did not decode alongside it, rather than folding it away:
+/// the manifest is where a bundle says *which corpus this is*, `install_package` writes three
+/// of its fields into `tonpa.lock`, and a manifest read through `unwrap_or_default()` put a pin
+/// in the lock saying the bundle declared none of them (#1081). Absence is legitimate in this
+/// format — an older bundle predates the fields — which is exactly why an unreadable manifest
+/// cannot be told from one by looking at the decoded value.
+pub fn extract_bundle(
+    data: &[u8],
+    dest: &Path,
+) -> anyhow::Result<(BundleManifest, Option<String>)> {
+    use anyhow::Context;
+    use std::io::Read;
+    std::fs::create_dir_all(dest).with_context(|| format!("creating {}", dest.display()))?;
+
+    // Cache the raw archive for future verify / reinstall without re-fetch
+    std::fs::write(dest.join("bundle.yiz"), data)?;
+
+    let gz = flate2::read::GzDecoder::new(std::io::Cursor::new(data));
+    let mut archive = tar::Archive::new(gz);
+    let mut manifest_yaml = String::new();
+
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let rel = entry.path()?.to_path_buf();
+        // A cluster asker unpacks bytes it fetched from a url (#1217), so an entry is held to
+        // the directory it is unpacked into: no `..`, no root, no prefix.
+        if !rel.components().all(|c| {
+            matches!(
+                c,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        }) {
+            anyhow::bail!("the bundle has an entry outside itself: {}", rel.display());
+        }
+        let dest_path = dest.join(&rel);
+
+        if let Some(parent) = dest_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let mut buf = Vec::new();
+        entry.read_to_end(&mut buf)?;
+
+        if rel.to_string_lossy() == "manifest.yml" {
+            manifest_yaml = String::from_utf8_lossy(&buf).to_string();
+        }
+
+        // Don't overwrite the bundle.yiz sentinel we wrote above
+        if rel.to_string_lossy() != "bundle.yiz" {
+            std::fs::write(&dest_path, &buf)
+                .with_context(|| format!("writing {}", dest_path.display()))?;
+        }
+    }
+
+    Ok(parse_manifest_reporting(&manifest_yaml))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

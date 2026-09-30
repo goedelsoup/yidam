@@ -70,14 +70,20 @@ struct Settings {
     namespace: Option<String>,
     cron: Option<String>,
     steps: Vec<String>,
+    /// `.yidam/gathers/<name>.toml`, by name — each a fan-out after the chain (#1217).
+    gathers: Vec<String>,
 }
 
 fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
     let cfg = crate::config::load_yidam_config(root)?;
     let m = Manifest::load(root)?;
     let plan = m.plan(None)?;
-    if plan.is_empty() {
-        bail!("{MANIFEST} declares no capabilities, so there is no workflow to write");
+    let gathers = gathers(root);
+    if plan.is_empty() && gathers.is_empty() {
+        bail!(
+            "{MANIFEST} declares no capabilities and .yidam/gathers/ holds no gather, so there \
+             is no workflow to write"
+        );
     }
     super::builtin::refuse_shadowing(&plan)?;
     for name in &plan {
@@ -148,7 +154,24 @@ fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
             .chain(plan.iter().copied())
             .map(str::to_string)
             .collect(),
+        gathers,
     })
+}
+
+/// Every gather `.yidam/gathers/` declares, by a name `yidam gather` would accept, in order.
+fn gathers(root: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(crate::cmd::gather::gathers_dir(root)) else {
+        return vec![];
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(|e| {
+            let name = e.ok()?.file_name().to_string_lossy().to_string();
+            let name = name.strip_suffix(".toml")?.to_string();
+            crate::cmd::gather::valid_name(&name).then_some(name)
+        })
+        .collect();
+    names.sort();
+    names
 }
 
 /// The manifest for the corpus at `root`, as text.
@@ -205,6 +228,15 @@ fn header(s: &Settings) -> String {
          # in the receipt, in the commit, on the ref.\n",
     );
     let _ = writeln!(h, "#\n# steps: {}", s.steps.join(" → "));
+    if !s.gathers.is_empty() {
+        let _ = writeln!(
+            h,
+            "# gathers: {} — each a survey, one ask per peer, a gather and a land, after the\n\
+             # last step and all reading the pin it landed. survey, ask and gather mount no git\n\
+             # secret either; an asker reads its peer's bundle from the vault, or its lock url.",
+            s.gathers.join(", ")
+        );
+    }
     h
 }
 
@@ -290,6 +322,9 @@ fn spec(s: &Settings) -> String {
         previous = format!("land-{task}");
         previous_bundle = "$.next.bundle";
     }
+    for g in &s.gathers {
+        gather_tasks(&mut y, g, &previous, previous_bundle);
+    }
 
     // ── the four container templates ──────────────────────────────────────────
     y.push_str(&template(
@@ -328,6 +363,9 @@ fn spec(s: &Settings) -> String {
         Credential::Write,
         true,
     ));
+    if !s.gathers.is_empty() {
+        gather_templates(&mut y, s);
+    }
     y.push_str(&template(
         s,
         "admit",
@@ -338,6 +376,91 @@ fn spec(s: &Settings) -> String {
         false,
     ));
     y
+}
+
+/// One gather's four tasks: plan it, ask every planned peer in its own pod, settle, land.
+///
+/// The askers are a `withParam` fan-out over the survey's `asks`, and `continueOn: failed` so
+/// one peer's pod dying does not stop the others: `gather` runs whichever way they ended, and a
+/// peer whose asker left no record is `refused` in the roll call, never missing from it.
+fn gather_tasks(y: &mut String, g: &str, previous: &str, previous_bundle: &str) {
+    let task = task_name(g);
+    let survey = format!("tasks.survey-{task}.outputs.parameters.output");
+    let _ = writeln!(
+        y,
+        "        - name: survey-{task}\n          template: survey\n          depends: {previous}\n          \
+         arguments:\n            parameters:\n              - name: gather\n                \
+         value: {}\n              - name: bundle\n                \
+         value: \"{{{{=jsonpath(tasks.{previous}.outputs.parameters.output, '{previous_bundle}')}}}}\"",
+        quote(g)
+    );
+    let _ = writeln!(
+        y,
+        "        - name: ask-{task}\n          template: ask\n          depends: survey-{task}\n          \
+         when: \"{{{{=jsonpath({survey}, '$.asking') > 0}}}}\"\n          \
+         withParam: \"{{{{=toJson(jsonpath({survey}, '$.asks'))}}}}\"\n          \
+         continueOn:\n            failed: true\n          \
+         arguments:\n            parameters:\n              - name: ask\n                \
+         value: \"{{{{item}}}}\""
+    );
+    let _ = writeln!(
+        y,
+        "        - name: gather-{task}\n          template: gather\n          \
+         depends: \"ask-{task}.Succeeded || ask-{task}.Failed\"\n          \
+         when: \"{{{{=jsonpath({survey}, '$.asking') > 0}}}}\"\n          \
+         arguments:\n            parameters:\n              - name: gather\n                \
+         value: {}\n              - name: bundle\n                \
+         value: \"{{{{=jsonpath({survey}, '$.bundle')}}}}\"\n              - name: asked\n                \
+         value: \"{{{{tasks.ask-{task}.outputs.parameters.output}}}}\"",
+        quote(g)
+    );
+    let _ = writeln!(
+        y,
+        "        - name: land-gather-{task}\n          template: land\n          depends: gather-{task}\n          \
+         arguments:\n            parameters:\n              - name: step-output\n                \
+         value: \"{{{{tasks.gather-{task}.outputs.parameters.output}}}}\""
+    );
+}
+
+/// The three gather templates, written only for a corpus that declares a gather.
+fn gather_templates(y: &mut String, s: &Settings) {
+    y.push_str(&template(
+        s,
+        "survey",
+        &["gather", "bundle"],
+        &["cluster", "survey", "{{inputs.parameters.gather}}"],
+        &["--bundle", "{{inputs.parameters.bundle}}"],
+        Credential::None,
+        true,
+    ));
+    y.push_str(&template(
+        s,
+        "ask",
+        &["ask"],
+        &["cluster", "ask"],
+        &[
+            "--ask",
+            "{{inputs.parameters.ask}}",
+            "--image",
+            "{{workflow.parameters.image}}",
+        ],
+        Credential::None,
+        true,
+    ));
+    y.push_str(&template(
+        s,
+        "gather",
+        &["gather", "bundle", "asked"],
+        &["cluster", "gather", "{{inputs.parameters.gather}}"],
+        &[
+            "--bundle",
+            "{{inputs.parameters.bundle}}",
+            "--asked",
+            "{{inputs.parameters.asked}}",
+        ],
+        Credential::None,
+        true,
+    ));
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -556,6 +679,7 @@ mod tests {
             namespace: None,
             cron: None,
             steps: vec!["a".into(), "b".into()],
+            gathers: vec![],
         };
         let text = spec(&s);
         let doc: serde_yaml::Value = serde_yaml::from_str(&text).expect("the spec parses");
@@ -568,7 +692,7 @@ mod tests {
                 .unwrap_or_default();
             match name {
                 "land" => assert!(mounts.contains(&"git-write"), "{name}: {mounts:?}"),
-                "step" => assert!(
+                "step" | "survey" | "ask" | "gather" => assert!(
                     !mounts.iter().any(|m| m.starts_with("git-")),
                     "{name}: {mounts:?}"
                 ),
@@ -578,7 +702,7 @@ mod tests {
                     "{name}: {mounts:?}"
                 ),
             }
-            if name == "step" {
+            if matches!(name, "step" | "survey" | "ask" | "gather") {
                 let args = serde_yaml::to_string(&t["container"]).unwrap();
                 assert!(!args.contains("--remote"), "step names a remote:\n{args}");
             }
@@ -611,6 +735,7 @@ mod tests {
             namespace: None,
             cron: None,
             steps: vec!["a".into()],
+            gathers: vec![],
         };
         let doc: serde_yaml::Value = serde_yaml::from_str(&spec(&s)).unwrap();
         let step = doc["templates"]
@@ -628,5 +753,91 @@ mod tests {
             .collect();
         let at = args.iter().position(|a| *a == "--image").expect("--image");
         assert_eq!(args[at + 1], image);
+    }
+
+    /// A gather runs after the chain, from the pin its last land moved: one survey, one asker
+    /// per planned peer that is allowed to fail without stopping the rest, a gather that runs
+    /// either way, and the same lander as a step. None of the three mounts a git secret.
+    #[test]
+    fn a_gather_fans_out_after_the_chain_and_mounts_no_git_secret() {
+        let s = Settings {
+            slug: "corpus".into(),
+            image: "img".into(),
+            remote: "r".into(),
+            branch: "main".into(),
+            vault_name: "default".into(),
+            vault_url: "file:///vault".into(),
+            vault_region: None,
+            vault_endpoint: None,
+            vault_path_style: false,
+            namespace: None,
+            cron: None,
+            steps: vec!["a".into()],
+            gathers: vec!["units".into()],
+        };
+        let text = spec(&s);
+        let doc: serde_yaml::Value = serde_yaml::from_str(&text).expect("the spec parses");
+        let tasks = doc["templates"][0]["dag"]["tasks"].as_sequence().unwrap();
+        let names: Vec<&str> = tasks.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert_eq!(
+            names,
+            [
+                "pin",
+                "step-a",
+                "land-a",
+                "survey-units",
+                "ask-units",
+                "gather-units",
+                "land-gather-units"
+            ]
+        );
+        let task = |n: &str| tasks.iter().find(|t| t["name"] == n).unwrap();
+        assert_eq!(task("survey-units")["depends"].as_str(), Some("land-a"));
+        assert!(task("survey-units")["arguments"]["parameters"][1]["value"]
+            .as_str()
+            .unwrap()
+            .contains("tasks.land-a.outputs.parameters.output, '$.next.bundle'"));
+        let ask = task("ask-units");
+        assert!(ask["withParam"].as_str().unwrap().contains("'$.asks'"));
+        assert_eq!(ask["continueOn"]["failed"].as_bool(), Some(true));
+        assert_eq!(
+            task("gather-units")["depends"].as_str(),
+            Some("ask-units.Succeeded || ask-units.Failed")
+        );
+        assert_eq!(task("land-gather-units")["template"].as_str(), Some("land"));
+        let templates: Vec<&str> = doc["templates"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        for t in ["survey", "ask", "gather"] {
+            assert!(templates.contains(&t), "{t} missing from {templates:?}");
+        }
+        assert!(header(&s).contains("# gathers: units"));
+    }
+
+    /// A corpus with no gather gets none of the gather templates, so its workflow is unchanged.
+    #[test]
+    fn no_gather_writes_no_gather_template() {
+        let s = Settings {
+            slug: "corpus".into(),
+            image: "img".into(),
+            remote: "r".into(),
+            branch: "main".into(),
+            vault_name: "default".into(),
+            vault_url: "file:///vault".into(),
+            vault_region: None,
+            vault_endpoint: None,
+            vault_path_style: false,
+            namespace: None,
+            cron: None,
+            steps: vec!["a".into()],
+            gathers: vec![],
+        };
+        let text = spec(&s);
+        for t in ["survey", "ask", "gather"] {
+            assert!(!text.contains(&format!("- name: {t}\n")), "{t} written");
+        }
     }
 }

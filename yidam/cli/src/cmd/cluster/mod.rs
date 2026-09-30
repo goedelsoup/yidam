@@ -56,6 +56,7 @@
 pub mod admit;
 pub mod builtin;
 mod bundle;
+pub mod gather;
 pub mod land;
 pub mod pin;
 pub mod step;
@@ -181,6 +182,75 @@ pub enum ClusterCommand {
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
     },
+    /// Plan a gather at a pinned bundle: who is asked, and the query in each peer's words
+    ///
+    /// Reads `.yidam/gathers/<name>.toml` and `tonpa.lock` from the pin and emits one ask per
+    /// peer the gather can put its question to, already translated — so the correspondence
+    /// is read here and nowhere else — and every other peer with the reason it is not asked.
+    /// No `--remote`, and no git credential.
+    Survey {
+        /// The gather, as `.yidam/gathers/<name>.toml` names it
+        gather: String,
+        /// The vault digest of the pinned bundle to plan from
+        #[arg(long, value_name = "DIGEST")]
+        bundle: String,
+        #[command(flatten)]
+        vault: VaultArgs,
+        /// Write the plan to this file, for the askers
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+        /// Output format. `json` emits the machine-readable report contract (RFC-0016)
+        #[arg(long, value_enum, default_value_t = Format::Text)]
+        format: Format,
+    },
+    /// Ask one peer one planned question, from the peer's own locked bundle
+    ///
+    /// Takes the bundle from the vault when the vault has it and fetches it by its
+    /// `tonpa.lock` url otherwise, checking it against the lock's sha256 either way. Always
+    /// emits a record — a peer that could not be asked is `refused` with the reason — and
+    /// puts it in the vault for `gather`. Handed no corpus, no `--remote`, and no git
+    /// credential.
+    Ask {
+        /// One ask, as `survey` emits it — JSON inline, or `@path`
+        #[arg(long, value_name = "JSON|@FILE")]
+        ask: String,
+        /// The image reference this pod was started from. Recorded in the peer's receipt only
+        /// when it pins a digest (`…@sha256:<hex>`)
+        #[arg(long, value_name = "REF")]
+        image: Option<String>,
+        #[command(flatten)]
+        vault: VaultArgs,
+        /// Write the ask record to this file, for `gather`
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+        /// Output format. `json` emits the machine-readable report contract (RFC-0016)
+        #[arg(long, value_enum, default_value_t = Format::Text)]
+        format: Format,
+    },
+    /// Settle the askers' records into one roll call and build the gather's commits, unlanded
+    ///
+    /// Re-plans at the pin and holds every record to that plan: a peer planned and not
+    /// answered for is `refused`, never dropped. Builds what `yidam gather` builds over the
+    /// same pins — one `open:` commit per question node, with each peer's receipt — as
+    /// objects on the pin, and emits a step record for `land`.
+    Gather {
+        /// The gather, as `.yidam/gathers/<name>.toml` names it
+        gather: String,
+        /// The vault digest of the pinned bundle `survey` planned from
+        #[arg(long, value_name = "DIGEST")]
+        bundle: String,
+        /// The askers' records, as a JSON array — inline, or `@path`
+        #[arg(long, value_name = "JSON|@FILE")]
+        asked: String,
+        #[command(flatten)]
+        vault: VaultArgs,
+        /// Write the step record to this file, for the lander
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+        /// Output format. `json` emits the machine-readable report contract (RFC-0016)
+        #[arg(long, value_enum, default_value_t = Format::Text)]
+        format: Format,
+    },
     /// Decide whether a workflow is owed — `due`'s clocks, stale steps, and the proposal cap
     ///
     /// The admission gate #460 decision 8 names. Admits when something is owed and the
@@ -294,6 +364,28 @@ pub fn run(sub: ClusterCommand) -> Result<()> {
             out,
             format,
         } => land::run(&step_output, &remote, &vault, out.as_deref(), format),
+        ClusterCommand::Survey {
+            gather: name,
+            bundle,
+            vault,
+            out,
+            format,
+        } => gather::survey(&name, &bundle, &vault, out.as_deref(), format),
+        ClusterCommand::Ask {
+            ask,
+            image,
+            vault,
+            out,
+            format,
+        } => gather::ask(&ask, image.as_deref(), &vault, out.as_deref(), format),
+        ClusterCommand::Gather {
+            gather: name,
+            bundle,
+            asked,
+            vault,
+            out,
+            format,
+        } => gather::gather(&name, &bundle, &asked, &vault, out.as_deref(), format),
         ClusterCommand::Admit {
             remote,
             out,
@@ -523,20 +615,23 @@ mod tests {
             sub: ClusterCommand,
         }
         let cmd = Cli::command();
-        let step = cmd
-            .get_subcommands()
-            .find(|c| c.get_name() == "step")
-            .expect("a step subcommand");
-        let flags: Vec<String> = step
-            .get_arguments()
-            .filter_map(|a| a.get_long().map(str::to_string))
-            .collect();
-        for forbidden in ["remote", "branch", "ref", "push", "land"] {
-            assert!(
-                !flags.iter().any(|f| f.contains(forbidden)),
-                "`cluster step` grew a `--{forbidden}` flag: {flags:?}. A step pod must have no \
-                 way to name a ref — see the module doc"
-            );
+        // A gather's three pods are held to what a step is (#1217).
+        for pod in ["step", "survey", "ask", "gather"] {
+            let c = cmd
+                .get_subcommands()
+                .find(|c| c.get_name() == pod)
+                .expect(pod);
+            let flags: Vec<String> = c
+                .get_arguments()
+                .filter_map(|a| a.get_long().map(str::to_string))
+                .collect();
+            for forbidden in ["remote", "branch", "ref", "push", "land"] {
+                assert!(
+                    !flags.iter().any(|f| f.contains(forbidden)),
+                    "`cluster {pod}` grew a `--{forbidden}` flag: {flags:?}. A pod that computes \
+                     must have no way to name a ref — see the module doc"
+                );
+            }
         }
         // And the two that may name one, do.
         for named in ["pin", "land", "admit"] {

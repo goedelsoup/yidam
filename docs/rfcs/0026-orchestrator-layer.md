@@ -56,6 +56,14 @@
   writes no `open:` either, it prints its questions; no class-correspondence mechanism existed;
   and the vault's `has` is not on the local path, because `tonpa` fetches over HTTP. The cluster
   fan-out is a follow-up child.
+- **Amended 2026-09-30 (#1217):** §8.1 is new. A gather runs on a cluster as four pods: one
+  `survey`, one `ask` per peer, one `gather` and one `land`. None of the first three has a git
+  secret. The query is translated where the gather is planned, and a peer's bundle is fetched
+  only when the vault's `has` says it is absent. A local `yidam gather` now writes a v2 receipt
+  per peer as well, at `.yidam/runs/gather/<name>/<peer>.yml`. The build turned up one gap: the
+  lander's class check alone would have let an off-vocabulary subject through, such as `chore:`,
+  because `classify_commit` calls every unlisted verb epistemic. So a gather's commits must be
+  `open:`, and nothing else is landed.
 - **Amended 2026-09-30 (#477):** §9 is new. `yidam dispatch` runs an agent elector as a run
   and proposes its position onto `propose/elector/*`. The definition comes before a cluster
   could supply one by accident. The registry row is checked first, and a run never writes it.
@@ -890,10 +898,53 @@ committed, for `propose`'s reason. The tree is built first: if `HEAD` or the bra
 exactly it, nothing is committed and no ref moves, so a repeat over unchanged peers writes
 nothing. A branch holding a different answer is refused without `--force`.
 
-**What is not built.** Nothing is fetched: a gather reads what `tonpa install` left, and a
-bundle's lock hash is checked rather than refreshed. On a cluster, the vault's `has` would answer
-before a transfer; locally there is no transfer to skip. Open question 1 — how a corpus declines
+**Each peer's answer has a receipt.** `.yidam/runs/gather/<name>/<peer>.yml` is written for each
+peer that answered or came back empty, in `format_version: 2`. It records the gather spec's
+bytes, the peer's `bundle.yiz` where its hash is known, the pin as the input commit, and the
+nodes that cite the peer. These receipts land in the gather's first commit.
+
+**What is not built.** Locally nothing is fetched: a gather reads what `tonpa install` left, and
+a bundle's lock hash is checked rather than refreshed. §8.1 is the cluster path, which does fetch.
+Open question 1 — how a corpus declines
 to be gathered from — stays open; a gather reads only what a peer published.
+
+### 8.1 — On a cluster, each peer is asked in its own pod
+
+*Amended 2026-09-30 (#1217).*
+
+A generated workflow gives each gather in `.yidam/gathers/` four tasks after the last step. They
+all read the pin that step's land moved.
+
+- **`cluster survey <name>`** plans the gather at that pin. Peer names come from `tonpa.lock`,
+  because a pod has no `tonpa install` behind it. Each planned peer gets an *ask*: its lock `url`
+  and `sha256`, the manifest commit it is pinned to, and the query **already translated** by the
+  correspondence. The correspondence file is still the only place that knows both vocabularies,
+  and an asker never reads it. Peers that cannot be asked get their outcome here: `undeclared`,
+  `missing`, `unaligned`, or `refused` for a path dependency or a lock entry with no commit.
+- **`cluster ask`** runs once per ask, as a `withParam` fan-out with `continueOn: failed`. It
+  takes the peer's bundle from the vault when `has` answers yes. Otherwise it fetches the lock
+  `url`, checks the bytes against the lock's sha256, and only then `put`s them in the vault. It
+  unpacks the bundle and refuses an entry that would leave its directory. It checks that the
+  manifest's commit is the pinned one, runs the translated query, and puts one record in the
+  vault. A pod that fails on a fetch, a hash, a manifest or a parse still writes a record,
+  `refused` with the reason.
+- **`cluster gather <name>`** re-plans at the same pin and holds every record to that plan. A
+  record that is absent, from another format version, for a different ask, or citing a package
+  or commit other than the one pinned makes that peer `refused`, and the peer stays in the roll
+  call. It builds §8's tree with the same functions a local run uses, so the same pins give the
+  same tree, and a test compares the two. If that tree is already the pin's own tree, it builds
+  nothing.
+- **`cluster land`** takes a step record named `gather/<name>` as a gather. It refuses the
+  record unless the commits run linearly from the pin, and every commit is `open:`. It also
+  refuses any change that is not an addition under `.yidam/corpus/**/gather-<name>*.yml` or
+  `.yidam/runs/gather/<name>/`. It pushes to `propose/gather/<name>/<pin>` with an empty lease
+  and computes that name itself, because short-sha width varies from clone to clone. If the
+  branch already holds this tree, nothing lands. If it holds another tree, the land is refused.
+  The lander is the only pod with a write credential, as §7 requires.
+
+Checking only the commit's class would not have been enough. `classify_commit` is total, so an
+unlisted verb such as `chore:` is epistemic and would have been proposed. A gather opens questions
+and does nothing else, so its lander accepts only `open:`.
 
 ### 9 — An elector run is defined before a cluster defines it
 

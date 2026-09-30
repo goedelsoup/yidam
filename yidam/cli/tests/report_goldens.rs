@@ -589,6 +589,23 @@ const NO_REPORT: &[(&str, &str)] = &[
          `cluster_run.rs`",
     ),
     (
+        "cluster survey",
+        "plans a gather at a pin read from a vault, over a `tonpa.lock` whose peers are \
+         bundles in that vault — the pin's reason. Covered in `cluster_run.rs`, which runs the \
+         survey, ask and gather pods end to end and reads each record out of its envelope",
+    ),
+    (
+        "cluster ask",
+        "asks one peer from a bundle in a vault, or fetched from its lock url, and puts its \
+         record back — `cluster step`'s reason. Covered in `cluster_run.rs` beside `cluster \
+         survey`",
+    ),
+    (
+        "cluster gather",
+        "settles the askers' records, which live in a vault, into commits on a pin that lives \
+         there too. Covered in `cluster_run.rs` beside `cluster survey`, through the land",
+    ),
+    (
         "dispatch",
         "requires `ma/*` seats, their registry rows and a declared elector, which the fixture \
          holds none of, and lands a branch when it has them. Exercised end to end in \
