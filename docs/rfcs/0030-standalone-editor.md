@@ -374,7 +374,7 @@ most expensive thing in the document. The original said so, about this design, a
 
 That bridge is now the plan. [`Overlay`](../../yidam/cli/src/corpus/overlay.rs#L15) is a
 `pub struct` in the lint module, and
-[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L133) is the entry point the language
+[`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L134) is the entry point the language
 server calls on every change ([`lsp.rs:250`](../../yidam/cli/src/cmd/lsp.rs#L250)) — but it is
 reachable only through `serve --lsp`. `yidam lint` has no overlay flag, and the extension is no
 prior art here: it carries no LSP client and no dependencies at all, running `lint --format json`
@@ -742,7 +742,7 @@ does not propose to move it.
   palette rather than the editor's theme API.
 - ~~**The design system's React components have never been hydrated.**~~ **Answered 2026-09-06:
   they survive.** No `client:*` directive appeared on any quality page —
-  [`astro.config.mjs:264-265`](../../yidam/web/docs/astro.config.mjs#L264-L265): *"this is a
+  [`astro.config.mjs:265-266`](../../yidam/web/docs/astro.config.mjs#L265-L266): *"this is a
   build-time renderer: React produces HTML and none of it is shipped to a reader."* This surface
   is now the first consumer to ship them to a browser, and the spike was run rather than
   reasoned about: `mise run edit-dev` against the reports golden corpus, driven with headless

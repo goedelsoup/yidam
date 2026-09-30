@@ -163,20 +163,25 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 ///
 /// The argument for the three spellings the check admits is in the evidence halves and charged
 /// to [`PAIR_FLOOR`].
+///
+/// **Raised on two occasions when `GRAPH.md` gained the `quotation` rule (#1070, RFC-0046).**
+/// The delta is **47 words in `GRAPH.md`**, under *The class contract*, on *Before you write or
+/// revise a node* and *Before you change a class* — the two occasions that link it. The
+/// argument is in `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
 const READ_CEILING: &[(&str, &str, usize)] = &[
-    ("AGENTS.md", "Before you write or revise a node", 6_436),
+    ("AGENTS.md", "Before you write or revise a node", 6_483),
     ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
         4_382,
     ),
-    ("AGENTS.md", "Before you change a class", 4_758),
+    ("AGENTS.md", "Before you change a class", 4_805),
     ("AGENTS.md", "Before you retrieve", 2_959),
     (
         "sadhana/root/AGENTS.md",
         "Before you write or revise a node",
-        7_630,
+        7_677,
     ),
     ("sadhana/root/AGENTS.md", "Before you run a phase", 5_800),
     (
@@ -184,7 +189,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
         "Before a claim crosses a corpus boundary",
         5_576,
     ),
-    ("sadhana/root/AGENTS.md", "Before you change a class", 5_952),
+    ("sadhana/root/AGENTS.md", "Before you change a class", 5_999),
     ("sadhana/root/AGENTS.md", "Before you retrieve", 4_153),
 ];
 
@@ -310,7 +315,11 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// path whole: **103 words in `GRAPH.md`** (the `edge-source-unresolved` row and paragraph)
 /// and **85 in `agent-conduct.md`** (the fourth bullet under *An edge is a claim*). 28,107 +
 /// 188 is this figure exactly, and the two deltas are the ones [`READ_CEILING`] moved by.
-const BOOTSTRAP_CEILING: usize = 28_295;
+///
+/// **Raised to 28,342 when `GRAPH.md` gained the `quotation` rule (#1070, RFC-0046).** The delta
+/// is **47 words in `GRAPH.md`**, the same 47 both recurring routes moved by, and 28,295 + 47 is
+/// this figure exactly, so nothing else on the path moved.
+const BOOTSTRAP_CEILING: usize = 28_342;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///

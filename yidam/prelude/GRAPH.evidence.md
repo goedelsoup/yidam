@@ -98,6 +98,16 @@ ordering depend on conversion, which is a library and not an operator. The trap 
 refused the ordering operators over was a numeric value compared as text; the unquoted
 number is what keeps a `number` from ever being one.
 
+## quotation-bytes
+
+A quotation in a `text` property reads like a quotation whether or not it is one. One corpus
+retyped five of its anchors from the wrong revision of a bill, and nothing could tell. Naming
+the entry makes the words checkable. Pinning the artifact is required only when an entry
+holds several revisions, because a check that passed when any revision held the words would
+pass exactly that mistake. The bytes come from this machine's vault cache, because git holds
+only the record of them. A runner with no cache reports every quotation unchecked, at Info:
+an unchecked quotation is not a compared one, and an empty cache is not a defect in the corpus.
+
 ## values-closed
 
 Before the field existed a class spelled its set in the description — `extant | demolished |
