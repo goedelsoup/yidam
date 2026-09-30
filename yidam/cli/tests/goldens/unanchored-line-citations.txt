@@ -16,7 +16,7 @@ docs/rfcs/0009-resolution-executor.md → ../../yidam/prelude/CONSTITUTION.md#L4
 docs/rfcs/0009-resolution-executor.md → ../information-architecture.md#L107-L120
 docs/rfcs/0009-resolution-executor.md → ../information-architecture.md#L107-L120
 docs/rfcs/0009-resolution-executor.md → ../information-architecture.md#L113
-docs/rfcs/0012-elector-attestation.md → ../../release.sh#L341
+docs/rfcs/0012-elector-attestation.md → ../../release.sh#L361
 docs/rfcs/0012-elector-attestation.md → ../../sadhana/sangha/PROTOCOL.md#L15-L21
 docs/rfcs/0013-node-model-close.md → 0002-node-model-unification.md#L124-L127
 docs/rfcs/0013-node-model-close.md → 0002-node-model-unification.md#L131-L133
