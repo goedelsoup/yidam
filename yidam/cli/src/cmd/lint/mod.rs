@@ -459,7 +459,13 @@ const ROSTER: &[Entry] = &[
         id: "verified-unsourced",
         asked: Asked::Always,
         run: |i| {
-            checks::verified_unsourced(i.nodes(), i.sources(), i.claim_fields(), i.catalog_dir())
+            checks::verified_unsourced(
+                i.nodes(),
+                i.sources(),
+                i.claim_fields(),
+                i.catalog_dir(),
+                &i.quotations(),
+            )
         },
     },
     Entry {

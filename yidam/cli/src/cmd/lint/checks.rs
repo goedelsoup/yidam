@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use crate::parse::CATALOG_LOCATION_KINDS;
 
 use super::model::{Check, Severity, Violation};
+use super::quotations::Declared;
 use crate::corpus::{
     edge_views, normalize, source_classes, Class, DecisionRecord, EdgePolicy, Edges, Node,
     Omission, Source,
@@ -2064,10 +2065,19 @@ fn near_miss_tags(text: &str) -> Vec<(usize, String)> {
 /// `catalog` is the catalog directory, and it is here because the third form a citation takes
 /// is not a path. An edge's `source:` names a catalog entry by file stem (#1158), and a stem
 /// resolves only against the directory the entries live in — see [`source_targets`].
-pub fn linked_paths(node_path: &Path, rel: &str, text: &str, catalog: &Path) -> HashSet<PathBuf> {
-    let dir = node_path.parent().unwrap_or(node_path);
+///
+/// `quotations` is here for the fourth form. A quotation's `of:` names an entry the same way
+/// (#1174), but only in a property the ontology declares `type: quotation`, and the bytes
+/// alone cannot say which properties those are.
+pub fn linked_paths(
+    node_path: &Path,
+    rel: &str,
+    text: &str,
+    catalog: &Path,
+    quotations: &Declared,
+) -> HashSet<PathBuf> {
     let inst: crate::parse::CorpusInstance = serde_yaml::from_str(text).unwrap_or_default();
-    linked_paths_from(&inst, dir, rel, text, catalog)
+    linked_paths_from(&inst, node_path, rel, text, catalog, quotations)
 }
 
 /// Where an edge's `source:` may point, as node directory `dir` wrote it.
@@ -2087,6 +2097,8 @@ pub fn linked_paths(node_path: &Path, rel: &str, text: &str, catalog: &Path) -> 
 /// by anything; `rename` asks which edges name the entry it is moving (#1159). Until #1158 the
 /// second read only links, so an entry cited from edges alone was reported uncited while every
 /// edge citing it resolved. Sharing the readings is what makes that impossible to reintroduce.
+/// A quotation's `of:` is resolved here too, by `quotation-unresolved` and by the citation
+/// count (RFC-0046, #1174).
 pub(crate) fn source_targets(dir: &Path, catalog: &Path, written: &str) -> [PathBuf; 2] {
     [
         normalize(&catalog.join(format!("{written}.md"))),
@@ -2107,18 +2119,26 @@ pub(crate) fn source_targets(dir: &Path, catalog: &Path, written: &str) -> [Path
 /// does. Two checks ask this per node, so re-parsing here meant a lint run parsed every
 /// node's YAML three times.
 ///
-/// Three things go in: every `links:` target, every markdown link in the prose, and every
-/// non-blank `source:` an edge writes, read through [`source_targets`]. The last is what an
-/// edge rests on, and it is a citation for the same reason a prose link is — the node has
-/// named a catalog entry as the thing a claim draws from. A blank `source:` names nothing and
-/// is skipped, as `edge-source-unresolved` skips it.
+/// Four things go in: every `links:` target, every markdown link in the prose, every
+/// non-blank `source:` an edge writes, and every `of:` a declared quotation writes. The last
+/// two are read through [`source_targets`]. An edge source is what an edge rests on, and it is a
+/// citation for the same reason a prose link is — the node has named a catalog entry as the
+/// thing a claim draws from. A quotation names the entry its words were taken from, which is
+/// the same act (#1174). A blank `source:` names nothing and is skipped, as
+/// `edge-source-unresolved` skips it. A quotation without an `of:` is not one, and
+/// [`Declared::named_entries`] drops it.
+///
+/// The directory and the class both come from `node_path`, here, so the two entry points
+/// cannot derive them differently.
 fn linked_paths_from(
     inst: &crate::parse::CorpusInstance,
-    dir: &Path,
+    node_path: &Path,
     rel: &str,
     text: &str,
     catalog: &Path,
+    quotations: &Declared,
 ) -> HashSet<PathBuf> {
+    let dir = node_path.parent().unwrap_or(node_path);
     let links = inst.links.as_deref().unwrap_or(&[]);
     let mut out: HashSet<PathBuf> = links
         .iter()
@@ -2133,6 +2153,12 @@ fn linked_paths_from(
             .flat_map(|s| source_targets(dir, catalog, s)),
     );
     out.extend(
+        quotations
+            .named_entries(&crate::paths::class_of_path(node_path), inst)
+            .iter()
+            .flat_map(|of| source_targets(dir, catalog, of)),
+    );
+    out.extend(
         prose_links(rel, dir, text)
             .into_iter()
             .map(|l| normalize(&l.resolved)),
@@ -2140,10 +2166,12 @@ fn linked_paths_from(
     out
 }
 
-/// [`linked_paths_from`] for a [`Node`], which carries everything it needs but the catalog.
-fn linked_paths_of(node: &Node, catalog: &Path) -> HashSet<PathBuf> {
-    let dir = node.path.parent().unwrap_or(&node.path);
-    linked_paths_from(&node.inst, dir, &node.rel, &node.text, catalog)
+/// [`linked_paths_from`] for a [`Node`], which carries everything it needs but the catalog
+/// and the declarations.
+fn linked_paths_of(node: &Node, catalog: &Path, quotations: &Declared) -> HashSet<PathBuf> {
+    linked_paths_from(
+        &node.inst, &node.path, &node.rel, &node.text, catalog, quotations,
+    )
 }
 
 /// Corpus nodes citing each source, by repo-relative path.
@@ -2162,17 +2190,26 @@ fn linked_paths_of(node: &Node, catalog: &Path) -> HashSet<PathBuf> {
 /// The finding named a file whose text contains no citation, so the diagnosis ran through
 /// "which node cites this?" before arriving at "none of them do".
 ///
-/// Three forms count: a `links:` entry, a markdown link in the prose, and an edge's `source:`
-/// naming the entry by stem or by path (#1158). The prose scan is [`prose_links`], the same
-/// function `broken-prose-link` uses, so a link shown as an example in code is not read as a
-/// citation here either. The edge source is resolved by [`source_targets`], the same function
-/// `edge-source-unresolved` resolves it with, so an entry every edge citing it resolves to
-/// cannot be reported as cited by nothing.
-pub fn citations(sources: &[Source], nodes: &[Node], catalog: &Path) -> Vec<Vec<String>> {
+/// Four forms count: a `links:` entry, a markdown link in the prose, an edge's `source:`
+/// naming the entry by stem or by path (#1158), and a declared quotation's `of:` naming it the
+/// same way (#1174). The prose scan is [`prose_links`], the same function `broken-prose-link`
+/// uses, so a link shown as an example in code is not read as a citation here either. The edge
+/// source and the quotation are resolved by [`source_targets`], the same function
+/// `edge-source-unresolved` and `quotation-unresolved` resolve them with, so an entry every
+/// edge or quotation citing it resolves to cannot be reported as cited by nothing.
+pub fn citations(
+    sources: &[Source],
+    nodes: &[Node],
+    catalog: &Path,
+    quotations: &Declared,
+) -> Vec<Vec<String>> {
     // Resolved once per node rather than once per (node, source) pair, and from [`Node::text`]
     // rather than from a parallel `Vec<String>` the caller built by re-reading every instance.
     // The gate's hot path read the corpus twice and held two copies of it to run one check.
-    let linked: Vec<HashSet<PathBuf>> = nodes.iter().map(|n| linked_paths_of(n, catalog)).collect();
+    let linked: Vec<HashSet<PathBuf>> = nodes
+        .iter()
+        .map(|n| linked_paths_of(n, catalog, quotations))
+        .collect();
 
     sources
         .iter()
@@ -2210,10 +2247,10 @@ pub fn citations(sources: &[Source], nodes: &[Node], catalog: &Path) -> Vec<Vec<
 ///
 /// # What counts as resting on something
 ///
-/// A link that resolves to a file under `.yidam/catalog/`, or an edge `source:` that names
-/// one. That is the same resolution [`citations`] performs, so a node this check calls
-/// unsourced is exactly a node absent from every entry's citation list — the two cannot come
-/// to disagree about what a citation is.
+/// A link that resolves to a file under `.yidam/catalog/`, or an edge `source:` or a declared
+/// quotation's `of:` that names one. That is the same resolution [`citations`] performs, so a
+/// node this check calls unsourced is exactly a node absent from every entry's citation list —
+/// the two cannot come to disagree about what a citation is.
 ///
 /// **A `cites:` into a dependency does not count**, and that is RFC-0019's rule rather than a
 /// simplification. A foreign tag is the producer's tag: it records what *that* corpus's
@@ -2237,6 +2274,7 @@ pub fn verified_unsourced(
     sources: &[Source],
     fields: &crate::claims::ClaimFields,
     catalog: &Path,
+    quotations: &Declared,
 ) -> Check {
     let registered: HashSet<PathBuf> = sources.iter().map(|s| normalize(&s.path)).collect();
     let violations = nodes
@@ -2253,7 +2291,7 @@ pub fn verified_unsourced(
             if verified == 0 {
                 return None;
             }
-            let links = linked_paths_of(n, catalog);
+            let links = linked_paths_of(n, catalog, quotations);
             if links.iter().any(|p| registered.contains(p)) {
                 return None;
             }
@@ -2896,6 +2934,23 @@ mod tests {
         PathBuf::from("/repo/.yidam/catalog")
     }
 
+    /// An ontology that declares no quotation, for every citation test that is not about one.
+    fn no_quotations() -> Declared<'static> {
+        static UNIVERSAL: std::sync::LazyLock<crate::universal::Universal> =
+            std::sync::LazyLock::new(Default::default);
+        Declared::new(&[], &UNIVERSAL)
+    }
+
+    /// The `concept` class the quotation tests read through (#1174). `anchors` is declared a
+    /// quotation, and `note` is declared prose.
+    fn quoting() -> Vec<Class> {
+        vec![Class::parse(
+            "concept.ont.yml",
+            "properties:\n  - name: anchors\n    type: quotation\n  \
+             - name: note\n    type: string\n",
+        )]
+    }
+
     /// The resolved graph for a slice of test nodes.
     ///
     /// The four edge-reading checks take one rather than each building a path map of their
@@ -3534,6 +3589,7 @@ mod tests {
             &[catalog_source("nwis", true)],
             &claim_fields(),
             &catalog_dir(),
+            &no_quotations(),
         );
         assert!(c.passed(), "{:?}", c.violations);
     }
@@ -3551,6 +3607,7 @@ mod tests {
             &[catalog_source("nwis", true)],
             &claim_fields(),
             &catalog_dir(),
+            &no_quotations(),
         );
         assert_eq!(c.violations.len(), 1);
         assert_eq!(c.violations[0].node, ".yidam/corpus/concept/a.yml");
@@ -3575,6 +3632,7 @@ mod tests {
             &[catalog_source("nwis", true)],
             &claim_fields(),
             &catalog_dir(),
+            &no_quotations(),
         );
         assert!(c.passed(), "{:?}", c.violations);
     }
@@ -3598,6 +3656,7 @@ mod tests {
             &[catalog_source("nwis", true)],
             &claim_fields(),
             &catalog_dir(),
+            &no_quotations(),
         );
         assert!(c.passed(), "{:?}", c.violations);
     }
@@ -3616,6 +3675,7 @@ mod tests {
             &[catalog_source("nwis", true)],
             &claim_fields(),
             &catalog_dir(),
+            &no_quotations(),
         );
         assert_eq!(c.violations.len(), 1, "the structural arm read nothing");
     }
@@ -3635,6 +3695,7 @@ mod tests {
             &[catalog_source("nwis", true)],
             &claim_fields(),
             &catalog_dir(),
+            &no_quotations(),
         );
         assert_eq!(c.violations.len(), 1);
         assert!(
@@ -3659,6 +3720,7 @@ mod tests {
             &[catalog_source("nwis", true)],
             &claim_fields(),
             &catalog_dir(),
+            &no_quotations(),
         );
         assert_eq!(c.violations.len(), 1);
         assert!(
@@ -3676,7 +3738,13 @@ mod tests {
             "a",
             "class: c\ndescription: |\n  A statement. [verified]\nlinks: []\n",
         )];
-        let c = verified_unsourced(&nodes, &[], &claim_fields(), &catalog_dir());
+        let c = verified_unsourced(
+            &nodes,
+            &[],
+            &claim_fields(),
+            &catalog_dir(),
+            &no_quotations(),
+        );
         assert_eq!(c.violations.len(), 1);
     }
 
@@ -3688,7 +3756,13 @@ mod tests {
             "a",
             "class: c\ndescription: |\n  A statement. [verified]\nlinks: []\n",
         )];
-        let c = verified_unsourced(&nodes, &[], &claim_fields(), &catalog_dir());
+        let c = verified_unsourced(
+            &nodes,
+            &[],
+            &claim_fields(),
+            &catalog_dir(),
+            &no_quotations(),
+        );
         assert_eq!(c.severity, Severity::Warn);
         assert!(!c.gates(&c.violations[0]));
     }
@@ -5057,7 +5131,7 @@ mod tests {
             "class: concept\nlabel: Gauge ingest\ndescription: The `nwis` crate fetches the \
              series; nwis is also the source name.\nlinks:\n  - target: ../concept/other.yml\n",
         );
-        let cites = citations(&sources, &[node], &catalog_dir());
+        let cites = citations(&sources, &[node], &catalog_dir(), &no_quotations());
         assert_eq!(cites, vec![Vec::<String>::new()], "no link resolves to it");
         assert!(catalog_unobtained_but_cited(&sources, &cites).passed());
     }
@@ -5072,7 +5146,7 @@ mod tests {
             "class: concept\nlabel: Confounding\ndescription: Draws on \
              [Pearl 2009](../../catalog/pearl-2009.md).\nlinks:\n  - target: ../concept/o.yml\n",
         );
-        let cites = citations(&sources, &[node], &catalog_dir());
+        let cites = citations(&sources, &[node], &catalog_dir(), &no_quotations());
         assert_eq!(
             cites[0],
             vec![".yidam/corpus/concept/confounding.yml".to_string()]
@@ -5094,7 +5168,7 @@ mod tests {
             "class: concept\nlabel: Confounding\ndescription: Draws on it.\nlinks:\n  \
              - target: ../../catalog/pearl-2009.md\n    relationship: cites\n",
         );
-        let cites = citations(&sources, &[node], &catalog_dir());
+        let cites = citations(&sources, &[node], &catalog_dir(), &no_quotations());
         assert_eq!(cites[0].len(), 1);
         assert!(catalog_uncited(&sources, &cites).passed());
     }
@@ -5111,7 +5185,7 @@ mod tests {
              - target: ../concept/o.yml\n    relationship: refines\n    claim_tag: verified\n    \
              source: pearl-2009\n",
         );
-        let cites = citations(&sources, &[node], &catalog_dir());
+        let cites = citations(&sources, &[node], &catalog_dir(), &no_quotations());
         assert_eq!(
             cites[0],
             vec![".yidam/corpus/concept/confounding.yml".to_string()]
@@ -5129,7 +5203,7 @@ mod tests {
             "class: concept\nlabel: Confounding\ndescription: Draws on it.\nlinks:\n  \
              - target: ../concept/o.yml\n    source: ../../catalog/pearl-2009.md\n",
         );
-        let cites = citations(&sources, &[node], &catalog_dir());
+        let cites = citations(&sources, &[node], &catalog_dir(), &no_quotations());
         assert_eq!(cites[0].len(), 1);
         assert_eq!(
             catalog_unobtained_but_cited(&sources, &cites)
@@ -5153,9 +5227,171 @@ mod tests {
              - target: ../concept/p.yml\n    source: sampling-frame\n  \
              - target: ../concept/q.yml\n    source: ''\n",
         );
-        let cites = citations(&sources, &[node], &catalog_dir());
+        let cites = citations(&sources, &[node], &catalog_dir(), &no_quotations());
         assert_eq!(cites, vec![Vec::<String>::new()]);
         assert_eq!(catalog_uncited(&sources, &cites).violations.len(), 1);
+    }
+
+    /// A node quoting pearl-2009 through `key`, with `of:` written as `of`.
+    fn quoting_node(key: &str, of: &str) -> Node {
+        corpus_node(
+            "confounding",
+            &format!(
+                "class: concept\nlabel: Confounding\ndescription: Quotes it.\nproperties:\n  \
+                 {key}:\n    of: {of}\n    span: the words\nlinks:\n  - target: ../concept/o.yml\n"
+            ),
+        )
+    }
+
+    /// The reported case (#1174). A quotation's `of:` resolves through the reading an edge
+    /// `source:` does, and `quotation-unresolved` resolved it, while the entry it named was
+    /// still reported uncited.
+    #[test]
+    fn a_quotation_naming_the_entry_by_stem_is_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", true)];
+        let classes = quoting();
+        let universal = crate::universal::Universal::default();
+        let quotations = Declared::new(&classes, &universal);
+        let cites = citations(
+            &sources,
+            &[quoting_node("anchors", "pearl-2009")],
+            &catalog_dir(),
+            &quotations,
+        );
+        assert_eq!(
+            cites[0],
+            vec![".yidam/corpus/concept/confounding.yml".to_string()]
+        );
+        assert!(catalog_uncited(&sources, &cites).passed());
+    }
+
+    /// The path spelling counts too, and a quotation of an unfetched source is a citation of
+    /// it, as an edge resting on one is.
+    #[test]
+    fn a_quotation_naming_the_entry_by_path_is_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", false)];
+        let classes = quoting();
+        let universal = crate::universal::Universal::default();
+        let quotations = Declared::new(&classes, &universal);
+        let cites = citations(
+            &sources,
+            &[quoting_node("anchors", "../../catalog/pearl-2009.md")],
+            &catalog_dir(),
+            &quotations,
+        );
+        assert_eq!(cites[0].len(), 1);
+        assert_eq!(
+            catalog_unobtained_but_cited(&sources, &cites)
+                .violations
+                .len(),
+            1
+        );
+    }
+
+    /// Only a declared quotation counts. The same mapping under a key the class declares as
+    /// prose, or under one nothing declares, is a value no quotation check reads. A class the
+    /// corpus does not define declares nothing.
+    #[test]
+    fn a_quotation_shape_under_an_undeclared_key_is_not_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", true)];
+        let classes = quoting();
+        let universal = crate::universal::Universal::default();
+        let quotations = Declared::new(&classes, &universal);
+        for node in [
+            quoting_node("note", "pearl-2009"),
+            quoting_node("stray", "pearl-2009"),
+        ] {
+            let cites = citations(&sources, &[node], &catalog_dir(), &quotations);
+            assert_eq!(cites, vec![Vec::<String>::new()]);
+        }
+        let cites = citations(
+            &sources,
+            &[quoting_node("anchors", "pearl-2009")],
+            &catalog_dir(),
+            &no_quotations(),
+        );
+        assert_eq!(cites, vec![Vec::<String>::new()], "no class is defined");
+    }
+
+    /// A value lint cannot read names nothing, and neither does an `of:` that resolves to no
+    /// entry. `property-type` and `quotation-unresolved` report those, so nothing can rest on
+    /// them here.
+    #[test]
+    fn a_malformed_or_unresolved_quotation_is_not_a_citation() {
+        let sources = vec![catalog_source("pearl-2009", true)];
+        let classes = quoting();
+        let universal = crate::universal::Universal::default();
+        let quotations = Declared::new(&classes, &universal);
+        let malformed = corpus_node(
+            "confounding",
+            "class: concept\nlabel: C\ndescription: Quotes it.\nproperties:\n  anchors:\n    \
+             of: pearl-2009\nlinks:\n  - target: ../concept/o.yml\n",
+        );
+        for node in [malformed, quoting_node("anchors", "pearl-2009-old")] {
+            let cites = citations(&sources, &[node], &catalog_dir(), &quotations);
+            assert_eq!(cites, vec![Vec::<String>::new()]);
+        }
+    }
+
+    /// `universal.yml` declares a quotation for every class, and a class's own declaration of
+    /// the key wins over it. That is `property-type`'s order.
+    #[test]
+    fn a_universal_quotation_counts_unless_the_class_declares_the_key() {
+        let sources = vec![catalog_source("pearl-2009", true)];
+        let universal = crate::universal::Universal::parse(
+            "properties:\n  - name: anchors\n    type: quotation\n  \
+             - name: note\n    type: quotation\n",
+        );
+        let classes = vec![Class::parse(
+            "concept.ont.yml",
+            "properties:\n  - name: note\n    type: string\n",
+        )];
+        let quotations = Declared::new(&classes, &universal);
+        let cited = |key| {
+            citations(
+                &sources,
+                &[quoting_node(key, "pearl-2009")],
+                &catalog_dir(),
+                &quotations,
+            )[0]
+            .len()
+        };
+        assert_eq!(cited("anchors"), 1, "declared in universal.yml");
+        assert_eq!(cited("note"), 0, "the class declares it prose");
+    }
+
+    /// A `[verified]` claim that rests only on a quotation is not unsourced. It is the same
+    /// count, so the two checks cannot disagree on it.
+    #[test]
+    fn a_verified_claim_resting_on_a_quotation_is_sourced() {
+        let classes = quoting();
+        let universal = crate::universal::Universal::default();
+        let quotations = Declared::new(&classes, &universal);
+        let nodes = vec![corpus_node(
+            "a",
+            "class: c\ndescription: |\n  A statement. [verified]\nproperties:\n  anchors:\n    \
+             of: nwis\n    span: the words\nlinks:\n  - target: ../concept.ont.yml\n",
+        )];
+        let c = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+            &quotations,
+        );
+        assert!(c.passed(), "{:?}", c.violations);
+        let undeclared = verified_unsourced(
+            &nodes,
+            &[catalog_source("nwis", true)],
+            &claim_fields(),
+            &catalog_dir(),
+            &no_quotations(),
+        );
+        assert_eq!(
+            undeclared.violations.len(),
+            1,
+            "the quotation was all it had"
+        );
     }
 
     /// A link shown as an example is not a citation, for the same reason it is not a link.
@@ -5168,7 +5404,7 @@ mod tests {
              `[Pearl 2009](../../catalog/pearl-2009.md)` rather than a full \
              citation.\nlinks:\n  - target: ../concept/o.yml\n",
         );
-        let cites = citations(&sources, &[node], &catalog_dir());
+        let cites = citations(&sources, &[node], &catalog_dir(), &no_quotations());
         assert_eq!(cites, vec![Vec::<String>::new()]);
     }
 
@@ -5181,7 +5417,10 @@ mod tests {
             "class: concept\nlabel: C\ndescription: See \
              [P](../../corpus/../catalog/pearl-2009.md).\nlinks:\n  - target: ../concept/o.yml\n",
         );
-        assert_eq!(citations(&sources, &[node], &catalog_dir())[0].len(), 1);
+        assert_eq!(
+            citations(&sources, &[node], &catalog_dir(), &no_quotations())[0].len(),
+            1
+        );
     }
 
     /// The two entry points are one implementation, and this is what says so. The `&str` form
@@ -5190,16 +5429,27 @@ mod tests {
     /// half of the answer.
     #[test]
     fn the_parsed_and_unparsed_entry_points_agree() {
+        let classes = quoting();
+        let universal = crate::universal::Universal::default();
+        let quotations = Declared::new(&classes, &universal);
         for text in [
             "class: concept\nlabel: C\ndescription: See \
              [P](../catalog/pearl-2009.md).\nlinks:\n  - target: ../concept/o.yml\n",
             "class: concept\nlabel: C\ndescription: no links here\n",
             "class: concept\n  label: broken\n\tdescription: [P](../catalog/pearl-2009.md)\n",
+            "class: concept\nlabel: C\ndescription: Quotes it.\nproperties:\n  anchors:\n    \
+             of: pearl-2009\n    span: the words\n",
         ] {
             let node = corpus_node("confounding", text);
             assert_eq!(
-                linked_paths_of(&node, &catalog_dir()),
-                linked_paths(&node.path, &node.rel, &node.text, &catalog_dir()),
+                linked_paths_of(&node, &catalog_dir(), &quotations),
+                linked_paths(
+                    &node.path,
+                    &node.rel,
+                    &node.text,
+                    &catalog_dir(),
+                    &quotations
+                ),
                 "diverged on {text:?}"
             );
         }

@@ -54,6 +54,9 @@ runner with no cache sees only Info findings.
 Nothing changes until a class declares the type. A corpus that coined `quotation` for itself
 is now checked against this shape. `yidam rename` rewrites `of:` with the entry.
 
+A quotation's `of:` is a citation of its entry (#1174). `catalog-uncited` and
+`verified-unsourced` count it, as they count an edge `source:`.
+
 ### Lint reports a decision or a URL nothing registers
 
 **New Info finding, `decision-uncited` (#1068).** It reports a decision record nothing in the
