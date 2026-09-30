@@ -402,88 +402,306 @@ fn the_tag_exists_check_does_not_match_another_layers_tag() {
     );
 }
 
-/// The lines under `## <heading>` in `docs/upgrading.md`, up to the next `## `, with blank
-/// lines and HTML comments dropped.
+/// Where a note waits for its release, one file each.
+const STAGED_NOTES: &str = ".changes/upgrading";
+
+/// The line `scripts/file-upgrade-notes.sh` inserts a release's section under.
+const FILING_ANCHOR: &str = "<!-- file-upgrade-notes: new release sections go below this line -->";
+
+/// The notes staged in `.changes/upgrading/`, **as HEAD carries them** — file names, sorted.
 ///
-/// The same reading `release.sh` and `release.yml` both do, re-implemented here rather than
-/// shelled out to — a third copy of an `awk` program would be a third thing to be wrong. What
-/// this file asserts is that the two of them *behave* as this reading says they should.
-/// The lines staged under one heading of `docs/upgrading.md`, **as HEAD carries them**.
-///
-/// From HEAD and not the working tree, because that is where `release.sh` reads it and its
+/// From HEAD and not the working tree, because that is where `release.sh` reads them and its
 /// reason is load-bearing: a tag names a commit, so a note only in the working tree is a note
-/// the tagged ref does not carry. Reading the working tree here made this test fail for any
-/// *uncommitted* note — which is exactly when someone writing one runs the suite — and blamed
-/// the script for not refusing a note it could not see.
-fn upgrade_section(heading: &str) -> Vec<String> {
-    let doc = at_head("docs/upgrading.md");
-    let mut inside = false;
-    let mut out = Vec::new();
-    for line in doc.lines() {
-        if line.trim() == format!("## {heading}") {
-            inside = true;
-            continue;
-        }
-        if line.starts_with("## ") {
-            inside = false;
-        }
-        if inside {
-            let t = line.trim();
-            if !t.is_empty() && !t.starts_with("<!--") && !t.starts_with("-->") {
-                out.push(line.to_string());
-            }
-        }
-    }
-    out
+/// the tagged ref does not carry. Reading the working tree here made the old version of this
+/// test fail for any *uncommitted* note — which is exactly when someone writing one runs the
+/// suite — and blamed the script for not refusing a note it could not see.
+///
+/// The directory's `README.md` explains the directory and is not a note.
+fn staged_notes() -> Vec<String> {
+    let out = common::git::raw(
+        &repo_root(),
+        &["ls-tree", "--name-only", &format!("HEAD:{STAGED_NOTES}")],
+    );
+    // A missing directory is "nothing staged", which is what release.sh reads it as too.
+    let mut notes: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|n| n.ends_with(".md") && *n != "README.md")
+        .map(str::to_string)
+        .collect();
+    notes.sort();
+    notes
 }
 
-/// `## Unreleased` must exist, even with nothing under it.
+/// No note is written into `docs/upgrading.md` by hand, and the filing task has its anchor.
 ///
-/// `release.sh` reads that heading to decide whether a note was staged and never filed. A
-/// document without it does not fail — it reads as "no note", for this release and every one
-/// after, which is the failure mode the whole mechanism exists to prevent.
+/// Notes used to be staged under `## Unreleased`, each pull request inserting at the top of it.
+/// Two insertions at one line are a merge conflict, so any two open pull requests with a note
+/// conflicted. A branch cut before the move and rebased after it would bring the heading back,
+/// and `release.sh` no longer reads it — the note under it would reach no release. So the
+/// heading is refused here, at pull-request time, rather than discovered at the tag.
 #[test]
-fn the_upgrade_notes_keep_the_heading_release_sh_reads() {
+fn upgrade_notes_are_staged_as_files_and_not_under_an_unreleased_heading() {
     let doc = read("docs/upgrading.md");
     assert!(
-        doc.lines().any(|l| l.trim() == "## Unreleased"),
-        "docs/upgrading.md has no `## Unreleased` heading. release.sh reads it to find a note \
-         nobody filed; without it every release from here on reads as having no note."
+        !doc.lines().any(|l| l.trim() == "## Unreleased"),
+        "docs/upgrading.md has a `## Unreleased` heading again. Notes are staged one per file in \
+         {STAGED_NOTES}/ and filed by `mise run file-upgrade-notes <tag>`; release.sh does not \
+         read this heading, so a note under it reaches no release. Move each `### ` note into \
+         its own {STAGED_NOTES}/<issue>-<slug>.md."
+    );
+    assert!(
+        doc.lines().any(|l| l == FILING_ANCHOR),
+        "docs/upgrading.md has lost the line `{FILING_ANCHOR}`. The filing task inserts each \
+         release's section under it and refuses to file without it."
     );
 }
 
-/// A note staged under `## Unreleased` refuses the tag — and only then.
+/// A staged note refuses the tag — and only then.
 ///
-/// Asserted against the document's actual content rather than as a fixed expectation, so it
-/// stays true through the state it is describing: today there is a note staged (#549's, whose
-/// version is not chosen yet) and the refusal must fire; once it is filed under a tag the
-/// section is empty and the refusal must *not* fire. A test that only checked one of those
-/// would go green the moment the mechanism started mattering, or the moment it stopped.
+/// Asserted against the repository's actual state rather than as a fixed expectation, so it
+/// stays true through the state it is describing: between releases notes are staged and the
+/// refusal must fire; right after one is filed nothing is staged and the refusal must *not*
+/// fire. A test that only checked one of those would go green the moment the mechanism started
+/// mattering, or the moment it stopped.
 #[test]
-fn a_staged_upgrade_note_refuses_the_tag_and_an_empty_section_does_not() {
+fn a_staged_upgrade_note_refuses_the_tag_and_an_empty_directory_does_not() {
     // The same arguments `a_version_the_manifest_does_not_declare_is_refused` uses, so the
     // whole suite makes one release.sh invocation and one packaged-build check. The layer and
     // version are irrelevant here: this refusal is raised before either is consulted, and a
     // dry run reports every refusal rather than stopping at the first.
     let (out, _) = release(&["sdk/rust", "9.9.9"]);
 
-    let staged = upgrade_section("Unreleased");
+    let staged = staged_notes();
     let refused = out.contains("staged-upgrade-note");
 
     if staged.is_empty() {
         assert!(
             !refused,
-            "nothing is staged under `## Unreleased` and release.sh refused anyway:\n{out}"
+            "nothing is staged in {STAGED_NOTES}/ and release.sh refused anyway:\n{out}"
         );
     } else {
         assert!(
             refused,
-            "docs/upgrading.md has {} line(s) staged under `## Unreleased` and release.sh did \
-             not refuse. The note would be dropped from this release and repeated into the \
-             next.\nrelease.sh said:\n{out}",
+            "{} note(s) are staged in {STAGED_NOTES}/ and release.sh did not refuse. They would \
+             be dropped from this release and carried into the next.\nrelease.sh said:\n{out}",
             staged.len()
         );
     }
+}
+
+// ── the filing task ──────────────────────────────────────────────────────────────
+
+/// A scratch repository holding this repository's `docs/upgrading.md` and filing script, plus
+/// the given notes. The script needs a git work tree (it stages its result) and nothing else.
+fn filing_fixture(notes: &[(&str, &str)]) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    let root = dir.path();
+    for sub in ["docs", "scripts", STAGED_NOTES] {
+        std::fs::create_dir_all(root.join(sub)).expect("a fixture directory");
+    }
+    std::fs::write(root.join("docs/upgrading.md"), read("docs/upgrading.md"))
+        .expect("the document copies");
+    let script = root.join("scripts/file-upgrade-notes.sh");
+    std::fs::copy(repo_root().join("scripts/file-upgrade-notes.sh"), &script)
+        .expect("the script copies");
+    for (name, body) in notes {
+        std::fs::write(root.join(STAGED_NOTES).join(name), body).expect("a note writes");
+    }
+    common::git::git(root, &["init", "--quiet"]);
+    common::git::git(root, &["add", "--all"]);
+    dir
+}
+
+/// Run the filing script in `root` for `tag`: (stdout + stderr, success).
+fn file_notes(root: &std::path::Path, tag: &str) -> (String, bool) {
+    let out = Command::new("bash")
+        .arg("scripts/file-upgrade-notes.sh")
+        .arg(tag)
+        .current_dir(root)
+        .output()
+        .expect("bash runs the filing script");
+    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+    text.push_str(&String::from_utf8_lossy(&out.stderr));
+    (text, out.status.success())
+}
+
+/// The `### ` headings under `## <heading>` in a document, in order.
+fn notes_under(doc: &str, heading: &str) -> Vec<String> {
+    let mut inside = false;
+    let mut out = Vec::new();
+    for line in doc.lines() {
+        if let Some(h) = line.strip_prefix("## ") {
+            inside = h.trim() == heading;
+        } else if let Some(note) = line.strip_prefix("### ").filter(|_| inside) {
+            out.push(note.trim().to_string());
+        }
+    }
+    out
+}
+
+/// Every note staged today is one the filing task accepts, and filing it loses no line of it.
+///
+/// Run over the real notes rather than a description of them, so a malformed note — a name
+/// without its issue number, a `##` heading that would cut the release section short — fails
+/// the pull request that adds it rather than the person cutting the release.
+#[test]
+fn every_staged_upgrade_note_files_whole() {
+    let root = repo_root().join(STAGED_NOTES);
+    let staged: Vec<(String, String)> = std::fs::read_dir(&root)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.ends_with(".md") && n != "README.md")
+                .map(|n| {
+                    let body = std::fs::read_to_string(root.join(&n)).expect("a note reads");
+                    (n, body)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if staged.is_empty() {
+        // Right after a release. The fixture tests below still exercise the script.
+        return;
+    }
+    let notes: Vec<(&str, &str)> = staged
+        .iter()
+        .map(|(n, b)| (n.as_str(), b.as_str()))
+        .collect();
+    let dir = filing_fixture(&notes);
+    let (out, ok) = file_notes(dir.path(), "cli/v99.0.0");
+    assert!(ok, "the filing task refuses a staged note:\n{out}");
+
+    let doc = std::fs::read_to_string(dir.path().join("docs/upgrading.md")).expect("reads");
+    let section: String = {
+        let mut inside = false;
+        doc.lines()
+            .filter(|l| {
+                if let Some(h) = l.strip_prefix("## ") {
+                    inside = h.trim() == "cli/v99.0.0";
+                    return false;
+                }
+                inside
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    for (name, body) in &staged {
+        for line in body.lines().filter(|l| !l.trim().is_empty()) {
+            assert!(
+                section.lines().any(|l| l == line),
+                "{STAGED_NOTES}/{name}: the line {line:?} did not reach the filed section — \
+                 the release would publish the note without it"
+            );
+        }
+    }
+}
+
+/// Filing orders notes newest issue first, removes the files, and stages both sides.
+#[test]
+fn filing_orders_notes_by_issue_and_empties_the_directory() {
+    let dir = filing_fixture(&[
+        ("919-older.md", "### Older\n\nFirst written.\n"),
+        ("1172-newer.md", "### Newer\n\nWritten later.\n\n\n"),
+        ("1054-middle.md", "### Middle\n\nIn between.\n"),
+    ]);
+    let (out, ok) = file_notes(dir.path(), "cli/v99.0.0");
+    assert!(ok, "filing three well-formed notes failed:\n{out}");
+
+    let doc = std::fs::read_to_string(dir.path().join("docs/upgrading.md")).expect("reads");
+    // Numeric, not lexical: "919" sorts after "1172" as text and would file the oldest first.
+    assert_eq!(
+        notes_under(&doc, "cli/v99.0.0"),
+        ["Newer", "Middle", "Older"],
+        "notes must file newest issue first"
+    );
+    let anchor = doc.find(FILING_ANCHOR).expect("the anchor survives");
+    let section = doc.find("## cli/v99.0.0").expect("the section is written");
+    assert!(
+        anchor < section && doc[anchor..section].trim() == FILING_ANCHOR,
+        "the new section must sit directly under the anchor"
+    );
+    // Up to the section after it — the older sections are not this task's to reformat.
+    let filed = &doc[section..];
+    let filed = &filed[..filed[3..].find("\n## ").map_or(filed.len(), |i| i + 3)];
+    assert!(
+        !filed.contains("\n\n\n"),
+        "filing left a run of blank lines — a note's trailing blanks were copied:\n{filed}"
+    );
+
+    let left: Vec<_> = std::fs::read_dir(dir.path().join(STAGED_NOTES))
+        .expect("the directory remains")
+        .filter_map(Result::ok)
+        .map(|e| e.file_name())
+        .collect();
+    assert!(left.is_empty(), "filed notes were left behind: {left:?}");
+    let unstaged = common::git::out(dir.path(), &["status", "--porcelain"]);
+    assert!(
+        unstaged
+            .lines()
+            .all(|l| !l.starts_with(' ') && !l.starts_with('?')),
+        "filing must stage what it changed, so the commit is one command:\n{unstaged}"
+    );
+}
+
+/// A note merged after the first filing but before the tag goes into the same section, on top.
+#[test]
+fn filing_again_adds_to_the_existing_section() {
+    let dir = filing_fixture(&[("1000-first.md", "### First\n\nFiled first.\n")]);
+    assert!(file_notes(dir.path(), "cli/v99.0.0").1);
+    std::fs::write(
+        dir.path().join(STAGED_NOTES).join("1001-late.md"),
+        "### Late\n\nMerged after.\n",
+    )
+    .expect("a note writes");
+    let (out, ok) = file_notes(dir.path(), "cli/v99.0.0");
+    assert!(ok, "filing into an existing section failed:\n{out}");
+
+    let doc = std::fs::read_to_string(dir.path().join("docs/upgrading.md")).expect("reads");
+    assert_eq!(
+        doc.lines().filter(|l| *l == "## cli/v99.0.0").count(),
+        1,
+        "a second filing must not write a second section for the same tag"
+    );
+    assert_eq!(notes_under(&doc, "cli/v99.0.0"), ["Late", "First"]);
+}
+
+/// A malformed note refuses the whole filing and touches nothing.
+///
+/// Each shape is one that would go wrong silently if filed: no issue number leaves the order
+/// undefined, no `### ` heading leaves the note without a title, and a `##` heading ends the
+/// release section early — `release.yml` reads up to the next `## `, so what follows it would
+/// reach no release.
+#[test]
+fn a_malformed_note_refuses_the_filing_and_changes_nothing() {
+    for (name, body, says) in [
+        ("no-issue.md", "### Fine\n\nText.\n", "the name must be"),
+        ("12-no-heading.md", "Just prose.\n", "'### ' heading"),
+        (
+            "13-outer.md",
+            "### Fine\n\n## A section of its own\n",
+            "split the release section",
+        ),
+    ] {
+        let dir = filing_fixture(&[("1-good.md", "### Good\n\nText.\n"), (name, body)]);
+        let before = std::fs::read_to_string(dir.path().join("docs/upgrading.md")).unwrap();
+        let (out, ok) = file_notes(dir.path(), "cli/v99.0.0");
+        assert!(!ok, "{name} was filed:\n{out}");
+        assert!(out.contains(says), "{name}: expected {says:?} in:\n{out}");
+        let after = std::fs::read_to_string(dir.path().join("docs/upgrading.md")).unwrap();
+        assert_eq!(
+            before, after,
+            "{name}: a refused filing changed the document"
+        );
+        assert!(
+            dir.path().join(STAGED_NOTES).join("1-good.md").exists(),
+            "{name}: a refused filing removed a good note"
+        );
+    }
+    // A `##` inside a fenced block is an example, not a heading.
+    let dir = filing_fixture(&[("14-fenced.md", "### Fine\n\n```md\n## not a heading\n```\n")]);
+    let (out, ok) = file_notes(dir.path(), "cli/v99.0.0");
+    assert!(ok, "a fenced `##` was read as a heading:\n{out}");
 }
 
 /// The release must publish the note for the tag it is cutting, and must not lose the list.
@@ -569,8 +787,10 @@ fn upgrade_sections() -> Vec<(String, Vec<String>)> {
 /// `cli/v0.10.0` tag) and each filed under that heading; found while cutting `cli/v0.11.0`.
 ///
 /// This is a third way the mechanism fails silently, and it is not the one `release.sh` covers.
-/// A staged note sits under `## Unreleased`, where it looks unfinished. A misfiled note sits
-/// under a heading that looks **filed**, so every existing check reads it as done.
+/// A staged note sits in `.changes/upgrading/`, where it looks unfinished. A misfiled note sits
+/// under a heading that looks **filed**, so every existing check reads it as done. Staging notes
+/// as files and filing them by task (`scripts/file-upgrade-notes.sh`) takes the heading out of
+/// the author's hands, which removes the usual way in; this still catches a hand edit.
 ///
 /// The rule: for every `## <tag>` section whose tag exists, the commit that introduced each
 /// `### ` heading must be an ancestor of that tag.
@@ -593,8 +813,8 @@ fn no_upgrade_note_is_filed_under_a_release_that_already_shipped() {
 
     for (heading, notes) in &sections {
         // A section whose tag does not exist is the release being prepared — there is nothing
-        // to compare against yet. `## Unreleased` is one of these, and is `release.sh`'s
-        // question rather than this one's.
+        // to compare against yet: a section filed for a tag not cut yet, or one of the
+        // document's own `## ` sections, which are not releases.
         if !git_out(&[
             "rev-parse",
             "--verify",
