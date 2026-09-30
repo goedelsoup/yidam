@@ -78,6 +78,13 @@
 //! punctuation after a space, where Astro drops the trailing `-`.
 //! [`the_slugger_agrees_with_the_docs_render`] pins the rule to output read off a real Astro
 //! render, not to a reading of `github-slugger`'s source.
+//!
+//! # A section is read by something, or says why not
+//!
+//! The ceilings hold each occasion to what it reads, and nothing held the prelude to being read
+//! at all (#974). [`every_prelude_section_is_read_or_reference_only`] requires every `##` section
+//! of the seven step-1 files to be reached on each route, by an occasion or by the bootstrap.
+//! If it is not, [`REFERENCE_ONLY`] must list it with the occasion that would read it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -480,6 +487,63 @@ const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/skills/bootstrap.md", 11_119),
 ];
 
+/// The `##` sections of the seven step-1 files that no read reaches, as `file#slug` under
+/// `yidam/prelude/`, each with the occasion that would read it if one existed.
+///
+/// The converse of the ceilings. [`READ_CEILING`] and [`BOOTSTRAP_CEILING`] hold each read to
+/// what it costs, and nothing held the prelude to *being read*. RFC-0039's census found
+/// `.yidam/authorship.yml` by hand: a section vendored into every derivation and read on no
+/// occasion. [`every_prelude_section_is_read_or_reference_only`] finds the next one.
+///
+/// A reason names an occasion, not a quality of the section. This list is where a later
+/// occasion, or `yidam read --for`, grows from, and "rarely needed" would tell it nothing.
+///
+/// **Measured at #974.** Nine sections, every one of them skipped by step 1 after #971. The
+/// other skipped sections are on an occasion: *Branches as inquiry* on *Before you run a
+/// phase*, `.yidam/catalog/` and four of `agent-conduct.md`'s on *Before a claim crosses a
+/// corpus boundary*. No section is read in part. Each is read from its heading or not at all.
+const REFERENCE_ONLY: &[(&str, &str)] = &[
+    (
+        "GRAPH.md#residence-time",
+        "an occasion for triaging a `yidam lint` finding, which none of the five is",
+    ),
+    (
+        "GRAPH.md#the-baseline-and-its-own-clock",
+        "the same triage occasion, and a vendor update, which runs `lint --init-baseline`",
+    ),
+    (
+        "guidelines/agent-conduct.md#the-safeguards-were-built-against-carelessness-not-against-interest",
+        "an occasion for work where the agent has an interest in the answer. No commit verb \
+         marks that, so no route can name it",
+    ),
+    (
+        "guidelines/directories.md#yidamtonpatoml-and-yidamtonpa",
+        "an occasion for adding or fetching a dependency corpus. *Before a claim crosses a \
+         corpus boundary* is about a citation, not the dependency behind it",
+    ),
+    (
+        "guidelines/directories.md#yidamprivate-paths-optional",
+        "an occasion for publishing, or for deciding what may sit in a public repository",
+    ),
+    (
+        "guidelines/directories.md#yidampolicy-optional",
+        "the same publishing occasion, where a disclosure decision is made",
+    ),
+    (
+        "guidelines/directories.md#yidambin",
+        "an occasion for installing or upgrading the pinned binary",
+    ),
+    (
+        "guidelines/directories.md#yidamcapabilitiestoml-yidamruns-and-yidamcomputed-optional",
+        "an occasion for a pipeline act: `extract`, `refresh`, `compute`, `reconcile`",
+    ),
+    (
+        "guidelines/directories.md#yidamauthorshipyml-optional",
+        "the triage occasion, which is where a finding in inherited material has to be told \
+         apart from one this repository can fix",
+    ),
+];
+
 fn read(rel: &str) -> String {
     let p = repo_root().join(rel);
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{} is unreadable ({e})", p.display()))
@@ -823,6 +887,40 @@ fn step_one_rows() -> Vec<(String, BTreeSet<usize>)> {
             };
             (file, charged)
         })
+        .collect()
+}
+
+/// The 0-based lines of each prelude file that some read charges, by route: the route's *On
+/// every occasion* and occasion lists, and step 1 of the bootstrap, which every route shares.
+/// A route's reference list is not a read, for the reason [`occasion_lists`] gives.
+///
+/// Per route rather than a union, because an agent reads one route: the template's `AGENTS.md`
+/// in this repository and `sadhana/root/AGENTS.md` in a derived one. A section only the
+/// template's route links is read by nobody in the repositories the prelude is vendored into.
+fn read_lines() -> BTreeMap<String, BTreeMap<String, BTreeSet<usize>>> {
+    let bootstrap = step_one_rows();
+    routes()
+        .into_iter()
+        .map(|route| {
+            let mut lines: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
+            for (file, fragment) in occasion_lists(&route).into_iter().flat_map(|(_, l)| l) {
+                let charged = section_lines(&file, fragment.as_deref());
+                lines.entry(file).or_default().extend(charged);
+            }
+            for (file, charged) in &bootstrap {
+                lines.entry(file.clone()).or_default().extend(charged);
+            }
+            (route, lines)
+        })
+        .collect()
+}
+
+/// `##` sections of a prelude file, as `(line, slug)` with the line numbered from 1.
+fn level_two(file: &str) -> Vec<(usize, String)> {
+    headings(&read(file))
+        .into_iter()
+        .filter(|(_, level, _)| *level == 2)
+        .map(|(line, _, slug)| (line, slug))
         .collect()
 }
 
@@ -1343,4 +1441,77 @@ fn a_split_pair_does_not_shrink() {
              commit."
         );
     }
+}
+
+/// Three directions, each per section. A `##` section of a step-1 file that a route's reads do
+/// not reach and [`REFERENCE_ONLY`] does not list. An entry naming a section that no longer
+/// exists. An entry naming a section every route now reads. The second and third keep the list
+/// from rotting into names that mean nothing (#660: everything asked whether what is emitted is
+/// declared, and nothing asked the other way round).
+///
+/// A section is read when its heading line is charged: a link to it, to the whole file, or a
+/// step 1 row that does not skip it. A link to one of its `###` subsections does not read it,
+/// because the lines between its heading and that subsection are then read by nobody.
+#[test]
+fn every_prelude_section_is_read_or_reference_only() {
+    const PRELUDE: &str = "yidam/prelude/";
+    let by_route = read_lines();
+    let listed: BTreeMap<&str, &str> = REFERENCE_ONLY.iter().copied().collect();
+    let mut found: BTreeSet<String> = BTreeSet::new();
+    let mut unread = Vec::new();
+    let mut stale = Vec::new();
+    for file in step_one_read_list() {
+        let short = file.strip_prefix(PRELUDE).unwrap_or(&file);
+        for (line, slug) in level_two(&file) {
+            let name = format!("{short}#{slug}");
+            let missed: Vec<&str> = by_route
+                .iter()
+                .filter(|(_, lines)| !lines.get(&file).is_some_and(|l| l.contains(&(line - 1))))
+                .map(|(route, _)| route.as_str())
+                .collect();
+            match (missed.is_empty(), listed.contains_key(name.as_str())) {
+                (false, false) => {
+                    unread.push(format!(
+                        "  {file}:{line} → {name}, on {}",
+                        missed.join(", ")
+                    ));
+                }
+                (true, true) => stale.push(format!("  {name}")),
+                _ => {}
+            }
+            found.insert(name);
+        }
+    }
+    let gone: Vec<String> = listed
+        .keys()
+        .filter(|name| !found.contains(**name))
+        .map(|name| format!("  {name}"))
+        .collect();
+    let mut failures = Vec::new();
+    if !unread.is_empty() {
+        failures.push(format!(
+            "{} section(s) are read on no occasion of a route and by no bootstrap, and \
+             REFERENCE_ONLY does not list them. Link each from the occasion that needs it, or \
+             list it with the occasion that would read it if one existed:\n{}",
+            unread.len(),
+            unread.join("\n")
+        ));
+    }
+    if !gone.is_empty() {
+        failures.push(format!(
+            "{} REFERENCE_ONLY entr(ies) name a section none of the seven step-1 files has. It \
+             was renamed or removed, and the entry now excuses nothing:\n{}",
+            gone.len(),
+            gone.join("\n")
+        ));
+    }
+    if !stale.is_empty() {
+        failures.push(format!(
+            "{} REFERENCE_ONLY entr(ies) name a section every route now reads. Remove the \
+             entry; the occasion its reason named exists now:\n{}",
+            stale.len(),
+            stale.join("\n")
+        ));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
