@@ -205,3 +205,14 @@
 # vault  = "default"
 # namespace = "yidam"
 # max_open_proposals = 1
+#
+# The secrets, service account and vault claim the manifest names default to
+# `yidam-<corpus>-<role>`, so two corpora in one namespace share no write key. Set one here
+# only to keep a name the cluster already holds.
+#
+# [cluster.names]
+# service_account = "yidam-corpus-run"
+# git_read        = "yidam-corpus-git-read"
+# git_write       = "yidam-corpus-git-write"
+# vault_secret    = "yidam-corpus-vault"
+# vault_claim     = "yidam-corpus-vault"

@@ -187,7 +187,8 @@ Absent means no entry expires unless it says so itself.
 ### `[cluster]`
 
 What `yidam cluster workflow` needs to write an Argo manifest, and what `cluster admit` caps.
-Every key here has a flag that overrides it. See [cluster-runs.md](cluster-runs.md).
+Every key but `[cluster.names]` has a flag that overrides it. See
+[cluster-runs.md](cluster-runs.md).
 
 ```toml
 [cluster]
@@ -207,6 +208,22 @@ max_open_proposals = 1
 many `propose/*` branches stand open on the remote is not admitted. Absent means no cap. This
 is the throughput judgement RFC-0026 §3 leaves to the corpus. It never decides what a run may
 author.
+
+`[cluster.names]` sets the Kubernetes objects the workflow refers to by name. Each defaults to
+a name derived from the corpus, its root directory's name lowercased:
+
+```toml
+[cluster.names]
+service_account = "yidam-corpus-run"
+git_read        = "yidam-corpus-git-read"
+git_write       = "yidam-corpus-git-write"
+vault_secret    = "yidam-corpus-vault"
+vault_claim     = "yidam-corpus-vault"
+```
+
+The defaults differ per corpus, so two corpora in one namespace share no write key. Override
+one only to keep a name you already have. Two corpora given one `git_write` share its key.
+The generator refuses a name Kubernetes would refuse: lowercase letters, digits, `-` and `.`.
 
 ### `[due]`
 

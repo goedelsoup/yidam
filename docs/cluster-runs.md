@@ -14,16 +14,19 @@ A workflow is a pin, then a step and a landing for each capability, in dependenc
 The catalog's own steps come first in every workflow: `catalog-fetch`, `catalog-extract` and
 `catalog-reconcile`.
 
+Every object a workflow names is its corpus's own. The table shortens `yidam-<corpus>-git-read`
+to `…-git-read`.
+
 | Task | Command | Reads | Writes | Git secret |
 |---|---|---|---|---|
-| `admit` | `yidam cluster admit` | the remote | a record | `yidam-git-read` |
-| `pin` | `yidam cluster pin` | the remote | a bundle, to the vault | `yidam-git-read` |
+| `admit` | `yidam cluster admit` | the remote | a record | `…-git-read` |
+| `pin` | `yidam cluster pin` | the remote | a bundle, to the vault | `…-git-read` |
 | `step-<name>` | `yidam cluster step <name>` | a bundle, from the vault | a bundle, to the vault | none |
-| `land-<name>` | `yidam cluster land` | a bundle, from the vault | one ref, on the remote | `yidam-git-write` |
+| `land-<name>` | `yidam cluster land` | a bundle, from the vault | one ref, on the remote | `…-git-write` |
 | `survey-<g>` | `yidam cluster survey <g>` | the pin, from the vault | a plan: one ask per peer | none |
 | `ask-<g>` | `yidam cluster ask` | a peer's bundle, from the vault or its lock url | a record, to the vault | none |
 | `gather-<g>` | `yidam cluster gather <g>` | the pin and the records | a bundle, to the vault | none |
-| `land-gather-<g>` | `yidam cluster land` | a bundle, from the vault | `propose/gather/<g>/<pin>` | `yidam-git-write` |
+| `land-gather-<g>` | `yidam cluster land` | a bundle, from the vault | `propose/gather/<g>/<pin>` | `…-git-write` |
 
 The step pod has no `--remote` flag and no `--branch` flag. It fetches a bundle, clones it into
 scratch, runs the capability there and bundles what it built. Its record names the commit's
@@ -124,16 +127,38 @@ a reader which image ran, but not how to get it.
 
 ## Secrets and the service account
 
-Apply [cluster/argo-rbac.yml](cluster/argo-rbac.yml). It creates the `yidam-run` service account
-and the one role Argo's executor needs, which is to record task results. Pods do not mount the
-account's token. The executor sidecar uses it, the main container never sees it.
+Each name below carries the corpus's name, so two corpora can share a namespace. The corpus
+name is its root directory's, lowercased. The manifest's header names both git secrets.
+
+| Object | Kind | Name |
+|---|---|---|
+| Run account | ServiceAccount | `yidam-<corpus>-run` |
+| Read key | Secret | `yidam-<corpus>-git-read` |
+| Write key | Secret | `yidam-<corpus>-git-write` |
+| S3 vault keys | Secret | `yidam-<corpus>-vault` |
+| File vault | PersistentVolumeClaim | `yidam-<corpus>-vault` |
+
+To keep names you already have, set them under `[cluster.names]`. See
+[configuration.md](configuration.md#cluster).
+
+Apply [cluster/argo-rbac.yml](cluster/argo-rbac.yml) under your corpus's name. It creates the
+run account and the one role Argo's executor needs, which is to record task results. The file
+names streamflow's account, so substitute yours:
+
+```sh
+sed 's/yidam-streamflow-run/yidam-<corpus>-run/' docs/cluster/argo-rbac.yml \
+  | kubectl apply -n <namespace> -f -
+```
+
+Pods do not mount the account's token. The executor sidecar uses it, the main container never
+sees it.
 
 Two git secrets, each holding a deploy key and a known-hosts file:
 
 ```sh
-kubectl create secret generic yidam-git-read \
+kubectl create secret generic yidam-<corpus>-git-read \
   --from-file=key=./read-only-deploy-key --from-file=known_hosts=./known_hosts
-kubectl create secret generic yidam-git-write \
+kubectl create secret generic yidam-<corpus>-git-write \
   --from-file=key=./read-write-deploy-key --from-file=known_hosts=./known_hosts
 ```
 
@@ -147,7 +172,7 @@ The vault carries every bundle between pods. Either backend works, and the workf
 one volume.
 
 **`file://`, no credentials at all.** Declare a URL under a mount. The generated workflow
-mounts a `PersistentVolumeClaim` named `yidam-vault` at that path on every pod. Create the
+mounts a `PersistentVolumeClaim` named `yidam-<corpus>-vault` at that path on every pod. Create the
 claim with `ReadWriteMany` access, since pin, step and land run on any node. Nothing in it is a
 working tree. Pods write new digests and read old ones. This is not a shared checkout.
 
@@ -160,11 +185,11 @@ url = "file:///var/yidam/vault"
 ```
 
 **`s3://`.** Declare the bucket the way [artifact-vaults.md](artifact-vaults.md) declares one.
-Put the credentials in a secret named `yidam-vault`. Every pod reads it as environment. The
+Put the credentials in a secret named `yidam-<corpus>-vault`. Every pod reads it as environment. The
 variable names are the ones the vault already reads, prefixed by the vault's name:
 
 ```sh
-kubectl create secret generic yidam-vault \
+kubectl create secret generic yidam-<corpus>-vault \
   --from-literal=YIDAM_VAULT_DEFAULT_ACCESS_KEY_ID=... \
   --from-literal=YIDAM_VAULT_DEFAULT_SECRET_ACCESS_KEY=...
 ```

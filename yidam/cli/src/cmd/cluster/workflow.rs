@@ -72,6 +72,74 @@ struct Settings {
     steps: Vec<String>,
     /// `.yidam/gathers/<name>.toml`, by name — each a fan-out after the chain (#1217).
     gathers: Vec<String>,
+    names: Names,
+}
+
+/// The Kubernetes objects a workflow refers to by name, one set per corpus (#1228).
+///
+/// These were constants, so a namespace running two corpora held one `yidam-git-write`: either
+/// one corpus's lander could not push, or one key could push to both and either lander could
+/// land the other's refs. The invariant is which pod holds the credential, and it only holds
+/// if the credential is this corpus's alone. The vault's claim and secret are split for the
+/// disclosure half of the same argument: RFC-0023 draws a boundary between vaults, and a
+/// shared volume erases it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Names {
+    service_account: String,
+    git_read: String,
+    git_write: String,
+    vault_secret: String,
+    vault_claim: String,
+}
+
+impl Names {
+    /// `yidam-<slug>-<role>`: the `metadata.name` prefix the workflow already carries.
+    fn derived(slug: &str) -> Self {
+        let n = |role: &str| format!("yidam-{slug}-{role}");
+        Self {
+            service_account: n("run"),
+            git_read: n("git-read"),
+            git_write: n("git-write"),
+            vault_secret: n("vault"),
+            vault_claim: n("vault"),
+        }
+    }
+
+    /// The derived set with each `[cluster.names]` override applied, every name checked.
+    fn resolve(slug: &str, o: &crate::config::ClusterNamesConfig) -> Result<Self> {
+        let d = Self::derived(slug);
+        let pick = |key: &str, set: &Option<String>, default: String| -> Result<String> {
+            let Some(name) = set else {
+                return Ok(default);
+            };
+            if !is_object_name(name) {
+                bail!(
+                    "[cluster.names] {key} = {name:?} is not a Kubernetes object name: lowercase \
+                     letters, digits, `-` and `.`, starting and ending with a letter or digit, \
+                     at most 253 characters"
+                );
+            }
+            Ok(name.clone())
+        };
+        Ok(Self {
+            service_account: pick("service_account", &o.service_account, d.service_account)?,
+            git_read: pick("git_read", &o.git_read, d.git_read)?,
+            git_write: pick("git_write", &o.git_write, d.git_write)?,
+            vault_secret: pick("vault_secret", &o.vault_secret, d.vault_secret)?,
+            vault_claim: pick("vault_claim", &o.vault_claim, d.vault_claim)?,
+        })
+    }
+}
+
+/// A DNS-1123 subdomain, which is what a secret, service account or claim name must be.
+fn is_object_name(name: &str) -> bool {
+    let ok_end = |c: Option<char>| c.is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
+    name.len() <= 253
+        && ok_end(name.chars().next())
+        && ok_end(name.chars().last())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')
 }
 
 fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
@@ -142,7 +210,10 @@ fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
 
+    let names = Names::resolve(&slug, &cfg.cluster.names)?;
+
     Ok(Settings {
+        names,
         slug,
         image,
         remote,
@@ -224,11 +295,29 @@ fn header(s: &Settings) -> String {
          # then for each step in dependency order a `step` and a `land`. The invariant that a\n\
          # run authors operational commits and only proposes epistemic ones is not a check any\n\
          # of these pods performs; it is which pod holds the credential:\n\
-         #\n\
-         #   pin, admit  mount yidam-git-read   and can read the remote\n\
-         #   step        mounts no git secret   and has no flag that names a ref\n\
-         #   land        mounts yidam-git-write and is the only pod that can move one\n\
-         #\n\
+         #\n",
+    );
+    let n = &s.names;
+    // Padded to one width, so the three rows read as a table whatever the corpus is called.
+    let w = n.git_read.len().max(n.git_write.len());
+    let _ = writeln!(
+        h,
+        "#   pin, admit  mount  {:w$}  and can read the remote",
+        n.git_read
+    );
+    let _ = writeln!(
+        h,
+        "#   step        mounts {:w$}  and has no flag that names a ref",
+        "no git secret"
+    );
+    let _ = writeln!(
+        h,
+        "#   land        mounts {:w$}  and is the only pod that can move one",
+        n.git_write
+    );
+    h.push_str(
+        "#\n\
+         # Every name is this corpus's own, so no other corpus's lander holds its write key.\n\
          # What crosses between tasks is the vault digest of a git bundle, never a shared\n\
          # volume holding a checkout. Pod logs are not provenance: everything that matters is\n\
          # in the receipt, in the commit, on the ref.\n",
@@ -256,13 +345,18 @@ fn metadata(y: &mut String, s: &Settings) {
 fn spec(s: &Settings) -> String {
     let mut y = String::new();
     y.push_str("entrypoint: run\n");
-    y.push_str("serviceAccountName: yidam-run\n");
+    let n = &s.names;
+    let _ = writeln!(y, "serviceAccountName: {}", quote(&n.service_account));
     y.push_str(
         "# No pod gets a Kubernetes token in its main container; the executor sidecar has \
          its own.\n",
     );
     y.push_str("automountServiceAccountToken: false\n");
-    y.push_str("executor:\n  serviceAccountName: yidam-run\n");
+    let _ = writeln!(
+        y,
+        "executor:\n  serviceAccountName: {}",
+        quote(&n.service_account)
+    );
     y.push_str("arguments:\n  parameters:\n");
     for (k, v) in [
         ("image", &s.image),
@@ -273,14 +367,17 @@ fn spec(s: &Settings) -> String {
         let _ = writeln!(y, "    - name: {k}\n      value: {}", quote(v));
     }
     y.push_str("volumes:\n");
-    y.push_str(
-        "  - name: git-read\n    secret:\n      secretName: yidam-git-read\n      \
-         defaultMode: 256\n",
+    let _ = writeln!(
+        y,
+        "  - name: git-read\n    secret:\n      secretName: {}\n      defaultMode: 256",
+        quote(&n.git_read)
     );
-    y.push_str(
+    let _ = writeln!(
+        y,
         "  # The one credential that can move a ref. Mounted by `land` and by nothing \
-         else.\n  - name: git-write\n    secret:\n      secretName: yidam-git-write\n      \
-         defaultMode: 256\n",
+         else.\n  - name: git-write\n    secret:\n      secretName: {}\n      \
+         defaultMode: 256",
+        quote(&n.git_write)
     );
     if let Some(mount) = file_vault_mount(&s.vault_url) {
         let _ = writeln!(
@@ -288,7 +385,8 @@ fn spec(s: &Settings) -> String {
             "  # A file:// vault: a content-addressed store of immutable bundles, mounted at\n  \
              # {mount} on every pod. This is not a corpus checkout on a shared volume — nothing\n  \
              # in it is a working tree, and no pod writes anything but a new digest into it.\n  \
-             - name: vault\n    persistentVolumeClaim:\n      claimName: yidam-vault"
+             - name: vault\n    persistentVolumeClaim:\n      claimName: {}",
+            quote(&n.vault_claim)
         );
     }
 
@@ -558,9 +656,11 @@ fn template(
         );
     }
     if vault {
-        y.push_str(
+        let _ = writeln!(
+            y,
             "      # Vault credentials, for an s3:// vault; absent for file://, which needs none.\n      \
-             envFrom:\n        - secretRef:\n            name: yidam-vault\n            optional: true\n",
+             envFrom:\n        - secretRef:\n            name: {}\n            optional: true",
+            quote(&s.names.vault_secret)
         );
     }
     let mut mounts: Vec<String> = Vec::new();
@@ -659,6 +759,72 @@ mod tests {
     }
 
     #[test]
+    fn every_derived_name_is_the_corpus_own_and_an_object_name() {
+        let a = Names::derived("streamflow");
+        let b = Names::derived("rivergage");
+        let all = |n: &Names| {
+            [
+                n.service_account.clone(),
+                n.git_read.clone(),
+                n.git_write.clone(),
+                n.vault_secret.clone(),
+                n.vault_claim.clone(),
+            ]
+        };
+        for name in all(&a).iter().chain(all(&b).iter()) {
+            assert!(is_object_name(name), "{name}");
+        }
+        for name in all(&a) {
+            assert!(!all(&b).contains(&name), "{name} is both corpora's");
+        }
+        // A slug that begins or ends in `-` still derives a valid name, since the prefix and
+        // the role bracket it.
+        for name in all(&Names::derived("-odd-")) {
+            assert!(is_object_name(&name), "{name}");
+        }
+    }
+
+    #[test]
+    fn object_names_follow_dns_1123() {
+        for ok in ["a", "yidam-git-write", "a.b-c", "0x"] {
+            assert!(is_object_name(ok), "{ok}");
+        }
+        let long = "a".repeat(254);
+        for bad in [
+            "",
+            "Upper",
+            "under_score",
+            "-lead",
+            "trail-",
+            ".dot",
+            long.as_str(),
+        ] {
+            assert!(!is_object_name(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_names_override_replaces_one_name_and_is_checked() {
+        let o = crate::config::ClusterNamesConfig {
+            git_write: Some("yidam-git-write".into()),
+            ..Default::default()
+        };
+        let n = Names::resolve("streamflow", &o).unwrap();
+        assert_eq!(n.git_write, "yidam-git-write");
+        assert_eq!(n.git_read, "yidam-streamflow-git-read");
+
+        let o = crate::config::ClusterNamesConfig {
+            vault_claim: Some("Vault".into()),
+            ..Default::default()
+        };
+        let err = Names::resolve("streamflow", &o).unwrap_err().to_string();
+        assert!(
+            err.contains("vault_claim") && err.contains("\"Vault\""),
+            "{err}"
+        );
+    }
+
+    #[test]
     fn task_names_are_dns_labels() {
         assert_eq!(task_name("travel-tier"), "travel-tier");
         assert_eq!(task_name("Rate_Card.v2"), "rate-card-v2");
@@ -686,6 +852,7 @@ mod tests {
             cron: None,
             steps: vec!["a".into(), "b".into()],
             gathers: vec![],
+            names: Names::derived("corpus"),
         };
         let text = spec(&s);
         let doc: serde_yaml::Value = serde_yaml::from_str(&text).expect("the spec parses");
@@ -742,6 +909,7 @@ mod tests {
             cron: None,
             steps: vec!["a".into()],
             gathers: vec![],
+            names: Names::derived("corpus"),
         };
         let doc: serde_yaml::Value = serde_yaml::from_str(&spec(&s)).unwrap();
         let step = doc["templates"]
@@ -780,6 +948,7 @@ mod tests {
             cron: None,
             steps: vec!["a".into()],
             gathers: vec!["units".into()],
+            names: Names::derived("corpus"),
         };
         let text = spec(&s);
         let doc: serde_yaml::Value = serde_yaml::from_str(&text).expect("the spec parses");
@@ -840,6 +1009,7 @@ mod tests {
             cron: None,
             steps: vec!["a".into()],
             gathers: vec![],
+            names: Names::derived("corpus"),
         };
         let text = spec(&s);
         for t in ["survey", "ask", "gather"] {
