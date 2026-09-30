@@ -584,6 +584,38 @@ impl Server {
             "oldUri": path_to_uri(&self.corpus.join(&plan.from)),
             "newUri": path_to_uri(&self.corpus.join(&plan.to)),
         }));
+        // After the move, because it edits the file at its new name. The text is the old
+        // name's: the move does not change it.
+        if let Some(e) = &plan.moved_from {
+            let text = self.overlay.read(&self.corpus.join(&plan.from));
+            let lines: Vec<&str> = text.lines().collect();
+            let line = rename::moved_from_text(e);
+            let (range, new_text) = match lines.get(e.line - 1) {
+                Some(old) => (
+                    json!({"start": {"line": e.line - 1, "character": 0},
+                           "end": {"line": e.line - 1, "character": old.chars().count()}}),
+                    line,
+                ),
+                // Past the end. A file without a final newline needs one before the new line.
+                None => {
+                    let (at, new_text) = match lines.last() {
+                        Some(last) if !text.ends_with('\n') => (
+                            json!({"line": lines.len() - 1, "character": last.chars().count()}),
+                            format!("\n{line}\n"),
+                        ),
+                        _ => (
+                            json!({"line": lines.len(), "character": 0}),
+                            format!("{line}\n"),
+                        ),
+                    };
+                    (json!({"start": at, "end": at}), new_text)
+                }
+            };
+            document_changes.push(json!({
+                "textDocument": {"uri": path_to_uri(&self.corpus.join(&plan.to)), "version": null},
+                "edits": [{"range": range, "newText": new_text}],
+            }));
+        }
 
         Ok(json!({"documentChanges": document_changes}))
     }
@@ -1171,6 +1203,44 @@ mod tests {
 
         // Nothing was written: the client applies it, which is what keeps undo working.
         assert!(root.join(".yidam/corpus/concept/b.yml").is_file());
+    }
+
+    /// F2 is a mover like the command, so it records where the node came from (#1180). The
+    /// edit follows the move and names the new file, which is the only one that exists once
+    /// the move has been applied.
+    #[test]
+    fn a_rename_records_where_the_node_came_from_after_the_move() {
+        let (_t, root) = fixture();
+        let out = exchange(
+            &root,
+            vec![json!({
+                "jsonrpc": "2.0", "id": 6, "method": "textDocument/rename",
+                "params": {
+                    "textDocument": {"uri": uri(&root, "concept/b.yml")},
+                    "position": {"line": 0, "character": 0},
+                    "newName": "beta",
+                },
+            })],
+        );
+        let changes = out.iter().find(|m| m["id"] == 6).unwrap()["result"]["documentChanges"]
+            .as_array()
+            .unwrap()
+            .clone();
+
+        let mv = changes.iter().position(|c| c["kind"] == "rename").unwrap();
+        let at = changes
+            .iter()
+            .position(|c| c["textDocument"]["uri"] == uri(&root, "concept/beta.yml"))
+            .expect("an edit to the moved node under its new name");
+        assert!(at > mv, "the edit must follow the move: {changes:?}");
+        let edit = &changes[at]["edits"][0];
+        assert_eq!(edit["newText"], "moved-from: ../concept/b.yml\n");
+        let text = std::fs::read_to_string(root.join(".yidam/corpus/concept/b.yml")).unwrap();
+        assert_eq!(
+            edit["range"]["start"]["line"],
+            text.lines().count(),
+            "{edit}"
+        );
     }
 
     /// A refusal is an error, not an empty edit.

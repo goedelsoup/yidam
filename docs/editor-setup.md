@@ -38,7 +38,7 @@ has it. `--features index` adds nothing to the LSP.
 - **Definition, references, hover** on `target:` scalars.
 - **Rename** over [`yidam rename`](rfcs/0014-node-rename.md). F2 on a node, every inbound
   `target:` rewritten, the file moved, all in one `WorkspaceEdit` the *client* applies. That is
-  what keeps undo working. Refused outright, as an LSP error rather than an empty edit, if
+  what keeps undo working. The moved node gains a `moved-from:` line, so its ages carry. Refused outright, as an LSP error rather than an empty edit, if
   anything would dangle.
 
 ### Severity, and the rule that outranks it

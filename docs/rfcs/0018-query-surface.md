@@ -510,7 +510,7 @@ A rejected query **emits its report and exits 1**. That is the shape four comman
 have — `doctor`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/doctor.rs#L2165)), `regen`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/regen.rs#L361)), `rename`
-([`crate::report::gate`](../../yidam/cli/src/cmd/rename.rs#L722)) and `index-verify`
+([`crate::report::gate`](../../yidam/cli/src/cmd/rename.rs#L789)) and `index-verify`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/index_verify.rs#L260)) all print, then
 fail.
 
@@ -688,9 +688,9 @@ matter of plumbing:
 | What a query at a commit needs | What `replay` does |
 |---|---|
 | that commit's ontology | `is_instance` excludes `.ont.yml` outright ([`history.rs:41-62`](../../yidam/cli/src/cmd/lint/history.rs#L41-L62)) |
-| declared properties, types, targets, `edge_policy` | `blob_expectation` deserializes **one** field from a class blob — `direction` — into a three-valued `Expectation` ([`history.rs:225-267`](../../yidam/cli/src/cmd/lint/history.rs#L225-L267)) |
+| declared properties, types, targets, `edge_policy` | `blob_expectation` deserializes **one** field from a class blob — `direction` — into a three-valued `Expectation` ([`history.rs:233-275`](../../yidam/cli/src/cmd/lint/history.rs#L233-L275)) |
 | relationship names on edges | `targets_of` drops them: `.filter_map(\|l\| l.target.as_ref())` ([`history.rs:82`](../../yidam/cli/src/cmd/lint/history.rs#L82)) |
-| a revision to stop at | `change_stream` runs `git log --reverse … -- .yidam/corpus` with no revision argument and no parameter to supply one ([`change_stream`](../../yidam/cli/src/cmd/lint/history.rs#L116-L126)) — genesis to HEAD, always |
+| a revision to stop at | `change_stream` runs `git log --reverse … -- .yidam/corpus` with no revision argument and no parameter to supply one ([`change_stream`](../../yidam/cli/src/cmd/lint/history.rs#L124-L134)) — genesis to HEAD, always |
 
 `replay` is the right *shape* and the wrong function. `--at` needs its own reconstruction:
 read the tree at a rev and build the same structure `graph_data` builds, from blobs. The

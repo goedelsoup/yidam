@@ -4,6 +4,9 @@ Would rename concept/low-flow.yml → concept/base-flow.yml
   .yidam/corpus/concept/tailwater.yml:15  ../concept/low-flow.yml → ../concept/base-flow.yml
   .yidam/corpus/gauge/riffle-station.yml:13  ../concept/low-flow.yml → ../concept/base-flow.yml
 
+The moved node records where it came from, so its ages carry:
+  .yidam/corpus/concept/base-flow.yml:11  moved-from: ../concept/low-flow.yml
+
 1 prose reference(s) NOT rewritten — check these by hand:
   .yidam/catalog/stage-discharge.md:7  - low-flow.yml
 

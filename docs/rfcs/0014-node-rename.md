@@ -89,6 +89,13 @@ mitigations remove the acute foot-gun now. Noted tradeoff: with path-as-identity
 rename, a *cross-repo* link (a consumer like BOSC mirroring yidam nodes) still breaks on rename;
 immutable IDs would fix that. Revisit once RFC-0013's schema is settled.
 
+**Amendment (#1180): a declared origin, short of an ID.** Path identity cost more than links. The
+age folds in `lint/history.rs` read a rename as a delete plus an add, so an orphan or an open
+question restarted its count of commits. `yidam rename` now writes `moved-from:` into the moved
+node, naming the old path as a `target:` would. The folds carry both ages across that
+declaration, and the graph frames stay keyed by path. This is not an immutable ID: nothing
+resolves through it, and a move made without the command declares nothing.
+
 ## Migration & compatibility
 
 Tooling (`yidam rename`) + template (the dangling-edge rule enters RFC-0001's contract) + bootstrap

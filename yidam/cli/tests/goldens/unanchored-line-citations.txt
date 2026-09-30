@@ -38,7 +38,7 @@ docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/lib.rs#L27
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/main.rs#L18-L146
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/export_llms.rs#L34
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/graph.rs#L12
-docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/history.rs#L225-L267
+docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/history.rs#L233-L275
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/history.rs#L41-L62
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/history.rs#L82
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/model.rs#L17

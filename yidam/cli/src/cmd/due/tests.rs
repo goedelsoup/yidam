@@ -307,6 +307,52 @@ fn a_question_past_its_declared_residence_is_due() {
     assert_eq!(held.overdue, 0);
 }
 
+/// A renamed question is still overdue (#1180).
+///
+/// The clock filters on the count before it sorts. So when a rename restarted the count, the
+/// question did not just drop to the bottom of the list. It dropped off it, and the clock
+/// read Ok over a question nobody had answered.
+#[test]
+fn a_question_moved_under_a_declared_origin_stays_overdue() {
+    let tmp = repo();
+    let root = tmp.path();
+    node(
+        root,
+        "concept/b.yml",
+        "class: concept\nlabel: B\ndescription: it is `[open]`\n",
+    );
+    commit(root, "2026-01-02", "open: whether b holds");
+    node(root, "concept/a.yml", "class: concept\nlabel: A2\n");
+    commit(root, "2026-01-03", "revise: a");
+    git(
+        root,
+        &[
+            "mv",
+            ".yidam/corpus/concept/b.yml",
+            ".yidam/corpus/concept/bee.yml",
+        ],
+    );
+    node(
+        root,
+        "concept/bee.yml",
+        "class: concept\nlabel: B\ndescription: it is `[open]`\nmoved-from: ../concept/b.yml\n",
+    );
+    commit(
+        root,
+        "2026-01-04",
+        "migrate: concept/b.yml → concept/bee.yml",
+    );
+
+    config(root, "[due]\nquestions_after = 3\n");
+    let due = find(&clocks(root), "questions").clone();
+    assert_eq!(due.state, State::Due, "{due:?}");
+    assert!(
+        due.detail
+            .ends_with("longest 3 (.yidam/corpus/concept/bee.yml)"),
+        "{due:?}"
+    );
+}
+
 /// Answering an open question is a resolution event, so the remedy must not name `propose`.
 ///
 /// RFC-0020 and `cmd/sangha.rs` both draw that line, and #289 proposed crossing it — "under

@@ -99,20 +99,28 @@ struct CommitChanges {
 ///
 /// `--no-renames` makes every move a deletion and an addition. A `git mv` and a delete plus
 /// add are the same commit to git, so the replay treats them the same way (#1171). The node at
-/// the new path starts from the commit that put it there, and its ages restart with it.
+/// the new path starts from the commit that put it there.
 ///
 /// That is path identity, and it is the corpus's own. A node's id is its path, a `links:`
 /// target names a path, and [`crate::cmd::query::at`] rebuilds a past tree by path. Before the
 /// rename, no edge could name the new path. So "uncited since before it existed" is not a
-/// state the graph could have been in. A past revision of a node also carries no other
-/// identity. Pairing the two halves would need `-M`'s similarity index, and that gives up
-/// once the text changes by half. The pairing would then hold for a light edit and break for
-/// a heavy one, which is the blindness #1171 set out to remove.
+/// state the graph could have been in. Pairing the two halves would need `-M`'s similarity
+/// index, and that gives up once the text changes by half. The pairing would then hold for a
+/// light edit and break for a heavy one, which is the blindness #1171 set out to remove.
 ///
-/// The cost is stated and not hidden. An orphan or an open question that is renamed restarts
-/// its count of commits, and `orphan-in`'s escalation and `due`'s ordering read that count.
-/// [`super::scope::adding_commits`] does carry identity across a move, because a resolution
-/// record has an identity apart from its path: its evolution.
+/// # Why an age can still cross a move
+///
+/// The frames stay path-keyed. The age folds do not have to, because a node can declare the
+/// node it continues: `yidam rename` writes `moved-from:` into the moved file, naming the old
+/// path the way a `target:` would (#1180). A rename is not a citation and does not answer a
+/// question, so an orphan or an open question that was only moved keeps its count. The
+/// declaration is text in the node, so a `git mv` and a delete plus add with every line
+/// rewritten carry alike, and so does a squash or a rebase. See [`age_while`].
+///
+/// A move that declares nothing still restarts, as `migrate`'s class rename does (#1192):
+/// `orphan-in`'s escalation and `due`'s questions clock both read the count.
+/// [`super::scope::adding_commits`] carries identity by another route, because a resolution
+/// record has one apart from its path: its evolution.
 fn change_stream(root: &Path) -> Vec<CommitChanges> {
     // `core.quotepath=false` comes from the runner, and it matters here: `--raw` quotes a
     // non-ASCII path exactly as `--name-status` does, and the parser below tests a prefix.
@@ -495,41 +503,7 @@ pub struct Age {
 /// later orphaned dates from the commit that removed the last edge into it, which is the
 /// distinction node age cannot draw.
 pub fn uncited_age(root: &Path) -> HashMap<String, Age> {
-    // Value is (sha, ts, index of the frame at which it went uncited). The index becomes a
-    // count once the walk is over and the total is known; it cannot be a count while the
-    // walk is running, because the walk does not know how many frames are left.
-    let mut since: HashMap<String, (String, i64, usize)> = HashMap::new();
-    let mut frames = 0usize;
-    replay(root, |f| {
-        for node in f.out.keys() {
-            if f.cited.contains(node) {
-                // Something points at it as of this commit; any earlier orphaning ended.
-                since.remove(node);
-            } else {
-                // Uncited now. Keep the earliest commit at which that became true.
-                since
-                    .entry(node.clone())
-                    .or_insert((f.sha.to_string(), f.ts, frames));
-            }
-        }
-        since.retain(|n, _| f.out.contains_key(n));
-        frames += 1;
-    });
-    since
-        .into_iter()
-        .map(|(node, (sha, ts, first))| {
-            (
-                node,
-                Age {
-                    sha,
-                    ts,
-                    // HEAD inclusive: a condition that first held at the last frame has
-                    // held for one commit, not zero.
-                    commits: frames - first,
-                },
-            )
-        })
-        .collect()
+    age_while(root, |f, node, _| !f.cited.contains(node))
 }
 
 /// Whether a node's content at one commit reads as an open question.
@@ -578,13 +552,76 @@ fn is_open(path: &str, content: &str, fields: &crate::claims::ClaimFields) -> bo
 /// question that a later commit reopens is a new question, and carrying the old date would
 /// report a corpus as having ignored something it in fact resolved.
 pub fn open_question_age(root: &Path) -> HashMap<String, Age> {
-    // (sha, ts, index of the frame at which it became a question). Counted at the end, for
-    // the reason [`uncited_age`] gives: the walk does not know how many frames remain.
+    age_while(root, |f, node, content| {
+        is_open(node, content, f.claim_fields)
+    })
+}
+
+/// The node a path's content says it continues, resolved as a `target:` is.
+///
+/// `yidam rename` writes it. Read from `extra` rather than a field of its own, because
+/// nothing but this fold reads it.
+fn moved_from(path: &str, content: &str) -> Option<String> {
+    let inst: crate::parse::CorpusInstance = serde_yaml::from_str(content).ok()?;
+    let from = inst.extra.get("moved-from")?.as_str()?;
+    Some(
+        resolve_target(Path::new(path), from)
+            .to_string_lossy()
+            .replace('\\', "/"),
+    )
+}
+
+/// For every node present at HEAD, how long `holds` has been true of it, carried across a
+/// declared move.
+///
+/// The one fold both ages are, so they cannot come to disagree about what a move carries.
+///
+/// **A move carries only what was holding.** A node that leaves the tree while the condition
+/// holds is kept aside. A node that arrives with `moved-from:` naming it takes that entry,
+/// and is then tested like any other: a rename commit that also adds the citation or answers
+/// the question ends the age there. The delete and the add may be separate commits. The
+/// frames in between still count, because nothing in them cited the node or answered it.
+///
+/// **A copy does not carry.** If the declared node is still in the tree when the new path
+/// arrives, the new path is a second node and dates from its own commit. That is the rule
+/// [`super::scope::adding_commits`] applies to a resolution record, for the same reason.
+///
+/// **Only on arrival.** The declaration is read in the frame where a path first appears.
+/// A `moved-from:` left in the file after that says where the node came from and nothing
+/// more, so a later node that reuses the old path is not mistaken for it.
+fn age_while(
+    root: &Path,
+    holds: impl Fn(&Frame<'_>, &String, &str) -> bool,
+) -> HashMap<String, Age> {
+    // Value is (sha, ts, index of the frame at which the condition began). The index becomes
+    // a count once the walk is over and the total is known; it cannot be a count while the
+    // walk is running, because the walk does not know how many frames are left.
     let mut since: HashMap<String, (String, i64, usize)> = HashMap::new();
+    // Entries whose node has left the tree, kept for an arrival that declares it.
+    let mut departed: HashMap<String, (String, i64, usize)> = HashMap::new();
+    let mut present: HashSet<String> = HashSet::new();
     let mut frames = 0usize;
     replay(root, |f| {
+        // Departures first, so an arrival in the same commit finds the entry it continues.
+        for gone in present.iter().filter(|n| !f.text.contains_key(*n)) {
+            if let Some(entry) = since.remove(gone) {
+                departed.insert(gone.clone(), entry);
+            }
+        }
         for (node, content) in f.text {
-            if is_open(node, content, f.claim_fields) {
+            if present.contains(node) {
+                continue;
+            }
+            let Some(from) = moved_from(node, content).filter(|p| !f.text.contains_key(p)) else {
+                continue;
+            };
+            if let Some(entry) = departed.remove(&from) {
+                since.insert(node.clone(), entry);
+            }
+        }
+        for (node, content) in f.text {
+            if holds(&f, node, content) {
+                // Keep the earliest commit at which the condition held.
                 since
                     .entry(node.clone())
                     .or_insert((f.sha.to_string(), f.ts, frames));
@@ -592,7 +629,7 @@ pub fn open_question_age(root: &Path) -> HashMap<String, Age> {
                 since.remove(node);
             }
         }
-        since.retain(|n, _| f.text.contains_key(n));
+        present = f.text.keys().cloned().collect();
         frames += 1;
     });
     since
@@ -603,6 +640,8 @@ pub fn open_question_age(root: &Path) -> HashMap<String, Age> {
                 Age {
                     sha,
                     ts,
+                    // HEAD inclusive: a condition that first held at the last frame has
+                    // held for one commit, not zero.
                     commits: frames - first,
                 },
             )
@@ -723,11 +762,12 @@ mod tests {
         );
     }
 
-    /// **A move is a new node, however it is made** (#1171). `a` is moved with `git mv` and
-    /// `b` by a delete plus add. Both give the same answer: each is dated from the commit that
-    /// moved it, and nothing is left at the old paths. See [`change_stream`] for why path is
-    /// the identity here. A shape that answered differently would be the drift-gate defect
-    /// #1171 was split from.
+    /// **A move that declares nothing is a new node, however it is made** (#1171). `a` is
+    /// moved with `git mv` and `b` by a delete plus add. Both give the same answer: each is
+    /// dated from the commit that moved it, and nothing is left at the old paths. See
+    /// [`change_stream`] for why path is the identity here. A shape that answered differently
+    /// would be the drift-gate defect #1171 was split from. A move that declares its origin
+    /// is the next test.
     #[test]
     fn a_node_moved_by_git_mv_and_one_moved_by_delete_plus_add_answer_alike() {
         let tmp = tempfile::TempDir::new().unwrap();
@@ -767,6 +807,208 @@ mod tests {
         assert!(
             !since.contains_key(".yidam/corpus/concept/b.yml"),
             "{since:?}"
+        );
+    }
+
+    /// `a` and `b` are uncited open questions, written on the 1st and left alone through a
+    /// second corpus commit.
+    fn two_standing_questions(root: &Path) {
+        init(root);
+        node(root, "concept/a.yml", ASKING_A);
+        node(root, "concept/b.yml", ASKING_B);
+        commit(root, "2026-01-01", "open: whether a and b hold");
+        node(root, "concept/c.yml", "class: concept\nlabel: C\n");
+        commit(root, "2026-01-05", "establish: c");
+    }
+
+    const ASKING_A: &str = "class: concept\nlabel: A\ndescription: it is `[open]`\n";
+    const ASKING_B: &str = "class: concept\nlabel: B\ndescription: it is `[open]`\n";
+
+    /// Both ages, for one node, as (first day, commits).
+    fn both_ages(root: &Path, rel: &str) -> [Option<(String, usize)>; 2] {
+        let key = format!(".yidam/corpus/{rel}");
+        [uncited_age(root), open_question_age(root)]
+            .map(|ages| ages.get(&key).map(|a| (day(a.ts), a.commits)))
+    }
+
+    /// **A declared move carries both ages, however it is made** (#1180). `a` is moved with
+    /// `git mv`. `b` is deleted and re-added with every line rewritten, so no similarity index
+    /// could pair it. Each declares `moved-from:`, and each keeps the count it had: the
+    /// rename is not a citation and does not answer the question.
+    #[test]
+    fn a_declared_move_carries_both_ages_by_git_mv_and_by_a_rewritten_delete_plus_add() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        two_standing_questions(root);
+
+        crate::git::fixture::git(
+            root,
+            &[
+                "mv",
+                ".yidam/corpus/concept/a.yml",
+                ".yidam/corpus/concept/a-moved.yml",
+            ],
+        );
+        node(
+            root,
+            "concept/a-moved.yml",
+            &format!("{ASKING_A}moved-from: ../concept/a.yml\n"),
+        );
+        std::fs::remove_file(root.join(".yidam/corpus/concept/b.yml")).unwrap();
+        node(
+            root,
+            "concept/b-moved.yml",
+            "moved-from: ../concept/b.yml\nclass: concept\nlabel: Bee, restated\n\
+             description: whether the restatement holds is still `[open]`\n",
+        );
+        commit(root, "2026-01-09", "migrate: a and b");
+
+        for moved in ["concept/a-moved.yml", "concept/b-moved.yml"] {
+            assert_eq!(
+                both_ages(root, moved),
+                [
+                    Some(("2026-01-01".into(), 3)),
+                    Some(("2026-01-01".into(), 3))
+                ],
+                "{moved} keeps the date and count it had before the move"
+            );
+        }
+        for old in ["concept/a.yml", "concept/b.yml"] {
+            assert_eq!(both_ages(root, old), [None, None], "{old} is gone");
+        }
+    }
+
+    /// The delete and the add may be separate commits. The commit between them is counted,
+    /// because nothing in it cited the node or answered it.
+    #[test]
+    fn a_declared_move_carries_across_separate_delete_and_add_commits() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        two_standing_questions(root);
+
+        std::fs::remove_file(root.join(".yidam/corpus/concept/a.yml")).unwrap();
+        commit(root, "2026-01-09", "revise: a withdrawn");
+        node(
+            root,
+            "concept/a-back.yml",
+            &format!("{ASKING_A}moved-from: ../concept/a.yml\n"),
+        );
+        commit(root, "2026-01-12", "revise: a restored under a new name");
+
+        assert_eq!(
+            both_ages(root, "concept/a-back.yml"),
+            [
+                Some(("2026-01-01".into(), 4)),
+                Some(("2026-01-01".into(), 4))
+            ]
+        );
+    }
+
+    /// A copy made while the original is still in the tree is a second node, and dates from
+    /// its own commit. The original keeps its age.
+    #[test]
+    fn a_copy_declaring_a_node_still_present_starts_its_own_age() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        two_standing_questions(root);
+
+        node(
+            root,
+            "concept/a-copy.yml",
+            &format!("{ASKING_A}moved-from: ../concept/a.yml\n"),
+        );
+        commit(root, "2026-01-09", "establish: a copy of a");
+
+        assert_eq!(
+            both_ages(root, "concept/a-copy.yml"),
+            [
+                Some(("2026-01-09".into(), 1)),
+                Some(("2026-01-09".into(), 1))
+            ]
+        );
+        assert_eq!(
+            both_ages(root, "concept/a.yml"),
+            [
+                Some(("2026-01-01".into(), 3)),
+                Some(("2026-01-01".into(), 3))
+            ]
+        );
+    }
+
+    /// Each move names only the path it left. One name is enough, because the fold carries
+    /// the age forward at every step.
+    #[test]
+    fn a_chain_of_declared_moves_carries_to_the_end() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        two_standing_questions(root);
+
+        std::fs::remove_file(root.join(".yidam/corpus/concept/a.yml")).unwrap();
+        node(
+            root,
+            "concept/a2.yml",
+            &format!("{ASKING_A}moved-from: ../concept/a.yml\n"),
+        );
+        commit(root, "2026-01-09", "migrate: a → a2");
+        std::fs::remove_file(root.join(".yidam/corpus/concept/a2.yml")).unwrap();
+        node(
+            root,
+            "gauge/a3.yml",
+            &format!("{ASKING_A}moved-from: ../concept/a2.yml\n"),
+        );
+        commit(root, "2026-01-12", "migrate: a2 → a3");
+
+        assert_eq!(
+            both_ages(root, "gauge/a3.yml"),
+            [
+                Some(("2026-01-01".into(), 4)),
+                Some(("2026-01-01".into(), 4))
+            ]
+        );
+    }
+
+    /// A move carries only what was holding. `a` is moved in the commit that answers it, and
+    /// `b` in the commit where something first cites it. Each age ends there: an orphan
+    /// renamed so that it could be cited is cited, and no longer an orphan.
+    #[test]
+    fn a_move_that_answers_or_cites_ends_the_age_it_carried() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        two_standing_questions(root);
+
+        std::fs::remove_file(root.join(".yidam/corpus/concept/a.yml")).unwrap();
+        node(
+            root,
+            "concept/a2.yml",
+            "class: concept\nlabel: A\ndescription: it is `[verified]`\n\
+             moved-from: ../concept/a.yml\n",
+        );
+        std::fs::remove_file(root.join(".yidam/corpus/concept/b.yml")).unwrap();
+        node(
+            root,
+            "concept/b2.yml",
+            &format!("{ASKING_B}moved-from: ../concept/b.yml\n"),
+        );
+        node(
+            root,
+            "concept/c.yml",
+            "class: concept\nlabel: C\nlinks:\n  - target: ../concept/b2.yml\n",
+        );
+        commit(root, "2026-01-09", "migrate: a answered, b cited");
+
+        let [uncited, open] = both_ages(root, "concept/a2.yml");
+        assert_eq!(open, None, "a was answered in the commit that moved it");
+        assert_eq!(
+            uncited,
+            Some(("2026-01-01".into(), 3)),
+            "a is still uncited"
+        );
+        let [uncited, open] = both_ages(root, "concept/b2.yml");
+        assert_eq!(uncited, None, "b is cited from the commit that moved it");
+        assert_eq!(
+            open,
+            Some(("2026-01-01".into(), 3)),
+            "b is still a question"
         );
     }
 
