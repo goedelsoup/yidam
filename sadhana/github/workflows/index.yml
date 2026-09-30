@@ -136,17 +136,16 @@ jobs:
             echo "Rehearsal only. Re-run with dry_run unchecked to store it."
             exit 0
           fi
-          yidam vault push --index
+          # The committer; `--commit` sets its own author, `yidam vault`.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Uploads, then records the stored digest in `.yidam/index.lock` and
+          # authors the `index:` commit for that one file. An index whose digest
+          # the lock already names authors nothing (RFC-0026).
+          yidam vault push --index --commit
 
       # The lock is the only part that travels through git, and an index in a
       # store that no committed file names is an index nothing can find.
-      - name: Commit the lock
+      - name: Push the lock commit
         if: ${{ inputs.dry_run == false }}
-        run: |
-          set -eu
-          git diff --quiet -- .yidam/index.lock && { echo "unchanged."; exit 0; }
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .yidam/index.lock
-          git commit -m "index: store the index built at ${GITHUB_SHA:0:9}"
-          git push
+        run: git push

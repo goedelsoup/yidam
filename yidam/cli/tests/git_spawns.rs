@@ -7,7 +7,7 @@
 //! pin `core.quotepath`, where a user-supplied revision stops being a revision, and what a
 //! non-zero exit means. That last one had four answers in production alone: `None`
 //! (`cohort.rs`, `phases.rs`, `provenance.rs`), an `Err` carrying stderr
-//! (`catalog/commit.rs`), `""` — indistinguishable from an empty answer — (`lint/scope.rs`,
+//! (`catalog/commit.rs`, now `cmd/operational.rs`), `""` — indistinguishable from an empty answer — (`lint/scope.rs`,
 //! `lint/lineage.rs`), and an `Option<Vec<String>>` (`git.rs::git_lines`). Three defences
 //! were therefore present at one site and absent at the rest, and all three were live:
 //!

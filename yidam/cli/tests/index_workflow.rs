@@ -81,7 +81,7 @@ fn the_privacy_guard_runs_before_the_index_is_built() {
 #[test]
 fn the_store_step_comes_after_the_build() {
     assert!(step_index("Embed and build") < step_index("Store the index"));
-    assert!(step_index("Store the index") < step_index("Commit the lock"));
+    assert!(step_index("Store the index") < step_index("Push the lock commit"));
 }
 
 /// A repository with no vault must be told before it spends a build, not after.
@@ -113,15 +113,40 @@ fn the_default_run_sends_nothing() {
     );
 }
 
-/// A commit is made only on a real run. A rehearsal that writes to the repository is not a
-/// rehearsal.
+/// A commit is made and pushed only on a real run. A rehearsal that writes to the repository
+/// is not a rehearsal.
 #[test]
 fn the_lock_is_committed_only_when_something_was_actually_stored() {
-    let commit = &steps()[step_index("Commit the lock")];
-    let cond = commit["if"].as_str().unwrap_or_default();
+    let push = &steps()[step_index("Push the lock commit")];
+    let cond = push["if"].as_str().unwrap_or_default();
     assert!(
         cond.contains("dry_run") && cond.contains("false"),
-        "the commit step must be gated on a real run, got: {cond:?}"
+        "the push step must be gated on a real run, got: {cond:?}"
+    );
+    let store = steps()[step_index("Store the index")]["run"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let (rehearsal, real) = store
+        .split_once("exit 0")
+        .expect("the store step no longer exits early on a rehearsal");
+    assert!(
+        !rehearsal.contains("--commit"),
+        "a rehearsal must not commit"
+    );
+    assert!(
+        real.contains("yidam vault push --index --commit"),
+        "a real run must author the `index:` commit through `vault push --commit`"
+    );
+}
+
+/// #1215: the `index:` commit is authored by the command that knows what it stored, not typed
+/// here. A hand-typed subject is one the operational-verb check never sees.
+#[test]
+fn no_commit_subject_is_typed_by_hand() {
+    assert!(
+        !workflow().contains("git commit"),
+        "the workflow types a commit again. `yidam vault push --index --commit` authors it"
     );
 }
 

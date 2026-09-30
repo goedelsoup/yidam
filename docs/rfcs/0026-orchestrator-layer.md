@@ -64,6 +64,11 @@
   `run`'s refusal of connectors standing; a seat that binds a key is told to sign the position
   onto its branch, because the dispatch commit is unsigned; and the report derives
   `independence:` but never counts positions.
+- **Amended 2026-09-30 (#1215):** §10 is new. The last three verbs of the measurement table
+  author their own commits, opt in with `--commit`, through the writer the catalog uses. `regen:`
+  commits the files whose blocks changed. `index:` and `bundle:` commit the entry that
+  `vault push` writes to `.yidam/index.lock`. `index-build` and `bundle` author nothing, because
+  what they write is not tracked.
 - **Downstream reference case:** none yet. The first consumer is `examples/streamflow`, by
   construction — see "Why the first thing built is not the manifest".
 
@@ -942,6 +947,37 @@ never reports how many positions it produced.
 **What is not built.** There is no cluster arm. A pod would run this same definition, and its
 image digest would be one more receipt field. Nothing transports a position between seats, and
 nothing signs.
+
+### 10 — `index:`, `bundle:` and `regen:` are authored by the command that wrote the tracked file
+
+*Amended 2026-09-30 (#1215).* The measurement table left three verbs at *artifact only*: a
+command wrote the bytes and a person typed the subject. Each now authors its own commit when
+given `--commit`. The commit goes through the operational writer in `cmd/operational.rs`, which
+the catalog commands use too. It refuses an epistemic subject before it writes anything. It
+commits only the paths it names, from the working tree, and leaves other staged work where it
+was. It refuses a named path that already carries uncommitted edits. A re-run that changes
+nothing commits nothing.
+
+What gets committed is the tracked file the command changed, and nothing else:
+
+| Verb | Authored by | What the commit holds |
+|---|---|---|
+| `regen:` | `yidam regen --commit` | the files whose REGEN blocks the run rewrote |
+| `index:` | `yidam vault push --index --commit` (or `--embeddings`) | the artifact's entry in `.yidam/index.lock`: sha256, bytes, vault, and the embedding model |
+| `bundle:` | `yidam vault push --bundle --commit` | the bundle's entry in `.yidam/index.lock` |
+
+**`index-build` and `bundle` write no commit.** `.yidam/index/` and `.yidam/bundle.yiz` are
+gitignored in a derived repository. Their bytes stamp the HEAD they were built at and the time,
+so no two builds agree and a tracked copy would never settle. RFC-0023 already gives the
+answer: a vault stores the bytes, and git stores the record of them. The record is the lock
+entry, and `vault push` is the command that writes it. A verb whose output is not tracked writes
+no commit. It does not start tracking a file in order to have one.
+
+Each command commits under its own author, `yidam regen` or `yidam vault`, as `propose`,
+`run`, `phase` and `catalog` already do. `phase settle` still refreshes blocks without
+committing them, because settling prepares a merge and does not make one. The index workflow in
+`sadhana/github/workflows/` runs `vault push --index --commit` and pushes what it authored. It
+used to type the subject itself.
 
 ## What this does not do
 

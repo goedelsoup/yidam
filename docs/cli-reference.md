@@ -338,7 +338,7 @@ That is their purpose, and it is why every one carries a `*`.
 
 | Command | Block content |
 |---|---|
-| `regen` * | Refresh every REGEN block in one pass. `--check` reports staleness and writes nothing |
+| `regen` * | Refresh every REGEN block in one pass. `--check` reports staleness and writes nothing; `--commit` authors the `regen:` commit for exactly the files that changed |
 | `status` * | Repository overview: nodes, open questions, catalog, index freshness, genesis |
 | `open-questions` * | Unresolved questions, newest first |
 | `corpus-index` * | Every corpus node by class, with label and link count |
@@ -1016,7 +1016,7 @@ knowledge claim, only the time to re-fetch.
 | `vault get <sha256>` * | From the cache, else from the vault. `--out` also writes a named copy |
 | `vault path <sha256>` | Where the artifact sits locally, or exit nonzero — so `… \|\| fetch` works |
 | `vault verify` | Re-hash every cached artifact; exits nonzero if any is not what it claims |
-| `vault push` * | Upload what the corpus names and the vaults lack. `--dry-run` prints the exact string that would be signed; `--artifact` and `--vault` narrow; `--index`/`--embeddings`/`--bundle` send what this repository *computed* instead |
+| `vault push` * | Upload what the corpus names and the vaults lack. `--dry-run` prints the exact string that would be signed; `--artifact` and `--vault` narrow; `--index`/`--embeddings`/`--bundle` send what this repository *computed* instead, and `--commit` authors the `index:` or `bundle:` commit for the lock entry it wrote |
 | `vault pull` * | Fetch what the corpus names and the cache lacks; `--vault` narrows; `--index`/`--embeddings`/`--bundle` fetch and unpack what `.yidam/index.lock` records |
 | `vault status` | Where each named artifact goes and where it is, grouped by store. `--remote` asks each vault — one HEAD per record, never a bucket listing |
 | `vault gc` | Report cached artifacts no committed file names; `--yes` deletes them |
@@ -1253,9 +1253,8 @@ an ONNX runtime. Nothing keeps it in git. So the index exists on whichever machi
 and nowhere else. The same vault carries it:
 
 ```sh
-yidam vault push --index      # on a machine that has one; writes .yidam/index.lock
-git add .yidam/index.lock && git commit
-yidam vault pull --index      # anywhere else; unpacks into .yidam/index/
+yidam vault push --index --commit   # on a machine that has one; commits .yidam/index.lock
+yidam vault pull --index            # anywhere else; unpacks into .yidam/index/
 ```
 
 `--embeddings` and `--bundle` do the same for `.yidam/embeddings/` and `.yidam/bundle.yiz`.
