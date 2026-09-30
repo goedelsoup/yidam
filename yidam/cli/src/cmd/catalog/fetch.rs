@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use super::commit::{self, Commit};
+use super::commit::{Commit, Writer};
 use super::location::{self, Plan};
 use super::record;
 use super::superseded;
@@ -57,7 +57,7 @@ pub struct FetchOptions {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-struct Obtained {
+pub(crate) struct Obtained {
     location: usize,
     declared: String,
     /// The URL or path actually followed, after binding. Equal to `declared` for a `url`.
@@ -72,19 +72,19 @@ struct Obtained {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-struct Skipped {
+pub(crate) struct Skipped {
     location: usize,
     declared: String,
     why: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-struct EntryOutcome {
-    entry: String,
+pub(crate) struct EntryOutcome {
+    pub(crate) entry: String,
     obtained: Vec<Obtained>,
     skipped: Vec<Skipped>,
     /// Absent when nothing changed, which is the ordinary result of a re-run.
-    commit: Option<Commit>,
+    pub(crate) commit: Option<Commit>,
     /// Nodes citing this entry that were read against an earlier version of it, when this run
     /// recorded a new one (#1200). Repo-relative and sorted; empty on every other run.
     ///
@@ -396,6 +396,20 @@ fn message(
 
 pub fn fetch(opts: &FetchOptions) -> Result<()> {
     let root = repo_root()?;
+    let out = fetch_in(&root, opts, &mut Writer::WorkingTree)?;
+    crate::report::finish(&root, opts.format, FetchReport { fetched: out }, |r| {
+        print!("{}", render(&r.fetched, opts.dry_run))
+    })
+}
+
+/// [`fetch`] against `root`, committing through `writer` — the working tree on a laptop, a
+/// detached index in a pod (RFC-0026, the 2026-09-30 amendment).
+pub(crate) fn fetch_in(
+    root: &Path,
+    opts: &FetchOptions,
+    writer: &mut Writer,
+) -> Result<Vec<EntryOutcome>> {
+    let root = root.to_path_buf();
     let catalog = yidam_catalog_dir(&root);
     let entries = select(&catalog, opts.entry.as_deref())?;
     let vaults = crate::vault::resolve(&crate::config::load_yidam_config(&root)?.vault)?;
@@ -441,7 +455,7 @@ pub fn fetch(opts: &FetchOptions) -> Result<()> {
         // Checked before a byte moves, so the refusal names a person's uncommitted work
         // rather than the edit this command is about to make.
         if !opts.dry_run {
-            commit::require_clean(&root, &[rel.clone()])?;
+            writer.require_clean(&root, &[rel.clone()])?;
         }
 
         let mut obtained = Vec::new();
@@ -488,11 +502,9 @@ pub fn fetch(opts: &FetchOptions) -> Result<()> {
                         .unwrap_or_default();
                     owed.sort();
                 }
-                std::fs::write(path, &updated)
-                    .with_context(|| format!("writing {}", path.display()))?;
                 let (subject, mut body) = message(&name, &obtained, &held, &records);
                 body.push_str(&owed_lines(&owed));
-                written = commit::author(&root, &subject, &body, &[rel.clone()])?;
+                written = writer.commit(&root, &subject, &body, &[(rel.clone(), updated)])?;
             }
         }
 
@@ -504,10 +516,7 @@ pub fn fetch(opts: &FetchOptions) -> Result<()> {
             superseded: owed,
         });
     }
-
-    crate::report::finish(&root, opts.format, FetchReport { fetched: out }, |r| {
-        print!("{}", render(&r.fetched, opts.dry_run))
-    })
+    Ok(out)
 }
 
 /// The paragraph a `refresh:` commit carries when it records a new version of a cited source.
