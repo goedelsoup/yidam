@@ -3,6 +3,16 @@
 pub struct Frontmatter {
     pub name: Option<String>,
     pub description: Option<String>,
+    /// Skills only. `built` for a procedure an agent can follow, `stub` for a placeholder that
+    /// names one (#1063). Read by `skills-index`, which reports an absent value as `unstated`
+    /// rather than as either answer.
+    ///
+    /// **A YAML value and not a `String`.** This struct is every frontmatter's, and a catalog
+    /// entry in a derived repository may already carry a `status:` of its own. Typed as a
+    /// string, `status: true` there would fail the whole header and take the entry's `obtained`
+    /// and `ttl_days` with it — the #1056 failure, reached by adding a field.
+    #[serde(default)]
+    pub status: Option<serde_yaml::Value>,
     /// Catalog entries only. What kind of source this is — paper, dataset, api, database.
     #[serde(default)]
     pub r#type: Option<String>,
