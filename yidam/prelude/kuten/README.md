@@ -38,7 +38,7 @@ directory. A profile that trips a guard does not ship.
 |---|---|---|
 | Add a commit verb | The closed vocabulary in [GRAPH.md](../GRAPH.md) is what makes `log --epistemic` decidable, and `classify_commit` is a parity function pinned by fixtures in three SDKs | Declare a **subset** and gloss it |
 | Add or alter a claim standing | Article V reads the standings as a total order when it licenses lowering a claim at resolution | Nothing. This is constitutional |
-| Contradict Articles I–VI | Article I — the prelude is not subject to resolution, and a kuten is vendored prelude | A domain extension appended at genesis |
+| Contradict Articles I–VI | Article I — the prelude is not subject to resolution, and a kuten is vendored prelude | A domain article sealed at genesis, which can add a refusal and not remove one |
 | Change the graph encoding | Files are nodes, links are edges, commits are events. This is the premise, not a policy | Nothing |
 | Loosen a gate quietly | A local rule may be more permissive and may not be silent | Declare it under `policy:`, where `policy check`, `lint` and `doctor` all surface it |
 

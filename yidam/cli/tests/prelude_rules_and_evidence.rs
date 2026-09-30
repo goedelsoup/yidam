@@ -369,7 +369,13 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// **Raised on the same path when `GRAPH.md` gained sink classes (#1072).** The delta is **50
 /// words in `GRAPH.md`**, the same 50 both recurring routes moved by. 20,073 + 50 is this figure
 /// exactly, so nothing else on the path moved.
-const BOOTSTRAP_CEILING: usize = 20_123;
+///
+/// **Raised to 20,221 when a domain article moved to `.yidam/constitution/` (#593, RFC-0047).**
+/// The delta is **98 words**: 70 in `directories.md` for the new section, which a bootstrap reads
+/// because step 1 is where the article is written; 16 in `CONSTITUTION.md`'s Domain extensions;
+/// and 12 in `bootstrap.md`'s augmentation bullet. 20,123 + 98 is this figure exactly. The
+/// argument for sealing by the genesis commit is in `directories.evidence.md`.
+const BOOTSTRAP_CEILING: usize = 20_221;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -505,11 +511,17 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// left this number where it was. 10,112 + 218 is this figure exactly, and the slack is closed
 /// here, for the reason the `bootstrap.md` note gives.
 ///
+/// **`directories.md` re-measured to 12,820 and `bootstrap.md` to 11,161 for #593.** The
+/// directories pair gained 145 words — 70 in the rules half, the `.yidam/constitution/`
+/// section, and 75 in the evidence half, why the genesis commit is the seal — and the floor
+/// moves by 202, because 57 had been standing as slack. Closed rather than carried forward, for
+/// the reason the `bootstrap.md` note gives. `bootstrap.md` gained 12 in its rules half and none
+/// in its evidence half, and 11,149 carried no slack.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_686),
     ("yidam/prelude/GRAPH.md", 10_330),
-    ("yidam/prelude/guidelines/directories.md", 12_618),
-    ("yidam/prelude/skills/bootstrap.md", 11_149),
+    ("yidam/prelude/guidelines/directories.md", 12_820),
+    ("yidam/prelude/skills/bootstrap.md", 11_161),
 ];
 
 /// The `##` sections of the seven step-1 files that no read reaches, as `file#slug` under

@@ -569,6 +569,19 @@ which is read-only and re-vendored like the rest of the prelude. Read it there; 
 
 ---
 
+## `.yidam/constitution/` (optional)
+
+Domain articles, written once at genesis from a `constitutional: true` samudaya augmentation.
+
+**What belongs here:** each article as `<stem>.md`, with an optional rule `<stem>.rego` (a
+`deny` set) and its cases in `<stem>_test.rego`.
+
+**Do not edit it.** `yidam lint` reads each rule from the genesis commit. An edit or a new file
+here is reported as `domain-article-edited` and not obeyed. A new norm belongs in
+`.yidam/policy/`. [why](directories.evidence.md#constitution-sealed-at-genesis)
+
+---
+
 ## `.yidam/bin/`
 
 The `yidam` binary this repository runs, installed by `mise run yidam-build` from the commit

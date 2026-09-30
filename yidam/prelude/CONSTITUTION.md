@@ -98,9 +98,10 @@ is normal and expected; it is not a violation.
 
 ## Domain extensions
 
-Bootstrap-time augmentations from `samudaya/` may append domain-specific articles here.
-Extensions are committed into the derived repo during the genesis event and become part of
-that repo's constitution permanently. They must be consistent with Articles I–VI.
+Bootstrap-time augmentations from `samudaya/` may add domain-specific articles. The genesis
+commit writes them to `.yidam/constitution/`, and they bind that repo permanently. `yidam lint`
+checks each article's rule as the genesis commit holds it. A rule can only refuse, so an article
+can add to Articles I–VI and not remove from them.
 
 Examples of valid extensions: quorum requirements for a specific domain's resolutions,
 constraints on which node types may be resolved collectively vs. individually, additional

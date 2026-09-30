@@ -454,3 +454,11 @@ policy engine does not transfer: a build that cannot evaluate policy cannot refu
 build that cannot run a typed calculator refuses that step by name and commits nothing. So the
 manifest still parses in every build — a corpus declaring the arm is not a malformed corpus — and
 the refusal names the feature rather than reading as a broken manifest.
+
+## constitution-sealed-at-genesis
+
+The constitution calls a domain article permanent. A file the corpus can edit is not permanent,
+and a hash pinned beside it can be edited in the same commit. The genesis commit cannot be
+changed without rewriting every commit after it, so `yidam lint` reads rules from there and
+compares this directory to it by blob id (RFC-0047). An article appended to the vendored
+`CONSTITUTION.md` did not survive either: every re-vendor deletes `.yidam/.vendor/prelude/`.

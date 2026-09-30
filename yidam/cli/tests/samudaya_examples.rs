@@ -213,18 +213,19 @@ fn the_audit_would_accept_a_copied_seed_set() {
     std::fs::create_dir_all(&samudaya).unwrap();
     std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
 
+    // The whole set, not only its seeds: a constitutional augmentation's rule and cases sit
+    // beside it as `.rego`, and the audit warns when they are missing (#593).
     let mut copied = 0;
-    for rel in domain_seeds() {
-        if !rel.starts_with(&format!("samudaya/examples/{domain}/")) {
-            continue;
-        }
+    for rel in tracked_under(&repo_root(), &format!("samudaya/examples/{domain}/")) {
         let name = PathBuf::from(&rel);
         std::fs::copy(
             repo_root().join(&rel),
             samudaya.join(name.file_name().unwrap()),
         )
         .unwrap();
-        copied += 1;
+        if domain_seeds().contains(&rel) {
+            copied += 1;
+        }
     }
     assert!(copied >= 2, "copied {copied} seeds for {domain}");
 

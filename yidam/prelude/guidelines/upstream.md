@@ -96,8 +96,9 @@ All three already exist, and none of them is new here:
 - **`.yidam/policy/`** overrides a rule's severity, and is authoritative where it speaks. A local
   rule may be more permissive and may not be silent; the override is visible to `policy check`,
   `lint` and `doctor`. [directories.md](directories.md) has the layout.
-- **A domain extension to the constitution**, appended at genesis by a samudaya augmentation.
-  Permanent in the repository that took it, and consistent with Articles I–VI by construction.
+- **A domain article**, sealed into `.yidam/constitution/` at genesis by a samudaya augmentation.
+  Permanent in the repository that took it. Its rule can only refuse, so it adds to Articles I–VI
+  and cannot remove from them.
 
 **Measured, so you know what you are reaching for.** Across the same fifteen repositories on
 2026-09-22, two had adopted a kuten, none had a `.yidam/policy/` at all, and none carried a domain
