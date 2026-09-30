@@ -1,0 +1,273 @@
+# The cluster image — the one every pod of a generated Argo workflow runs (#1227).
+#
+# `docs/cluster/Dockerfile` existed for weeks with no workflow building it, and
+# `docs/cluster-runs.md` told every operator to `docker build` their own. That undercut the
+# receipt field #475 added: `--image <ref>@sha256:…` puts `image_digest` on every step receipt
+# so a reader can say which image ran, and a digest of a private build names something nobody
+# reading the corpus can pull, rebuild or compare with another corpus's.
+#
+# ── two entrances, one set of steps ──────────────────────────────────────────
+#
+# A pull request that can break the image builds it, for both platforms, and pushes nothing.
+# `release.yml` calls this workflow on a `cli/v*` tag with `tag` set, and then the same steps
+# push. Building on the PR is not a courtesy: #871 is two `vsce` refusals that stayed green for
+# weeks because `ci (vscode)` never ran the step the tag ran, and arrived during a release. A
+# Dockerfile break should go red here, not at the tag.
+#
+# The paths are what the image is built from. The build stage compiles `yidam/cli` and its two
+# path dependencies, and nothing else in the context reaches the binary.
+#
+# ── native runners, not QEMU ─────────────────────────────────────────────────
+#
+# Each platform builds on a runner of its own architecture and the two are joined into one
+# index afterwards. Emulating arm64 under QEMU compiles the whole CLI through an interpreter,
+# which turns a job measured in minutes into one measured in hours.
+#
+# ── no layer cache ───────────────────────────────────────────────────────────
+#
+# The build stage starts with `COPY . .`, so any change to the context invalidates every layer
+# after it, and each of those changes is exactly what triggers this workflow. A cache would hold
+# the apt layer and nothing that costs anything, against the 10GB budget #1017 is about.
+
+name: Cluster image
+
+on:
+  pull_request:
+    paths:
+      - 'docs/cluster/Dockerfile'
+      - 'docs/cluster/Dockerfile.dockerignore'
+      - 'yidam/cli/**'
+      - 'yidam/prelude/sdks/rust/**'
+      - 'yidam/tests/harness/ci-report/**'
+      - '.github/workflows/cluster-image.yml'
+  # Main as well, because a PR's green describes its merge ref at the time it ran, and main is
+  # where two such PRs meet.
+  push:
+    branches: [main]
+    paths:
+      - 'docs/cluster/Dockerfile'
+      - 'docs/cluster/Dockerfile.dockerignore'
+      - 'yidam/cli/**'
+      - 'yidam/prelude/sdks/rust/**'
+      - 'yidam/tests/harness/ci-report/**'
+      - '.github/workflows/cluster-image.yml'
+  # The publishing entrance. `tag` is the CLI tag being released; the image version is the part
+  # after `cli/v`, so the image and the binary inside it cannot carry two versions.
+  workflow_call:
+    inputs:
+      tag:
+        description: 'The cli/v* tag to publish the image for'
+        required: true
+        type: string
+  # Buildable without a pull request, to check both platforms still build. Pushes nothing.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.tag || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The owner from the run rather than a literal, so a fork publishes to its own namespace.
+  # `repository_owner` is lowercase for this repository, and a registry path must be.
+  IMAGE: ghcr.io/${{ github.repository_owner }}/yidam-cluster
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      # fail-fast: false for the reason release.yml gives: one broken platform should still
+      # report the other, rather than arriving as "something failed".
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        if: inputs.tag != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # Pushed by digest and untagged: the version tag is written once, on the index the next
+      # job assembles, so no tag ever names a single-platform image.
+      #
+      # `sbom: true` has BuildKit attach an SPDX SBOM to each platform's image. It is published
+      # only with the image, since an SBOM of an image nobody can pull describes nothing.
+      - name: Build
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docs/cluster/Dockerfile
+          platforms: ${{ matrix.platform }}
+          sbom: ${{ inputs.tag != '' }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.description=The yidam binary, git and an SSH client, for pods of a generated Argo workflow.
+            org.opencontainers.image.licenses=MIT
+          outputs: ${{ inputs.tag != '' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) || 'type=cacheonly' }}
+
+      - name: Record the digest
+        if: inputs.tag != ''
+        run: |
+          set -eu
+          mkdir -p digests
+          digest='${{ steps.build.outputs.digest }}'
+          case "$digest" in
+            sha256:*) ;;
+            *) echo "::error::the build reported no digest ('$digest')"; exit 1 ;;
+          esac
+          touch "digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v7
+        if: inputs.tag != ''
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digests/*
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: build
+    if: inputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write      # the OIDC token the attestation is signed with
+      attestations: write  # writing the attestation to this repository
+    steps:
+      - uses: actions/checkout@v7
+
+      # release.yml checks the tag against yidam/cli/Cargo.toml before it calls this, and that
+      # check is repeated here because this workflow is the one that writes the version onto
+      # the image. A second entrance that skipped it would publish a mislabelled image.
+      - name: The tag and Cargo.toml must name the same version
+        id: version
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          case "$TAG" in
+            cli/v*) version="${TAG#cli/v}" ;;
+            *) echo "::error::$TAG is not a cli/v* tag"; exit 1 ;;
+          esac
+          manifest=$(sed -n 's/^version = "\(.*\)"/\1/p' yidam/cli/Cargo.toml | head -1)
+          if [ "$version" != "$manifest" ]; then
+            echo "::error::tag $TAG does not match yidam/cli/Cargo.toml version $manifest"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # One index over both platform images, tagged with the version. Each platform's SBOM
+      # travels with its image into the index.
+      - name: Assemble the multi-platform index
+        id: index
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -eu
+          count=0
+          refs=""
+          for d in digests/*; do
+            count=$((count + 1))
+            refs="$refs $IMAGE@sha256:$(basename "$d")"
+          done
+          if [ "$count" -ne 2 ]; then
+            echo "::error::expected a digest from each of 2 platforms, found $count"
+            exit 1
+          fi
+          # shellcheck disable=SC2086 # one argument per platform image
+          docker buildx imagetools create -t "$IMAGE:$VERSION" $refs
+          digest=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)
+          case "$digest" in
+            sha256:*) ;;
+            *) echo "::error::could not read the index digest of $IMAGE:$VERSION"; exit 1 ;;
+          esac
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      # What was asked for, read back from the registry rather than from the build's word for
+      # it: both platforms in the index, and an SBOM on each.
+      - name: The index holds both platforms, each with an SBOM
+        env:
+          REF: ${{ env.IMAGE }}@${{ steps.index.outputs.digest }}
+        run: |
+          set -eu
+          platforms=$(docker buildx imagetools inspect "$REF" --format '{{json .Manifest}}' \
+            | jq -r '[.manifests[] | select(.platform.os != "unknown") | "\(.platform.os)/\(.platform.architecture)"] | sort | join(" ")')
+          echo "platforms: $platforms"
+          [ "$platforms" = "linux/amd64 linux/arm64" ] \
+            || { echo "::error::$REF holds '$platforms', not linux/amd64 and linux/arm64"; exit 1; }
+          for p in linux/amd64 linux/arm64; do
+            packages=$(docker buildx imagetools inspect "$REF" --format "{{ json (index .SBOM \"$p\") }}" \
+              | jq '.SPDX.packages | length')
+            echo "$p SBOM: $packages package(s)"
+            [ "$packages" -gt 0 ] || { echo "::error::$p carries no SBOM"; exit 1; }
+          done
+
+      # The build-provenance attestation, signed with this run's OIDC identity and pushed to the
+      # registry beside the image. Its subject is the index digest, which is what an operator
+      # passes to `--image` and what a step receipt records.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.index.outputs.digest }}
+          push-to-registry: true
+
+      # The check an operator runs, run here first. An attestation that `gh` cannot verify is
+      # the mise line release.yml describes: a verification that reads as passing over nothing.
+      - name: Verify the attestation as an operator would
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ env.IMAGE }}@${{ steps.index.outputs.digest }}
+        run: gh attestation verify "oci://$REF" --repo "${{ github.repository }}"
+
+      - name: Summary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DIGEST: ${{ steps.index.outputs.digest }}
+        run: |
+          {
+            echo "### $IMAGE:$VERSION"
+            echo
+            echo 'Pin it by digest, so each step receipt records which image ran:'
+            echo
+            echo '```'
+            echo "yidam cluster workflow --image $IMAGE@$DIGEST"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
