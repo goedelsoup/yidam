@@ -94,6 +94,25 @@ struct CommitChanges {
 }
 
 /// `git log --raw` over the corpus, oldest first.
+///
+/// # Why a renamed node is a new node here
+///
+/// `--no-renames` makes every move a deletion and an addition. A `git mv` and a delete plus
+/// add are the same commit to git, so the replay treats them the same way (#1171). The node at
+/// the new path starts from the commit that put it there, and its ages restart with it.
+///
+/// That is path identity, and it is the corpus's own. A node's id is its path, a `links:`
+/// target names a path, and [`crate::cmd::query::at`] rebuilds a past tree by path. Before the
+/// rename, no edge could name the new path. So "uncited since before it existed" is not a
+/// state the graph could have been in. A past revision of a node also carries no other
+/// identity. Pairing the two halves would need `-M`'s similarity index, and that gives up
+/// once the text changes by half. The pairing would then hold for a light edit and break for
+/// a heavy one, which is the blindness #1171 set out to remove.
+///
+/// The cost is stated and not hidden. An orphan or an open question that is renamed restarts
+/// its count of commits, and `orphan-in`'s escalation and `due`'s ordering read that count.
+/// [`super::scope::adding_commits`] does carry identity across a move, because a resolution
+/// record has an identity apart from its path: its evolution.
 fn change_stream(root: &Path) -> Vec<CommitChanges> {
     // `core.quotepath=false` comes from the runner, and it matters here: `--raw` quotes a
     // non-ASCII path exactly as `--name-status` does, and the parser below tests a prefix.
@@ -701,6 +720,53 @@ mod tests {
         assert_eq!(
             since.get(".yidam/corpus/concept/b.yml").map(|a| day(a.ts)),
             Some("2026-01-09".to_string())
+        );
+    }
+
+    /// **A move is a new node, however it is made** (#1171). `a` is moved with `git mv` and
+    /// `b` by a delete plus add. Both give the same answer: each is dated from the commit that
+    /// moved it, and nothing is left at the old paths. See [`change_stream`] for why path is
+    /// the identity here. A shape that answered differently would be the drift-gate defect
+    /// #1171 was split from.
+    #[test]
+    fn a_node_moved_by_git_mv_and_one_moved_by_delete_plus_add_answer_alike() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init(root);
+
+        node(root, "concept/a.yml", "class: concept\nlinks: []\n");
+        node(root, "concept/b.yml", "class: concept\nlinks: []\n");
+        commit(root, "2026-01-01", "establish: a and b");
+
+        crate::git::fixture::git(
+            root,
+            &[
+                "mv",
+                ".yidam/corpus/concept/a.yml",
+                ".yidam/corpus/concept/a-moved.yml",
+            ],
+        );
+        std::fs::remove_file(root.join(".yidam/corpus/concept/b.yml")).unwrap();
+        node(root, "concept/b-moved.yml", "class: concept\nlinks: []\n");
+        commit(root, "2026-01-09", "revise: move a and b");
+
+        let since = uncited_age(root);
+        for moved in ["a-moved", "b-moved"] {
+            let age = since.get(&format!(".yidam/corpus/concept/{moved}.yml"));
+            assert_eq!(
+                age.map(|a| day(a.ts)),
+                Some("2026-01-09".into()),
+                "{since:?}"
+            );
+            assert_eq!(age.map(|a| a.commits), Some(1), "{since:?}");
+        }
+        assert!(
+            !since.contains_key(".yidam/corpus/concept/a.yml"),
+            "{since:?}"
+        );
+        assert!(
+            !since.contains_key(".yidam/corpus/concept/b.yml"),
+            "{since:?}"
         );
     }
 
