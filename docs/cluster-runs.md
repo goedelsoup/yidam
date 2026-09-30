@@ -47,7 +47,7 @@ Run it in a checkout. The output is a complete Argo `Workflow`.
 
 ```sh
 yidam cluster workflow --remote git@github.com:you/corpus.git \
-  --image ghcr.io/you/yidam-cluster:latest \
+  --image ghcr.io/goedelsoup/yidam-cluster@sha256:<hex> \
   --vault-url file:///var/yidam/vault > yidam.workflow.yml
 ```
 
@@ -83,23 +83,44 @@ The exit code is zero either way. A corpus with nothing owed is its ordinary sta
 
 ## The image
 
-Build it from [cluster/Dockerfile](cluster/Dockerfile). The image is the `yidam` binary, git
-and an SSH client on a slim Debian base. Nothing else runs in a pod.
+Each `cli/v*` release publishes `ghcr.io/goedelsoup/yidam-cluster:<version>` for `linux/amd64`
+and `linux/arm64`. The image is the `yidam` binary of that release, git and an SSH client on a
+slim Debian base. Nothing else runs in a pod.
+
+Pass `--image` by digest to record which image ran. Each step receipt then carries
+`image_digest`. A tag can move, so a tag records nothing. Read the digest from the registry:
+
+```sh
+docker buildx imagetools inspect ghcr.io/goedelsoup/yidam-cluster:<version> \
+  --format '{{json .Manifest}}' | jq -r .digest
+yidam cluster workflow --image ghcr.io/goedelsoup/yidam-cluster@sha256:<hex> > yidam.workflow.yml
+```
+
+`--image` has no default, so the generator refuses without it or `[cluster] image`.
+
+Every published image carries an SBOM for each platform and a signed build-provenance
+attestation. Check where an image came from before a cluster runs it:
+
+```sh
+gh attestation verify oci://ghcr.io/goedelsoup/yidam-cluster@sha256:<hex> --repo goedelsoup/yidam
+```
 
 A pod holds no git identity. The commits it builds carry `yidam run` as author and
 `yidam cluster <cluster@yidam>` as committer. Set `GIT_COMMITTER_NAME` and
 `GIT_COMMITTER_EMAIL` on the containers to name your own.
 
+### Building your own
+
+Build from [cluster/Dockerfile](cluster/Dockerfile) to run a commit that is not released, or to
+change the features the binary carries. Build from the repository root, because the CLI crate
+has two path dependencies beside it.
+
 ```sh
-docker build -f docs/cluster/Dockerfile -t ghcr.io/you/yidam-cluster:latest .
+docker build -f docs/cluster/Dockerfile -t ghcr.io/you/yidam-cluster:<version> .
 ```
 
-Pass `--image` by digest to record which image ran. Each step receipt then carries
-`image_digest`. A tag can move, so a tag records nothing.
-
-```sh
-yidam cluster workflow --image ghcr.io/you/yidam-cluster@sha256:<hex> > yidam.workflow.yml
-```
+A digest of your own build names an image only you can pull. A receipt that records it tells
+a reader which image ran, but not how to get it.
 
 ## Secrets and the service account
 

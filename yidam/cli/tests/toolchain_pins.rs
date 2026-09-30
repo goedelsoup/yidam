@@ -212,6 +212,85 @@ fn every_workflow_toolchain_is_the_pin_or_carries_its_reason() {
     );
 }
 
+/// The Rust version in a `FROM rust:<tag>` line: the tag up to its first `-`.
+///
+/// `rust:1.88.0-bookworm` gives `1.88.0` and `rust:1.88-bookworm` gives `1.88`, which is not
+/// the pin, because that tag floats to whichever patch the registry holds today.
+fn rust_base_version(line: &str) -> Option<String> {
+    let mut words = line.split_whitespace();
+    if !words.next()?.eq_ignore_ascii_case("FROM") {
+        return None;
+    }
+    // `--platform=…` and other flags come before the image.
+    let image = words.find(|w| !w.starts_with("--"))?;
+    let tag = image
+        .strip_prefix("rust:")
+        .or_else(|| image.strip_prefix("docker.io/library/rust:"))?;
+    Some(tag.split('-').next().unwrap_or(tag).to_string())
+}
+
+/// Every Dockerfile's Rust base is the pinned toolchain.
+///
+/// #1227. `docs/cluster/Dockerfile` built from `rust:1.88-bookworm`, which agreed with the pin
+/// by coincidence and floated to each new 1.88 patch. Nothing compared the two until the
+/// image was published, and a published image built by a compiler no gate ran is the thing
+/// `release.yml`'s pinned toolchain exists to prevent.
+///
+/// Every Dockerfile, discovered, for the reason at the top of this file.
+#[test]
+fn every_dockerfile_rust_base_is_the_pinned_toolchain() {
+    // The parser first, so a reader that matches nothing cannot pass by reading nothing.
+    assert_eq!(
+        rust_base_version("FROM rust:1.88.0-bookworm AS build").as_deref(),
+        Some("1.88.0")
+    );
+    assert_eq!(
+        rust_base_version("FROM --platform=$BUILDPLATFORM rust:1.88-slim").as_deref(),
+        Some("1.88")
+    );
+    assert_eq!(
+        rust_base_version("from rust:1.90.0").as_deref(),
+        Some("1.90.0")
+    );
+    assert_eq!(rust_base_version("FROM debian:bookworm-slim"), None);
+    assert_eq!(rust_base_version("# FROM rust:1.0.0"), None);
+
+    let pin = mise_pin();
+    let files = files_named("", |p| {
+        p.file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n == "Dockerfile" || n.ends_with(".Dockerfile"))
+    });
+    let mut found = 0;
+    let mut wrong = Vec::new();
+    for f in &files {
+        for (i, line) in read(f).lines().enumerate() {
+            let Some(version) = rust_base_version(line) else {
+                continue;
+            };
+            found += 1;
+            if version != pin {
+                wrong.push(format!(
+                    "  {}:{}: builds from rust `{version}`, and mise.toml pins `{pin}`",
+                    rel(f),
+                    i + 1
+                ));
+            }
+        }
+    }
+    assert!(
+        found >= 1,
+        "no Dockerfile builds from a `rust:` base. docs/cluster/Dockerfile does, so this test \
+         is reading the wrong tree or the parser stopped matching"
+    );
+    assert!(
+        wrong.is_empty(),
+        "these images build with a toolchain other than the one pin, and the cluster image is \
+         published:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// The pin is a real toolchain version, not a channel.
 ///
 /// `rust = { version = "stable" }` would satisfy every comparison above by making them all

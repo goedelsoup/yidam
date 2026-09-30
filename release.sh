@@ -87,8 +87,8 @@ case "$LAYER" in
   cli)
     # tap.yml as well as release.yml: release.yml *calls* it by path, and a local
     # `uses:` resolves at the caller's ref — so a tag carrying release.yml without
-    # tap.yml fires a release whose tap job cannot start.
-    TAG="cli/v$VERSION";           MANIFEST="yidam/cli/Cargo.toml";                     WORKFLOWS=".github/workflows/release.yml .github/workflows/tap.yml .github/workflows/publish-crates.yml" ;;
+    # tap.yml fires a release whose tap job cannot start. cluster-image.yml the same way.
+    TAG="cli/v$VERSION";           MANIFEST="yidam/cli/Cargo.toml";                     WORKFLOWS=".github/workflows/release.yml .github/workflows/tap.yml .github/workflows/cluster-image.yml .github/workflows/publish-crates.yml" ;;
   bootstrap)
     TAG="bootstrap/v$VERSION";     MANIFEST="yidam/tests/harness/yidam-harness/src/lib.rs"; WORKFLOWS="" ;;
   editor)
