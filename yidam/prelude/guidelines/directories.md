@@ -444,7 +444,7 @@ rationale: |
 
 **Lifecycle:** Written during bootstrap for genesis-level choices; written by agents or the
 sangha for subsequent choices. Decision files are permanent records — they are not updated when
-a decision is superseded, but a new decision may reference a prior one by `id`.
+a decision is superseded; the new one names the prior one by `id` in `supersedes:`.
 
 ---
 
