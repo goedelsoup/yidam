@@ -36,12 +36,30 @@ fn ignores() -> Vec<toml::Value> {
         .unwrap_or_default()
 }
 
-/// Every ignored advisory has a reason and a date it stops being ignored.
+/// Where an ignore states its expiry: the words `expires YYYY-MM-DD` inside its `reason`.
+///
+/// Not an `expiry` key, although this file asked for one until the first ignore was written
+/// (#1172). cargo-deny 0.20 takes an ignore as a bare string or as a table of exactly `id`
+/// and `reason`, and refuses any other key — so the key this test required was one the gate
+/// it guards would not load. It was never caught because the list was empty.
+const EXPIRES: &str = "expires ";
+
+/// The date an ignore's `reason` says it expires, as days since the epoch.
+fn expiry_of(reason: &str) -> Option<i64> {
+    let (_, rest) = reason.split_once(EXPIRES)?;
+    yidam::dates::days_from_civil_str(rest.get(..10)?)
+}
+
+/// Every ignored advisory has a reason, and a date that has not yet passed.
 ///
 /// cargo-deny takes an ignore as a bare string (`"RUSTSEC-2026-0195"`) or as a table with
-/// `id`, `reason` and `expiry`. Only the second form is allowed here: the bare string is the
-/// one that gets added in a hurry, and it is indistinguishable a year later from a decision
-/// somebody thought about.
+/// `id` and `reason`. Only the second form is allowed here: the bare string is the one that
+/// gets added in a hurry, and it is indistinguishable a year later from a decision somebody
+/// thought about.
+///
+/// The date is compared with today, so an ignore that outlives its expiry fails this test.
+/// That is the point of it: until #1172 the expiry was only required to be present, and a
+/// date nothing compares with fails no build.
 #[test]
 fn every_ignored_advisory_carries_a_reason_and_an_expiry() {
     let mut bare = Vec::new();
@@ -57,7 +75,6 @@ fn every_ignored_advisory_carries_a_reason_and_an_expiry() {
                     .unwrap_or("<no id>")
                     .to_string();
                 let reason = t.get("reason").and_then(|v| v.as_str()).unwrap_or("");
-                let expiry = t.get("expiry").and_then(|v| v.as_str()).unwrap_or("");
                 if reason.trim().len() < 20 {
                     bare.push(format!(
                         "  {id} — `reason` is {} characters. Say what makes this one \
@@ -65,11 +82,17 @@ fn every_ignored_advisory_carries_a_reason_and_an_expiry() {
                         reason.trim().len()
                     ));
                 }
-                if expiry.trim().is_empty() {
-                    bare.push(format!(
-                        "  {id} — no `expiry`. An ignore without one never comes back, and \
-                         the gate quietly stops covering it."
-                    ));
+                match expiry_of(reason) {
+                    None => bare.push(format!(
+                        "  {id} — no expiry. End the `reason` with `{EXPIRES}YYYY-MM-DD`: an \
+                         ignore without one never comes back, and the gate quietly stops \
+                         covering it."
+                    )),
+                    Some(day) if day < yidam::dates::today_days() => bare.push(format!(
+                        "  {id} — expired. Fix the advisory, or decide again and give the \
+                         ignore a new date with the reason for it."
+                    )),
+                    Some(_) => {}
                 }
             }
             other => bare.push(format!("  unreadable ignore entry: {other:?}")),
@@ -77,7 +100,7 @@ fn every_ignored_advisory_carries_a_reason_and_an_expiry() {
     }
     assert!(
         bare.is_empty(),
-        "deny.toml ignores advisories without saying why or until when:\n{}",
+        "deny.toml ignores advisories without saying why, or until a date still to come:\n{}",
         bare.join("\n")
     );
 }
