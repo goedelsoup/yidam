@@ -206,6 +206,11 @@ pub struct MigrateReport {
     /// File moves. One per instance for a class rename; empty otherwise.
     pub moves: Vec<Edit>,
     pub edits: Vec<Edit>,
+    /// The `moved-from:` line written into each instance a class rename moves, so that its
+    /// ages carry across the move (#1192) — the line `rename` writes, placed the same way.
+    /// Reported under the instance's new path. Empty for every other operation.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub moved_from: Vec<Edit>,
     /// Instances this migration leaves in violation. Reported, never silently fixed.
     pub violations: Vec<Violation>,
     /// Markdown references to a renamed path. Reported, never rewritten.
@@ -267,6 +272,7 @@ impl MigrateReport {
             applied: false,
             moves: vec![],
             edits: vec![],
+            moved_from: vec![],
             violations: vec![],
             unhandled: vec![],
             lifted: vec![],
@@ -652,6 +658,15 @@ fn plan_class_rename(root: &Path, corpus: &Path, old: &str, new: &str, report: &
                 from: format!("{}/{id}", report.corpus_dir),
                 to: format!("{}/{new}/{name}", report.corpus_dir),
             });
+            // Without it the history replay sees a delete and an add, and every instance
+            // restarts its uncited and open-question ages: a class rename would reset each
+            // orphan's escalation clock and drop each overdue question off `due` (#1192).
+            let to = format!("{new}/{name}");
+            report.moved_from.push(super::rename::moved_from_line(
+                format!("{}/{to}", report.corpus_dir),
+                &text,
+                super::rename::relative_target(&to, &id),
+            ));
         }
 
         // Links, from both sides. A link written by a moving instance keeps its
@@ -1485,6 +1500,11 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
         }
     }
 
+    // After the moves: each line is written into the file at its new name.
+    for e in &report.moved_from {
+        super::rename::write_moved_from(&root.join(&e.file), e)?;
+    }
+
     // The now-empty class directory. Left behind, `walk_ont_files` ignores it and
     // `graph-check` never sees it — but a reader opening the corpus does, and an empty
     // directory named after a class that no longer exists reads as a class with no
@@ -1582,6 +1602,21 @@ pub(crate) fn render_migrate(r: &MigrateReport) -> String {
     }
     for m in &r.moves {
         let _ = writeln!(out, "  move  {} → {}", m.from, m.to);
+    }
+    if !r.moved_from.is_empty() {
+        let _ = writeln!(
+            out,
+            "\nThe moved instances record where they came from, so their ages carry:"
+        );
+        for e in &r.moved_from {
+            let _ = writeln!(
+                out,
+                "  {}:{}  {}",
+                e.file,
+                e.line,
+                super::rename::moved_from_text(e)
+            );
+        }
     }
     if !r.violations.is_empty() {
         let _ = write!(
@@ -1873,6 +1908,106 @@ pub fn migrate(op: Operation, dry_run: bool, format: crate::report::Format) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two classes, `concept` and `gauge`, as `rename`'s tests build them.
+    fn corpus() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path().to_path_buf();
+        let corpus = root.join(".yidam/corpus");
+        for class in ["concept", "gauge"] {
+            std::fs::create_dir_all(corpus.join(class)).unwrap();
+            std::fs::write(
+                corpus.join(format!("{class}.ont.yml")),
+                format!("class: {class}\nlabel: {class}\n"),
+            )
+            .unwrap();
+        }
+        (tmp, root, corpus)
+    }
+
+    fn class_rename(old: &str, new: &str) -> Operation {
+        Operation::ClassRename {
+            old: old.into(),
+            new: new.into(),
+        }
+    }
+
+    /// Each moved instance names the path it left, as a node `rename` moves does (#1192). A
+    /// line already there is replaced, not doubled.
+    #[test]
+    fn a_class_rename_records_where_each_instance_came_from() {
+        let (_t, root, corpus) = corpus();
+        std::fs::write(corpus.join("gauge/a.yml"), "class: gauge\nlabel: A\n").unwrap();
+        std::fs::write(
+            corpus.join("gauge/b.yml"),
+            "class: gauge\nmoved-from: ../concept/b.yml\nlabel: B\n",
+        )
+        .unwrap();
+        std::fs::write(corpus.join("concept/c.yml"), "class: concept\n").unwrap();
+
+        let op = class_rename("gauge", "station");
+        let mut r = plan(&root, &corpus, &op);
+        assert!(r.blocked.is_empty(), "{:?}", r.blocked);
+        apply(&root, &corpus, &op, &mut r).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(corpus.join("station/a.yml")).unwrap(),
+            "class: station\nlabel: A\nmoved-from: ../gauge/a.yml\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(corpus.join("station/b.yml")).unwrap(),
+            "class: station\nmoved-from: ../gauge/b.yml\nlabel: B\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(corpus.join("concept/c.yml")).unwrap(),
+            "class: concept\n",
+            "an instance that did not move records nothing"
+        );
+        let placed: Vec<_> = r
+            .moved_from
+            .iter()
+            .map(|e| (e.file.as_str(), e.line, e.from.as_str()))
+            .collect();
+        assert_eq!(
+            placed,
+            [
+                (".yidam/corpus/station/a.yml", 3, ""),
+                (".yidam/corpus/station/b.yml", 2, "../concept/b.yml"),
+            ]
+        );
+        assert!(render_migrate(&r).contains("station/a.yml:3  moved-from: ../gauge/a.yml"));
+    }
+
+    /// The line is the one the history fold reads. Rename the class of an uncited open
+    /// question, commit it, and both of its ages are still the ones it had.
+    #[test]
+    fn a_class_rename_keeps_each_instances_ages() {
+        use crate::cmd::lint::history::{open_question_age, uncited_age};
+        use crate::git::fixture::{commit_at, init};
+
+        let (_t, root, corpus) = corpus();
+        init(&root);
+        std::fs::write(
+            corpus.join("gauge/g.yml"),
+            "class: gauge\nlabel: G\ndescription: it is `[open]`\n",
+        )
+        .unwrap();
+        commit_at(&root, "open: g", "2026-01-01T00:00:00Z");
+        std::fs::write(corpus.join("concept/c.yml"), "class: concept\n").unwrap();
+        commit_at(&root, "establish: c", "2026-01-05T00:00:00Z");
+
+        let op = class_rename("gauge", "station");
+        let mut r = plan(&root, &corpus, &op);
+        apply(&root, &corpus, &op, &mut r).unwrap();
+        commit_at(&root, &r.commit_subject, "2026-01-09T00:00:00Z");
+
+        let key = ".yidam/corpus/station/g.yml";
+        assert_eq!(uncited_age(&root).get(key).map(|a| a.commits), Some(3));
+        assert_eq!(
+            open_question_age(&root).get(key).map(|a| a.commits),
+            Some(3)
+        );
+    }
 
     fn yaml(text: &str) -> serde_yaml::Value {
         serde_yaml::from_str(text).unwrap()

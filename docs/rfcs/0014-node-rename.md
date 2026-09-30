@@ -93,8 +93,9 @@ immutable IDs would fix that. Revisit once RFC-0013's schema is settled.
 age folds in `lint/history.rs` read a rename as a delete plus an add, so an orphan or an open
 question restarted its count of commits. `yidam rename` now writes `moved-from:` into the moved
 node, naming the old path as a `target:` would. The folds carry both ages across that
-declaration, and the graph frames stay keyed by path. This is not an immutable ID: nothing
-resolves through it, and a move made without the command declares nothing.
+declaration, and the graph frames stay keyed by path. `yidam migrate class` writes the same line
+into each instance it moves (#1192). This is not an immutable ID: nothing resolves through it,
+and a move made without either command declares nothing.
 
 ## Migration & compatibility
 

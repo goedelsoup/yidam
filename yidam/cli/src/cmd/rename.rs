@@ -436,7 +436,9 @@ pub(crate) fn plan(root: &Path, corpus: &Path, old: &str, new: &str) -> RenameRe
 ///
 /// Top level only: the key starts its line. A new line goes at the end, which is top level
 /// whatever the file ends with, and leaves every edit's line number where it was.
-fn moved_from_line(file: String, text: &str, to: String) -> Edit {
+///
+/// `migrate`'s class rename places one per instance it moves (#1192).
+pub(crate) fn moved_from_line(file: String, text: &str, to: String) -> Edit {
     let lines: Vec<&str> = text.lines().collect();
     let at = lines.iter().position(|l| l.starts_with("moved-from:"));
     Edit {
@@ -453,6 +455,21 @@ fn moved_from_line(file: String, text: &str, to: String) -> Edit {
 /// The line [`moved_from_line`] placed.
 pub(crate) fn moved_from_text(e: &Edit) -> String {
     format!("moved-from: {}", e.to)
+}
+
+/// Write the line [`moved_from_line`] placed into the moved file, at `path`.
+///
+/// After the link edits, which it cannot disturb: it replaces one line of its own or adds one
+/// past the last.
+pub(crate) fn write_moved_from(path: &Path, e: &Edit) -> Result<()> {
+    let text = std::fs::read_to_string(path)?;
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    match lines.get_mut(e.line - 1) {
+        Some(line) => *line = moved_from_text(e),
+        None => lines.push(moved_from_text(e)),
+    }
+    std::fs::write(path, lines.join("\n") + "\n")?;
+    Ok(())
 }
 
 /// The keys whose value names a catalog entry: an edge's `source:`, and a quotation's `of:`
@@ -692,16 +709,8 @@ fn apply(root: &Path, report: &mut RenameReport) -> Result<()> {
         std::fs::write(&path, out)?;
     }
 
-    // After the link edits, which it cannot disturb: it replaces one line of its own or
-    // adds one past the last.
     if let Some(e) = &report.moved_from {
-        let text = std::fs::read_to_string(&new_path)?;
-        let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
-        match lines.get_mut(e.line - 1) {
-            Some(line) => *line = moved_from_text(e),
-            None => lines.push(moved_from_text(e)),
-        }
-        std::fs::write(&new_path, lines.join("\n") + "\n")?;
+        write_moved_from(&new_path, e)?;
     }
 
     report.applied = true;
