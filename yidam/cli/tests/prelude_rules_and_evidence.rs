@@ -320,7 +320,12 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// is **47 words in `GRAPH.md`**, the same 47 both recurring routes moved by, and 28,295 + 47 is
 /// this figure exactly, so nothing else on the path moved.
 ///
-/// **Lowered to 19,987 when step 1 stopped charging the sections about a corpus that exists
+/// **Raised to 28,398 when step 6 named the claim tags a seeded node carries (#968).** The
+/// delta is **56 words in `bootstrap.md`**, and 28,342 + 56 is this figure exactly, so nothing
+/// else on the path moved. The 119 further words of argument are in `bootstrap.evidence.md`
+/// and charged to [`PAIR_FLOOR`].
+///
+/// **Lowered to 20,043 when step 1 stopped charging the sections about a corpus that exists
 /// (#971, RFC-0039).** From here the path is measured per section, not per file: a step 1 row
 /// may link sections to skip or to read alone, and [`step_one_rows`] charges what the row says.
 /// That rests on #967's finding that an agent handed a section link reads the section and not
@@ -342,8 +347,8 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 ///
 /// The issue's census found 7,386; the other 1,103 are words these sections gained after it was
 /// filed. Against that, **`bootstrap.md` rose by 134 words** to carry the links and the
-/// paragraph saying what a skipped section is. 28,342 − 8,489 + 134 is this figure exactly.
-const BOOTSTRAP_CEILING: usize = 19_987;
+/// paragraph saying what a skipped section is. 28,398 − 8,489 + 134 is this figure exactly.
+const BOOTSTRAP_CEILING: usize = 20_043;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -456,8 +461,14 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// figures exactly, so neither pair carried slack before this edit and neither carries any
 /// after it.
 ///
-/// **`bootstrap.md` re-measured to 10,944 for #971.** 134 words arrived, all in the rules half:
-/// step 1's section links and the paragraph that says what a skipped section is. 10,810 + 134
+/// **`bootstrap.md` re-measured to 10,985 for #968.** 175 words arrived — 56 in the rules half,
+/// where step 6 now names the claim tags, and 119 in the evidence half, which carries the
+/// measurement behind them. 10,810 + 175 is this figure exactly, so the pair carried no slack
+/// before this edit and carries none after it, and the 56 are the same 56 [`BOOTSTRAP_CEILING`]
+/// moved by.
+///
+/// **`bootstrap.md` re-measured to 11,119 for #971.** 134 words arrived, all in the rules half:
+/// step 1's section links and the paragraph that says what a skipped section is. 10,985 + 134
 /// is this figure exactly, and the 134 are the same 134 [`BOOTSTRAP_CEILING`] set against
 /// what it dropped. Nothing arrived in the evidence half. The argument is #967's measurement
 /// and RFC-0039's own.
@@ -466,7 +477,7 @@ const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_686),
     ("yidam/prelude/GRAPH.md", 9_948),
     ("yidam/prelude/guidelines/directories.md", 12_618),
-    ("yidam/prelude/skills/bootstrap.md", 10_944),
+    ("yidam/prelude/skills/bootstrap.md", 11_119),
 ];
 
 fn read(rel: &str) -> String {
