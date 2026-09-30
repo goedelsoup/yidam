@@ -31,7 +31,7 @@ use std::path::Path;
 
 use anyhow::{bail, Result};
 
-use crate::cmd::run::manifest::{Kind, Manifest, MANIFEST};
+use crate::cmd::run::manifest::{Manifest, Run, MANIFEST};
 use crate::paths::{repo_root, require_yidam_repo};
 
 /// Flags that override `[cluster]` and `[vault.<name>]`.
@@ -87,13 +87,19 @@ fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
     }
     super::builtin::refuse_shadowing(&plan)?;
     for name in &plan {
-        let kind: Kind = m.get(name)?.kind;
-        if let Some(reason) = kind.unrunnable_because() {
+        let cap = m.get(name)?;
+        if let Some(reason) = cap.kind.unrunnable_because() {
             bail!(
                 "`{name}` declares `kind = \"{}\"` and a cluster step invokes calculators \
                  only, so this manifest has no workflow.\n  {reason}.",
-                kind.as_str()
+                cap.kind.as_str()
             );
+        }
+        // Not [`Capability::unrunnable_because`]: that also asks about *this* build's features,
+        // and the pods run an image this binary is not. An unbuilt step is unrunnable in every
+        // image, so it is the one build-independent refusal beside the kind's (#1184).
+        if let (Run::Unbuilt, Some(reason)) = (&cap.run, cap.run.unrunnable_because()) {
+            bail!("`{name}` declares no `run`, so this manifest has no workflow.\n  {reason}.");
         }
     }
 

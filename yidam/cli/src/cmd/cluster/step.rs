@@ -77,10 +77,13 @@ pub(super) fn step_in(
     }
     let m = Manifest::load(root)?;
     let cap = m.get(name)?;
-    if let Some(reason) = cap.kind.unrunnable_because() {
+    // The whole declaration, not the kind alone: an unbuilt calculator is the right kind and
+    // has nothing to invoke (#1184).
+    if let Some(why) = cap.unrunnable_because() {
         bail!(
-            "`{name}` declares `kind = \"{}\"` and this binary invokes calculators only.\n  {reason}.",
-            cap.kind.as_str()
+            "`{name}` declares {}, which this binary does not invoke.\n  {}.",
+            why.declared,
+            why.because
         );
     }
     let route = cap.route();
