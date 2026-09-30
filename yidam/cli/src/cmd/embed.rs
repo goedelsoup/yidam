@@ -134,10 +134,13 @@ pub(crate) fn ordered_properties(
         let Some(name) = key.as_str() else {
             continue;
         };
-        let r#type = declared
-            .and_then(|c| c.properties.iter().find(|p| p.name == name))
-            .map(|p| p.r#type.as_str())
-            .or_else(|| universal.declared_type(name));
+        // The class first, then `universal.yml` — the one precedence rule
+        // [`crate::universal::Universal::declared_type_for`] states (#1186). `declared` is
+        // `None` for a class this corpus does not define, and universal's declarations
+        // still apply: this function indexes for `--where` to filter on, not for a defect
+        // report, and `unknown-class` is the finding for the undefined class itself. See
+        // that function's doc for why `lint`'s checks never take this arm.
+        let r#type = universal.declared_type_for(declared, name);
         if !matches!(r#type, Some("date") | Some("number")) {
             continue;
         }
@@ -700,5 +703,72 @@ mod tests {
             ),
             "A label A description. Related: matt huffman."
         );
+    }
+
+    // ── ordered_properties (#1186) ────────────────────────────────────────────
+
+    fn parcel_class() -> crate::corpus::Class {
+        crate::corpus::Class::parse(
+            ".yidam/corpus/parcel.ont.yml",
+            "properties:\n  - name: began\n    type: date\n",
+        )
+    }
+
+    const UNIVERSAL_NUMBER: &str = "properties:\n  - name: scale\n    type: number\n";
+
+    /// The class's own `date`/`number` declaration is carried.
+    #[test]
+    fn a_class_declared_ordered_property_is_carried() {
+        let inst = crate::parse::parse_instance("properties:\n  began: 1893\n");
+        let classes = vec![parcel_class()];
+        let universal = crate::universal::Universal::empty();
+        let out = ordered_properties(&inst, "parcel", &classes, &universal);
+        assert_eq!(out.get("began"), Some(&serde_json::json!(1893)));
+    }
+
+    /// A property only `universal.yml` declares is carried too, in the same order.
+    #[test]
+    fn a_universal_only_ordered_property_is_carried() {
+        let inst = crate::parse::parse_instance("properties:\n  scale: 24000\n");
+        let classes = vec![parcel_class()];
+        let universal = crate::universal::Universal::parse(UNIVERSAL_NUMBER);
+        let out = ordered_properties(&inst, "parcel", &classes, &universal);
+        assert_eq!(out.get("scale"), Some(&serde_json::json!(24000)));
+    }
+
+    /// The class's own declaration wins when both name the same key — a `string` from the
+    /// class must not be laundered into an ordered field by a `universal.yml` that also
+    /// names it.
+    #[test]
+    fn the_classs_own_declaration_overrides_universal() {
+        let class = crate::corpus::Class::parse(
+            ".yidam/corpus/parcel.ont.yml",
+            "properties:\n  - name: scale\n    type: string\n",
+        );
+        let inst = crate::parse::parse_instance("properties:\n  scale: \"24000\"\n");
+        let classes = vec![class];
+        let universal = crate::universal::Universal::parse(UNIVERSAL_NUMBER);
+        let out = ordered_properties(&inst, "parcel", &classes, &universal);
+        assert!(
+            out.is_empty(),
+            "`string` is not carried as an ordered field, whatever universal says: {out:?}"
+        );
+    }
+
+    /// **The decision (#1186): an undefined class still gets `universal.yml`'s
+    /// declarations.** `property-type` skips a node of an undefined class entirely, to
+    /// leave it to `unknown-class` and avoid reporting it twice — a decision about which
+    /// node gets *reported*, not about whether a type applies. This function has no
+    /// reporting concern to defer to: it feeds `--where`, and a `date`/`number`
+    /// `universal.yml` declares for every class should still be searchable on a node whose
+    /// own class this corpus happens not to define. Pinned here because it is the one
+    /// caller that can reach the `None` arm of `Universal::declared_type_for`.
+    #[test]
+    fn an_undefined_class_still_gets_universals_declarations() {
+        let inst = crate::parse::parse_instance("properties:\n  scale: 24000\n");
+        let classes: Vec<crate::corpus::Class> = Vec::new();
+        let universal = crate::universal::Universal::parse(UNIVERSAL_NUMBER);
+        let out = ordered_properties(&inst, "mystery", &classes, &universal);
+        assert_eq!(out.get("scale"), Some(&serde_json::json!(24000)));
     }
 }

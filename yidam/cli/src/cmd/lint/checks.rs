@@ -1629,22 +1629,21 @@ pub fn property_type(
             continue;
         };
         for (key, value) in instance_properties(n) {
-            // The class first, then the corpus. Universal does not mean untyped — a
-            // fiscal-year snapshot is prose and a `claim` written into one is still
-            // counted as no claim — but a class naming the same property has said
-            // something more specific about its own instances, and wins.
-            let own = class.properties.iter().find(|p| p.name == key);
-            let declared = own
-                .map(|p| p.r#type.as_str())
-                .or_else(|| universal.declared_type(&key));
-            let Some(declared) = declared else {
+            // The class first, then `universal.yml` — the one precedence rule
+            // [`crate::universal::Universal::declared_type_for`] states, so this and the
+            // other three readers of it cannot disagree about which values are typed.
+            let Some(declared) = universal.declared_type_for(Some(*class), &key) else {
                 continue;
             };
             // The shape first, then the set. A value that is not text is reported for what
             // it is, not also for being outside a list of text — and the set is the class's
             // own: `universal.yml` declares a type and nothing more.
             let why = property_type_violation(declared, value).or_else(|| {
-                own.filter(|p| p.r#type == "string")
+                class
+                    .properties
+                    .iter()
+                    .find(|p| p.name == key)
+                    .filter(|p| p.r#type == "string")
                     .and_then(|p| declared_value_violation(&p.values, value))
             });
             if let Some(why) = why {

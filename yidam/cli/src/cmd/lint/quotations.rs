@@ -168,8 +168,8 @@ fn one(m: &serde_yaml::Mapping) -> Result<Quotation, String> {
 ///
 /// The class first, then `universal.yml`, which is `property-type`'s order, so a property read
 /// here is one that check holds to the same type. A node whose class the corpus does not define
-/// declares no quotation, as `property-type` checks nothing on it. The same precedence is
-/// written out in three other places (#1186).
+/// declares no quotation, as `property-type` checks nothing on it. The precedence itself is
+/// [`crate::universal::Universal::declared_type_for`]'s (#1186).
 pub struct Declared<'a> {
     classes: HashMap<&'a str, &'a Class>,
     universal: &'a crate::universal::Universal,
@@ -197,12 +197,7 @@ impl<'a> Declared<'a> {
             .flatten()
             .filter_map(|(k, value)| {
                 let key = k.as_str()?;
-                let declared = class
-                    .properties
-                    .iter()
-                    .find(|p| p.name == key)
-                    .map(|p| p.r#type.as_str())
-                    .or_else(|| self.universal.declared_type(key));
+                let declared = self.universal.declared_type_for(Some(*class), key);
                 (declared == Some(QUOTATION_PROPERTY_TYPE)).then(|| (key, read(value)))
             })
             .collect()
