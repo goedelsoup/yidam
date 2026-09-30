@@ -87,9 +87,9 @@ mise run due              # what is owed a look, on whatever cadence you keep
 ```
 
 `mise run due` is the other half of the pair and is not a gate. `ci` answers *is anything
-wrong*; `due` answers *is it time* — reading the four clocks a corpus keeps: how stale the
-index is, whether a source has aged past its TTL, how long a question has gone unanswered, and
-how long a phase has been in flight. It exits zero however much it finds, because being owed is
+wrong*; `due` answers *is it time* — reading the five clocks a corpus keeps: how stale the
+index is, whether a source has aged past its TTL, how long a question has gone unanswered,
+how long a phase has been in flight, and which nodes cite a source that has since changed. It exits zero however much it finds, because being owed is
 not being broken. Every interval is one this repository declares in `.yidam/config.toml`; a
 clock nobody has set reports what it measured and never comes due.
 

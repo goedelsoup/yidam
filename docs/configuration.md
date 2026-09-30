@@ -100,6 +100,7 @@ ttl_days = 180
 questions_after = 100
 phases_after = 60
 index_after = 25
+superseded_after = 14
 
 [due.declined]
 index = "due-clocks"
@@ -194,12 +195,13 @@ never comes due.
 | `questions_after` | An open question | corpus-touching commits |
 | `phases_after` | A bounded inquiry ref not yet on the baseline | days |
 | `index_after` | Corpus files changed since the index was built | files |
+| `superseded_after` | A node citing a source that gained a new version since the node's last commit | days |
 
-**The fourth clock's interval is not here.** `due` also reads a source record's TTL, and that
+**The catalog clock's interval is not here.** `due` also reads a source record's TTL, and that
 is [`[catalog] ttl_days`](#catalog-ttl_days) and each entry's own `ttl_days:`, where it already
 lived. Restating it under `[due]` would create two places to set one number.
 
-**Two of these count days and one does not.** How long a question has gone unanswered is a fact
+**Two of these count days and two do not.** How long a question has gone unanswered is a fact
 about the repository, and the repository's clock is `HEAD`. A corpus that has not committed has
 not ignored anything. A phase's time in flight is a fact about the world, which is the same
 argument `ttl_days` makes. Work does not stop having been open for four months because nobody
@@ -207,6 +209,10 @@ committed to the corpus.
 
 `index_after = 1` means any change at all makes a rebuild due. A larger number is a corpus
 saying it is content for retrieval to lag its own edits by that much.
+
+`superseded_after` counts from the commit that recorded the new version, not from the node's
+last edit. A new version is a digest from a location the entry already held one from. A new
+text reading of a PDF is not one. Any commit touching the node discharges it.
 
 ### `[due.declined]`
 
@@ -217,8 +223,8 @@ Clocks this corpus decided it does not want, each naming the record that argues 
 index = "due-clocks"
 ```
 
-The key is the clock's id: `index`, `catalog`, `questions` or `phases`. The value is a
-decision record in `.yidam/decisions/`, by its `id:` or its file stem.
+The key is the clock's id: `index`, `catalog`, `questions`, `phases` or `superseded`. The value
+is a decision record in `.yidam/decisions/`, by its `id:` or its file stem.
 
 **Unset and declined are different states.** Without this key they report the same. A corpus
 that examined a vector index and chose against it looks like one that never considered it. The

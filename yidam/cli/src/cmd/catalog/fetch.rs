@@ -33,6 +33,7 @@ use anyhow::{Context, Result};
 use super::commit::{self, Commit};
 use super::location::{self, Plan};
 use super::record;
+use super::superseded;
 use super::transport;
 use crate::parse::{parse_frontmatter, ArtifactOrigin, CatalogArtifact, CatalogLocation};
 use crate::paths::{repo_root, yidam_catalog_dir};
@@ -84,6 +85,13 @@ struct EntryOutcome {
     skipped: Vec<Skipped>,
     /// Absent when nothing changed, which is the ordinary result of a re-run.
     commit: Option<Commit>,
+    /// Nodes citing this entry that were read against an earlier version of it, when this run
+    /// recorded a new one (#1200). Repo-relative and sorted; empty on every other run.
+    ///
+    /// Every node citing the entry, and not a subset, because the version did not exist until
+    /// this run: nothing can have been written against it yet. `yidam due` keeps the list after
+    /// this report is gone, and drops a node once a commit touches it.
+    superseded: Vec<String>,
 }
 
 /// `fetched`, and deliberately not `entries`.
@@ -395,6 +403,9 @@ pub fn fetch(opts: &FetchOptions) -> Result<()> {
 
     let mut out: Vec<EntryOutcome> = Vec::new();
     let mut n = 0usize;
+    // Read once, and only if some entry records a new version: a corpus walk to answer a
+    // question no entry in this run is asking would be the ordinary run's whole cost.
+    let mut citing: Option<std::collections::HashMap<PathBuf, Vec<String>>> = None;
     for path in &entries {
         let rel = path
             .strip_prefix(&root)
@@ -421,6 +432,7 @@ pub fn fetch(opts: &FetchOptions) -> Result<()> {
                     obtained: vec![],
                     skipped,
                     commit: None,
+                    superseded: vec![],
                 });
             }
             continue;
@@ -456,6 +468,7 @@ pub fn fetch(opts: &FetchOptions) -> Result<()> {
         }
 
         let mut written = None;
+        let mut owed: Vec<String> = Vec::new();
         if !opts.dry_run {
             // Read from `text` — the entry as it was before this run — so a carry consults
             // the operator's records and never one this same run appended.
@@ -467,9 +480,18 @@ pub fn fetch(opts: &FetchOptions) -> Result<()> {
             let updated = record::append_artifacts(&text, &records)
                 .with_context(|| format!("recording what {rel} obtained"))?;
             if updated != text {
+                if records.iter().any(|r| superseded::supersedes(&held, r)) {
+                    owed = citing
+                        .get_or_insert_with(|| superseded::citing_nodes(&root))
+                        .get(&crate::corpus::normalize(path))
+                        .cloned()
+                        .unwrap_or_default();
+                    owed.sort();
+                }
                 std::fs::write(path, &updated)
                     .with_context(|| format!("writing {}", path.display()))?;
-                let (subject, body) = message(&name, &obtained, &held, &records);
+                let (subject, mut body) = message(&name, &obtained, &held, &records);
+                body.push_str(&owed_lines(&owed));
                 written = commit::author(&root, &subject, &body, &[rel.clone()])?;
             }
         }
@@ -479,12 +501,33 @@ pub fn fetch(opts: &FetchOptions) -> Result<()> {
             obtained,
             skipped,
             commit: written,
+            superseded: owed,
         });
     }
 
     crate::report::finish(&root, opts.format, FetchReport { fetched: out }, |r| {
         print!("{}", render(&r.fetched, opts.dry_run))
     })
+}
+
+/// The paragraph a `refresh:` commit carries when it records a new version of a cited source.
+///
+/// In the commit and not only in the report, because the commit is what outlives the run: a
+/// person reading `git log` for why a node was re-read finds the list where the version
+/// arrived. Empty when nothing is owed, so an ordinary refresh reads as it always did.
+fn owed_lines(owed: &[String]) -> String {
+    use std::fmt::Write as _;
+    if owed.is_empty() {
+        return String::new();
+    }
+    let mut s = format!(
+        "\nA new version of a source {} node(s) cite, each read against an earlier one:\n",
+        owed.len()
+    );
+    for n in owed {
+        let _ = writeln!(s, "  - {n}");
+    }
+    s
 }
 
 /// Indent a message's continuation lines to sit under the line that introduced it.
@@ -547,6 +590,17 @@ fn render(entries: &[EntryOutcome], dry_run: bool) -> String {
         match &e.commit {
             Some(c) => {
                 let _ = writeln!(s, "  {} {}", c.sha, c.subject);
+                if !e.superseded.is_empty() {
+                    let _ = writeln!(
+                        s,
+                        "  a new version — {} node(s) cite an earlier one, and `yidam due` \
+                         holds them until each is re-read:",
+                        e.superseded.len()
+                    );
+                    for n in &e.superseded {
+                        let _ = writeln!(s, "    {n}");
+                    }
+                }
             }
             None if !dry_run && !e.obtained.is_empty() => {
                 let _ = writeln!(s, "  nothing new to record");

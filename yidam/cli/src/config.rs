@@ -192,6 +192,19 @@ pub struct DueConfig {
     /// [`IndexConfig::remote`]'s reason: this is a corpus's declaration about itself, it lives
     /// in a committed file, and a build that cannot act on one should read it and say so.
     pub index_after: Option<usize>,
+    /// Days a node may go on citing a source from before its latest version before it is due
+    /// a re-read (#1200).
+    ///
+    /// **Days, counted from the commit that recorded the version**, for the TTL's reason: a
+    /// source changed in the world, and a node resting on the old bytes does not rest on them
+    /// any less for nobody having committed. `0` makes every such node due the day the version
+    /// arrives, which is what a corpus that means to re-read on every change will want.
+    ///
+    /// ```toml
+    /// [due]
+    /// superseded_after = 14
+    /// ```
+    pub superseded_after: Option<u32>,
     /// Clocks this corpus decided it does not want, each naming the record that argues it.
     ///
     /// **Unset and declined are different states, and only one of them was a choice.** A
@@ -200,8 +213,8 @@ pub struct DueConfig {
     /// second is to declare an interval for work nobody intends — a clock that is
     /// permanently due, which is a clock a reader learns to skip.
     ///
-    /// The key is the clock's `id` — `index`, `catalog`, `questions`, `phases` — and the
-    /// value is a decision record in `.yidam/decisions/`, by its `id:` or its file stem.
+    /// The key is the clock's `id` — `index`, `catalog`, `questions`, `phases`, `superseded` —
+    /// and the value is a decision record in `.yidam/decisions/`, by its `id:` or its file stem.
     /// **The record is required**, and that is the whole of what makes this a declaration
     /// rather than a mute button: a decline naming a record this repository does not hold
     /// is not honoured, and `due` says so. It is `.yidam/lint-baseline.yml`'s property —

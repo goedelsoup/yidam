@@ -458,7 +458,7 @@
     },
     "clocks": {
       "type": "array",
-      "description": "`due` only. The four clocks, each with the interval this corpus declared for it. A clock in state `undeclared` still reports what it measured: nobody has set it, which is not the same as its reading zero. Nor is it the same as `declined`, which is a corpus that decided against what the clock measures and recorded why — the two read identically until `record` is read.",
+      "description": "`due` only. The five clocks, each with the interval this corpus declared for it. A clock in state `undeclared` still reports what it measured: nobody has set it, which is not the same as its reading zero. Nor is it the same as `declined`, which is a corpus that decided against what the clock measures and recorded why — the two read identically until `record` is read.",
       "items": {
         "type": "object",
         "required": [
@@ -471,7 +471,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "Stable identifier: `index`, `catalog`, `questions` or `phases`."
+            "description": "Stable identifier: `index`, `catalog`, `questions`, `phases` or `superseded`."
           },
           "question": {
             "type": "string",
@@ -493,7 +493,7 @@
               "string",
               "null"
             ],
-            "description": "The declaration that sets this clock's interval, as a reader would write it. Null when this corpus has not set one. The catalog clock reads `[catalog] ttl_days` and each entry's own `ttl_days:`; the other three read `[due]` keys."
+            "description": "The declaration that sets this clock's interval, as a reader would write it. Null when this corpus has not set one. The catalog clock reads `[catalog] ttl_days` and each entry's own `ttl_days:`; the other four read `[due]` keys."
           },
           "overdue": {
             "type": "integer",
@@ -516,6 +516,13 @@
               "null"
             ],
             "description": "The decision record behind a `declined` clock, repo-relative under `.yidam/decisions/`. Null on every other state. The record is required for a decline to be honoured at all \u2014 a `[due.declined]` entry naming a record the repository does not hold leaves the clock in the state it was really in, so a decline cannot rot into a silenced row."
+          },
+          "subjects": {
+            "type": "array",
+            "description": "The owed subjects by name, one line each, on a clock whose subjects are nodes a person must visit. Only the `superseded` clock carries it, and only when `due`: each line names a node, the entry it cites and how long ago that entry gained its latest version. Absent otherwise, which a consumer MUST read as an empty list.",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }
@@ -2408,6 +2415,13 @@
                 "description": "The subject line, leading verb included."
               }
             }
+          },
+          "superseded": {
+            "type": "array",
+            "description": "Repo-relative paths of every corpus node citing this entry, when this run recorded a NEW VERSION of it \u2014 a digest from a location the entry already held a digest from (#1200). Empty on a first fetch, on a digest from a location nothing held yet, and on a run that recorded nothing. Every citing node rather than a subset, since the version did not exist until this run and nothing can yet have been read against it. `due`'s `superseded` clock carries the list after this report is gone.",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }
@@ -2580,7 +2594,7 @@
     },
     "owed": {
       "type": "array",
-      "description": "`cycle` only. What this repository is owed \u2014 the same four clocks `due` reports, read through `due`'s own reader and carrying the same item shape. A consumer MUST NOT render a `due` clock as a fault: a corpus with three expired sources is owed, not unhealthy, and `doctor` is the report that answers whether anything is wrong.",
+      "description": "`cycle` only. What this repository is owed \u2014 the same five clocks `due` reports, read through `due`'s own reader and carrying the same item shape. A consumer MUST NOT render a `due` clock as a fault: a corpus with three expired sources is owed, not unhealthy, and `doctor` is the report that answers whether anything is wrong.",
       "items": {
         "type": "object",
         "required": [
@@ -2593,7 +2607,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "Stable identifier: `index`, `catalog`, `questions` or `phases`."
+            "description": "Stable identifier: `index`, `catalog`, `questions`, `phases` or `superseded`."
           },
           "question": {
             "type": "string",
@@ -2615,7 +2629,7 @@
               "string",
               "null"
             ],
-            "description": "The declaration that sets this clock's interval, as a reader would write it. Null when this corpus has not set one. The catalog clock reads `[catalog] ttl_days` and each entry's own `ttl_days:`; the other three read `[due]` keys."
+            "description": "The declaration that sets this clock's interval, as a reader would write it. Null when this corpus has not set one. The catalog clock reads `[catalog] ttl_days` and each entry's own `ttl_days:`; the other four read `[due]` keys."
           },
           "overdue": {
             "type": "integer",
@@ -2638,6 +2652,13 @@
               "null"
             ],
             "description": "The decision record behind a `declined` clock, repo-relative under `.yidam/decisions/`. Null on every other state. The record is required for a decline to be honoured at all \u2014 a `[due.declined]` entry naming a record the repository does not hold leaves the clock in the state it was really in, so a decline cannot rot into a silenced row."
+          },
+          "subjects": {
+            "type": "array",
+            "description": "The owed subjects by name, one line each, on a clock whose subjects are nodes a person must visit. Only the `superseded` clock carries it, and only when `due`: each line names a node, the entry it cites and how long ago that entry gained its latest version. Absent otherwise, which a consumer MUST read as an empty list.",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }
@@ -2741,7 +2762,7 @@
           },
           "act": {
             "type": "string",
-            "description": "The command or act, as a reader would run or perform it. For an owed clock this is `due`'s own remedy verbatim \u2014 three of the four clocks are discharged by something that is not a command at all."
+            "description": "The command or act, as a reader would run or perform it. For an owed clock this is `due`'s own remedy verbatim \u2014 four of the five clocks are discharged by something that is not a command at all."
           },
           "why": {
             "type": "string",

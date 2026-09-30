@@ -920,9 +920,9 @@ And one transcription line, so `due` never grows a precedence rule:
 > **`due` reads only `[due]` keys; the kuten proposes values, never holds live ones.**
 
 `cmd/due.rs` declares its intervals *"never compiled in"* and reads them from
-`.yidam/config.toml` ([`due.rs:218`](../../yidam/cli/src/cmd/due.rs#L218),
-[`354`](../../yidam/cli/src/cmd/due.rs#L354),
-[`442`](../../yidam/cli/src/cmd/due.rs#L442)); the kuten's clock slot is a proposal the
+`.yidam/config.toml` ([`due.rs:233`](../../yidam/cli/src/cmd/due.rs#L233),
+[`369`](../../yidam/cli/src/cmd/due.rs#L369),
+[`457`](../../yidam/cli/src/cmd/due.rs#L457)); the kuten's clock slot is a proposal the
 bootstrap offers and the corpus's config holds or declines. There is exactly one live home for
 an interval, and this RFC adds no second one — the same sentence RFC-0026 wrote about staleness.
 

@@ -21,6 +21,7 @@ mod fetch;
 mod location;
 mod reconcile;
 mod record;
+pub(crate) mod superseded;
 mod transport;
 
 pub use audit::catalog_audit;

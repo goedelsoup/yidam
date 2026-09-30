@@ -298,6 +298,68 @@ fn a_changed_source_appends_a_second_record() {
     );
 }
 
+/// #1200, end to end. A re-fetch that records a new version names the node that read the
+/// old one — in the report and in the commit it makes — and `due` holds that node until a
+/// commit touches it. The first fetch has nothing to supersede and names nobody.
+#[test]
+fn a_new_version_names_the_nodes_that_read_the_old_one() {
+    const NODE: &str = ".yidam/corpus/record/hydrant-count.yml";
+    let s = stage();
+    let first = s
+        .run(&["catalog-fetch", "local-registry", "--location", "0"])
+        .ok();
+    assert!(
+        !first.contains(NODE),
+        "a first fetch supersedes nothing:\n{first}"
+    );
+    assert!(!s.head_body().contains(NODE), "{}", s.head_body());
+
+    std::fs::write(
+        s.root().join("sources/registry-2026.csv"),
+        "asset_id,placed_year,static_psi\nVC-0001,1974,62\nVC-0005,2026,70\n",
+    )
+    .unwrap();
+    git(s.root(), &["add", "-A"]);
+    git(s.root(), &["commit", "-q", "-m", "extract: a new edition"]);
+
+    let second = s
+        .run(&["catalog-fetch", "local-registry", "--location", "0"])
+        .ok();
+    assert!(second.contains("a new version"), "{second}");
+    assert!(
+        second.contains(NODE),
+        "the report names the citing node:\n{second}"
+    );
+    let body = s.head_body();
+    assert!(body.contains(NODE), "the commit names it too:\n{body}");
+
+    // And `due` carries it from here, once the corpus has said how long a re-read may wait.
+    let config = s.root().join(".yidam/config.toml");
+    let mut toml = std::fs::read_to_string(&config).unwrap();
+    toml.push_str("\n[due]\nsuperseded_after = 0\n");
+    std::fs::write(&config, toml).unwrap();
+    git(s.root(), &["add", "-A"]);
+    git(
+        s.root(),
+        &["commit", "-q", "-m", "config: a re-read may not wait"],
+    );
+    let due = s.run(&["due"]).ok();
+    assert!(due.contains(NODE), "due holds the node:\n{due}");
+
+    // A commit to the node discharges it.
+    let node = s.root().join(NODE);
+    let mut text = std::fs::read_to_string(&node).unwrap();
+    text.push_str("properties_note: re-read against the new edition\n");
+    std::fs::write(&node, text).unwrap();
+    git(s.root(), &["add", "-A"]);
+    git(
+        s.root(),
+        &["commit", "-q", "-m", "revise: hydrant count, re-read"],
+    );
+    let due = s.run(&["due"]).ok();
+    assert!(!due.contains(NODE), "the commit discharged it:\n{due}");
+}
+
 /// #1074, end to end. An operator cleared this source for redistribution; the next edition
 /// arrives carrying that decision rather than a blank where `vault push` reads a refusal.
 ///

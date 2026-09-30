@@ -1,9 +1,13 @@
-//! `yidam due` — the four clocks, read together, on a schedule.
+//! `yidam due` — the five clocks, read together, on a schedule.
 //!
-//! Four clocks exist in a derived repository and nothing read them as a set: index
+//! Four clocks existed in a derived repository and nothing read them as a set: index
 //! staleness, a catalog entry's TTL, how long a question has gone unanswered, and how long a
 //! phase has been in flight. Each had a home — `doctor`, `lint`, `status`, `phases` — and
 //! each answered when somebody already suspected something.
+//!
+//! The fifth had no home at all (#1200): how long a node has gone on citing a source from
+//! before its latest version. The catalog clock measures a source's age, and a source
+//! re-fetched yesterday with different bytes is young.
 //!
 //! A practice is not performed because you suspect something. It is performed because it is
 //! time, and nothing here said it was time.
@@ -23,22 +27,22 @@
 //! So [`State`] is its own enum rather than a reuse of `doctor`'s `Verdict`, and this command
 //! exits zero however much is due unless `--strict` asks otherwise.
 //!
-//! # Intervals are declared, and three of the four were not
+//! # Intervals are declared, and four of the five were not
 //!
 //! A clock is an age and an interval, and the interval is never compiled in — the argument is
 //! [`crate::config::LintConfig::escalate_after`]'s and applies unchanged: a number in the
 //! binary is one corpus's judgement arriving in another that never agreed to it.
 //!
-//! One of the four already had its interval declared in the right place: a source's TTL, per
+//! One of the five already had its interval declared in the right place: a source's TTL, per
 //! entry or as `[catalog] ttl_days`. This command reads it there rather than restating it.
-//! The other three are `[due]` keys, absent by default, and a clock with no interval reports
+//! The other four are `[due]` keys, absent by default, and a clock with no interval reports
 //! what it measured and calls nothing due.
 //!
 //! # What discharges a clock, checked rather than assumed
 //!
 //! #289 asks for a pass that reports what is due "and, under E4 (#269), proposes the commits
-//! that would discharge them." Reading the four against what `propose` actually drafts
-//! corrects that for three of them:
+//! that would discharge them." Reading the clocks against what `propose` actually
+//! drafts corrects that for all but one of them:
 //!
 //! | Clock | What discharges it |
 //! |---|---|
@@ -46,8 +50,9 @@
 //! | catalog | `yidam propose`, which already drafts an `open:` per expired source. |
 //! | questions | A person. Deciding a question is answered is the resolution event Article V confines to a sangha, and `propose` says so. |
 //! | phases | A person. Merging a phase, or abandoning it, is not a mechanical consequence of a finding. |
+//! | superseded | A person re-reading the source, and committing to the node. Whether a claim survives a new edition is a judgement. |
 //!
-//! One of four. That is the honest surface, and the remedy column says so per clock rather
+//! One of five. That is the honest surface, and the remedy column says so per clock rather
 //! than this command growing a `--propose` that would shell into a command a reader can run.
 
 use anyhow::Result;
@@ -154,6 +159,14 @@ pub struct Clock {
     /// consumer rendering this as a link gives the next reader the argument rather than the
     /// absence of a number.
     pub record: Option<String>,
+    /// What is owed, one line each, on a [`State::Due`] clock whose remedy is an act per
+    /// subject. Omitted when empty.
+    ///
+    /// Only `superseded` fills it. Its remedy is a re-read of particular nodes, and a count with
+    /// no names would send a reader to reconstruct from history the list this read already
+    /// holds. The other clocks name a command that prints its own list.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub subjects: Vec<String>,
 }
 
 impl Clock {
@@ -161,6 +174,7 @@ impl Clock {
     const CATALOG: &'static str = "catalog";
     const QUESTIONS: &'static str = "questions";
     const PHASES: &'static str = "phases";
+    const SUPERSEDED: &'static str = "superseded";
 
     fn new(
         id: &'static str,
@@ -177,6 +191,7 @@ impl Clock {
             detail: detail.into(),
             remedy: None,
             record: None,
+            subjects: Vec::new(),
         }
     }
 
@@ -308,7 +323,7 @@ impl DueReport {
     }
 }
 
-// ── the four clocks ───────────────────────────────────────────────────────────
+// ── the five clocks ───────────────────────────────────────────────────────────
 
 /// Is the index built against the corpus as it stands?
 ///
@@ -663,6 +678,99 @@ fn clock_phases(root: &Path, after: Option<u32>, today: i64) -> Clock {
     )
 }
 
+/// Does a node cite a source it read before that source's latest version?
+///
+/// Measured in days from the commit that recorded the version, and the list of what is owed
+/// is [`crate::cmd::catalog::superseded`]'s: a node citing the entry, by any of the four forms a
+/// citation takes, and untouched by any commit since.
+///
+/// **What this does not claim.** A new digest says the bytes changed, and nothing about
+/// whether any claim resting on them did — a feed that re-serialized its whitespace is a new
+/// version here. That is the reason this is a clock and not a lint finding: the node is owed a
+/// look, and is not wrong.
+fn clock_superseded(root: &Path, after: Option<u32>, today: i64) -> Clock {
+    const Q: &str = "Does a node cite a source it read before its latest version?";
+    let read = crate::cmd::catalog::superseded::read(root);
+    let nodes: usize = read.superseded.iter().map(|s| s.nodes.len()).sum();
+
+    let mut measured = match read.versioned {
+        0 => "no source holds a second version".to_string(),
+        _ => format!(
+            "{nodes} node(s) cite {} of {} source(s) from before its latest version",
+            read.superseded.len(),
+            read.versioned
+        ),
+    };
+    // Said rather than folded into zero. A clone that cannot see an entry's history has not
+    // shown that nothing is owed, and a count that silently excluded it would.
+    if read.unread > 0 {
+        let _ = write!(
+            measured,
+            "; {} with no readable history to measure against",
+            read.unread
+        );
+    }
+
+    let Some(after) = after else {
+        return Clock::new(Clock::SUPERSEDED, Q, State::Undeclared, measured)
+            .unset("`[due] superseded_after` in .yidam/config.toml");
+    };
+    let interval = format!("[due] superseded_after = {after}");
+
+    let mut overdue: Vec<(&crate::cmd::catalog::superseded::Superseded, i64)> = read
+        .superseded
+        .iter()
+        .map(|s| (s, today - s.day))
+        .filter(|(_, days)| *days >= after as i64)
+        .collect();
+    overdue.sort_by_key(|(s, days)| (std::cmp::Reverse(*days), s.entry.clone()));
+
+    let Some((worst, days)) = overdue.first().copied() else {
+        let state = match read.unread {
+            0 => State::Ok,
+            _ => State::Unmeasurable,
+        };
+        let detail = match nodes {
+            0 => measured,
+            _ => format!("none past {after} day(s); {measured}"),
+        };
+        return Clock::new(Clock::SUPERSEDED, Q, state, detail).at(interval);
+    };
+
+    let subjects: Vec<String> = overdue
+        .iter()
+        .flat_map(|(s, days)| {
+            s.nodes.iter().map(move |n| {
+                format!(
+                    "{n} — {} changed {days} day(s) ago, to sha256:{}",
+                    s.entry,
+                    s.digest.get(..12).unwrap_or(&s.digest)
+                )
+            })
+        })
+        .collect();
+    let mut clock = Clock::new(
+        Clock::SUPERSEDED,
+        Q,
+        State::Due,
+        format!(
+            "{} node(s) past {after} day(s), longest {days} ({}); {measured}",
+            subjects.len(),
+            worst.entry
+        ),
+    )
+    .at(interval)
+    // Not `propose`. Whether a claim survives a new edition is the judgement the version
+    // asks for, and a drafted commit touching the node would discharge the clock without
+    // anybody having made it.
+    .owing(
+        subjects.len(),
+        "re-read the source, and commit to each node below — a commit touching it discharges it",
+    );
+    clock.subjects = subjects;
+    clock
+}
+
 // ── assembly ──────────────────────────────────────────────────────────────────
 
 /// Read every clock against `root`.
@@ -683,6 +791,7 @@ pub(crate) fn read_clocks(root: &Path, cfg: &crate::config::DueConfig, today: i6
         clock_catalog(root, today),
         clock_questions(root, cfg.questions_after),
         clock_phases(root, cfg.phases_after, today),
+        clock_superseded(root, cfg.superseded_after, today),
     ]
     .into_iter()
     .map(|c| match cfg.declined.get(c.id) {
@@ -722,7 +831,7 @@ pub fn due(
 
 /// The text report.
 ///
-/// The closing sentence is not decoration. A reader who has just been shown four lines with
+/// The closing sentence is not decoration. A reader who has just been shown five lines with
 /// counts on them will reach for the reading they already have — that a report with numbers
 /// in it is a list of problems — and this report's whole argument is that it is not one.
 pub(crate) fn render(report: &DueReport, root: &Path) -> String {
@@ -739,6 +848,9 @@ pub(crate) fn render(report: &DueReport, root: &Path) -> String {
             if matches!(c.state, State::Due | State::Undeclared | State::Unbuildable) {
                 let _ = writeln!(out, "  {:<5} {:<10} → {remedy}", "", "");
             }
+        }
+        for subject in &c.subjects {
+            let _ = writeln!(out, "  {:<5} {:<10}   {subject}", "", "");
         }
         // A decline prints where to read why. Without it the row says only that somebody
         // switched a clock off, which is the reading this state exists to prevent.
