@@ -6,7 +6,7 @@
 //! made *"choose the name well"* the whole defence. The hazard is documented three times and
 //! guarded zero.
 //!
-//! # Three edits, not one
+//! # Four edits, not one
 //!
 //! The obvious one is inbound: every other node's `target:` that resolves to the old path.
 //!
@@ -25,6 +25,14 @@
 //!
 //! The third is the file itself, via `git mv` where there is a repository, so history follows
 //! the node rather than stopping at its old name.
+//!
+//! The fourth is one line in the moved node: `moved-from:`, naming the path it left the way a
+//! `target:` would. `git log --follow` pairs a move's two halves by similarity, and the age
+//! replay deliberately does not: it reads every move as a delete plus an add, so that a move
+//! made by hand answers the same (#1171). So without the line, an orphan or an open question that was only renamed
+//! restarts its count of commits, and `orphan-in` and `due` read that count as neglect. With
+//! it, the age folds carry the count across the move (#1180). The line replaces any earlier
+//! one, because each move names only the path it left.
 //!
 //! # What it deliberately does not do
 //!
@@ -114,6 +122,13 @@ pub struct RenameReport {
     /// Repository-relative move. One entry, or none when blocked.
     pub moves: Vec<Edit>,
     pub edits: Vec<Edit>,
+    /// The `moved-from:` line written into the moved node, so that its ages carry across the
+    /// move (#1180). Reported under the node's new path. `line` is where the line lands: past
+    /// the end when the node declared none, and replacing the old line when it did, whose
+    /// value `from` then carries. Absent for a catalog entry, which has no age, and when
+    /// blocked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub moved_from: Option<Edit>,
     /// Markdown references to the old path. Reported, never rewritten.
     pub unhandled: Vec<Unhandled>,
     /// Why this cannot proceed. Non-empty means nothing was touched.
@@ -272,6 +287,7 @@ pub(crate) fn plan(root: &Path, corpus: &Path, old: &str, new: &str) -> RenameRe
         applied: false,
         moves: vec![],
         edits: vec![],
+        moved_from: None,
         unhandled: vec![],
         blocked: vec![],
     };
@@ -403,11 +419,40 @@ pub(crate) fn plan(root: &Path, corpus: &Path, old: &str, new: &str) -> RenameRe
         from: from.clone(),
         to: to.clone(),
     });
+    let old_text = std::fs::read_to_string(&old_path).unwrap_or_default();
+    report.moved_from = Some(moved_from_line(
+        report.moved_file(),
+        &old_text,
+        relative_target(&to, &from),
+    ));
     report.commit_subject = format!(
         "migrate: {from} → {to} ({} inbound link(s) rewritten)",
         report.inbound().count()
     );
     report
+}
+
+/// Where the `moved-from:` line goes in `text`, and what it replaces.
+///
+/// Top level only: the key starts its line. A new line goes at the end, which is top level
+/// whatever the file ends with, and leaves every edit's line number where it was.
+fn moved_from_line(file: String, text: &str, to: String) -> Edit {
+    let lines: Vec<&str> = text.lines().collect();
+    let at = lines.iter().position(|l| l.starts_with("moved-from:"));
+    Edit {
+        file,
+        line: at.unwrap_or(lines.len()) + 1,
+        from: at
+            .and_then(|i| value_on(lines[i], "moved-from"))
+            .map(|(_, _, v)| v)
+            .unwrap_or_default(),
+        to,
+    }
+}
+
+/// The line [`moved_from_line`] placed.
+pub(crate) fn moved_from_text(e: &Edit) -> String {
+    format!("moved-from: {}", e.to)
 }
 
 /// The keys whose value names a catalog entry: an edge's `source:`, and a quotation's `of:`
@@ -438,6 +483,7 @@ fn plan_catalog(root: &Path, corpus: &Path, from: String, new: &str) -> RenameRe
         applied: false,
         moves: vec![],
         edits: vec![],
+        moved_from: None,
         unhandled: vec![],
         blocked: vec![],
     };
@@ -646,6 +692,18 @@ fn apply(root: &Path, report: &mut RenameReport) -> Result<()> {
         std::fs::write(&path, out)?;
     }
 
+    // After the link edits, which it cannot disturb: it replaces one line of its own or
+    // adds one past the last.
+    if let Some(e) = &report.moved_from {
+        let text = std::fs::read_to_string(&new_path)?;
+        let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+        match lines.get_mut(e.line - 1) {
+            Some(line) => *line = moved_from_text(e),
+            None => lines.push(moved_from_text(e)),
+        }
+        std::fs::write(&new_path, lines.join("\n") + "\n")?;
+    }
+
     report.applied = true;
     Ok(())
 }
@@ -693,6 +751,15 @@ pub(crate) fn render_rename(r: &RenameReport) -> String {
         for e in &own {
             let _ = writeln!(out, "  {}:{}  {} → {}", e.file, e.line, e.from, e.to);
         }
+    }
+    if let Some(e) = &r.moved_from {
+        let _ = writeln!(
+            out,
+            "\nThe moved node records where it came from, so its ages carry:\n  {}:{}  {}",
+            e.file,
+            e.line,
+            moved_from_text(e)
+        );
     }
     if !r.unhandled.is_empty() {
         let _ = write!(
@@ -825,6 +892,83 @@ mod tests {
         assert!(
             moved.contains("target: ../concept/sibling.yml"),
             "the moved node still points at its old sibling: {moved}"
+        );
+    }
+
+    /// The fourth edit. The moved node names the path it left, so the age folds can carry
+    /// its counts across the move (#1180). It is not a link, so it is counted apart from the
+    /// links: the summary and the commit subject still count the same thing.
+    #[test]
+    fn the_moved_node_records_the_path_it_left() {
+        let (_t, root, corpus) = corpus();
+        write(
+            &corpus.join("concept/old.yml"),
+            "class: concept\nlabel: Old\n",
+        );
+
+        let mut r = plan(&root, &corpus, "concept/old", "gauge/moved");
+        assert!(r.edits.is_empty(), "not a link edit: {:?}", r.edits);
+        apply(&root, &mut r).unwrap();
+
+        assert_eq!(
+            read(&corpus.join("gauge/moved.yml")),
+            "class: concept\nlabel: Old\nmoved-from: ../concept/old.yml\n"
+        );
+        let e = r.moved_from.as_ref().unwrap();
+        assert_eq!(
+            (e.file.as_str(), e.line),
+            (".yidam/corpus/gauge/moved.yml", 3)
+        );
+        assert!(render_rename(&r).contains("gauge/moved.yml:3  moved-from: ../concept/old.yml"));
+        assert!(r.commit_subject.ends_with("(0 inbound link(s) rewritten)"));
+    }
+
+    /// Each move names only the path it left, so a second rename replaces the line rather
+    /// than adding another.
+    #[test]
+    fn a_second_move_replaces_the_line_the_first_wrote() {
+        let (_t, root, corpus) = corpus();
+        write(
+            &corpus.join("concept/mid.yml"),
+            "class: concept\nmoved-from: ../concept/first.yml\nlabel: Mid\n",
+        );
+
+        let mut r = plan(&root, &corpus, "concept/mid", "concept/last");
+        apply(&root, &mut r).unwrap();
+
+        assert_eq!(
+            read(&corpus.join("concept/last.yml")),
+            "class: concept\nmoved-from: ../concept/mid.yml\nlabel: Mid\n"
+        );
+        assert_eq!(r.moved_from.as_ref().unwrap().from, "../concept/first.yml");
+    }
+
+    /// The line `rename` writes is the one the history fold reads. Rename an uncited open
+    /// question, commit it, and both of its ages are still the ones it had.
+    #[test]
+    fn a_renamed_node_keeps_its_ages() {
+        use crate::cmd::lint::history::{open_question_age, uncited_age};
+        use crate::git::fixture::{commit_at, init};
+
+        let (_t, root, corpus) = corpus();
+        init(&root);
+        write(
+            &corpus.join("concept/old.yml"),
+            "class: concept\nlabel: Old\ndescription: it is `[open]`\n",
+        );
+        commit_at(&root, "open: old", "2026-01-01T00:00:00Z");
+        write(&corpus.join("gauge/g.yml"), "class: gauge\n");
+        commit_at(&root, "establish: g", "2026-01-05T00:00:00Z");
+
+        let mut r = plan(&root, &corpus, "concept/old", "gauge/moved");
+        apply(&root, &mut r).unwrap();
+        commit_at(&root, &r.commit_subject, "2026-01-09T00:00:00Z");
+
+        let key = ".yidam/corpus/gauge/moved.yml";
+        assert_eq!(uncited_age(&root).get(key).map(|a| a.commits), Some(3));
+        assert_eq!(
+            open_question_age(&root).get(key).map(|a| a.commits),
+            Some(3)
         );
     }
 

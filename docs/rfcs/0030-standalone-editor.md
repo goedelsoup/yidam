@@ -476,7 +476,7 @@ being built:
   buffer publishes nothing new, so a page cannot tell *clean* from *not judged yet*. The server
   answers any request it does not know with `null`, and does so **after** the publishes a
   preceding change produced —
-  [`a_request_after_a_change_is_answered_after_its_diagnostics`](../../yidam/cli/src/cmd/lsp.rs#L874)
+  [`a_request_after_a_change_is_answered_after_its_diagnostics`](../../yidam/cli/src/cmd/lsp.rs#L906)
   pins the order. The bridge sends `$/yidam/barrier` after every `didChange` and treats the
   reply as the verdict's edge
   ([`overlay.ts:396`](../../yidam/editors/web/src/lib/overlay.ts#L396)). No protocol extension,

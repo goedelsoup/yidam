@@ -1692,6 +1692,32 @@
         }
       }
     },
+    "moved_from": {
+      "type": "object",
+      "description": "`rename` only, and only for a corpus node. The `moved-from:` line written into the moved node, naming the path it left the way a `target:` would, so that `orphan-in`'s uncited age and `due`'s open-question age carry across the move instead of restarting. `file` is the node's new path. `line` is where the line lands: past the end when the node declared none, or the line it replaces, whose value `from` then carries (empty otherwise). Absent for a catalog entry and when blocked.",
+      "required": [
+        "file",
+        "line",
+        "from",
+        "to"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Repository-relative."
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      }
+    },
     "unhandled": {
       "type": "array",
       "description": "`rename` only. Markdown references to the old path. Reported, NEVER rewritten: RFC-0014 scopes the rewrite to the corpus walk, and the difference between 'renamed' and 'renamed and quietly broke the README' is whether anybody was told.",
