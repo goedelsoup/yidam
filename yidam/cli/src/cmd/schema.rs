@@ -360,13 +360,17 @@ pub fn corpus_ontology_schema() -> Value {
                                 spell the pair at least five ways. `capacity` names the \
                                 target's property counting how many may hold it at once — \
                                 `seats` on an office — so a board of three is not three \
-                                overlaps; a target omitting it holds one. A class that omits \
-                                the field is not checked.",
+                                overlaps; a target omitting it holds one. `complete` names \
+                                the target's property marking its line of holders finished \
+                                — `line_complete: true` — and `interval-gap` warns on a span \
+                                inside that line held by fewer than it seats. A class that \
+                                omits the field is not checked.",
                 "properties": {
                     "start": non_empty_string(),
                     "end": non_empty_string(),
                     "exclusive_over": non_empty_string(),
-                    "capacity": non_empty_string()
+                    "capacity": non_empty_string(),
+                    "complete": non_empty_string()
                 },
                 "required": ["start", "end"],
                 "additionalProperties": false
@@ -1199,6 +1203,10 @@ mod tests {
         let seated =
             class("  start: began\n  end: ended\n  exclusive_over: of-office\n  capacity: seats\n");
         assert!(validator.validate(&seated).is_ok());
+        let complete = class(
+            "  start: began\n  end: ended\n  exclusive_over: of-office\n  complete: line_complete\n",
+        );
+        assert!(validator.validate(&complete).is_ok());
         for bad in [
             "  start: began\n",
             "  start: began\n  end: ended\n  exclusive: of-office\n",

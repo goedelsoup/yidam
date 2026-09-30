@@ -169,6 +169,14 @@
       "violations": []
     },
     {
+      "id": "interval-gap",
+      "title": "A span inside a finished line of holders that fewer hold than the target seats",
+      "severity": "warn",
+      "rationale": "A target whose `interval.complete:` property is `true` has said its line of holders is finished, so a span inside it that fewer instances hold than it seats is a missing tenure or a wrong date. Only interior spans count: before the first holder the line had not started, and after the last it may have ended. A target that declares nothing is not checked, because most corpora are incomplete by design. Intervals are half-open and compared at the precision both sides share, so a handover on one date is not a gap, and neither is `1893` followed by `1893-06-01`. Warn, because a line marked complete may already hold real gaps.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "edge-untagged",
       "title": "An empirical edge that does not say what it rests on",
       "severity": "warn",

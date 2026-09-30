@@ -189,20 +189,24 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// **Raised again on both when `interval:` gained `capacity:` (#1205).** The delta is **13
 /// words in `GRAPH.md`**: the check-table row and one clause of the same paragraph. The
 /// measurement is in `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
+///
+/// **Raised again on both when `interval:` gained `complete:` (#1213).** The delta is **74
+/// words in `GRAPH.md`**: the `interval-gap` row and the paragraph naming the mark. The
+/// measurement is in `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
 const READ_CEILING: &[(&str, &str, usize)] = &[
-    ("AGENTS.md", "Before you write or revise a node", 6_619),
+    ("AGENTS.md", "Before you write or revise a node", 6_693),
     ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
         4_382,
     ),
-    ("AGENTS.md", "Before you change a class", 4_941),
+    ("AGENTS.md", "Before you change a class", 5_015),
     ("AGENTS.md", "Before you retrieve", 2_959),
     (
         "sadhana/root/AGENTS.md",
         "Before you write or revise a node",
-        7_813,
+        7_887,
     ),
     ("sadhana/root/AGENTS.md", "Before you run a phase", 5_800),
     (
@@ -210,7 +214,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
         "Before a claim crosses a corpus boundary",
         5_576,
     ),
-    ("sadhana/root/AGENTS.md", "Before you change a class", 6_135),
+    ("sadhana/root/AGENTS.md", "Before you change a class", 6_209),
     ("sadhana/root/AGENTS.md", "Before you retrieve", 4_153),
 ];
 
@@ -391,7 +395,10 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 ///
 /// **Raised to 20,307 when `interval:` gained `capacity:` (#1205).** The delta is **13 words in
 /// `GRAPH.md`**, the same 13 both recurring routes moved by. 20,294 + 13 is this figure exactly.
-const BOOTSTRAP_CEILING: usize = 20_307;
+///
+/// **Raised to 20,381 when `interval:` gained `complete:` (#1213).** The delta is **74 words in
+/// `GRAPH.md`**, the same 74 both recurring routes moved by. 20,307 + 74 is this figure exactly.
+const BOOTSTRAP_CEILING: usize = 20_381;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -544,9 +551,14 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// `capacity:` clause and row that [`BOOTSTRAP_CEILING`] moved by, and 41 in the evidence half,
 /// the allen-county-ohio measurement: 19 findings without `capacity:`, 6 with it. 10,531 + 54 is
 /// this figure exactly.
+///
+/// **`GRAPH.md` re-measured to 10,830 for #1213.** 245 words arrived — 74 in the rules half, the
+/// `interval-gap` row and paragraph that [`BOOTSTRAP_CEILING`] moved by, and 171 in the evidence
+/// half, the allen-county-ohio measurement against its succession calculator. 10,585 + 245 is
+/// this figure exactly.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_686),
-    ("yidam/prelude/GRAPH.md", 10_585),
+    ("yidam/prelude/GRAPH.md", 10_830),
     ("yidam/prelude/guidelines/directories.md", 12_820),
     ("yidam/prelude/skills/bootstrap.md", 11_161),
 ];

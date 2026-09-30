@@ -96,6 +96,7 @@ against it:
 | `unlicensed-edge` | a relationship the class does not declare | only under `edge_policy: exhaustive` |
 | `edge-target-class` | an edge resolving to a node of the wrong class | yes |
 | `interval-overlap` | more instances holding one target at once than it seats, or an end before its start | only where the class declares `interval:` |
+| `interval-gap` | a span inside a finished line of holders that fewer hold than it seats | no, and only on a target marking its line finished |
 | `missing-property` | a declared property the instance omits | only where the class says `required: true` |
 | `claim-property-undeclared` | a value spelling a standing in a property the class did not declare `type: claim` | no |
 
@@ -123,6 +124,11 @@ an instance holding anything else fails, with the set named. The match is exact,
 hold one office at once, and `capacity: seats` lets each office say how many may. Intervals
 are half-open, compared at the precision both sides share, and open while the end is absent.
 [why](GRAPH.evidence.md#interval-overlap)
+
+**A target may mark its line of holders finished.** `complete: line_complete` asks
+`interval-gap` to warn on a span inside the line of an office marked `line_complete: true`
+that fewer hold than it seats. Before the first holder and after the last are not gaps.
+[why](GRAPH.evidence.md#interval-gap)
 
 **A `quotation` is words copied from a catalog entry**: `of:` names the entry, `span:` holds
 the words, and `sha256:` names the artifact when the entry holds more than one.
