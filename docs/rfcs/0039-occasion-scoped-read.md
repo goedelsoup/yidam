@@ -1,6 +1,6 @@
 # RFC-0039 — A read is scoped to the occasion, not to the repository
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** G9
 - **Relates to:**
   - RFC-0038 (the rules/evidence split, which took 6,687 words off the recurring read and 7,819 off the bootstrap path and stopped where the remaining weight is reference rather than essay — this RFC is the move its ceiling docstring said would be needed next)
@@ -286,15 +286,22 @@ records twice.
   falsifier is to count, over the routes' current file links, how often a read of `GRAPH.md` is
   whole-file versus ranged. If it is whole-file every time, the route must say *stop at* the
   next heading, in words, and the ceiling should be measured on the file the agent will actually
-  open. Run this before writing the routes.
+  open. Run this before writing the routes. *Resolved by #967: read as the section.* Six runs
+  handed a fragment link read the section and none opened the file; three runs handed the file
+  link read it whole. The routes ship as section links and the ceilings are measured per
+  section.
 - **Is the census a gap in the skill?** "Mark claim confidence" is 1,203 words no step names.
   Either a bootstrap seeds no claim that needs a tag — in which case it is reference and comes
   off the bootstrap read — or step 6 is missing a sentence. The answer decides 1,203 words of
-  the bootstrap ceiling and is a question for whoever last seeded a corpus.
+  the bootstrap ceiling and is a question for whoever last seeded a corpus. *Resolved by #968:
+  a gap.* 599 of 624 genesis nodes across 19 corpora carry a claim tag, and this section was the
+  only instruction behind them. Step 6 now names the tags, and the section stays on the
+  bootstrap read.
 - **Which vocabulary names the occasion?** The table uses commit verbs because every agent must
   choose one; PHASES.md's phase types are the alternative and RFC-0028's kuten profiles already
   speak that vocabulary. If the two disagree about where an act belongs, the verb wins here and
-  the disagreement is a finding about the phase types.
+  the disagreement is a finding about the phase types. *Resolved by #972: the verb.* The three
+  places the two disagree are #1136.
 - **How does an existing derivation get the headings?** *Resolved by #969: a
   `<!-- REGEN: yidam routes -->` block.* A vendored prelude data file fills it, so the occasion
   table is data rather than prose. `yidam migrate routes` installs its markers once, and
