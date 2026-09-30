@@ -147,7 +147,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: publish (${{ inputs.tag }})
+    name: publish
     needs: build
     if: inputs.tag != ''
     runs-on: ubuntu-latest
