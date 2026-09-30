@@ -21,19 +21,25 @@ yidam doctor — /home/you/my-domain
                      → yidam index-build (needs the `index` feature)
   ok    computed     this corpus computes nothing about itself, and declares no calculator
   ok    regen        every REGEN block holds what its generator produces
+  warn  routes       `AGENTS.md` has no `yidam routes` block, so no re-vendor reaches its reading list
+                     → mise run yidam-vendor-update, then yidam migrate routes
+  warn  scaffold     no YIDAM region in `.github/workflows/ci.yml` or `.claude/CLAUDE.md`, so no re-vendor reaches the part that is yidam's
+                     → yidam migrate scaffold, then mise run yidam-vendor-update
+  ok    ci           runs yidam graph-check, yidam lint, yidam regen --check
   ok    catalog      no TTL declared — 1 source(s) never expire. Set `[catalog] ttl_days` or declare `ttl_days:` on an entry.
   fail  corpora      not installed: hydrology
                      → mise run tonpa-install
   ok    corpus       no corpus files yet
+  ok    contract     no classes yet
   ok    vault        none declared
   ok    remote-index no remote index declared
   ok    policy       3 decision(s), all inherited
   ok    governance   single-elector — no .yidam/sangha/electors.md
   ok    kuten        none — the loop runs on the template's defaults
   skip  kuten-read   no kuten is declared, so nothing carries one
-  ok    build        <version> (<commit>) with features: reports, export-graph, tonpa, serve-http, vault-s3, s3-vectors, catalog-fetch
+  ok    build        <version> (<commit>) with features: reports, export-graph, tonpa, serve-http, vault-s3, s3-vectors, catalog-fetch, pdf-text
 
-2 failing check(s), 2 warning(s).
+2 failing check(s), 4 warning(s).
 ```
 
 The version and commit are redacted; your own run prints them. Pinning a pair here would
@@ -51,9 +57,13 @@ exit code unless you pass `--strict`, which is the reading a CI job wants.
 | `index` | Is the index built, and is it current? |
 | `computed` | What has this corpus computed about itself, and does it still stand? |
 | `regen` | Are the REGEN blocks current? |
+| `routes` | Does `AGENTS.md` carry the reading routes a re-vendor updates? |
+| `scaffold` | Do `ci.yml` and `CLAUDE.md` mark the part a re-vendor updates? |
+| `ci` | Does this repository's CI run a corpus gate? |
 | `catalog` | Have any source records aged out? |
 | `corpora` | Did the corpora this repository depends on arrive? |
 | `corpus` | Can every corpus file be read? |
+| `contract` | Has the ontology said what its classes require? |
 | `vault` | Can this repository reach its vaults? |
 | `remote-index` | Is the declared remote vector index usable from here? |
 | `policy` | Do this repository's own rules compile, and which are its own? |
@@ -173,7 +183,7 @@ yidam regen --check   # what CI runs — reports staleness, writes nothing
 ```
 
 **Careful:** `regen`, `status`, `open-questions` and the other index commands *rewrite files*.
-Thirty-three commands do; `yidam --help-all` marks each with a `*`. Against a checkout you only
+`yidam --help-all` marks each command that does with a `*`. Against a checkout you only
 mean to read, `yidam doctor` is the one that is guaranteed not to touch anything.
 
 **`this is a shallow clone, and a REGEN block cannot be generated from one`.** The block reports
@@ -298,6 +308,16 @@ which is the whole correctness story for a fetched corpus — so it works on a p
 binary built without the `tonpa` feature, which can read a corpus but not fetch one.
 
 ---
+
+## `contract` warns
+
+Your ontology never answered one of two questions. Does an instance have to carry a property?
+Is a class's `edges:` list closed? Until one class answers, the checks that read the answer
+cannot gate.
+
+Write `required:` on each property, `true` or `false`. Write `edge_policy:` on each class with
+edges, `exhaustive` or `characteristic`. `false` and `characteristic` gate nothing, but they
+answer the question. See *The class contract* in `.yidam/.vendor/prelude/GRAPH.md`.
 
 ## The pin is old, or the prelude is stale
 

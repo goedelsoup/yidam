@@ -32,6 +32,11 @@
   all it said, so the corpus arrived as bytes. Both example calculators answered *what does this
   link point at* in awk, which was a second implementation of `corpus/edges.rs` that no gate
   compared against the first.
+- **Amended 2026-09-29 (#1162):** §6's promise that an aged re-run whose answer had not moved
+  "still lands a commit" is scoped to the branch. On the proposal route the branch has not
+  moved, so the receipt names the same head and the tree is the one already proposed. Nothing
+  lands, and the pending proposal stands as the answer. The report said the opposite of what
+  happened, and now says where the tree was matched.
 - **Downstream reference case:** none yet. The first consumer is `examples/streamflow`, by
   construction — see "Why the first thing built is not the manifest".
 
@@ -82,8 +87,8 @@
 
 `prelude/GRAPH.md:566-640` closes the commit vocabulary, and seven of its operational verbs name
 acts a *pipeline* performs rather than acts a person performs. Four of them —
-[`extract`](../../yidam/prelude/GRAPH.md#L635), [`refresh`](../../yidam/prelude/GRAPH.md#L636),
-[`compute`](../../yidam/prelude/GRAPH.md#L637), [`reconcile`](../../yidam/prelude/GRAPH.md#L640) —
+[`extract`](../../yidam/prelude/GRAPH.md#L688), [`refresh`](../../yidam/prelude/GRAPH.md#L689),
+[`compute`](../../yidam/prelude/GRAPH.md#L690), [`reconcile`](../../yidam/prelude/GRAPH.md#L693) —
 name capabilities that exist nowhere in this repository. The other three have a command that
 produces an artifact and stops.
 
@@ -662,6 +667,14 @@ A step re-run under an ageing rule whose answer had not moved still lands a comm
 the intent rather than an oversight: the receipt names a new input commit, and that commit is the
 record that somebody looked. The report distinguishes it from a step whose output changed, because
 those are different events and only one of them is a change to the corpus.
+
+That holds on the branch, and only there. An epistemic step lands on `propose/<head>` and the
+branch does not move, so its re-run names the same head, builds the same receipt, and reproduces
+the tree already proposed. Nothing lands. This is kept rather than worked around, because the
+receipt carries no clock and a second clock would be a second place to read age from. The
+pending proposal already holds the answer, and a person has not yet ruled on it. Until they do,
+the step's age does not reset, so each run re-checks it. That is `due`'s direction for a clock it
+cannot satisfy: the corpus that asked to be re-checked is owed the check, not reassured.
 
 ### 6.1 — A directory is not a capability
 

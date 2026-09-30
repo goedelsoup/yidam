@@ -88,6 +88,25 @@ pub struct ExternalCitation {
     pub span: Option<String>,
 }
 
+/// One refusal a node declares in its own prose (RFC-0045).
+///
+/// A refusal is a sentence saying what the node's author declines to conclude — *"It does not
+/// establish that the decline has ended."* It is declared because it cannot be detected: the
+/// best lexicon measured against human rulings found 12 of 33, and the widest flagged 22
+/// paragraphs that were not refusals. `span` quotes the sentence verbatim from the node's own
+/// prose, for the reason a citation quotes one: a sentence number rots invisibly when the prose
+/// is rewritten, and a quote is held to the text by `refusal-span-drift`.
+///
+/// **A field, not a fourth tag.** A refusal is not a standing, and the sentence that makes one
+/// usually carries a tag of its own. The two are independent, so they are held apart.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Refusal {
+    pub span: Option<String>,
+    /// What the sentence declines to conclude, in a few words. Optional and never read by a
+    /// check: it is for the reader of an artifact that has to answer the refusal.
+    pub inference: Option<String>,
+}
+
 /// A corpus node: `.yidam/corpus/<class>/<name>.yml`.
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 pub struct CorpusInstance {
@@ -125,6 +144,13 @@ pub struct CorpusInstance {
     /// all, so this is a place for a practice that exists rather than a field asking for one.
     #[serde(default)]
     pub references: Option<Vec<String>>,
+    /// The refusals this node's prose makes, each quoted verbatim (RFC-0045).
+    ///
+    /// Named for `references:`'s reason: the key already survived through `extra`, and a field
+    /// that is named is one a check can read and a migration can write. `yidam derive check`
+    /// reads it to decide which refusals an artifact citing this node must answer.
+    #[serde(default)]
+    pub refuses: Option<Vec<Refusal>>,
     /// Every other top-level key, kept rather than dropped. See the module note.
     #[serde(flatten)]
     pub extra: serde_yaml::Mapping,
@@ -179,6 +205,12 @@ impl CorpusInstance {
                     .collect::<Vec<_>>()
             }),
             "references": self.references,
+            "refuses": self.refuses.as_ref().map(|refuses| {
+                refuses
+                    .iter()
+                    .map(|r| serde_json::json!({ "span": r.span, "inference": r.inference }))
+                    .collect::<Vec<_>>()
+            }),
             "cites": self.cites.as_ref().map(|cites| {
                 cites
                     .iter()

@@ -256,26 +256,10 @@ fn files(dir: &Path) -> Vec<String> {
 /// marks all thirty-two. The tests below assert a property of *every* writing command, and
 /// reading the short one would have quietly narrowed that to five.
 fn writing_commands() -> Vec<String> {
-    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
-        .arg("--help-all")
-        .output()
-        .unwrap();
-    let help = String::from_utf8_lossy(&out.stdout).to_string();
-    let mut names: Vec<String> = help
-        .lines()
-        .filter_map(|l| {
-            let rest = l.strip_prefix("  ")?;
-            let (name, after) = rest.split_once(char::is_whitespace)?;
-            after
-                .trim_start()
-                .strip_prefix("* ")
-                .map(|_| name.to_string())
-        })
-        .filter(|n| !n.is_empty() && !n.starts_with('-'))
-        .collect();
-    names.sort();
-    names.dedup();
-    names
+    common::writers_from_help()
+        .into_iter()
+        .filter_map(|(name, writes)| writes.then_some(name))
+        .collect()
 }
 
 /// The floor under the two tests below. A parser that stops recognising the `*` legend would
@@ -509,6 +493,33 @@ fn a_bootstrapped_repository_with_an_empty_corpus_can_still_export() {
             r.stderr
         );
     }
+}
+
+/// #919: `export --format llms` is how an agent reads a corpus, and with no `--out` it used to
+/// leave an untracked `llms.txt` at the root. It prints the pack instead, and the tree it read is
+/// the tree it leaves.
+#[test]
+fn export_llms_without_out_prints_and_writes_nothing() {
+    let d = bootstrapped_but_empty();
+    let before = files(d.path());
+    let r = run(d.path(), &["export", "--format", "llms"]);
+    assert_eq!(r.code, 0, "stderr: {}", r.stderr);
+    assert_eq!(
+        before,
+        files(d.path()),
+        "export --format llms wrote into the corpus"
+    );
+    assert!(
+        r.stdout.contains("Nodes: 0"),
+        "no pack on stdout: {}",
+        r.stdout
+    );
+    assert!(
+        !r.stdout.contains("llms.txt written"),
+        "the report landed in the pack: {}",
+        r.stdout
+    );
+    assert!(r.stderr.contains("→ stdout"), "{}", r.stderr);
 }
 
 /// `schema --settings` prints a compiled-in editor configuration and reads nothing from disk,

@@ -95,6 +95,19 @@ pub struct Resolution {
     /// `distinct_seats` into an absent field, which reads downstream as the one state the
     /// amendment says a consumer must not confuse with the others.
     pub independence: String,
+    /// The `rounds:` field, verbatim — or empty where the record carries none.
+    ///
+    /// **Verbatim for the reason `independence` is.** PROTOCOL.md asks for a count of how many
+    /// times the loop ran, and `rounds: two` or `rounds: 0` is a finding
+    /// (`resolution-deliberation-unrecorded`) rather than a value this reader should round to a
+    /// number or drop. Parsing it into an integer here would turn a malformed count into an
+    /// absent one, and the check could no longer say which of the two the record did.
+    pub rounds: String,
+    /// The `positions:` the record names as having been read, verbatim — `positions/<elector>-<question>.md`.
+    ///
+    /// With `rounds`, this is what makes Article III checkable rather than asserted: `tips`
+    /// says which commits were read, and this says which claims were contested and by whom.
+    pub positions: Vec<String>,
     /// Whether `rigpa/<evolution>` still exists.
     pub branch_present: bool,
 }
@@ -266,6 +279,29 @@ pub(crate) struct RecordHead {
     pub tips: Vec<String>,
     pub synthesized_by: Vec<String>,
     pub independence: String,
+    pub rounds: String,
+    pub positions: Vec<String>,
+}
+
+/// The evolution a resolution record names, from its text and path: the `evolution:` field,
+/// falling back to the filename stem.
+///
+/// The one derivation of [`Resolution::evolution`]. [`crate::cmd::lint::scope`] asks it of a
+/// record's past revisions, where there is no file on disk to read, and a second derivation
+/// would let the past and the present disagree about which resolution a record is.
+pub(crate) fn evolution_of(path: &str, text: &str) -> String {
+    evolution_or_stem(parse_resolution(text).evolution, Path::new(path))
+}
+
+fn evolution_or_stem(declared: String, path: &Path) -> String {
+    if declared.is_empty() {
+        path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string()
+    } else {
+        declared
+    }
 }
 
 /// Read a resolution record's frontmatter.
@@ -274,7 +310,7 @@ pub(crate) struct RecordHead {
 /// authored prose and a malformed one should cost the field it malformed, not the whole
 /// report.
 ///
-/// `tips:` and `synthesized-by:` are both list-or-scalar: `synthesized-by: ma/auditor` is the
+/// `tips:`, `synthesized-by:` and `positions:` are all list-or-scalar: `synthesized-by: ma/auditor` is the
 /// common case and a list is what a jointly authored synthesis writes. Reading only one shape
 /// would silently drop the other, and dropping it here reads downstream as *no seat executed
 /// this* — which is the finding the field exists to make, so it must not be producible by a
@@ -300,6 +336,15 @@ fn parse_resolution(text: &str) -> RecordHead {
         } else if let Some(v) = line.strip_prefix("independence:") {
             head.independence = unquote(v);
             list = None;
+        } else if let Some(v) = line.strip_prefix("rounds:") {
+            head.rounds = unquote(v);
+            list = None;
+        } else if let Some(v) = line.strip_prefix("positions:") {
+            list = Some("positions");
+            let v = unquote(v);
+            if !v.is_empty() {
+                head.positions.push(v);
+            }
         } else if let Some(v) = line.strip_prefix("synthesized-by:") {
             list = Some("synthesized_by");
             let v = unquote(v);
@@ -316,6 +361,7 @@ fn parse_resolution(text: &str) -> RecordHead {
             match line.trim_start().strip_prefix("- ") {
                 Some(item) => match key {
                     "tips" => head.tips.push(unquote(item)),
+                    "positions" => head.positions.push(unquote(item)),
                     _ => head.synthesized_by.push(unquote(item)),
                 },
                 // Any other top-level key ends the list.
@@ -386,15 +432,8 @@ pub(crate) fn sangha_data(root: &Path) -> SanghaReport {
         .iter()
         .map(|p| {
             let text = std::fs::read_to_string(p).unwrap_or_default();
-            let head = parse_resolution(&text);
-            let evolution = if head.evolution.is_empty() {
-                p.file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or_default()
-                    .to_string()
-            } else {
-                head.evolution
-            };
+            let mut head = parse_resolution(&text);
+            let evolution = evolution_or_stem(std::mem::take(&mut head.evolution), p);
             Resolution {
                 branch_present: refs.contains(&format!("rigpa/{evolution}")),
                 file: rel(root, p),
@@ -403,6 +442,8 @@ pub(crate) fn sangha_data(root: &Path) -> SanghaReport {
                 tips: head.tips,
                 synthesized_by: head.synthesized_by,
                 independence: head.independence,
+                rounds: head.rounds,
+                positions: head.positions,
             }
         })
         .collect();
@@ -694,6 +735,34 @@ mod tests {
         assert_eq!(head.tips, ["ma/a@1"]);
         assert_eq!(head.independence, "distinct-seats");
         assert_eq!(head.synthesized_by, ["ma/a"]);
+    }
+
+    /// `rounds:` and `positions:` in the order PROTOCOL.md's record format writes them: the
+    /// scalar sits between `synthesized-by` and `tips`, and the list comes last. A parser that
+    /// did not end `tips` at `positions:` would file the positions as tips read.
+    #[test]
+    fn rounds_and_positions_are_read_in_the_protocol_order() {
+        let head = parse_resolution(
+            "---\nevolution: e\nsynthesized-by: ma/a\nrounds: 2\nindependence: distinct-seats\n\
+             tips:\n  - ma/a@1\n  - ma/b@2\npositions:\n  - positions/a-e.md\n  - positions/b-e.md\n---\n",
+        );
+        assert_eq!(head.rounds, "2");
+        assert_eq!(head.tips, ["ma/a@1", "ma/b@2"]);
+        assert_eq!(head.positions, ["positions/a-e.md", "positions/b-e.md"]);
+        assert_eq!(head.synthesized_by, ["ma/a"]);
+    }
+
+    /// A count that is not one is kept as written, so the check can say *malformed* rather
+    /// than *missing*. And a record written before the fields existed carries neither.
+    #[test]
+    fn rounds_is_read_verbatim_and_positions_as_a_scalar_too() {
+        let head = parse_resolution("---\nrounds: two\npositions: positions/a-e.md\n---\n");
+        assert_eq!(head.rounds, "two");
+        assert_eq!(head.positions, ["positions/a-e.md"]);
+
+        let absent = parse_resolution("---\nevolution: e\ntips:\n  - ma/x@1\n---\n");
+        assert_eq!(absent.rounds, "");
+        assert!(absent.positions.is_empty(), "{absent:?}");
     }
 
     /// A record with no frontmatter costs its fields and nothing else.

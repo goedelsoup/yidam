@@ -13,6 +13,7 @@ pub(crate) mod corpus;
 pub(crate) mod count;
 pub(crate) mod cycle;
 pub(crate) mod decisions;
+mod derive;
 mod diff;
 mod doctor;
 pub(crate) mod due;
@@ -29,6 +30,7 @@ mod export_rdf;
 #[cfg(feature = "export-sqlite")]
 mod export_sqlite;
 mod export_web;
+mod gates;
 pub(crate) mod graph;
 #[cfg(feature = "index")]
 // Widened for `crate::retrieval::vector`, which resolves the embedding model by name and
@@ -48,6 +50,8 @@ mod lsp;
 mod migrate;
 pub(crate) mod migrate_findings;
 pub(crate) mod migrate_references;
+pub(crate) mod migrate_routes;
+pub(crate) mod migrate_scaffold;
 mod overlay;
 pub(crate) mod pack;
 pub(crate) mod phase;
@@ -56,11 +60,13 @@ pub(crate) mod policy;
 pub(crate) mod practice;
 pub(crate) mod propose;
 pub(crate) mod query;
+mod record;
 mod regen;
 pub(crate) mod registry;
 mod rename;
 mod replay;
 mod retrieve;
+mod routes;
 pub(crate) mod run;
 mod samudaya_audit;
 mod sangha;
@@ -72,7 +78,7 @@ pub(crate) mod status;
 pub mod tonpa;
 // The tracked set, shared by the two commands that copy this repository into another one:
 // `clone` and `overlay` (#912, #984).
-mod tracked;
+pub(crate) mod tracked;
 // Ungated. The store, the cache and the `file://` backend need no network, and the light
 // build every derived repository installs is the one that most needs to read a vault it
 // cannot push to.
@@ -87,8 +93,8 @@ pub use bench::{
 pub use build::{crates_index, packages_index};
 pub use bundle::bundle;
 pub use catalog::{
-    catalog_audit, fetch as catalog_fetch, parse_binding, reconcile as catalog_reconcile,
-    FetchOptions, ReconcileOptions,
+    catalog_audit, extract as catalog_extract, fetch as catalog_fetch, parse_binding,
+    reconcile as catalog_reconcile, ExtractOptions, FetchOptions, ReconcileOptions,
 };
 pub use check_diff::check_diff;
 pub use clone::{clone, NOT_INHERITED, TEMPLATE_MARKERS};
@@ -97,12 +103,14 @@ pub use corpus::{corpus_index, graph_check, open_questions};
 pub use count::count;
 pub use cycle::cycle;
 pub use decisions::decisions_log;
+pub use derive::{run as run_derive, DeriveCommand};
 pub use diff::diff_corpus;
 pub use doctor::doctor;
 pub use due::due;
 pub use embed::{embed, EmbedOptions};
 pub use estimate::estimate;
 pub use export::{export, list_formats, run_export, ExportFormat, ExportOptions, RdfFormat};
+pub use gates::gates;
 pub use graph::{graph, neighbors};
 #[cfg(feature = "index")]
 pub use index_build::index_build;
@@ -118,6 +126,7 @@ pub use lint::{
     Options as LintOptions, Relocation, Violation as LintViolation, LINT_SEVERITIES,
 };
 pub use lsp::serve_lsp;
+pub use routes::routes;
 
 pub use log::{log, Filter as LogFilter};
 pub use overlay::overlay;
@@ -134,7 +143,8 @@ pub use regen::generator_names as regen_generator_names;
 // `doctor` asks the same question `regen --check` asks, through the same generator list.
 pub use migrate::{migrate, Operation as MigrateOperation};
 pub use policy::{run as run_policy, PolicyCommand};
-pub(crate) use regen::{stale_blocks, unclaimed_blocks};
+pub use record::record;
+pub(crate) use regen::{refresh_quietly, stale_blocks, unclaimed_blocks};
 pub use registry::{agents_index, skills_index};
 pub use rename::rename;
 pub use replay::replay;

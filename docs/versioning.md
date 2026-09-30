@@ -54,11 +54,13 @@ origin    = "git@github.com:goedelsoup/yidam.git"
 commit    = "88edd17f4c2a1b09e3d5f7a8c6b4e2d1a9f0c3b5"
 template  = "v0.1.0"
 committed = "2026-08-27"
+cli       = "0.16.0 (ce5e738)"
 ```
 
 `commit` is the field that makes the pin resolvable — it is what the re-vendor procedure and CI
 check out. `template` is the template-layer tag at that commit, or `"untagged"`. `committed` is
-that commit's author date, which is how `yidam doctor` reports the prelude's age.
+that commit's author date, which is how `yidam doctor` reports the prelude's age. `cli` is the
+`yidam` binary in use when the file was written: its version and build commit.
 
 There is one optional table beside it, and it is the repository's rather than yidam's:
 

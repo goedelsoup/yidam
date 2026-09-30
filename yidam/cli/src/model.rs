@@ -494,14 +494,23 @@ pub(crate) fn file_stem(filename: &str) -> String {
 /// Parse every corpus instance into a [`NodeView`], resolving link targets
 /// to node ids. Instances that fail YAML parsing degrade to empty fields
 /// rather than being dropped — the node exists even if malformed.
+///
+/// **Not a duplicate of [`crate::corpus`]'s read, and it cannot become one** (#1116). A
+/// [`DomainModel`] carries instance *bytes* that may have arrived as a bundle: there is no
+/// path to read and no root to open a [`crate::corpus::Corpus`] on, and the loaders there
+/// take both. What is shared is the record — [`crate::corpus::parse_or_default`] is the one
+/// place bytes become a [`crate::parse::CorpusInstance`], so a file this cannot read degrades
+/// the same way here as it does under the gate. The parse outcome it returns is dropped
+/// because a [`NodeView`] has nowhere to carry it and no consumer of this asks; `malformed-yaml`
+/// reports the working tree's copy of the same file.
 pub fn corpus_nodes(model: &DomainModel) -> Vec<NodeView> {
     model
         .instances
         .iter()
         .map(|inst| {
             let content = String::from_utf8_lossy(&inst.content).into_owned();
-            let parsed: crate::parse::CorpusInstance =
-                serde_yaml::from_str(&content).unwrap_or_default();
+            let (parsed, _malformed): (crate::parse::CorpusInstance, _) =
+                crate::corpus::parse_or_default(&content);
             let name = file_stem(&inst.filename);
             let links = parsed
                 .links
@@ -562,6 +571,15 @@ pub fn dependency_names(root: &Path) -> Vec<String> {
 /// The layout mirrors this repository's own — `corpus/<class>/<name>.yml` — because a bundle
 /// is a corpus. That is why the parsing below is the same parsing, and why a change to how
 /// instances are read cannot apply to one and not the other.
+///
+/// **It still cannot be [`crate::corpus::Corpus`]** (#1116). The directory it walks is an
+/// unpacked *dependency's* corpus under `.yidam/tonpa/`, which is not a repository: there is
+/// no root to resolve, no `.yidam/config.yml` to read a corpus directory out of, and the
+/// class is the containing directory's name rather than anything the model would derive. The
+/// record is shared where it can be — [`crate::corpus::parse_or_default`] — so a malformed
+/// dependency node degrades here the way a local one does. Its outcome is dropped: a
+/// dependency's files are not this repository's to report on, which is the same boundary the
+/// note above draws for edges.
 pub fn dependency_nodes(root: &Path, package: &str) -> Vec<NodeView> {
     let Some(dep) = crate::deps::resolved(root)
         .into_iter()
@@ -596,8 +614,8 @@ pub fn dependency_nodes(root: &Path, package: &str) -> Vec<NodeView> {
             let Ok(content) = std::fs::read_to_string(&path) else {
                 continue;
             };
-            let parsed: crate::parse::CorpusInstance =
-                serde_yaml::from_str(&content).unwrap_or_default();
+            let (parsed, _malformed): (crate::parse::CorpusInstance, _) =
+                crate::corpus::parse_or_default(&content);
             let name = file_stem(&f.file_name().to_string_lossy());
             let links = parsed
                 .links

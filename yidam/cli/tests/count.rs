@@ -241,9 +241,9 @@ fn a_block_shown_in_a_fence_is_not_regenerated() {
 
 /// One query that is a textual prefix of another does not overwrite its block.
 ///
-/// The first hazard `TheModelsLocatorIsStillAPrefixSearch` names, and the reason #1094 had to
-/// land before this: while every command was a bare generator name, no two stood in this
-/// relation and the old prefix search was harmless. `yidam count reach` is a prefix of
+/// The hazard `TheLocatorComparesTheWholeCommand` rules out in the model, and the reason
+/// #1094 had to land before this: while every command was a bare generator name, no two
+/// stood in this relation and the old prefix search was harmless. `yidam count reach` is a prefix of
 /// `yidam count reach[regulated=yes]`, and a corpus can now write that pair by accident.
 ///
 /// `0` for the second is the right answer and not an empty one — `regulated` holds

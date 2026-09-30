@@ -63,7 +63,7 @@ outgoing links") — orphans forbid a node with *no* edge; this forbids an edge 
   `old`, and rewrites it to `new`;
 - is committed as an **operational** event — a rename is infrastructure, and operational commits are
   *"legitimate provenance records but are not epistemic events"*
-  ([`GRAPH.md:568-569`](../../yidam/prelude/GRAPH.md#L568-L569)) — with a message naming the count, e.g.
+  ([`GRAPH.md:621-622`](../../yidam/prelude/GRAPH.md#L621-L622)) — with a message naming the count, e.g.
   `migrate: concept/old.yml → concept/new.yml (7 inbound links rewritten)`.
 
   **`migrate`, not `rename`.** This RFC said `rename:` until the command was built, and `rename` is
@@ -88,6 +88,14 @@ every derived corpus, and they interact with cross-repo links. Out of scope here
 mitigations remove the acute foot-gun now. Noted tradeoff: with path-as-identity plus atomic local
 rename, a *cross-repo* link (a consumer like BOSC mirroring yidam nodes) still breaks on rename;
 immutable IDs would fix that. Revisit once RFC-0013's schema is settled.
+
+**Amendment (#1180): a declared origin, short of an ID.** Path identity cost more than links. The
+age folds in `lint/history.rs` read a rename as a delete plus an add, so an orphan or an open
+question restarted its count of commits. `yidam rename` now writes `moved-from:` into the moved
+node, naming the old path as a `target:` would. The folds carry both ages across that
+declaration, and the graph frames stay keyed by path. `yidam migrate class` writes the same line
+into each instance it moves (#1192). This is not an immutable ID: nothing resolves through it,
+and a move made without either command declares nothing.
 
 ## Migration & compatibility
 

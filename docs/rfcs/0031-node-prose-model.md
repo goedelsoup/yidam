@@ -67,7 +67,7 @@ declaration rather than a format.
 
 An instance is a YAML document. `class`, `label`, a `description` block scalar carrying every
 paragraph the node asserts, a `properties` bag typed by the class, and `links`. The parser is
-[`CorpusInstance`](../../yidam/prelude/sdks/rust/src/corpus.rs#L93), and `description` is the only prose field
+[`CorpusInstance`](../../yidam/prelude/sdks/rust/src/corpus.rs#L112), and `description` is the only prose field
 it declares.
 
 Corpora did not stay inside it. The node schema is permissive at the top level, and the comment
@@ -76,16 +76,16 @@ that made it so records why:
 > Measured: with `false`, one derived repository was rejected 117 nodes of 117 (`summary`,
 > `findings`, `revisions`, `unfilled` at the top level), a projecting consumer 199 of 199
 >
-> — [`schema.rs:116-118`](../../yidam/cli/src/cmd/schema.rs#L116-L118)
+> — [`schema.rs:136-138`](../../yidam/cli/src/cmd/schema.rs#L136-L138)
 
 `summary` and `findings` are prose. So is `analytic_note`, which `class-asserts-purpose` tells an
 author to move prose *into*. None of them is on `CorpusInstance`, so all of them are silently
 dropped by every consumer of the parsed node.
 
 That is not a tidiness complaint, because two families of check disagree as a result.
-[`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1028) reads the parsed field — the
-comment at [`checks.rs:885-890`](../../yidam/cli/src/cmd/lint/checks.rs#L885-L890) is explicit
-that this is the intent — while [`count_in_node`](../../yidam/cli/src/claims.rs#L1551) takes the
+[`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1215) reads the parsed field — the
+comment in its body ([`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1215-L1236)) is explicit
+that this is the intent — while [`count_in_node`](../../yidam/cli/src/claims.rs#L1534) takes the
 file's whole text. Two definitions of *the node's prose* inside one binary, and #674 measures the
 gap on a real corpus: median 118 lines read as the file, 21 read as `description`, 34 read as
 `summary` + `description` + `findings`. The band that judges it was fitted on the first and the
@@ -139,17 +139,17 @@ implements it:
 ### 1.3 The claim counter is two parsers
 
 Because prose lives inside YAML and the counter scans the file's bytes, it must be a prose parser
-and a YAML parser at once. [`is_block_scalar_header`](../../yidam/cli/src/claims.rs#L1012) exists
+and a YAML parser at once. [`is_block_scalar_header`](../../yidam/cli/src/claims.rs#L995) exists
 for one reason:
 
 > Without this arm a claim in the first sentence of a `description:` block reaches back over the
 > header and serves `class: gage label: Riffle description: |` as part of what the corpus
 > asserted.
 >
-> — [`claims.rs:1009-1011`](../../yidam/cli/src/claims.rs#L1009-L1011)
+> — [`claims.rs:992-994`](../../yidam/cli/src/claims.rs#L992-L994)
 
 Beside it: `starts_a_block`, telling a YAML key from a wrapped prose line;
-[`stop_is_lexical`](../../yidam/cli/src/claims.rs#L1148), a hand-rolled sentence segmenter with
+[`stop_is_lexical`](../../yidam/cli/src/claims.rs#L1131), a hand-rolled sentence segmenter with
 four rules and a pinned 0.09% residue; and `is_narrated`, a grammar heuristic deciding mention
 from use — adopted after the typographic rule it replaced made a corpus publish 26 open questions
 against a true 72, in a generated block on its front page.
@@ -173,8 +173,8 @@ prose. Upstream gives three different answers to those two keys:
 | Component | Answer |
 |---|---|
 | [`CorpusLink`](../../yidam/prelude/sdks/rust/src/corpus.rs#L67) | ~~dropped~~ — **kept since #714**: the struct declares `claim_tag` and `source` beside `target` and `relationship` |
-| the published schema, [`schema.rs`](../../yidam/cli/src/cmd/schema.rs#L90) | ~~rejected~~ — **both keys named since #587**; the link item stays closed and now names what a corpus writes |
-| `yidam lint` | ~~nothing~~ — **`edge-untagged`, `edge-verified-unsourced` and `edge-standing-unheld`**, in [`lint/edge_claims.rs`](../../yidam/cli/src/cmd/lint/edge_claims.rs) |
+| the published schema, [`schema.rs`](../../yidam/cli/src/cmd/schema.rs#L100) | ~~rejected~~ — **both keys named since #587**; the link item stays closed and now names what a corpus writes |
+| `yidam lint` | ~~nothing~~ — **`edge-untagged`, `edge-verified-unsourced`, `edge-standing-unheld` and `edge-source-unresolved`**, in [`lint/edge_claims.rs`](../../yidam/cli/src/cmd/lint/edge_claims.rs) |
 | the reporting surfaces | ~~nothing~~ — **`open-questions`, `status`, `corpus-index` and the MCP `claims` and `open_questions`** read a tagged edge since #857, through [`claims::edge_claims`](../../yidam/cli/src/claims.rs) |
 
 The defect as filed was that the editor underlined 1,270 links as invalid while the runtime
@@ -199,7 +199,7 @@ amendment.)*
 > deliberately not the SDK's `extract_claims`, which is a line-oriented parser for the markdown
 > node model and reads `class: gage` as a claim over a YAML instance.
 >
-> — [`tools.rs:1120-1122`](../../yidam/cli/src/cmd/serve/tools.rs#L1120-L1122)
+> — [`tools.rs:1142-1144`](../../yidam/cli/src/cmd/serve/tools.rs#L1142-L1144)
 
 and the VS Code extension declines to parse corpus YAML rather than become "a second
 implementation of `parse_node`" ([`graph.ts:107-110`](../../yidam/editors/vscode/src/graph.ts#L107-L110)),
@@ -225,7 +225,7 @@ prose: [summary, description, findings]
 Absent, the set is `[description]` — which is every corpus written before this field existed, so
 nothing changes for them. This is the shape `claim_tag` already has: the corpus says, and no key
 name is blessed. It is deliberately *not* a fixed list of blessed names, for the reason
-[`schema.rs:116-118`](../../yidam/cli/src/cmd/schema.rs#L116-L118) already measured — a closed set is
+[`schema.rs:136-138`](../../yidam/cli/src/cmd/schema.rs#L136-L138) already measured — a closed set is
 what sent 117 nodes of 117 to be reshaped around a validator.
 
 Then every reader takes the declared set rather than the literal `description`:
@@ -313,7 +313,7 @@ node model that products would, for the first time, actually run.
    > The catalog schema describes frontmatter inside markdown, which yaml-language-server cannot
    > apply to a .md file
    >
-   > — [`schema.rs:668-669`](../../yidam/cli/src/cmd/schema.rs#L668-L669)
+   > — [`schema.rs:740-741`](../../yidam/cli/src/cmd/schema.rs#L740-L741)
 
    Every compiled per-class schema is delivered through `yaml.schemas`. Under Markdown nodes,
    none of them reaches a node in a third-party editor. This is the strongest argument against,
@@ -335,7 +335,7 @@ population already names:
 - **prose-to-structure ratio per node** — what fraction of a node's bytes are inside prose fields.
   #674 is one data point at roughly 34 of 118 lines; one is not a population.
 - **how many corpora already grew top-level prose keys**, and which. Two are known from
-  [`schema.rs:116-118`](../../yidam/cli/src/cmd/schema.rs#L116-L118) and one from #674.
+  [`schema.rs:136-138`](../../yidam/cli/src/cmd/schema.rs#L136-L138) and one from #674.
 - **how much of `claims.rs` is YAML-awareness** rather than claim semantics, measured by deleting
   it against a Markdown fixture set rather than estimated.
 
@@ -398,7 +398,7 @@ that much history, by as much as 17 points. One falls by under two points. The t
 own corpus, and it falls by 39, which is the next finding rather than a counter-example.
 
 **2. Coining is one corpus of sixteen, and the projecting consumer has stopped.** The three data
-points [`schema.rs:116-118`](../../yidam/cli/src/cmd/schema.rs#L116-L118) and #674 rest on are one
+points [`schema.rs:136-138`](../../yidam/cli/src/cmd/schema.rs#L136-L138) and #674 rest on are one
 corpus and one generator. Re-measured: that corpus — `ohio-education-funding`, public and already
 named upstream as the divergence canary — still coins, now on 129 nodes of 129 (`summary` on all
 of them, `findings` on 91, plus `figures`, `revisions` and `unfilled`). The projecting consumer
@@ -453,7 +453,7 @@ which Phase 1 does not do and which is a cheaper change than a format.
 #### 3.2.1 A soft-wrapped line beginning `word:` truncated a claim — fixed (#736)
 
 Found by the deletion above, and true in the YAML form with no format change in prospect.
-[`starts_a_block`](../../yidam/cli/src/claims.rs#L1116) read any line whose head is a bare token
+[`starts_a_block`](../../yidam/cli/src/claims.rs#L1099) read any line whose head is a bare token
 followed by a colon as a new YAML key, and a wrapped prose line is often exactly that shape:
 
 ```text
@@ -463,11 +463,11 @@ decades: there were still 22,498 acres of them in 1954. [verified] — the 1954 
 
 The claim was served as *"there were still 22,498 acres of them in 1954"* — the subject is on
 the line above, and the boundary is a wrap column, which is the same defect
-[`ends_statement`](../../yidam/cli/src/claims.rs#L1228) was rewritten to remove. It cut 125 of
+[`ends_statement`](../../yidam/cli/src/claims.rs#L1211) was rewritten to remove. It cut 125 of
 16,297 served claims (0.77%) across the population, the same order as the 179 lexical-stop
 truncations `stop_is_lexical` was given four rules to fix.
 
-The fix is [`continues_prose`](../../yidam/cli/src/claims.rs#L1092): a key-shaped line is a
+The fix is [`continues_prose`](../../yidam/cli/src/claims.rs#L1075): a key-shaped line is a
 wrapped sentence when the line above it is prose — not blank, not a key, not a list item, not a
 comment — and it does not stand to the left of that line. Ground truth came from a YAML
 tokenizer rather than from the served claims: of 41,248 key-shaped lines in the population, 404
@@ -534,7 +534,7 @@ properties:
 
 `prose: true`, absent meaning false, inheriting `required`'s argument verbatim — *"every corpus
 written before this field existed was written under a schema where the question could not be
-asked"* — [`ontology.rs:79-88`](../../yidam/prelude/sdks/rust/src/ontology.rs#L79-L88).
+asked"* — [`ontology.rs:92-101`](../../yidam/prelude/sdks/rust/src/ontology.rs#L92-L101).
 `ProseFields` gains a second axis, `prose::of` walks `properties` for the names a class flagged,
 and every consumer above gets the same answer without learning a new shape.
 
@@ -693,6 +693,17 @@ RFC-0030 shipping first.
    tags by design. Both operands are opted into separately, so a corpus can adopt edge tags on a
    graph whose nodes were graded years earlier and inherit findings it did not create — which is
    the empty-population argument above, failing for the first time in the family.
+
+   The fourth, `edge-source-unresolved` (#1067, 2026-09-29), is the one that ships at Error, and
+   on the ground the other three cannot claim. `edge-verified-unsourced` read only whether a
+   `source:` was present, so a value naming a renamed or nonexistent entry passed as one that
+   resolves; a derived corpus wrote the resolving check locally. What had to be settled was what
+   the key denotes, which nothing had written down: measured over 1,985 link sources in four
+   derived corpora, one writes a catalog stem or a decision record's `id:`, two write the stem,
+   and one writes a path relative to the node. All three are admitted and all 1,985 resolve. It
+   gates because whether the cited thing is in the tree is `dangling-edge`'s kind of question,
+   not a judgement about standing, and because the population was zero everywhere it was
+   measured — the empty-population argument, holding again.
 
 3. **Is a finding record a node-level key or its own file?** In the node, it is beside what it is
    about and travels with a rename. In `.yidam/findings/`, it does not enlarge every node that

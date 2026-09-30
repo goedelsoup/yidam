@@ -19,7 +19,7 @@ A corpus node has **eleven** string forms across this repository. Two of them ca
 corpus a node came from, one can say which revision, and none can say both. The forms are not
 alternatives a caller chooses between — they are what different surfaces invented independently
 because there was no first form to reuse, and one of them,
-[`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L351), already accepts three spellings that
+[`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L373), already accepts three spellings that
 no contract mentions. An ad-hoc resolver is what an absent grammar looks like from the inside.
 
 The absence has a second face. A derived corpus folded 168 crate paths and 145 catalog and node
@@ -46,7 +46,7 @@ That is not a latent tidiness issue. [`resources.rs:56`](../../yidam/cli/src/cmd
 interpolates `node.id` into the URI, and the loop it sits in reads `state.nodes` only —
 [`dep_nodes`](../../yidam/cli/src/cmd/serve/mod.rs#L81) is a separate field by deliberate design.
 So a dependency node has **no resource URI at all**, while
-[`find_any_node`](../../yidam/cli/src/cmd/serve/tools.rs#L374) reads one happily by its qualified
+[`find_any_node`](../../yidam/cli/src/cmd/serve/tools.rs#L396) reads one happily by its qualified
 id. One server answers a question through its tool surface that its resource surface cannot
 address, and RFC-0005 declares the scheme normative without mentioning dependencies.
 
@@ -129,12 +129,12 @@ relative path, which is a *fifth* convention, and unrelated to any of the above.
 |---|---|---|---|
 | `class/name` | [`corpus_nodes`](../../yidam/cli/src/model.rs#L494-L517) | — | — |
 | `pkg::class/name` | [`qualified_id`](../../yidam/cli/src/model.rs#L450) | yes | — |
-| `.yidam/corpus/class/name.yml` | tolerated by [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L351) | — | — |
+| `.yidam/corpus/class/name.yml` | tolerated by [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L373) | — | — |
 | `../other-class/thing.yml` | [`resolve_link_target`](../../yidam/cli/src/model.rs#L467) | — | — |
 | `yidam://corpus/class/name` | [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56) | — | — |
 | the same string as an RDF subject | [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135) | — | — |
 | `file:///…/class/name.yml` | [`path_to_uri`](../../yidam/cli/src/cmd/lsp.rs#L107) | n/a | — |
-| `/node/class/name` | [`graph.ts:145`](../../yidam/editors/web/src/lib/graph.ts#L145) | — | — |
+| `/node/class/name` | [`nodeHref`](../../yidam/editors/web/src/lib/graph.ts#L195-L196) | — | — |
 | a GraphML `node id` | `export_graphml.rs` | — | — |
 | `{package, node, commit, tag}` | [`ExternalCitation`](../../yidam/prelude/sdks/rust/src/corpus.rs#L83) | yes | yes |
 | `<public-base>/class/name` | RFC-0027 §5, unshipped | yes | — |
@@ -158,7 +158,7 @@ kind         node | crate | catalog | skill | decision | issue
 The corpus moves into the authority and the kind into the path, which is the minimal change that
 creates the slot §1 lacks. `<path>` is `<class>/<name>` for `node` and a single segment for the
 others. Every segment in a **conforming** corpus is a slug — the rule
-[`name_not_a_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L698) reports against, through its
+[`name_not_a_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L809) reports against, through its
 predicate [`is_slug`](../../yidam/prelude/sdks/rust/src/uri.rs#L132) — so **no percent-encoding is
 required anywhere in this grammar**, which is why there is one string form and not one per
 encoder.
@@ -281,7 +281,7 @@ question one layer down and the answers must not contradict.
 is actually reachable narrowed what "detectable" means. It is not two entries in one
 `.yidam/tonpa/`, which cannot exist — the directory name *is* the declared name. It is a path
 dependency and an unpacked bundle claiming one name, which
-[`resolved`](../../yidam/cli/src/deps.rs#L220-L258) already resolves in favour of the checkout
+[`resolved`](../../yidam/cli/src/deps.rs#L281-L319) already resolves in favour of the checkout
 and does so **silently**. Silence is right in the common case, where the two are one corpus in
 two forms: someone fetched a dependency and then pointed at a checkout of it to edit. It is
 wrong when they are different corpora, because then the reader is reading one while
@@ -296,11 +296,11 @@ Guessing would either invent a conflict on every bundle built before the field o
 ### 4.6 — One parser
 
 `yidam_core::uri` parses and renders the grammar and becomes the only place an identifier is
-built or split. It retires [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L351)'s three
+built or split. It retires [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L373)'s three
 tolerated spellings, [`qualified_id`](../../yidam/cli/src/model.rs#L450),
 [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135),
 [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56)'s prefix chain and
-[`graph.ts:145`](../../yidam/editors/web/src/lib/graph.ts#L145)'s route builder. It lands on the
+[`nodeHref`](../../yidam/editors/web/src/lib/graph.ts#L195-L196)'s route builder. It lands on the
 parity surface, so Rust, TypeScript and Python must agree — three implementations and one shared
 case set, not one implementation.
 

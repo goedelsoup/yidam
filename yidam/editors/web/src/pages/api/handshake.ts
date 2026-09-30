@@ -13,7 +13,7 @@ import type { APIRoute } from 'astro'
 import { json, wrongOrigin } from '../../lib/api.ts'
 import { session } from '../../lib/session.ts'
 import { spawnReport } from '../../lib/cli.ts'
-import { describeBinary, describeFailure } from '../../lib/messages.ts'
+import { describeBinary, describeUnavailable } from '../../lib/messages.ts'
 
 export const prerender = false
 
@@ -34,7 +34,7 @@ export const GET: APIRoute = async ({ request }) => {
         ok: false,
         root,
         origin: binary.origin,
-        reason: describeFailure(result.handshake),
+        reason: describeUnavailable(result),
         kind: result.handshake.kind,
       },
       503,

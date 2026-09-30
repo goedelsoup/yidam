@@ -274,7 +274,9 @@ after one pass. The loop is not a quota.
    git commit -m "resolve: <what was settled, and what it cost>"
    ```
 
-7. **Record** — Add a file to `resolutions/<evolution>.md` using the format below.
+7. **Record** — Add a file to `resolutions/<evolution>.md` using the format below. Write
+   `rounds:` as the count from step 6, and list under `positions:` every position file the
+   loop read — every one, not just the ones the synthesis adopted.
 
 ## When to stop
 
@@ -334,6 +336,14 @@ record does either.
 asserted. Ancestry is not only which commits were read; it is which claims were contested
 and by whom, and a record that names its positions can be audited by someone who was not
 there. `rounds: 1` is a fine number — see [When to stop](#when-to-stop).
+
+**`yidam lint` asks for both, as `resolution-deliberation-unrecorded`.** A record without
+`rounds:`, without `positions:`, or with a `rounds:` that is not a count of at least one is
+named. It warns on a record written before this repository's PROTOCOL.md asked for the
+fields, because nobody can recover a round count mechanically. It gates on a record added
+after — decided by git ancestry from the commit that put `rounds:` into this file, not by
+the record's `date:` or its other fields. A shallow clone cannot see that commit, so there
+every finding warns.
 
 ### `independence` — what the registry distinguishes, not what minds exist
 

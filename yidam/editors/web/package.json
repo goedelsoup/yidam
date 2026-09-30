@@ -1,6 +1,6 @@
 {
   "name": "@goedelsoup/yidam-edit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local authoring surface for a yidam-derived knowledge repository. Renders verdicts the yidam binary computes; computes none of its own.",
   "type": "module",
   "license": "MIT",

@@ -55,7 +55,7 @@ declaration anywhere that says there should have been one.**
 ### The only coverage prose in the model is about a search
 
 The word occurs once, in `GRAPH.md`'s description of the `scope` verb
-([`GRAPH.md:614-615`](../../yidam/prelude/GRAPH.md#L614-L615)):
+([`GRAPH.md:667-668`](../../yidam/prelude/GRAPH.md#L667-L668)):
 
 > a negative result about coverage is the only durable record that the coverage was checked
 
@@ -68,7 +68,7 @@ has no place to record one that is about a class rather than about an act.
 
 RFC-0028 §5 reserved `kind: coverage` as a named, unimplemented value rather than leaving a
 blank to be invented twice, and the reservation is a live short-circuit
-([`kuten.rs:764-772`](../../yidam/cli/src/kuten.rs#L764-L772)): a corpus that declares the
+([`kuten.rs:769-777`](../../yidam/cli/src/kuten.rs#L769-L777)): a corpus that declares the
 coverage pressure gets `unmeasurable` naming #578, and the band answers nothing. That is the
 right behaviour for an unimplemented rule and it is a standing cost — the question-pressure slot
 ships with half its vocabulary inert.

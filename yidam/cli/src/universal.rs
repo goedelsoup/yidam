@@ -42,6 +42,20 @@ use std::path::Path;
 
 use regex::Regex;
 
+use crate::corpus::Class;
+
+/// The file's name under the corpus directory.
+pub const FILENAME: &str = "universal.yml";
+
+/// The corpus-relative path a finding names this file by.
+///
+/// Spelled out rather than derived, because a finding is reported about a corpus whose root
+/// the check does not hold — [`crate::cmd::lint::checks::malformed_yaml`] is answered about
+/// records and about this one file, and the records carry their own `rel`. Held to
+/// [`Universal::path`] by [`tests::the_relative_path_is_the_one_the_loader_reads`], so the two
+/// spellings cannot drift.
+pub const REL: &str = ".yidam/corpus/universal.yml";
+
 /// One universally-permitted property: matched by exact name, or by a pattern.
 pub struct UniversalProperty {
     /// The exact property name, when the declaration named one.
@@ -75,6 +89,15 @@ pub struct Universal {
     prose: Vec<String>,
     /// What the corpus has said about tagging its edges. See [`EdgeClaims`].
     edge_claims: EdgeClaims,
+    /// Why the bytes did not parse, when they did not. See [`Universal::parse`].
+    ///
+    /// Carried for the reason [`crate::corpus::Class::malformed`] is, and it is the same arm:
+    /// every field above this one is a `Vec` or a `bool`, so a file nobody could read is
+    /// indistinguishable from a corpus that declared nothing universal — and
+    /// `undeclared-property`, `property-type`, `edge-untagged` and `node-too-long` are then
+    /// each checking an instance against declarations that were on disk the whole time.
+    /// [`crate::cmd::lint::checks::malformed_yaml`] reports it.
+    malformed: Option<String>,
 }
 
 /// What a corpus has said about the standing of its own edges (#587).
@@ -149,11 +172,12 @@ impl Universal {
                 required: false,
                 structural: Vec::new(),
             },
+            malformed: None,
         }
     }
 
     pub fn path(root: &Path) -> std::path::PathBuf {
-        crate::paths::yidam_corpus_dir(root).join("universal.yml")
+        crate::paths::yidam_corpus_dir(root).join(FILENAME)
     }
 
     /// Read the declarations. `text` is the file's contents — the caller supplies it so the
@@ -164,8 +188,15 @@ impl Universal {
     /// which reports the property — rather than taking the whole lint run down and leaving
     /// the corpus unchecked. `yidam schema` publishes the file's shape, so the malformed
     /// pattern is underlined where it is being typed.
+    ///
+    /// **A file that does not parse at all is degraded the same way and *reported*.** That is
+    /// the half #1081 is about: the declarations came back empty, [`Self::is_empty`] said the
+    /// corpus had declared nothing universal, and every check reading them found nothing to
+    /// check and passed — the class arm of #676 on a different file, with no finding anywhere.
+    /// The reason is kept on [`Self::malformed`] and reported by
+    /// [`crate::cmd::lint::checks::malformed_yaml`], the way a class's is.
     pub fn parse(text: &str) -> Self {
-        let file: File = serde_yaml::from_str(text).unwrap_or_default();
+        let (file, malformed): (File, _) = crate::corpus::parse_or_default(text);
         let properties = file
             .properties
             .into_iter()
@@ -199,7 +230,13 @@ impl Universal {
                     .filter(|r| !r.is_empty())
                     .collect(),
             },
+            malformed,
         }
+    }
+
+    /// Why the declarations did not parse, when they did not.
+    pub fn malformed(&self) -> Option<&str> {
+        self.malformed.as_deref()
     }
 
     /// Whether an edge outside the structural list must declare its standing.
@@ -235,6 +272,36 @@ impl Universal {
             .iter()
             .find(|p| p.matches(key))
             .map(|p| p.r#type.as_str())
+    }
+
+    /// The declared type of `key` for `class` — the class's own declaration first, then this
+    /// file's — with the precedence stated once (#1186).
+    ///
+    /// Before this, the rule was written out by hand at four sites: `lint::checks`'s
+    /// `property_type`, `lint::quotations`'s `checks`, `query::check`'s `declared_type`, and
+    /// `embed`'s `ordered_properties`. All four agreed that a class naming the property wins
+    /// over `universal.yml` — a class has said something more specific about its own
+    /// instances. #1174 moved the quotation reading into `lint::quotations::Declared`, shared
+    /// by `quotations::checks` and the citation count, and that is the caller here now.
+    ///
+    /// **`class` is `None` for a class this corpus does not define, and `universal.yml`
+    /// still applies.** This module's own header is the reason: universal properties are
+    /// "any class may carry them, whatever its own ontology declares" — including a class
+    /// with no ontology entry at all. `lint::checks::property_type` and
+    /// `lint::quotations::Declared::in_node` never call this with `None` — each skips a node of an
+    /// undefined class before it ever asks about one property, so that the node is reported
+    /// once, by `unknown-class`, and not again by every check that reads a declaration. That
+    /// is a decision about *which node gets reported*, not about this precedence rule, and
+    /// `embed::ordered_properties` has no such reporting concern to defer to: it indexes a
+    /// node's properties for `--where` to filter on, and withholding a `date` or `number`
+    /// this corpus *did* declare — because the node's own class happens not to be one of
+    /// this corpus's `.ont.yml` files — would make the index quietly incomplete for no
+    /// reader's benefit. So `embed` is the one caller that passes `None` through, on purpose.
+    pub fn declared_type_for<'a>(&'a self, class: Option<&'a Class>, key: &str) -> Option<&'a str> {
+        class
+            .and_then(|c| c.properties.iter().find(|p| p.name == key))
+            .map(|p| p.r#type.as_str())
+            .or_else(|| self.declared_type(key))
     }
 
     /// Whether any class may carry this property name.
@@ -377,5 +444,96 @@ properties:
         let u = Universal::parse("edge_claims:\n  required: true\n");
         assert!(u.edge_claims_required());
         assert!(u.structural_relationships().is_empty());
+    }
+
+    // ── the parse outcome (#1081) ─────────────────────────────────────────────
+
+    /// The defect: read leniently, a file nobody could read declared nothing, and
+    /// `undeclared-property` then reported every property this file permits.
+    #[test]
+    fn declarations_that_do_not_parse_say_so() {
+        // The same unclosed quote that cost a corpus a catalog entry's TTL in #1056.
+        let u = Universal::parse("properties:\n  - name: \"seeded_because\n    type: text\n");
+        let why = u.malformed().expect("an unclosed quote");
+        assert!(!why.is_empty());
+        assert!(
+            !u.covers("seeded_because"),
+            "the declarations are still degraded to empty — the checks downstream are \
+             written against a declaration list and guessing at a half-read one is worse"
+        );
+    }
+
+    /// And a file that parses is not reported, including the two states that look like a
+    /// failure and are not: the absent file, and one declaring nothing.
+    #[test]
+    fn a_file_that_parses_is_not_reported() {
+        for text in ["", "properties: []\n", OHIO, TAGGED_EDGES] {
+            assert_eq!(Universal::parse(text).malformed(), None, "{text:?}");
+        }
+        assert_eq!(Universal::empty().malformed(), None);
+    }
+
+    /// [`REL`] is what a finding names the file by and [`Universal::path`] is what reads it.
+    /// Two spellings of one location, held to each other here.
+    #[test]
+    fn the_relative_path_is_the_one_the_loader_reads() {
+        let root = Path::new("/somewhere/repo");
+        assert_eq!(
+            Universal::path(root)
+                .strip_prefix(root)
+                .expect("under the root"),
+            Path::new(REL)
+        );
+    }
+
+    // ── declared_type_for (#1186) ─────────────────────────────────────────────
+
+    /// A class declaring the property wins, whatever `universal.yml` says about the same
+    /// name — the class has said something more specific about its own instances.
+    #[test]
+    fn a_class_declaring_the_key_wins_over_universal() {
+        let u = Universal::parse(OHIO);
+        let class = Class::parse(
+            ".yidam/corpus/gage.ont.yml",
+            "properties:\n  - name: seeded_because\n    type: claim\n",
+        );
+        assert_eq!(
+            u.declared_type_for(Some(&class), "seeded_because"),
+            Some("claim"),
+            "the class's own `claim` beats universal's `text`"
+        );
+    }
+
+    /// A property the class does not name falls through to `universal.yml`.
+    #[test]
+    fn a_key_only_universal_declares_falls_through_to_it() {
+        let u = Universal::parse(OHIO);
+        let class = Class::parse(".yidam/corpus/gage.ont.yml", "properties: []\n");
+        assert_eq!(
+            u.declared_type_for(Some(&class), "seeded_because"),
+            Some("text")
+        );
+    }
+
+    /// A key neither declares is undeclared, whether or not a class was asked.
+    #[test]
+    fn a_key_neither_declares_is_undeclared() {
+        let u = Universal::parse(OHIO);
+        let class = Class::parse(".yidam/corpus/gage.ont.yml", "properties: []\n");
+        assert_eq!(
+            u.declared_type_for(Some(&class), "nothing_names_this"),
+            None
+        );
+        assert_eq!(u.declared_type_for(None, "nothing_names_this"), None);
+    }
+
+    /// `None` is a class this corpus does not define, and `universal.yml`'s declarations
+    /// still apply — the decision #1186 asks for, and the one place `embed::ordered_properties`
+    /// exercises it: an undefined class is `unknown-class`'s finding, not a reason to drop a
+    /// property whose type this corpus otherwise declared.
+    #[test]
+    fn an_undefined_class_still_gets_universals_declarations() {
+        let u = Universal::parse(OHIO);
+        assert_eq!(u.declared_type_for(None, "seeded_because"), Some("text"));
     }
 }

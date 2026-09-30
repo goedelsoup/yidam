@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 /// Every generator takes the corpus rather than resolving one, because `regen --root` has to
 /// mean the same thing as running each of these commands with `--root` (#918). A generator
 /// that resolved its own root would refresh *this* repository's blocks while the reader had
-/// named another — and the fourteen would not even agree with each other about which.
+/// named another — and the seventeen would not even agree with each other about which.
 type Generator = (&'static str, fn(Option<&std::path::Path>) -> Result<()>);
 
 /// Every generator that writes a REGEN block.
@@ -51,6 +51,12 @@ const GENERATORS: &[Generator] = &[
     ("crates-index", super::crates_index),
     ("packages-index", super::packages_index),
     ("bundle-status", super::bundle_status),
+    // The gate table, from `.github/workflows/ci.yml` (#1066). The sentence it replaces was
+    // hand-maintained in three files of the reporting corpus and wrong in all three.
+    ("gates", super::gates),
+    // The reading routes, into `AGENTS.md` (RFC-0039, #972). That file is installed once at
+    // genesis, and of sixteen route lines the template added later, two reached a derivation.
+    ("routes", super::routes),
     // `vault-status` and `decisions-log` were generators that this list did not name (#831),
     // so `yidam regen` did not populate their blocks and `--check` did not report them stale.
     // In the corpus that reported it, the vault block held its "run this to populate"
@@ -68,7 +74,7 @@ const GENERATORS: &[Generator] = &[
     // than authored (#287). A repository keeping no `PRACTICE.md` has opted out, and the
     // generator is its own no-op there, before `update_file_regen`'s.
     ("practice", super::practice::block),
-    // The one generator that is not handed its file. The other fourteen write a block at a
+    // The one generator that is not handed its file. The other sixteen write a block at a
     // path they know; this one reads the tracked markdown set for blocks whose command is
     // `yidam count <query>` and answers each with a number (RFC-0043). A repository with no
     // such block is its own no-op, which is every repository the day this lands.
@@ -209,6 +215,26 @@ pub(crate) fn stale_blocks(root: Option<&std::path::Path>) -> Result<Vec<crate::
         outcome?;
     }
     Ok(crate::regen::end_check())
+}
+
+/// Refresh every REGEN block and say nothing on stdout.
+///
+/// What `yidam regen` does, minus the `── name` headings and the *updated* lines, for a
+/// caller whose stdout is its own report: `phase settle` refreshes the blocks and stages them
+/// on the way to closing a phase (#1066), and under `--format json` its output has to stay
+/// one document. Same [`GENERATORS`] list, so what this refreshes is exactly what `--check`
+/// would have reported — a second list here would be the one this module exists to prevent.
+///
+/// [`require_whole_history`] applies, for the reason given there: a block generated from a
+/// truncated history holds a date the clone invented, and staging it would commit it.
+pub(crate) fn refresh_quietly(root: &std::path::Path) -> Result<()> {
+    require_whole_history(root)?;
+    crate::regen::begin_quiet();
+    let outcome = GENERATORS
+        .iter()
+        .try_for_each(|(name, run)| run(Some(root)).with_context(|| format!("running {name}")));
+    crate::regen::end_quiet();
+    outcome
 }
 
 /// Which REGEN blocks name a command no generator writes. **Writes nothing.**

@@ -444,7 +444,7 @@ rationale: |
 
 **Lifecycle:** Written during bootstrap for genesis-level choices; written by agents or the
 sangha for subsequent choices. Decision files are permanent records — they are not updated when
-a decision is superseded, but a new decision may reference a prior one by `id`.
+a decision is superseded; the new one names the prior one by `id` in `supersedes:`.
 
 ---
 
@@ -566,6 +566,19 @@ record why in `.yidam/decisions/`. [why](directories.evidence.md#policy-nothing-
 
 **Not the vendored copy.** The default policy is readable at `.yidam/.vendor/prelude/policy/`,
 which is read-only and re-vendored like the rest of the prelude. Read it there; write here.
+
+---
+
+## `.yidam/constitution/` (optional)
+
+Domain articles, written once at genesis from a `constitutional: true` samudaya augmentation.
+
+**What belongs here:** each article as `<stem>.md`, with an optional rule `<stem>.rego` (a
+`deny` set) and its cases in `<stem>_test.rego`.
+
+**Do not edit it.** `yidam lint` reads each rule from the genesis commit. An edit or a new file
+here is reported as `domain-article-edited` and not obeyed. A new norm belongs in
+`.yidam/policy/`. [why](directories.evidence.md#constitution-sealed-at-genesis)
 
 ---
 
@@ -919,6 +932,7 @@ origin    = "git@github.com:goedelsoup/yidam.git"
 commit    = "4f2a…"      # the resolvable pin — what re-vendor and CI check out
 template  = "v0.1.0"     # release tag at that commit, or "untagged"
 committed = "2026-08-08" # that commit's date — how old this prelude is
+cli       = "0.16.0 (ce5e738)" # the yidam binary in use when this was written
 ```
 
 `commit` is the field that does the work. `template` is a semantic version and is only

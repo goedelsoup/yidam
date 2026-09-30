@@ -194,7 +194,7 @@ fn render(
                 escape(&c.name),
                 escape(&p.name),
                 escape(&p.r#type),
-                p.required
+                p.required()
             );
         }
     }

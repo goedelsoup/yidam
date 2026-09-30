@@ -27,8 +27,8 @@ use crate::authorship::{Authorship, Region};
 use crate::corpus::{Class, Corpus, DecisionRecord, Edges, Node, Overlay, Source};
 
 use super::{
-    attest, checks, citations, commitments, edge_claims, independence, line_citations, lineage,
-    local_citations, scope, ttl, Check, Options,
+    articles, attest, calculators, checks, citations, commitments, deliberation, edge_claims,
+    independence, line_citations, lineage, local_citations, quotations, scope, ttl, Check, Options,
 };
 
 /// The corpus, the options, and every reading the checks are answered from.
@@ -60,29 +60,36 @@ pub(crate) struct Input<'a> {
     attestations: OnceLock<Vec<attest::Attestation>>,
     scope_audits: OnceLock<Vec<scope::ScopeAudit>>,
     independence_audits: OnceLock<Vec<independence::IndependenceAudit>>,
+    deliberation_asked: OnceLock<std::collections::BTreeSet<String>>,
     standings: OnceLock<Vec<lineage::Standing>>,
     commitments: OnceLock<Vec<commitments::Commitments>>,
     prose_paths: OnceLock<Vec<PathBuf>>,
     regen_files: OnceLock<Vec<(String, String)>>,
+    authored_text: OnceLock<Vec<(String, String)>>,
     links: OnceLock<(Vec<checks::ProseLink>, Vec<checks::UnauthoredLink<'a>>)>,
+    object_links: OnceLock<Vec<checks::ProseLink>>,
     stale_regions: OnceLock<Vec<&'a Region>>,
     line_citations: OnceLock<Vec<line_citations::LineCitation>>,
     types: OnceLock<checks::TypeIndex>,
     tag_prose: OnceLock<Vec<checks::ProseView<'a>>>,
+    scripts: OnceLock<Vec<calculators::Script>>,
 
     // ── whole groups ────────────────────────────────────────────────────────────
     //
-    // Six producers answer several checks from one walk, and the roster reaches into the
+    // Seven producers answer several checks from one walk, and the roster reaches into the
     // array they return. Cached here rather than at the call site so the walk happens once
     // however many of its checks are asked for — and so that a roster entry is still one
     // expression. Which index is which id is not left to the reader: every entry declares
     // its id and `the_roster_declares_the_id_each_entry_produces` compares the two.
     citation_checks: OnceLock<[Check; 4]>,
     local_citation_checks: OnceLock<[Check; 4]>,
-    edge_claim_checks: OnceLock<[Check; 3]>,
+    quotation_checks: OnceLock<[Check; 3]>,
+    edge_claim_checks: OnceLock<[Check; 4]>,
+    article_checks: OnceLock<[Check; 4]>,
     scope_checks: OnceLock<[Check; 2]>,
     lineage_checks: OnceLock<[Check; 3]>,
     commitment_checks: OnceLock<[Check; 4]>,
+    calculator_checks: OnceLock<[Check; 3]>,
 }
 
 impl<'a> Input<'a> {
@@ -115,21 +122,28 @@ impl<'a> Input<'a> {
             attestations: OnceLock::new(),
             scope_audits: OnceLock::new(),
             independence_audits: OnceLock::new(),
+            deliberation_asked: OnceLock::new(),
             standings: OnceLock::new(),
             commitments: OnceLock::new(),
             prose_paths: OnceLock::new(),
             regen_files: OnceLock::new(),
+            authored_text: OnceLock::new(),
             links: OnceLock::new(),
+            object_links: OnceLock::new(),
             stale_regions: OnceLock::new(),
             line_citations: OnceLock::new(),
             types: OnceLock::new(),
             tag_prose: OnceLock::new(),
+            scripts: OnceLock::new(),
             citation_checks: OnceLock::new(),
             local_citation_checks: OnceLock::new(),
+            quotation_checks: OnceLock::new(),
             edge_claim_checks: OnceLock::new(),
+            article_checks: OnceLock::new(),
             scope_checks: OnceLock::new(),
             lineage_checks: OnceLock::new(),
             commitment_checks: OnceLock::new(),
+            calculator_checks: OnceLock::new(),
         }
     }
 
@@ -137,6 +151,11 @@ impl<'a> Input<'a> {
 
     pub(crate) fn root(&self) -> &'a Path {
         self.root
+    }
+
+    /// `.yidam/catalog`, where an edge `source:` written as a bare stem resolves (#1158).
+    pub(crate) fn catalog_dir(&self) -> &Path {
+        self.corpus.catalog_dir()
     }
 
     pub(crate) fn opts(&self) -> &'a Options {
@@ -155,7 +174,7 @@ impl<'a> Input<'a> {
         self.corpus.sources()
     }
 
-    /// Every decision record, for the one check whose subject is whether they parse.
+    /// Every decision record: for whether they parse, and whether anything refers to them.
     pub(crate) fn decisions(&self) -> &'a [DecisionRecord] {
         self.corpus.decisions()
     }
@@ -251,15 +270,37 @@ impl<'a> Input<'a> {
     /// [`Node`] carries the text `load_nodes` already read, so nothing here re-reads the
     /// corpus to hand the same bytes to a check a second time.
     pub(crate) fn cites(&self) -> &[Vec<String>] {
-        self.cites
-            .get_or_init(|| checks::citations(self.sources(), self.nodes()))
+        self.cites.get_or_init(|| {
+            checks::citations(
+                self.sources(),
+                self.nodes(),
+                self.catalog_dir(),
+                &self.quotations(),
+            )
+        })
+    }
+
+    /// Which properties hold quotations, from the classes and `universal.yml` this input
+    /// already holds, so the editor reads an unsaved declaration.
+    ///
+    /// Built on each call rather than held, because it borrows [`Self::universal`], and it
+    /// is a map over the classes and nothing more. The quotation checks and the citation count
+    /// both read it, so they cannot disagree about which values are quotations (#1174).
+    pub(crate) fn quotations(&self) -> quotations::Declared<'_> {
+        quotations::Declared::new(self.classes(), self.universal())
     }
 
     /// The `type: claim` properties each class declared, so the structural arm of the claim
-    /// reader sees anything at all. Loaded once and shared: it walks the ontology.
+    /// reader sees anything at all.
+    ///
+    /// From the classes this input already holds, and so through the
+    /// [`crate::corpus::Overlay`] — where until #1116 it walked and re-read the ontology
+    /// itself, and keyed the result by each file's declared `class:` while
+    /// [`Self::prose_fields`] beside it keyed by the stem. One corpus answering to two names
+    /// is what that cost; the stem is the one `class_of` resolves a node to.
     pub(crate) fn claim_fields(&self) -> &crate::claims::ClaimFields {
         self.claim_fields
-            .get_or_init(|| crate::claims::ClaimFields::load(self.corpus.dir()))
+            .get_or_init(|| crate::claims::ClaimFields::from_classes(self.classes()))
     }
 
     /// Which keys on each class carry prose.
@@ -268,22 +309,17 @@ impl<'a> Input<'a> {
     /// overlay for `universal.yml`, so the editor measures an unsaved declaration. Keyed by
     /// the `.ont.yml` stem, which is the directory an instance's class resolves to — the same
     /// keying [`crate::claims::ClaimFields`] documents.
+    ///
+    /// The reduction is [`crate::prose::declared`]'s, where this wrote it out again beside
+    /// the copy in `ProseFields::load` (#1116) — and the two had already drifted: that one
+    /// dropped a property whose `name:` was blank or whitespace and this one kept it.
     pub(crate) fn prose_fields(&self) -> &crate::prose::ProseFields {
         self.prose_fields.get_or_init(|| {
             crate::prose::ProseFields::from_declarations(
                 self.universal().prose().to_vec(),
                 self.classes()
                     .iter()
-                    .map(|c| crate::prose::Declaration {
-                        class: c.name.clone(),
-                        keys: c.prose.clone(),
-                        properties: c
-                            .properties
-                            .iter()
-                            .filter(|p| p.prose)
-                            .map(|p| p.name.clone())
-                            .collect(),
-                    })
+                    .map(crate::prose::declared)
                     .collect::<Vec<_>>(),
             )
         })
@@ -392,6 +428,14 @@ impl<'a> Input<'a> {
             .get_or_init(|| independence::audit(self.root, &self.sangha().resolutions))
     }
 
+    /// The resolution records added after this repository's PROTOCOL.md asked for `rounds:`
+    /// and `positions:` (#592). Decided by ancestry, here where there is a repository, so
+    /// `resolution-deliberation-unrecorded` stays pure. Empty in a shallow clone.
+    pub(crate) fn deliberation_asked(&self) -> &std::collections::BTreeSet<String> {
+        self.deliberation_asked
+            .get_or_init(|| deliberation::asked(self.root, &self.sangha().resolutions))
+    }
+
     /// Where each elector branch stands in the settled line, and what it says about where it
     /// stands. Read here for the same reason the scope audit is: the checks stay pure, and the
     /// refs are the one thing they cannot be handed off disk.
@@ -459,6 +503,56 @@ impl<'a> Input<'a> {
         })
     }
 
+    /// Every file this repository authors, read (#1068).
+    ///
+    /// [`Self::regen_files`], and then whatever else git tracks under the root: code,
+    /// `AGENTS.md`, a crate's README. For the one question no narrower walk answers, which is
+    /// whether any file names a record. Measured across thirteen derived corpora, a walk of
+    /// `.yidam/` and `docs/` called 32 of 61 decision records uncited that a file in their own
+    /// repository names by path, 23 of them from outside that walk.
+    ///
+    /// `ls-files` without `--full-name`, so the paths are relative to the root even where the
+    /// root is a directory inside a larger checkout. A root git does not answer for tracks
+    /// nothing, and the prose walk is then the whole of it. A binary file reads as empty.
+    ///
+    /// Only files no declared region covers, which is narrower than `regen_files`. A generated
+    /// or vendored file is reportable, since a generator or an upstream can act on a finding
+    /// in it. But what such a file says is not this repository saying it: the prelude names
+    /// `decisions/ontology` in every derived corpus, whether or not that corpus has the record.
+    pub(crate) fn authored_text(&self) -> &[(String, String)] {
+        self.authored_text.get_or_init(|| {
+            let mine = |rel: &str| self.authorship.covering(rel).is_none();
+            let mut files: Vec<(String, String)> = self
+                .regen_files()
+                .iter()
+                .filter(|(rel, _)| mine(rel))
+                .cloned()
+                .collect();
+            let walked: HashSet<String> = self
+                .regen_files()
+                .iter()
+                .map(|(rel, _)| rel.clone())
+                .collect();
+            let tracked = crate::git::Git::new(self.root)
+                .args(["ls-files", "-z"])
+                .output()
+                .ok()
+                .filter(|out| out.status.success())
+                .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+                .unwrap_or_default();
+            let mut rest: Vec<&str> = tracked
+                .split('\0')
+                .filter(|rel| !rel.is_empty() && !walked.contains(*rel) && mine(rel))
+                .collect();
+            rest.sort_unstable();
+            files.extend(
+                rest.into_iter()
+                    .map(|rel| (rel.to_string(), self.overlay.read(&self.root.join(rel)))),
+            );
+            files
+        })
+    }
+
     /// The markdown links in this repository's own prose.
     pub(crate) fn prose_links(&self) -> &[checks::ProseLink] {
         &self.links().0
@@ -499,6 +593,30 @@ impl<'a> Input<'a> {
         })
     }
 
+    /// The links from the artifact into the corpus (#577).
+    ///
+    /// Empty unless `[object] paths` are declared and the corpus is not `projected`; see
+    /// [`crate::coupling`] for which files are read and why. A file the prose walk already
+    /// reads is left out — `docs/` is declared an object path in one derived corpus — so no
+    /// link is judged by both `broken-prose-link` and `broken-object-link`.
+    pub(crate) fn object_links(&self) -> &[checks::ProseLink] {
+        self.object_links.get_or_init(|| {
+            let registers = crate::kuten::Registers::of_globs(self.config().object.paths.clone());
+            if !crate::coupling::applies(self.root, &registers) {
+                return Vec::new();
+            }
+            let prose: HashSet<String> = self.prose_paths().iter().map(|p| self.rel(p)).collect();
+            crate::coupling::object_files(self.root, &registers, self.authorship)
+                .into_iter()
+                .filter(|rel| !prose.contains(rel))
+                .flat_map(|rel| {
+                    let text = self.overlay.read(&self.root.join(&rel));
+                    crate::coupling::inbound(self.root, &rel, &text)
+                })
+                .collect()
+        })
+    }
+
     /// Declared regions that no longer describe anything on disk.
     pub(crate) fn stale_regions(&self) -> &[&'a Region] {
         self.stale_regions
@@ -510,9 +628,16 @@ impl<'a> Input<'a> {
     /// Through the overlay, so the buffer someone is editing a passage out of is the one the
     /// citation is held to. Authored links only: a line citation in vendored or generated
     /// prose is somebody else's to fix, the same judgement `unauthored-prose-link` records.
+    ///
+    /// The artifact's links into the corpus as well (#577), so a line-naming citation from a
+    /// crate into a node is verified by the same checks as one from a node into a crate.
     pub(crate) fn line_citations(&self) -> &[line_citations::LineCitation] {
         self.line_citations.get_or_init(|| {
-            line_citations::collect(self.root, self.prose_links(), &|p| self.overlay.read(p))
+            line_citations::collect(
+                self.root,
+                self.prose_links().iter().chain(self.object_links()),
+                &|p| self.overlay.read(p),
+            )
         })
     }
 
@@ -568,18 +693,49 @@ impl<'a> Input<'a> {
             .get_or_init(|| local_citations::checks(self.nodes(), self.claim_fields()))
     }
 
+    /// A value that is a span of a catalogued document (RFC-0046), held against the bytes this
+    /// machine's vault cache has. The cache is resolved from the environment exactly as
+    /// `catalog fetch` resolves it, and a machine with none has every quotation unchecked
+    /// rather than a lint run that fails.
+    pub(crate) fn quotation_checks(&self) -> &[Check; 3] {
+        self.quotation_checks.get_or_init(|| {
+            let cache = crate::vault::Cache::resolve(|k| std::env::var(k).ok()).ok();
+            quotations::checks(
+                self.nodes(),
+                &self.quotations(),
+                self.sources(),
+                self.catalog_dir(),
+                cache.as_ref(),
+            )
+        })
+    }
+
     /// The graph's own half of the same discipline (#587): an edge is a claim written as
     /// structure, and these are the checks that ask it what it rests on. The third compares
     /// that standing to the ones its own endpoints declare (#858), which is why the claim
-    /// fields go in — a node's standing is a property its class declared `type: claim`.
-    pub(crate) fn edge_claim_checks(&self) -> &[Check; 3] {
+    /// fields go in — a node's standing is a property its class declared `type: claim`. The
+    /// fourth resolves what an edge's `source:` names against the catalog and the decision
+    /// log (#1067), which is why those go in too.
+    pub(crate) fn edge_claim_checks(&self) -> &[Check; 4] {
         self.edge_claim_checks.get_or_init(|| {
             edge_claims::checks(
                 self.nodes(),
                 self.edges(),
                 self.universal(),
                 self.claim_fields(),
+                self.sources(),
+                self.decisions(),
+                self.catalog_dir(),
             )
+        })
+    }
+
+    /// The domain articles, read from the genesis commit and evaluated (#593).
+    pub(crate) fn article_checks(&self) -> &[Check; 4] {
+        self.article_checks.get_or_init(|| {
+            articles::checks(&articles::read(self.root, || {
+                articles::input(self.sangha(), self.nodes())
+            }))
         })
     }
 
@@ -596,6 +752,21 @@ impl<'a> Input<'a> {
     pub(crate) fn commitment_checks(&self) -> &[Check; 4] {
         self.commitment_checks
             .get_or_init(|| commitments::checks(self.commitments()))
+    }
+
+    /// Every calculator the manifest declares, admitted once (#1099).
+    ///
+    /// Cached like every other group, and here it is not only tidiness: admitting a script
+    /// builds a gluon VM and typechecks a prelude, and the three checks that read the verdict
+    /// must not each pay for one. A corpus declaring no typed calculator — every corpus today —
+    /// walks no VM at all, because the list is empty.
+    pub(crate) fn calculator_checks(&self) -> &[Check; 3] {
+        self.calculator_checks.get_or_init(|| {
+            calculators::checks(
+                self.scripts
+                    .get_or_init(|| calculators::read(self.root, self.overlay)),
+            )
+        })
     }
 
     /// `path`, relative to the repository root — the form every finding names a file in.

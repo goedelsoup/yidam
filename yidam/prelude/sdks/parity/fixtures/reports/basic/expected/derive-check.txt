@@ -1,0 +1,1 @@
+derive check: no `[derive] paths` in .yidam/config.toml, so there is nothing to read.

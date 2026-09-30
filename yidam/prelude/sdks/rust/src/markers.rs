@@ -327,31 +327,52 @@ pub fn parse_markers(text: &str) -> Vec<Marker> {
     scan_markers(text).markers
 }
 
-/// The body to write between a block's markers.
+/// The body to write between a block's markers, or `None` for a block that cannot hold it.
 ///
 /// An inline block keeps its line: the author wrote it that way and no regeneration
 /// second-guesses them. Every other block is bracketed by newlines, and the empty case is
 /// collapsed so that clearing a section does not leave a blank line between the markers.
-fn regen_body(new_content: &str, inline: bool) -> String {
+fn regen_body(new_content: &str, inline: bool, stands_alone: bool) -> Option<String> {
     // `inline` is the form the block was written in; `!contains('\n')` is whether the new
     // content can still be written that way. Both, because writing a multi-line value into a
     // one-line block would leave a document whose form no longer matches its body — and the
     // next run would read it as a block-form block and rewrite it differently. Deciding on
     // both is what makes a second run a no-op.
+    //
+    // A value that does not fit goes in block form, and block form is a *line* form: the scan
+    // reads one only where the open tag starts its line and the close tag stands alone on
+    // its own (#1137). An inline block with anything else on its line cannot be given one. In
+    // the middle of a sentence the open tag becomes prose and the block is never read again;
+    // with text after it, the close tag no longer stands alone, and the next run reads a block
+    // that runs on to some later block's close tag and writes over that block too. So such a
+    // block is left as it is — which is what this function already did with a block the scan
+    // cannot read.
     if inline && !new_content.contains('\n') {
-        new_content.to_string()
+        Some(new_content.to_string())
+    } else if inline && !stands_alone {
+        None
     } else if new_content.is_empty() {
-        "\n".to_string()
+        Some("\n".to_string())
     } else {
-        format!("\n{new_content}\n")
+        Some(format!("\n{new_content}\n"))
     }
+}
+
+/// Whether nothing but whitespace shares the block's line: before its open tag, and after its
+/// close tag. For an inline block, that is whether block form can be written in its place.
+fn stands_alone(text: &str, span: &RegenSpan) -> bool {
+    let start = text[..span.open].rfind('\n').map_or(0, |i| i + 1);
+    let end = span.close + REGEN_CLOSE.len();
+    let stop = text[end..].find('\n').map_or(text.len(), |i| end + i);
+    text[start..span.open].trim().is_empty() && text[end..stop].trim().is_empty()
 }
 
 /// Replace the body of every REGEN block named `command`.
 ///
 /// Defined over `scan_markers`, which is the point: before #1094 this searched the text
 /// itself, and the two searches disagreed. A block the scan cannot read is a block this
-/// leaves alone, and a block it reads inline stays inline.
+/// leaves alone, and a block it reads inline stays inline — or, given a value that needs more
+/// than one line, takes the block form if the line is its own and is left alone if not.
 ///
 /// Two things changed with the second search's removal, and both close a defect rather than
 /// open a feature. The command matches **exactly**, where the old prefix search let
@@ -364,9 +385,12 @@ pub fn update_regen(text: &str, command: &str, new_content: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut cursor = 0;
     for span in spans.iter().filter(|s| s.command == command) {
+        let Some(body) = regen_body(new_content, span.inline, stands_alone(text, span)) else {
+            continue;
+        };
         matched = true;
         out.push_str(&text[cursor..span.body]);
-        out.push_str(&regen_body(new_content, span.inline));
+        out.push_str(&body);
         cursor = span.close;
     }
     if !matched {
@@ -613,13 +637,45 @@ mod tests {
     /// A generator that returns more than one line cannot be written into a one-line block:
     /// the result would be a document whose body no longer matches the form it was written
     /// in, and the *next* run would read it as a block-form block and rewrite it again. So
-    /// the block form is used, and a second run is a no-op — which is what `regen --check`
-    /// needs to be true to report drift rather than manufacture it.
+    /// the block form is used where the block has its line to itself, and a second run is a
+    /// no-op — which is what `regen --check` needs to be true to report drift rather than
+    /// manufacture it.
     #[test]
-    fn multi_line_content_does_not_stay_on_one_line() {
-        let once = update_regen("x <!-- REGEN: a -->44<!-- /REGEN --> y\n", "a", "one\ntwo");
-        assert_eq!(once, "x <!-- REGEN: a -->\none\ntwo\n<!-- /REGEN --> y\n");
+    fn multi_line_content_takes_the_block_form_on_a_line_of_its_own() {
+        let once = update_regen("<!-- REGEN: a -->44<!-- /REGEN -->  \n", "a", "one\ntwo");
+        assert_eq!(once, "<!-- REGEN: a -->\none\ntwo\n<!-- /REGEN -->  \n");
         assert_eq!(update_regen(&once, "a", "one\ntwo"), once);
+        let s = scan(&once);
+        assert_eq!(s.regen.len(), 1);
+        assert_eq!(
+            (s.regen[0].command.as_str(), s.regen[0].inline),
+            ("a", false)
+        );
+    }
+
+    /// …and nowhere else, because the block form is read by line and the line is not the
+    /// block's to break (#1137). Written anyway, the first document lost its block — the open
+    /// tag became prose — and the second gained one: the close tag no longer stood alone, so
+    /// the next run read `a` on down to `b`'s close tag and deleted `b`.
+    #[test]
+    fn multi_line_content_leaves_a_block_that_shares_its_line() {
+        for text in [
+            "x <!-- REGEN: a -->44<!-- /REGEN --> y\n",
+            "<!-- REGEN: a -->44<!-- /REGEN --> y\n<!-- REGEN: b -->\nfoo\n<!-- /REGEN -->\n",
+            "x <!-- REGEN: a -->44<!-- /REGEN -->\n<!-- REGEN: b -->\nfoo\n<!-- /REGEN -->\n",
+            "<!-- REGEN: a -->1<!-- /REGEN --><!-- REGEN: a -->2<!-- /REGEN -->\n",
+        ] {
+            assert_eq!(update_regen(text, "a", "one\ntwo"), text, "{text:?}");
+        }
+        // A block it cannot write does not stop it writing one it can.
+        assert_eq!(
+            update_regen(
+                "x <!-- REGEN: a -->1<!-- /REGEN -->\n<!-- REGEN: a -->2<!-- /REGEN -->\n",
+                "a",
+                "3\n4"
+            ),
+            "x <!-- REGEN: a -->1<!-- /REGEN -->\n<!-- REGEN: a -->\n3\n4\n<!-- /REGEN -->\n"
+        );
     }
 
     /// A `<!-- REGEN:` mid-sentence with no close tag beside it is prose, and was prose
@@ -675,6 +731,20 @@ mod tests {
             assert!(scan(text).regen.is_empty(), "{text:?}");
             assert_eq!(update_regen(text, "a", "x"), text, "{text:?}");
         }
+    }
+
+    /// The Dafny model's witness for this document is `ACloseTagMustStandAlone` in
+    /// `graph.dfy`. Both scans hold a block-form close tag to a line of its own, so both read
+    /// no block here and leave the document alone. Change either side and one of the two goes
+    /// red.
+    #[test]
+    fn a_close_tag_that_does_not_stand_alone_is_not_a_block_form_close() {
+        let text = "<!-- REGEN: a -->\nx<!-- /REGEN -->";
+        let s = scan(text);
+        assert!(s.regen.is_empty(), "{:?}", s.regen);
+        assert_eq!(s.malformed.len(), 1);
+        assert_eq!(s.malformed[0].fault, Fault::CloseTagMissing);
+        assert_eq!(update_regen(text, "a", "y"), text);
     }
 
     /// Offsets are bytes, and a document is not ASCII. Stated here because the extents are

@@ -1,0 +1,198 @@
+# A scheduled watch over a source this repository depends on.
+#
+# Installed to `.github/workflows/watch.yml` at genesis, alongside `ci.yml`. It
+# does nothing until the watch is armed, and arming it is a decision about a
+# source, so nothing here arms it for you.
+#
+# ── Why this exists ──────────────────────────────────────────────────────────
+#
+# A derived repository ran a scheduled job that re-fetched its sources and
+# opened an issue when they changed. For twenty-four rounds the source could
+# not be reached. The job saw no diff and the build stayed green: silence read
+# as stability.
+#
+# So this workflow is built on three rules, and they are the design rather than
+# the configuration.
+#
+# 1. IT WRITES ONLY ITS LEDGER. A monitor that writes to the corpus writes
+#    untagged claims at 3am, and every safeguard here rests on a person deciding
+#    a tag. The one file this job may commit is `.github/watch/heartbeats.tsv`,
+#    and the guard step fails the run if the working tree carries anything else.
+#    A change goes to an issue.
+#
+# 2. UNREACHABLE IS NOT UNCHANGED. Every round appends one row, whatever it
+#    found. A round that could not reach its source is filed `unreachable`, and
+#    so is a round that crashed or printed no verdict: a round that did not look
+#    has not seen that nothing changed.
+#
+# 3. THE LEDGER IS READ BY A GATE. A ledger nobody reads makes blindness
+#    recordable rather than visible. The `watch` job in `ci.yml` fails after
+#    MAX_BLIND_ROUNDS unreachable rounds in a row, and after MAX_SILENCE_DAYS
+#    with no round at all. Both are needed: a watch that runs every night and
+#    reaches nothing is maximally fresh, because a row is a row.
+#
+# ── Arming it ────────────────────────────────────────────────────────────────
+#
+# Commit two files:
+#
+#   .github/watch/round           executable; does one round of checking
+#   .github/watch/heartbeats.tsv  the ledger, holding a header and an arming date:
+#
+#       # armed: 2026-01-31
+#       date	outcome	detail
+#
+# The arming date is a comment and not a row, so the ledger never claims a
+# round that did not run. The gate measures silence from it, so a watch that is
+# armed and never scheduled goes red on the same schedule as one that stops.
+#
+# Then uncomment the `schedule` below.
+#
+# ── The round's contract ─────────────────────────────────────────────────────
+#
+# `.github/watch/round` exits 0 and prints, as the LAST line of its stdout, one
+# of three words, optionally followed by a tab and a one-line detail:
+#
+#   unchanged                  every source answered and nothing had moved
+#   changed<TAB>what moved     something had moved; this opens an issue
+#   unreachable<TAB>why        a source could not be reached
+#
+# Anything else is filed `unreachable`: a nonzero exit, an empty last line, or a
+# word that is not exactly one of the three. Write scratch files under
+# `$RUNNER_TEMP`, never in the repository, or the guard refuses the commit.
+#
+# If the round needs a toolchain, add its setup steps before "Run one round".
+#
+# ── Politeness ───────────────────────────────────────────────────────────────
+#
+# Identify the round honestly, and space its requests. A source that refuses a
+# plain client belongs on a list somebody retrieves by hand, not behind a forged
+# browser User-Agent.
+
+name: watch
+
+on:
+  # schedule:
+  #   # Off the hour: every cron job on this platform is on the hour.
+  #   - cron: "10 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: watch
+  cancel-in-progress: false
+
+env:
+  ROUND: .github/watch/round
+  LEDGER: .github/watch/heartbeats.tsv
+
+jobs:
+  round:
+    name: one round
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The watch is armed
+        run: |
+          set -euo pipefail
+          if [ ! -f "$LEDGER" ] || [ ! -x "$ROUND" ]; then
+            echo "::error::The watch is not armed: it needs an executable $ROUND and a $LEDGER."
+            echo "::error::See the header of .github/workflows/watch.yml for both."
+            exit 1
+          fi
+
+      # No `-e`: the round failing is a result to record, not a reason to stop.
+      - name: Run one round
+        id: round
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/round.out"
+          err="$RUNNER_TEMP/round.err"
+          status=0
+          "$ROUND" > "$out" 2> "$err" || status=$?
+          last=$(tail -n 1 "$out" | tr -d '\r')
+          verdict=$(printf '%s' "$last" | cut -f1)
+          detail=$(printf '%s' "$last" | cut -s -f2- | tr '\t' ' ')
+          if [ "$status" -ne 0 ]; then
+            detail="the round exited $status${detail:+: $detail}"
+            verdict=unreachable
+          else
+            case "$verdict" in
+              unchanged | changed | unreachable) ;;
+              *)
+                detail="the round printed no verdict; its last line was: $(printf '%s' "${last:-nothing}" | tr '\t' ' ')"
+                verdict=unreachable
+                ;;
+            esac
+          fi
+          printf '%s\t%s\t%s\n' "$(date -u +%F)" "$verdict" "$detail" > "$RUNNER_TEMP/row.tsv"
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+
+      # A ROUND MUST BE LEGIBLE FROM ITS OWN LOG. The derived repository this
+      # came from printed its round's stderr only on `changed`, so twelve blind
+      # rounds left no diagnostic anywhere. `always()` because the round that
+      # fails is the one worth reading.
+      - name: Say what the round found
+        if: always()
+        run: |
+          echo "--- row ---"
+          cat "$RUNNER_TEMP/row.tsv" 2>/dev/null || echo "(no row: the round did not get that far)"
+          echo "--- stdout ---"
+          cat "$RUNNER_TEMP/round.out" 2>/dev/null || echo "(none)"
+          echo "--- stderr ---"
+          cat "$RUNNER_TEMP/round.err" 2>/dev/null || echo "(none)"
+
+      - name: Append the row
+        run: cat "$RUNNER_TEMP/row.tsv" >> "$LEDGER"
+
+      - name: Guard — nothing but the ledger changed
+        run: |
+          set -euo pipefail
+          changed=$(git status --porcelain --untracked-files=all)
+          if [ "$changed" != " M $LEDGER" ]; then
+            echo "::error::The watch may write only $LEDGER. The working tree holds:"
+            printf '%s\n' "$changed"
+            exit 1
+          fi
+
+      - name: Commit the row
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$LEDGER"
+          git commit -q -m "refresh: watch round $(cut -f1 "$RUNNER_TEMP/row.tsv") — $(cut -f2 "$RUNNER_TEMP/row.tsv")"
+          git pull -q --rebase origin "$GITHUB_REF_NAME"
+          git push -q origin "HEAD:$GITHUB_REF_NAME"
+
+      # EXACT EQUALITY, NEVER `contains`. `unchanged` contains `changed`. The
+      # derived repository this came from tested the whole row with `contains`,
+      # and its first quiet round opened an issue announcing a change.
+      - name: Open an issue on a change
+        if: steps.round.outputs.verdict == 'changed'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          day=$(cut -f1 "$RUNNER_TEMP/row.tsv")
+          {
+            echo "The watch round of $day reported \`changed\`: $(cut -f3 "$RUNNER_TEMP/row.tsv")"
+            echo
+            echo "Nothing was written to the corpus. What the change means, and what it is tagged, is a person's decision."
+            echo
+            echo "## stdout"
+            echo '```'
+            cat "$RUNNER_TEMP/round.out"
+            echo '```'
+            echo "## stderr"
+            echo '```'
+            cat "$RUNNER_TEMP/round.err"
+            echo '```'
+          } > "$RUNNER_TEMP/round.md"
+          # Truncated from a file, not a pipe: under pipefail, `head` closing a pipe
+          # early would fail this step on exactly the round with the most to say.
+          head -c 60000 "$RUNNER_TEMP/round.md" > "$RUNNER_TEMP/issue.md"
+          gh issue create --title "watch $day: a watched source changed" --body-file "$RUNNER_TEMP/issue.md"

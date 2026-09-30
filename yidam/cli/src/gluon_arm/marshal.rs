@@ -20,8 +20,9 @@
 //! that name what could not be read rather than hiding it.
 //!
 //! [`Value::Empty`] is a key written with no value. [`Value::Unrepresentable`] is a sequence or
-//! a nested mapping — a shape the ontology's property types (`string`, `text`, `date`,
-//! `number`, `ref`, `claim`) do not describe and which this arm therefore cannot type. Both are
+//! a nested mapping — a shape the scalar property types (`string`, `text`, `date`, `number`,
+//! `ref`, `claim`) do not describe and which this arm therefore cannot type. A `quotation` is
+//! such a shape, and is unrepresentable here for the same reason. Both are
 //! constructors a script can match on. Neither is silence: a projection that dropped those keys
 //! would let a calculator compute over a corpus it could not see the whole of and never say so,
 //! and a calculator that is wrong about its input is the one failure a receipt cannot catch.
@@ -366,7 +367,7 @@ pub(crate) fn project(
                     .map(|p| ClassProperty {
                         name: p.name.clone(),
                         kind: p.r#type.clone(),
-                        required: p.required,
+                        required: p.required(),
                         prose: p.prose,
                     })
                     .collect(),

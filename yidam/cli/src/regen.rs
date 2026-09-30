@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 /// A REGEN block whose committed content is not what its generator produces.
@@ -140,12 +141,34 @@ pub fn checking() -> bool {
     CHECK.lock().expect("regen check lock").is_some()
 }
 
-/// Print a generator's rendered block, unless we are only checking.
+/// Write mode with nothing said: the generators write their blocks and print neither the
+/// content nor the *updated* line.
+///
+/// For a command that refreshes the blocks on the way to its own report — `phase settle`
+/// (#1066) — whose `--format json` has to stay one JSON document. Same trade as [`CHECK`]
+/// and for the same reason: the alternative is a parameter on every generator so that one
+/// caller can ask them to be quiet.
+static QUIET: AtomicBool = AtomicBool::new(false);
+
+/// Run the generators silently until [`end_quiet`].
+pub fn begin_quiet() {
+    QUIET.store(true, Ordering::SeqCst);
+}
+
+pub fn end_quiet() {
+    QUIET.store(false, Ordering::SeqCst);
+}
+
+fn quiet() -> bool {
+    QUIET.load(Ordering::SeqCst)
+}
+
+/// Print a generator's rendered block, unless we are only checking — or refreshing quietly.
 ///
 /// Every generator calls this instead of `println!` for exactly one reason: `--check` has to
 /// be able to emit a report on the same stream.
 pub fn emit(content: &str) {
-    if !checking() {
+    if !checking() && !quiet() {
         println!("{content}");
     }
 }
@@ -208,7 +231,9 @@ pub fn update_file_regen(path: &Path, command: &str, new_content: &str) -> Resul
         return Ok(());
     }
     std::fs::write(path, &updated).with_context(|| format!("writing {}", path.display()))?;
-    println!("  updated {}", path.display());
+    if !quiet() {
+        println!("  updated {}", path.display());
+    }
     Ok(())
 }
 

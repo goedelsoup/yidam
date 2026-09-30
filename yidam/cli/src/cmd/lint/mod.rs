@@ -5,12 +5,15 @@
 //! Conflating the two is what produces a gate that is either permanently red or
 //! permanently ignored; see [`baseline`].
 
+pub(crate) mod articles;
 pub(crate) mod attest;
 pub(crate) mod baseline;
+pub(crate) mod calculators;
 pub(crate) mod checks;
 pub(crate) mod citations;
 pub(crate) mod commitments;
 pub(crate) mod commits;
+pub(crate) mod deliberation;
 pub(crate) mod edge_claims;
 pub(crate) mod history;
 pub(crate) mod independence;
@@ -20,8 +23,11 @@ pub(crate) mod line_citations;
 pub(crate) mod lineage;
 pub(crate) mod local_citations;
 pub(crate) mod model;
+pub(crate) mod quotations;
+pub(crate) mod refusals;
 pub(crate) mod scope;
 pub(crate) mod ttl;
+pub(crate) mod uncited;
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -85,7 +91,8 @@ pub(crate) fn build_report(
     base: &baseline::Baseline,
 ) -> json::LintReport {
     let commits = history::corpus_commits(root);
-    json::build(root, checks, base, &baseline::diff(checks, base, &commits))
+    let d = baseline::diff(checks, base, &commits, &unasked(checks));
+    json::build(root, checks, base, &d)
 }
 
 pub(crate) fn commit_verb_severity() -> Severity {
@@ -165,8 +172,24 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
         check.escalate_after = escalate_after;
     }
 
-    suppress_unparsed(&mut all, &corpus);
+    suppress_unparsed(&mut all, &corpus, input.universal());
     all
+}
+
+/// The roster's ids that `reported` does not carry: every check this run left unasked.
+///
+/// What the baseline accounting needs in order to carry an entry rather than resolve it
+/// (#1114). Derived from the report rather than from [`Options`] because the report is what
+/// the run actually asked — [`run_checks_with`] filters by [`Asked`], and every check that runs
+/// reports, passing or not — and because two callers (`serve --lsp`, `cycle`) hold a report
+/// and no options. An id the roster does not hold is never on this list, which is what keeps
+/// a retired check's entries stale.
+pub(crate) fn unasked(reported: &[Check]) -> Vec<&'static str> {
+    ROSTER
+        .iter()
+        .map(|e| e.id)
+        .filter(|id| !reported.iter().any(|c| c.id == *id))
+        .collect()
 }
 
 /// Whether a check runs on every invocation, or only when asked for.
@@ -176,8 +199,16 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
 /// verdicts about one repository and a question that vanished cannot be told from one that was
 /// never wired in. A lint check is the other shape — its findings are compared against a
 /// baseline keyed by check id, and a check reporting zero findings because nobody asked for it
-/// would resolve every baseline entry it owns. So the entry is left out of the report
-/// entirely, which is what `--commits` has always done.
+/// would claim the corpus passed a question nobody put to it. So the entry is left out of the
+/// report entirely, which is what `--commits` has always done.
+///
+/// Absence alone did not settle the baseline (#1114): the accounting used to seed itself from
+/// every entry the file carried whichever checks ran, so a corpus that baselined a finding
+/// from a conditional check failed as a *stale* baseline under the invocation that could not
+/// decide it. The gate now hears which ids went unasked — [`unasked`], derived from the report
+/// — and carries their entries rather than resolving them; a blessing carries them the same
+/// way. Pinned by `baseline::tests::an_unasked_check_carries_its_entries` and
+/// `a_baseline_written_by_one_build_survives_the_other`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Asked {
     /// Every run.
@@ -188,6 +219,23 @@ enum Asked {
     /// opt-in because reading the log is not free and because a repository being linted
     /// mid-rebase has a log that is nobody's statement about anything.
     WithCommits,
+    /// Only where this build has a typechecker for the typed calculator arm (#1099).
+    ///
+    /// Not an option the caller passes but a property of the binary: `calculators-gluon` is
+    /// outside the default feature set, so the light binary `install.sh` downloads has no VM to
+    /// typecheck a `.glu` with. The two checks behind this — `calculator-scope` and
+    /// `calculator-type` — are then **absent from the report** rather than reported empty: a
+    /// check that ran and found nothing says the corpus was held to the closed prelude, and a
+    /// binary with no typechecker did not hold it to anything. Reporting that as a pass is the
+    /// one reading of the report nobody could correct from the report.
+    ///
+    /// Either binary can gate a corpus the other blessed: a baseline entry for one of these two
+    /// is carried, not resolved, in a build without the feature (#1114, [`unasked`]). What the
+    /// light build cannot do is *decide* the entry, and its report says so.
+    ///
+    /// What both binaries do decide is `calculator-script`, which is [`Self::Always`]: the macro
+    /// refusal is text. See [`calculators`] for why the split falls exactly there.
+    WithTypechecker,
 }
 
 impl Asked {
@@ -195,6 +243,7 @@ impl Asked {
         match self {
             Self::Always => true,
             Self::WithCommits => opts.commits,
+            Self::WithTypechecker => cfg!(feature = "calculators-gluon"),
         }
     }
 }
@@ -256,7 +305,22 @@ const ROSTER: &[Entry] = &[
     Entry {
         id: checks::MALFORMED_YAML,
         asked: Asked::Always,
-        run: |i| checks::malformed_yaml(i.nodes(), i.classes(), i.sources(), i.decisions()),
+        run: |i| {
+            checks::malformed_yaml(
+                i.nodes(),
+                i.classes(),
+                i.sources(),
+                i.decisions(),
+                i.universal(),
+            )
+        },
+    },
+    // Second, and beside it for the same reason: the block it reports is YAML the file parses,
+    // so `malformed-yaml` cannot see it and the two together are "what did not read".
+    Entry {
+        id: checks::FINDINGS_MALFORMED,
+        asked: Asked::Always,
+        run: |i| checks::findings_malformed(i.nodes(), i.sources()),
     },
     Entry {
         id: "missing-class",
@@ -314,6 +378,16 @@ const ROSTER: &[Entry] = &[
         run: |i| checks::edge_target_class(i.nodes(), i.edges(), i.classes()),
     },
     Entry {
+        id: "interval-overlap",
+        asked: Asked::Always,
+        run: |i| checks::interval_overlap(i.nodes(), i.edges(), i.classes()),
+    },
+    Entry {
+        id: "interval-gap",
+        asked: Asked::Always,
+        run: |i| checks::interval_gap(i.nodes(), i.edges(), i.classes()),
+    },
+    Entry {
         id: edge_claims::UNTAGGED,
         asked: Asked::Always,
         run: |i| i.edge_claim_checks()[0].clone(),
@@ -327,6 +401,11 @@ const ROSTER: &[Entry] = &[
         id: edge_claims::STANDING_UNHELD,
         asked: Asked::Always,
         run: |i| i.edge_claim_checks()[2].clone(),
+    },
+    Entry {
+        id: edge_claims::SOURCE_UNRESOLVED,
+        asked: Asked::Always,
+        run: |i| i.edge_claim_checks()[3].clone(),
     },
     Entry {
         id: citations::UNRESOLVED,
@@ -369,9 +448,37 @@ const ROSTER: &[Entry] = &[
         run: |i| i.local_citation_checks()[3].clone(),
     },
     Entry {
+        id: quotations::UNRESOLVED,
+        asked: Asked::Always,
+        run: |i| i.quotation_checks()[0].clone(),
+    },
+    Entry {
+        id: quotations::SPAN_DRIFT,
+        asked: Asked::Always,
+        run: |i| i.quotation_checks()[1].clone(),
+    },
+    Entry {
+        id: quotations::UNCHECKED,
+        asked: Asked::Always,
+        run: |i| i.quotation_checks()[2].clone(),
+    },
+    Entry {
+        id: refusals::SPAN_DRIFT,
+        asked: Asked::Always,
+        run: |i| refusals::refusal_span_drift(i.nodes()),
+    },
+    Entry {
         id: "verified-unsourced",
         asked: Asked::Always,
-        run: |i| checks::verified_unsourced(i.nodes(), i.sources(), i.claim_fields()),
+        run: |i| {
+            checks::verified_unsourced(
+                i.nodes(),
+                i.sources(),
+                i.claim_fields(),
+                i.catalog_dir(),
+                &i.quotations(),
+            )
+        },
     },
     Entry {
         id: "catalog-expired",
@@ -444,9 +551,26 @@ const ROSTER: &[Entry] = &[
         run: orphan_in_dated,
     },
     Entry {
+        id: "only-instance-of",
+        asked: Asked::Always,
+        run: |i| checks::only_instance_of(i.nodes(), i.edges(), i.classes()),
+    },
+    Entry {
         id: "catalog-uncited",
         asked: Asked::Always,
         run: |i| checks::catalog_uncited(i.sources(), i.cites()),
+    },
+    Entry {
+        id: "decision-uncited",
+        asked: Asked::Always,
+        run: |i| {
+            uncited::decision_uncited(i.decisions(), i.nodes(), i.prose_links(), i.authored_text())
+        },
+    },
+    Entry {
+        id: "source-unregistered",
+        asked: Asked::Always,
+        run: |i| uncited::source_unregistered(i.sources(), i.nodes()),
     },
     Entry {
         id: "class-asserts-purpose",
@@ -496,6 +620,16 @@ const ROSTER: &[Entry] = &[
         },
     },
     Entry {
+        id: "resolution-deliberation-unrecorded",
+        asked: Asked::Always,
+        run: |i| {
+            checks::resolution_deliberation_unrecorded(
+                &i.sangha().resolutions,
+                i.deliberation_asked(),
+            )
+        },
+    },
+    Entry {
         id: "resolution-independence-mismatch",
         asked: Asked::Always,
         run: |i| independence::independence_mismatch(i.independence_audits()),
@@ -504,6 +638,26 @@ const ROSTER: &[Entry] = &[
         id: "elector-signature-unverified",
         asked: Asked::Always,
         run: |i| attest::elector_signature_unverified(i.attestations()),
+    },
+    Entry {
+        id: "domain-article-violated",
+        asked: Asked::Always,
+        run: |i| i.article_checks()[0].clone(),
+    },
+    Entry {
+        id: "domain-article-edited",
+        asked: Asked::Always,
+        run: |i| i.article_checks()[1].clone(),
+    },
+    Entry {
+        id: "domain-article-unproven",
+        asked: Asked::Always,
+        run: |i| i.article_checks()[2].clone(),
+    },
+    Entry {
+        id: "domain-article-unverifiable",
+        asked: Asked::Always,
+        run: |i| i.article_checks()[3].clone(),
     },
     Entry {
         id: "resolution-scope-unheld",
@@ -556,6 +710,11 @@ const ROSTER: &[Entry] = &[
         run: |i| checks::broken_prose_link(i.prose_links()),
     },
     Entry {
+        id: "broken-object-link",
+        asked: Asked::Always,
+        run: |i| checks::broken_object_link(i.object_links()),
+    },
+    Entry {
         id: "dead-line-citation",
         asked: Asked::Always,
         run: |i| line_citations::dead_line_citation(i.line_citations()),
@@ -594,6 +753,24 @@ const ROSTER: &[Entry] = &[
         id: "policy-override",
         asked: Asked::Always,
         run: |i| checks::policy_override(i.policy_overrides()),
+    },
+    // The typed calculator arm, refused from the manifest rather than from a step (#1099). Two
+    // of the three are in the report only where the build has a typechecker; see
+    // `Asked::WithTypechecker`.
+    Entry {
+        id: "calculator-script",
+        asked: Asked::Always,
+        run: |i| i.calculator_checks()[0].clone(),
+    },
+    Entry {
+        id: "calculator-scope",
+        asked: Asked::WithTypechecker,
+        run: |i| i.calculator_checks()[1].clone(),
+    },
+    Entry {
+        id: "calculator-type",
+        asked: Asked::WithTypechecker,
+        run: |i| i.calculator_checks()[2].clone(),
     },
     Entry {
         id: "unrecognized-verb",
@@ -647,10 +824,21 @@ const ROSTER: &[Entry] = &[
 /// no `retrieved:` and no `ttl_days:`, so `catalog-expired` and `catalog-uncited` would each
 /// report what they made of the absence, and the only finding worth reading would be the one
 /// saying nobody read the file.
-fn suppress_unparsed(all: &mut [Check], corpus: &crate::corpus::Corpus) {
+fn suppress_unparsed(
+    all: &mut [Check],
+    corpus: &crate::corpus::Corpus,
+    universal: &crate::universal::Universal,
+) {
     // Takes the corpus rather than the four slices: the set below has to be every record
     // `malformed-yaml` can report, and a fifth record type added to that check and not to this
     // one would put #676's contradictory findings straight back on the new kind of file.
+    //
+    // `universal.yml` is the fifth file that check reports and is not one of those records, so
+    // it arrives beside them. Nothing reports a finding against it today — `prose_views`
+    // excludes it by name, and the property checks it governs report against the *instance* —
+    // so this line suppresses nothing. It is here because the invariant above is about what
+    // `malformed-yaml` can report and not about what happens to be reported elsewhere, and the
+    // day a check does name this file is the day the omission would be invisible.
     let unparsed: HashSet<&str> = corpus
         .nodes()
         .iter()
@@ -677,6 +865,7 @@ fn suppress_unparsed(all: &mut [Check], corpus: &crate::corpus::Corpus) {
                 .filter(|d| d.malformed.is_some())
                 .map(|d| d.rel.as_str()),
         )
+        .chain(universal.malformed().map(|_| crate::universal::REL))
         .collect();
     if unparsed.is_empty() {
         return;
@@ -767,9 +956,26 @@ fn bless(root: &Path, all: &[Check]) -> Result<baseline::Baseline> {
         .last()
         .cloned()
         .unwrap_or_default();
-    let b = baseline::Baseline::from_checks(all, &previous, &head);
+    let b = baseline::Baseline::from_checks(all, &previous, &head, &unasked(all));
     b.write(root)?;
     Ok(b)
+}
+
+/// One line naming the baseline entries this run did not compare, or nothing.
+///
+/// A gate that stays green over entries it never looked at owes the reader the list, and the
+/// check to ask for — `--commits`, or a build with the feature — is the id in brackets.
+fn carried_line(d: &baseline::Diff) -> Option<String> {
+    if d.carried.is_empty() {
+        return None;
+    }
+    let mut ids: Vec<&str> = d.carried.iter().map(|(id, _)| id.as_str()).collect();
+    ids.dedup();
+    Some(format!(
+        "lint: {} baseline entry(ies) carried, not compared — this run did not ask: {}",
+        d.carried.len(),
+        ids.join(", ")
+    ))
 }
 
 pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
@@ -823,6 +1029,16 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
             "blessed {count} error-severity violation(s) into {}",
             baseline::path(&root).display()
         );
+        let carried: usize = unasked(&all)
+            .iter()
+            .filter_map(|id| b.violations.get(*id))
+            .map(Vec::len)
+            .sum();
+        if carried > 0 {
+            println!(
+                "{carried} of them carried from the previous baseline, under checks this run did not ask"
+            );
+        }
         println!(
             "this records the corpus's current state as its inherited debt — it does not fix it"
         );
@@ -833,7 +1049,7 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
 
     let committed = baseline::Baseline::load(&root)?;
     let corpus_commits = history::corpus_commits(&root);
-    let d = baseline::diff(&all, &committed, &corpus_commits);
+    let d = baseline::diff(&all, &committed, &corpus_commits, &unasked(&all));
 
     if opts.warn_only {
         let n: usize = all.iter().map(|c| c.violations.len()).sum();
@@ -852,7 +1068,13 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
         } else {
             println!("lint: {n} finding(s), no errors");
         }
+        if let Some(line) = carried_line(&d) {
+            println!("{line}");
+        }
         return Ok(());
+    }
+    if let Some(line) = carried_line(&d) {
+        eprintln!("\n{line}");
     }
 
     if !d.introduced.is_empty() {
@@ -932,7 +1154,7 @@ fn lint_json(root: &Path, all: &[Check], opts: &Options) -> Result<()> {
 
     let committed = baseline::Baseline::load(root)?;
     let corpus_commits = history::corpus_commits(root);
-    let d = baseline::diff(all, &committed, &corpus_commits);
+    let d = baseline::diff(all, &committed, &corpus_commits, &unasked(all));
     crate::report::emit(root, json::build(root, all, &committed, &d))?;
 
     // Same verdict as the text path, and the same silence about it on success.
@@ -1172,8 +1394,10 @@ decision := {"allow": true, "deny": []}
     /// `i.lineage_checks()[1]` picking the wrong element is a silent mislabelling that
     /// renames a baseline entry's check and resolves the one it used to own.
     ///
-    /// Run with `commits: true` so the one conditional entry is asked for too; a roster entry
-    /// nothing exercises is a roster entry nothing holds to anything.
+    /// Run with `commits: true` so every entry an invocation can ask for is asked for; a roster
+    /// entry nothing exercises is a roster entry nothing holds to anything. The entries this
+    /// *build* cannot ask for are excluded by the same [`Asked`] the roster declares, rather
+    /// than by a number here — see [`asked_of`].
     #[test]
     fn the_roster_declares_the_id_each_entry_produces() {
         let tmp = clean_repo();
@@ -1182,14 +1406,28 @@ decision := {"allow": true, "deny": []}
             ..Options::default()
         };
         let all = run_checks(tmp.path(), &opts);
+        let declared = asked_of(&opts);
         assert_eq!(
             all.len(),
-            ROSTER.len(),
-            "every entry runs when `--commits` is asked for"
+            declared.len(),
+            "every entry this build asks for runs when `--commits` is asked for"
         );
-        let declared: Vec<&str> = ROSTER.iter().map(|e| e.id).collect();
         let reported: Vec<&str> = all.iter().map(|c| c.id).collect();
         assert_eq!(declared, reported);
+    }
+
+    /// The ids the roster would report under `opts`, in order.
+    ///
+    /// Derived from the roster's own [`Asked`] rather than written down, because two of the
+    /// conditions are not options at all: `calculator-scope` and `calculator-type` are in the
+    /// report only where the build has a typechecker (#1099), so a count written here would be
+    /// right in one of the two builds CI runs and wrong in the other.
+    fn asked_of(opts: &Options) -> Vec<&'static str> {
+        ROSTER
+            .iter()
+            .filter(|e| e.asked.of(opts))
+            .map(|e| e.id)
+            .collect()
     }
 
     /// Two entries under one id is a report that describes the same invariant twice and a
@@ -1219,7 +1457,7 @@ decision := {"allow": true, "deny": []}
             .map(|c| c.id)
             .collect();
         assert!(!without.contains(&"unrecognized-verb"), "{without:?}");
-        assert_eq!(without.len(), ROSTER.len() - 1);
+        assert_eq!(without, asked_of(&Options::default()));
 
         let with = run_checks(
             tmp.path(),
@@ -1268,6 +1506,15 @@ decision := {"allow": true, "deny": []}
         // prose: a repository with no `electors.md` at all still hears both answer.
         assert!(ids.contains("resolution-elector-unregistered"));
         assert!(ids.contains("resolution-executor-unrecorded"));
+        assert!(ids.contains("resolution-deliberation-unrecorded"));
+        for id in [
+            "domain-article-violated",
+            "domain-article-edited",
+            "domain-article-unproven",
+            "domain-article-unverifiable",
+        ] {
+            assert!(ids.contains(id), "{id}");
+        }
         // Same reason again, and this one is the most silent of all: RFC-0012's verification
         // is vacuous until a registry row binds a signing key, so a check that vanished when
         // it found no keys would be indistinguishable from one nobody wired in.
@@ -1700,6 +1947,116 @@ decision := {"allow": true, "deny": []}
         assert!(detail.contains("the generator's"), "{detail}");
     }
 
+    // ── #1068: decision-uncited and source-unregistered, through the driver ───────
+
+    /// The paths the prose walk resolves links to and the paths decisions load from have to
+    /// agree for any link to count. Only a real tree exercises that.
+    #[test]
+    fn a_decision_is_cited_by_prose_and_supersedes_but_not_by_the_generated_log() {
+        let tmp = clean_repo();
+        let dir = tmp.path().join(".yidam/decisions");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("a.yml"), "id: a\nsummary: A.\n").unwrap();
+        fs::write(dir.join("b.yml"), "id: b\nsummary: B.\n").unwrap();
+        fs::write(dir.join("c.yml"), "id: c\nsummary: C.\nsupersedes: b\n").unwrap();
+        fs::write(
+            dir.join("README.md"),
+            "# Decisions\n\n<!-- REGEN: yidam decisions-log -->\n\
+             | [a](a.yml) | A. |\n| [b](b.yml) | B. |\n| [c](c.yml) | C. |\n<!-- /REGEN -->\n",
+        )
+        .unwrap();
+        fs::create_dir_all(tmp.path().join("docs")).unwrap();
+        fs::write(
+            tmp.path().join("docs/why.md"),
+            "See [the choice](../.yidam/decisions/a.yml).\n",
+        )
+        .unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+        let found: Vec<&str> = check(&all, "decision-uncited")
+            .violations
+            .iter()
+            .map(|v| v.node.as_str())
+            .collect();
+        assert_eq!(found, vec![".yidam/decisions/c.yml"]);
+    }
+
+    /// Code git tracks cites a record. Vendored prose, a generated directory, and a file git
+    /// does not track outside the prose walk, do not.
+    ///
+    /// The corpus is a directory inside a larger checkout, as every corpus under `examples/`
+    /// is: `ls-files` names paths from the repository's top unless asked not to, and a path
+    /// read from the wrong base reads as empty.
+    #[test]
+    fn a_decision_named_in_tracked_code_is_cited_from_inside_a_larger_checkout() {
+        let tmp = clean_repo();
+        let root = tmp.path().join("corpus");
+        fs::create_dir_all(&root).unwrap();
+        fs::rename(tmp.path().join(".yidam"), root.join(".yidam")).unwrap();
+        let dir = root.join(".yidam/decisions");
+        fs::create_dir_all(&dir).unwrap();
+        for id in ["a", "b", "c", "d"] {
+            fs::write(dir.join(format!("{id}.yml")), format!("id: {id}\n")).unwrap();
+        }
+        let write = |rel: &str, body: &str| {
+            let p = root.join(rel);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, body).unwrap();
+        };
+        write(
+            "crates/x/README.md",
+            "Implements [it](../../.yidam/decisions/a.yml).\n",
+        );
+        write(".yidam/.vendor/prelude/x.md", "See decisions/b.\n");
+        write(
+            ".yidam/authorship.yml",
+            "generated:\n  - path: web/data/\n    by: yidam export\n",
+        );
+        write("web/data/index.json", "{\"why\": \"decisions/d.yml\"}\n");
+        crate::git::fixture::init(tmp.path());
+        // `-f`, so what the fixture tracks does not depend on a global ignore file: one that
+        // ignored this directory would hide it, and the region would never be asked about.
+        crate::git::fixture::git(tmp.path(), &["add", "-A", "-f"]);
+        write("notes.md", "See decisions/c.\n");
+
+        let all = run_checks(&root, &Options::default());
+        let found: Vec<&str> = check(&all, "decision-uncited")
+            .violations
+            .iter()
+            .map(|v| v.node.as_str())
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                ".yidam/decisions/b.yml",
+                ".yidam/decisions/c.yml",
+                ".yidam/decisions/d.yml"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_url_no_location_covers_is_reported_at_its_line_in_the_node() {
+        let tmp = clean_repo();
+        let catalog = tmp.path().join(".yidam/catalog");
+        fs::create_dir_all(&catalog).unwrap();
+        fs::write(
+            catalog.join("census.md"),
+            "---\ntitle: Census\nlocation:\n  - kind: url\n    value: https://census.gov/data\n---\n",
+        )
+        .unwrap();
+        fs::write(
+            tmp.path().join(".yidam/corpus/reach/gamma.yml"),
+            "class: reach\nlabel: Gamma\ndescription: >-\n  From https://census.gov/data/x.csv\n  \
+             and https://example.org/y.\n",
+        )
+        .unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+        let c = check(&all, "source-unregistered");
+        let found: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
+        assert_eq!(found, vec![".yidam/corpus/reach/gamma.yml:5"]);
+        assert!(c.violations[0].detail.contains("https://example.org/y`"));
+    }
+
     /// The escape hatch, and the only kind that produces silence.
     #[test]
     fn an_excluded_region_is_not_read_at_all() {
@@ -1722,6 +2079,112 @@ decision := {"allow": true, "deny": []}
         let all = run_checks(tmp.path(), &Options::default());
         assert!(check(&all, "broken-prose-link").passed());
         assert_eq!(check(&all, "unauthored-prose-link").violations.len(), 1);
+    }
+
+    // ── #577: the artifact's links into the corpus ──────────────────────────────
+
+    /// `clean_repo` with an artifact beside it: `crates/**` declared the object, and a crate
+    /// whose README links the corpus through `link`. Staged, because the artifact is the
+    /// tracked set.
+    fn coupled_repo(link: &str) -> TempDir {
+        let tmp = clean_repo();
+        let root = tmp.path();
+        crate::git::fixture::init(root);
+        crate::git::fixture::write(
+            root,
+            ".yidam/config.toml",
+            "[object]\npaths = [\"crates/**\"]\n",
+        );
+        crate::git::fixture::write(
+            root,
+            "crates/reach/README.md",
+            &format!("Reads [{link}]({link}).\n"),
+        );
+        crate::git::fixture::git(root, &["add", "-A"]);
+        tmp
+    }
+
+    #[test]
+    fn an_artifact_link_to_a_node_that_exists_is_not_a_finding() {
+        let tmp = coupled_repo("../../.yidam/corpus/reach/alpha.yml");
+        let all = run_checks(tmp.path(), &Options::default());
+        assert!(check(&all, "broken-object-link").passed());
+    }
+
+    /// The case #577 was measured on: a node the artifact cites is removed, and the citation
+    /// goes dead in a file the prose walk never reads.
+    #[test]
+    fn an_artifact_link_to_a_missing_node_warns_at_the_citing_line() {
+        let tmp = coupled_repo("../../.yidam/corpus/reach/gone.yml");
+        let all = run_checks(tmp.path(), &Options::default());
+        let c = check(&all, "broken-object-link");
+        assert_eq!(c.severity, Severity::Warn);
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert_eq!(c.violations[0].node, "crates/reach/README.md:1");
+        assert!(check(&all, "broken-prose-link").passed());
+        assert_eq!(errors(&all), 0);
+    }
+
+    /// The mutation: the same tree with no object declared has one register, and the README
+    /// is not read.
+    #[test]
+    fn without_an_object_declared_the_same_link_is_not_read() {
+        let tmp = coupled_repo("../../.yidam/corpus/reach/gone.yml");
+        crate::git::fixture::write(tmp.path(), ".yidam/config.toml", "");
+        let all = run_checks(tmp.path(), &Options::default());
+        assert!(check(&all, "broken-object-link").passed());
+    }
+
+    /// `docs/` is an object path in one derived corpus and a prose path everywhere. A dead
+    /// link there is `broken-prose-link`'s, and only its.
+    #[test]
+    fn a_file_the_prose_walk_reads_is_judged_once() {
+        let tmp = coupled_repo("../../.yidam/corpus/reach/alpha.yml");
+        let root = tmp.path();
+        crate::git::fixture::write(
+            root,
+            ".yidam/config.toml",
+            "[object]\npaths = [\"crates/**\", \"docs/**\"]\n",
+        );
+        crate::git::fixture::write(
+            root,
+            "docs/guide.md",
+            "[gone](../.yidam/corpus/reach/gone.yml)\n",
+        );
+        crate::git::fixture::git(root, &["add", "-A"]);
+        let all = run_checks(root, &Options::default());
+        assert_eq!(check(&all, "broken-prose-link").violations.len(), 1);
+        assert!(check(&all, "broken-object-link").passed());
+    }
+
+    /// A line-naming citation from the artifact is held by the line-citation checks, which
+    /// is the DoD's "verified or refused at authoring time". `alpha.yml` has six lines.
+    #[test]
+    fn a_line_citation_from_the_artifact_is_verified() {
+        let tmp = coupled_repo("../../.yidam/corpus/reach/alpha.yml#L40");
+        let all = run_checks(tmp.path(), &Options::default());
+        let dead = check(&all, "dead-line-citation");
+        assert_eq!(dead.violations.len(), 1, "{:?}", dead.violations);
+        assert_eq!(dead.violations[0].node, "crates/reach/README.md:1");
+        assert!(check(&all, "broken-object-link").passed());
+    }
+
+    #[test]
+    fn a_projected_corpus_is_not_read_for_object_links() {
+        let tmp = coupled_repo("../../.yidam/corpus/reach/gone.yml");
+        let root = tmp.path();
+        crate::git::fixture::write(
+            root,
+            crate::kuten::DECISION_PATH,
+            "kuten: mirror\nrevision: 1\n",
+        );
+        crate::git::fixture::write(
+            root,
+            ".yidam/.vendor/prelude/kuten/mirror/kuten.yml",
+            "kuten: mirror\nrevision: 1\nobject:\n  direction: projected\n",
+        );
+        let all = run_checks(root, &Options::default());
+        assert!(check(&all, "broken-object-link").passed());
     }
 
     #[test]
@@ -1885,12 +2348,54 @@ decision := {"allow": true, "deny": []}
         let all = run_checks(tmp.path(), &Options::default());
         assert!(errors(&all) > 0);
 
-        baseline::Baseline::from_checks(&all, &super::baseline::Baseline::default(), "")
+        baseline::Baseline::from_checks(&all, &super::baseline::Baseline::default(), "", &[])
             .write(tmp.path())
             .unwrap();
         let again = run_checks(tmp.path(), &Options::default());
         let loaded = baseline::Baseline::load(tmp.path()).unwrap();
-        assert!(baseline::diff(&again, &loaded, &[]).is_clean());
+        assert!(baseline::diff(&again, &loaded, &[], &unasked(&again)).is_clean());
+    }
+
+    /// The gap #1114 names, end to end through the roster: bless with `--commits`, so the
+    /// commit check's finding is recorded, then lint without it. The entry is carried, the
+    /// gate is clean, and a blessing without the flag keeps it.
+    #[test]
+    fn an_entry_blessed_with_commits_is_carried_without_them() {
+        let tmp = clean_repo();
+        let with_commits = Options {
+            commits: true,
+            ..Options::default()
+        };
+        let mut all = run_checks(tmp.path(), &with_commits);
+        let verb = all
+            .iter_mut()
+            .find(|c| c.id == "unrecognized-verb")
+            .expect("asked for");
+        // Planted rather than committed: what is under test is the accounting, not the
+        // vocabulary, and an error-severity finding is an error-severity finding.
+        verb.violations.push(super::model::Violation::new(
+            "deadbeef",
+            "frobnicate: a verb",
+        ));
+        verb.severity = Severity::Error;
+        let previous = baseline::Baseline::default();
+        let blessed = baseline::Baseline::from_checks(&all, &previous, "", &unasked(&all));
+        assert!(blessed.violations.contains_key("unrecognized-verb"));
+
+        let without = run_checks(tmp.path(), &Options::default());
+        let d = baseline::diff(&without, &blessed, &[], &unasked(&without));
+        assert!(d.is_clean(), "{d:?}");
+        assert_eq!(
+            d.carried,
+            vec![("unrecognized-verb".into(), "deadbeef".into())]
+        );
+
+        let reblessed = baseline::Baseline::from_checks(&without, &blessed, "", &unasked(&without));
+        assert_eq!(
+            reblessed.violations.get("unrecognized-verb"),
+            blessed.violations.get("unrecognized-verb"),
+            "a blessing without the flag carries what the flagged one recorded"
+        );
     }
 
     #[test]
@@ -1903,7 +2408,7 @@ decision := {"allow": true, "deny": []}
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        baseline::Baseline::from_checks(&all, &super::baseline::Baseline::default(), "")
+        baseline::Baseline::from_checks(&all, &super::baseline::Baseline::default(), "", &[])
             .write(tmp.path())
             .unwrap();
 
@@ -1915,7 +2420,7 @@ decision := {"allow": true, "deny": []}
         .unwrap();
         let after = run_checks(tmp.path(), &Options::default());
         let loaded = baseline::Baseline::load(tmp.path()).unwrap();
-        let d = baseline::diff(&after, &loaded, &[]);
+        let d = baseline::diff(&after, &loaded, &[], &unasked(&after));
         assert!(!d.resolved.is_empty(), "the fix must show as stale");
         assert!(!d.is_clean());
     }
@@ -2037,14 +2542,18 @@ decision := {"allow": true, "deny": []}
         )
         .unwrap();
         let all = run_checks(tmp.path(), &Options::default());
-        let base =
-            super::baseline::Baseline::from_checks(&all, &super::baseline::Baseline::default(), "");
+        let base = super::baseline::Baseline::from_checks(
+            &all,
+            &super::baseline::Baseline::default(),
+            "",
+            &[],
+        );
         assert_eq!(
             base.violations.get("orphan-in").map(Vec::len),
             Some(1),
             "only the escalated finding is recorded, not its younger siblings"
         );
-        assert!(super::baseline::diff(&all, &base, &[]).is_clean());
+        assert!(super::baseline::diff(&all, &base, &[], &[]).is_clean());
     }
 
     /// A config that does not parse must not take the checks down with it. The gate loses

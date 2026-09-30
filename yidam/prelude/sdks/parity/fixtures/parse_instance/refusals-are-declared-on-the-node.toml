@@ -1,0 +1,34 @@
+function = "parse_instance"
+description = "RFC-0045: `refuses:` is where a node declares what its own prose declines to conclude — a verbatim span and an optional inference per entry, read as a named field rather than left in `extra`, and independent of the claim tag the same sentence carries"
+
+[input]
+content = """
+class: period
+label: Depopulation, 2020–2024
+description: |
+  Eleven of the county's thirteen civil subdivisions lost population between 2020 and 2024.
+  [verified] It does not establish that the decline has ended. [open]
+refuses:
+  - span: >-
+      It does not establish that the decline has ended.
+    inference: the decline has ended
+  - span: "a refusal declared with no inference"
+"""
+
+[expected]
+instance = """
+{
+  "class": "period",
+  "label": "Depopulation, 2020–2024",
+  "description": "Eleven of the county's thirteen civil subdivisions lost population between 2020 and 2024.\\n[verified] It does not establish that the decline has ended. [open]\\n",
+  "properties": null,
+  "links": null,
+  "references": null,
+  "refuses": [
+    { "span": "It does not establish that the decline has ended.", "inference": "the decline has ended" },
+    { "span": "a refusal declared with no inference", "inference": null }
+  ],
+  "cites": null,
+  "extra": {}
+}
+"""

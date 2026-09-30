@@ -115,13 +115,18 @@ sourceClasses(classes) : Set<string>
 
 OntologyProperty
   name        : string
-  type        : string             — string | text | date | number | ref | claim, or a type
-                                     this corpus coined, which is carried through unconstrained
+  type        : string             — string | text | date | number | ref | claim | quotation,
+                                     or a type this corpus coined, which is carried through
+                                     unconstrained. A quotation is {of, span, sha256?}, or a
+                                     non-empty list of them
   description : string
   required    : boolean            — must every instance carry it? absent means false
   unit        : string             — what a number is written in; empty is dimensionless.
                                      A fact about the column, declared once, so an ordering
                                      never compares across units. Published as x-yidam-unit
+  values      : string[]           — the closed set a string may hold; empty is unbounded.
+                                     Declaring it closes it: the gate reports a value outside
+                                     it, and the schema carries it as enum, a constraint
 
 OntologyEdge
   relationship : string
@@ -328,23 +333,37 @@ can state as method postconditions and verify automatically.
 lemma UpdateRegenSpec(text: string, command: string, newContent: string)
   requires HasRegenFor(text, command)
   requires ContainsNo(newContent, RegenClose)
-  ensures  result[..sp.body] == text[..sp.body]              // frame, before
-  ensures  result[sp.body + |body|..] == text[sp.close..]    // frame, after
-  ensures  RegenSpan(result, command) == Some(...)           // the section, exactly
-  ensures  UpdateRegen(result, command, newContent) == result // idempotency
+  ensures  result[..sp.body] == text[..sp.body]                        // frame, before
+  ensures  Hollow(result, command) == Hollow(text, command)            // frame, everywhere
+  ensures  RegenSpan(result, command) == Some(...)                     // the section, exactly
+  ensures  Commands(RegenScan(result)) == Commands(RegenScan(text))    // same blocks
+  ensures  EveryWritten(result, command, newContent)                   // every match
+  ensures  UpdateRegen(result, command, newContent) == result          // idempotency
 ```
-Everything outside the target REGEN section is byte-for-byte identical; the target section
-gets exactly `new_content`, still bracketed by the same open tag and arrow; and running it
-again with the same content changes nothing.
+`RegenScan` models `scan_markers`, and `RegenSpan` selects from it by equality of command,
+as `update_regen` does. `Hollow` is the text with the body of every block named `command`
+removed. So:
 
-The precondition is not decoration: a caller who writes `<!-- /REGEN -->` into
-`new_content` terminates the section early, and every clause above is false of that call.
+- Everything except those bodies is byte-for-byte identical.
+- The first such section gets exactly `new_content`, bracketed by the same open tag and arrow.
+- Every other block with the same command gets the same content.
+- The scan of the result reads the same blocks, in the same order.
+- Running it again with the same content changes nothing.
 
-A fourth clause — "no REGEN blocks are created or destroyed", over a count — used to be here
-and is not, because it was false and because it was the weaker instrument. Byte-for-byte
-equality says more about the blocks outside the section than a count of them can, and inside
-the section the content is the caller's. `RegenBlockCountWasTheWrongInstrument` proves the
-unconditional form false.
+The precondition is required. A caller who writes `<!-- /REGEN -->` into `new_content` ends
+the section early, and every clause above is false of that call.
+
+The block count was once stated as a count of open tags in the text, and in that form it was
+false: content can spell an open tag. Stated over the scan it is true, because the scan never
+searches a body for an open tag. `ContentThatSpellsATagIsNotABlock` is the document that
+separates the two forms.
+
+The model's scan reads a line at a time, as the code's does. A block-form open tag must start
+its line and its close tag must stand alone on its own line; an inline block has all three tags
+on one line. `ACloseTagMustStandAlone` proves that both sides read no block in a document whose
+close tag shares its line, and a test in `markers.rs` runs the same document against the code.
+`AnOpenTagMidSentenceIsProse` proves that an open tag mid-sentence is prose, so the scan reads
+the block on the next line.
 
 **`classify_commit` — totality and coverage**
 ```

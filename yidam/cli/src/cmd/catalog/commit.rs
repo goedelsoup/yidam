@@ -96,7 +96,7 @@ pub fn require_clean(root: &Path, paths: &[String]) -> Result<()> {
 /// of act a machine may perform without a person in the loop. Asking `classify_commit` rather
 /// than matching a local list is deliberate: a second copy of the vocabulary here is one that
 /// can drift from the one three SDKs are held to.
-fn is_operational(subject: &str) -> bool {
+pub(super) fn is_operational(subject: &str) -> bool {
     classify_commit("", subject).kind == CommitKind::Operational
 }
 

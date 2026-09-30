@@ -283,7 +283,7 @@ def parse_markers(text: str) -> list[Marker]:
     return scan_markers(text).markers
 
 
-def _regen_body(new_content: str, inline: bool) -> str:
+def _regen_body(new_content: str, inline: bool, stands_alone: bool) -> str | None:
     """The body to write between a block's markers.
 
     An inline block keeps its line: the author wrote it that way and no regeneration
@@ -294,12 +294,30 @@ def _regen_body(new_content: str, inline: bool) -> str:
     one-line block would leave a document whose form no longer matches its body, and the
     next run would read it as a block-form block and rewrite it differently. Deciding on
     both is what makes a second run a no-op.
+
+    ``None`` is a block that cannot hold the value. Block form is a *line* form: the scan
+    reads one only where the open tag starts its line and the close tag stands alone on its
+    own (#1137). An inline block that shares its line would lose its open tag to prose, or
+    have its close tag read as some later block's, so it is left as it is.
     """
     if inline and "\n" not in new_content:
         return new_content
+    if inline and not stands_alone:
+        return None
     if new_content == "":
         return "\n"
     return f"\n{new_content}\n"
+
+
+def _stands_alone(text: str, span: RegenSpan) -> bool:
+    """Whether nothing but whitespace shares the block's line, before its open tag or after
+    its close tag. See the Rust note."""
+    start = text.rfind("\n", 0, span.open) + 1
+    end = span.close + len(_REGEN_CLOSE)
+    stop = text.find("\n", end)
+    if stop == -1:
+        stop = len(text)
+    return text[start:span.open].strip() == "" and text[end:stop].strip() == ""
 
 
 def update_regen(text: str, command: str, new_content: str) -> str:
@@ -307,7 +325,8 @@ def update_regen(text: str, command: str, new_content: str) -> str:
 
     Defined over :func:`scan_markers`, which is the point: before #1094 this searched the
     text itself, and the two searches disagreed. A block the scan cannot read is a block this
-    leaves alone, and a block it reads inline stays inline.
+    leaves alone, and a block it reads inline stays inline — or, given a value that needs more
+    than one line, takes the block form if the line is its own and is left alone if not.
 
     Two things changed with the second search's removal, and both close a defect rather than
     open a feature. The command matches **exactly**, where the old prefix search let
@@ -322,8 +341,11 @@ def update_regen(text: str, command: str, new_content: str) -> str:
     out: list[str] = []
     cursor = 0
     for span in spans:
+        body = _regen_body(new_content, span.inline, _stands_alone(text, span))
+        if body is None:
+            continue
         out.append(text[cursor:span.body])
-        out.append(_regen_body(new_content, span.inline))
+        out.append(body)
         cursor = span.close
     out.append(text[cursor:])
     return "".join(out)

@@ -54,6 +54,7 @@ use super::tracked;
 /// step in step 8 deletes them once they have been used. Shipping a file the protocol
 /// consumes is not the same as leaking one it never names.
 pub const NOT_INHERITED: &[&str] = &[
+    ".changes",
     ".claude-plugin",
     ".config",
     ".github",

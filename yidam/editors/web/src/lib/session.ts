@@ -29,8 +29,9 @@ export function session(): Promise<Session> {
 /**
  * The root, with symlinks followed.
  *
- * `git rev-parse --show-toplevel` returns a real path, so the binary's answer is always
- * canonical while the flag's argument need not be. On macOS `/tmp` is a symlink to
+ * The binary resolves from what it is handed — `--root` walks up from it, and a binary predating
+ * the flag runs `git rev-parse --show-toplevel`, which returns a real path — so the argument
+ * is canonicalised here, before either sees it. On macOS `/tmp` is a symlink to
  * `/private/tmp`, which is enough on its own: asking for `/tmp/corpus` and being told
  * `/private/tmp/corpus` is the same directory reported two ways, and comparing the strings
  * raises a mismatch warning about a corpus that is perfectly correct. A warning that cries

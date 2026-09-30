@@ -1,6 +1,6 @@
 {
   "name": "@yidam/core",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Yidam corpus types and parity surface — TypeScript reference implementation",
   "type": "module",
   "exports": {

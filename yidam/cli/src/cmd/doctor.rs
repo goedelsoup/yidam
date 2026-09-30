@@ -164,6 +164,9 @@ impl Check {
     const PRELUDE: &'static str = "prelude";
     const INDEX: &'static str = "index";
     const REGEN: &'static str = "regen";
+    const ROUTES: &'static str = "routes";
+    const SCAFFOLD: &'static str = "scaffold";
+    const CI: &'static str = "ci";
     const COMPUTED: &'static str = "computed";
     const BUILD: &'static str = "build";
     const CATALOG: &'static str = "catalog";
@@ -175,6 +178,7 @@ impl Check {
     const KUTEN: &'static str = "kuten";
     const KUTEN_READ: &'static str = "kuten-read";
     const CORPUS: &'static str = "corpus";
+    const CONTRACT: &'static str = "contract";
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -736,6 +740,232 @@ fn check_regen(root: &std::path::Path) -> Answer {
     }
 }
 
+/// Does `AGENTS.md` carry the reading routes a re-vendor updates? — #1135.
+///
+/// A separate question from [`check_regen`], which judges the blocks a file carries and so
+/// cannot see one that is missing. A derivation made before RFC-0039 has no `yidam routes`
+/// markers, `update_file_regen` writes nothing where it finds none, and `regen --check`
+/// reports every block current. Of sixteen route lines the template added before the block
+/// existed, two reached a derivation, and nothing reported the other fourteen (#969).
+///
+/// A `warn` and not a `fail`: the whole-file list still works, and it is what every
+/// derivation had until this landed. No `AGENTS.md` skips rather than passes, for the reason
+/// [`check_kuten_read`] gives: there is nothing to carry the block.
+fn check_routes(root: &Path) -> Answer {
+    let Ok(text) = std::fs::read_to_string(root.join("AGENTS.md")) else {
+        return Answer::skipped("no `AGENTS.md`, so there is no reading list to route");
+    };
+    if super::migrate_routes::has_block(&text) {
+        return Answer::ok("`AGENTS.md` reads by occasion, from the vendored routes");
+    }
+    let remedy = if root.join(super::routes::VENDORED).exists() {
+        "yidam migrate routes, committed as a `migrate:` commit"
+    } else {
+        "mise run yidam-vendor-update, then yidam migrate routes"
+    };
+    Answer::warn(
+        "`AGENTS.md` has no `yidam routes` block, so no re-vendor reaches its reading list",
+        Some(remedy),
+    )
+}
+
+/// Do `ci.yml` and `CLAUDE.md` mark the part a re-vendor updates? — #1054.
+///
+/// The question [`check_routes`] asks of `AGENTS.md`, asked of the other two files genesis
+/// installs once. Without markers `yidam-vendor-update` reaches neither, so a gate added
+/// upstream never reaches this repository's CI, and nothing else would say so.
+///
+/// A `warn`, for the reason `routes` gives. A `CLAUDE.md` with none of the template's sections
+/// is the owner's whole, and asks for no region: `migrate scaffold` leaves it unmarked, and a
+/// finding it cannot resolve would be one to live with forever.
+fn check_scaffold(root: &Path) -> Answer {
+    use super::migrate_scaffold as m;
+    let ci = std::fs::read_to_string(root.join(m::CI)).ok();
+    let claude = std::fs::read_to_string(root.join(m::CLAUDE)).ok();
+    if ci.is_none() && claude.is_none() {
+        return Answer::skipped(format!(
+            "no `{}` and no `{}`, so there is nothing a re-vendor could update",
+            m::CI,
+            m::CLAUDE
+        ));
+    }
+    let mut unmarked = vec![];
+    if ci.as_deref().is_some_and(|t| !m::ci_has_region(t)) {
+        unmarked.push(m::CI);
+    }
+    if claude
+        .as_deref()
+        .is_some_and(|t| m::claude_is_template(t) && !m::claude_has_region(t))
+    {
+        unmarked.push(m::CLAUDE);
+    }
+    if unmarked.is_empty() {
+        return Answer::ok("each file genesis installed marks the part a re-vendor updates");
+    }
+    Answer::warn(
+        format!(
+            "no YIDAM region in {}, so no re-vendor reaches the part that is yidam's",
+            unmarked
+                .iter()
+                .map(|f| format!("`{f}`"))
+                .collect::<Vec<_>>()
+                .join(" or ")
+        ),
+        Some("yidam migrate scaffold, then mise run yidam-vendor-update"),
+    )
+}
+
+/// The commands that check a corpus. `yidam lint` counts unless it is one of the flags that
+/// only prints or writes.
+const CI_GATES: &[&str] = &["yidam graph-check", "yidam regen --check", "yidam lint"];
+
+/// `yidam lint` flags that check nothing.
+const NOT_A_GATE: &[&str] = &["--bless", "--explain", "--init-baseline"];
+
+/// The inherited `mise.yidam.toml` tasks that run one of [`CI_GATES`]. A test reads each one's
+/// `run` and holds it to that.
+const GATE_TASKS: &[&str] = &[
+    "graph-check",
+    "graph-lint",
+    "graph-lint-gate",
+    "graph-lint-commits",
+    "regen-check",
+];
+
+/// How many of the repository's own tasks deep a `mise run` is followed.
+const TASK_DEPTH: usize = 3;
+
+/// The corpus gates some shell text runs.
+///
+/// Comments are cut first, whole-line and trailing: the scaffold's workflow explains its gates
+/// in comments, and a workflow whose every gate was deleted but whose prose still names them
+/// must not pass. A `mise run` of an inherited gate task counts, addressed bare or as `//:`,
+/// as does one of the repository's own tasks whose `run` reaches a gate: two of fifteen
+/// derived workflows gate through `mise run ci` or `mise run //:graph-lint` and name no
+/// `yidam` command at all.
+fn gates_in(text: &str, own_task: &dyn Fn(&str) -> Option<String>, depth: usize) -> Vec<String> {
+    let mut found: Vec<String> = vec![];
+    let mut add = |g: String| {
+        if !found.contains(&g) {
+            found.push(g);
+        }
+    };
+    for line in text.lines() {
+        let code = match line.find('#') {
+            Some(i) if line[..i].trim().is_empty() => continue,
+            Some(i) if line[..i].ends_with(char::is_whitespace) => &line[..i],
+            _ => line,
+        };
+        for gate in CI_GATES {
+            for (at, _) in code.match_indices(gate) {
+                let rest = &code[at + gate.len()..];
+                // A whole command, not a prefix of another: `yidam lint-x`.
+                if rest.starts_with(|c: char| c.is_alphanumeric() || c == '-' || c == '_') {
+                    continue;
+                }
+                if *gate == "yidam lint"
+                    && NOT_A_GATE.iter().any(|f| rest.trim_start().starts_with(f))
+                {
+                    continue;
+                }
+                add((*gate).to_string());
+            }
+        }
+        for (at, _) in code.match_indices("mise run ") {
+            let token: String = code[at + "mise run ".len()..]
+                .chars()
+                .take_while(|c| {
+                    !c.is_whitespace() && !matches!(c, '"' | '\'' | '`' | ';' | '&' | '|' | ')')
+                })
+                .collect();
+            // `//:task` is the root's task; `//web:task` is a subproject's, and not inherited.
+            let task = match token.strip_prefix("//:") {
+                Some(t) => t,
+                None if token.starts_with("//") => continue,
+                None => token.as_str(),
+            };
+            if GATE_TASKS.contains(&task) {
+                add(format!("mise run {token}"));
+            } else if depth > 0 {
+                if let Some(run) = own_task(task) {
+                    let inner = gates_in(&run, own_task, depth - 1);
+                    if !inner.is_empty() {
+                        add(format!("mise run {token} ({})", inner.join(", ")));
+                    }
+                }
+            }
+        }
+    }
+    found
+}
+
+/// A task's `run`, from the repository's own `mise.toml`, as one piece of shell text.
+fn own_task_run(mise: &toml::Value, task: &str) -> Option<String> {
+    let run = mise.get("tasks")?.get(task)?.get("run")?;
+    match run {
+        toml::Value::String(s) => Some(s.clone()),
+        toml::Value::Array(a) => Some(
+            a.iter()
+                .filter_map(toml::Value::as_str)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        _ => None,
+    }
+}
+
+/// Does this repository's CI run a corpus gate? — #1054.
+///
+/// A workflow that runs none leaves a green check saying nothing about the graph. #1054
+/// reported one derivation in that state; it gated through `mise run //:graph-lint` and named
+/// `yidam` only in a comment, which is why [`gates_in`] cuts comments and follows tasks.
+/// Measured 2026-09-29, all fourteen derived workflows gate. Read offline from
+/// `.github/workflows/`: this cannot see CI that lives anywhere else, so a `warn` and never a
+/// `fail`, and the detail says what it looked at.
+fn check_ci(root: &Path) -> Answer {
+    let dir = root.join(".github/workflows");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Answer::warn(
+            "no `.github/workflows/`, so no CI this can read checks the corpus",
+            Some(
+                "a workflow step running `yidam graph-check` — or, with CI elsewhere, run it there",
+            ),
+        );
+    };
+    let mut files: Vec<_> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "yml" || x == "yaml"))
+        .collect();
+    files.sort();
+    let mise = std::fs::read_to_string(root.join("mise.toml"))
+        .ok()
+        .and_then(|t| toml::from_str::<toml::Value>(&t).ok());
+    let own_task = |task: &str| mise.as_ref().and_then(|m| own_task_run(m, task));
+    let mut gates: Vec<String> = vec![];
+    for f in &files {
+        let Ok(text) = std::fs::read_to_string(f) else {
+            continue;
+        };
+        for g in gates_in(&text, &own_task, TASK_DEPTH) {
+            if !gates.contains(&g) {
+                gates.push(g);
+            }
+        }
+    }
+    if gates.is_empty() {
+        return Answer::warn(
+            format!(
+                "none of {} workflow(s) runs a corpus gate, so a green check says nothing about \
+                 the graph",
+                files.len()
+            ),
+            Some("yidam migrate scaffold, then mise run yidam-vendor-update"),
+        );
+    }
+    Answer::ok(format!("runs {}", gates.join(", ")))
+}
+
 /// Which features does this binary have?
 ///
 /// Never a verdict — a light build is the recommended install. It is here because
@@ -873,6 +1103,24 @@ const ROSTER: &[Question] = &[
         answer: |s| check_regen(&s.root),
     },
     Question {
+        id: Check::ROUTES,
+        text: "Does `AGENTS.md` carry the reading routes a re-vendor updates?",
+        asked: Asked::OfARepository,
+        answer: |s| check_routes(&s.root),
+    },
+    Question {
+        id: Check::SCAFFOLD,
+        text: "Do `ci.yml` and `CLAUDE.md` mark the part a re-vendor updates?",
+        asked: Asked::OfARepository,
+        answer: |s| check_scaffold(&s.root),
+    },
+    Question {
+        id: Check::CI,
+        text: "Does this repository's CI run a corpus gate?",
+        asked: Asked::OfARepository,
+        answer: |s| check_ci(&s.root),
+    },
+    Question {
         id: Check::CATALOG,
         text: "Have any source records aged out?",
         asked: Asked::OfARepository,
@@ -889,6 +1137,12 @@ const ROSTER: &[Question] = &[
         text: "Can every corpus file be read?",
         asked: Asked::OfARepository,
         answer: |s| check_corpus(&s.root),
+    },
+    Question {
+        id: Check::CONTRACT,
+        text: "Has the ontology said what its classes require?",
+        asked: Asked::OfARepository,
+        answer: |s| check_contract(&s.root),
     },
     Question {
         id: Check::VAULT,
@@ -934,15 +1188,23 @@ const ROSTER: &[Question] = &[
     },
 ];
 
-/// Run every check against `root`.
+/// Run the checks against `root`.
 ///
 /// `running` and `path_var` are passed rather than read so the two environment-sensitive
 /// checks are testable; production hands them [`std::env::current_exe`] and `$PATH`.
+///
+/// `only` names the questions to report — every one when it is empty.
+///
+/// The repository question is still *asked* when it is not reported, because its answer is
+/// what makes the rest unanswerable. Asking `contract` of a directory that is not a
+/// repository should say `skipped`, as the full run does, and not read an ontology that is
+/// not there.
 pub(crate) fn diagnose(
     root: &Path,
     running: Option<&Path>,
     path_var: Option<&std::ffi::OsStr>,
     today: i64,
+    only: &[&str],
 ) -> Vec<Check> {
     let subject = Subject {
         root: root.to_path_buf(),
@@ -956,6 +1218,10 @@ pub(crate) fn diagnose(
     let mut unanswerable: Option<&'static str> = None;
     let mut checks = Vec::with_capacity(ROSTER.len());
     for question in ROSTER {
+        let reported = only.is_empty() || only.contains(&question.id);
+        if !reported && question.id != Check::REPOSITORY {
+            continue;
+        }
         let check = question.ask(&subject, unanswerable);
         // `!= Ok` rather than `== Fail`: since #914 the repository check has a third
         // answer, and it is a `warn`. A clone that has not been bootstrapped has no more
@@ -971,7 +1237,9 @@ pub(crate) fn diagnose(
                 "not a yidam repository"
             });
         }
-        checks.push(check);
+        if reported {
+            checks.push(check);
+        }
     }
     checks
 }
@@ -1516,6 +1784,13 @@ fn check_corpora(root: &Path) -> Answer {
     // apart — RFC-0032 §4.5, and #781, which is that digest arriving.
     let shadowed = crate::deps::shadowed(root);
 
+    // An unpacked bundle whose `manifest.yml` does not parse. Read here rather than inferred
+    // from a missing field, because absence is legitimate in this format and unreadable is not
+    // — and the check just above is one of the things it silently switches off: `shadowed`
+    // compares `genesis_hash` and is documented to stay quiet when either side is unknown, so a
+    // manifest nobody could read reads as a bundle that declined to say which corpus it is.
+    let unreadable = crate::deps::unreadable_manifests(root);
+
     for (name, dep) in &config.dependencies {
         // A path dependency is read where it sits and has nothing to fetch, which is exactly
         // what `cmd_install` decides about it. Counted, not graded.
@@ -1574,13 +1849,22 @@ fn check_corpora(root: &Path) -> Answer {
             short(&s.fetched_genesis),
         ));
     }
+    for (name, why) in &unreadable {
+        detail.push(format!(
+            "{name}: the unpacked bundle's manifest.yml does not parse ({why}) — its \
+             commit, genesis and index model are read as absent, and absent is what an \
+             older bundle format looks like"
+        ));
+    }
     let detail = detail.join("; ");
 
     // A shadow outranks a missing install: one is the wrong corpus being read, the other is
-    // no corpus being read, and the second is visible the moment anything asks for it.
+    // no corpus being read, and the second is visible the moment anything asks for it. An
+    // unreadable manifest ranks with the reinstall cases rather than with the shadow: the
+    // repair is to fetch the bundle again, and `tonpa-install` is already the remedy printed.
     if !shadowed.is_empty() {
         Answer::fail(detail, Some(SHADOW_REMEDY))
-    } else if !missing.is_empty() || !corrupt.is_empty() {
+    } else if !missing.is_empty() || !corrupt.is_empty() || !unreadable.is_empty() {
         Answer::fail(detail, Some(REMEDY))
     } else if !unlocked.is_empty() {
         Answer::warn(detail, Some(REMEDY))
@@ -1613,33 +1897,125 @@ fn short(hash: &str) -> &str {
 /// `doctor` adds is that the question gets *asked* here, so a corpus nothing can read is not
 /// something you discover by noticing that a different command has gone quiet.
 ///
+/// **All four records, since #1081.** It counted instances and classes, and said
+/// `N file(s), all readable` on a repository with an unreadable catalog entry or decision
+/// record — which is the defect it exists to report, committed by the report. A count that
+/// leaves a population out is a clean bill of health over that population, and this line is the
+/// one a person reads first. The wording moved with it: `corpus file(s)`, said only about what
+/// is counted.
+///
 /// Silent on a corpus with no files in it, which is every repository between `bootstrap` and
 /// the first node: `Ok` with `no corpus files yet` says the question was put and had no
 /// subject, which is not the same as a clean bill of health over nothing.
 fn check_corpus(root: &Path) -> Answer {
     let read = crate::corpus::Corpus::open(root);
-    let total = read.instance_paths().len() + read.ont_paths().len();
+    // All four, because the line says `corpus file(s)` and those are the four records a yidam
+    // repository is written in. Counting two of them said `all readable` over a corpus with an
+    // unreadable catalog entry or decision record — the #1081 half of the same defect, one
+    // level up: a count that excludes a population is a clean bill of health over it.
+    let read_outcomes: Vec<bool> = read
+        .nodes()
+        .iter()
+        .map(|n| n.malformed.is_some())
+        .chain(read.classes().iter().map(|c| c.malformed.is_some()))
+        .chain(read.sources().iter().map(|s| s.malformed.is_some()))
+        .chain(read.decisions().iter().map(|d| d.malformed.is_some()))
+        .collect();
+    let total = read_outcomes.len();
     if total == 0 {
         return Answer::ok("no corpus files yet");
     }
-
-    let unreadable = read
-        .nodes()
-        .iter()
-        .filter(|n| n.malformed.is_some())
-        .count()
-        + read
-            .classes()
-            .iter()
-            .filter(|c| c.malformed.is_some())
-            .count();
+    let unreadable = read_outcomes.iter().filter(|bad| **bad).count();
 
     match unreadable {
-        0 => Answer::ok(format!("{total} file(s), all readable")),
+        0 => Answer::ok(format!("{total} corpus file(s), all readable")),
         n => Answer::fail(
             format!("{n} of {total} corpus file(s) do not parse"),
             Some("yidam lint"),
         ),
+    }
+}
+
+/// Has the ontology said what its classes require (#1078)?
+///
+/// **The whole ontology, not one class.** Every contract check takes its severity from the
+/// class's own declaration, which is right per check: `missing-property` gates only on
+/// `required: true`, and `unlicensed-edge` only on `edge_policy: exhaustive`. Many classes
+/// require nothing, and saying so per class would be a report that is never empty. But when
+/// *no* class in an ontology writes `required:`, and *no* class writes `edge_policy:`, both
+/// checks can warn there and never gate. Nothing said so. That is an ontology nobody asked,
+/// and it is usually one written before the fields existed.
+///
+/// **Writing the key is the answer, whatever its value.** `required: false` on every property
+/// is a decision, so this reads [`crate::corpus::ClassProperty::declared_required`] and not
+/// `required()`. `edge_policy: characteristic` is a decision for the same reason. The two
+/// questions are reported apart, because a corpus can answer one and not the other.
+///
+/// Measured on 2026-09-29 over the 16 derived ontologies on one host: 11 answered neither
+/// question, 3 answered only `required:`, and 2 answered both. ohio-education-funding, the
+/// corpus that reported this, answered only `edge_policy:` until it wrote `required:` by hand
+/// that morning. A `warn` and not a `fail`: nothing is broken, and no derived repository runs
+/// `doctor` in CI.
+fn check_contract(root: &Path) -> Answer {
+    let corpus = crate::corpus::Corpus::open(root);
+    contract_answer(corpus.classes())
+}
+
+/// [`check_contract`] over classes already read, so the reading can be tested without a disk.
+///
+/// A class that did not parse reads as one with no properties and no edges, so it adds to
+/// neither question and cannot make either one warn. `corpus` is the line that fails on it.
+fn contract_answer(classes: &[crate::corpus::Class]) -> Answer {
+    use crate::corpus::EdgePolicy;
+    const WHERE: &str = "see `The class contract` in .yidam/.vendor/prelude/GRAPH.md";
+
+    if classes.is_empty() {
+        return Answer::ok("no classes yet");
+    }
+    let properties: Vec<_> = classes.iter().flat_map(|c| &c.properties).collect();
+    let answered_required = properties
+        .iter()
+        .filter(|p| p.declared_required.is_some())
+        .count();
+    // Only a class with edges has a policy to state: `unlicensed-edge` reads nothing else.
+    let with_edges: Vec<_> = classes.iter().filter(|c| !c.edges.is_empty()).collect();
+    let answered_policy = with_edges
+        .iter()
+        .filter(|c| c.edge_policy != EdgePolicy::Unstated)
+        .count();
+
+    let required_unasked = !properties.is_empty() && answered_required == 0;
+    let policy_unasked = !with_edges.is_empty() && answered_policy == 0;
+    let (p, e) = (properties.len(), with_edges.len());
+    match (required_unasked, policy_unasked) {
+        (true, true) => Answer::warn(
+            format!(
+                "no property says `required:` ({p} declared), and no class says \
+                 `edge_policy:` ({e} with edges) — `missing-property` and `unlicensed-edge` \
+                 can warn here and never gate"
+            ),
+            Some(&format!(
+                "write `required:` on each property and `edge_policy:` on each class; {WHERE}"
+            )),
+        ),
+        (true, false) => Answer::warn(
+            format!(
+                "no property says `required:` ({p} declared) — `missing-property` can warn \
+                 here and never gate"
+            ),
+            Some(&format!("write `required:` on each property; {WHERE}")),
+        ),
+        (false, true) => Answer::warn(
+            format!(
+                "no class says `edge_policy:` ({e} with edges) — `unlicensed-edge` can warn \
+                 here and never gate"
+            ),
+            Some(&format!("write `edge_policy:` on each class; {WHERE}")),
+        ),
+        (false, false) => Answer::ok(format!(
+            "`required:` on {answered_required} of {p} property declaration(s), \
+             `edge_policy:` on {answered_policy} of {e} class(es) with edges"
+        )),
     }
 }
 
@@ -1741,12 +2117,38 @@ pub(crate) fn render(report: &DoctorReport, root: &Path) -> String {
     out
 }
 
+/// The ids `only` may name, each one a [`ROSTER`] id. An unknown one is an error and not an
+/// empty report: `--only contrat` answering nothing would read as a clean bill of health.
+fn selected(only: &[String]) -> Result<Vec<&'static str>> {
+    only.iter()
+        .map(|want| {
+            ROSTER
+                .iter()
+                .map(|q| q.id)
+                .find(|id| id == want)
+                .ok_or_else(|| {
+                    let ids: Vec<&str> = ROSTER.iter().map(|q| q.id).collect();
+                    anyhow::anyhow!(
+                        "no doctor check `{want}`; the checks are: {}",
+                        ids.join(", ")
+                    )
+                })
+        })
+        .collect()
+}
+
 /// `yidam doctor`. Read-only, and exits nonzero on anything actionable.
+///
+/// `only` narrows the report to the named checks. `yidam-vendor-update` asks `contract` this
+/// way, so a re-vendor raises the question a corpus written before the contract existed was
+/// never asked (#1078).
 pub fn doctor(
     root: Option<&std::path::Path>,
     strict: bool,
+    only: &[String],
     format: crate::report::Format,
 ) -> Result<()> {
+    let only = selected(only)?;
     let root = crate::paths::resolve_root(root)?;
     let running = std::env::current_exe().ok();
     let path_var = std::env::var_os("PATH");
@@ -1755,6 +2157,7 @@ pub fn doctor(
         running.as_deref(),
         path_var.as_deref(),
         crate::dates::today_days(),
+        &only,
     );
     let report = DoctorReport::new(checks, strict);
     let passed = report.passed;
@@ -1884,6 +2287,55 @@ mod tests {
         }
     }
 
+    /// **The two records the count left out (#1081).** With `nodes` and `classes` sound, an
+    /// unreadable catalog entry or decision record was counted by nothing, so the line read
+    /// `2 file(s), all readable` on a corpus with a file in it that nothing could read. Asserted
+    /// one population at a time, because a total that happens to move says nothing about which
+    /// arm moved it — the shape [`crate::corpus::Source`] and
+    /// [`crate::corpus::DecisionRecord`] had in `lint` before #1056.
+    #[test]
+    fn an_unreadable_catalog_entry_or_decision_record_is_counted() {
+        // The sound corpus is two files; each case below adds one more.
+        for (rel, bytes) in [
+            (
+                ".yidam/catalog/pearl-2009.md",
+                "---\nttl_days: \"30\n---\nbody\n",
+            ),
+            (".yidam/decisions/0001-a.yml", "summary: \"unclosed\n"),
+        ] {
+            let tmp = repo_with_corpus(SOUND, SOUND);
+            let path = tmp.path().join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, bytes).unwrap();
+
+            let c = check_corpus(tmp.path());
+            assert_eq!(c.verdict, Verdict::Fail, "{rel}: {}", c.detail);
+            assert!(c.detail.starts_with("1 of 3"), "{rel}: {}", c.detail);
+        }
+    }
+
+    /// And the negative control for the same widening: a catalog entry and a decision record
+    /// that *do* read are counted and not reported. A count is only evidence if both answers
+    /// move with the file.
+    #[test]
+    fn catalog_entries_and_decision_records_that_read_are_counted_and_silent() {
+        let tmp = repo_with_corpus(SOUND, SOUND);
+        for (rel, bytes) in [
+            (
+                ".yidam/catalog/pearl-2009.md",
+                "---\nobtained: true\n---\nbody\n",
+            ),
+            (".yidam/decisions/0001-a.yml", "id: d1\nsummary: fine\n"),
+        ] {
+            let path = tmp.path().join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, bytes).unwrap();
+        }
+        let c = check_corpus(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok, "{}", c.detail);
+        assert_eq!(c.detail, "4 corpus file(s), all readable");
+    }
+
     /// A repository between `bootstrap` and its first node has no corpus files, and that is
     /// not a clean bill of health over nothing — it is a question with no subject.
     #[test]
@@ -1893,6 +2345,108 @@ mod tests {
         assert_eq!(c.verdict, Verdict::Ok);
         assert_eq!(c.detail, "no corpus files yet");
         assert!(c.remedy.is_none());
+    }
+
+    fn no_tasks(_: &str) -> Option<String> {
+        None
+    }
+
+    #[test]
+    fn a_gate_named_only_in_a_comment_is_not_run() {
+        let text = "\
+# yidam graph-check, from column 0
+jobs:
+  corpus:
+    # runs `yidam graph-check` and `mise run graph-lint`
+    steps:
+      - run: echo ok # then yidam regen --check
+      - run: yidam lint --bless
+      - run: yidam lint-report
+      - run: mise run //web:graph-check
+";
+        assert_eq!(gates_in(text, &no_tasks, TASK_DEPTH), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_gate_is_found_run_directly_or_through_an_inherited_task() {
+        let text = "\
+      - run: yidam lint --commits --range origin/main..HEAD
+      - run: yidam regen --check
+      - run: mise run //:graph-lint
+      - run: \"mise run regen-check\"
+";
+        assert_eq!(
+            gates_in(text, &no_tasks, TASK_DEPTH),
+            [
+                "yidam lint",
+                "yidam regen --check",
+                "mise run //:graph-lint",
+                "mise run regen-check"
+            ]
+        );
+    }
+
+    /// ohio-budget's workflow runs `mise run ci`, and its own `[tasks.ci]` runs the gate.
+    #[test]
+    fn a_repository_task_is_followed_to_the_gate_it_runs() {
+        let mise: toml::Value = toml::from_str(
+            "[tasks.ci]\nrun = [\"cargo test\", \"mise run check\"]\n\
+             [tasks.check]\nrun = \"yidam graph-check\"\n\
+             [tasks.loop]\nrun = \"mise run loop\"\n\
+             [tasks.web]\nrun = \"pnpm test\"\n",
+        )
+        .unwrap();
+        let own = |t: &str| own_task_run(&mise, t);
+        assert_eq!(
+            gates_in("- run: mise run ci", &own, TASK_DEPTH),
+            ["mise run ci (mise run check (yidam graph-check))"]
+        );
+        // A task that runs itself ends at the depth limit, and one that gates nothing is not a gate.
+        assert!(gates_in("- run: mise run loop && mise run web", &own, TASK_DEPTH).is_empty());
+        // The depth is a limit: a gate one task down is not seen with none to spend.
+        assert!(gates_in("- run: mise run check", &own, 0).is_empty());
+    }
+
+    /// Every inherited task [`GATE_TASKS`] counts runs a gate, read from the task layer itself.
+    /// A task renamed or re-pointed there would otherwise pass every workflow that calls it.
+    #[test]
+    fn every_gate_task_runs_a_gate_in_the_task_layer() {
+        let text = std::fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../mise.yidam.toml"),
+        )
+        .expect("mise.yidam.toml");
+        let layer: toml::Value = toml::from_str(&text).expect("mise.yidam.toml parses");
+        for task in GATE_TASKS {
+            let run = layer
+                .get(task)
+                .and_then(|t| t.get("run"))
+                .and_then(toml::Value::as_str)
+                .unwrap_or_else(|| panic!("mise.yidam.toml has no `[{task}]` with a `run`"));
+            assert!(
+                !gates_in(run, &no_tasks, 0).is_empty(),
+                "`[{task}]` runs `{run}`, which is no corpus gate"
+            );
+        }
+    }
+
+    /// The scaffold's own workflow passes, and every gate it runs is one this reads: a gate
+    /// added to its region under a new command would otherwise reach every derivation and be
+    /// invisible here.
+    #[test]
+    fn the_scaffold_s_gates_are_the_ones_this_reads() {
+        let ci = std::fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../sadhana/github/workflows/ci.yml"),
+        )
+        .expect("the scaffold workflow");
+        let region = ci
+            .split("<!-- YIDAM:CI -->")
+            .nth(1)
+            .and_then(|r| r.split("<!-- /YIDAM:CI -->").next())
+            .expect("the scaffold's YIDAM:CI region");
+        assert_eq!(
+            gates_in(region, &no_tasks, TASK_DEPTH),
+            ["yidam graph-check", "yidam lint", "yidam regen --check"]
+        );
     }
 
     /// The page both docs gates read, spelled once.
@@ -2187,6 +2741,57 @@ mod tests {
         assert_eq!(c.verdict, Verdict::Fail, "detail was: {}", c.detail);
     }
 
+    /// The #1081 arm. An installed corpus that matches `tonpa.lock` is otherwise entirely
+    /// healthy here — the digest check passes, because the digest is over `bundle.yiz` and the
+    /// manifest is what was written *out of* it. So the one thing that reads the manifest
+    /// silently reads every field as absent, and `shadowed` — documented to stay quiet when
+    /// either genesis is unknown — is switched off by it without saying so.
+    #[test]
+    fn an_unpacked_manifest_that_does_not_parse_is_reported() {
+        let tmp = repo_with_corpora(
+            "[dependencies.hydrology]\nurl = \"https://example.com/h.yiz\"\n",
+            &locked("hydrology", b"bundle bytes"),
+            &[("hydrology", b"bundle bytes")],
+        );
+        let unpacked = crate::paths::tonpa_dir(tmp.path()).join("hydrology");
+
+        // The control first: the same tree with a manifest that reads is clean, so the
+        // failure below is the manifest and not the fixture.
+        std::fs::write(
+            unpacked.join("manifest.yml"),
+            "bundle_version: \"1\"\ncommit: \"abc1234\"\n",
+        )
+        .unwrap();
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
+
+        std::fs::write(unpacked.join("manifest.yml"), "commit: \"unclosed\n").unwrap();
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Fail, "detail was: {}", c.detail);
+        assert!(
+            c.detail.contains("hydrology") && c.detail.contains("manifest.yml does not parse"),
+            "{}",
+            c.detail
+        );
+        assert_eq!(c.remedy.as_deref(), Some("mise run tonpa-install"));
+    }
+
+    /// And a dependency with nothing unpacked keeps the sentence it had. The failure is
+    /// already reported as not installed, and a second line saying its manifest could not be
+    /// read would be describing the same absence twice.
+    #[test]
+    fn a_corpus_that_is_not_installed_is_not_also_reported_as_unreadable() {
+        let tmp = repo_with_corpora(
+            "[dependencies.hydrology]\nurl = \"https://example.com/h.yiz\"\n",
+            &locked("hydrology", b"bundle bytes"),
+            &[],
+        );
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Fail);
+        assert!(c.detail.contains("not installed"), "{}", c.detail);
+        assert!(!c.detail.contains("manifest.yml"), "{}", c.detail);
+    }
+
     fn derived_repo() -> TempDir {
         let tmp = TempDir::new().unwrap();
         std::fs::create_dir_all(tmp.path().join(".yidam")).unwrap();
@@ -2236,6 +2841,129 @@ mod tests {
         assert_eq!(crate::dates::days_from_civil_str("2026-13-01"), None);
     }
 
+    // ── contract ─────────────────────────────────────────────────────────────
+
+    fn class(name: &str, body: &str) -> crate::corpus::Class {
+        crate::corpus::Class::parse(format!(".yidam/corpus/{name}.ont.yml"), body)
+    }
+
+    const EDGE: &str = "edges:\n  - relationship: part-of\n    target: place\n";
+
+    fn property(required: &str) -> String {
+        format!("properties:\n  - name: series\n    type: string\n{required}")
+    }
+
+    /// matt-huffman's shape: properties and edges, and neither question answered anywhere.
+    #[test]
+    fn an_ontology_that_answers_neither_question_warns_about_both() {
+        let classes = [
+            class("metric", &format!("{}{EDGE}", property(""))),
+            class("place", "properties: []\n"),
+        ];
+        let a = contract_answer(&classes);
+        assert_eq!(a.verdict, Verdict::Warn);
+        assert!(a.detail.contains("`required:`"), "{}", a.detail);
+        assert!(a.detail.contains("`edge_policy:`"), "{}", a.detail);
+        let remedy = a.remedy.unwrap();
+        assert!(remedy.contains("GRAPH.md"), "{remedy}");
+    }
+
+    /// ohio-education-funding before its `0870a3fd`: `characteristic` on every class and no
+    /// `required:` anywhere. The issue's own proposal, "no class requires anything *and* no
+    /// class states a policy", would have been silent here — on the corpus that reported it.
+    #[test]
+    fn the_two_questions_are_reported_apart() {
+        let edges_answered = [class(
+            "metric",
+            &format!("{}{EDGE}edge_policy: characteristic\n", property("")),
+        )];
+        let a = contract_answer(&edges_answered);
+        assert_eq!(a.verdict, Verdict::Warn);
+        assert!(a.detail.contains("`missing-property`"), "{}", a.detail);
+        assert!(!a.detail.contains("`unlicensed-edge`"), "{}", a.detail);
+
+        let required_answered = [class(
+            "metric",
+            &format!("{}{EDGE}", property("    required: true\n")),
+        )];
+        let a = contract_answer(&required_answered);
+        assert_eq!(a.verdict, Verdict::Warn);
+        assert!(a.detail.contains("`unlicensed-edge`"), "{}", a.detail);
+        assert!(!a.detail.contains("`missing-property`"), "{}", a.detail);
+    }
+
+    /// Writing the key is the answer. `required: false` gates nothing, the same as silence,
+    /// but it is a decision — ohio-education-funding writes it on 7 of its 120 properties,
+    /// each with a reason. Reading [`crate::corpus::ClassProperty::required`] here instead
+    /// of what was written would warn at a corpus that did the work.
+    #[test]
+    fn required_false_is_an_answer() {
+        let classes = [class(
+            "metric",
+            &format!(
+                "{}{EDGE}edge_policy: characteristic\n",
+                property("    required: false\n")
+            ),
+        )];
+        let a = contract_answer(&classes);
+        assert_eq!(a.verdict, Verdict::Ok, "{}", a.detail);
+        assert!(a.remedy.is_none());
+        assert!(!classes[0].properties[0].required());
+    }
+
+    /// One class answering is enough. The signal is the ontology, and a class that requires
+    /// nothing beside one that requires something is a corpus that was asked.
+    #[test]
+    fn one_class_answering_answers_for_the_ontology() {
+        let classes = [
+            class(
+                "metric",
+                &format!("{}{EDGE}", property("    required: true\n")),
+            ),
+            class(
+                "place",
+                &format!("{}{EDGE}edge_policy: exhaustive\n", property("")),
+            ),
+        ];
+        assert_eq!(contract_answer(&classes).verdict, Verdict::Ok);
+    }
+
+    /// A question with no subject is not unanswered. No property means nothing to require,
+    /// and no edge means `unlicensed-edge` has nothing to read a policy for.
+    #[test]
+    fn a_question_with_no_subject_is_not_asked() {
+        assert_eq!(contract_answer(&[]).verdict, Verdict::Ok);
+        let bare = [class("place", "description: A place.\n")];
+        assert_eq!(contract_answer(&bare).verdict, Verdict::Ok);
+    }
+
+    // ── --only ───────────────────────────────────────────────────────────────
+
+    /// `--only` reports what it names and nothing else, and the repository question still
+    /// decides whether the rest can be answered — so a directory that is not a repository
+    /// gets `skipped`, as a full run would say, and no ontology is read.
+    #[test]
+    fn only_reports_what_it_names_and_still_asks_the_repository() {
+        let tmp = TempDir::new().unwrap();
+        let checks = diagnose(tmp.path(), None, None, 20_000, &[Check::CONTRACT]);
+        let ids: Vec<&str> = checks.iter().map(|c| c.id).collect();
+        assert_eq!(ids, [Check::CONTRACT]);
+        assert_eq!(checks[0].verdict, Verdict::Skipped);
+    }
+
+    /// An id that names nothing is an error. An empty report would pass, and read as a clean
+    /// bill of health on a question nobody asked.
+    #[test]
+    fn only_refuses_an_unknown_check() {
+        let err = selected(&["contrat".to_string()]).unwrap_err().to_string();
+        assert!(err.contains("`contrat`"), "{err}");
+        assert!(err.contains("contract"), "{err}");
+        assert_eq!(
+            selected(&["contract".to_string()]).unwrap(),
+            [Check::CONTRACT]
+        );
+    }
+
     // ── repository ───────────────────────────────────────────────────────────
 
     /// The case this whole command exists for: run it somewhere that is not a derived
@@ -2250,7 +2978,7 @@ mod tests {
     #[test]
     fn outside_a_derived_repository_only_the_first_question_is_answered() {
         let tmp = TempDir::new().unwrap();
-        let checks = diagnose(tmp.path(), None, None, 20_000);
+        let checks = diagnose(tmp.path(), None, None, 20_000, &[]);
 
         let asked: Vec<&str> = checks.iter().map(|c| c.id).collect();
         let roster: Vec<&str> = ROSTER.iter().map(|q| q.id).collect();
@@ -2306,7 +3034,7 @@ mod tests {
         // And the rest of the checks are skipped for the same reason as "not a repository"
         // — most of them read git history that does not exist yet either — but the *why*
         // must not claim there is no `.yidam/` here, since there plainly is one.
-        let checks = diagnose(tmp.path(), None, None, 20_000);
+        let checks = diagnose(tmp.path(), None, None, 20_000, &[]);
         let regen = find(&checks, Check::REGEN);
         assert_eq!(regen.verdict, Verdict::Skipped);
         assert!(!DoctorReport::new(checks, false).passed);
@@ -2369,7 +3097,7 @@ mod tests {
             c.remedy
         );
 
-        let checks = diagnose(tmp.path(), None, None, 20_000);
+        let checks = diagnose(tmp.path(), None, None, 20_000, &[]);
         // Every question is still reported, and the ones that read history are skipped with
         // a reason that does not claim this is not a repository.
         for question in ROSTER.iter().filter(|q| q.asked == Asked::OfARepository) {

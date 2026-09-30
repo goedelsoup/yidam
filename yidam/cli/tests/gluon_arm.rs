@@ -151,6 +151,83 @@ fn only_the_arm_names_the_engine() {
     );
 }
 
+// ── the vocabulary, which every build has (#1099) ─────────────────────────────
+
+/// The macro refusal is decidable from text, and this build has it.
+///
+/// Compiled without the feature, so it is an assertion about the binary `install.sh` downloads:
+/// `yidam lint` refuses a calculator that reaches for a macro there exactly as it does in a build
+/// with the engine. The refusal's *other* half — the typecheck — needs a VM and is left out of a
+/// light build's report rather than reported empty; `cmd::lint::Asked::WithTypechecker` carries the
+/// baseline argument for why those are not the same thing.
+#[test]
+fn the_macro_refusal_is_in_every_build() {
+    assert!(
+        yidam::gluon_arm::entry::refuse_macros("let d = import! std.debug in d").is_err(),
+        "a macro invocation is not refused in this build, so the gate's verdict depends on which          binary the reader is holding — which is the divergence RFC-0042 warns about"
+    );
+    assert!(
+        yidam::gluon_arm::entry::refuse_macros("\\c -> { signals = [], summary = [] }").is_ok(),
+        "a calculator invoking no macro is refused"
+    );
+    assert!(
+        !yidam::gluon_arm::PRELUDE_MODULES.is_empty(),
+        "the closed prelude is empty in a light build, so nothing here says what a script may name"
+    );
+}
+
+/// One admission, two callers — and the test RFC-0042 open question 5 asked for by name.
+///
+/// *"`lint` must build the prelude the same way the runner does, or lint and run disagree about
+/// what a calculator may say."* The answer is one function: [`gluon_arm::entry::admit`], called
+/// from `gluon_arm::evaluate` and from `cmd::lint::calculators`. This is a text scan because the
+/// property is about *who calls what* — two callers that happened to agree today would pass a
+/// behavioural test and still be two implementations. The same shape #1080 arrived at.
+#[test]
+fn one_admission_answers_both_callers() {
+    let src = repo_root().join("yidam/cli/src");
+    let mut callers: Vec<String> = Vec::new();
+    for entry in walkdir::WalkDir::new(&src).into_iter().flatten() {
+        if !entry.file_type().is_file() || entry.path().extension().is_none_or(|e| e != "rs") {
+            continue;
+        }
+        let rel = entry
+            .path()
+            .strip_prefix(&src)
+            .unwrap_or(entry.path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let Ok(text) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        // Code only, so the several doc comments that name the function are not call sites.
+        let code: String = text
+            .lines()
+            .map(|l| l.split("//").next().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if code.contains("entry::admit(") {
+            callers.push(rel.clone());
+        }
+        // `typecheck` is what `admit` wraps. A second caller of it is a second admission — the
+        // same script held to a prelude somebody else assembled — which is exactly what open
+        // question 5 said was worse than no gate at all.
+        assert!(
+            !code.contains("entry::typecheck(") || rel == "gluon_arm/entry.rs",
+            "src/{rel} calls `entry::typecheck` directly, going round `entry::admit`. The              admission is one function on purpose: `run` and `lint` must refuse the same scripts,              and a second assembly of the prelude is how they come to disagree."
+        );
+    }
+    callers.sort();
+    assert_eq!(
+        callers,
+        vec![
+            "cmd/lint/calculators.rs".to_string(),
+            "gluon_arm/mod.rs".to_string()
+        ],
+        "`entry::admit` is called from {callers:?}. Both callers are the point — the gate and the          runner asking one function whether a script is a calculator — so a missing one means a          caller grew its own admission, and an extra one is a third place to keep in step."
+    );
+}
+
 // ── the engine ────────────────────────────────────────────────────────────────
 
 #[cfg(feature = "calculators-gluon")]

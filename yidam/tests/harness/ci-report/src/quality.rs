@@ -343,10 +343,17 @@ fn cargo_version(manifest: &str) -> Option<String> {
     None
 }
 
+/// A fixed width, because [`merge`] compares this string across runners.
+///
+/// Bare `--short` sizes the abbreviation from the clone's object count, so a shallow runner
+/// and a `fetch-depth: 0` runner spell one commit differently — `1e2dc0c` and `1e2dc0c9`
+/// the day this repository's history crossed git's threshold — and `merge` refused its
+/// own run. Git still lengthens past twelve where the clone holds two objects sharing a
+/// 48-bit prefix; that is the only way two runners can now disagree.
 fn git_commit(repo_root: &Path) -> String {
     std::process::Command::new("git")
         .current_dir(repo_root)
-        .args(["rev-parse", "--short", "HEAD"])
+        .args(["rev-parse", "--short=12", "HEAD"])
         .output()
         .ok()
         .filter(|o| o.status.success())
@@ -777,6 +784,38 @@ mod tests {
 
     fn run_of(xml: &str) -> Run {
         junit::parse(xml).expect("fixture should parse")
+    }
+
+    /// A new repository holds three objects, so bare `--short` gives seven characters here
+    /// and more in a full clone of this one — the width must not come from the clone.
+    #[test]
+    fn a_commit_is_spelled_the_same_in_any_clone() {
+        let dir = std::env::temp_dir().join(format!("ci-report-short-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(&dir)
+                .args([
+                    "-c",
+                    "user.name=t",
+                    "-c",
+                    "user.email=t@t",
+                    "-c",
+                    "commit.gpgsign=false",
+                ])
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?} failed");
+        };
+        git(&["init", "-q"]);
+        git(&["commit", "-q", "--allow-empty", "-m", "one"]);
+
+        let commit = git_commit(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(commit.len(), 12, "`{commit}` is not twelve characters");
     }
 
     fn provenance() -> Provenance {

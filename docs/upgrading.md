@@ -13,20 +13,570 @@ usually does not; a fix that makes a previously-quiet misconfiguration loud does
 
 ## How this reaches a release
 
-Notes are written under `## Unreleased` while the next version number is still unknown, and
-filed under the exact tag when it is chosen — `## cli/v0.9.0`. At release time
-`.github/workflows/release.yml` prepends this file's section for the tag it is publishing to
-the generated notes, so the note appears in the release itself rather than only here.
+A note is written as its own file in [`.changes/upgrading/`](https://github.com/goedelsoup/yidam/tree/main/.changes/upgrading).
+The version it ships in is unknown until the release is cut. Name the file `<issue>-<slug>.md` and
+open it with the note's `### ` heading.
 
-`release.sh` **refuses a tag while `## Unreleased` still has content.** A note staged under
-that heading is one somebody wrote for a release and did not file, and the two ways it can go
-wrong are both silent: it is dropped from the release being cut, or it is repeated into the
-next one. The repair is to rename the heading to the tag.
+Notes do not go in this file directly. Each one used to be added at the same line, so two open
+pull requests always conflicted.
 
-<!-- Keep the `## Unreleased` heading even when nothing is under it: release.sh reads
-     it, and a missing heading reads as "no note" for every release from here on. -->
+When a tag is chosen, `mise run file-upgrade-notes <tag>` moves every staged note under
+`## <tag>` here. Newest issue comes first. At release time, `.github/workflows/release.yml`
+prepends that section to the generated notes. The note then appears in the release itself.
 
-## Unreleased
+`release.sh` **refuses a tag while a note is still staged.** An unfiled note fails silently in
+two ways. It is dropped from the release being cut, or it lands in a later release. The repair
+is to run the filing task and commit.
+
+<!-- file-upgrade-notes: new release sections go below this line -->
+
+## cli/v0.17.0
+
+### An interval's target may seat more than one
+
+**`interval:` accepts `capacity:`, naming a property on the `exclusive_over` target (#1205).**
+Write `capacity: seats` on a tenure class. Then an office with `seats: 3` may have three
+holders at once. A target that omits the property holds one. Quoted digits such as `"3"` count.
+A value that is not a whole number of at least one is reported on the target.
+
+`interval-overlap` now reports each holder once, naming every earlier holder it overlaps. It
+used to report once for each overlapping pair.
+
+### A class may declare its interval
+
+**`interval:` names an instance's start and end (#1201).** Write `start:` and `end:`, each a
+`date` property the class declares. Add `exclusive_over:` with a relationship from `edges:`.
+No two instances may then link one target by it at once.
+
+A new `interval-overlap` lint check is an error for each overlapping pair, and for an end before
+its start. Intervals are half-open. They compare as `query` orders dates, at the precision both
+sides share. So `1893` and `1893-06-01` meet rather than overlap. An absent end is still open.
+
+Nothing changes until a class declares `interval:`. A declaration with a misspelled key, or no
+`end:`, is a malformed class.
+
+### A new version of a source names the nodes that read the old one
+
+**`yidam catalog-fetch` names every node citing an entry when it records a new version (#1200).**
+A new version is a digest from a location the entry already held a digest from. The report and
+the `refresh:` commit both list the nodes. The JSON row gains a `superseded` list.
+
+**`yidam due` gains a fifth clock, `superseded`.** It lists each node citing a source that has
+changed since the node was last committed. Set `[due] superseded_after` in days to let it come
+due. A commit touching the node discharges it. A new text reading of a PDF is not a new version.
+
+Nothing needs changing. The clock reads `undeclared` until the key is set, and still reports
+what it measured.
+
+### F2 rewrites the moved node's own links
+
+**An editor rename between classes now re-relativizes the moved node's links (#1193).** Before,
+F2 moved the file and rewrote inbound links. It dropped every edit to the moved node itself. A
+link written as `./sibling.yml` was left pointing into the wrong class. `yidam rename` was not
+affected.
+
+*What to do.* Run `yidam lint` after any cross-class F2 rename made before this release.
+`graph-check` reports each link it left dangling.
+
+### A class rename keeps its instances' ages
+
+**`yidam migrate class` writes `moved-from:` into every instance it moves (#1192).** Before, a
+class rename restarted both commit counts for each instance. Every orphan's escalation clock
+reset. Every open question dropped off `due`'s overdue list.
+
+The line is the one `yidam rename` writes, for example `moved-from: ../gage/canyon-outlet.yml`.
+An instance that already declared one has it replaced. The migrate plan lists each line it adds.
+The JSON report gains a `moved_from` list. Class renames made before this release are not
+backfilled.
+
+### A renamed node keeps its ages
+
+**`yidam rename` writes `moved-from:` into the node it moves (#1180).** Before, a rename
+restarted two counts of commits. One is how long nothing has cited a node, which `orphan-in`
+escalates on. The other is how long a question has stood `[open]`, which `due` reads. A renamed
+overdue question dropped out of `due` entirely, and its clock read Ok.
+
+The new line names the old path the way a `target:` does, for example
+`moved-from: ../concept/low-flow.yml`. Both counts now carry across the move. A move that also
+adds a citation or answers the question still ends that count. F2 in an editor writes the same
+line. A second rename replaces it.
+
+A move made without the command still restarts both counts. To keep them, add the line by hand
+in the commit that moves the file. Moves made before this release are not backfilled. The
+`rename` JSON report gains a `moved_from` object.
+
+### A quotation of a PDF is checked against a text reading
+
+**New command, `yidam catalog-extract` (#1172).** It takes a text reading of each PDF artifact.
+It files the reading in the vault cache and records it under the PDF as `text:`. It commits the
+change as `extract:`.
+
+**Lint compares a quotation of a PDF with that reading.** Before, every such quotation was
+`quotation-unchecked`. Now a span missing from the reading is `quotation-span-drift`, an error.
+Run `catalog-extract` on the machine that holds the PDFs, then run `yidam lint`.
+
+**Nothing changes until you run it.** A PDF with no reading stays `quotation-unchecked`. An older
+binary ignores the `text:` key.
+
+### `yidam rename` moves a catalog entry
+
+**`yidam rename catalog/old new` renames a catalog entry (#1159).** Before, the command
+took corpus nodes only. Renaming an entry by hand left every edge `source:` naming its old
+stem, which `edge-source-unresolved` then reported.
+
+The command now moves `.yidam/catalog/old.md` to `new.md` and rewrites every citation of it.
+An edge `source:` is rewritten in the spelling its author used, stem or path. A markdown link
+under `.yidam/` that resolved to the entry is re-relativized from the file that holds it. That
+covers node prose, other entries, decision records and the catalog README. On the largest
+corpus we measured, one rename rewrote 107 citations across 41 files. Lint was identical
+before and after.
+
+Anything that names the old file without linking it is reported and not rewritten. The
+report's `corpus_dir` is `.yidam` for a catalog entry, and `from` and `to` read
+`catalog/<name>.md`. `--dry-run` prints the plan and changes nothing. Nothing changes for a
+corpus node rename.
+
+### An edge `source:` counts as a citation
+
+**`catalog-uncited` and `verified-unsourced` read edge sources (#1158).** Before, only a
+`links:` target or a prose link to a catalog entry counted as a citation. An entry cited only
+from edge `source:` values was reported uncited. A node whose `[verified]` claim rested on such
+an edge was reported unsourced. Yet `edge-source-unresolved` resolved every one of those edges.
+
+Now the resolver every citation count shares reads edge sources too. It admits the same two
+catalog spellings: the entry's file stem, or a path written as a `target:` is. `catalog audit`
+and the MCP claim surface read the same function, so their counts move with the gate's.
+
+Two checks may change on upgrade. `catalog-used-by-drift` compares an entry's hand-written
+`used-by` list to the nodes citing it. More citations can mean more drift. On the largest corpus
+we measured it rose from 79 to 86 findings, all Warn. `catalog-unobtained-but-cited` is Error and
+now fires for an edge resting on an `obtained: false` entry. No corpus we measured had one.
+
+### The graph report says what omitting a property costs
+
+**A new field, `omission`, on each class property in `yidam graph --format json` (#1155).**
+Its value is `gates`, `reported` or `licensed`: the verdict `missing-property` gives when an
+instance omits the property. Before, the report carried only `required`, one bool. A property
+marked `required: false` and one that said nothing both arrived as `false`. The web
+editor labelled a licensed omission **reported**.
+
+`required` is unchanged. The web editor reads `omission` and labels a licensed property
+**allowed**. Against a binary older than the field, it labels a `false` property **does not
+gate** rather than guessing. Nothing changes for a corpus.
+
+### `doctor` asks whether the ontology ever stated its contract
+
+**A new `contract` check (#1078).** It warns when no property in the ontology says `required:`.
+It also warns when no class with edges says `edge_policy:`. Either way, `missing-property` or
+`unlicensed-edge` can warn there and never gate.
+
+Writing the key is the answer, whatever its value. `required: false` counts, and so does
+`edge_policy: characteristic`. One class answering answers for the whole ontology.
+
+It is a `warn`, so `doctor` still exits 0. **`doctor --strict` does not.** Of 16 derived
+ontologies measured, 14 warn.
+
+`doctor --only <id>` reports only the named checks. `yidam-vendor-update` runs
+`doctor --only contract` after it re-vendors. A binary that predates the flag prints nothing
+there, so the first re-vendor after an upgrade may stay quiet.
+
+### Lint warns on a node linked only to its class
+
+**`only-instance-of` is a new warning (#1072).** It reports a node whose only link is to its
+own `.ont.yml`. The finding names the relationships its class declares. Add one of them to
+the node, or delete the node if it is a stub.
+
+A class the ontology names only as an edge's target is a leaf by design. Its instances are
+exempt. The warning never fails the gate.
+
+### A `quotation` property type
+
+**A property may be declared `type: quotation` (#1070, RFC-0046).** Its value names a catalog
+entry in `of:` and holds the copied words in `span:`. Add `sha256:` when the entry holds more
+than one artifact. `quotation-span-drift` fails when the entry's cached bytes lack the words.
+`quotation-unresolved` fails when `of:` or the pin names nothing. Where the bytes are not in
+this machine's vault cache, or are not text, `quotation-unchecked` reports it at Info. A CI
+runner with no cache sees only Info findings.
+
+Nothing changes until a class declares the type. A corpus that coined `quotation` for itself
+is now checked against this shape. `yidam rename` rewrites `of:` with the entry.
+
+A quotation's `of:` is a citation of its entry (#1174). `catalog-uncited` and
+`verified-unsourced` count it, as they count an edge `source:`.
+
+### Lint reports a decision or a URL nothing registers
+
+**New Info finding, `decision-uncited` (#1068).** It reports a decision record nothing in the
+repository refers to. A markdown link to the record counts. So does its path, `decisions/<stem>`,
+named in any file git tracks, code included. A `links:` target or an edge `source:` naming its
+`id:` counts. So does a `decision/<id>` entry in `references:`, or another record's `supersedes:`.
+Text inside a REGEN block, or in a vendored or generated region, does not count. Across 13
+derived corpora, it reported 29 of 346 records. Info, not a gate: your exit code does not change.
+
+**New Info finding, `source-unregistered` (#1068).** It reports a URL in a node or a catalog
+body that no catalog `location:` covers. A location covers its own path and every path beneath
+it on that host. A corpus that declares no `url` or `url_template` location is not read. To
+clear a finding, register the source, or add the URL as a `location:` on its entry. Info, not a
+gate: your exit code does not change.
+
+### An edge `source:` is resolved
+
+**A new Error check, `edge-source-unresolved` (#1067).** Before, lint checked only that a
+`verified` edge wrote a `source:`. A value naming a renamed or nonexistent catalog entry passed.
+
+Lint now resolves the value on every edge that writes one, whatever its tag. Three spellings
+resolve: a catalog entry's file stem, a path written the way `target:` is, or a decision
+record's `id:`. Every edge source in every derived corpus we measured already resolves. A
+corpus that writes none has nothing to do.
+
+If the check fires, the finding names the edge and the value as written. Rename the value to
+the entry's current stem, or baseline the finding.
+
+### The scaffolded `.gitignore` ignores `.vscode/settings.json`
+
+**The yidam extension writes this file itself (#1065).** At activation its vendor guard marks
+`.yidam/.vendor/**` read-only. Its schema wiring adds the `yidam schema --settings` mapping. Both
+land in `.vscode/settings.json`. A `git add -A` then commits the file. Three derived repositories
+did.
+
+*Why that matters.* Other extensions write machine paths into the same file, such as a Python
+interpreter under your home directory. A tracked copy publishes the next one.
+
+*What to do.* A new repository gets the rule at genesis. It matches at any depth. An existing
+repository can copy it from `sadhana/root/gitignore`. If the file is already committed,
+`git rm --cached .vscode/settings.json` untracks it. The extension re-applies the guard in every
+window, so no protection is lost. To keep sharing the file on purpose, add
+`!.vscode/settings.json` after the rule.
+
+### `skills-index` reports whether a skill is built
+
+**A skill's frontmatter may say `status: built` or `status: stub` (#1063).** `yidam
+skills-index` adds a Status column and a count line above the table. A skill that says neither
+is reported as `unstated`, never as built. The bootstrap now writes `status: stub` into each
+calculator stub it leaves.
+
+After this upgrade, `yidam regen --check` reports `.yidam/skills/README.md` as stale. Run
+`yidam skills-index` and commit the table. Every existing skill reads `unstated` until you add
+the field. Nothing gates on the value.
+
+A built skill that another derivation also wrote can now be sent upstream. `upstream.md` names
+the `from:derived-skill` label and its template.
+
+### `yidam schema` leaves a schema file it did not write alone
+
+**Repo-owned schemas (#1057).** Every file `yidam schema` writes now carries a marker in its
+`$comment`. When a target in `.yidam/schemas/` has no marker, the run refuses before writing
+anything, and names the files. A repository that compiles its own, stricter schemas into that
+directory keeps them. It needs no guard task around `mise run schema` any more.
+
+Files an earlier release wrote have no marker either. The first run after this upgrade
+refuses them. Replace them once, and commit the result:
+
+```sh
+yidam schema --force
+```
+
+`yidam schema --settings` is unchanged. It reads no schema file and writes none.
+
+### `required: false` silences `missing-property`
+
+**An omission the class licensed is no longer a warning (#1055).** Before, `missing-property`
+warned on every omitted property that was not `required: true`. A property marked
+`required: false` warned the same as one that said nothing.
+
+It is now silent on `required: false`. A property that says nothing still warns, and
+`required: true` still gates. To accept a standing `missing-property` floor, write
+`required: false` on the properties an instance may omit. No baseline is needed.
+
+### A re-vendor names the workarounds it makes unnecessary
+
+**Cited issues (#1054).** Record a workaround with the upstream issue it works around, as
+`yidam#587` or as the issue's URL. After a re-vendor, `yidam-vendor-update` lists each cited issue that a commit at
+the new pin fixes. The workaround for it can go. `git grep yidam#587` finds it.
+
+It reads tracked files only, and skips `.yidam/.vendor/` and `.yidam/corpus/`. It needs no
+network beyond the clone the re-vendor already makes.
+
+### A re-vendor now reaches `ci.yml` and `CLAUDE.md`
+
+**Scaffold regions (#1054).** Genesis installs `.github/workflows/ci.yml` and `.claude/CLAUDE.md`
+once. Until now no re-vendor touched them again. So a gate added upstream never reached your CI.
+
+The scaffold now marks the part of each file that is yidam's. In `ci.yml` that is the `privacy`
+and `corpus` jobs, between `# <!-- YIDAM:CI -->` and `# <!-- /YIDAM:CI -->`. In `CLAUDE.md` it is
+the template's sections, between `<!-- YIDAM:CLAUDE -->` and `<!-- /YIDAM:CLAUDE -->`.
+`mise run yidam-vendor-update` rewrites each region from the scaffold at the new pin. It never
+reads the rest of the file.
+
+An existing repository has no markers. Install them once, then re-vendor:
+
+```sh
+yidam migrate --dry-run scaffold   # see what each region takes in
+yidam migrate scaffold             # do it
+mise run yidam-vendor-update       # fill the regions
+```
+
+Commit the migration as a `migrate:` commit. **Anything inside a region is replaced.** A step you
+added to the `privacy` or `corpus` job shows in the re-vendor's diff as removed. Move it to a job
+of your own, outside the markers.
+
+A workflow with neither job gets an empty region, and the re-vendor fills it. A `CLAUDE.md` with
+none of the template's headings is yours, and is left unmarked. The migration refuses when one of
+your sections sits between two of the template's. Move it, then run it again.
+
+`yidam doctor` has two new checks. `scaffold` warns while a file has no region. `ci` warns when no
+workflow runs a corpus gate. It reads `.github/workflows/` only, and follows a `mise run` into
+your own `mise.toml`.
+
+### A node may declare a refusal, and `derive check` holds an argument to it
+
+**`refuses:` is a named node field (#1053, RFC-0045).** It lists the sentences in which a node
+declines an inference. A new `refusal-span-drift` lint check is an error when one quotes text
+the node's prose no longer holds. A corpus that declares no refusals sees nothing new.
+
+**`yidam derive check` reads artifacts under `[derive] paths`.** Without that key, it reads
+nothing and passes. With it, every memo or dossier there needs a `reach:` and `cites:` spans.
+It must also answer each declared refusal in a paragraph it cites.
+
+SDK parity moves 0.16.0 → 0.17.0 and `yidam-core` 0.10.0 → 0.11.0, for the new field. An SDK
+that predates it keeps `refuses:` in `extra`, where nothing reads it.
+
+### `export --format llms` prints instead of writing `llms.txt`
+
+**Stdout by default (#919).** Without `--out`, `yidam export --format llms` wrote `llms.txt` at
+the repository root. A reader who only meant to look at the corpus got an untracked file.
+
+It now prints the pack to stdout. The summary line goes to stderr. With `--out`, nothing
+changes. A script that reads `llms.txt` after the export needs `--out llms.txt`.
+
+### A domain article is checked, as the genesis commit holds it
+
+**Four new checks read `.yidam/constitution/` (#593, RFC-0047).** Bootstrap now writes a
+constitutional augmentation there, with its Rego rule and cases. `yidam lint` reads each rule
+from the genesis commit. `domain-article-violated` fails on a rule's refusal.
+`domain-article-edited` fails when a file there differs from the genesis commit.
+`domain-article-unproven` warns on a rule with no cases, or a failing case.
+`domain-article-unverifiable` warns in a shallow clone, where no rule is read.
+
+**Nothing changes without the directory.** No derived repository has one yet. An article appended
+to the vendored `CONSTITUTION.md` did not survive `yidam-vendor-update`, and none was found.
+
+### A resolution record must name its rounds and positions
+
+**New check, `resolution-deliberation-unrecorded` (#592).** It names a resolution record missing
+`rounds:` or `positions:`. It also names a `rounds:` that is not a count of at least one.
+PROTOCOL.md has asked for both fields since 2026-08-20. No record in any derived repository
+carries them.
+
+**Old records warn. New ones gate.** Git ancestry decides which is which. A record gates when the
+commit that added it descends from the commit that put `rounds:` into your PROTOCOL.md. A
+repository bootstrapped after 2026-08-20 has that line from genesis, so every record it adds
+gates. A repository whose vendored PROTOCOL.md lacks the line only warns, until it re-vendors.
+
+**The repair is two lines of frontmatter.** Write `rounds: 1` if the loop ran once. List every
+position file the loop read under `positions:`. A shallow clone cannot see the ancestry, so there
+every finding warns.
+
+## cli/v0.16.0
+
+### A multi-line value leaves an inline block that shares its line
+
+**The marker contract (#1137).** `update_regen` wrote a value that holds a newline in block
+form. Block form is read by line. The open tag must start its line, and the close tag must
+stand alone on its own. An inline block inside a sentence has neither, and the rewrite broke it
+two ways. With text before the open tag, the tag became prose and the block was never read
+again. With text after the close tag, the next run read on to a later block's close tag. It
+then wrote over that block too.
+
+Such a block is now left as it is. An inline block with its line to itself still takes the
+block form. SDK parity moves 0.15.0 → 0.16.0.
+
+**What changes for you: nothing, unless a generator returned more than one line into a block
+inside a sentence.** No generator does today. `count` returns one number. If one does, `yidam
+regen` leaves that block unchanged and `regen --check` does not report it. Move the block onto
+a line of its own.
+
+### `AGENTS.md` reads by occasion, and a new generator writes it
+
+**`yidam routes` (#972, RFC-0039).** A new derivation's `AGENTS.md` no longer lists every
+prelude file to read before acting. It carries a `<!-- REGEN: yidam routes -->` block instead:
+what every occasion reads, then one heading per occasion, each a list of section links. An
+occasion is named by the commit verb it ends in. The block is rendered from
+`.yidam/.vendor/prelude/routes.yml`, so a re-vendor brings the new routes and `regen --check`
+reports a stale block.
+
+An existing derivation's `AGENTS.md` has no markers, and a generator writes nothing where it
+finds none. So `yidam regen` leaves the file as it is, and the whole-file list keeps working.
+
+### `yidam migrate routes` puts the routes block into an existing `AGENTS.md`
+
+**`yidam migrate routes` (#1135).** Re-vendor first, so the prelude carries `routes.yml`. Then:
+
+```sh
+yidam migrate --dry-run routes   # see which list it replaces
+yidam migrate routes             # do it
+```
+
+It replaces the bullet list under *Before taking substantive action* with the rendered block.
+No other line of the file changes. Commit the result as a `migrate:` commit. From then on,
+`yidam regen` keeps the block current, and a stale one fails `regen --check`.
+
+It refuses when the heading is missing or has no list under it. So does a bullet in that list
+linking anything but a vendored prelude file. That line is yours.
+Each refusal prints the block to paste by hand. `yidam doctor` warns under `routes` until the
+block is there.
+
+### The skills README no longer explains where `judge` went
+
+**`sadhana/skills/README.md` (#1077).** The scaffold's skills README ended with a paragraph
+about `judge`. It said the skill used to be listed there, and why it left. That is a note about
+the template, and every repository installed it at genesis. A reader there has never met
+`judge`.
+
+`judge` scores runs of yidam's own bootstrap test harness. It lived in `prelude/skills/`, so
+every derived repository vendored it. The bootstrap skill also read it before starting work.
+In `cli/v0.2.0` it moved to `yidam/tests/`, beside the harness that calls it. A derived
+repository has no copy of that harness.
+
+**What changes for you: nothing.** New repositories get the table only. In an existing
+repository, the paragraph under "Inherited from prelude" in `.yidam/skills/README.md` can be
+deleted.
+
+### A scaffold for watching a source, where unreachable is not unchanged
+
+**`sadhana/github/workflows/watch.yml` (#1073).** A derived repository polled a source on a
+schedule. For 24 rounds the source was unreachable. The job saw no diff, so the build stayed
+green.
+
+The new workflow runs a round you write at `.github/watch/round`. It appends one row per round
+to `.github/watch/heartbeats.tsv`, and commits nothing else. A round that crashes, or prints no
+verdict, is filed `unreachable`. A `watch` job in `ci.yml` reads the ledger. It fails after
+seven unreachable rounds in a row, or seven days with no round.
+
+**What changes for you: nothing until you arm it.** The workflow ships with no schedule. The
+gate runs only when the ledger exists. An existing repository can copy both workflow changes
+from `sadhana/github/workflows/`. The header of `watch.yml` says how to arm it.
+
+### `yidam lint` reads the artifact's links into the corpus
+
+**`broken-object-link` (#577, RFC-0028 Erratum 6).** A repository declaring `[object] paths`
+holds a corpus and an artifact that cite each other. A node's link into the artifact was already
+checked. A link from a crate README to a node was read by nothing. Deleting the node left it
+dead, and no finding named the README.
+
+**What changes for you: new warnings, if you declare an object.** `yidam lint` now reads the
+tracked `.md`, `.rs` and `.ts` files `[object] paths` claims. Each relative link into `.yidam/`
+must resolve. A dead one is a warning at the line that holds it. Warnings do not fail the
+build, and `escalate_after` cannot raise these. Fix the link, or drop it if the node is gone
+on purpose. A `#L` range on such a link is now held by the line-citation checks too. A
+repository without `[object] paths` sees nothing new.
+
+**`kuten check` gains a `coupling` field.** It counts the links each way. For nodes, decisions
+and catalog entries, it says how many the artifact cites and how many cite it. It is `null`
+without an object, and for a `projected` corpus. The field is not required in the report
+schema, so output from an older CLI still validates.
+
+### A derived repository overrides inherited tasks from `mise.overrides.toml`
+
+**The scaffold ships an include slot for overriding inherited tasks (#1064).** A task in
+`mise.toml` cannot override one from `mise.yidam.toml`. In mise, an included task wins over the
+file that includes it. Among includes, the later one wins. A repository that needed to replace
+an inherited task had to invent a second include. It also had to learn that rule. New
+repositories now get `mise.overrides.toml` at genesis, empty and listed last. No vendor update
+writes it.
+
+**What changes for you: nothing, unless you want the slot.** An existing repository keeps its
+`mise.toml`, which the vendor update does not rewrite. To adopt it, list the file after the
+inherited layer:
+
+```toml
+[task_config]
+includes = ["mise.yidam.toml", "mise.overrides.toml"]
+```
+
+A missing include is skipped without a word, so the line is safe before the file exists. A
+repository that already keeps its own override include can keep it, or rename it. Do not use
+`mise.local.toml`: mise also loads that name as a config file and warns about every task in it.
+
+### `migrate value` renames one value of a closed set
+
+**A value of a declared `values:` set can be renamed as one event (#1120).** Declaring a set
+closes it. So `creek` → `stream` could not be done in two steps. Renaming the declaration
+first puts every instance in violation. Renaming the instances first puts them outside the
+set. `yidam migrate value <class> <property> <from> <to>` does both halves together. It
+rewrites the item on the declaration and the value on every instance holding it. It writes a
+migration record. Quoting follows what was written. A value outside the set is refused. So is
+a rename onto a value already in the set.
+
+### A class declares a closed value set, and `property-type` holds instances to it
+
+**`values:` on a `string` property (#1052, RFC-0044).** A class could not declare the set of
+values a property admits. So 40 properties across seven corpora spelled one in the
+description, as `extant | demolished | ruin`. Nothing read it there. 33 instances held a
+value outside the set their own class documented. A `string` property now declares the set as
+`values: [extant, demolished, ruin]` beside `type:`. Declaring it closes it.
+
+**What changes for you: nothing until a class declares a set.** No corpus carries `values:`,
+and a property without one is unbounded, as before. Once a class declares the set,
+`property-type` reports every instance holding a value outside it and names the set. The
+finding gates, as the check always has. Each report is one of two things. A value the set
+should have carried is one line on the declaration. Prose in a token field is a value to
+restore. The match is exact: `In operation` is not `in operation`. The compiled class schema
+now carries the set as `enum`, and the gate is no looser than the schema.
+
+**`migrate retype` into `string` is held to the set.** A set on any other type is carried and
+ignored, so it starts to bind at the retype. An instance outside it is reported and blocks
+before anything is written.
+
+**A class file carrying `values:` is refused by every earlier CLI.** The class-file schema is
+closed. An older CLI would compile the set to nothing and validate the drift as fine. Upgrade
+before adopting the field. SDK parity moves 0.14.0 → 0.15.0 and `yidam-core` 0.9.0 → 0.10.0.
+Both are for the new `OntologyProperty.values` field, which every compiler emits.
+
+### `phase settle` refreshes the REGEN blocks, and a `gates` generator writes the gate table
+
+**`yidam phase settle` (#1066).** Closing a phase requires the REGEN blocks to be current, and
+`settle` never touched them. Every repository ran `regen` by hand one commit before the phase
+commit. In the reporting corpus that was 101 of 118 phase commits. `settle` now asks what
+`regen --check` asks, refreshes what is stale, stages it, and asks again. The printed sequence
+opens with the `regen:` commit when there is one to write.
+
+**What changes for you: a phase with a stale block is not ready.** `settle` used to say
+*ready* over a block CI would have called stale. It now says *not ready*, with the remedy.
+A block no generator writes is not ready either. Nothing is refreshed from a checkout that
+differs from `HEAD`. `settle` names the files and the sync instead. A block generated from
+that tree would not hold against the commit. The report carries a `regen` object: what
+passed, what is stale, what was staged, and what was dirty.
+
+**`yidam gates` (#1066).** A new generator, run by `yidam regen` with the others. It writes
+a table of every `run:` step in `.github/workflows/ci.yml` into the README's `yidam gates`
+block. The scaffold's README carries the block in place of the sentence that named three
+gates by hand. An existing repository adds the block where that sentence is, and runs `regen`.
+
+### A declared gluon calculator is now refused by `yidam lint`
+
+**`yidam lint` (#1099).** A capability declaring `run = { gluon = "..." }` was only checked when
+it ran. A script at a path that does not exist, or one invoking a macro, was quiet until the
+step. `lint` now refuses all three failures from the manifest, without invoking a calculator.
+
+The three are reported as separate checks. `calculator-script` covers a path that does not read
+and a script invoking a macro. `calculator-scope` covers a name the closed prelude does not bind.
+`calculator-type` covers a script that is not `Corpus -> Computed`.
+
+**What changes for you: a corpus with a broken calculator now fails `lint` where it passed.** The
+repair is the one the step would have demanded anyway. Nothing here is a new rule about what a
+calculator may say — `lint` and `run` call one admission function.
+
+**`calculator-scope` and `calculator-type` need a typechecker.** They are absent from the report
+of a binary built without `calculators-gluon`, which is the one `install.sh` downloads. A build
+that held no script to the prelude should not report that it did. `calculator-script` is text, so
+it gates in every build.
+
+Bless either of the two from a full build and lint from a light one. The entry is carried
+(#1114). The light run did not ask the check, so it neither compares the entry nor reports it
+stale. It prints the ids it did not ask. A blessing from the light build keeps the entry too.
+The same holds for `unrecognized-verb` without `--commits`. An entry under a check no build has
+any more is still stale, and still fails.
 
 ### A re-fetched artifact record keeps the `redistributable:` the entry already carried
 
@@ -367,6 +917,65 @@ will not reach the target. Commit it, or at least `git add` it.
 walking the directory. A fallback restores the whole hole in the circumstance nobody tests. The
 source has to be a git checkout anyway. The `.yidam.toml` pin it writes is read from that same
 git directory.
+
+### `malformed-yaml` reads `.yidam/corpus/universal.yml` too
+
+**`yidam lint` now gates on a universal-declarations file whose YAML does not parse (#1081).**
+The check covered the four records a corpus is written in after #1056. The fifth file a lint run
+reads was still read through `unwrap_or_default()`. A single unclosed quote in it read as a file
+declaring no universals. Every check that consults them then passed over an empty list. A gate
+reported clean over declarations it had not read.
+
+**What changes for you: a lint run that passed may now fail.** Nothing about your corpus
+changed. The finding names `.yidam/corpus/universal.yml` and quotes the parser's line and
+column. Every other finding about that file is suppressed until it reads. A repository with no
+such file is unchanged and is not reported. Absent is a legitimate answer; unreadable is not.
+
+### A document whose `yidam:` block is not a findings record is reported
+
+**New `findings-malformed` check (#1081).** An instance or catalog entry may carry a `yidam:`
+block in its frontmatter holding findings. The block is ordinary YAML, so the *file* parses.
+`malformed-yaml` has nothing to say about it. But a block of the wrong shape decoded to no
+findings at all, silently. Three shapes did, all of them legal YAML:
+
+- A list where a mapping was wanted.
+- A bare string.
+- A mapping whose keys are not the record's.
+
+Each read as a document with no findings.
+
+**What changes for you: a document carrying a block nothing could read now fails the gate.** The
+finding quotes the decoding error. A document with no `yidam:` block is not reported, and neither
+is one whose block reads. A file whose *frontmatter* is broken is reported by `malformed-yaml` as
+before and is not attributed to the block.
+
+### `yidam doctor` counts all four records, and reads your bundle manifests
+
+**`yidam doctor` (#1081).** The corpus line counted instances and classes. It printed
+`N file(s), all readable` on a repository with an unreadable catalog entry or decision record.
+That is the same silence `malformed-yaml` had before #1056. It was in the command people run to
+ask whether a repository is sound. The line now counts all four records, and a failure names how
+many of how many do not parse.
+
+**The corpora line now reports an unpacked bundle whose `manifest.yml` does not parse.** That
+file is where a dependency's commit, genesis digest and index model are read from. Every field
+in it is optional, because an older bundle format legitimately omits them. So a manifest nobody
+could read was indistinguishable from an old one. It also switched off the shadow check, which
+compares genesis digests and stays quiet when either side is unknown. `tonpa install` now warns
+on the same condition as it writes the file.
+
+**What changes for you: `doctor` may now fail where it passed.** The remedy for a manifest is
+`mise run tonpa-install`. The remedy for a corpus file is `yidam lint`, which quotes the parse
+error. A dependency that is not installed is reported as not installed, and not also as
+unreadable.
+
+### `samudaya audit` says when a seed's header did not parse
+
+**`yidam samudaya audit` (#1081).** A seed whose frontmatter does not parse was read as a seed
+declaring nothing. The audit then reported the fields it found missing — `kind:` first — rather
+than the reason it found nothing. The parse error is now reported for that file. The field-level
+complaints are not, since none of them was measured. A seed with no frontmatter at all is
+unchanged: it has contradicted nothing.
 
 ## cli/v0.15.0
 

@@ -24,6 +24,8 @@
 //! task.** A spliced comment leaves bare keys; `[env]` and `[tools]` leave tables that are
 //! not tasks. Neither needs the checker to know what went wrong.
 
+mod common;
+
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -143,6 +145,57 @@ fn the_derived_config_puts_the_pinned_binary_first() {
         path.first().and_then(|v| v.as_str()),
         Some(".yidam/bin"),
         "the pinned binary must come FIRST; anything ahead of it can answer instead"
+    );
+}
+
+/// The overrides file is the last include, ships empty, and no vendor update writes it.
+///
+/// Each of the three is what makes it an override point rather than a file (#1064). A task
+/// in `mise.toml` loses to one from an include, and the later include wins, so the file only
+/// overrides from after `mise.yidam.toml`. It ships with no tasks because any it held would
+/// replace inherited ones in every repository at genesis. And a vendor update that wrote it
+/// would take the repository's overrides with it. `derived_repo_smoke` runs mise against it.
+#[test]
+fn the_overrides_file_is_the_last_include_and_stays_the_repositorys() {
+    const OVERRIDES: &str = "mise.overrides.toml";
+
+    let cfg = parse("sadhana/root/mise.toml");
+    let includes: Vec<&str> = cfg["task_config"]["includes"]
+        .as_array()
+        .expect("[task_config] includes is an array")
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    let inherited = includes.iter().position(|i| *i == "mise.yidam.toml");
+    assert!(
+        inherited.is_some() && includes.last() == Some(&OVERRIDES),
+        "sadhana/root/mise.toml must include {OVERRIDES} LAST, after mise.yidam.toml. \
+         An earlier include loses to a later one, so anywhere else it overrides nothing: \
+         {includes:?}"
+    );
+
+    let shipped = parse(&format!("sadhana/root/{OVERRIDES}"));
+    assert!(
+        shipped.is_empty(),
+        "sadhana/root/{OVERRIDES} must ship with no tasks. Each table in it is a task that \
+         replaces an inherited one in every repository at genesis: {:?}",
+        shipped.keys().collect::<Vec<_>>()
+    );
+
+    let inherited_tasks = parse("mise.yidam.toml");
+    let writers: Vec<&String> = inherited_tasks
+        .iter()
+        .filter(|(_, t)| {
+            t.get("run")
+                .and_then(|r| r.as_str())
+                .is_some_and(|r| r.contains(OVERRIDES))
+        })
+        .map(|(name, _)| name)
+        .collect();
+    assert!(
+        writers.is_empty(),
+        "{writers:?} in mise.yidam.toml touch {OVERRIDES}. It is the repository's own file; \
+         a vendor update that writes it discards the overrides it exists to keep"
     );
 }
 
@@ -930,4 +983,260 @@ fn the_scaffolded_config_anchors_the_block_and_carries_no_compiler() {
          compiling to yidam-build-source, so a declaration here provisions a toolchain on \
          the path that never invokes a compiler — for most repositories, every time."
     );
+}
+
+/// The fragment between `# <name> BEGIN` and `# <name> END` in the re-vendor task.
+fn vendor_fragment(name: &str) -> String {
+    let run = parse("mise.yidam.toml")["yidam-vendor-update"]["run"]
+        .as_str()
+        .expect("yidam-vendor-update.run")
+        .to_string();
+    let begin = format!("# {name} BEGIN\n");
+    let start = run
+        .find(&begin)
+        .unwrap_or_else(|| panic!("the {name} fragment is marked"))
+        + begin.len();
+    let end = run[start..]
+        .find(&format!("# {name} END"))
+        .unwrap_or_else(|| panic!("unterminated {name} fragment"));
+    run[start..start + end].to_string()
+}
+
+/// Run `fragment` under `sh` in `dir`, with `$tmp` pointing at `tmp`. Stdout, trimmed.
+fn run_fragment(fragment: &str, dir: &std::path::Path, tmp: &std::path::Path) -> String {
+    let script = format!("set -eu\ntmp='{}'\n{fragment}", tmp.display());
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(&script)
+        .current_dir(dir)
+        .output()
+        .expect("sh");
+    assert!(
+        out.status.success(),
+        "the fragment failed: {}\n{}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// A re-vendor rewrites the yidam region of `ci.yml` and `CLAUDE.md`, and nothing else (#1054).
+///
+/// Both files were installed once at genesis and never again, so a gate added upstream never
+/// reached a derived repository's CI: nine workflows were 225 to 715 lines behind the
+/// scaffold. The region is the part of each file that is the template's. Everything outside
+/// it is the repository's, and a re-vendor that touched it would destroy the jobs and sections
+/// a domain added.
+///
+/// Run from the shipped task, against the shipped scaffold, for the reason the prune test
+/// gives: nothing in this repository runs this task.
+#[test]
+fn a_re_vendor_rewrites_the_scaffold_regions_and_nothing_outside_them() {
+    let fragment = vendor_fragment("SPLICE-SCAFFOLD");
+    assert!(
+        !fragment.contains('\\'),
+        "the splice contains a backslash; keep it backslash-free, for the reason the tools \
+         block test gives:\n{fragment}"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let scaffold_ci = tmp.path().join("yidam/sadhana/github/workflows/ci.yml");
+    let scaffold_claude = tmp.path().join("yidam/sadhana/root/CLAUDE.md");
+    std::fs::create_dir_all(scaffold_ci.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(scaffold_claude.parent().unwrap()).unwrap();
+    std::fs::copy(
+        repo_root().join("sadhana/github/workflows/ci.yml"),
+        &scaffold_ci,
+    )
+    .unwrap();
+    std::fs::copy(repo_root().join("sadhana/root/CLAUDE.md"), &scaffold_claude).unwrap();
+
+    let ci = dir.path().join(".github/workflows/ci.yml");
+    let claude = dir.path().join(".claude/CLAUDE.md");
+    std::fs::create_dir_all(ci.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(claude.parent().unwrap()).unwrap();
+
+    // A derivation from before a gate existed: its region holds an old corpus job, and it
+    // has a job of its own on each side.
+    let derived_ci = "\
+name: ci
+jobs:
+  ours-first:
+    runs-on: ubuntu-latest
+  # <!-- YIDAM:CI --> an older scaffold's header
+  corpus:
+    steps:
+      - run: yidam graph-check
+  # <!-- /YIDAM:CI -->
+
+  ours-last:
+    runs-on: ubuntu-latest
+";
+    std::fs::write(&ci, derived_ci).unwrap();
+    let derived_claude = "\
+# Working in this repository
+
+This repository studies rivers.
+
+<!-- YIDAM:CLAUDE -->
+## The short version
+
+- stale advice
+<!-- /YIDAM:CLAUDE -->
+
+## Ours
+
+Domain notes.
+";
+    std::fs::write(&claude, derived_claude).unwrap();
+
+    let say = run_fragment(&fragment, dir.path(), tmp.path());
+    assert!(say.contains("rewrote the YIDAM:CI region"), "{say}");
+    assert!(say.contains("rewrote the YIDAM:CLAUDE region"), "{say}");
+
+    let region = |text: &str, name: &str| -> String {
+        let open = text
+            .find(&format!("<!-- YIDAM:{name} -->"))
+            .expect("open marker");
+        let line = text[..open].rfind('\n').map_or(0, |i| i + 1);
+        let shut = format!("<!-- /YIDAM:{name} -->");
+        let close = text.find(&shut).expect("close marker") + shut.len();
+        text[line..close].to_string()
+    };
+    let ci_after = std::fs::read_to_string(&ci).unwrap();
+    let scaffold = std::fs::read_to_string(&scaffold_ci).unwrap();
+    assert_eq!(
+        region(&ci_after, "CI"),
+        region(&scaffold, "CI"),
+        "the region is not the scaffold's"
+    );
+    assert!(
+        ci_after.starts_with("name: ci\njobs:\n  ours-first:\n"),
+        "{ci_after}"
+    );
+    assert!(
+        ci_after.ends_with("\n\n  ours-last:\n    runs-on: ubuntu-latest\n"),
+        "{ci_after}"
+    );
+    assert!(
+        ci_after.contains("yidam regen --check"),
+        "a gate the old region lacked did not arrive"
+    );
+
+    let claude_after = std::fs::read_to_string(&claude).unwrap();
+    assert!(!claude_after.contains("stale advice"), "{claude_after}");
+    assert!(claude_after.contains("This repository studies rivers."));
+    assert!(claude_after.ends_with("<!-- /YIDAM:CLAUDE -->\n\n## Ours\n\nDomain notes.\n"));
+
+    // Idempotent: a second pass writes nothing and says so.
+    let say = run_fragment(&fragment, dir.path(), tmp.path());
+    assert!(say.contains("the YIDAM:CI region is current"), "{say}");
+    assert_eq!(std::fs::read_to_string(&ci).unwrap(), ci_after);
+
+    // No markers: reported, and the file is left exactly as it was.
+    std::fs::write(&ci, "name: ci\njobs:\n  corpus:\n    steps: []\n").unwrap();
+    let say = run_fragment(&fragment, dir.path(), tmp.path());
+    assert!(say.contains("no YIDAM:CI markers"), "{say}");
+    assert!(say.contains("yidam migrate scaffold"), "{say}");
+    assert_eq!(
+        std::fs::read_to_string(&ci).unwrap(),
+        "name: ci\njobs:\n  corpus:\n    steps: []\n"
+    );
+
+    // A CLAUDE.md with none of the template's sections is the owner's whole, which
+    // `migrate scaffold` leaves unmarked: sending the owner there would be a loop.
+    let owned = "# Working in rivers\n\n## Our constraints\n\n- one\n";
+    std::fs::write(&claude, owned).unwrap();
+    let say = run_fragment(&fragment, dir.path(), tmp.path());
+    assert!(!say.contains("YIDAM:CLAUDE"), "{say}");
+    assert_eq!(std::fs::read_to_string(&claude).unwrap(), owned);
+    // One that carries a template section is reported.
+    std::fs::write(&claude, "# W\n\n## Before committing\n\n- one\n").unwrap();
+    let say = run_fragment(&fragment, dir.path(), tmp.path());
+    assert!(say.contains("no YIDAM:CLAUDE markers"), "{say}");
+
+    // An opening marker with no close: left alone rather than truncated to the end.
+    let open_only = "jobs:\n  # <!-- YIDAM:CI -->\n  corpus: {}\n  ours: {}\n";
+    std::fs::write(&ci, open_only).unwrap();
+    let say = run_fragment(&fragment, dir.path(), tmp.path());
+    assert!(say.contains("no closing marker"), "{say}");
+    assert_eq!(std::fs::read_to_string(&ci).unwrap(), open_only);
+
+    // A pin whose scaffold predates the regions: nothing to write, and nothing said.
+    std::fs::write(&scaffold_ci, "jobs:\n  corpus: {}\n").unwrap();
+    std::fs::write(&ci, derived_ci).unwrap();
+    let say = run_fragment(&fragment, dir.path(), tmp.path());
+    assert!(!say.contains("YIDAM:CI"), "{say}");
+    assert_eq!(std::fs::read_to_string(&ci).unwrap(), derived_ci);
+}
+
+/// A re-vendor names each cited upstream issue that the new pin carries a fix for (#1054).
+///
+/// A derived repository still carried workarounds for two issues closed upstream, and
+/// nothing told it. The citation `yidam#N` is the record; a commit at the pin naming the
+/// issue the way this project does is the fix.
+#[test]
+fn a_re_vendor_names_the_cited_issues_its_pin_fixes() {
+    let fragment = vendor_fragment("WORKAROUNDS");
+    use common::git::git;
+    let repo = |dir: &std::path::Path| {
+        git(dir, &["init", "-q"]);
+        git(dir, &["config", "user.name", "t"]);
+        git(dir, &["config", "user.email", "t@yidam.test"]);
+    };
+
+    let tmp = tempfile::tempdir().unwrap();
+    let upstream = tmp.path().join("yidam");
+    std::fs::create_dir_all(&upstream).unwrap();
+    repo(&upstream);
+    for message in [
+        "fix(cli): read the pin (#587)",
+        "feat: a thing\n\nCloses #647",
+        "docs: mention #5870 in passing",
+        "fix: the vendored one (#44)",
+    ] {
+        git(&upstream, &["commit", "-q", "--allow-empty", "-m", message]);
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    repo(dir.path());
+    std::fs::write(
+        dir.path().join("mise.toml"),
+        "# works around goedelsoup/yidam#587 until it ships\n\
+         # and https://github.com/goedelsoup/yidam/issues/647\n\
+         # and yidam#587 again, and yidam#999, which is open\n\
+         # and yidam#587, whose number is a prefix of #5870\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.path().join(".yidam/.vendor/prelude")).unwrap();
+    std::fs::write(dir.path().join(".yidam/.vendor/prelude/x.md"), "yidam#44\n").unwrap();
+    std::fs::create_dir_all(dir.path().join(".yidam/corpus/c")).unwrap();
+    std::fs::write(dir.path().join(".yidam/corpus/c/n.yml"), "note: yidam#44\n").unwrap();
+    // An untracked file is not a record.
+    git(dir.path(), &["add", "mise.toml", ".yidam"]);
+    std::fs::write(dir.path().join("scratch.md"), "yidam#44\n").unwrap();
+
+    let say = run_fragment(&fragment, dir.path(), tmp.path());
+    assert!(say.contains("yidam#587  fixed at this pin by"), "{say}");
+    assert!(say.contains("(#587)"), "{say}");
+    assert!(say.contains("yidam#647  fixed at this pin by"), "{say}");
+    assert!(
+        !say.contains("yidam#999"),
+        "an open issue is reported as fixed: {say}"
+    );
+    assert!(
+        !say.contains("yidam#44"),
+        "a citation in the vendored tree, the corpus or an untracked file is read: {say}"
+    );
+    assert_eq!(
+        say.matches("yidam#587").count(),
+        1,
+        "one line per issue: {say}"
+    );
+
+    // Nothing cited, nothing said.
+    std::fs::write(dir.path().join("mise.toml"), "# clean\n").unwrap();
+    git(dir.path(), &["add", "mise.toml"]);
+    assert_eq!(run_fragment(&fragment, dir.path(), tmp.path()), "");
 }

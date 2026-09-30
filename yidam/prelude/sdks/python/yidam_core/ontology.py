@@ -45,6 +45,13 @@ class OntologyProperty:
     #: so an ordering within one property can never compare across units. Published as
     #: ``x-yidam-unit`` on the compiled schema — an annotation, not a constraint.
     unit: str = ""
+    #: The closed set a ``string`` may hold, or empty for an unbounded one.
+    #:
+    #: **A value set is a fact about the column, declared where the gate can read it**
+    #: (RFC-0044). Declaring it closes it: ``property-type`` reports a value outside it, and
+    #: the compiled schema carries it as ``enum`` — a constraint, not an annotation. Empty is
+    #: absent, and the field is honoured on ``string`` only.
+    values: tuple[str, ...] = ()
     #: Whether every instance of the class must carry this property.
     #:
     #: **Absent means false**, and not out of timidity: every corpus written before this
@@ -124,6 +131,17 @@ def _mappings(value: Any) -> list[dict[str, Any]]:
     return [item for item in value if isinstance(item, dict)]
 
 
+def _strings(value: Any) -> tuple[str, ...]:
+    """The strings of a list, and nothing else.
+
+    A ``values:`` written as a mapping, or carrying a bare number, declares no set rather
+    than half of one.
+    """
+    if not isinstance(value, list):
+        return ()
+    return tuple(item for item in value if isinstance(item, str))
+
+
 def parse_class(name: str, content: str) -> OntologyClass:
     """Read a class definition. ``name`` is the fallback when the file does not name itself.
 
@@ -150,6 +168,7 @@ def parse_class(name: str, content: str) -> OntologyClass:
                 description=_str(p.get("description")),
                 required=p.get("required") is True,
                 unit=_str(p.get("unit")),
+                values=_strings(p.get("values")),
             )
             for p in _mappings(doc.get("properties"))
         ],
@@ -165,13 +184,17 @@ def parse_class(name: str, content: str) -> OntologyClass:
     )
 
 
-def _property_schema(property_type: str) -> Any:
+def _property_schema(property_type: str, values: tuple[str, ...]) -> Any:
     """Mirrors ``lint``'s ``property-type`` check, including what it declines to check.
 
     A type the corpus coined for itself compiles to ``True`` — valid against anything —
     because a schema rejecting every type it had not heard of would make coining one
-    impossible.
+    impossible. A ``string`` declaring ``values:`` compiles to that set as ``enum``
+    (RFC-0044) — a constraint, because the gate refuses a value outside it. Written as
+    declared: no sorting, no trimming.
     """
+    if property_type == "string" and values:
+        return {"type": "string", "minLength": 1, "enum": list(values)}
     if property_type in ("string", "text", "ref"):
         return {"type": "string", "minLength": 1}
     # Structural, not a calendar: what it catches is a date field carrying prose.
@@ -190,6 +213,20 @@ def _property_schema(property_type: str) -> Any:
                 {"type": "array", "items": {"enum": list(CLAIM_TOKENS)}},
             ]
         }
+    # A span and the catalog entry it is quoted from, one or a non-empty list (RFC-0046).
+    # Only the shape: whether the words are in the bytes needs the vault cache.
+    if property_type == "quotation":
+        one = {
+            "type": "object",
+            "properties": {
+                "of": {"type": "string", "minLength": 1},
+                "span": {"type": "string", "minLength": 1},
+                "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            },
+            "required": ["of", "span"],
+            "additionalProperties": False,
+        }
+        return {"anyOf": [one, {"type": "array", "minItems": 1, "items": one}]}
     return True
 
 
@@ -222,7 +259,7 @@ def compile_class_schema(cls: OntologyClass) -> dict[str, Any]:
     if cls.properties:
         declared: dict[str, Any] = {}
         for p in cls.properties:
-            body = _property_schema(p.type)
+            body = _property_schema(p.type, p.values)
             if isinstance(body, dict):
                 if p.description:
                     body = {**body, "description": p.description}

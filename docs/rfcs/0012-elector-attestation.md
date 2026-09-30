@@ -160,7 +160,7 @@ the provenance of its own actors.
 an elector is an agent, a reader auditing the ancestry (Article III) cannot tell whether a position
 was held by `claude-opus-4-8` under configuration X or something else entirely — the exact provenance
 the system otherwise obsesses over. Meanwhile the signing infrastructure already exists: release tags
-are signed — [`release.sh:341`](../../release.sh#L341) runs `git tag -s` and refuses the release
+are signed — [`release.sh:361`](../../release.sh#L361) runs `git tag -s` and refuses the release
 outright when `user.signingkey` is unset, with SSH signing the configured format. It simply is not
 wired to
 elector commits.

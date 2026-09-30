@@ -94,8 +94,8 @@ terminal anywhere in the process. Download the `.mcpb` for your Mac from the
 pane, or:
 
 ```sh
-open yidam-0.15.0-aarch64-apple-darwin.mcpb    # Apple silicon
-open yidam-0.15.0-x86_64-apple-darwin.mcpb     # Intel
+open yidam-0.17.0-aarch64-apple-darwin.mcpb    # Apple silicon
+open yidam-0.17.0-x86_64-apple-darwin.mcpb     # Intel
 ```
 
 The bundle is a zip holding a manifest and the light `yidam` build, and the installer asks
@@ -110,7 +110,7 @@ agent](mcp-server.md#claude-desktop-as-a-bundle) has the rest.
 ## From source
 
 ```sh
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.15.0 --locked yidam
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.17.0 --locked yidam
 ```
 
 The default build needs **only a Rust toolchain**: no protoc, no system C library, no ML
@@ -129,7 +129,7 @@ rather than a lower one — so #463 raised it to the pin, where every build veri
 
 ```console
 $ yidam --version
-yidam <version> (<commit>) [reports export-graph tonpa serve-http vault-s3 s3-vectors catalog-fetch]
+yidam <version> (<commit>) [reports export-graph tonpa serve-http vault-s3 s3-vectors catalog-fetch pdf-text]
 ```
 
 Three facts, and the third is the one that matters: the version, the commit it was built from,
@@ -160,6 +160,7 @@ artifacts — the script, the tap, binstall — carry the **default** set.
 | `export-graph` *(default)* | `export --format rdf` | Pure Rust |
 | `serve-http` *(default)* | `serve --mcp --http` — MCP over a URL, the transport every remote agent platform needs | hyper 1.x server features. **+1 package** (`httpdate`); hyper is already here for reqwest |
 | `catalog-fetch` *(default)* | `catalog-fetch` against a `url` or `url_template` location. The `kind: file` path — and everything that decides *what* would be fetched — is ungated | **+0 packages**; reqwest and tokio are already here for `tonpa` and `vault-s3` |
+| `pdf-text` *(default)* | `catalog-extract` taking a text reading of a PDF artifact. Lint compares a quotation with a recorded reading in every build | **+35 packages, +1.4 MB**, all pure Rust |
 | `calculators-gluon` | The typed calculator arm (RFC-0042) — a calculator whose entry point is typechecked `Corpus -> Computed`, so the executor can decline it before it runs. Declared as `run = { gluon = "…" }`; a build without it parses the declaration and declines the step by name | **+71 packages, +6.8 MB.** The largest cost in this table, and the reason this one is not in the default set |
 | `full` | All of the above | |
 
@@ -192,11 +193,11 @@ To build a heavier set from source:
 
 ```sh
 # Semantic retrieval over an index somebody else built. No protoc.
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.15.0 --locked \
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.17.0 --locked \
   --features vector-read yidam
 
 # Everything, including the ability to build an index.
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.15.0 --locked \
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.17.0 --locked \
   --features full yidam
 ```
 

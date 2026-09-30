@@ -15,10 +15,13 @@ fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
                 name: p.to_string(),
                 r#type: "string".to_string(),
                 // These fixtures are about which properties a class declares across two
-                // commits, not about whether an instance must carry them, or whether what
-                // they hold is prose.
-                required: false,
+                // commits, not about whether an instance must carry them, whether what they
+                // hold is prose, whether it is retrievable, or what it is for.
+                description: String::new(),
+                declared_required: None,
                 prose: false,
+                values: vec![],
+                retrievable: false,
             })
             .collect(),
         edges: edges
@@ -27,10 +30,13 @@ fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
                 relationship: e.to_string(),
                 target: String::new(),
                 direction: None,
+                description: String::new(),
             })
             .collect(),
+        label: String::new(),
         edge_policy: Default::default(),
         max_lines: None,
+        interval: None,
         prose: Vec::new(),
         implemented_by: None,
         foundational_type: None,

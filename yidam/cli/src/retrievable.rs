@@ -115,33 +115,20 @@ pub struct Declaration {
     pub properties: Vec<String>,
 }
 
-/// The `class:` a declaration file named itself, and the properties it flagged.
-fn declared(text: &str) -> (Option<String>, Vec<String>) {
-    #[derive(Default, serde::Deserialize)]
-    struct Fields {
-        #[serde(default)]
-        class: Option<String>,
-        #[serde(default)]
-        properties: Vec<Property>,
+/// The properties one class flagged `retrievable: true`, read off the corpus model.
+fn declared(class: &crate::corpus::Class) -> Declaration {
+    Declaration {
+        class: class.name.clone(),
+        properties: class
+            .properties
+            .iter()
+            .filter(|p| p.retrievable)
+            .filter_map(|p| {
+                let n = p.name.trim().to_string();
+                (!n.is_empty()).then_some(n)
+            })
+            .collect(),
     }
-    #[derive(Default, serde::Deserialize)]
-    struct Property {
-        #[serde(default)]
-        name: String,
-        #[serde(default)]
-        retrievable: bool,
-    }
-    let f: Fields = serde_yaml::from_str(text).unwrap_or_default();
-    let props = f
-        .properties
-        .into_iter()
-        .filter(|p| p.retrievable)
-        .filter_map(|p| {
-            let n = p.name.trim().to_string();
-            (!n.is_empty()).then_some(n)
-        })
-        .collect();
-    (f.class.filter(|c| !c.is_empty()), props)
 }
 
 impl Retrievable {
@@ -152,19 +139,14 @@ impl Retrievable {
     /// put a retrieval concern inside the type `node-too-long` and `missing-description`
     /// hold, which is the coupling this module exists to avoid. The walk is a directory
     /// listing bounded by the number of classes.
+    ///
+    /// **A second walk, and since #1116 not a second parse.** What this used to duplicate was
+    /// not the directory listing but the reading of a class file — its own serde struct over
+    /// the same bytes [`crate::corpus::Class`] had already described, one of four. The parse
+    /// is [`crate::corpus::read_classes`]'s now, and `retrievable: true` is declared on
+    /// [`crate::corpus::ClassProperty`] where `prose: true` beside it always was.
     pub fn load(corpus: &Path) -> Self {
-        Self::from_declarations(crate::walk::walk_ont_files(corpus).into_iter().map(|path| {
-            let text = std::fs::read_to_string(&path).unwrap_or_default();
-            let (named, properties) = declared(&text);
-            let class = named.unwrap_or_else(|| {
-                path.file_name()
-                    .and_then(|n| n.to_str())
-                    .and_then(|n| n.strip_suffix(".ont.yml"))
-                    .unwrap_or_default()
-                    .to_string()
-            });
-            Declaration { class, properties }
-        }))
+        Self::from_declarations(crate::corpus::read_classes(corpus).iter().map(declared))
     }
 
     /// The same declaration, from an ontology a caller has already parsed.
@@ -220,11 +202,14 @@ mod tests {
     use super::*;
     use crate::parse::CorpusInstance;
 
+    /// Class text in, declarations out — through the same [`crate::corpus::Class::parse`]
+    /// the product reads with. `name` becomes the file stem, which is the class's name.
     fn retrievable(classes: &[(&str, &str)]) -> Retrievable {
-        Retrievable::from_declarations(classes.iter().map(|(name, text)| Declaration {
-            class: (*name).to_string(),
-            properties: declared(text).1,
-        }))
+        let parsed: Vec<crate::corpus::Class> = classes
+            .iter()
+            .map(|(name, text)| crate::corpus::Class::parse(format!("{name}.ont.yml"), *text))
+            .collect();
+        Retrievable::from_declarations(parsed.iter().map(declared).collect::<Vec<_>>())
     }
 
     /// The prose side, declared directly rather than parsed out of the same YAML.
@@ -285,6 +270,27 @@ mod tests {
             f.prose_keys,
             ["description"],
             "the retrievable axis must not widen the prose one"
+        );
+    }
+
+    /// The file stem is the class, whatever the file's `class:` says — #1116, and the
+    /// argument is on [`crate::corpus::Class::name`]. Keyed by the declared field, a
+    /// flagged property reaches no node, because `class_of` resolves a node by its
+    /// directory and the directory is the stem.
+    #[test]
+    fn a_class_declaring_another_name_is_keyed_by_its_file() {
+        let r = retrievable(&[(
+            "gage",
+            GAGE.replace("class: gage", "class: measure").as_str(),
+        )]);
+        let p = prose_fields(&[("gage", &[], &[])]);
+        assert_eq!(
+            fields(&p, &r, "gage").retrievable_properties,
+            ["parameter", "units"]
+        );
+        assert!(
+            fields(&p, &r, "measure").retrievable_properties.is_empty(),
+            "the declared name must not carry the declaration"
         );
     }
 

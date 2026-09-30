@@ -1199,6 +1199,121 @@ fn a_query_that_returned_nothing_is_recorded_as_zero_rows() {
     assert_eq!(line["rejected"], false, "{line}");
 }
 
+/// The record has a reader (#1019): what a server wrote, `yidam record` reports.
+///
+/// Through the binary on both sides, because the unit tests in `cmd/record.rs` read lines this
+/// file's author wrote by hand, and a reader and a writer that agree only with a fixture can
+/// disagree with each other. Here the server writes and the reader reads, and the counts are
+/// held to the file's own line count — *N recorded calls are reported as N*.
+#[test]
+fn a_recorded_session_is_reported_by_yidam_record() {
+    let repo = recording_repo();
+    {
+        let mut client = McpClient::spawn(repo.path());
+        client.initialize();
+        client.tool_json("retrieve", json!({"query": "knowledge graph", "k": 3}));
+        // Empty for `a_query_that_returned_nothing_is_recorded_as_zero_rows`'s reason.
+        client.tool_json("retrieve", json!({"query": "zzqqxxwv"}));
+        client.tool_json("list_nodes", json!({}));
+        let refused = client.request(
+            "tools/call",
+            json!({"name": "no_such_tool", "arguments": {}}),
+        );
+        assert_eq!(refused["isError"], true, "{refused}");
+    }
+    let written = record_lines(repo.path()).len();
+    assert_eq!(written, 4);
+
+    let yidam = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+            .args(args)
+            .current_dir(repo.path())
+            .output()
+            .expect("spawning yidam record");
+        assert!(out.status.success(), "{args:?} failed: {out:?}");
+        String::from_utf8(out.stdout).unwrap()
+    };
+
+    let doc: Value = serde_json::from_str(&yidam(&["record", "--format", "json"])).unwrap();
+    let c = &doc["consumption"];
+    assert_eq!(c["calls"], written, "{c:#}");
+    assert_eq!(c["unreadable"], 0, "{c:#}");
+    assert_eq!(c["declared"], true);
+    assert_eq!(c["present"], true);
+    assert_eq!(c["commits"], 1);
+    assert_eq!(c["empty"], 1, "{c:#}");
+    assert_eq!(c["empty_questions"], 1, "{c:#}");
+    assert_eq!(c["errors"], 1, "{c:#}");
+    let row = |tool: &str| {
+        c["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["tool"] == tool)
+            .unwrap_or_else(|| panic!("no row for {tool}: {c:#}"))
+            .clone()
+    };
+    // The fixture has no vector index, so every retrieve was keyword search — the aggregate
+    // #719 said nobody could state.
+    let retrieve = row("retrieve");
+    assert_eq!(retrieve["calls"], 2);
+    assert_eq!(retrieve["degraded"], 2, "{retrieve}");
+    assert_eq!(retrieve["reported_degraded"], 2, "{retrieve}");
+    assert_eq!(retrieve["tier"], "core");
+    assert!(row("list_nodes")["degraded"].is_null());
+    // A name the contract does not carry has no tier, rather than a guessed one.
+    assert!(row("no_such_tool")["tier"].is_null());
+    let never: Vec<&str> = c["never_called"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert!(never.contains(&"get_node"), "{never:?}");
+    assert!(!never.contains(&"retrieve"), "{never:?}");
+
+    let text = yidam(&["record"]);
+    for expected in [
+        "4 calls over 1 commit",
+        "1 call returned nothing, across 1 distinct question.",
+        "Every retrieve was served degraded",
+        "Nothing acted on a clock",
+        "1 call was refused.",
+    ] {
+        assert!(
+            text.contains(expected),
+            "`{expected}` missing from:\n{text}"
+        );
+    }
+
+    // Every emitted path is declared, which the golden cannot hold: the shared fixture keeps no
+    // record, so its rows are exempt there (`UNREACHED`) and held here.
+    let schema: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            repo_root().join("yidam/prelude/sdks/parity/fixtures/reports/report.schema.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut emitted = BTreeSet::new();
+    common::paths_of(&doc, "", &mut emitted);
+    for path in &emitted {
+        assert!(
+            common::declares(&schema, path),
+            "`record` emits `{path}`, which report.schema.json does not declare"
+        );
+    }
+    // A walk that says yes to everything passes the loop above, and one that stopped at the
+    // envelope never reaches a row.
+    assert!(!common::declares(&schema, "consumption.tools[].nonesuch"));
+    for witness in ["consumption.tools[].p50_ms", "consumption.tools[].tier"] {
+        assert!(
+            emitted.contains(witness),
+            "never emitted `{witness}`: {emitted:?}"
+        );
+    }
+}
+
 /// The default, which is every server this repository shipped before #719.
 #[test]
 fn a_corpus_that_declares_nothing_is_not_recorded() {

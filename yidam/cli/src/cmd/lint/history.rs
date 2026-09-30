@@ -94,6 +94,33 @@ struct CommitChanges {
 }
 
 /// `git log --raw` over the corpus, oldest first.
+///
+/// # Why a renamed node is a new node here
+///
+/// `--no-renames` makes every move a deletion and an addition. A `git mv` and a delete plus
+/// add are the same commit to git, so the replay treats them the same way (#1171). The node at
+/// the new path starts from the commit that put it there.
+///
+/// That is path identity, and it is the corpus's own. A node's id is its path, a `links:`
+/// target names a path, and [`crate::cmd::query::at`] rebuilds a past tree by path. Before the
+/// rename, no edge could name the new path. So "uncited since before it existed" is not a
+/// state the graph could have been in. Pairing the two halves would need `-M`'s similarity
+/// index, and that gives up once the text changes by half. The pairing would then hold for a
+/// light edit and break for a heavy one, which is the blindness #1171 set out to remove.
+///
+/// # Why an age can still cross a move
+///
+/// The frames stay path-keyed. The age folds do not have to, because a node can declare the
+/// node it continues: `yidam rename` writes `moved-from:` into the moved file, naming the old
+/// path the way a `target:` would (#1180). A rename is not a citation and does not answer a
+/// question, so an orphan or an open question that was only moved keeps its count. The
+/// declaration is text in the node, so a `git mv` and a delete plus add with every line
+/// rewritten carry alike, and so does a squash or a rebase. See [`age_while`].
+///
+/// A move that declares nothing still restarts, as `migrate`'s class rename does (#1192):
+/// `orphan-in`'s escalation and `due`'s questions clock both read the count.
+/// [`super::scope::adding_commits`] carries identity by another route, because a resolution
+/// record has one apart from its path: its evolution.
 fn change_stream(root: &Path) -> Vec<CommitChanges> {
     // `core.quotepath=false` comes from the runner, and it matters here: `--raw` quotes a
     // non-ASCII path exactly as `--name-status` does, and the parser below tests a prefix.
@@ -238,30 +265,6 @@ impl Expectation {
     }
 }
 
-/// A class definition's declared edges, read from a blob.
-///
-/// The expectation cannot be computed from one blob any more, and that is the point: an
-/// inbound relationship may be declared from either end, so which classes are exempt is a
-/// property of the whole ontology at a commit rather than of one file in it. The replay
-/// therefore keeps the declarations and derives the answer per frame, through
-/// [`crate::corpus::source_classes`] — the same function the check calls, so the two cannot
-/// disagree about which classes are exempt.
-///
-/// That guarantee held for *exempt* and not for *pointed at*, which the replay went on to
-/// answer for itself, direction-blind, and got wrong (#659). Both now read
-/// [`crate::corpus::pointed_classes`], which is where `direction:` is interpreted and the
-/// only place it is.
-fn blob_edges(content: &str) -> Vec<crate::corpus::ClassEdge> {
-    #[derive(Default, serde::Deserialize)]
-    struct Fields {
-        #[serde(default)]
-        edges: Vec<crate::corpus::ClassEdge>,
-    }
-    serde_yaml::from_str::<Fields>(content)
-        .unwrap_or_default()
-        .edges
-}
-
 /// What the ontology at this commit says about each class being pointed at.
 ///
 /// Three states, and the third has to survive: a class nothing points at *and* which
@@ -278,24 +281,17 @@ fn blob_edges(content: &str) -> Vec<crate::corpus::ClassEdge> {
 /// `direction: in` is not hypothetical: the reports fixture's own `concept.ont.yml` uses it.
 /// [`crate::corpus::pointed_classes`] is the one reading of `direction:`, and both questions
 /// now go through it rather than being answered twice.
-fn expectations_of(
-    decls: &BTreeMap<String, Vec<crate::corpus::ClassEdge>>,
-) -> HashMap<String, Expectation> {
-    let view: Vec<crate::corpus::EdgeView<'_>> = decls
-        .iter()
-        .map(|(name, edges)| crate::corpus::EdgeView { name, edges })
-        .collect();
-    let sources = crate::corpus::source_classes(&view);
-    let pointed = crate::corpus::pointed_classes(&view);
-    decls
-        .iter()
-        .filter_map(|(name, edges)| {
-            if sources.contains(name) {
-                Some((name.clone(), Expectation::Uncited))
-            } else if edges.is_empty() && !pointed.contains(name.as_str()) {
+fn expectations_of(view: &[crate::corpus::EdgeView<'_>]) -> HashMap<String, Expectation> {
+    let sources = crate::corpus::source_classes(view);
+    let pointed = crate::corpus::pointed_classes(view);
+    view.iter()
+        .filter_map(|v| {
+            if sources.contains(v.name) {
+                Some((v.name.to_string(), Expectation::Uncited))
+            } else if v.edges.is_empty() && !pointed.contains(v.name) {
                 None
             } else {
-                Some((name.clone(), Expectation::Cited))
+                Some((v.name.to_string(), Expectation::Cited))
             }
         })
         .collect()
@@ -372,14 +368,25 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
     // `out` — every insert and every removal touches both — so a frame cannot show a node
     // whose text is a previous revision's.
     let mut text: HashMap<String, &str> = HashMap::new();
-    // The ontology as it stands, class by class. Kept rather than reduced on the way in,
-    // because the reduction reads every class at once.
-    let mut decls: BTreeMap<String, Vec<crate::corpus::ClassEdge>> = BTreeMap::new();
-    // What each class calls itself and which of its properties carry a tag. Keyed by the
-    // file stem, and carrying the declared `class:` beside it, because
-    // `ClaimFields::load` keys by the declared name where there is one and an instance
-    // looks itself up by the name it writes in its own `class:` field.
-    let mut claims: BTreeMap<String, (Option<String>, Vec<String>)> = BTreeMap::new();
+    // The ontology as it stands, class by class, keyed by the `.ont.yml` stem — which is
+    // what an instance's class resolves to, live and here.
+    //
+    // **Kept rather than reduced on the way in**, because the reduction reads every class at
+    // once. An inbound relationship may be declared from either end, so which classes are
+    // exempt is a property of the whole ontology at a commit rather than of one file in it.
+    // The replay therefore keeps the declarations and derives the answer per frame, through
+    // [`crate::corpus::source_classes`] — the same function the check calls, so the two
+    // cannot disagree about which classes are exempt. That guarantee held for *exempt* and
+    // not for *pointed at*, which the replay went on to answer for itself, direction-blind,
+    // and got wrong (#659); both now read [`crate::corpus::pointed_classes`], which is where
+    // `direction:` is interpreted and the only place it is.
+    //
+    // **One [`crate::corpus::Class`] per blob, where this was two parses** (#1116). The
+    // replay read each class blob twice — once through a local `edges:` struct and once
+    // through `claims::declared_claim_fields` — so a past revision of the ontology was
+    // described by two readers that the live corpus had replaced with one. `Class::parse` is
+    // the live parse, given a blob instead of a file.
+    let mut classes: BTreeMap<String, crate::corpus::Class> = BTreeMap::new();
 
     for c in &commits {
         let mut touched = false;
@@ -396,15 +403,18 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
                 }
             } else if is_class(&ch.path) {
                 touched = true;
-                let name = class_of(&ch.path).trim_end_matches(".ont.yml").to_string();
+                // The stem, from the one place that derives it — the same answer
+                // `Class::parse` gives the record inserted just below (#1116).
+                let name = crate::corpus::Class::name_of(&ch.path);
                 match ch.status {
                     b'D' => {
-                        decls.remove(&name);
-                        claims.remove(&name);
+                        classes.remove(&name);
                     }
                     _ => {
-                        decls.insert(name.clone(), blob_edges(content()));
-                        claims.insert(name, crate::claims::declared_claim_fields(content()));
+                        classes.insert(
+                            name,
+                            crate::corpus::Class::parse(ch.path.clone(), content()),
+                        );
                     }
                 }
             }
@@ -415,23 +425,16 @@ pub(crate) fn replay(root: &Path, mut frame: impl FnMut(Frame<'_>)) {
         let cited: HashSet<&String> = out.values().flatten().collect();
         // Derived per frame rather than maintained incrementally: one class's edit can
         // change another class's exemption, so there is nothing to update in place.
-        let view: Vec<crate::corpus::EdgeView<'_>> = decls
+        let view: Vec<crate::corpus::EdgeView<'_>> = classes
             .iter()
-            .map(|(name, edges)| crate::corpus::EdgeView { name, edges })
+            .map(|(name, c)| crate::corpus::EdgeView {
+                name,
+                edges: &c.edges,
+            })
             .collect();
         let source_classes = crate::corpus::source_classes(&view);
-        let expectations = expectations_of(&decls);
-        let claim_fields = crate::claims::ClaimFields::from_declarations(
-            claims
-                .iter()
-                .map(|(stem, (declared, fields))| {
-                    (
-                        declared.clone().unwrap_or_else(|| stem.clone()),
-                        fields.clone(),
-                    )
-                })
-                .collect::<Vec<_>>(),
-        );
+        let expectations = expectations_of(&view);
+        let claim_fields = crate::claims::ClaimFields::from_classes(classes.values());
         frame(Frame {
             sha: &c.sha,
             ts: c.ts,
@@ -500,41 +503,7 @@ pub struct Age {
 /// later orphaned dates from the commit that removed the last edge into it, which is the
 /// distinction node age cannot draw.
 pub fn uncited_age(root: &Path) -> HashMap<String, Age> {
-    // Value is (sha, ts, index of the frame at which it went uncited). The index becomes a
-    // count once the walk is over and the total is known; it cannot be a count while the
-    // walk is running, because the walk does not know how many frames are left.
-    let mut since: HashMap<String, (String, i64, usize)> = HashMap::new();
-    let mut frames = 0usize;
-    replay(root, |f| {
-        for node in f.out.keys() {
-            if f.cited.contains(node) {
-                // Something points at it as of this commit; any earlier orphaning ended.
-                since.remove(node);
-            } else {
-                // Uncited now. Keep the earliest commit at which that became true.
-                since
-                    .entry(node.clone())
-                    .or_insert((f.sha.to_string(), f.ts, frames));
-            }
-        }
-        since.retain(|n, _| f.out.contains_key(n));
-        frames += 1;
-    });
-    since
-        .into_iter()
-        .map(|(node, (sha, ts, first))| {
-            (
-                node,
-                Age {
-                    sha,
-                    ts,
-                    // HEAD inclusive: a condition that first held at the last frame has
-                    // held for one commit, not zero.
-                    commits: frames - first,
-                },
-            )
-        })
-        .collect()
+    age_while(root, |f, node, _| !f.cited.contains(node))
 }
 
 /// Whether a node's content at one commit reads as an open question.
@@ -543,11 +512,25 @@ pub fn uncited_age(root: &Path) -> HashMap<String, Age> {
 /// [`crate::claims::has_open_claim`] the same way over the working tree; asking it
 /// differently here would produce an age for a condition the present-tense reports do not
 /// agree is holding.
+///
+/// **Not a duplicate of [`crate::corpus`]'s read** (#1116). The bytes are a blob out of the
+/// replay, not a file on disk, and the replay hands them over one frame at a time — there is
+/// no corpus to open at a past commit without `query::at`'s tree listing and blob fill per
+/// frame, which is a whole corpus reconstructed to answer one predicate. The *record* is the
+/// model's: [`crate::corpus::parse_or_default`] is the one place bytes become a
+/// [`crate::parse::CorpusInstance`]. Its outcome is dropped, because a node that did not
+/// parse at some past commit is not a question at that commit and an age has nowhere to say
+/// otherwise.
 fn is_open(path: &str, content: &str, fields: &crate::claims::ClaimFields) -> bool {
-    let inst: crate::parse::CorpusInstance = serde_yaml::from_str(content).unwrap_or_default();
+    let (inst, _malformed): (crate::parse::CorpusInstance, _) =
+        crate::corpus::parse_or_default(content);
     let label = inst.label.unwrap_or_default();
-    // The declared class, then the directory. `ClaimFields` is keyed by what a class calls
-    // itself, and a node that names no class still lives in one.
+    // The node's declared class, then its directory. `ClaimFields` is keyed by the
+    // `<class>.ont.yml` stem (#1116) and `class_of` reads the directory, which is the same
+    // name; the declared field is tried first because that is the lookup `status` and
+    // `open-questions` make, and asking differently here would date a condition those
+    // reports do not agree is holding. The fallback is this reader's own: a historical node
+    // that named no class still lived in a class directory.
     let class = inst.class.unwrap_or_else(|| class_of(path).to_string());
     crate::claims::has_open_claim(&label, content, fields.for_class(&class))
 }
@@ -569,13 +552,76 @@ fn is_open(path: &str, content: &str, fields: &crate::claims::ClaimFields) -> bo
 /// question that a later commit reopens is a new question, and carrying the old date would
 /// report a corpus as having ignored something it in fact resolved.
 pub fn open_question_age(root: &Path) -> HashMap<String, Age> {
-    // (sha, ts, index of the frame at which it became a question). Counted at the end, for
-    // the reason [`uncited_age`] gives: the walk does not know how many frames remain.
+    age_while(root, |f, node, content| {
+        is_open(node, content, f.claim_fields)
+    })
+}
+
+/// The node a path's content says it continues, resolved as a `target:` is.
+///
+/// `yidam rename` writes it. Read from `extra` rather than a field of its own, because
+/// nothing but this fold reads it.
+fn moved_from(path: &str, content: &str) -> Option<String> {
+    let inst: crate::parse::CorpusInstance = serde_yaml::from_str(content).ok()?;
+    let from = inst.extra.get("moved-from")?.as_str()?;
+    Some(
+        resolve_target(Path::new(path), from)
+            .to_string_lossy()
+            .replace('\\', "/"),
+    )
+}
+
+/// For every node present at HEAD, how long `holds` has been true of it, carried across a
+/// declared move.
+///
+/// The one fold both ages are, so they cannot come to disagree about what a move carries.
+///
+/// **A move carries only what was holding.** A node that leaves the tree while the condition
+/// holds is kept aside. A node that arrives with `moved-from:` naming it takes that entry,
+/// and is then tested like any other: a rename commit that also adds the citation or answers
+/// the question ends the age there. The delete and the add may be separate commits. The
+/// frames in between still count, because nothing in them cited the node or answered it.
+///
+/// **A copy does not carry.** If the declared node is still in the tree when the new path
+/// arrives, the new path is a second node and dates from its own commit. That is the rule
+/// [`super::scope::adding_commits`] applies to a resolution record, for the same reason.
+///
+/// **Only on arrival.** The declaration is read in the frame where a path first appears.
+/// A `moved-from:` left in the file after that says where the node came from and nothing
+/// more, so a later node that reuses the old path is not mistaken for it.
+fn age_while(
+    root: &Path,
+    holds: impl Fn(&Frame<'_>, &String, &str) -> bool,
+) -> HashMap<String, Age> {
+    // Value is (sha, ts, index of the frame at which the condition began). The index becomes
+    // a count once the walk is over and the total is known; it cannot be a count while the
+    // walk is running, because the walk does not know how many frames are left.
     let mut since: HashMap<String, (String, i64, usize)> = HashMap::new();
+    // Entries whose node has left the tree, kept for an arrival that declares it.
+    let mut departed: HashMap<String, (String, i64, usize)> = HashMap::new();
+    let mut present: HashSet<String> = HashSet::new();
     let mut frames = 0usize;
     replay(root, |f| {
+        // Departures first, so an arrival in the same commit finds the entry it continues.
+        for gone in present.iter().filter(|n| !f.text.contains_key(*n)) {
+            if let Some(entry) = since.remove(gone) {
+                departed.insert(gone.clone(), entry);
+            }
+        }
         for (node, content) in f.text {
-            if is_open(node, content, f.claim_fields) {
+            if present.contains(node) {
+                continue;
+            }
+            let Some(from) = moved_from(node, content).filter(|p| !f.text.contains_key(p)) else {
+                continue;
+            };
+            if let Some(entry) = departed.remove(&from) {
+                since.insert(node.clone(), entry);
+            }
+        }
+        for (node, content) in f.text {
+            if holds(&f, node, content) {
+                // Keep the earliest commit at which the condition held.
                 since
                     .entry(node.clone())
                     .or_insert((f.sha.to_string(), f.ts, frames));
@@ -583,7 +629,7 @@ pub fn open_question_age(root: &Path) -> HashMap<String, Age> {
                 since.remove(node);
             }
         }
-        since.retain(|n, _| f.text.contains_key(n));
+        present = f.text.keys().cloned().collect();
         frames += 1;
     });
     since
@@ -594,6 +640,8 @@ pub fn open_question_age(root: &Path) -> HashMap<String, Age> {
                 Age {
                     sha,
                     ts,
+                    // HEAD inclusive: a condition that first held at the last frame has
+                    // held for one commit, not zero.
                     commits: frames - first,
                 },
             )
@@ -714,6 +762,256 @@ mod tests {
         );
     }
 
+    /// **A move that declares nothing is a new node, however it is made** (#1171). `a` is
+    /// moved with `git mv` and `b` by a delete plus add. Both give the same answer: each is
+    /// dated from the commit that moved it, and nothing is left at the old paths. See
+    /// [`change_stream`] for why path is the identity here. A shape that answered differently
+    /// would be the drift-gate defect #1171 was split from. A move that declares its origin
+    /// is the next test.
+    #[test]
+    fn a_node_moved_by_git_mv_and_one_moved_by_delete_plus_add_answer_alike() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init(root);
+
+        node(root, "concept/a.yml", "class: concept\nlinks: []\n");
+        node(root, "concept/b.yml", "class: concept\nlinks: []\n");
+        commit(root, "2026-01-01", "establish: a and b");
+
+        crate::git::fixture::git(
+            root,
+            &[
+                "mv",
+                ".yidam/corpus/concept/a.yml",
+                ".yidam/corpus/concept/a-moved.yml",
+            ],
+        );
+        std::fs::remove_file(root.join(".yidam/corpus/concept/b.yml")).unwrap();
+        node(root, "concept/b-moved.yml", "class: concept\nlinks: []\n");
+        commit(root, "2026-01-09", "revise: move a and b");
+
+        let since = uncited_age(root);
+        for moved in ["a-moved", "b-moved"] {
+            let age = since.get(&format!(".yidam/corpus/concept/{moved}.yml"));
+            assert_eq!(
+                age.map(|a| day(a.ts)),
+                Some("2026-01-09".into()),
+                "{since:?}"
+            );
+            assert_eq!(age.map(|a| a.commits), Some(1), "{since:?}");
+        }
+        assert!(
+            !since.contains_key(".yidam/corpus/concept/a.yml"),
+            "{since:?}"
+        );
+        assert!(
+            !since.contains_key(".yidam/corpus/concept/b.yml"),
+            "{since:?}"
+        );
+    }
+
+    /// `a` and `b` are uncited open questions, written on the 1st and left alone through a
+    /// second corpus commit.
+    fn two_standing_questions(root: &Path) {
+        init(root);
+        node(root, "concept/a.yml", ASKING_A);
+        node(root, "concept/b.yml", ASKING_B);
+        commit(root, "2026-01-01", "open: whether a and b hold");
+        node(root, "concept/c.yml", "class: concept\nlabel: C\n");
+        commit(root, "2026-01-05", "establish: c");
+    }
+
+    const ASKING_A: &str = "class: concept\nlabel: A\ndescription: it is `[open]`\n";
+    const ASKING_B: &str = "class: concept\nlabel: B\ndescription: it is `[open]`\n";
+
+    /// Both ages, for one node, as (first day, commits).
+    fn both_ages(root: &Path, rel: &str) -> [Option<(String, usize)>; 2] {
+        let key = format!(".yidam/corpus/{rel}");
+        [uncited_age(root), open_question_age(root)]
+            .map(|ages| ages.get(&key).map(|a| (day(a.ts), a.commits)))
+    }
+
+    /// **A declared move carries both ages, however it is made** (#1180). `a` is moved with
+    /// `git mv`. `b` is deleted and re-added with every line rewritten, so no similarity index
+    /// could pair it. Each declares `moved-from:`, and each keeps the count it had: the
+    /// rename is not a citation and does not answer the question.
+    #[test]
+    fn a_declared_move_carries_both_ages_by_git_mv_and_by_a_rewritten_delete_plus_add() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        two_standing_questions(root);
+
+        crate::git::fixture::git(
+            root,
+            &[
+                "mv",
+                ".yidam/corpus/concept/a.yml",
+                ".yidam/corpus/concept/a-moved.yml",
+            ],
+        );
+        node(
+            root,
+            "concept/a-moved.yml",
+            &format!("{ASKING_A}moved-from: ../concept/a.yml\n"),
+        );
+        std::fs::remove_file(root.join(".yidam/corpus/concept/b.yml")).unwrap();
+        node(
+            root,
+            "concept/b-moved.yml",
+            "moved-from: ../concept/b.yml\nclass: concept\nlabel: Bee, restated\n\
+             description: whether the restatement holds is still `[open]`\n",
+        );
+        commit(root, "2026-01-09", "migrate: a and b");
+
+        for moved in ["concept/a-moved.yml", "concept/b-moved.yml"] {
+            assert_eq!(
+                both_ages(root, moved),
+                [
+                    Some(("2026-01-01".into(), 3)),
+                    Some(("2026-01-01".into(), 3))
+                ],
+                "{moved} keeps the date and count it had before the move"
+            );
+        }
+        for old in ["concept/a.yml", "concept/b.yml"] {
+            assert_eq!(both_ages(root, old), [None, None], "{old} is gone");
+        }
+    }
+
+    /// The delete and the add may be separate commits. The commit between them is counted,
+    /// because nothing in it cited the node or answered it.
+    #[test]
+    fn a_declared_move_carries_across_separate_delete_and_add_commits() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        two_standing_questions(root);
+
+        std::fs::remove_file(root.join(".yidam/corpus/concept/a.yml")).unwrap();
+        commit(root, "2026-01-09", "revise: a withdrawn");
+        node(
+            root,
+            "concept/a-back.yml",
+            &format!("{ASKING_A}moved-from: ../concept/a.yml\n"),
+        );
+        commit(root, "2026-01-12", "revise: a restored under a new name");
+
+        assert_eq!(
+            both_ages(root, "concept/a-back.yml"),
+            [
+                Some(("2026-01-01".into(), 4)),
+                Some(("2026-01-01".into(), 4))
+            ]
+        );
+    }
+
+    /// A copy made while the original is still in the tree is a second node, and dates from
+    /// its own commit. The original keeps its age.
+    #[test]
+    fn a_copy_declaring_a_node_still_present_starts_its_own_age() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        two_standing_questions(root);
+
+        node(
+            root,
+            "concept/a-copy.yml",
+            &format!("{ASKING_A}moved-from: ../concept/a.yml\n"),
+        );
+        commit(root, "2026-01-09", "establish: a copy of a");
+
+        assert_eq!(
+            both_ages(root, "concept/a-copy.yml"),
+            [
+                Some(("2026-01-09".into(), 1)),
+                Some(("2026-01-09".into(), 1))
+            ]
+        );
+        assert_eq!(
+            both_ages(root, "concept/a.yml"),
+            [
+                Some(("2026-01-01".into(), 3)),
+                Some(("2026-01-01".into(), 3))
+            ]
+        );
+    }
+
+    /// Each move names only the path it left. One name is enough, because the fold carries
+    /// the age forward at every step.
+    #[test]
+    fn a_chain_of_declared_moves_carries_to_the_end() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        two_standing_questions(root);
+
+        std::fs::remove_file(root.join(".yidam/corpus/concept/a.yml")).unwrap();
+        node(
+            root,
+            "concept/a2.yml",
+            &format!("{ASKING_A}moved-from: ../concept/a.yml\n"),
+        );
+        commit(root, "2026-01-09", "migrate: a → a2");
+        std::fs::remove_file(root.join(".yidam/corpus/concept/a2.yml")).unwrap();
+        node(
+            root,
+            "gauge/a3.yml",
+            &format!("{ASKING_A}moved-from: ../concept/a2.yml\n"),
+        );
+        commit(root, "2026-01-12", "migrate: a2 → a3");
+
+        assert_eq!(
+            both_ages(root, "gauge/a3.yml"),
+            [
+                Some(("2026-01-01".into(), 4)),
+                Some(("2026-01-01".into(), 4))
+            ]
+        );
+    }
+
+    /// A move carries only what was holding. `a` is moved in the commit that answers it, and
+    /// `b` in the commit where something first cites it. Each age ends there: an orphan
+    /// renamed so that it could be cited is cited, and no longer an orphan.
+    #[test]
+    fn a_move_that_answers_or_cites_ends_the_age_it_carried() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        two_standing_questions(root);
+
+        std::fs::remove_file(root.join(".yidam/corpus/concept/a.yml")).unwrap();
+        node(
+            root,
+            "concept/a2.yml",
+            "class: concept\nlabel: A\ndescription: it is `[verified]`\n\
+             moved-from: ../concept/a.yml\n",
+        );
+        std::fs::remove_file(root.join(".yidam/corpus/concept/b.yml")).unwrap();
+        node(
+            root,
+            "concept/b2.yml",
+            &format!("{ASKING_B}moved-from: ../concept/b.yml\n"),
+        );
+        node(
+            root,
+            "concept/c.yml",
+            "class: concept\nlabel: C\nlinks:\n  - target: ../concept/b2.yml\n",
+        );
+        commit(root, "2026-01-09", "migrate: a answered, b cited");
+
+        let [uncited, open] = both_ages(root, "concept/a2.yml");
+        assert_eq!(open, None, "a was answered in the commit that moved it");
+        assert_eq!(
+            uncited,
+            Some(("2026-01-01".into(), 3)),
+            "a is still uncited"
+        );
+        let [uncited, open] = both_ages(root, "concept/b2.yml");
+        assert_eq!(uncited, None, "b is cited from the commit that moved it");
+        assert_eq!(
+            open,
+            Some(("2026-01-01".into(), 3)),
+            "b is still a question"
+        );
+    }
+
     // ── declared expectations ─────────────────────────────────────────────────
     //
     // What `replay`'s `by_class` rows are scored against. The contract's promise is that a
@@ -738,9 +1036,20 @@ mod tests {
                     relationship: "measured-by".to_string(),
                     target: "concept".to_string(),
                     direction: direction.map(str::to_string),
+                    description: String::new(),
                 }],
             ),
         ])
+    }
+
+    /// The shape `replay` hands [`expectations_of`], built from a map the tests can write.
+    fn views(
+        decls: &BTreeMap<String, Vec<crate::corpus::ClassEdge>>,
+    ) -> Vec<crate::corpus::EdgeView<'_>> {
+        decls
+            .iter()
+            .map(|(name, edges)| crate::corpus::EdgeView { name, edges })
+            .collect()
     }
 
     /// #659. `direction: in` on `gauge` says instances of `concept` point at a gauge — it
@@ -752,7 +1061,7 @@ mod tests {
     /// against the one state the missing entry exists to represent.
     #[test]
     fn a_class_named_by_an_inbound_declaration_is_not_thereby_pointed_at() {
-        let e = expectations_of(&named_from_the_gauge(Some("in")));
+        let e = expectations_of(&views(&named_from_the_gauge(Some("in"))));
         assert_eq!(e.get("concept"), None, "{e:?}");
         // And the class that did declare is still scored: something points at a gauge.
         assert_eq!(e.get("gauge"), Some(&Expectation::Cited), "{e:?}");
@@ -762,7 +1071,7 @@ mod tests {
     /// branch: stated from the other end, the same relationship does point at `concept`.
     #[test]
     fn a_class_another_class_points_at_is_cited_though_it_declares_nothing() {
-        let e = expectations_of(&named_from_the_gauge(Some("out")));
+        let e = expectations_of(&views(&named_from_the_gauge(Some("out"))));
         assert_eq!(e.get("concept"), Some(&Expectation::Cited), "{e:?}");
     }
 
@@ -772,7 +1081,7 @@ mod tests {
     /// the same way to both questions — which is the whole of what #659 was about.
     #[test]
     fn a_declaration_with_no_direction_names_both_ends() {
-        let e = expectations_of(&named_from_the_gauge(None));
+        let e = expectations_of(&views(&named_from_the_gauge(None)));
         assert_eq!(e.get("concept"), Some(&Expectation::Cited), "{e:?}");
     }
 

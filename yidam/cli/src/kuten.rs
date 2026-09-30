@@ -239,6 +239,11 @@ impl Registers {
         !self.object.is_empty()
     }
 
+    /// The object globs, as read.
+    pub fn globs(&self) -> &[String] {
+        &self.object
+    }
+
     /// Which register one repository-relative path falls in.
     pub fn register_of(&self, path: &str) -> Register {
         let path = path.trim_start_matches("./");
@@ -919,6 +924,8 @@ pub fn compare(profile: &Profile, m: &Measurement, vintage: &Vintage) -> Vec<Fin
     out
 }
 
+pub use crate::coupling::{Coupling, Links, Reach};
+
 /// The whole answer `yidam kuten check` gives.
 #[derive(Debug, Serialize)]
 pub struct Report {
@@ -941,6 +948,13 @@ pub struct Report {
     pub findings: Vec<Finding>,
     /// Whether every measured metric conforms. Not an exit code: this command exits zero.
     pub conforming: bool,
+    /// The links between the corpus and the artifact beside it (A6, #577). `None` where no
+    /// `[object] paths` are declared or the corpus is declared `projected`.
+    ///
+    /// Read whether or not a kuten is held. The object paths are a fact about the
+    /// repository, not the practice (Erratum 5), and one of the two object-coupled corpora
+    /// declares paths with no kuten.
+    pub coupling: Option<Coupling>,
 }
 
 impl Report {
@@ -957,6 +971,7 @@ impl Report {
             measurement,
             findings: Vec::new(),
             conforming: true,
+            coupling: None,
         }
     }
 }
@@ -1017,6 +1032,22 @@ pub fn read_profile(root: &Path, name: &str) -> anyhow::Result<Option<Profile>> 
     Ok(Some(Profile::parse(&text).map_err(|e| {
         anyhow::anyhow!("{} is not a kuten profile: {e}", path.display())
     })?))
+}
+
+/// Which way the held kuten says the arrow between corpus and object runs.
+///
+/// `authored` wherever nothing says otherwise: no kuten, no vendored profile, an unpopulated
+/// `object` slot, or a declaration or profile that does not parse. That is the default the
+/// slot itself carries, and an unreadable kuten is `doctor`'s and `kuten check`'s to report,
+/// not a reason for a reader of the direction to change what it reads.
+pub fn declared_direction(root: &Path) -> Direction {
+    let Ok(Some(declaration)) = read_declaration(root) else {
+        return Direction::Authored;
+    };
+    let Ok(Some(profile)) = read_profile(root, &declaration.name) else {
+        return Direction::Authored;
+    };
+    profile.object.map(|o| o.direction).unwrap_or_default()
 }
 
 /// Whether this commit settles a phase — the base verb, with a `(scope)` suffix ignored.
@@ -1152,6 +1183,13 @@ fn median(sorted: &[usize]) -> Option<f64> {
 
 /// Assemble the report for `root`.
 pub fn check(root: &Path) -> anyhow::Result<Report> {
+    let mut report = verdict(root)?;
+    report.coupling = crate::coupling::measure(root);
+    Ok(report)
+}
+
+/// Everything [`check`] reports except the coupling, which every arm shares.
+fn verdict(root: &Path) -> anyhow::Result<Report> {
     let measurement = measure(root);
     let vintage = Vintage::of_repo(root);
 
@@ -1176,6 +1214,7 @@ pub fn check(root: &Path) -> anyhow::Result<Report> {
             measurement,
             findings: Vec::new(),
             conforming: true,
+            coupling: None,
         });
     };
 
@@ -1192,6 +1231,7 @@ pub fn check(root: &Path) -> anyhow::Result<Report> {
         measurement,
         findings,
         conforming,
+        coupling: None,
     })
 }
 

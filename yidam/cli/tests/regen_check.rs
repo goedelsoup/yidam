@@ -221,10 +221,10 @@ fn every_emitted_field_is_declared_in_the_schema() {
         let doc: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
 
         let mut emitted = std::collections::BTreeSet::new();
-        paths_of(&doc, "", &mut emitted);
+        common::paths_of(&doc, "", &mut emitted);
         for path in &emitted {
             assert!(
-                declares(&schema, path),
+                common::declares(&schema, path),
                 "`regen --check` emits `{path}`, which report.schema.json does not declare"
             );
         }
@@ -239,7 +239,7 @@ fn every_emitted_field_is_declared_in_the_schema() {
     // a top-level name and an item field the schema does not carry, at the same two depths.
     for absent in ["nonesuch", "unclaimed[].nonesuch"] {
         assert!(
-            !declares(&schema, absent),
+            !common::declares(&schema, absent),
             "`{absent}` is not in the schema and the walk said it was, so the check above \
              holds nothing"
         );
@@ -255,52 +255,6 @@ fn every_emitted_field_is_declared_in_the_schema() {
              at rather than the contract: {seen:?}"
         );
     }
-}
-
-/// Every path a document actually carries a value at, in the schema's own notation.
-fn paths_of(node: &serde_json::Value, path: &str, out: &mut std::collections::BTreeSet<String>) {
-    match node {
-        serde_json::Value::Object(map) => {
-            for (key, child) in map {
-                let here = if path.is_empty() {
-                    key.clone()
-                } else {
-                    format!("{path}.{key}")
-                };
-                out.insert(here.clone());
-                paths_of(child, &here, out);
-            }
-        }
-        serde_json::Value::Array(items) => {
-            for item in items {
-                paths_of(item, &format!("{path}[]"), out);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Does the schema declare `path`? Walks `properties` and `items` the way [`paths_of`] builds
-/// them, so the two notations are the same notation.
-fn declares(schema: &serde_json::Value, path: &str) -> bool {
-    let mut node = schema;
-    for segment in path.split('.') {
-        let (key, arrays) = match segment.split_once("[]") {
-            Some((key, rest)) => (key, rest.matches("[]").count() + 1),
-            None => (segment, 0),
-        };
-        node = match node.get("properties").and_then(|p| p.get(key)) {
-            Some(child) => child,
-            None => return false,
-        };
-        for _ in 0..arrays {
-            node = match node.get("items") {
-                Some(items) => items,
-                None => return false,
-            };
-        }
-    }
-    true
 }
 
 /// The gate's verdict does not move when a build artifact appears in the tree.

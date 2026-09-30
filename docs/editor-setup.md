@@ -38,7 +38,8 @@ has it. `--features index` adds nothing to the LSP.
 - **Definition, references, hover** on `target:` scalars.
 - **Rename** over [`yidam rename`](rfcs/0014-node-rename.md). F2 on a node, every inbound
   `target:` rewritten, the file moved, all in one `WorkspaceEdit` the *client* applies. That is
-  what keeps undo working. Refused outright, as an LSP error rather than an empty edit, if
+  what keeps undo working. The moved node gains a `moved-from:` line, so its ages carry. A move between classes
+  re-relativizes the node's own `target:` links. Refused outright, as an LSP error rather than an empty edit, if
   anything would dangle.
 
 ### Severity, and the rule that outranks it
@@ -86,6 +87,11 @@ language-servers = ["yaml-language-server", "yidam"]
 Beside `yaml-language-server` rather than instead of it: that one applies the JSON Schemas
 `yidam schema` writes, and the two answer different questions. `yidam schema --settings` prints
 the `yaml.schemas` mapping to paste into an editor that wants one.
+
+A repository may write its own schemas into `.yidam/schemas/`, stricter than the generic
+ones. `yidam schema` marks every file it writes in its `$comment`. A target without the mark
+refuses the run before anything is written. `yidam schema --force` replaces a file an earlier
+release wrote unmarked.
 
 ## Install the VS Code extension
 

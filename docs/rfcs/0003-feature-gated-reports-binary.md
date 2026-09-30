@@ -130,7 +130,7 @@ Command::IndexBuild { model } => {
 ```
 
 So absent capabilities announce themselves and name the fix, instead of disappearing.
-`export --list` (`cmd/export.rs:59-72`) is amended to mark each format `compiled` /
+`export --list` (`cmd/export.rs:66-79`) is amended to mark each format `compiled` /
 `needs --features export-sqlite` so `--list` tells the truth about *this* build.
 
 **Confine `tokio` to `index`.** `main` is `#[tokio::main]` today (`main.rs:132-133`), but the

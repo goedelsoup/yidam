@@ -91,6 +91,7 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
         &[],
         Tell::Writes(".yidam/decisions/README.md"),
     ),
+    ("derive", &["check", "--format", "json"], Tell::Envelope),
     (
         "diff",
         &["HEAD~1..HEAD", "--format", "json"],
@@ -107,6 +108,8 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
     // envelope to carry a root. It is the command #428 measured in place, and
     // `example_corpus.rs` still measures that; what is checked here is only the refusal.
     ("export", &["--format", "graphml"], Tell::Names),
+    ("gates", &[], Tell::Writes("README.md")),
+    ("routes", &[], Tell::Writes("AGENTS.md")),
     ("graph", &["--format", "json"], Tell::Envelope),
     ("graph-check", &["--format", "json"], Tell::Envelope),
     (
@@ -134,8 +137,9 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
     ("policy", &["check", "--format", "json"], Tell::Envelope),
     ("practice", &[], Tell::Writes("PRACTICE.md")),
     ("query", &["low-flow", "--format", "json"], Tell::Envelope),
+    ("record", &["--format", "json"], Tell::Envelope),
     // `--check`, so this reads the blocks rather than rewriting the ones the `Writes` rows
-    // seeded. The writing mode runs the same fourteen generators through the same list.
+    // seeded. The writing mode runs the same seventeen generators through the same list.
     ("regen", &["--check", "--format", "json"], Tell::Envelope),
     ("replay", &["--format", "json"], Tell::Envelope),
     (
@@ -338,11 +342,16 @@ fn every_rooted_command_reads_the_corpus_it_is_given() {
 
     // One commit is the example's genesis; the seeds are the second, so `HEAD~1` is a
     // revision and the three range-taking commands have something to resolve.
+    // Appended, not written: `gates` and `vault-status` both write `README.md`, and a seed
+    // that replaced the file would leave it holding only the last row's block — the first
+    // generator would then find no block of its own and, correctly, write nothing.
     for (command, _, tell) in INVOCATIONS {
         if let Tell::Writes(rel) = tell {
             let path = corpus.join(rel);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(&path, seed_block(command)).unwrap();
+            let mut seeded = std::fs::read_to_string(&path).unwrap_or_default();
+            seeded.push_str(&seed_block(command));
+            std::fs::write(&path, seeded).unwrap();
         }
     }
     common::git::git(&corpus, &["add", "-A"]);
@@ -405,12 +414,22 @@ fn every_rooted_command_reads_the_corpus_it_is_given() {
                 Err(e) => Err(format!("stdout is not a JSON report ({e}): {both:.400}")),
             },
             Tell::Writes(rel) => {
+                // This row's block, not the file: a file two rows share still holds the
+                // other row's placeholder until that row has run.
                 let after = std::fs::read_to_string(corpus.join(rel)).unwrap_or_default();
-                match after.contains(PLACEHOLDER) {
-                    false => Ok(()),
-                    true => Err(format!(
+                let marker = format!("<!-- REGEN: yidam {command}\n");
+                let block = after
+                    .split_once(&marker)
+                    .and_then(|(_, rest)| rest.split_once("<!-- /REGEN -->"))
+                    .map(|(block, _)| block);
+                match block {
+                    Some(block) if !block.contains(PLACEHOLDER) => Ok(()),
+                    Some(_) => Err(format!(
                         "{rel} in the corpus still holds the placeholder, so the block was \
                          written somewhere else or not at all: {both:.400}"
+                    )),
+                    None => Err(format!(
+                        "{rel} in the corpus no longer holds this command's block: {both:.400}"
                     )),
                 }
             }

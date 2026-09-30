@@ -10,13 +10,23 @@
 
 # ── advisories ───────────────────────────────────────────────────────────────
 #
-# **Every ignore carries a reason and an expiry.** An advisories file of undated ignores is a
-# check that has stopped checking — the same shape as the `verify` task #461 found, arrived
+# **Every ignore carries a reason and an expiry**, and the expiry is written into the reason
+# as `expires YYYY-MM-DD` — cargo-deny refuses any key beside `id` and `reason`. An
+# advisories file of undated ignores is a check that has stopped checking — the same shape as the `verify` task #461 found, arrived
 # at by a different road, and it is the specific way this file rots. `deny_policy.rs` asserts
-# the rule rather than trusting it to review.
+# the rule rather than trusting it to review, and fails once an expiry has passed.
 [advisories]
 yanked = "deny"
-ignore = []
+ignore = [
+  # Unmaintained, not vulnerable, and no safe upgrade exists. `ttf-parser` arrives only through
+  # `pdf-extract` 0.12.1 → `lopdf` 0.42 (#1172), where it parses fonts embedded in a PDF.
+  # `lopdf` 0.45 replaced it with `skrifa`, but `pdf-extract` requires `lopdf` ^0.42, and 0.12.1
+  # is its latest release. Lift this when a `pdf-extract` release takes `lopdf` >= 0.45. At
+  # expiry, if none has, decide between keeping `pdf-text` in the default set and swapping the
+  # extractor. Either way `reading::EXTRACTOR` changes, and readings already taken keep the
+  # extractor they name.
+  { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained; reached only via pdf-extract 0.12.1 -> lopdf 0.42, which pdf-extract pins below the lopdf release that dropped it (#1172); expires 2027-01-31" },
+]
 
 # ── licenses ─────────────────────────────────────────────────────────────────
 #

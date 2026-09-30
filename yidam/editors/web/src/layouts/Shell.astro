@@ -8,7 +8,7 @@
  * than they need any page behind it. So it is on every page rather than on a settings screen.
  */
 import { session } from '../lib/session.ts'
-import { describeBinary, describeFailure, describeRootMismatch } from '../lib/messages.ts'
+import { describeBinary, describeRootMismatch, describeUnavailable } from '../lib/messages.ts'
 import { spawnReport } from '../lib/cli.ts'
 import '../styles/app.css'
 
@@ -27,12 +27,12 @@ const unavailable =
   binary.command === null
     ? binary.reason
     : probe && !probe.ok
-      ? describeFailure(probe.handshake)
+      ? describeUnavailable(probe)
       : null
 
 // A wrong corpus and an empty corpus render identically, so the difference is stated rather
 // than left for the reader to infer from a page with nothing on it.
-const mismatch = probe && probe.ok ? describeRootMismatch(root, probe.resolvedRoot) : null
+const mismatch = probe && probe.ok ? describeRootMismatch(root, probe.resolvedRoot, probe.resolvedBy) : null
 
 const label =
   probe && probe.ok ? describeBinary(probe.handshake, binary.reason) : 'yidam: unavailable'

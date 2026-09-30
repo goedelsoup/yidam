@@ -5,6 +5,7 @@
 //! have an illegible log. That is the failure this catches, and it is invisible to every
 //! other check here.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use yidam_core::git::is_recognized_verb;
@@ -27,6 +28,55 @@ pub struct Subject {
     /// names for a merge commit, so every merge arrives here with nothing — which
     /// [`Touch::None`] handles by keeping the commit under the corpus register.
     pub paths: Vec<String>,
+    /// The message after the subject line, as git's `%b` gives it — empty when there is none.
+    ///
+    /// Articles III and IV bind the *message* of a resolution commit, not its subject: which
+    /// `ma/*` tips were read, and what was resolved, changed and left open. A reader holding
+    /// only the subject could check neither (#952).
+    pub body: String,
+}
+
+impl Subject {
+    /// The body's `## ` sections, heading text to section text, both trimmed.
+    ///
+    /// Text before the first heading belongs to no section and is dropped. A heading that
+    /// repeats keeps its first section, so a later quotation of a heading cannot replace
+    /// the section it quotes. Lines inside a ``` fence are never headings.
+    // Nothing outside the tests calls this until the check lands. `expect`, not `allow`: once
+    // it does, the marker is an error and must go — and `body`, read only here, needs none.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "called by the Article IV check, #253")
+    )]
+    pub fn sections(&self) -> BTreeMap<String, String> {
+        let mut out = BTreeMap::new();
+        let mut current: Option<(String, Vec<&str>)> = None;
+        let mut fenced = false;
+        let mut close = |current: Option<(String, Vec<&str>)>| {
+            if let Some((heading, lines)) = current {
+                out.entry(heading)
+                    .or_insert_with(|| lines.join("\n").trim().to_string());
+            }
+        };
+        for line in self.body.lines() {
+            if line.trim_start().starts_with("```") {
+                fenced = !fenced;
+            }
+            match line.strip_prefix("## ") {
+                Some(heading) if !fenced => {
+                    close(current.take());
+                    current = Some((heading.trim().to_string(), vec![]));
+                }
+                _ => {
+                    if let Some((_, lines)) = current.as_mut() {
+                        lines.push(line);
+                    }
+                }
+            }
+        }
+        close(current);
+        out
+    }
 }
 
 /// Read commit subjects, newest first.
@@ -39,8 +89,14 @@ pub struct Subject {
 ///
 /// The format is prefixed with `%x1e`, because `--name-only` makes a commit's output span
 /// an unknown number of lines and the old line-per-commit parse cannot see where one commit
-/// ends. Splitting the whole output on `\x1e` puts each commit back in one piece: its first
-/// line is the `hash\0parents\0subject` header, and every non-empty line after it is a path.
+/// ends. Splitting the whole output on `\x1e` puts each commit back in one piece.
+///
+/// # Why the body ends in a NUL
+///
+/// A body spans lines too, and `--name-only` prints its paths as more lines after it, so
+/// nothing line-shaped says where the body stops and the paths start. The `%x00` after
+/// `%b` does: a record is `hash\0parents\0subject\0body\0`, and every non-empty line after
+/// the last NUL is a path. `%b` rather than `%B`, because `%B` repeats the subject.
 pub fn read_subjects(root: &Path, range: Option<&str>) -> Vec<Subject> {
     let mut args = vec![
         // Without this git renders a path holding any byte above ASCII as a C-quoted
@@ -49,7 +105,7 @@ pub fn read_subjects(root: &Path, range: Option<&str>) -> Vec<Subject> {
         "-c".to_string(),
         "core.quotePath=false".to_string(),
         "log".to_string(),
-        "--format=%x1e%H%x00%P%x00%s".to_string(),
+        "--format=%x1e%H%x00%P%x00%s%x00%b%x00".to_string(),
         "--name-only".to_string(),
         // Rename detection is on by default and `--name-only` prints only a rename's
         // destination, so a commit moving a node *out* of the corpus register reads as
@@ -74,18 +130,20 @@ pub fn read_subjects(root: &Path, range: Option<&str>) -> Vec<Subject> {
 fn parse_records(text: &str) -> Vec<Subject> {
     text.split('\u{1e}')
         .filter_map(|record| {
-            let mut lines = record.lines();
-            let header = lines.next()?;
-            let mut fields = header.splitn(3, '\0');
+            let mut fields = record.splitn(5, '\0');
             let hash = fields.next()?;
             let parents = fields.next()?;
             let subject = fields.next()?;
+            let body = fields.next()?;
+            let paths = fields.next()?;
             Some(Subject {
                 hash: hash.to_string(),
                 verb: verb_of(subject),
                 text: subject.to_string(),
                 parents: parents.split_whitespace().count(),
-                paths: lines
+                body: body.trim_end().to_string(),
+                paths: paths
+                    .lines()
                     .filter(|l| !l.trim().is_empty())
                     .map(|l| l.to_string())
                     .collect(),
@@ -295,6 +353,7 @@ mod tests {
             verb: verb_of(text),
             text: text.to_string(),
             parents,
+            body: String::new(),
         }
     }
 
@@ -499,7 +558,7 @@ mod tests {
 
     #[test]
     fn a_record_carries_its_paths() {
-        let out = "\u{1e}aaaaaaaa\0bbbbbbbb\0extract: a thing\n\n\
+        let out = "\u{1e}aaaaaaaa\0bbbbbbbb\0extract: a thing\0\0\n\n\
                    .yidam/corpus/a.md\nweb/index.html\n";
         let s = parse_records(out);
         assert_eq!(s.len(), 1);
@@ -511,7 +570,7 @@ mod tests {
     fn a_merge_record_carries_no_paths() {
         // git prints no names for a merge commit without `-m`, which is where
         // `Touch::None` comes from in the field rather than in a fixture.
-        let out = "\u{1e}aaaaaaaa\0bbbbbbbb cccccccc\0Merge branch 'x'\n";
+        let out = "\u{1e}aaaaaaaa\0bbbbbbbb cccccccc\0Merge branch 'x'\0\0\n";
         let s = parse_records(out);
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].parents, 2);
@@ -523,12 +582,118 @@ mod tests {
         // The old parse read one commit per line. With paths on their own lines it would
         // have read `web/index.html` as a commit; this asserts the boundary is the
         // separator and not the newline.
-        let out = "\u{1e}aaaaaaaa\0p\0extract: one\n\nweb/index.html\n\
-                   \u{1e}bbbbbbbb\0p\0open: two\n\n.yidam/corpus/b.md\n";
+        let out = "\u{1e}aaaaaaaa\0p\0extract: one\0\0\n\nweb/index.html\n\
+                   \u{1e}bbbbbbbb\0p\0open: two\0\0\n\n.yidam/corpus/b.md\n";
         let s = parse_records(out);
         assert_eq!(s.len(), 2);
         assert_eq!(s[0].paths, vec!["web/index.html"]);
         assert_eq!(s[1].paths, vec![".yidam/corpus/b.md"]);
+    }
+
+    /// A body spans lines exactly as paths do, so a line-shaped parse would read every
+    /// body line as a path. The NUL after `%b` is the only boundary between them.
+    #[test]
+    fn a_body_line_is_not_read_as_a_path() {
+        let out = "\u{1e}aaaaaaaa\0p\0resolve: which permit fields\0\
+                   ## What changed\n\nweb/index.html is named here, not touched.\n\0\n\n\
+                   .yidam/corpus/a.md\n";
+        let s = parse_records(out);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].paths, vec![".yidam/corpus/a.md"]);
+        assert_eq!(
+            s[0].body,
+            "## What changed\n\nweb/index.html is named here, not touched."
+        );
+    }
+
+    // -- the body ---------------------------------------------------------------------
+    //
+    // Articles III and IV are about the message, not the subject (#952).
+
+    fn with_body(body: &str) -> Subject {
+        Subject {
+            body: body.to_string(),
+            ..subj("aaaaaaaa", "resolve: which permit fields")
+        }
+    }
+
+    /// The test a subject-only reader cannot pass: the subject is well-formed, so every
+    /// check that reads the subject is satisfied, and only the body says a section is
+    /// missing.
+    #[test]
+    fn a_well_formed_subject_does_not_hide_a_missing_section() {
+        let out = "\u{1e}aaaaaaaa\0p\0resolve: which permit fields\0\
+                   ## What was resolved\n\nThe permit fields.\n\n\
+                   ## What changed\n\nFourteen became twelve.\n\0\n\n\
+                   .yidam/corpus/p.md\n";
+        let s = parse_records(out);
+        assert!(unrecognized_verb(&s).passed(), "the subject is well-formed");
+        let sections = s[0].sections();
+        assert_eq!(sections["What was resolved"], "The permit fields.");
+        assert_eq!(sections["What changed"], "Fourteen became twelve.");
+        assert!(!sections.contains_key("What remains open"));
+    }
+
+    #[test]
+    fn text_before_the_first_heading_is_no_section() {
+        let s = with_body("Read ma/auditor at abc123.\n\n## What remains open\n\nNothing.");
+        let sections = s.sections();
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections["What remains open"], "Nothing.");
+    }
+
+    #[test]
+    fn a_repeated_heading_keeps_its_first_section() {
+        let s = with_body("## What changed\n\nfirst\n\n## What changed\n\nsecond");
+        assert_eq!(s.sections()["What changed"], "first");
+    }
+
+    #[test]
+    fn a_heading_inside_a_fence_is_section_text() {
+        let s = with_body("## What changed\n\nThe template:\n\n```\n## What remains open\n```\n");
+        let sections = s.sections();
+        assert_eq!(sections.len(), 1);
+        assert!(sections["What changed"].contains("## What remains open"));
+    }
+
+    #[test]
+    fn deeper_headings_stay_inside_their_section() {
+        let s = with_body("## What changed\n\n### Detail\n\nmore");
+        assert_eq!(s.sections()["What changed"], "### Detail\n\nmore");
+    }
+
+    /// The shape git actually emits, from a real repository: the fixtures above are
+    /// hand-written, and a hand-written record can agree with a wrong parse.
+    #[test]
+    fn a_real_commit_reads_back_with_its_body_and_paths() {
+        use crate::git::fixture::{git, repo, write};
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        write(root, "a.txt", "a");
+        repo(root, "establish: genesis");
+        write(root, ".yidam/corpus/p.md", "p");
+        git(root, &["add", "."]);
+        git(
+            root,
+            &[
+                "commit",
+                "-q",
+                "-m",
+                "resolve: which permit fields",
+                "-m",
+                "## What changed\n\nweb/index.html is named, not touched.",
+            ],
+        );
+        let s = read_subjects(root, None);
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0].text, "resolve: which permit fields");
+        assert_eq!(s[0].paths, vec![".yidam/corpus/p.md"]);
+        assert_eq!(
+            s[0].sections()["What changed"],
+            "web/index.html is named, not touched."
+        );
+        assert_eq!(s[1].body, "");
+        assert_eq!(s[1].paths, vec!["a.txt"]);
     }
 
     // -- the registers --------------------------------------------------------------

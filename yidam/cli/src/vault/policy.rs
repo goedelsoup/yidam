@@ -288,6 +288,25 @@ pub fn named_artifacts(root: &Path) -> Vec<Named> {
                 bytes: a.bytes,
                 media_type: a.media_type.clone(),
             });
+            // A text reading (#1172) is bytes this entry names, and they go where the bytes
+            // they were read from go: the same vault, and pushed only if those may be, since
+            // the text of a document is licensed as the document is.
+            if let Some(reading) = a
+                .text
+                .as_ref()
+                .and_then(|t| t.sha256.as_deref())
+                .and_then(|h| ContentHash::parse(h).ok())
+            {
+                out.push(Named {
+                    hash: reading,
+                    kind: super::config::CATALOG_KIND.to_string(),
+                    rel: rel.clone(),
+                    vault: a.vault.clone(),
+                    redistributable: a.redistributable,
+                    bytes: None,
+                    media_type: Some("text/plain; charset=utf-8".to_string()),
+                });
+            }
         }
     }
     out.sort_by(|a, b| (&a.rel, &a.hash).cmp(&(&b.rel, &b.hash)));
@@ -526,5 +545,38 @@ mod tests {
         assert_eq!(found[0].hash, good);
         assert_eq!(found[0].redistributable, Some(true));
         assert!(found[0].rel.ends_with("one.md"));
+    }
+
+    /// A reading is carried wherever its PDF is, and refused wherever its PDF is: the text of
+    /// a document is licensed as the document is.
+    #[test]
+    fn a_text_reading_is_named_with_its_artifacts_route() {
+        let tmp = TempDir::new().unwrap();
+        let catalog = tmp.path().join(".yidam/catalog");
+        std::fs::create_dir_all(&catalog).unwrap();
+        let pdf = ContentHash::of_bytes(b"pdf");
+        let text = ContentHash::of_bytes(b"text");
+        std::fs::write(
+            catalog.join("one.md"),
+            format!(
+                "---\nname: One\nartifacts:\n  - sha256: {pdf}\n    vault: archive\n    \
+                 redistributable: false\n    text:\n      sha256: {text}\n      extractor: x\n---\n"
+            ),
+        )
+        .unwrap();
+        let found = named_artifacts(tmp.path());
+        assert_eq!(found.len(), 2, "{found:?}");
+        let reading = found
+            .iter()
+            .find(|n| n.hash == text)
+            .expect("reading named");
+        assert_eq!(reading.vault.as_deref(), Some("archive"));
+        assert_eq!(reading.redistributable, Some(false));
+        assert!(reading
+            .media_type
+            .as_deref()
+            .unwrap()
+            .starts_with("text/plain"));
+        assert!(!may_push(reading, &[]).is_push());
     }
 }

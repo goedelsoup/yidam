@@ -1,6 +1,6 @@
-//! The ontology: `<class>.ont.yml` parsed once, and the two derivations over `direction:`.
+//! The ontology: `<class>.ont.yml` parsed once, and the derivations over `direction:`.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 /// Whether a class's `edges:` list bounds what may be said about it, or merely describes it.
@@ -65,7 +65,36 @@ pub struct Class {
     /// The `description` field: the text that says what kind of thing an instance is.
     /// Deliberately the only field [`crate::cmd::lint::checks::class_asserts_purpose`] reads; see there.
     pub description: String,
+    /// The short human name the class gives itself — `Person`, as written.
+    ///
+    /// Serialised by `graph` and read by nothing else. It is on the model because it was
+    /// the field `cmd/graph.rs` could not get from here, and so the reason that module kept
+    /// a second parse of every class file (#1116).
+    pub label: String,
     /// The class name — `person` for `person.ont.yml`.
+    ///
+    /// **The file stem, and never the `class:` field inside.** The stem is what governs: an
+    /// instance lives in `corpus/<stem>/`, [`crate::cmd::lint::checks::class_of`] resolves a
+    /// node's class by reading that directory, and [`super::Corpus::defined_classes`] is the
+    /// stem for the same reason. A class file that declares a different `class:` has not
+    /// renamed itself; it has written a field nothing resolves by.
+    ///
+    /// **Four readers used to prefer the declared field, and this is where they stopped.**
+    /// `claims`, `prose`, `retrievable` and `cmd/graph.rs` each parsed the class file
+    /// themselves and keyed on `class:` where it was present, while `pack`, `score` and the
+    /// lint checks keyed on the stem — one corpus, two answers to what a class is called,
+    /// and no check reporting the gap. #1116 routed all four through this field.
+    ///
+    /// **The change is inert on every corpus measured.** 18 corpora, 204 class files, 0 that
+    /// declare a `class:` differing from their stem and 0 that omit the field — so no lookup
+    /// that resolved before resolves differently. The population is one corpus per
+    /// independent checkout on hand: no vendored `.vendor/` or `tonpa/` copy, no
+    /// `.claude/worktrees/` or second branch of a repository already counted, and not this
+    /// repository's own `examples/` or test fixtures. `yidam schema` requires `class:` on a
+    /// class file, which is why the field is always there: a conformant file states the name
+    /// its stem already is. **Nothing reports the disagreement**, so a corpus that starts
+    /// writing one would be silently re-keyed rather than told; the decision on #1116 was to
+    /// document the rule rather than add a check nobody had a case for.
     pub name: String,
     /// The typed fields the class declares, in declaration order.
     pub properties: Vec<ClassProperty>,
@@ -101,6 +130,10 @@ pub struct Class {
     /// nothing about prose* rather than as *this class has none* — `description` is prose
     /// whatever anything declares. See [`crate::prose`].
     pub prose: Vec<String>,
+    /// The two properties that bound an instance in time, and optionally the relationship
+    /// over which no two instances may overlap. `None` when the class has not said, which is
+    /// every class written before the field existed — and no check runs. See [`Interval`].
+    pub interval: Option<Interval>,
     /// The type in `crates/` that implements this class — `Intervention`, as written.
     ///
     /// **`None` is the overwhelming default and no check runs, because the ontology is not
@@ -142,18 +175,34 @@ pub struct Class {
 pub struct ClassProperty {
     #[serde(default)]
     pub name: String,
-    /// `string`, `text`, `date`, `number`, `ref`, `claim` — or anything else, which is
-    /// unchecked.
+    /// `string`, `text`, `date`, `number`, `ref`, `claim`, `quotation` — or anything else,
+    /// which is unchecked.
     #[serde(default)]
     pub r#type: String,
+    /// What the property is for, as the class writes it.
+    ///
+    /// Required by `yidam schema`'s class shape, and prose: [`Class::text`] explains why the
+    /// *scan* for evidence tags reads the bytes instead, and this field is the structural
+    /// half — `graph` serialises it per property so an editor can show it. It is declared
+    /// here rather than parsed a second time in `cmd/graph.rs`, which is #1116.
+    #[serde(default)]
+    pub description: String,
     /// Whether every instance of the class must carry this property (#301).
     ///
     /// **Absent means false.** Every corpus predating this field was written under a schema
     /// where the question could not be asked, so defaulting to `true` would gate every class
     /// in every derived repository on a declaration nobody made — a gate arriving in a
     /// corpus that never agreed to it, which is #257 from the other direction.
-    #[serde(default)]
-    pub required: bool,
+    ///
+    /// **Kept as written, because `false` and absent are different answers** (#1078). Both
+    /// mean an instance may omit the property, so every check that asks *what gates* reads
+    /// [`Self::required`] and not this. What differs is whether the ontology was ever asked:
+    /// a class that writes `required: false` has decided, and one that writes nothing may
+    /// predate the field. Two readers need the difference. `doctor`'s `contract` line asks
+    /// whether the ontology answered at all, and `missing-property` reports an omission only
+    /// where nobody did (#1055).
+    #[serde(default, rename = "required")]
+    pub declared_required: Option<bool>,
     /// Whether this property's value is prose (#746).
     ///
     /// **A fifth of what a corpus writes is here and nothing that reads prose could see it.**
@@ -172,7 +221,105 @@ pub struct ClassProperty {
     /// change what `compile_class_schema` emits, which is a parity function in three SDKs.
     #[serde(default)]
     pub prose: bool,
+    /// The closed set a `string` may hold, or empty for an unbounded one (RFC-0044).
+    ///
+    /// **Empty means unbounded, and a declared set is closed.** Before this field a class
+    /// wrote its set into the description — `plant | refinery | canal` — where nothing reads
+    /// it: measured across seven corpora, 40 properties did so and 33 instances already held a
+    /// value outside the set their own class documented, and no check reported one. Declaring
+    /// the set is what makes it checkable, and there is no open marker because an open list
+    /// is the description again. Honoured on `string` only, as `unit` is on `number` only:
+    /// `text` is prose, `ref` is a path, `claim` has its own set, and a coined type has said
+    /// the gate does not know its shape. [`crate::cmd::lint::checks::property_type`] is the
+    /// reader, and [`crate::cmd::migrate`] consults it before a retype into `string`.
+    #[serde(default)]
+    pub values: Vec<String>,
+    /// Whether this property's value belongs in the node's embedding though it is not prose.
+    ///
+    /// `embed` is the only reader — see [`crate::retrievable`], which held the only parse of
+    /// this field until #1116 and now reads it from here.
+    ///
+    /// **Absent means false**, for [`Self::required`]'s reason.
+    #[serde(default)]
+    pub retrievable: bool,
 }
+impl ClassProperty {
+    /// Whether every instance of the class must carry this property. Absent means false —
+    /// see [`Self::declared_required`].
+    pub fn required(&self) -> bool {
+        self.declared_required.unwrap_or(false)
+    }
+
+    /// What `missing-property` does when an instance omits this property.
+    ///
+    /// The one place the three answers of [`Self::declared_required`] become a verdict. The
+    /// check and the `graph` report both read it, so a client labelling a property's omission
+    /// and the gate judging one cannot disagree (#1155).
+    pub fn omission(&self) -> Omission {
+        match self.declared_required {
+            Some(true) => Omission::Gates,
+            Some(false) => Omission::Licensed,
+            None => Omission::Reported,
+        }
+    }
+}
+
+/// What omitting a declared property costs an instance, as `missing-property` decides it.
+///
+/// A verdict rather than the declaration, because the report's `required` bool folds
+/// `required: false` into silence and a client re-deriving the check's rule from it gets
+/// the licensed case wrong (#1155).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Omission {
+    /// `required: true`. The omission is an error and fails the gate.
+    Gates,
+    /// No `required:` at all. The omission is a warning; nobody decided.
+    Reported,
+    /// `required: false`. The class said an instance may omit it, so nothing is reported.
+    Licensed,
+}
+/// A class's declared valid time: which property is an instance's start, which is its end,
+/// and optionally the relationship over which two instances may not both hold at once (#1201).
+///
+/// **The names are declared, not compiled in.** Across six corpora the pair is spelled at
+/// least five ways — `began`/`ended`, `start_date`/`end_date`, `effective_from`/`effective_to`,
+/// `not_before`/`not_after`, `born`/`died` — and a fixed pair would fit one of them.
+///
+/// **Absent is unchecked**, the shape [`Class::max_lines`] has. A `tenure` class exists so a
+/// corpus can answer *who held this office in 1893*, and two tenures of one office overlapping
+/// give that question two answers; declaring the interval and `exclusive_over` is how the class
+/// says so, and [`crate::cmd::lint::checks::interval_overlap`] is the reader.
+///
+/// `start` and `end` are required and no other key is accepted, so a half-written or
+/// misspelled declaration is a class `malformed-yaml` reports rather than one that silently
+/// checks nothing: `exclusive: of-office` in place of `exclusive_over:` would otherwise read as
+/// a class that declared no exclusivity at all.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Interval {
+    /// The `date` property an instance starts at, inclusive.
+    pub start: String,
+    /// The `date` property an instance ends at, exclusive. An instance that omits it is open —
+    /// still holding — which is what an absent `ended` means on every tenure measured.
+    pub end: String,
+    /// The relationship no two instances of this class may share a target over while both are
+    /// open: `of-office` on a tenure says no two tenures of one office overlap. Read from the
+    /// instance's own `links:`; `None` checks the interval's order and nothing else.
+    #[serde(default)]
+    pub exclusive_over: Option<String>,
+    /// The property on the `exclusive_over` target saying how many instances may hold it at
+    /// once: `seats` on an office, so a three-member board's staggered terms are not
+    /// overlaps. A target that omits it holds one (#1205). `None` is one for every target.
+    #[serde(default)]
+    pub capacity: Option<String>,
+    /// The property on the `exclusive_over` target saying its line of holders is finished:
+    /// `line_complete: true` on an office asks `interval-gap` to report a span inside the line
+    /// that fewer hold than it seats (#1213). A target that omits it, and `None`, are unchecked.
+    #[serde(default)]
+    pub complete: Option<String>,
+}
+
 /// One relationship a class declares.
 #[derive(Default, serde::Deserialize)]
 pub struct ClassEdge {
@@ -184,6 +331,11 @@ pub struct ClassEdge {
     /// `out` when instances of this class author the link, `in` when the other side does.
     #[serde(default)]
     pub direction: Option<String>,
+    /// What the relationship means, as the class writes it. `graph` serialises it; nothing
+    /// else reads it. Here rather than in `cmd/graph.rs` for [`ClassProperty::description`]'s
+    /// reason.
+    #[serde(default)]
+    pub description: String,
 }
 /// One class's edge declarations, which is all the source-class derivation reads.
 ///
@@ -288,6 +440,66 @@ pub fn pointed_classes<'a>(view: &[EdgeView<'a>]) -> HashSet<&'a str> {
     pointed
 }
 
+/// The relationships the ontology says each class's instances author, by class.
+///
+/// The other half of [`pointed_classes`], read with the same three arms from the other end:
+/// `out` on a class is authored by that class, `in` is authored by its target, and a
+/// declaration with no direction names both ends. A self-edge authors nothing here for the
+/// reason it points at nothing there — `reach -downstream-of-> reach` holds for every reach but
+/// the terminal one, and every river has one.
+///
+/// A class the ontology says authors nothing has no entry.
+pub fn authored_relationships<'a>(view: &[EdgeView<'a>]) -> HashMap<&'a str, BTreeSet<&'a str>> {
+    let mut authored: HashMap<&str, BTreeSet<&str>> = HashMap::new();
+    for v in view {
+        for e in v.edges.iter().filter(|e| e.target != v.name) {
+            let rel = e.relationship.as_str();
+            match e.direction.as_deref() {
+                Some("in") => {
+                    authored.entry(e.target.as_str()).or_default().insert(rel);
+                }
+                Some("out") => {
+                    authored.entry(v.name).or_default().insert(rel);
+                }
+                _ => {
+                    authored.entry(v.name).or_default().insert(rel);
+                    authored.entry(e.target.as_str()).or_default().insert(rel);
+                }
+            }
+        }
+    }
+    authored
+}
+
+/// Classes the ontology says point at nothing: the converse of [`source_classes`].
+///
+/// An instance of such a class links to its class and to nothing else *by design* — a
+/// `jurisdiction` other classes are appropriated in, a `party` other classes name — so
+/// reporting it under `only-instance-of` would report the ontology working. Measured over
+/// sixteen derived corpora (2,772 nodes, 2026-09-29): 79 nodes link only to their class, and
+/// 28 of them are instances of a class derived here.
+///
+/// **Either end may say it, which is where this departs from [`source_classes`].** A class is
+/// a sink when the ontology names it in some declaration — its own `edges:`, or another
+/// class's edge that points at it — and names it as the author of none. `party` in
+/// `examples/property` writes `edges: []` while `instrument` declares `grantor` and `grantee`
+/// at it, `direction: out`: the ontology has said parties are pointed at and author nothing,
+/// and reading the empty list alone would call that silence. The widening is free on the
+/// sixteen corpora above — the same 28 nodes either way.
+///
+/// What stays refused: a class no declaration mentions has said nothing and is **not** a
+/// sink, and a declaration with no direction names both ends as authors, so it exempts
+/// neither.
+pub fn sink_classes(view: &[EdgeView<'_>]) -> HashSet<String> {
+    let authored = authored_relationships(view);
+    let pointed = pointed_classes(view);
+    view.iter()
+        .filter(|v| !v.edges.is_empty() || pointed.contains(v.name))
+        .filter(|v| !authored.contains_key(v.name))
+        .map(|v| v.name.to_string())
+        .collect()
+}
+
 /// The [`EdgeView`]s of a parsed ontology.
 pub fn edge_views(classes: &[Class]) -> Vec<EdgeView<'_>> {
     classes
@@ -301,6 +513,8 @@ pub fn edge_views(classes: &[Class]) -> Vec<EdgeView<'_>> {
 #[derive(Default, serde::Deserialize)]
 struct ClassFields {
     #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
     description: Option<String>,
     #[serde(default)]
     properties: Vec<ClassProperty>,
@@ -312,6 +526,8 @@ struct ClassFields {
     max_lines: Option<usize>,
     #[serde(default)]
     prose: Vec<String>,
+    #[serde(default)]
+    interval: Option<Interval>,
     #[serde(default)]
     implemented_by: Option<String>,
     #[serde(default)]
@@ -356,17 +572,28 @@ impl Class {
     /// It takes the *text* and deserializes here rather than taking a parsed [`ClassFields`],
     /// so that [`Self::text`] and the fields cannot come from different strings. A caller
     /// holding both could pass a mismatched pair, and nothing would say so.
+    /// The class a `<class>.ont.yml` path names: its file stem.
+    ///
+    /// Split out of [`Self::parse`] because `lint::history` needs the answer for a class blob
+    /// it is *removing* from the ontology, where there is no text to parse and so no `Class`
+    /// to read [`Self::name`] off. That call site derived the stem itself until #1116 — a
+    /// second expression for the question this whole type exists to answer once.
+    pub(crate) fn name_of(rel: &str) -> String {
+        Path::new(rel)
+            .file_name()
+            .map(|f| f.to_string_lossy().replace(".ont.yml", ""))
+            .unwrap_or_default()
+    }
+
     pub(crate) fn parse(rel: impl Into<String>, text: impl Into<String>) -> Self {
         let rel = rel.into();
         let text = text.into();
         let (fields, malformed): (ClassFields, _) = super::parse_or_default(&text);
         Self {
-            name: Path::new(&rel)
-                .file_name()
-                .map(|f| f.to_string_lossy().replace(".ont.yml", ""))
-                .unwrap_or_default(),
+            name: Self::name_of(&rel),
             rel,
             text,
+            label: fields.label.unwrap_or_default(),
             description: fields.description.unwrap_or_default(),
             properties: fields.properties,
             edges: fields.edges,
@@ -378,6 +605,7 @@ impl Class {
                 .map(|k| k.trim().to_string())
                 .filter(|k| !k.is_empty())
                 .collect(),
+            interval: fields.interval,
             // Trimmed, and an empty declaration read as none: `implemented_by: ""` is a
             // field somebody started and did not finish, and gating a build on it would
             // report a class against a type name that cannot match anything.
@@ -396,5 +624,136 @@ impl Class {
             .collect(),
             malformed,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn classes(pairs: &[(&str, &str)]) -> Vec<Class> {
+        pairs
+            .iter()
+            .map(|(name, yaml)| Class::parse(format!(".yidam/corpus/{name}.ont.yml"), *yaml))
+            .collect()
+    }
+
+    /// Either end may state who authors an edge, and each arm of `direction:` is read the way
+    /// [`pointed_classes`] reads it from the other end.
+    #[test]
+    fn authorship_is_read_from_whichever_end_declares_it() {
+        let cs = classes(&[
+            (
+                "gage",
+                "edges:\n  - relationship: sources-from\n    target: concept\n    direction: out\n",
+            ),
+            (
+                "fund",
+                "edges:\n  - relationship: appropriated-in\n    target: jurisdiction\n    direction: in\n",
+            ),
+            ("jurisdiction", "edges: []\n"),
+            ("concept", "edges:\n  - relationship: refines\n    target: concept\n    direction: out\n"),
+        ]);
+        let authored = authored_relationships(&edge_views(&cs));
+        assert_eq!(authored["gage"], BTreeSet::from(["sources-from"]));
+        assert_eq!(
+            authored["jurisdiction"],
+            BTreeSet::from(["appropriated-in"])
+        );
+        assert!(
+            !authored.contains_key("fund"),
+            "`in` is authored by the other end"
+        );
+        assert!(
+            !authored.contains_key("concept"),
+            "a self-edge authors nothing"
+        );
+
+        // `concept` declares only a self-edge; `fund` declares only an inbound one.
+        // `jurisdiction` authors, so it is no sink however little it declares itself.
+        let sinks = sink_classes(&edge_views(&cs));
+        assert_eq!(
+            sinks,
+            HashSet::from(["concept".to_string(), "fund".to_string()])
+        );
+    }
+
+    /// A class whose own list is empty is still a sink when another class points at it —
+    /// `examples/property`'s `party`. One no declaration mentions has said nothing.
+    #[test]
+    fn a_class_pointed_at_from_the_other_end_is_a_sink_and_an_unmentioned_one_is_not() {
+        let cs = classes(&[
+            (
+                "instrument",
+                "edges:\n  - relationship: grantee\n    target: party\n    direction: out\n",
+            ),
+            ("party", "edges: []\n"),
+            ("note", "label: Note\n"),
+        ]);
+        assert_eq!(
+            sink_classes(&edge_views(&cs)),
+            HashSet::from(["party".to_string()])
+        );
+    }
+
+    /// A declaration with no direction names both ends as authors, so it exempts neither.
+    #[test]
+    fn a_directionless_declaration_makes_neither_end_a_sink() {
+        let cs = classes(&[
+            ("a", "edges:\n  - relationship: relates-to\n    target: b\n"),
+            ("b", "edges:\n  - relationship: relates-to\n    target: a\n"),
+        ]);
+        assert!(sink_classes(&edge_views(&cs)).is_empty());
+    }
+
+    /// **The stem governs, and it governs against a declared `class:`** rather than only in
+    /// its absence.
+    ///
+    /// Four readers preferred the declared field until #1116 while `class_of`,
+    /// `Corpus::defined_classes` and `graph-check` have always read the stem. No corpus on
+    /// hand can tell the two apart — the measurement is on [`Class::name`] — so this is the
+    /// only place the disagreement is constructed at all, and it is constructed so the rule
+    /// has a falsifier rather than only a sentence.
+    #[test]
+    fn the_file_stem_names_the_class_when_the_declared_field_disagrees() {
+        let c = Class::parse(
+            ".yidam/corpus/gage.ont.yml",
+            "class: measure\nlabel: Gage\n",
+        );
+        assert_eq!(c.name, "gage");
+        // Only the name is the stem's. Everything else is read as the file wrote it.
+        assert_eq!(c.label, "Gage");
+    }
+
+    /// The three fields #1116 widened this with, each of which a reader used to reach by
+    /// opening the file a second time.
+    #[test]
+    fn a_class_carries_its_label_and_its_declared_descriptions() {
+        let c = Class::parse(
+            "gage.ont.yml",
+            "class: gage\nlabel: Gage\ndescription: A station.\n\
+             properties:\n  - name: datum\n    type: string\n    description: Which datum.\n\
+             edges:\n  - relationship: reads\n    target: sensor\n    \
+             description: The gage reads a sensor.\n",
+        );
+        assert_eq!(c.label, "Gage");
+        assert_eq!(c.properties[0].description, "Which datum.");
+        assert_eq!(c.edges[0].description, "The gage reads a sensor.");
+    }
+
+    /// Absent is empty, not unparseable. Every class file written before `label:` and the two
+    /// `description:`s were read here still has to load, because this parse is now the only
+    /// one and a reader that refused them would take the whole corpus with it.
+    #[test]
+    fn a_class_declaring_none_of_them_still_parses() {
+        let c = Class::parse(
+            "gage.ont.yml",
+            "class: gage\nproperties:\n  - name: datum\n    type: string\n\
+             edges:\n  - relationship: reads\n    target: sensor\n",
+        );
+        assert!(c.malformed.is_none(), "{:?}", c.malformed);
+        assert!(c.label.is_empty());
+        assert!(c.properties[0].description.is_empty());
+        assert!(c.edges[0].description.is_empty());
     }
 }

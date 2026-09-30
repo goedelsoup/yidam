@@ -122,7 +122,10 @@ export interface Exit {
 export interface StartInput {
   /** Absolute path to the binary `resolveBinary` found. */
   command: string
-  /** The corpus root, already resolved; both the working directory and the `rootUri`. */
+  /**
+   * The corpus root, already resolved; the working directory, `--root` and the `rootUri`.
+   * `serve` has taken `--root` since cli/v0.10.0, below every floor this surface already has.
+   */
   root: string
   /** Injected so tests need no binary. */
   spawn?: Spawn
@@ -211,7 +214,7 @@ export class LspClient {
       input.spawn ??
       ((command, args, options) =>
         spawn(command, args, { cwd: options.cwd, stdio: ['pipe', 'pipe', 'pipe'] }) as ChildProcess as Child)
-    return new LspClient(spawnChild(input.command, LSP_ARGS, { cwd: input.root }))
+    return new LspClient(spawnChild(input.command, [...LSP_ARGS, '--root', input.root], { cwd: input.root }))
   }
 
   /** The handshake, as the server answered it. `rootUri` is the corpus root as a file URI. */

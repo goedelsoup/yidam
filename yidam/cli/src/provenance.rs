@@ -36,6 +36,23 @@ pub struct Provenance {
     /// Author date of the pinned commit — not the date this repo ran the vendor step.
     /// It answers "how old is the prelude I am running", which staleness actually turns on.
     pub committed: String,
+    /// The `yidam` binary that wrote this manifest, as `<version> (<build commit>)`.
+    ///
+    /// The other four fields describe the template tree, and the tree is not what copies
+    /// itself. A derived repository once carried a `.claude/worktrees/` copy of the template
+    /// that the pinned commit had already learned to leave behind; an older binary earlier on
+    /// PATH had done the copy, and nothing recorded that it had (#1076).
+    pub cli: String,
+}
+
+/// This binary, in the form `cli` records.
+///
+/// Version and commit only. The feature list `--version` also prints says what the binary
+/// can do next, not what it did here, and would make the field differ between two builds
+/// of one commit that copied identically.
+pub fn cli() -> String {
+    let b = crate::report::YidamBlock::current();
+    format!("{} ({})", b.version, b.commit)
 }
 
 fn git_output(root: &Path, args: &[&str]) -> Option<String> {
@@ -81,6 +98,7 @@ impl Provenance {
             .unwrap_or_else(|| "untagged".to_string()),
             committed: git_output(root, &["log", "-1", "--format=%as", "HEAD"])
                 .unwrap_or_else(|| "unknown".to_string()),
+            cli: cli(),
         }
     }
 
@@ -94,6 +112,7 @@ impl Provenance {
              # `commit` is the resolvable pin: it is what the re-vendor procedure and CI\n\
              # check out. `template` is the release tag at that commit, or \"untagged\".\n\
              # `committed` is that commit's date — how old the vendored prelude is.\n\
+             # `cli` is the yidam binary in use when this file was written: version (build commit).\n\
              #\n\
              # See .yidam/.vendor/prelude/guidelines/directories.md for the re-vendor procedure.\n\
              \n\
@@ -101,8 +120,9 @@ impl Provenance {
              origin    = \"{}\"\n\
              commit    = \"{}\"\n\
              template  = \"{}\"\n\
-             committed = \"{}\"\n",
-            self.origin, self.commit, self.template, self.committed
+             committed = \"{}\"\n\
+             cli       = \"{}\"\n",
+            self.origin, self.commit, self.template, self.committed, self.cli
         )
     }
 
@@ -189,6 +209,15 @@ mod tests {
             parsed["yidam"]["commit"].as_str().unwrap(),
             p.commit,
             "commit must round-trip — it is the field the re-vendor resolves"
+        );
+        assert_eq!(
+            parsed["yidam"]["cli"].as_str().unwrap(),
+            format!(
+                "{} ({})",
+                env!("CARGO_PKG_VERSION"),
+                env!("YIDAM_BUILD_COMMIT")
+            ),
+            "cli must name this binary — it is what attributes a bad copy to the tool that made it"
         );
     }
 }

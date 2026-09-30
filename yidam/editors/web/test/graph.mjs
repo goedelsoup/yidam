@@ -17,6 +17,7 @@ import {
   classOf,
   nodeById,
   nodeHref,
+  omissionOf,
   referencesTo,
   reportsRequired,
 } from '../src/lib/graph.ts'
@@ -110,6 +111,20 @@ test('an absent `required` is not read as optional', () => {
   // A class declaring nothing has no answer to report either way, and the page renders
   // "This class declares no properties" rather than a table with a column above no rows.
   assert.equal(reportsRequired([]), false)
+})
+
+test('a licensed omission is not labelled reported', () => {
+  // `required: false` and silence both arrive as `required: false`, and `missing-property`
+  // reports only the second (#1155). `omission` is the binary's verdict and wins.
+  assert.equal(omissionOf({ name: 'a', required: true, omission: 'gates' }), 'gates')
+  assert.equal(omissionOf({ name: 'b', required: false, omission: 'reported' }), 'reported')
+  assert.equal(omissionOf({ name: 'c', required: false, omission: 'licensed' }), 'licensed')
+
+  // A binary older than `omission` can say what gates and nothing more. `false` there is not
+  // `reported`, because that is the guess the field exists to stop.
+  assert.equal(omissionOf({ name: 'd', required: true }), 'gates')
+  assert.equal(omissionOf({ name: 'e', required: false }), 'ungated')
+  assert.equal(omissionOf({ name: 'f' }), undefined)
 })
 
 test('a href keeps the separators and escapes the segments', () => {
