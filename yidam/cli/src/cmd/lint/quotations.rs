@@ -54,6 +54,15 @@
 //! one. An entry holding several is the hb-96 case: the words were read from one revision,
 //! and a check that passed when *any* revision held them would pass the retyping that
 //! motivated this. So the pin is required exactly where there is a choice to record.
+//!
+//! # A quotation cites its entry
+//!
+//! A quotation's `of:` names a catalog entry the way an edge's `source:` does, so the citation
+//! count reads it too (#1174): an entry quoted and linked from nowhere is not uncited, and a
+//! `[verified]` claim resting on a quotation is not unsourced. It counts whether or not the span
+//! was found. A bad pin, drift and missing bytes are each reported here, and an edge's
+//! `source:` is not held to its bytes either. Both readers take the quotations from
+//! [`Declared`], so a quotation these checks skip is one the count skips.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -150,6 +159,73 @@ fn one(m: &serde_yaml::Mapping) -> Result<Quotation, String> {
     })
 }
 
+/// Which properties hold quotations, class by class.
+///
+/// **The one reading of the declaration, and two things ask it.** [`checks`] holds each
+/// quotation to the bytes it names. [`super::checks::citations`] counts its `of:` as a citation
+/// of the entry (#1174). If each walked the ontology on its own, a quotation could be counted
+/// and never checked, and a `[verified]` claim would rest on a value lint never read.
+///
+/// The class first, then `universal.yml`, which is `property-type`'s order, so a property read
+/// here is one that check holds to the same type. A node whose class the corpus does not define
+/// declares no quotation, as `property-type` checks nothing on it. The same precedence is
+/// written out in three other places (#1186).
+pub struct Declared<'a> {
+    classes: HashMap<&'a str, &'a Class>,
+    universal: &'a crate::universal::Universal,
+}
+
+impl<'a> Declared<'a> {
+    pub fn new(classes: &'a [Class], universal: &'a crate::universal::Universal) -> Self {
+        Self {
+            classes: classes.iter().map(|c| (c.name.as_str(), c)).collect(),
+            universal,
+        }
+    }
+
+    /// Every property an instance of `class` declares `type: quotation`, with its reading.
+    pub(crate) fn in_node<'n>(
+        &self,
+        class: &str,
+        inst: &'n crate::parse::CorpusInstance,
+    ) -> Vec<(&'n str, Result<Vec<Quotation>, String>)> {
+        let Some(class) = self.classes.get(class) else {
+            return Vec::new();
+        };
+        inst.properties
+            .iter()
+            .flatten()
+            .filter_map(|(k, value)| {
+                let key = k.as_str()?;
+                let declared = class
+                    .properties
+                    .iter()
+                    .find(|p| p.name == key)
+                    .map(|p| p.r#type.as_str())
+                    .or_else(|| self.universal.declared_type(key));
+                (declared == Some(QUOTATION_PROPERTY_TYPE)).then(|| (key, read(value)))
+            })
+            .collect()
+    }
+
+    /// The `of:` of every quotation an instance of `class` holds, as written.
+    ///
+    /// A malformed value names nothing. `property-type` reports it and [`checks`] skips it, so
+    /// a claim cannot rest on a value lint could not read.
+    pub(crate) fn named_entries(
+        &self,
+        class: &str,
+        inst: &crate::parse::CorpusInstance,
+    ) -> Vec<String> {
+        self.in_node(class, inst)
+            .into_iter()
+            .filter_map(|(_, quotations)| quotations.ok())
+            .flatten()
+            .map(|q| q.of)
+            .collect()
+    }
+}
+
 /// A media type whose bytes are text a span can be found in.
 ///
 /// Absent is not refused here: an entry written by hand may not record one, and the bytes
@@ -219,38 +295,21 @@ struct Finding {
 #[must_use]
 pub fn checks(
     nodes: &[Node],
-    classes: &[Class],
-    universal: &crate::universal::Universal,
+    declared: &Declared,
     sources: &[Source],
     catalog: &Path,
     cache: Option<&Cache>,
 ) -> [Check; 3] {
     let entries: HashMap<PathBuf, &Source> =
         sources.iter().map(|s| (normalize(&s.path), s)).collect();
-    let by_name: HashMap<&str, &Class> = classes.iter().map(|c| (c.name.as_str(), c)).collect();
     let mut read_once: HashMap<ContentHash, Bytes> = HashMap::new();
     let mut found = Vec::new();
 
     for n in nodes {
-        let Some(class) = by_name.get(super::checks::class_of(n).as_str()) else {
-            continue;
-        };
         let dir = n.path.parent().unwrap_or(&n.path);
-        for (k, value) in n.inst.properties.iter().flatten() {
-            let Some(key) = k.as_str() else { continue };
-            // The class first, then the corpus — `property-type`'s order, so a property this
-            // reads is one that check holds to the same type.
-            let declared = class
-                .properties
-                .iter()
-                .find(|p| p.name == key)
-                .map(|p| p.r#type.as_str())
-                .or_else(|| universal.declared_type(key));
-            if declared != Some(QUOTATION_PROPERTY_TYPE) {
-                continue;
-            }
+        for (key, quotations) in declared.in_node(&super::checks::class_of(n), &n.inst) {
             // A malformed value is `property-type`'s finding, and one finding is enough.
-            let Ok(quotations) = read(value) else {
+            let Ok(quotations) = quotations else {
                 continue;
             };
             for q in quotations {
@@ -463,10 +522,10 @@ mod tests {
                 &overlay,
             );
             let cache = Cache::at(root.join("cache"));
+            let universal = crate::universal::Universal::default();
             checks(
                 &nodes,
-                &classes,
-                &crate::universal::Universal::default(),
+                &Declared::new(&classes, &universal),
                 &sources,
                 &root.join(".yidam/catalog"),
                 with_cache.then_some(&cache),

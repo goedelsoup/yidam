@@ -270,8 +270,24 @@ impl<'a> Input<'a> {
     /// [`Node`] carries the text `load_nodes` already read, so nothing here re-reads the
     /// corpus to hand the same bytes to a check a second time.
     pub(crate) fn cites(&self) -> &[Vec<String>] {
-        self.cites
-            .get_or_init(|| checks::citations(self.sources(), self.nodes(), self.catalog_dir()))
+        self.cites.get_or_init(|| {
+            checks::citations(
+                self.sources(),
+                self.nodes(),
+                self.catalog_dir(),
+                &self.quotations(),
+            )
+        })
+    }
+
+    /// Which properties hold quotations, from the classes and `universal.yml` this input
+    /// already holds, so the editor reads an unsaved declaration.
+    ///
+    /// Built on each call rather than held, because it borrows [`Self::universal`], and it
+    /// is a map over the classes and nothing more. The quotation checks and the citation count
+    /// both read it, so they cannot disagree about which values are quotations (#1174).
+    pub(crate) fn quotations(&self) -> quotations::Declared<'_> {
+        quotations::Declared::new(self.classes(), self.universal())
     }
 
     /// The `type: claim` properties each class declared, so the structural arm of the claim
@@ -686,8 +702,7 @@ impl<'a> Input<'a> {
             let cache = crate::vault::Cache::resolve(|k| std::env::var(k).ok()).ok();
             quotations::checks(
                 self.nodes(),
-                self.classes(),
-                self.universal(),
+                &self.quotations(),
                 self.sources(),
                 self.catalog_dir(),
                 cache.as_ref(),

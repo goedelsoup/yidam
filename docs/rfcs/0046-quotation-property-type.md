@@ -111,10 +111,16 @@ ordering is refused `unordered-property`, as on every type without an order. `=`
 `trivial-predicate`. `~` is refused `unsatisfiable-predicate`, because otherwise it would
 match nothing and say nothing, which is an empty answer that reads as a true one.
 
+### A quotation cites its entry
+
+A declared quotation's `of:` counts as a citation of the entry it resolves to, as an edge
+`source:` does (#1174). `catalog-uncited`, `verified-unsourced`, `catalog audit` and serve's
+citations read one count. That count reads the declaration the three checks above read, so
+nothing is counted that lint does not check. An `of:` counts when it resolves, whatever the pin
+or the cache says. A value lint cannot read counts nothing.
+
 ## What this does not touch
 
-- **Citation counting (#1174).** A quotation's `of:` is not yet one of the forms `catalog-uncited`
-  and `verified-unsourced` count as citing an entry.
 - **Rename-blind history checks.** #1070 also asked whether `history.rs`, `lineage.rs` and
   `line_citations.rs` miss a rename written as a delete plus an add. That audit is #1171.
 - **PDF text.** #1172.
@@ -139,4 +145,6 @@ as mappings.
 
 ## Open questions
 
-- Should a quotation count as a citation of its entry (#1174)?
+- ~~**Should a quotation count as a citation of its entry (#1174)?**~~ **Answered: yes.** A
+  quotation names its entry more exactly than an edge `source:` does, and the edge already
+  counted. See *A quotation cites its entry*.
