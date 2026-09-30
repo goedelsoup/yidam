@@ -114,12 +114,12 @@ A pod holds no git identity. The commits it builds carry `yidam run` as author a
 
 ### Building your own
 
-Build from [cluster/Dockerfile](cluster/Dockerfile) to run a commit that is not released, or to
+Build from [yidam/cluster/Dockerfile](../yidam/cluster/Dockerfile) to run a commit that is not released, or to
 change the features the binary carries. Build from the repository root, because the CLI crate
 has two path dependencies beside it.
 
 ```sh
-docker build -f docs/cluster/Dockerfile -t ghcr.io/you/yidam-cluster:<version> .
+docker build -f yidam/cluster/Dockerfile -t ghcr.io/you/yidam-cluster:<version> .
 ```
 
 A digest of your own build names an image only you can pull. A receipt that records it tells

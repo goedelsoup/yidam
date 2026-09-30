@@ -1,4 +1,4 @@
-# Read by BuildKit beside docs/cluster/Dockerfile. The context is the repository root, and
+# Read by BuildKit beside yidam/cluster/Dockerfile. The context is the repository root, and
 # a checkout's build directories would otherwise be sent to the daemon before COPY runs.
 **/target
 **/node_modules

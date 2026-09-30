@@ -694,7 +694,7 @@ fn a_landing_re_parents_over_an_unrelated_commit_and_refuses_over_a_moved_input(
 
 // ── the typed arm ─────────────────────────────────────────────────────────────
 
-/// The image carries `calculators-gluon` (`docs/cluster/Dockerfile`), so a pod runs a typed
+/// The image carries `calculators-gluon` (`yidam/cluster/Dockerfile`), so a pod runs a typed
 /// calculator the way it runs a shell one: pinned bundle in, operational sha out, landed on
 /// `main` with its receipt.
 #[cfg(feature = "calculators-gluon")]

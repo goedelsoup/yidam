@@ -231,7 +231,7 @@ fn rust_base_version(line: &str) -> Option<String> {
 
 /// Every Dockerfile's Rust base is the pinned toolchain.
 ///
-/// #1227. `docs/cluster/Dockerfile` built from `rust:1.88-bookworm`, which agreed with the pin
+/// #1227. The cluster Dockerfile built from `rust:1.88-bookworm`, which agreed with the pin
 /// by coincidence and floated to each new 1.88 patch. Nothing compared the two until the
 /// image was published, and a published image built by a compiler no gate ran is the thing
 /// `release.yml`'s pinned toolchain exists to prevent.
@@ -280,7 +280,7 @@ fn every_dockerfile_rust_base_is_the_pinned_toolchain() {
     }
     assert!(
         found >= 1,
-        "no Dockerfile builds from a `rust:` base. docs/cluster/Dockerfile does, so this test \
+        "no Dockerfile builds from a `rust:` base. yidam/cluster/Dockerfile does, so this test \
          is reading the wrong tree or the parser stopped matching"
     );
     assert!(
