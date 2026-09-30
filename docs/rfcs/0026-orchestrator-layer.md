@@ -1,7 +1,7 @@
 # RFC-0026 — A run is a commit somebody can refuse (the orchestrator layer)
 
 - **Status:** Implemented
-- **Commands:** `run`, `phase`, `cluster`, `gather`
+- **Commands:** `run`, `phase`, `cluster`, `gather`, `dispatch`
 - **Track:** I21
 - **Relates to:**
   - RFC-0020 (the carriage rule this extends from findings to executions)
@@ -56,6 +56,14 @@
   writes no `open:` either, it prints its questions; no class-correspondence mechanism existed;
   and the vault's `has` is not on the local path, because `tonpa` fetches over HTTP. The cluster
   fan-out is a follow-up child.
+- **Amended 2026-09-30 (#477):** §9 is new. `yidam dispatch` runs an agent elector as a run
+  and proposes its position onto `propose/elector/*`. The definition comes before a cluster
+  could supply one by accident. The registry row is checked first, and a run never writes it.
+  The receipt corroborates the row, and a new lint reports where the two part. Three things the
+  build settled: the elector is launched as a connector the dispatcher constructs, which leaves
+  `run`'s refusal of connectors standing; a seat that binds a key is told to sign the position
+  onto its branch, because the dispatch commit is unsigned; and the report derives
+  `independence:` but never counts positions.
 - **Downstream reference case:** none yet. The first consumer is `examples/streamflow`, by
   construction — see "Why the first thing built is not the manifest".
 
@@ -881,6 +889,59 @@ nothing. A branch holding a different answer is refused without `--force`.
 bundle's lock hash is checked rather than refreshed. On a cluster, the vault's `has` would answer
 before a transfer; locally there is no transfer to skip. Open question 1 — how a corpus declines
 to be gathered from — stays open; a gather reads only what a peer published.
+
+### 9 — An elector run is defined before a cluster defines it
+
+#477. An agent seat's positions were written by whatever an operator launched, and nothing
+recorded what ran. A pod has an image and a digest, so a cluster would have supplied a definition
+by accident. `yidam dispatch <question> --seat <name>…` is the definition, on one machine.
+
+**Everything is read at the seat's tip.** The seat declares its occupant in
+`.yidam/sangha/dispatch/<name>.toml` on its own branch. The declaration gives the model and
+version, the argv, the `reads` globs, and the `config` globs whose files are its operative
+configuration. The registry row and the corpus the elector is handed are read at that tip as
+well. That is *"the state of the agent that held it"*, which is what `independence:` is derived
+from.
+
+**Registry first.** The dispatcher refuses a seat whose row does not already describe the
+occupant. `Model`, `Version` and `Config` must be filled in and must agree with the declaration.
+`Config` is compared with the sha256 of `{run, files}` over the configuration files, and a prefix
+of at least seven characters matches. A run never writes the registry, so a model bump is an
+update a person commits before the next dispatch. A human seat is refused, because a person
+answers for their own seat.
+
+**The run is §2's shell arm.** The declared `reads` are checked out of the tip into a scratch
+tree. The elector is handed `$YIDAM_SEAT`, `$YIDAM_QUESTION`, `$YIDAM_POSITION`, `$YIDAM_MODEL`,
+`$YIDAM_MODEL_VERSION` and `$YIDAM_CONFIG` beside the usual four. It may write its position and
+its seat's commitments file and nothing else. An out-of-scope write fails the run, and so does a
+run that writes no position. The capability is constructed by the dispatcher as a connector. It
+is never declared in `capabilities.toml`, so `run` still refuses every connector.
+
+**A position is epistemic, so it is proposed.** It lands as `open:`, or as `revise:` where the
+seat already holds a position on the question. The branch is
+`propose/elector/<name>/<question>/<tip>`, parented on the seat's tip and authored
+`yidam dispatch`. The receipt is written beside the position at `.yidam/runs/elector/<name>.yml`,
+with v2's `model`, `version` and `config`. Repeating over an unchanged tip writes nothing, and a
+branch holding a different answer is refused without `--force`. The seat moves only when whoever
+answers for it takes the commit. An unkeyed seat fast-forwards. A seat whose row binds a key
+runs `git cherry-pick -S`, because the dispatch commit is unsigned and
+`elector-signature-unverified` gates on an unsigned tip. Nothing here moves a seat, authors
+`resolve:`, or merges.
+
+**The receipt corroborates and never derives.** `independence:` is still derived from registry
+rows alone. A test pins that removing the receipts, or committing ones that disagree, leaves it
+unchanged. `elector-receipt-disagrees` (warn) reads a receipt and the registry at the same tip.
+It reports a model, version or config that differs, and a value the row leaves blank. Tips come
+from each seat's current branch and from every tip a resolution names.
+
+**No count of positions.** Three seats under one configuration are one position read three
+times. The report lists the seats and derives `independence:` over the ones that ran, with the
+lint's own function, so three dispatches of one configuration read `shared-configuration`. It
+never reports how many positions it produced.
+
+**What is not built.** There is no cluster arm. A pod would run this same definition, and its
+image digest would be one more receipt field. Nothing transports a position between seats, and
+nothing signs.
 
 ## What this does not do
 

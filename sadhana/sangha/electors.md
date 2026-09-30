@@ -32,6 +32,9 @@ read exactly as it was before they existed.
 - **`Model`**, **`Version`** — what produced this seat's positions, so a reader auditing the
   ancestry can tell `claude-opus-4-8` under one configuration from something else entirely.
 - **`Config`** — a *hash* of the agent's operative configuration, never the configuration.
+  For a seat run by `yidam dispatch`, it is the hash the dispatcher computes from the seat's
+  declaration, and the dispatcher refuses a seat whose row leaves it blank or records another.
+  At least the first seven characters are needed.
 - **`Key`** — the seat's SSH public key, in `authorized_keys` form: `ssh-ed25519 AAAA…`.
   The key itself, not a fingerprint. `yidam lint` generates the allowed-signers file
   `git verify-commit` reads out of this column, at verification time and never as a

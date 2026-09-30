@@ -589,6 +589,12 @@ const NO_REPORT: &[(&str, &str)] = &[
          `cluster_run.rs`",
     ),
     (
+        "dispatch",
+        "requires `ma/*` seats, their registry rows and a declared elector, which the fixture \
+         holds none of, and lands a branch when it has them. Exercised end to end in \
+         `dispatch.rs`, which asserts the envelope, each seat's outcome and the exit code",
+    ),
+    (
         "gather",
         "requires `.yidam/gathers/<name>.toml` and installed peers, which the fixture holds \
          neither of, and lands a branch when it has them. Exercised end to end in `gather.rs`, \

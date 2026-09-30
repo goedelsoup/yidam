@@ -81,6 +81,32 @@ under `holds` may move to `withdrawn`, and may not quietly stop being named at a
 *engaged* the argument it reverses is a judgement, and Article V's commentary leaves that kind with
 the elector rather than with a checker.
 
+### Dispatching an agent seat
+
+An agent seat may be run by `yidam dispatch <question> --seat <name>`. The seat declares what
+runs it in `.yidam/sangha/dispatch/<name>.toml` on its own branch: the model, the version, the
+argv, what it reads, and which files are its configuration.
+
+**The registration comes first.** A seat whose row does not already record that model, version
+and configuration hash is refused, and the refusal names the hash to record. A run never edits
+`electors.md`. A model upgrade is still the update [What a registration records](#what-a-registration-records)
+asks for, committed by a person before the next dispatch.
+
+**What it writes is a proposal.** The position lands on
+`propose/elector/<name>/<question>/<tip>` as the `open:` or `revise:` commit step 1 of the
+[resolution procedure](#resolution-procedure) asks for. A receipt beside it records what ran. The
+seat holds the position only once whoever answers for the seat takes it:
+
+- a seat with no `Key` fast-forwards: `git merge --ff-only <proposal>`;
+- a seat that binds a `Key` runs `git cherry-pick -S <proposal>`. The dispatch commit is
+  unsigned, and fast-forwarding onto it would leave an unsigned tip that
+  `elector-signature-unverified` refuses.
+
+**The receipt does not decide anything.** `independence:` is still read from the registry.
+`elector-receipt-disagrees` warns where a receipt and the row at the same tip describe different
+occupants. Dispatch reports no count of positions, because three seats under one configuration
+are one position read three times. It never authors `resolve:` or merges.
+
 ## Calling a resolution
 
 Any elector may call a resolution by:

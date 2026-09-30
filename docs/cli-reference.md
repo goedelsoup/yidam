@@ -427,6 +427,7 @@ the read-only overview.
 | `phase <sub>` * | `start` opens a phase and snapshots what it begins from. `run` invokes its plan, recording each step. `settle` checks it produced outputs and drafts the merge — a person runs it |
 | `cluster <sub>` * | The same run on Argo Workflows, one pod per act. `workflow` generates the manifest. `pin` bundles the branch tip into a vault. `step` runs one capability against a bundle. `land` is the one command that moves a ref. `admit` says whether a run is owed |
 | `gather <name>` * | Ask pinned peers the question in `.yidam/gathers/<name>.toml`. Their answers land as one cited `?` node on a `propose/*` branch. `--dry-run` asks and writes nothing |
+| `dispatch <question>` * | Run the agent electors named by `--seat`, each as its seat declares. Each position lands on a `propose/elector/*` branch with a receipt. `--dry-run` runs them and writes nothing |
 
 ### Retrieval, and the corpora it can reach
 
@@ -646,6 +647,32 @@ Nothing is imported, no edge is drawn, and no claim is merged. Deciding between 
 Every peer is reported: `answered`, `empty`, `unaligned`, `refused`, `missing` or `undeclared`.
 A path dependency is `refused`, because a working tree has no commit to cite.
 A repeat over unchanged peers writes nothing and reports `unchanged`.
+
+### `dispatch` runs an agent seat and proposes what it wrote
+
+An agent seat declares what runs it in `.yidam/sangha/dispatch/<name>.toml`, on its own `ma/<name>` branch:
+
+```toml
+model   = "claude-opus-4-8"          # must equal the row's Model
+version = "1"                        # must equal the row's Version
+run     = ["sh", "elector.sh"]       # the argv
+reads   = ["elector.sh", ".yidam/corpus/**"]
+config  = ["elector.sh"]             # the files hashed into Config
+```
+
+`yidam dispatch <question> --seat <name>…` reads the declaration, the registry row and the corpus at each seat's tip.
+A row must already record the model, version and config hash. A seat whose row does not is refused, and the report gives the hash to record.
+A human seat is refused.
+
+The elector runs in a scratch tree with `$YIDAM_SEAT`, `$YIDAM_QUESTION`, `$YIDAM_POSITION`, `$YIDAM_MODEL`, `$YIDAM_MODEL_VERSION` and `$YIDAM_CONFIG` set.
+It may write `.yidam/sangha/positions/<name>-<question>.md` and its commitments file, and nothing else.
+
+The position and a receipt land as one `open:` or `revise:` commit on `propose/elector/<name>/<question>/<tip>`.
+The seat does not move until you take the commit: `git merge --ff-only <proposal>`, or `git cherry-pick -S <proposal>` if the row binds a `Key`.
+A repeat over an unchanged tip reports `unchanged`. `--dry-run` runs the elector and writes no branch.
+
+The report derives `independence:` over the seats that ran and never counts positions.
+The command exits non-zero if any seat is refused or fails.
 
 ### `cohort` reports about the prelude, not about a corpus
 
