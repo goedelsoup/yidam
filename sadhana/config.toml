@@ -180,3 +180,28 @@
 # region   = "us-east-1"
 # endpoint = "https://minio.internal:9000"
 # path_style = true
+
+# ── the cluster ───────────────────────────────────────────────────────────────
+#
+# Where this corpus's runs execute when they do not execute here (RFC-0026 §7). Everything
+# under it is about whether and where a run happens; nothing under it is about what a run
+# may author, and an unknown key here is a parse error rather than a line read as effective.
+# Absent, `yidam cluster workflow` needs `--remote` and `--image` on the command line, and
+# `yidam cluster admit` reports the proposal cap as not declared.
+#
+# `remote` is the git remote the lander writes and the pin reads; which credential each pod
+# holds for it is the manifest's concern. `branch` is the branch operational commits land
+# on; epistemic ones go to `propose/<input>` and it does not move. `image` is a build of
+# this CLI with git and an SSH client beside it. `vault` names the `[vault.<name>]` that
+# carries bundles between pods. `namespace` is what the generated manifest names; unset
+# leaves it to `kubectl`. `max_open_proposals` is how many `propose/*` branches may stand
+# open before admission refuses to submit another run; unset means no cap, and `admit`
+# says so rather than reading it as infinite.
+
+# [cluster]
+# remote = "git@github.com:you/corpus.git"
+# branch = "main"
+# image  = "ghcr.io/you/yidam-cluster:latest"
+# vault  = "default"
+# namespace = "yidam"
+# max_open_proposals = 1

@@ -779,6 +779,11 @@ the config that governed the run, every input file by digest, and every output b
 series is the git history of that file, which is where a repository's series of anything already
 lives.
 
+Since `format_version: 2` it can also record what produced the output: `model`, `version`,
+`config` and `image_digest`, each only where it applies. They are not part of the input state, so
+upgrading yidam does not make a step stale. An `image_digest` comes only from an image reference
+pinned by `@sha256:`, never from a tag.
+
 **A receipt carries no timestamp.** The commit it lands in has a committer date, which is the
 real one — and it is what an `ageing_days` interval is measured against.
 [why](directories.evidence.md#receipt-has-no-timestamp)

@@ -386,6 +386,15 @@ tools = { "github:bnjbvr/cargo-machete" = "v0.9.2" }
 # and one `anyhow`, none of them referenced by a single line of code.
 run = "cargo machete"
 
+# The released CLI reads the receipt this tree writes (#475). Its own task and its own CI job,
+# not a line in `ci-cli`: it downloads a release, and the local gate does not reach the
+# network. The test is `#[ignore]`d for the same reason and fails rather than skips when run
+# without the binary — see `yidam/cli/tests/receipt_compat.rs`.
+[tasks.receipt-compat]
+description = "Run the receipt-compatibility test against the last released CLI, which it downloads."
+env = { YIDAM_PREVIOUS_VERSION = "0.17.0", TZ = "UTC" }
+run = "scripts/receipt-compat.sh"
+
 [tasks.semver-check]
 description = "API compatibility of yidam-core against the last version published to crates.io."
 tools = { "github:obi1kenobi/cargo-semver-checks" = "v0.50.0" }

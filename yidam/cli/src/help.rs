@@ -220,6 +220,9 @@ pub const GROUPS: &[Group] = &[
             // `scaffold:` commit per act and is the surface `phases` reads, so the pair sits
             // together: one opens and records the unit of inquiry, the other lists it.
             w("phase"),
+            // The same run, split into pods (#475). `workflow` writes nothing, but `land`
+            // moves a ref on a remote and is the only thing in the binary that does.
+            w("cluster"),
             r("log"),
             r("phases"),
             r("replay"),

@@ -35,12 +35,12 @@
 //! leave `catalog-used-by-drift` firing on a state this command refuses to repair.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
 use super::audit::draws_on;
-use super::commit::{self, Commit};
+use super::commit::{Commit, Writer};
 use super::record;
 use crate::cmd::lint::checks::{used_by_drift, UsedByDrift};
 use crate::corpus::normalize;
@@ -57,13 +57,13 @@ pub struct ReconcileOptions {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-struct Reconciled {
-    entry: String,
+pub(crate) struct Reconciled {
+    pub(crate) entry: String,
     /// The drift as the gate and the audit report it, before the repair.
     drift: UsedByDrift,
     /// The list as it now stands.
     used_by: Vec<String>,
-    commit: Option<Commit>,
+    pub(crate) commit: Option<Commit>,
 }
 
 /// `reconciled`, not `entries` — see [`super::fetch`]'s note on the same rename.
@@ -90,6 +90,22 @@ fn as_declared(repo_relative: &str) -> String {
 
 pub fn reconcile(opts: &ReconcileOptions) -> Result<()> {
     let root = repo_root()?;
+    let out = reconcile_in(&root, opts, &mut Writer::WorkingTree)?;
+    crate::report::finish(
+        &root,
+        opts.format,
+        ReconcileReport { reconciled: out },
+        |r| print!("{}", render(&r.reconciled, opts.dry_run)),
+    )
+}
+
+/// [`reconcile`] against `root`, committing through `writer`.
+pub(crate) fn reconcile_in(
+    root: &Path,
+    opts: &ReconcileOptions,
+    writer: &mut Writer,
+) -> Result<Vec<Reconciled>> {
+    let root = root.to_path_buf();
     let catalog = yidam_catalog_dir(&root);
     let corpus = yidam_corpus_dir(&root);
     let draws = if corpus.exists() {
@@ -165,11 +181,9 @@ pub fn reconcile(opts: &ReconcileOptions) -> Result<()> {
 
         let mut written = None;
         if !opts.dry_run {
-            commit::require_clean(&root, &[rel.clone()])?;
-            std::fs::write(path, &updated)
-                .with_context(|| format!("writing {}", path.display()))?;
+            writer.require_clean(&root, &[rel.clone()])?;
             let (subject, body) = message(&name, &drift);
-            written = commit::author(&root, &subject, &body, &[rel.clone()])?;
+            written = writer.commit(&root, &subject, &body, &[(rel.clone(), updated)])?;
         }
 
         out.push(Reconciled {
@@ -179,13 +193,7 @@ pub fn reconcile(opts: &ReconcileOptions) -> Result<()> {
             commit: written,
         });
     }
-
-    crate::report::finish(
-        &root,
-        opts.format,
-        ReconcileReport { reconciled: out },
-        |r| print!("{}", render(&r.reconciled, opts.dry_run)),
-    )
+    Ok(out)
 }
 
 /// The subject and body of the `reconcile:` commit.

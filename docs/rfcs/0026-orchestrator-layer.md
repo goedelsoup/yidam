@@ -27,6 +27,13 @@
   calculator puts in `.yidam/computed/` and how a reader reaches it. `writes` governed the
   executor from the first commit and governed nothing else; two calculators wrote there for
   weeks and no retrieval surface could see a word of it.
+- **Amended 2026-09-26 (#475):** §7 is new. The invariant of §3 is a permission on a
+  cluster — a credential the landing pod alone mounts — and not a code path. `yidam cluster`
+  is the command surface. Three things the build settled that the epic did not say: a `.yiz`
+  cannot feed a step, so what crosses between pods is a git bundle in the vault; admission
+  reads the manifest's staleness beside `due`'s clocks, because `due` has no clock for a
+  receipt that no longer matches; and under `--format json` a pod's record sits under a
+  `record` key in the report envelope rather than flattened into it.
 - **Amended 2026-09-27 (#1080):** §4.3 states the read half of the *input* — what a calculator
   is handed. §4 said a step is invoked in a tree holding what `reads` resolves to, and that is
   all it said, so the corpus arrived as bytes. Both example calculators answered *what does this
@@ -37,6 +44,11 @@
   moved, so the receipt names the same head and the tree is the one already proposed. Nothing
   lands, and the pending proposal stands as the answer. The report said the opposite of what
   happened, and now says where the tree was matched.
+- **Amended 2026-09-30 (#475):** §7.1 is new. The catalog commands commit through a
+  temporary index as well as the working tree, so they run in a pod. Every workflow runs
+  `catalog-fetch`, `catalog-extract` and `catalog-reconcile` ahead of the manifest, from a set
+  compiled into the binary. The receipt is `format_version: 2`, and records what produced the
+  output. Connectors stay unrunnable in `run` (#460 decision 9).
 - **Downstream reference case:** none yet. The first consumer is `examples/streamflow`, by
   construction — see "Why the first thing built is not the manifest".
 
@@ -694,6 +706,122 @@ The guard on this is discovery in both directions and carries no list: every dec
 resolves to a file the repository tracks, and every implementation beside one is declared. Even
 the directory implementations live in is discovered — it is wherever declarations point — so a
 corpus that keeps its calculators somewhere else is covered by the same two assertions.
+
+### 7 — On a cluster, the invariant is which pod holds the credential
+
+§3 holds that what a run may author is not policy. On one machine that is Rust with no override
+path: `cmd/run` routes by the verb's class and nothing in a manifest can change where a class
+goes. #475 asked what that becomes when the run is split into pods, and the answer is that a
+code path is not a permission. A pod running the same binary against the same manifest could
+be handed a flag, a field or an environment variable, and the check would still be a check.
+
+**The invariant is a mount.** A workflow is one `pin`, then for each step a `step` and a
+`land`. The step pod computes: it fetches a pinned bundle from the vault, clones it into
+scratch, invokes the capability, writes the receipt and builds the commit object — `cmd/run`'s
+loop body, to the line, with the ref write taken out. It has no `--remote` and no `--branch`.
+It mounts no git secret. What it emits is `{sha, class, verb, receipt, bundle}`, and a sha is
+not a permission: the commit exists in a bundle in the vault and nowhere a ref can reach. The
+lander is the one component that may update a ref and holds the only credential that can. It
+reads the class off the commit's own subject, not off the record, and pushes to the branch or
+to `propose/<input>` with a compare-and-swap. RFC-0026 §3's requirement — not expressible as a
+manifest field or a policy override — is met by there being no field: the pod that could set
+one cannot land, and the pod that lands does not read one.
+
+**The test is an attempt.** A valid, well-formed commit, handed to the lander against a remote
+the process cannot write, is refused in the remote's words, and the branch does not move. The
+same record with the permission restored lands. Nothing in this binary agreed to refuse; the
+credential was the whole difference. If that test ever passes because of a check, the
+invariant has become a code path again.
+
+**What crosses between pods is a git bundle, never a checkout.** #460 said a pod gets a pinned
+read-only bundle and never a shared PVC. The epic's word was the vault's `.yiz`, and that
+cannot feed a step: a `.yiz` is a tree, and a step needs the commit its receipt names as
+`input` and the history `cmd/run` reads freshness from. So `pin` bundles `refs/heads/<branch>`
+and `step` bundles `<input>..refs/yidam/out`, and both go into the vault content-addressed.
+A `file://` vault on a `ReadWriteMany` claim is a store of immutable digests, not a working
+tree, which is why it is not the shared volume the epic refuses.
+
+**`due` is the admission gate, and staleness sits beside it.** `admit` reads `due`'s clocks as
+`yidam due` reads them, then asks `run --dry-run`'s question of the manifest at the tip — `due`
+has no clock for a receipt that no longer matches, because `due` predates receipts — and
+counts the open `propose/*` branches against `[cluster] max_open_proposals`. That cap is the
+throughput judgement §3 assigns to the corpus. A clock that is not owed submits no workflow:
+the generated `CronWorkflow` carries `admit` first and a `when` on its verdict.
+
+**The lander retries by re-parenting, and refuses by declaration.** A branch that moved
+between the pin and the landing is the ordinary case on a cluster. The lander rebuilds the
+commit on the new tip when the step's declared `reads`, the manifest and the config are
+byte-identical at both parents, and refuses when they are not — a receipt over stale inputs is
+not a receipt. The refusal is the next admission's stale step, which runs at the new tip. A
+result the tip already holds is not landed again.
+
+**Pod logs are not provenance.** A calculator's stderr is passed through to the pod's own for
+whoever is debugging it, and recorded nowhere. Everything that matters is in the committed
+receipt, on the ref the lander wrote.
+
+**What is not built:** no shared volume holding a corpus; no operator reimplementing the DAG,
+because Argo's DAG is the dependency graph and the manifest is generated from
+`.yidam/capabilities.toml`; and no long-lived pod holding a checkout, because every pod clones
+into scratch, does one act and exits. Nothing in #471 through #474 changed to accommodate this.
+
+### 7.1 — The catalog runs on the cluster too, and the receipt says what ran
+
+*Amended 2026-09-30 (#475).*
+
+§7 shipped with the manifest's calculators as the only steps. `due` already read the catalog's
+clocks, so admission could find a catalog entry overdue and submit a workflow that did nothing
+about it. Three changes close that, and a fourth makes the record say what did the work.
+
+**The catalog commands have a second write mode.** `catalog fetch`, `extract` and `reconcile`
+committed on the current branch through the working tree, which a pod does not have. They now
+take a writer: the working tree, which is still the default on a laptop and changes nothing that
+ships, or a temporary index over a pinned commit. The temporary index is `propose/write.rs`'s
+committer, not a third one. It builds each commit with `GIT_INDEX_FILE`, `write-tree` and
+`commit-tree`, and moves no ref. Both modes refuse an epistemic subject before anything is
+written. The author is `yidam catalog`, and the committer is whoever runs it — on a cluster, the
+pod — the split `048e0d78` set for `run`.
+
+**The built-in steps are one constant.** `cluster::builtin::BUILTINS` names `catalog-fetch`
+(`refresh:`), `catalog-extract` (`extract:`) and `catalog-reconcile` (`reconcile:`), in that
+order. The workflow generator emits them ahead of the manifest's plan, and `cluster step` and
+`cluster land` resolve a name there before they read the manifest. The tests derive from the same
+constant. A manifest that declares one of those names has no workflow: either reading of it would
+be wrong.
+
+This is not a way round #460 decision 9. A connector declared in a manifest is still refused by
+`run` and by `cluster workflow`, because it would be this binary invoking an argv that reads the
+world. The built-ins are not declared. The binary calls its own library code, and the only
+connectors a pod runs are the three the constant names. A built-in's commits are folded into one,
+carrying the receipt, and it emits the same `{sha, class, verb, receipt}` record as a calculator.
+The lander does not know which kind of step built what it lands, and the missing write credential
+refuses a built-in's sha exactly as it refuses a calculator's.
+
+**The receipt records what produced the output.** `format_version` is 2. It adds `model`,
+`version`, `config` and `image_digest`, each optional and absent from the YAML when it does not
+apply. `version` is this binary's, for a step whose program is this binary: a built-in, or a
+typed calculator it interprets. A shell step records none, because yidam only launched its argv.
+`model` and `config` are for a dispatched elector, which is #477's. `image_digest` is taken only
+from a reference pinned by `@sha256:`. The workflow passes the step the same parameter its
+container runs, and a tag records nothing, because a tag names whatever was pushed last.
+
+None of the four is in the input state. The input state answers *has this already run against
+this corpus*, and a new binary or image is not a new corpus. Folding them in would re-run every
+step at every upgrade.
+
+The bump is additive, and that is tested against the released binary rather than argued. `mise
+run receipt-compat` downloads `cli/v0.17.0`, checks it against the release's `SHA256SUMS`, and
+has it read v2 receipts carrying all four fields. `run --dry-run` reads through `committed_state`
+and must call every step fresh. `doctor` reads through `Landed` and must not call one stale. It
+is its own CI job, because `ci-cli` does not reach the network.
+
+**The step record does not carry the receipt's version.** The record between pods is
+`CONTRACT_VERSION`'s. It names the receipt by path and copies none of its fields, so a receipt
+bump is never a contract bump, and a lander a release behind still reads the record. A test reads
+both key sets off the serialized structs and fails if the record gains a field the receipt has.
+
+**What is not built.** In a pod, the bytes a fetch obtains go to that pod's cache, not to the
+vault. `catalog-extract` in a later pod therefore records what it can read and skips the PDFs it
+cannot, saying why. Carrying fetched bytes into the vault between pods is not part of this.
 
 ## What this does not do
 

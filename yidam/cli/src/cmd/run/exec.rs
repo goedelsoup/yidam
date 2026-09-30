@@ -36,7 +36,7 @@ use crate::kuten::glob_covers;
 pub struct Scratch(PathBuf);
 
 impl Scratch {
-    fn new(what: &str) -> Result<Self> {
+    pub(crate) fn new(what: &str) -> Result<Self> {
         // Named rather than random: a leftover after a crash is attributable, which is the
         // same argument `TempIndex` makes about its own name. Unique per process, because
         // two runs in one repository is an ordinary thing to do.

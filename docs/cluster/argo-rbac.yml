@@ -1,0 +1,34 @@
+# The service account a generated workflow runs as, and the one role it needs.
+#
+# Argo's executor sidecar records each task's result as a `WorkflowTaskResult`; that is the
+# whole of what a `yidam` pod's account may do in the cluster. The main container never sees
+# the token: the workflow sets `automountServiceAccountToken: false` and names this account
+# for the executor alone. Git and the vault are reached with the secrets the workflow mounts,
+# never with a Kubernetes identity.
+#
+#   kubectl apply -n <namespace> -f docs/cluster/argo-rbac.yml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: yidam-run
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: yidam-run
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtaskresults"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: yidam-run
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: yidam-run
+subjects:
+  - kind: ServiceAccount
+    name: yidam-run

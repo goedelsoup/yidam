@@ -34,11 +34,29 @@
 //! files this is about to rewrite must already agree with `HEAD`. That is the same refusal
 //! `require_committed_corpus` makes, narrowed from `.yidam/` to the paths actually touched —
 //! a fetch has no business refusing to run because a corpus node is being edited elsewhere.
+//!
+//! # And on a cluster, it does
+//!
+//! The argument above is about *which branch is being written*, and in a pod no branch is.
+//! A step pod computes a commit and hands back its sha; the lander, holding the only ref
+//! credential, decides where it lands (RFC-0026 §7). There is no person whose working tree
+//! must contain the change, and a working-tree commit would move the scratch clone's branch,
+//! which is a ref the pod has no business writing even locally.
+//!
+//! So [`Writer`] has two modes. [`Writer::WorkingTree`] is everything above and the default
+//! every shipped command uses. [`Writer::Detached`] is `propose`'s machinery — a
+//! [`TempIndex`] and [`commit_tree`] — chaining each commit onto the last from a pinned
+//! parent and moving no ref at all. Both refuse an epistemic subject before anything is
+//! written, through one check, [`refuse_epistemic`]; that refusal is the permission
+//! argument, and a mode that skipped it would be the code path the cluster exists to not
+//! depend on.
 
 use std::path::Path;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use yidam_core::git::{classify_commit, CommitKind};
+
+use crate::cmd::propose::write::{commit_tree, git as git_at, short_of, TempIndex};
 
 /// The author every commit written here carries.
 ///
@@ -47,8 +65,8 @@ use yidam_core::git::{classify_commit, CommitKind};
 /// borrowing an identity. It matters more here than there — an operational commit lands on
 /// the branch rather than on a proposal nobody has merged yet, so the record of what wrote it
 /// is the only thing distinguishing it from a person's own work.
-const AUTHOR_NAME: &str = "yidam catalog";
-const AUTHOR_EMAIL: &str = "catalog@yidam";
+pub(crate) const AUTHOR_NAME: &str = "yidam catalog";
+pub(crate) const AUTHOR_EMAIL: &str = "catalog@yidam";
 
 /// A commit this module wrote.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -100,21 +118,169 @@ pub(super) fn is_operational(subject: &str) -> bool {
     classify_commit("", subject).kind == CommitKind::Operational
 }
 
+/// Refuse a subject the vocabulary calls epistemic. Both write modes call this first.
+pub(crate) fn refuse_epistemic(subject: &str) -> Result<()> {
+    if is_operational(subject) {
+        return Ok(());
+    }
+    bail!(
+        "`{subject}` is not an operational subject line, and a run may not author one.\n  \
+         RFC-0026: a run authors operational commits directly; every epistemic commit it \
+         produces goes to a proposal branch, and nothing merges itself.\n  \
+         The operational verbs are: {}",
+        yidam_core::git::OPERATIONAL_VERBS.join(", ")
+    )
+}
+
+fn message_of(subject: &str, body: &str) -> String {
+    if body.trim().is_empty() {
+        subject.to_string()
+    } else {
+        format!("{subject}\n\n{body}")
+    }
+}
+
+/// Where a catalog command's commits go. See the module doc's last section.
+pub enum Writer {
+    /// The working tree and the current branch: the laptop, and every shipped command.
+    WorkingTree,
+    /// A temporary index and no ref: a pod, which hands back a sha for the lander.
+    Detached(Detached),
+}
+
+/// The state of a detached write: the index commits are built in, and the tip they chain to.
+pub struct Detached {
+    /// Held for the writer's life: dropping it deletes the index.
+    index: TempIndex,
+    tip: String,
+    parent: String,
+    written: Vec<(String, Vec<u8>)>,
+}
+
+impl Detached {
+    /// A writer whose first commit has `parent` as its parent, starting from `parent`'s tree.
+    pub fn new(root: &Path, parent: &str) -> Result<Self> {
+        let index = TempIndex::new(root, "catalog")?;
+        git_at(root, Some(index.path()), &["read-tree", parent], None)
+            .with_context(|| format!("reading {parent}'s tree into a temporary index"))?;
+        Ok(Self {
+            index,
+            tip: parent.to_string(),
+            parent: parent.to_string(),
+            written: Vec::new(),
+        })
+    }
+
+    /// The last commit written, or the parent when nothing was.
+    pub fn tip(&self) -> &str {
+        &self.tip
+    }
+
+    /// Whether any commit was written.
+    pub fn moved(&self) -> bool {
+        self.tip != self.parent
+    }
+
+    /// Every path written and the bytes it holds at the tip, last write winning.
+    pub fn written(&self) -> &[(String, Vec<u8>)] {
+        &self.written
+    }
+}
+
+impl Writer {
+    /// A working-tree writer's [`require_clean`]. A detached one reads the pinned commit and
+    /// writes into an index of its own, so no uncommitted work can be swept into it.
+    pub fn require_clean(&self, root: &Path, paths: &[String]) -> Result<()> {
+        match self {
+            Self::WorkingTree => require_clean(root, paths),
+            Self::Detached(_) => Ok(()),
+        }
+    }
+
+    /// Write `files` as one commit under `subject`, and return it.
+    ///
+    /// The subject is classified before a byte is written, in either mode. `None` when the
+    /// files hold what is already committed — the contract [`author`] states.
+    pub fn commit(
+        &mut self,
+        root: &Path,
+        subject: &str,
+        body: &str,
+        files: &[(String, String)],
+    ) -> Result<Option<Commit>> {
+        refuse_epistemic(subject)?;
+        match self {
+            Self::WorkingTree => {
+                for (rel, content) in files {
+                    let path = root.join(rel);
+                    std::fs::write(&path, content)
+                        .with_context(|| format!("writing {}", path.display()))?;
+                }
+                let paths: Vec<String> = files.iter().map(|(rel, _)| rel.clone()).collect();
+                author(root, subject, body, &paths)
+            }
+            Self::Detached(d) => {
+                if files.is_empty() {
+                    return Ok(None);
+                }
+                let index = Some(d.index.path());
+                for (rel, content) in files {
+                    let blob = git_at(
+                        root,
+                        index,
+                        &["hash-object", "-w", "--stdin"],
+                        Some(content),
+                    )?;
+                    git_at(
+                        root,
+                        index,
+                        &[
+                            "update-index",
+                            "--add",
+                            "--cacheinfo",
+                            &format!("100644,{blob},{rel}"),
+                        ],
+                        None,
+                    )?;
+                }
+                let tree = git_at(root, index, &["write-tree"], None)?;
+                let before = git_at(
+                    root,
+                    None,
+                    &["rev-parse", &format!("{}^{{tree}}", d.tip)],
+                    None,
+                )?;
+                if tree == before {
+                    return Ok(None);
+                }
+                let sha = commit_tree(
+                    root,
+                    &tree,
+                    &d.tip,
+                    &message_of(subject, body),
+                    (AUTHOR_NAME, AUTHOR_EMAIL),
+                )?;
+                d.tip = sha.clone();
+                for (rel, content) in files {
+                    d.written.retain(|(p, _)| p != rel);
+                    d.written.push((rel.clone(), content.clone().into_bytes()));
+                }
+                Ok(Some(Commit {
+                    sha: short_of(root, &sha),
+                    subject: subject.to_string(),
+                }))
+            }
+        }
+    }
+}
+
 /// Write one commit containing exactly `paths`, and return it.
 ///
 /// `None` when the paths hold nothing to commit — a re-run that found the same bytes edits
 /// nothing, and an empty commit asserting a fetch happened would be the *"provenance invented
 /// rather than recorded"* failure RFC-0026 opens with.
 pub fn author(root: &Path, subject: &str, body: &str, paths: &[String]) -> Result<Option<Commit>> {
-    if !is_operational(subject) {
-        bail!(
-            "`{subject}` is not an operational subject line, and a run may not author one.\n  \
-             RFC-0026: a run authors operational commits directly; every epistemic commit it \
-             produces goes to a proposal branch, and nothing merges itself.\n  \
-             The operational verbs are: {}",
-            yidam_core::git::OPERATIONAL_VERBS.join(", ")
-        );
-    }
+    refuse_epistemic(subject)?;
     if paths.is_empty() {
         return Ok(None);
     }
@@ -132,11 +298,7 @@ pub fn author(root: &Path, subject: &str, body: &str, paths: &[String]) -> Resul
         return Ok(None);
     }
 
-    let message = if body.trim().is_empty() {
-        subject.to_string()
-    } else {
-        format!("{subject}\n\n{body}")
-    };
+    let message = message_of(subject, body);
     // `commit -- <paths>` builds the commit from HEAD plus these paths only, leaving anything
     // else in the index staged and uncommitted. That is the property that makes this safe to
     // run in a repository somebody is working in.
@@ -166,6 +328,164 @@ mod tests {
     }
 
     const ENTRY: &str = ".yidam/catalog/a.md";
+
+    const EPISTEMIC: [&str; 4] = [
+        "establish: a new concept",
+        "resolve: the tension",
+        "question: what is this",
+        "no verb at all",
+    ];
+
+    fn edited() -> Vec<(String, String)> {
+        vec![(
+            ENTRY.to_string(),
+            "---\nname: a\nobtained: true\n---\n\n# A\n".to_string(),
+        )]
+    }
+
+    /// Whether the object store holds the blob `content` would hash to.
+    fn holds_blob(root: &Path, content: &str) -> bool {
+        let id = crate::git::Git::new(root)
+            .args(["hash-object", "--stdin"])
+            .stdin(content.as_bytes().to_vec())
+            .run()
+            .unwrap();
+        crate::git::Git::new(root)
+            .args(["cat-file", "-e", &id])
+            .succeeded()
+    }
+
+    /// The same invariant in the pod's mode, and the refusal comes before the object store is
+    /// touched: a refused subject leaves no blob behind for anything to point a ref at.
+    #[test]
+    fn a_detached_writer_refuses_an_epistemic_subject_before_writing() {
+        let dir = repo();
+        let root = dir.path();
+        let head = git(root, &["rev-parse", "HEAD"]).unwrap();
+        for subject in EPISTEMIC {
+            let mut w = Writer::Detached(Detached::new(root, &head).unwrap());
+            let err = w.commit(root, subject, "", &edited()).unwrap_err();
+            assert!(
+                err.to_string().contains("not an operational subject line"),
+                "{subject} should be refused: {err}"
+            );
+            let Writer::Detached(d) = &w else {
+                unreachable!()
+            };
+            assert!(!d.moved(), "{subject}: nothing was written");
+            assert!(
+                !holds_blob(root, &edited()[0].1),
+                "{subject}: the refusal came after a blob was written"
+            );
+        }
+    }
+
+    /// The working-tree mode refuses before the file is written, too — `Writer::commit` owns
+    /// the write now, so the order is its to keep.
+    #[test]
+    fn a_working_tree_writer_refuses_before_touching_the_file() {
+        let dir = repo();
+        let root = dir.path();
+        let before = std::fs::read_to_string(root.join(ENTRY)).unwrap();
+        let err = Writer::WorkingTree
+            .commit(root, "establish: a new concept", "", &edited())
+            .unwrap_err();
+        assert!(err.to_string().contains("not an operational subject line"));
+        assert_eq!(std::fs::read_to_string(root.join(ENTRY)).unwrap(), before);
+    }
+
+    /// A pod's commit: built from the pinned parent, chained, and nowhere — no ref moved, no
+    /// working tree or index touched. The tool is the author, whoever the clone says is the
+    /// committer, which on a cluster is the pod (`commits_as_the_pod`).
+    #[test]
+    fn a_detached_writer_chains_commits_and_moves_no_ref() {
+        let dir = repo();
+        let root = dir.path();
+        let head = git(root, &["rev-parse", "HEAD"]).unwrap();
+        let refs = git(root, &["for-each-ref"]).unwrap();
+        let mut w = Writer::Detached(Detached::new(root, &head).unwrap());
+        let first = w
+            .commit(root, "refresh: a from its source", "", &edited())
+            .unwrap()
+            .expect("an edit was made");
+        let second = w
+            .commit(
+                root,
+                "reconcile: a used-by",
+                "",
+                &[(
+                    ENTRY.to_string(),
+                    "---\nname: a\nused-by: []\n---\n\n# A\n".to_string(),
+                )],
+            )
+            .unwrap()
+            .expect("a second edit was made");
+        let Writer::Detached(done) = &w else {
+            unreachable!()
+        };
+        let tip = done.tip().to_string();
+
+        assert_eq!(
+            git(root, &["rev-parse", "HEAD"]).unwrap(),
+            head,
+            "HEAD did not move"
+        );
+        assert_eq!(
+            git(root, &["for-each-ref"]).unwrap(),
+            refs,
+            "no ref was written"
+        );
+        assert!(
+            git(root, &["status", "--porcelain"]).unwrap().is_empty(),
+            "tree and index clean"
+        );
+
+        assert_eq!(
+            git(root, &["rev-parse", &format!("{tip}^^")]).unwrap(),
+            head
+        );
+        assert!(tip.starts_with(&second.sha));
+        assert!(git(root, &["rev-parse", &format!("{tip}^")])
+            .unwrap()
+            .starts_with(&first.sha));
+        assert_eq!(
+            git(root, &["show", &format!("{tip}:{ENTRY}")]).unwrap(),
+            "---\nname: a\nused-by: []\n---\n\n# A"
+        );
+        assert_eq!(done.written().len(), 1, "one path, last write winning");
+        let log = git(root, &["log", "-1", "--format=%an <%ae>%n%ce", &tip]).unwrap();
+        assert_eq!(
+            log,
+            format!(
+                "yidam catalog <catalog@yidam>\n{}",
+                crate::git::fixture::FIXTURE_EMAIL
+            )
+        );
+    }
+
+    /// The `Option<Commit>` contract holds detached: the same bytes are no commit.
+    #[test]
+    fn a_detached_writer_writes_nothing_for_unchanged_bytes() {
+        let dir = repo();
+        let root = dir.path();
+        let head = git(root, &["rev-parse", "HEAD"]).unwrap();
+        let same = std::fs::read_to_string(root.join(ENTRY)).unwrap();
+        let mut w = Writer::Detached(Detached::new(root, &head).unwrap());
+        assert!(w
+            .commit(
+                root,
+                "refresh: nothing moved",
+                "",
+                &[(ENTRY.to_string(), same)]
+            )
+            .unwrap()
+            .is_none());
+        let Writer::Detached(d) = &w else {
+            unreachable!()
+        };
+        assert!(!d.moved());
+        assert_eq!(d.tip(), head);
+    }
 
     /// The invariant, tested where it is enforced rather than only where it is argued.
     #[test]

@@ -41,6 +41,7 @@ mod index_verify;
 mod init;
 // `vector-read`, not `index`: pushing an index decodes one and never builds one, so it needs
 // neither lancedb nor protoc. `s3-vectors` is the transport, and it is in the default set.
+pub(crate) mod cluster;
 #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
 mod index_push;
 pub(crate) mod kuten;
@@ -128,6 +129,8 @@ pub use lint::{
 pub use lsp::serve_lsp;
 pub use routes::routes;
 
+pub use cluster::builtin::BUILTINS as CLUSTER_BUILTINS;
+pub use cluster::{run as run_cluster, ClusterCommand};
 pub use log::{log, Filter as LogFilter};
 pub use overlay::overlay;
 pub use pack::pack;

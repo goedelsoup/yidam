@@ -68,6 +68,7 @@ const sidebar = [
       { slug: 'mcp-server', label: 'Connecting an agent (MCP)' },
       { slug: 'artifact-vaults', label: 'Artifact vaults' },
       { slug: 'sharing-derivations', label: 'Sharing a derivation' },
+      { slug: 'cluster-runs', label: 'Running on a cluster' },
       { slug: 'troubleshooting', label: 'Troubleshooting' },
       // Beside troubleshooting rather than under 'The project' with `versioning`.
       // `versioning` explains why four layers move independently, which is read

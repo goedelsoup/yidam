@@ -25,7 +25,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use super::commit::{self, Commit};
+use super::commit::{Commit, Writer};
 use super::fetch::{select, staging};
 use super::record;
 use crate::parse::{parse_frontmatter, CatalogArtifact, TextReading};
@@ -42,7 +42,7 @@ pub struct ExtractOptions {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-struct Read {
+pub(crate) struct Read {
     /// The PDF's digest.
     artifact: String,
     /// The reading's digest. Absent on a dry run, which reads nothing.
@@ -52,18 +52,18 @@ struct Read {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-struct Skipped {
+pub(crate) struct Skipped {
     artifact: String,
     why: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-struct EntryOutcome {
-    entry: String,
+pub(crate) struct EntryOutcome {
+    pub(crate) entry: String,
     read: Vec<Read>,
     skipped: Vec<Skipped>,
     /// Absent when nothing was recorded.
-    commit: Option<Commit>,
+    pub(crate) commit: Option<Commit>,
 }
 
 /// `extracted`, a key of its own for the reason `FetchReport` gives for `fetched`.
@@ -139,6 +139,19 @@ fn message(entry: &str, read: &[Read]) -> (String, String) {
 
 pub fn extract(opts: &ExtractOptions) -> Result<()> {
     let root = repo_root()?;
+    let out = extract_in(&root, opts, &mut Writer::WorkingTree)?;
+    crate::report::finish(&root, opts.format, ExtractReport { extracted: out }, |r| {
+        print!("{}", render(&r.extracted, opts.dry_run))
+    })
+}
+
+/// [`extract`] against `root`, committing through `writer`.
+pub(crate) fn extract_in(
+    root: &Path,
+    opts: &ExtractOptions,
+    writer: &mut Writer,
+) -> Result<Vec<EntryOutcome>> {
+    let root = root.to_path_buf();
     let catalog = yidam_catalog_dir(&root);
     let entries = select(&catalog, opts.entry.as_deref())?;
     let cache = if opts.dry_run {
@@ -182,7 +195,7 @@ pub fn extract(opts: &ExtractOptions) -> Result<()> {
 
         // Checked before anything is read, so the refusal names a person's uncommitted work
         // rather than the edit this command is about to make.
-        commit::require_clean(&root, std::slice::from_ref(&rel))?;
+        writer.require_clean(&root, std::slice::from_ref(&rel))?;
 
         let (mut read, mut skipped) = (Vec::new(), Vec::new());
         let mut updated = text.clone();
@@ -210,10 +223,8 @@ pub fn extract(opts: &ExtractOptions) -> Result<()> {
 
         let mut written = None;
         if updated != text {
-            std::fs::write(path, &updated)
-                .with_context(|| format!("writing {}", path.display()))?;
             let (subject, body) = message(&name, &read);
-            written = commit::author(&root, &subject, &body, &[rel])?;
+            written = writer.commit(&root, &subject, &body, &[(rel, updated)])?;
         }
         out.push(EntryOutcome {
             entry: name,
@@ -222,10 +233,7 @@ pub fn extract(opts: &ExtractOptions) -> Result<()> {
             commit: written,
         });
     }
-
-    crate::report::finish(&root, opts.format, ExtractReport { extracted: out }, |r| {
-        print!("{}", render(&r.extracted, opts.dry_run))
-    })
+    Ok(out)
 }
 
 fn rel_to(root: &Path, path: &Path) -> String {
@@ -278,6 +286,7 @@ fn render(entries: &[EntryOutcome], dry_run: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cmd::catalog::commit;
 
     fn pdf(sha: &str, text: Option<&str>) -> CatalogArtifact {
         CatalogArtifact {

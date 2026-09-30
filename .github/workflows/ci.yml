@@ -426,6 +426,27 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run semver-check
 
+  receipt-compat:
+    # The released CLI reading the receipt this tree writes (#475, amended 2026-09-30).
+    # `receipt::FORMAT_VERSION` 2 is additive only if the binary already in every derived
+    # corpus reads it, and that binary is not one this workspace builds — so the task
+    # downloads it, checksums it and runs `tests/receipt_compat.rs` against it. Its own job
+    # because `ci-cli` does not reach the network; the test is `#[ignore]`d there and fails,
+    # rather than skips, anywhere it runs without the binary.
+    name: ci (receipt · previous CLI)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yidam/cli
+          key: receipt-compat
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: mise run receipt-compat
+
   cross:
     # The aarch64 Linux cross-compile, which nothing has ever run.
     #

@@ -848,6 +848,20 @@ enum Command {
         #[command(subcommand)]
         sub: yidam::PhaseCommand,
     },
+    /// Run the capability manifest on a cluster, with the run invariant as a permission
+    ///
+    /// `yidam run` holds *a run authors operational commits and only proposes epistemic
+    /// ones* as a code path, which on one machine is enough. On a cluster the pod that
+    /// computes is not the pod that lands, so the sentence is made into which pod holds the
+    /// credential: `step` builds a commit it cannot land, `land` is the only command that
+    /// writes a ref, `pin` and `admit` read. `workflow` writes the Argo manifest that
+    /// arranges them.
+    ///
+    /// See docs/cluster-runs.md and docs/rfcs/0026-orchestrator-layer.md §7.
+    Cluster {
+        #[command(subcommand)]
+        sub: yidam::ClusterCommand,
+    },
     /// Show active inquiry phases (ma/* and rigpa/* branches)
     Phases {
         #[command(flatten)]
@@ -1712,6 +1726,7 @@ fn run() -> Result<()> {
             yidam::log(root.as_deref(), range, filter, format.value)
         }
         Command::Phase { sub } => yidam::run_phase(sub),
+        Command::Cluster { sub } => yidam::run_cluster(sub),
         Command::Phases { root, format } => yidam::phases(root.as_deref(), format.value),
         Command::Replay {
             root,
