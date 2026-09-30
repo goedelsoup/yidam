@@ -347,6 +347,26 @@ pub fn corpus_ontology_schema() -> Value {
                                 misspelling is underlined as it is typed rather than \
                                 silently read as no ceiling at all."
             },
+            "interval": {
+                "type": "object",
+                "description": "Which two `date` properties bound an instance in time, and \
+                                optionally the relationship over which no two instances may \
+                                overlap. `interval-overlap` gates on an end before its start, \
+                                and — with `exclusive_over` — on two instances linking one \
+                                target by that relationship at once: two tenures of one \
+                                office. Intervals are half-open and compared as `query` \
+                                orders dates, at the precision both sides share; an absent \
+                                end is still open. The names are declared because corpora \
+                                spell the pair at least five ways. A class that omits the \
+                                field is not checked.",
+                "properties": {
+                    "start": non_empty_string(),
+                    "end": non_empty_string(),
+                    "exclusive_over": non_empty_string()
+                },
+                "required": ["start", "end"],
+                "additionalProperties": false
+            },
             "implemented_by": {
                 "type": "string",
                 "minLength": 1,
@@ -1156,6 +1176,28 @@ mod tests {
                 .map(|e| e.to_string())
                 .collect::<Vec<_>>()
         );
+    }
+
+    /// The schema and the parse agree about `interval:` in both directions: what the gate
+    /// reads validates, and what `Class::parse` reads as malformed is underlined — a misspelled
+    /// `exclusive:` and a declaration with no `end` (#1201).
+    #[test]
+    fn the_schema_accepts_the_interval_the_gate_reads_and_refuses_what_it_cannot() {
+        let validator = jsonschema::validator_for(&corpus_ontology_schema()).unwrap();
+        let class = |interval: &str| -> Value {
+            serde_yaml::from_str(&format!(
+                "class: tenure\nlabel: Tenure\ndescription: A holding.\ninterval:\n{interval}"
+            ))
+            .unwrap()
+        };
+        let good = class("  start: began\n  end: ended\n  exclusive_over: of-office\n");
+        assert!(validator.validate(&good).is_ok());
+        for bad in [
+            "  start: began\n",
+            "  start: began\n  end: ended\n  exclusive: of-office\n",
+        ] {
+            assert!(validator.validate(&class(bad)).is_err(), "{bad}");
+        }
     }
 
     /// And a node keeping its prose in a declared field validates without a `description`.

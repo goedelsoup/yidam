@@ -161,6 +161,14 @@
       "violations": []
     },
     {
+      "id": "interval-overlap",
+      "title": "Two holders of one target at once, or an interval ending before it starts",
+      "severity": "error",
+      "rationale": "A class that declares `interval:` has said which of its properties are an instance's start and end, and one that also declares `exclusive_over:` has said no two instances may hold the same target by that relationship at once — one sheriff at a time. Two that overlap give *who held it then* two answers. Intervals are half-open and compared as `query` orders dates: at the precision both sides share, so `1893` and `1893-06-01` are adjacent rather than overlapping, and an absent end is still open. A class that declares no `interval:` is not checked.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "edge-untagged",
       "title": "An empirical edge that does not say what it rests on",
       "severity": "warn",

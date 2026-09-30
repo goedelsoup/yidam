@@ -4,7 +4,7 @@
 //! reports nothing when it passes cannot be distinguished from a check that did not run,
 //! and the difference matters when someone is deciding whether the gate covers a case.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::parse::CATALOG_LOCATION_KINDS;
@@ -1601,6 +1601,37 @@ pub fn iso_date_parts(s: &str) -> Option<Vec<&str>> {
     }
 }
 
+/// Order two ISO dates **at the precision they share**, or `None` if either is not a date.
+///
+/// The corpus writes a date to whatever precision it knows it — `is_iso_date`'s own rationale
+/// records `formed: "1985"` occurring 71 times in one derived corpus — so a comparison has to
+/// say what it does when the two sides disagree about precision. This one drops both to the
+/// coarser: `1893-04-01 < 1900` is decided on the years alone.
+///
+/// **This is deliberately not `=`'s rule, and the divergence is the point.** `=` compares at
+/// the precision the *query* wrote, so `born=1893-04-01` does not match `born: 1893` — a
+/// day-precision question the corpus cannot answer. Ordering at the query's precision would
+/// make `born<=1900-01-01` skip every person whose birth year alone is known, silently, in
+/// the direction of a smaller answer. An equality asked more precisely than the corpus knows
+/// is genuinely unanswerable; an ordering usually is not — `1893` is before `1900-01-01`
+/// whatever day it fell on — and answering it is the reason the operator exists.
+///
+/// The consequence to know: where the corpus is coarser than the query, `<=` and `>=` can
+/// both hold for a value `=` rejects. When the two sides carry the same precision the three
+/// are trichotomous, which is the case a caller reasons about.
+///
+/// **Here rather than in `query`, because it has a second reader.** [`interval_overlap`]
+/// orders a class's declared start and end by it (#1201), and a second rule there would be a
+/// corpus where `query` says a holder was in office on a day and `lint` says nobody was.
+/// Equality at the shared precision is what an overlap check must not guess past: `1893`
+/// and `1893-06-01` compare equal, and so a term ending `1893` and one beginning
+/// `1893-06-01` are adjacent rather than overlapping.
+pub fn compare_dates(left: &str, right: &str) -> Option<std::cmp::Ordering> {
+    let (left, right) = (iso_date_parts(left.trim())?, iso_date_parts(right.trim())?);
+    let shared = left.len().min(right.len());
+    Some(left[..shared].cmp(&right[..shared]))
+}
+
 /// Property values that do not satisfy the type the class declares.
 ///
 /// `claim` is the type that pays for this check on its own. `claims.rs` matches the three
@@ -1805,6 +1836,232 @@ pub fn edge_target_class(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Ch
         violations,
     )
     .spanning_links()
+}
+
+/// One instance's place in time under its class's [`crate::corpus::Interval`]: the start it wrote, and the
+/// end, or `None` for an interval still open.
+struct Placed {
+    node: usize,
+    start: String,
+    end: Option<String>,
+}
+
+/// A date property's value as text, or `None` when it is absent or not a scalar.
+///
+/// A number is text here because YAML reads an unquoted `1893` as one, and `property-type`
+/// reports that as a malformed date without gating — so the interval should still be read.
+fn date_scalar(v: &serde_yaml::Value) -> Option<String> {
+    match v {
+        serde_yaml::Value::String(s) => Some(s.trim().to_string()),
+        serde_yaml::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+/// Whether `a` begins strictly before `b` ends. An open end is after every start.
+fn starts_before_end(a: &Placed, b: &Placed) -> bool {
+    match &b.end {
+        None => true,
+        Some(end) => compare_dates(&a.start, end) == Some(std::cmp::Ordering::Less),
+    }
+}
+
+/// The later of two dates by [`compare_dates`], and at a tie the more precise one — the tie
+/// is two readings of one moment, and the finer one says more about where the span begins.
+fn later<'a>(a: &'a str, b: &'a str) -> &'a str {
+    match compare_dates(a, b) {
+        Some(std::cmp::Ordering::Less) => b,
+        Some(std::cmp::Ordering::Equal) if b.len() > a.len() => b,
+        _ => a,
+    }
+}
+
+/// The earlier of two ends, where `None` is open and so later than any date.
+fn earlier_end<'a>(a: Option<&'a str>, b: Option<&'a str>) -> Option<&'a str> {
+    match (a, b) {
+        (None, e) | (e, None) => e,
+        (Some(a), Some(b)) => match compare_dates(a, b) {
+            Some(std::cmp::Ordering::Greater) => Some(b),
+            Some(std::cmp::Ordering::Equal) if b.len() > a.len() => Some(b),
+            _ => Some(a),
+        },
+    }
+}
+
+/// Two instances of an interval class holding one target at once, and intervals that end
+/// before they start (#1201).
+///
+/// **The question a `tenure` class exists to answer is the one this protects.** A corpus
+/// models tenures so it can say who was sheriff in 1893, and two tenures of one office that
+/// overlap give that question two answers while `lint`, `graph-check` and `query` all report
+/// success. The constraint is what `interval.exclusive_over` declares: no two instances linking
+/// the same target by that relationship may overlap.
+///
+/// **Overlap is decided by [`compare_dates`], the rule `query`'s orderings use.** An interval
+/// is half-open — its start inclusive, its end exclusive, as `tenure`'s own actions define
+/// *open at a date* — so two intervals overlap when each starts strictly before the other
+/// ends. Where the two sides disagree about precision both drop to the coarser, and equality
+/// there is not overlap: a term ending `1893` and one beginning `1893-06-01` may have met in
+/// June, and reporting it would be the check inventing a day the corpus does not know. What
+/// is certain at the shared precision is reported; nothing else is.
+///
+/// **An absent end is open, and two open intervals over one target always overlap.** That is
+/// the reading `tenure` writes — *absent means still serving* — and it is the case this check
+/// most needs to see: two holders both still serving is the corpus contradicting itself today.
+/// An instance with no start, or a start or end that is not a date, is not placed at all:
+/// `missing-property` and `property-type` report those, and guessing a date to compare would
+/// be a finding the corpus did not make.
+///
+/// **A declaration naming what the class does not declare is reported on the class.** A
+/// `start` that is not a `date` property of the class, or an `exclusive_over` naming no
+/// relationship in its `edges:`, would otherwise read every instance as unplaceable and report
+/// nothing — the check switched off by the typo it most needs to catch.
+///
+/// Error, because the population is empty by construction: nothing is checked until a class
+/// declares `interval:`, and no class could before this check existed. Gaps in coverage — a
+/// span with no holder — are not reported; most corpora are incomplete by design, and an
+/// acknowledged gap is a finding the corpus records rather than one the gate should.
+pub fn interval_overlap(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Check {
+    let mut violations = Vec::new();
+    let mut by_class: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, n) in nodes.iter().enumerate() {
+        by_class.entry(class_of(n)).or_default().push(i);
+    }
+    for class in classes {
+        let Some(interval) = &class.interval else {
+            continue;
+        };
+        let is_date = |name: &str| {
+            class
+                .properties
+                .iter()
+                .any(|p| p.name == name && p.r#type == "date")
+        };
+        let mut declared = true;
+        for (key, name) in [("start", &interval.start), ("end", &interval.end)] {
+            if !is_date(name) {
+                declared = false;
+                violations.push(Violation::new(
+                    &class.rel,
+                    format!(
+                        "`interval.{key}` names `{name}`, which `{}` does not declare as a \
+                         `date` property",
+                        class.name
+                    ),
+                ));
+            }
+        }
+        let exclusive = interval.exclusive_over.as_deref();
+        if let Some(rel) = exclusive {
+            if !class.edges.iter().any(|e| e.relationship == rel) {
+                declared = false;
+                violations.push(Violation::new(
+                    &class.rel,
+                    format!(
+                        "`interval.exclusive_over` names `{rel}`, which `{}` does not declare \
+                         in `edges:`",
+                        class.name
+                    ),
+                ));
+            }
+        }
+        if !declared {
+            continue;
+        }
+
+        let mut placed: Vec<Placed> = Vec::new();
+        let members = by_class.get(&class.name).map(Vec::as_slice);
+        for &i in members.unwrap_or_default() {
+            let props = &nodes[i].inst.properties;
+            let get = |name: &str| {
+                props
+                    .as_ref()
+                    .and_then(|m| m.get(name))
+                    .and_then(date_scalar)
+            };
+            let Some(start) = get(&interval.start).filter(|s| iso_date_parts(s).is_some()) else {
+                continue;
+            };
+            let end = match get(&interval.end) {
+                None => None,
+                Some(e) if iso_date_parts(&e).is_some() => Some(e),
+                Some(_) => continue,
+            };
+            if let Some(e) = &end {
+                if compare_dates(e, &start) == Some(std::cmp::Ordering::Less) {
+                    violations.push(Violation::new(
+                        &nodes[i].rel,
+                        format!(
+                            "`{}: {e}` precedes `{}: {start}`",
+                            interval.end, interval.start
+                        ),
+                    ));
+                    continue;
+                }
+            }
+            placed.push(Placed {
+                node: i,
+                start,
+                end,
+            });
+        }
+        let Some(rel) = exclusive else {
+            continue;
+        };
+
+        let mut holders: BTreeMap<usize, Vec<&Placed>> = BTreeMap::new();
+        for p in &placed {
+            let n = &nodes[p.node];
+            let targets: BTreeSet<usize> = edges
+                .instance_links(p.node)
+                .filter(|(e, _)| e.written_as(n).relationship.as_deref() == Some(rel))
+                .map(|(_, t)| t)
+                .collect();
+            for t in targets {
+                holders.entry(t).or_default().push(p);
+            }
+        }
+        for (target, held) in holders {
+            for (x, a) in held.iter().enumerate() {
+                for b in &held[x + 1..] {
+                    if !(starts_before_end(a, b) && starts_before_end(b, a)) {
+                        continue;
+                    }
+                    // Reported on the one that began later — the holder who took the target
+                    // while the other still had it — and at a tie, on the later path.
+                    let (first, second) = match compare_dates(&a.start, &b.start) {
+                        Some(std::cmp::Ordering::Greater) => (b, a),
+                        Some(std::cmp::Ordering::Less) => (a, b),
+                        _ if nodes[a.node].rel > nodes[b.node].rel => (b, a),
+                        _ => (a, b),
+                    };
+                    let span_to = earlier_end(a.end.as_deref(), b.end.as_deref()).unwrap_or("open");
+                    violations.push(Violation::new(
+                        &nodes[second.node].rel,
+                        format!(
+                            "overlaps `{}` over `{rel}` `{}`, from {} to {span_to}",
+                            nodes[first.node].rel,
+                            nodes[target].rel,
+                            later(&a.start, &b.start),
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    Check::new(
+        "interval-overlap",
+        "Two holders of one target at once, or an interval ending before it starts",
+        Severity::Error,
+        "A class that declares `interval:` has said which of its properties are an instance's \
+         start and end, and one that also declares `exclusive_over:` has said no two instances \
+         may hold the same target by that relationship at once — one sheriff at a time. Two \
+         that overlap give *who held it then* two answers. Intervals are half-open and \
+         compared as `query` orders dates: at the precision both sides share, so `1893` and \
+         `1893-06-01` are adjacent rather than overlapping, and an absent end is still open. \
+         A class that declares no `interval:` is not checked.",
+        violations,
+    )
 }
 
 /// Separators that turn a tag into a tag-plus-something.
@@ -4250,6 +4507,7 @@ mod tests {
             label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -4295,6 +4553,7 @@ mod tests {
             label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -4311,6 +4570,7 @@ mod tests {
             label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -4347,6 +4607,7 @@ mod tests {
             label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -4376,6 +4637,7 @@ mod tests {
             label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -4392,6 +4654,7 @@ mod tests {
             label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -4418,6 +4681,7 @@ mod tests {
             label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -6121,6 +6385,230 @@ mod tests {
         Class::parse(format!(".yidam/corpus/{name}.ont.yml"), yaml)
     }
 
+    // ── interval-overlap ──────────────────────────────────────────────────────
+
+    const TENURE: &str = "properties:\n  - name: began\n    type: date\n  \
+                          - name: ended\n    type: date\n\
+                          edges:\n  - relationship: of-office\n    target: office\n    \
+                          direction: out\n";
+
+    /// A tenure class, with the interval declaration `interval` appended to [`TENURE`].
+    fn tenure(interval: &str) -> Class {
+        class_from("tenure", &format!("{TENURE}{interval}"))
+    }
+
+    const EXCLUSIVE: &str =
+        "interval:\n  start: began\n  end: ended\n  exclusive_over: of-office\n";
+
+    /// A tenure of `office` from `began` to `ended`, where `None` writes no end at all.
+    fn term(name: &str, office: &str, began: &str, ended: Option<&str>) -> Node {
+        let ended = ended
+            .map(|e| format!("  ended: \"{e}\"\n"))
+            .unwrap_or_default();
+        Node::parse(
+            PathBuf::from(format!("/repo/.yidam/corpus/tenure/{name}.yml")),
+            format!(".yidam/corpus/tenure/{name}.yml"),
+            format!(
+                "class: tenure\nlabel: {name}\nproperties:\n  began: \"{began}\"\n{ended}\
+                 links:\n  - target: ../office/{office}.yml\n    relationship: of-office\n"
+            ),
+        )
+    }
+
+    fn office(name: &str) -> Node {
+        Node::parse(
+            PathBuf::from(format!("/repo/.yidam/corpus/office/{name}.yml")),
+            format!(".yidam/corpus/office/{name}.yml"),
+            format!("class: office\nlabel: {name}\n"),
+        )
+    }
+
+    /// `interval-overlap` over the given tenures, with a `sheriff` and an `auditor` office.
+    fn overlaps(class: Class, terms: Vec<Node>) -> Check {
+        let mut nodes = vec![office("sheriff"), office("auditor")];
+        nodes.extend(terms);
+        let edges = Edges::build(&nodes);
+        interval_overlap(&nodes, &edges, &[class])
+    }
+
+    /// The reported case: two sheriffs for the same years. Reported once, on the holder who
+    /// began later, naming the other and the span they share.
+    #[test]
+    fn two_holders_of_one_office_over_the_same_years_overlap() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "1889", Some("1893")),
+                term("b", "sheriff", "1891-06-01", Some("1895")),
+            ],
+        );
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        let v = &c.violations[0];
+        assert_eq!(v.node, ".yidam/corpus/tenure/b.yml");
+        assert!(v.detail.contains("tenure/a.yml"), "{}", v.detail);
+        assert!(v.detail.contains("office/sheriff.yml"), "{}", v.detail);
+        assert!(v.detail.contains("from 1891-06-01 to 1893"), "{}", v.detail);
+        assert_eq!(c.severity, Severity::Error);
+    }
+
+    /// Exactly the same interval twice is the plainest overlap there is.
+    #[test]
+    fn an_exact_overlap_is_reported() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "1889-01-01", Some("1893-01-01")),
+                term("b", "sheriff", "1889-01-01", Some("1893-01-01")),
+            ],
+        );
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+    }
+
+    /// Mixed precision decided at the precision both sides share: `1893-06-01` begins before
+    /// a term ending `1894` ends, whatever day in 1894 that was.
+    #[test]
+    fn an_overlap_under_mixed_precision_is_reported() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "1889", Some("1894")),
+                term("b", "sheriff", "1893-06-01", Some("1897")),
+            ],
+        );
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+    }
+
+    /// And equality at that precision is not overlap. A term ending `1893` and one beginning
+    /// `1893-06-01` may have met in June; reporting them would invent a day nobody recorded.
+    #[test]
+    fn a_boundary_equal_only_at_the_coarser_precision_is_adjacent() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "1889", Some("1893")),
+                term("b", "sheriff", "1893-06-01", Some("1897")),
+            ],
+        );
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
+    }
+
+    /// A handover: one ends the day the next begins. Half-open, so they do not overlap.
+    #[test]
+    fn adjacent_intervals_do_not_overlap() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "1889-01-07", Some("1893-01-02")),
+                term("b", "sheriff", "1893-01-02", Some("1897-01-04")),
+                term("c", "sheriff", "1897-01-04", None),
+            ],
+        );
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
+    }
+
+    /// Two holders both still serving: open intervals over one target always overlap.
+    #[test]
+    fn two_open_intervals_over_one_target_overlap() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "2017", None),
+                term("b", "sheriff", "2021-01-04", None),
+            ],
+        );
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert!(
+            c.violations[0].detail.ends_with("to open"),
+            "{:?}",
+            c.violations
+        );
+    }
+
+    /// Exclusivity is per target: a sheriff and an auditor over the same years is two offices.
+    #[test]
+    fn holders_of_different_targets_do_not_overlap() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "1889", Some("1893")),
+                term("b", "auditor", "1889", Some("1893")),
+            ],
+        );
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
+    }
+
+    /// An interval with no `exclusive_over:` checks order and nothing else.
+    #[test]
+    fn an_end_before_its_start_is_reported_without_exclusivity() {
+        let c = overlaps(
+            tenure("interval:\n  start: began\n  end: ended\n"),
+            vec![
+                term("a", "sheriff", "1893", Some("1889")),
+                term("b", "sheriff", "1889", Some("1893")),
+                term("c", "sheriff", "1889", Some("1893")),
+            ],
+        );
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert_eq!(c.violations[0].node, ".yidam/corpus/tenure/a.yml");
+        assert!(c.violations[0]
+            .detail
+            .contains("`ended: 1889` precedes `began: 1893`"));
+    }
+
+    /// Silent for a class that declares nothing, which is every class that predates the field.
+    #[test]
+    fn a_class_declaring_no_interval_is_not_checked() {
+        let c = overlaps(
+            tenure(""),
+            vec![
+                term("a", "sheriff", "1893", Some("1889")),
+                term("b", "sheriff", "1880", Some("1899")),
+            ],
+        );
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
+    }
+
+    /// A declaration naming what the class does not declare is reported on the class, rather
+    /// than reading every instance as unplaceable and reporting nothing.
+    #[test]
+    fn a_declaration_naming_undeclared_fields_is_reported_on_the_class() {
+        let c = overlaps(
+            tenure("interval:\n  start: begun\n  end: ended\n  exclusive_over: holds\n"),
+            vec![
+                term("a", "sheriff", "1889", Some("1893")),
+                term("b", "sheriff", "1889", Some("1893")),
+            ],
+        );
+        let details: Vec<&str> = c.violations.iter().map(|v| v.detail.as_str()).collect();
+        assert_eq!(details.len(), 2, "{details:?}");
+        assert!(c
+            .violations
+            .iter()
+            .all(|v| v.node == ".yidam/corpus/tenure.ont.yml"));
+        assert!(
+            details[0].contains("`interval.start` names `begun`"),
+            "{details:?}"
+        );
+        assert!(
+            details[1].contains("`interval.exclusive_over` names `holds`"),
+            "{details:?}"
+        );
+    }
+
+    /// A half-written declaration does not parse, so `malformed-yaml` says so rather than the
+    /// class quietly declaring no interval — and a misspelled key is the same.
+    #[test]
+    fn a_declaration_missing_its_end_or_misspelling_a_key_is_malformed() {
+        for bad in [
+            "interval:\n  start: began\n",
+            "interval:\n  start: began\n  end: ended\n  exclusive: of-office\n",
+        ] {
+            let c = tenure(bad);
+            assert!(c.malformed.is_some(), "{bad}");
+        }
+        assert!(tenure(EXCLUSIVE).malformed.is_none());
+    }
+
     // ── node-too-long ─────────────────────────────────────────────────────────
 
     /// A class of `name` whose instances may be `max` lines, or any length when `None`.
@@ -6135,6 +6623,7 @@ mod tests {
             label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: max,
+            interval: None,
             prose: Vec::new(),
             implemented_by: None,
             foundational_type: None,
@@ -6450,6 +6939,7 @@ mod tests {
             label: String::new(),
             edge_policy: EdgePolicy::default(),
             max_lines: None,
+            interval: None,
             prose: Vec::new(),
             implemented_by: impl_by.map(str::to_string),
             foundational_type: None,

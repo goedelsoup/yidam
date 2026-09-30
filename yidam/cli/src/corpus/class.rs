@@ -130,6 +130,10 @@ pub struct Class {
     /// nothing about prose* rather than as *this class has none* — `description` is prose
     /// whatever anything declares. See [`crate::prose`].
     pub prose: Vec<String>,
+    /// The two properties that bound an instance in time, and optionally the relationship
+    /// over which no two instances may overlap. `None` when the class has not said, which is
+    /// every class written before the field existed — and no check runs. See [`Interval`].
+    pub interval: Option<Interval>,
     /// The type in `crates/` that implements this class — `Intervention`, as written.
     ///
     /// **`None` is the overwhelming default and no check runs, because the ontology is not
@@ -275,6 +279,37 @@ pub enum Omission {
     /// `required: false`. The class said an instance may omit it, so nothing is reported.
     Licensed,
 }
+/// A class's declared valid time: which property is an instance's start, which is its end,
+/// and optionally the relationship over which two instances may not both hold at once (#1201).
+///
+/// **The names are declared, not compiled in.** Across six corpora the pair is spelled at
+/// least five ways — `began`/`ended`, `start_date`/`end_date`, `effective_from`/`effective_to`,
+/// `not_before`/`not_after`, `born`/`died` — and a fixed pair would fit one of them.
+///
+/// **Absent is unchecked**, the shape [`Class::max_lines`] has. A `tenure` class exists so a
+/// corpus can answer *who held this office in 1893*, and two tenures of one office overlapping
+/// give that question two answers; declaring the interval and `exclusive_over` is how the class
+/// says so, and [`crate::cmd::lint::checks::interval_overlap`] is the reader.
+///
+/// `start` and `end` are required and no other key is accepted, so a half-written or
+/// misspelled declaration is a class `malformed-yaml` reports rather than one that silently
+/// checks nothing: `exclusive: of-office` in place of `exclusive_over:` would otherwise read as
+/// a class that declared no exclusivity at all.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Interval {
+    /// The `date` property an instance starts at, inclusive.
+    pub start: String,
+    /// The `date` property an instance ends at, exclusive. An instance that omits it is open —
+    /// still holding — which is what an absent `ended` means on every tenure measured.
+    pub end: String,
+    /// The relationship no two instances of this class may share a target over while both are
+    /// open: `of-office` on a tenure says no two tenures of one office overlap. Read from the
+    /// instance's own `links:`; `None` checks the interval's order and nothing else.
+    #[serde(default)]
+    pub exclusive_over: Option<String>,
+}
+
 /// One relationship a class declares.
 #[derive(Default, serde::Deserialize)]
 pub struct ClassEdge {
@@ -482,6 +517,8 @@ struct ClassFields {
     #[serde(default)]
     prose: Vec<String>,
     #[serde(default)]
+    interval: Option<Interval>,
+    #[serde(default)]
     implemented_by: Option<String>,
     #[serde(default)]
     foundational_type: Option<FoundationalType>,
@@ -558,6 +595,7 @@ impl Class {
                 .map(|k| k.trim().to_string())
                 .filter(|k| !k.is_empty())
                 .collect(),
+            interval: fields.interval,
             // Trimmed, and an empty declaration read as none: `implemented_by: ""` is a
             // field somebody started and did not finish, and gating a build on it would
             // report a class against a type name that cannot match anything.

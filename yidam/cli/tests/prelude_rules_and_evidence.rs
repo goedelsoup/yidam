@@ -180,20 +180,25 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// is **50 words in `GRAPH.md`**, under *Which classes are source classes*: the paragraph naming
 /// the converse and the `only-instance-of` warning it exempts from. The measurement is in
 /// `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
+///
+/// **Raised on the same two occasions when `GRAPH.md` gained `interval:` (#1201).** The delta
+/// is **73 words in `GRAPH.md`**: the `interval-overlap` row and the paragraph naming what the
+/// declaration checks. The argument is in `GRAPH.evidence.md` and charged to
+/// [`PAIR_FLOOR`].
 const READ_CEILING: &[(&str, &str, usize)] = &[
-    ("AGENTS.md", "Before you write or revise a node", 6_533),
+    ("AGENTS.md", "Before you write or revise a node", 6_606),
     ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
         4_382,
     ),
-    ("AGENTS.md", "Before you change a class", 4_855),
+    ("AGENTS.md", "Before you change a class", 4_928),
     ("AGENTS.md", "Before you retrieve", 2_959),
     (
         "sadhana/root/AGENTS.md",
         "Before you write or revise a node",
-        7_727,
+        7_800,
     ),
     ("sadhana/root/AGENTS.md", "Before you run a phase", 5_800),
     (
@@ -201,7 +206,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
         "Before a claim crosses a corpus boundary",
         5_576,
     ),
-    ("sadhana/root/AGENTS.md", "Before you change a class", 6_049),
+    ("sadhana/root/AGENTS.md", "Before you change a class", 6_122),
     ("sadhana/root/AGENTS.md", "Before you retrieve", 4_153),
 ];
 
@@ -375,7 +380,11 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// because step 1 is where the article is written; 16 in `CONSTITUTION.md`'s Domain extensions;
 /// and 12 in `bootstrap.md`'s augmentation bullet. 20,123 + 98 is this figure exactly. The
 /// argument for sealing by the genesis commit is in `directories.evidence.md`.
-const BOOTSTRAP_CEILING: usize = 20_221;
+///
+/// **Raised to 20,294 when `GRAPH.md` gained `interval:` (#1201).** The delta is **73 words in
+/// `GRAPH.md`**, the same 73 both recurring routes moved by. 20,221 + 73 is this figure
+/// exactly, so nothing else on the path moved.
+const BOOTSTRAP_CEILING: usize = 20_294;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -517,9 +526,15 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// moves by 202, because 57 had been standing as slack. Closed rather than carried forward, for
 /// the reason the `bootstrap.md` note gives. `bootstrap.md` gained 12 in its rules half and none
 /// in its evidence half, and 11,149 carried no slack.
+///
+/// **`GRAPH.md` re-measured to 10,531 for #1201.** 201 words arrived — 73 in the rules half,
+/// the `interval-overlap` row and paragraph that [`BOOTSTRAP_CEILING`] moved by, and 128 in the
+/// evidence half, which argues the half-open reading and the single-holder limit. 10,330 +
+/// 201 is this figure exactly, so the pair carried no slack before this edit and carries none
+/// after it.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_686),
-    ("yidam/prelude/GRAPH.md", 10_330),
+    ("yidam/prelude/GRAPH.md", 10_531),
     ("yidam/prelude/guidelines/directories.md", 12_820),
     ("yidam/prelude/skills/bootstrap.md", 11_161),
 ];

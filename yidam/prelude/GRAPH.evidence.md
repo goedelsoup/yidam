@@ -118,6 +118,17 @@ misses both. Declaring the set closes it because an open list is the description
 match is exact because the compiled schema carries the set as `enum`, and a gate that admitted
 a spelling the schema refuses would be looser than the schema it exists to be no stricter than.
 
+## interval-overlap
+
+A `tenure` class exists so a corpus can answer *who held this office in 1893*, and two tenures
+of one office that overlap give that question two answers while every other check passes. The
+property names are declared because corpora spell the pair at least five ways. Equality at the
+shared precision is adjacency, not overlap: a term ending `1893` and one beginning `1893-06-01`
+may have met in June, and reporting them would invent a day nobody recorded. An absent end is
+open because that is what *still serving* looks like, and two holders both still serving is the
+corpus contradicting itself today. `exclusive_over:` means one holder at a time; an office with
+several seats cannot declare it truthfully, and gaps in coverage are not reported.
+
 ## silence-is-not-a-contract
 
 Reading either silence as *and therefore none are permitted* would flood every corpus whose

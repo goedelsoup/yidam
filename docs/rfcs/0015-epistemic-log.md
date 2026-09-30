@@ -22,7 +22,7 @@ decisions that merely *enable* it.
 
 The epistemic/operational split is foundational, not incidental. `GRAPH.md` devotes a section to it —
 *"Two types coexist in every yidam-derived repository"*
-([`GRAPH.md:598-599`](../../yidam/prelude/GRAPH.md#L598-L599)) — and the scripture is explicit: "The commit
+([`GRAPH.md:604-605`](../../yidam/prelude/GRAPH.md#L604-L605)) — and the scripture is explicit: "The commit
 message is **testimony** — not a changelog, but a record of a change in understanding"
 ([`SCRIPTURE.md:19`](../../yidam/prelude/SCRIPTURE.md#L19)); "Two kinds of events. No others."
 ([`:17`](../../yidam/prelude/SCRIPTURE.md#L17)).
@@ -37,7 +37,7 @@ only to write decision records from epistemic ones and skip operational ones
 ([`backfill.rs:81-122`](../../yidam/cli/src/cmd/backfill.rs#L81-L122)). There is no `log`-style
 surface. So the moment a corpus does real pipeline work — all of it legitimately operational:
 *"data extraction, connector refreshes, bundle generation, catalog reconciliation"*
-([`GRAPH.md:607-608`](../../yidam/prelude/GRAPH.md#L607-L608)) — the testimony is buried under
+([`GRAPH.md:613-614`](../../yidam/prelude/GRAPH.md#L613-L614)) — the testimony is buried under
 infrastructure churn in `git log`, with a certified classifier sitting one command away from surfacing
 it. The system's central artifact is the one thing it cannot show you cleanly.
 

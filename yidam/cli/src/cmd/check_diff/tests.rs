@@ -36,6 +36,7 @@ fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
         label: String::new(),
         edge_policy: Default::default(),
         max_lines: None,
+        interval: None,
         prose: Vec::new(),
         implemented_by: None,
         foundational_type: None,
