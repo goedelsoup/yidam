@@ -350,7 +350,7 @@ fn the_receipt_carries_a_format_version_and_the_commit_it_was_computed_from() {
 
         assert_eq!(
             r["format_version"].as_u64(),
-            Some(1),
+            Some(2),
             "{path} carries no format_version"
         );
         assert_eq!(

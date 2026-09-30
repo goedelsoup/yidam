@@ -23,6 +23,7 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use common::git::out as git;
 use common::Example;
 
 /// The four fields v2 added, written into every committed receipt whether or not the step that
@@ -43,20 +44,6 @@ fn previous() -> PathBuf {
     let bin = PathBuf::from(bin);
     assert!(bin.is_file(), "{} is not a file", bin.display());
     bin
-}
-
-fn git(root: &Path, args: &[&str]) -> String {
-    let o = Command::new("git")
-        .current_dir(root)
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(
-        o.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&o.stderr)
-    );
-    String::from_utf8_lossy(&o.stdout).to_string()
 }
 
 fn run(bin: &Path, root: &Path, args: &[&str]) -> (String, String, i32) {
