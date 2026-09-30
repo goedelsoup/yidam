@@ -11,8 +11,8 @@ use crate::parse::CATALOG_LOCATION_KINDS;
 
 use super::model::{Check, Severity, Violation};
 use crate::corpus::{
-    edge_views, normalize, source_classes, Class, DecisionRecord, EdgePolicy, Edges, Node,
-    Omission, Source,
+    authored_relationships, edge_views, normalize, sink_classes, source_classes, Class,
+    DecisionRecord, EdgePolicy, Edges, Node, Omission, Source,
 };
 
 /// One corpus file's prose and where it lives — all [`claim_tag_malformed`] reads.
@@ -980,6 +980,82 @@ pub fn orphan_in(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Check {
          What remains is a class whose *other* instances are cited and this one is not, \
          which is the asymmetry worth reading. Still reported rather than gated: a node \
          authored this morning legitimately has no inbound edges yet.",
+        violations,
+    )
+}
+
+/// A node whose every link is its own class membership (#1072).
+///
+/// `orphan-out` passes it — it has a link — and `orphan-in` reports it only when nothing
+/// points back. It is well-formed, it parses, and it records that something exists without
+/// relating it to anything: a stub, or what a bulk import leaves behind. One derived corpus
+/// wrote a local check for exactly this after finding a set of them.
+///
+/// **Scoped by the ontology, not switched off by default.** The issue asked for either, since
+/// some classes are legitimately leaves. The ontology already says which ones: a class some
+/// declaration names, and never as the author, is a [`sink_classes`] class, and its instances are
+/// exempt for the reason a source class's are exempt from `orphan-in`. Measured over sixteen
+/// derived corpora (2,772 nodes, 2026-09-29): 79 nodes link only to their class, 28 are
+/// instances of a sink class, and every one of the remaining 51 is an instance of a class
+/// whose ontology says it authors a relationship the node does not — a `venue` declaring
+/// `operated-by → partner` with no operator. That is a contradiction of the ontology the
+/// corpus wrote, not a leaf, and the finding names the relationships so the repair is in it.
+///
+/// **Class membership is a link resolving to a `.ont.yml`**, not a relationship named
+/// `instance-of`: the target is what makes it membership, and the relationship label is
+/// the corpus's own. A node with no links is `orphan-out`'s, and one with a link missing its
+/// `target:` or pointing at nothing is `dangling-edge`'s; neither is reported twice here. A
+/// citation into the catalog is a link to something other than the class, so a node that
+/// cites a source is not reported.
+///
+/// Warn rather than Error: a node authored this morning may not have its edges yet, and the
+/// ratchet in [`super::baseline`] already tells an inherited finding from a new one.
+pub fn only_instance_of(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Check {
+    let view = edge_views(classes);
+    let exempt = sink_classes(&view);
+    let authored = authored_relationships(&view);
+
+    let violations = nodes
+        .iter()
+        .enumerate()
+        .filter(|(i, n)| {
+            let out = edges.out(*i);
+            !out.is_empty()
+                && out.len() == n.inst.links.as_deref().unwrap_or_default().len()
+                && out.iter().all(|e| {
+                    e.resolved
+                        .file_name()
+                        .is_some_and(|f| f.to_string_lossy().ends_with(".ont.yml"))
+                })
+        })
+        .map(|(_, n)| n)
+        .filter_map(|n| {
+            let class = class_of(n);
+            if exempt.contains(&class) {
+                return None;
+            }
+            let detail = match authored.get(class.as_str()) {
+                Some(rels) => format!(
+                    "links only to its class; `{class}` declares {}",
+                    rels.iter()
+                        .map(|r| format!("`{r}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                None => "links only to its class".to_string(),
+            };
+            Some(Violation::new(&n.rel, detail))
+        })
+        .collect();
+    Check::new(
+        "only-instance-of",
+        "Node linked only to its class",
+        Severity::Warn,
+        "A node whose only link is to its own class records that something exists without \
+         relating it to anything — a stub, or what a bulk import left behind. Instances of a \
+         class the ontology names only as a target are exempt: a leaf there is the model \
+         working. What remains is a class that declares relationships its instances author, \
+         and a node carrying none of them.",
         violations,
     )
 }
@@ -3925,6 +4001,148 @@ mod tests {
             vec!["corpus/other/b.yml"],
             "only b is unpointed-at"
         );
+    }
+
+    // ── only-instance-of (#1072) ─────────────────────────────────────────────
+
+    /// The flagged nodes of an `only_instance_of` run, as `(node, detail)`.
+    fn only_instance_of_findings(nodes: &[Node], classes: &[Class]) -> Vec<(String, String)> {
+        only_instance_of(nodes, &edges_of(nodes), classes)
+            .violations
+            .into_iter()
+            .map(|v| (v.node, v.detail))
+            .collect()
+    }
+
+    const VENUE: &str =
+        "edges:\n  - relationship: operated-by\n    target: partner\n    direction: out\n";
+
+    /// The reported shape: a `venue` whose ontology says it is operated by a partner, and
+    /// which links to nothing but its class. The finding names the relationship it lacks.
+    #[test]
+    fn a_node_linked_only_to_its_class_is_reported_with_what_its_class_declares() {
+        let nodes = [node(
+            "corpus/venue/hall.yml",
+            "class: venue\nlinks:\n  - target: ../venue.ont.yml\n    relationship: instance-of\n",
+        )];
+        let c = only_instance_of(&nodes, &edges_of(&nodes), &[class_from("venue", VENUE)]);
+        assert_eq!(c.severity, Severity::Warn);
+        assert_eq!(
+            only_instance_of_findings(&nodes, &[class_from("venue", VENUE)]),
+            vec![(
+                "corpus/venue/hall.yml".to_string(),
+                "links only to its class; `venue` declares `operated-by`".to_string()
+            )]
+        );
+    }
+
+    /// Any other link — to a node or into the catalog — is a relation to something, so the
+    /// node is not reported. Two nodes, so the flagged one is told apart from the other by
+    /// the rule and not by being the only node present.
+    #[test]
+    fn a_link_to_anything_but_the_class_clears_the_node() {
+        let nodes = [
+            node(
+                "corpus/venue/hall.yml",
+                "class: venue\nlinks:\n  - target: ../venue.ont.yml\n    relationship: instance-of\n  - target: ../partner/parks.yml\n    relationship: operated-by\n",
+            ),
+            node(
+                "corpus/venue/barn.yml",
+                "class: venue\nlinks:\n  - target: ../venue.ont.yml\n    relationship: instance-of\n  - target: ../../catalog/deed.md\n    relationship: sources-from\n",
+            ),
+            node(
+                "corpus/venue/shed.yml",
+                "class: venue\nlinks:\n  - target: ../venue.ont.yml\n    relationship: instance-of\n",
+            ),
+            node(
+                "corpus/partner/parks.yml",
+                "class: partner\nlinks:\n  - target: ../partner.ont.yml\n    relationship: instance-of\n  - target: ../venue/hall.yml\n    relationship: operates\n",
+            ),
+        ];
+        let flagged: Vec<String> = only_instance_of_findings(&nodes, &[class_from("venue", VENUE)])
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        assert_eq!(flagged, vec!["corpus/venue/shed.yml"]);
+    }
+
+    /// Membership is decided by the target, not the relationship's name: a corpus that calls
+    /// it `is-a` has still linked only to its class.
+    #[test]
+    fn membership_is_the_target_not_the_relationship_name() {
+        let nodes = [node(
+            "corpus/venue/hall.yml",
+            "class: venue\nlinks:\n  - target: ../venue.ont.yml\n    relationship: is-a\n",
+        )];
+        assert_eq!(
+            only_instance_of_findings(&nodes, &[class_from("venue", VENUE)]).len(),
+            1
+        );
+    }
+
+    /// A class that declares edges and authors none of them is a leaf by design — here
+    /// `jurisdiction`, which `fund` points at from its own side. Its instances are exempt,
+    /// and `fund`, which does author an edge, is not.
+    #[test]
+    fn instances_of_a_sink_class_are_exempt() {
+        let classes = [
+            class_from(
+                "jurisdiction",
+                "edges:\n  - relationship: appropriated-in\n    target: fund\n    direction: in\n",
+            ),
+            class_from(
+                "fund",
+                "edges:\n  - relationship: appropriated-in\n    target: jurisdiction\n    direction: out\n",
+            ),
+        ];
+        let nodes = [
+            node(
+                "corpus/jurisdiction/ohio.yml",
+                "class: jurisdiction\nlinks:\n  - target: ../jurisdiction.ont.yml\n    relationship: instance-of\n",
+            ),
+            node(
+                "corpus/fund/grf.yml",
+                "class: fund\nlinks:\n  - target: ../fund.ont.yml\n    relationship: instance-of\n",
+            ),
+        ];
+        assert_eq!(
+            only_instance_of_findings(&nodes, &classes),
+            vec![(
+                "corpus/fund/grf.yml".to_string(),
+                "links only to its class; `fund` declares `appropriated-in`".to_string()
+            )]
+        );
+    }
+
+    /// A class with no `edges:` has said nothing, and silence is not an exemption — the same
+    /// reading `orphan-in` gives it. The finding cannot name a relationship, so it does not.
+    #[test]
+    fn a_class_that_declares_no_edges_is_not_exempt() {
+        let nodes = [node(
+            "corpus/note/a.yml",
+            "class: note\nlinks:\n  - target: ../note.ont.yml\n    relationship: instance-of\n",
+        )];
+        assert_eq!(
+            only_instance_of_findings(&nodes, &[class_from("note", "label: Note\n")]),
+            vec![(
+                "corpus/note/a.yml".to_string(),
+                "links only to its class".to_string()
+            )]
+        );
+    }
+
+    /// No links is `orphan-out`'s finding and a link with no `target:` is `dangling-edge`'s;
+    /// neither is reported a second time here.
+    #[test]
+    fn another_checks_finding_is_not_reported_twice() {
+        let nodes = [
+            node("corpus/venue/bare.yml", "class: venue\nlinks: []\n"),
+            node(
+                "corpus/venue/half.yml",
+                "class: venue\nlinks:\n  - target: ../venue.ont.yml\n    relationship: instance-of\n  - relationship: operated-by\n",
+            ),
+        ];
+        assert!(only_instance_of_findings(&nodes, &[class_from("venue", VENUE)]).is_empty());
     }
 
     /// A class declaring no `direction: in` edge says nothing points at its instances, so

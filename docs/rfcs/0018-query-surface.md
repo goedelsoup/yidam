@@ -69,15 +69,15 @@ at depth 2 and all of it at depth 3.
 
 `.ont.yml` now declares, and lint now enforces: the class an instance belongs to
 ([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L611), Error), the properties it may
-and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1059),
-[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1242)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1543)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1612)), and which class
+and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1135),
+[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1318)), the type of each value
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1619)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1688)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1681), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1757), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
-([`checks.rs:1665-1666`](../../yidam/cli/src/cmd/lint/checks.rs#L1665-L1666)):
+([`checks.rs:1741-1742`](../../yidam/cli/src/cmd/lint/checks.rs#L1741-L1742)):
 
 > a relationship in no declaration is worth seeing, because **a traversal that walks by
 > relationship will not find it**
@@ -291,7 +291,7 @@ relationship the class does not declare resolves as:
 
 The first row is load-bearing and is easy to omit. `unlicensed_edge` short-circuits on an empty
 edge list **before** it consults the policy
-([`checks.rs:1621-1622`](../../yidam/cli/src/cmd/lint/checks.rs#L1621-L1622)):
+([`checks.rs:1697-1698`](../../yidam/cli/src/cmd/lint/checks.rs#L1697-L1698)):
 
 ```rust
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
@@ -345,7 +345,7 @@ If a class declares the relationship but only toward class C, a hop asking for c
 **rejected**, naming the declared targets. `edge-target-class` is Error severity for the same
 reason: an edge to the wrong thing resolves, traverses, and exports, and is simply false. A
 declaration with an empty `target` licenses every class, exactly as the check reads it
-([`edge_target_class`](../../yidam/cli/src/cmd/lint/checks.rs#L1681-L1700)), and so does a query hop
+([`edge_target_class`](../../yidam/cli/src/cmd/lint/checks.rs#L1757-L1776)), and so does a query hop
 against it. `*` on the target side is the query-side twin of that empty `target:` and licenses
 every class in the same way.
 
@@ -357,7 +357,7 @@ so `seeded_because` and `fy2024_profile` are queryable without being declared on
 classes. An undeclared name is **rejected** with the class's declared list.
 
 Predicate *values* are a separate question from predicate *names*, and the operator decides it.
-[`property_type_violation`](../../yidam/cli/src/cmd/lint/checks.rs#L1352)
+[`property_type_violation`](../../yidam/cli/src/cmd/lint/checks.rs#L1428)
 takes a declared type and a value and no operator — it answers *may the corpus store this*, not
 *may someone ask about this*. Using it operator-blind rejects satisfiable predicates:
 `reach[claim_tag!=maybe]` is satisfied by every reach in `examples/streamflow`, and
@@ -379,7 +379,7 @@ Three further rules the naive version leaves undefined:
   rule stands as the default and `?` after the operator opts one predicate out of it.
 - **A list value matches if any element matches.** `claim_tag: [open]` is legal YAML that the
   claim counter reads as one claim, and `property_type_violation` accepts it
-  ([`property_type_violation`](../../yidam/cli/src/cmd/lint/checks.rs#L1352-L1381)); a predicate must read the
+  ([`property_type_violation`](../../yidam/cli/src/cmd/lint/checks.rs#L1428-L1457)); a predicate must read the
   same bytes the same way.
 - **`=` on a `date` compares at the precision written**, so `observed_on=2026-08` matches every
   day in that month. Ordering compares at the precision the two sides *share*, which is a
