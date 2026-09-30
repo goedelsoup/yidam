@@ -270,6 +270,14 @@ pub fn invoke(cap: &Capability, inputs: &Inputs, step: &str, commit: &str) -> Re
         Run::Argv(argv) => process(argv, inputs, step, commit, &[]),
         // The budget is resolved inside, where the default lives — see [`super::manifest::Run`].
         Run::Gluon { calls, .. } => typed::evaluate(cap, inputs, step, *calls),
+        // Every plan refuses an unbuilt step before materializing anything, so this is the
+        // pre-pass bypassed — a defect here, not in the manifest — and it says so rather than
+        // panicking in a corpus's hands.
+        Run::Unbuilt => bail!(
+            "`{step}` declares no `run` and nothing was run.\n  A plan holding this step is \
+             refused before anything is materialized, so reaching here means that pre-pass was \
+             bypassed — which is a defect in this binary and not in the manifest."
+        ),
     }
 }
 
@@ -475,7 +483,7 @@ mod typed {
         _calls: Option<usize>,
     ) -> Result<Produced> {
         bail!(
-            "`{step}` declares `{}` and nothing was run.\n  {}.\n  \
+            "`{step}` declares {} and nothing was run.\n  {}.\n  \
              A plan holding this step is refused before anything is materialized, so reaching here \
              means that pre-pass was bypassed — which is a defect in this binary and not in the \
              manifest.",

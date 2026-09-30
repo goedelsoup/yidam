@@ -179,6 +179,16 @@ impl Route {
 /// is a function — so the type says so, and "both" and "neither" are shapes a corpus cannot
 /// write.
 ///
+/// # And a third shape that is not an arm: nothing yet
+///
+/// [`Run::Unbuilt`] is what a declaration with no `run` line parses to, and it is not a way to
+/// invoke anything. It is the state bootstrap step 7 leaves an approved calculator in when the
+/// seeded corpus is too thin to run it (#1184): its `reads`, `writes` and `verb` are declared,
+/// so the contract exists before the program does, and every surface that plans a run refuses
+/// it by name until somebody writes the program. The alternative was a skill stub in
+/// `.yidam/skills/`, which is a missing *procedure* — and the place that would have run the
+/// calculator never heard of it.
+///
 /// # Parsed in every build, evaluated in one
 ///
 /// **This enum is not behind `calculators-gluon`, and that is the whole of the arm's
@@ -223,6 +233,15 @@ pub enum Run {
         #[serde(skip_serializing_if = "Option::is_none")]
         calls: Option<usize>,
     },
+    /// No `run` at all: a calculator declared and not yet built. Refused in every build — see
+    /// [`Run::unrunnable_because`].
+    Unbuilt,
+}
+
+/// What an absent `run` means. Not `#[derive(Default)]` on the enum, so the one place that
+/// decides absence is also the place a reader looks for it.
+fn unbuilt() -> Run {
+    Run::Unbuilt
 }
 
 impl<'de> Deserialize<'de> for Run {
@@ -330,6 +349,7 @@ impl Run {
             // A slice of the one field rather than a `Vec` built per call: the caller wants to
             // iterate, and the borrow is already there.
             Self::Gluon { gluon, .. } => std::slice::from_ref(gluon),
+            Self::Unbuilt => &[],
         }
     }
 
@@ -340,7 +360,7 @@ impl Run {
     /// can name the number.
     pub fn gluon(&self) -> Option<(&str, Option<usize>)> {
         match self {
-            Self::Argv(_) => None,
+            Self::Argv(_) | Self::Unbuilt => None,
             Self::Gluon { gluon, calls } => Some((gluon, *calls)),
         }
     }
@@ -351,13 +371,17 @@ impl Run {
     /// about to go and look at that line. `[` versus `{` is the whole distinction between the two
     /// arms, so a rendering that dropped the brackets would name the arm least clearly exactly
     /// where it matters.
+    ///
+    /// The backticks are part of the answer, because an absent `run` has no line to quote: it
+    /// reads *declares no `run`*, where the others read *declares `run = […]`*.
     pub fn declared(&self) -> String {
         match self {
             Self::Argv(argv) => {
                 let quoted: Vec<String> = argv.iter().map(|a| format!("\"{a}\"")).collect();
-                format!("run = [{}]", quoted.join(", "))
+                format!("`run = [{}]`", quoted.join(", "))
             }
-            Self::Gluon { gluon, .. } => format!("run = {{ gluon = \"{gluon}\" }}"),
+            Self::Gluon { gluon, .. } => format!("`run = {{ gluon = \"{gluon}\" }}`"),
+            Self::Unbuilt => "no `run`".to_string(),
         }
     }
 
@@ -370,6 +394,8 @@ impl Run {
         match self {
             Self::Argv(argv) => argv.join(" "),
             Self::Gluon { gluon, .. } => gluon.clone(),
+            // Unreachable from a commit message — nothing runs it — and total rather than a panic.
+            Self::Unbuilt => "nothing".to_string(),
         }
     }
 
@@ -383,6 +409,12 @@ impl Run {
     pub fn unrunnable_because(&self) -> Option<&'static str> {
         match self {
             Self::Argv(_) => None,
+            // In every build, because it is not about the build: there is no program to run.
+            Self::Unbuilt => Some(
+                "It is declared and not built: its reads, writes and verb are the contract, and \
+                 nothing implements it yet. Give it a `run` — argv, or `{ gluon = \"….glu\" }` — \
+                 once the corpus holds enough to compute it, or delete the declaration",
+            ),
             #[cfg(feature = "calculators-gluon")]
             Self::Gluon { .. } => None,
             #[cfg(not(feature = "calculators-gluon"))]
@@ -403,7 +435,8 @@ impl Run {
 /// written from the reason alone would have to open with a sentence general enough to cover
 /// `kind = "connector"` and `run = { gluon = … }`, which is a sentence that names neither.
 pub struct Unrunnable {
-    /// The part of the declaration that cannot be invoked, spelled as a corpus writes it.
+    /// The part of the declaration that cannot be invoked, spelled as a corpus writes it and
+    /// backticked — or `no \`run\`` where the refusal is that it wrote nothing.
     pub declared: String,
     /// The sentence that refuses it.
     pub because: &'static str,
@@ -413,7 +446,9 @@ pub struct Unrunnable {
 #[serde(deny_unknown_fields)]
 pub struct Capability {
     pub kind: Kind,
-    /// How the step is invoked — argv, or the typed arm. See [`Run`].
+    /// How the step is invoked — argv, or the typed arm. See [`Run`]. Absent is
+    /// [`Run::Unbuilt`]: declared, and refused by every surface that would invoke it.
+    #[serde(default = "unbuilt")]
     pub run: Run,
     /// Globs, relative to the corpus root. Exactly what the step is given, and nothing else
     /// from the repository reaches it.
@@ -480,7 +515,7 @@ impl Capability {
     pub fn unrunnable_because(&self) -> Option<Unrunnable> {
         if let Some(because) = self.kind.unrunnable_because() {
             return Some(Unrunnable {
-                declared: format!("kind = \"{}\"", self.kind.as_str()),
+                declared: format!("`kind = \"{}\"`", self.kind.as_str()),
                 because,
             });
         }
@@ -648,7 +683,9 @@ impl Manifest {
 
 /// Every rule a declaration must satisfy, checked before anything runs.
 fn validate(name: &str, cap: &Capability, registers: &Registers) -> Result<()> {
-    if cap.run.file_candidates().is_empty() {
+    // Empty and absent are different declarations. `run = []` claims a program and names none;
+    // no `run` at all is [`Run::Unbuilt`], a contract with nothing behind it yet.
+    if matches!(&cap.run, Run::Argv(argv) if argv.is_empty()) {
         bail!("capability `{name}` declares an empty `run`, so there is nothing to invoke");
     }
 
@@ -866,10 +903,40 @@ verb   = "compute"
         let why = m.get("low-flow").unwrap().unrunnable_because().unwrap();
         assert_eq!(
             why.declared,
-            r#"run = { gluon = ".yidam/capabilities/low-flow.glu" }"#
+            r#"`run = { gluon = ".yidam/capabilities/low-flow.glu" }`"#
         );
         assert!(why.because.contains("calculators-gluon"), "{}", why.because);
         assert!(!why.because.contains("kind"), "{}", why.because);
+    }
+
+    /// No `run` is a calculator declared and not built — it parses, and it is refused by name in
+    /// every build (#1184).
+    ///
+    /// Both halves, because each fails differently when it is wrong. A manifest that did not parse
+    /// would take down every surface that loads it over one step nobody has written yet, which is
+    /// why bootstrap could not declare one before. A declaration that parsed and was *not* refused
+    /// would reach the executor with nothing to invoke.
+    #[test]
+    fn an_absent_run_parses_as_unbuilt_and_is_refused_in_every_build() {
+        let text = CALC.replace(
+            "run    = [\"sh\", \".yidam/capabilities/low-flow.sh\"]\n",
+            "",
+        );
+        assert!(!text.contains("run "), "the fixture still declares `run`");
+        let m = Manifest::parse(&text, &corpus_only()).unwrap();
+        let c = m.get("low-flow").unwrap();
+        assert_eq!(c.run, Run::Unbuilt);
+        let why = c.unrunnable_because().expect("an unbuilt step is refused");
+        assert_eq!(why.declared, "no `run`");
+        assert!(why.because.contains("not built"), "{}", why.because);
+    }
+
+    /// An empty `run` is still refused at load. It is not the absent one: `run = []` claims a
+    /// program and names none, and letting it read as unbuilt would turn a typo into a stub.
+    #[test]
+    fn an_empty_run_is_not_an_absent_one() {
+        let text = CALC.replace(r#"["sh", ".yidam/capabilities/low-flow.sh"]"#, "[]");
+        assert!(parse_err(&text).contains("empty `run`"));
     }
 
     /// A budget is declarable, and the number is the corpus's.

@@ -658,6 +658,10 @@ after  = ["travel-tier"]       # optional
 connector or a featurizer parses, plans, and is refused by name before anything runs, with the
 reason particular to its kind. [why](directories.evidence.md#declarable-not-executable)
 
+**A capability with no `run` is declared and not built.** It is where a calculator goes before
+the corpus can compute it: its `reads`, `writes` and `verb` are fixed, and every plan holding it
+is refused by name until it gains a `run`. `run = []` is still refused as empty.
+
 `yidam run travel-tier` then checks the declared `reads` out of `HEAD` into a scratch directory,
 invokes the step there, and lands what it wrote — plus a receipt — as one commit. `yidam run`
 with no step runs the whole manifest; `yidam run --dry-run` resolves the plan, reports what is

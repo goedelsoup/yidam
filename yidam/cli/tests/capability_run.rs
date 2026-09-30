@@ -743,6 +743,53 @@ fn every_kind_is_declarable_and_an_unrunnable_one_is_refused_before_anything_run
     }
 }
 
+/// A calculator declared with no `run` — what bootstrap step 7 leaves when the seeded corpus is
+/// too thin to compute it (#1184) — refuses the whole plan by name, and nothing runs.
+///
+/// Refused rather than skipped, which is the decision #1184 records: a bare `yidam run` that
+/// passed over it would report success on a corpus whose declared computation never happened. So
+/// this is the connector's pre-pass rule, and held to the same evidence — HEAD did not move.
+#[test]
+fn an_unbuilt_calculator_refuses_the_plan_by_name() {
+    for name in examples() {
+        let e = Example::materialize_runnable(&name);
+        let caps = declared(&e.path());
+        let Some(step) = caps.keys().last().cloned() else {
+            continue;
+        };
+        let manifest = e.path().join(".yidam/capabilities.toml");
+        let text = std::fs::read_to_string(&manifest).unwrap();
+        let head = format!("[capability.{step}]");
+        let at = text.find(&head).expect("the step is declared");
+        let rest = &text[at + head.len()..];
+        let end = at + head.len() + rest.find("\n[").unwrap_or(rest.len());
+        let table: String = text[at..end]
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("run "))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        assert_ne!(
+            table,
+            text[at..end],
+            "no `run` was removed, so this asserts nothing"
+        );
+        std::fs::write(&manifest, format!("{}{table}{}", &text[..at], &text[end..])).unwrap();
+
+        let before = git(&e.path(), &["rev-parse", "HEAD"]);
+        let (_, err, code) = e.run(&["run"]);
+        assert_ne!(code, 0, "a plan holding an unbuilt step ran in {name}");
+        assert!(
+            err.contains(&format!("`{step}` declares no `run`")) && err.contains("not built"),
+            "the refusal does not name the step or say it is unbuilt in {name}:\n{err}"
+        );
+        assert_eq!(
+            git(&e.path(), &["rev-parse", "HEAD"]),
+            before,
+            "a plan that could not finish landed a commit anyway in {name}"
+        );
+    }
+}
+
 /// A cycle is refused, the cycle is named, and nothing runs.
 ///
 /// Built by mutation against the manifest the example ships rather than against a fixture

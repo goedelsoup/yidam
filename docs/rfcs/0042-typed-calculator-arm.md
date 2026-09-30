@@ -9,7 +9,8 @@
   - RFC-0028 (the register constraint on what a run may write, which the second arm inherits unchanged)
 - **Versioning layers touched:** template (`guidelines/directories.md` and `docs/domain-computer.md`
   gain the second arm's field) / tooling (`yidam` CLI, behind a cargo feature **outside** the
-  default set) — no parity-surface change, no MCP contract change, no bootstrap-protocol change
+  default set) — no parity-surface change, no MCP contract change. The bootstrap protocol was
+  untouched until #1184; see *Amended: a calculator declared before it is built*
 - **Downstream reference case:** `examples/streamflow`'s calculators — 170 lines of `sh` and `awk`
   in `travel-tier.sh` and 110 in `disclosure-envelope.sh`, most of which is not the rule either one
   computes. **Landed in #1102 as `travel-tier-typed.glu`**, a third capability declaring
@@ -29,7 +30,7 @@
 
 A calculator is a shell command. RFC-0026 said so on purpose, and the executor's own doc comment
 gives the reason — *"a vertical slice that needed a build system to demonstrate would be
-demonstrating the build system"* ([`process`](../../yidam/cli/src/cmd/run/exec.rs#L293-L305)). What
+demonstrating the build system"* ([`process`](../../yidam/cli/src/cmd/run/exec.rs#L301-L313)). What
 it costs is that the property `docs/domain-computer.md` states about the whole kind is
 unenforceable. This RFC proposes a **second arm** on the same manifest field — a script in an
 embedded, statically typed, effect-tracked language, `run = { gluon = "…" }` beside
@@ -62,7 +63,7 @@ and the title changed with it. Nothing about the cost measurement or the decisio
 > — [`Calculators`](../domain-computer.md#L16-L21)
 
 Three of those four are unenforced. `materialize` checks out the declared `reads` into a scratch
-tree, [`process`](../../yidam/cli/src/cmd/run/exec.rs#L293-L305) spawns `run[0]` in it with five
+tree, [`process`](../../yidam/cli/src/cmd/run/exec.rs#L301-L313) spawns `run[0]` in it with five
 environment variables, and the executor afterwards refuses a step that wrote outside `writes`.
 That is a real guarantee about **writes** and about nothing else. A calculator may read the
 clock, resolve a hostname, open a socket, or read any path on the machine outside its scratch
@@ -213,7 +214,7 @@ writes = [".yidam/computed/**"]
 verb   = "compute"
 ```
 
-A sum on [`run`](../../yidam/cli/src/cmd/run/manifest.rs#L203-L226), so the sequence form parses
+A sum on [`run`](../../yidam/cli/src/cmd/run/manifest.rs#L213-L239), so the sequence form parses
 byte-identically to today and no existing manifest changes. The table form takes `gluon` and an
 optional `calls`, and an unknown key is refused at load with the arms named — the manifest's
 `deny_unknown_fields` rule applied to a field that now has a shape rather than a type.
@@ -244,9 +245,9 @@ That is a third case on an existing mechanism rather than a new one, with one di
 stating: a connector's refusal is a decision and a featurizer's is an absence, and this one is
 neither — it is a property of the build in hand. Which is why the predicate gained a **sibling**
 rather than a third arm. `Kind::unrunnable_because` is a property of the taxonomy and the same in
-every build; [`Run::unrunnable_because`](../../yidam/cli/src/cmd/run/manifest.rs#L383-L397) is a
+every build; [`Run::unrunnable_because`](../../yidam/cli/src/cmd/run/manifest.rs#L409-L429) is a
 property of this binary; and only the whole declaration knows it has to ask both, so
-[`Capability::unrunnable_because`](../../yidam/cli/src/cmd/run/manifest.rs#L480-L491) asks the kind
+[`Capability::unrunnable_because`](../../yidam/cli/src/cmd/run/manifest.rs#L515-L526) asks the kind
 first. A featurizer declaring a `.glu` is refused for being a featurizer, because no build has that
 executor and the feature is not the thing its author can act on. So the sentence names the feature, and the
 manifest still **parses** in a light build, because a corpus that declares a gluon calculator is
@@ -315,6 +316,32 @@ says why, and a second arm does not make it a parity function. The MCP contract,
 capability's implementation. The receipt format, whose input hash already covers the corpus
 commit. `policy/` and `regorus`, which decide a different question and share no code with this.
 And the bootstrap scaffold, which writes the manifest with no capability in it.
+
+## Amended: a calculator declared before it is built (#1184)
+
+The section above said this RFC left the bootstrap alone, and it did. #1063's review of seven
+derived repositories found what that left behind: most of the 45 skills in their `.yidam/skills/`
+were calculator specs, because step 7 wrote an approved calculator the seeded corpus could not
+yet run as a skill stub. A skill is a procedure an agent follows. The runner never reads one, so
+the place that would have run the calculator never heard of it.
+
+**`run` may be absent, and absent is its own shape.** A declaration with no `run` parses to
+`Run::Unbuilt`: its `reads`, `writes` and `verb` are validated like any other, so the contract
+exists before the program does. `run = []` is still refused as empty, because a typo should not
+read as a stub.
+
+**It is refused, not skipped.** Every plan holding it is refused before anything runs, the way a
+connector's is, in every build. So a bare `yidam run` refuses the whole manifest until the
+calculator gains a `run` or its declaration is deleted. The alternative was to skip it and list it
+in the report. That was rejected because a run reporting success over a declared computation that
+never happened is the gate that is green because it is not looking. `yidam doctor` reports the
+step as *declared and not built* rather than *never run*, since the second sends its reader to
+run it.
+
+A cluster workflow asks the kind and the absence, but not this build's feature. It is generated on
+one machine for pods running another image, and only the first two are true of every image.
+
+Bootstrap step 7 now writes the declaration, not the stub, and `implement:` names it.
 
 ## Migration & compatibility
 

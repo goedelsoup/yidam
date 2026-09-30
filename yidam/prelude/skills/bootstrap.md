@@ -529,7 +529,7 @@ Definitions for this step — three distinct concepts:
 - **Calculator** — a domain computation that derives a value or relationship from corpus
   data. A calculator is identified here as a *proposal*. Approved calculators are run
   during step 7 if enough seeded instances exist to make the result meaningful; otherwise
-  they are stubbed. Do not create any files in this step.
+  they are declared unbuilt. Do not create any files in this step.
 
 Before seeding any objects, read the full set of `.ont.yml` class definitions and reason
 about what the schema implies at the domain level. Then present a structured report to the
@@ -726,20 +726,21 @@ and the resulting epistemic commit are the record.
 
 **Calculators** — for each approved calculator: if the seeded corpus contains enough
 instances to produce a meaningful result, run it now and commit the output with `compute:`
-— a calculator run and its output committed. Otherwise write a stub in `.yidam/skills/`:
+— a calculator run and its output committed. Otherwise declare it in `.yidam/capabilities.toml`
+with no `run`:
 
-```
-.yidam/skills/<calculator-name>.md
----
-name: <calculator-name>
-description: <one line>
-status: stub
----
+```toml
+# <what it computes, and what it returns>
+[capability.<calculator-name>]
+kind   = "calculator"
+reads  = [<the corpus globs it reads>]
+writes = [".yidam/computed/**"]
+verb   = "compute"
 ```
 
-The stub should describe what it computes, which corpus nodes it reads, and what it returns.
-`status: stub` keeps `yidam skills-index` from counting it as a capability; change it to
-`built` when an agent can follow it.
+A calculator with no `run` is declared and not built. Its `reads`, `writes` and `verb` are the
+contract, and `yidam run` refuses it by name until it has a `run`. Do not write it as a skill in
+`.yidam/skills/`: a skill is a procedure an agent follows, and the runner never reads one.
 
 **Do not commit anything in this step.** The implied edges are an `establish:` and the
 remaining stubs are an `implement:`; both are written in step 8, after the genesis commit.
@@ -755,7 +756,7 @@ whether a history is a bootstrap's:
 ```
 genesis     the root commit — schema, instances, decision records, .yidam/ structure
 establish   the implied edges wired in step 7 — omit if none were approved
-implement   the connector and calculator stubs from step 7 — omit if none remained
+implement   the connector stubs and calculator declarations from step 7 — omit if none remained
 consume     samudaya
 consume     sadhana
 vendor      the prelude, into .yidam/.vendor/
@@ -1028,7 +1029,7 @@ count for the seeded ones. If any class is empty, name `.yidam/decisions/seed-sc
 say in one line what material would close it. A scaffold waiting for material and a corpus
 that is finished look identical in the four sections around this one.
 
-**Implied edges, connectors, and calculators** — edges wired, crate stubs and skill stubs scaffolded. One line each.
+**Implied edges, connectors, and calculators** — edges wired, crate stubs scaffolded, calculators declared. One line each.
 
 **Conventions not yet scaffolded** — one line each, so the user knows these exist without
 finding an empty directory and guessing:

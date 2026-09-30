@@ -398,7 +398,13 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 ///
 /// **Raised to 20,381 when `interval:` gained `complete:` (#1213).** The delta is **74 words in
 /// `GRAPH.md`**, the same 74 both recurring routes moved by. 20,307 + 74 is this figure exactly.
-const BOOTSTRAP_CEILING: usize = 20_381;
+///
+/// **Raised to 20,415 when step 7 declared an unrun calculator instead of stubbing a skill
+/// (#1184).** The delta is **34 words in `bootstrap.md`**: the manifest template and the sentences
+/// saying what an absent `run` is and why the skill directory is the wrong home. `directories.md`
+/// gained its own paragraph in the manifest section, which this path skips. 20,381 + 34 is this
+/// figure exactly.
+const BOOTSTRAP_CEILING: usize = 20_415;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///

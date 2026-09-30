@@ -290,7 +290,7 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
     if let Some((first, why)) = unrunnable.first() {
         let names: Vec<&str> = unrunnable.iter().map(|(n, _)| *n).collect();
         bail!(
-            "`{first}` declares `{}`, which this binary does not invoke, so this plan cannot \
+            "`{first}` declares {}, which this binary does not invoke, so this plan cannot \
              run.\n  \
              {}.\n  \
              In this plan: {}",
@@ -660,6 +660,11 @@ pub(crate) fn standing(root: &Path) -> Result<Vec<Standing>> {
         )?;
 
         let verdict = match &landed {
+            // Before "never run", which is true and sends its reader to run it (#1184).
+            None if matches!(cap.run, manifest::Run::Unbuilt) => Verdict::Stale(
+                "it is declared and not built — it has no `run`, so nothing can compute it"
+                    .to_string(),
+            ),
             None => Verdict::Stale("it has never run against this corpus".to_string()),
             Some(l) if l.input_state.as_deref() != Some(input_state.as_str()) => Verdict::Stale(
                 "what it reads, or what it declares, is not what its receipt was computed from"
