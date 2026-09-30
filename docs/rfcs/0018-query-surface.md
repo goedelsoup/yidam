@@ -690,7 +690,7 @@ matter of plumbing:
 | that commit's ontology | `is_instance` excludes `.ont.yml` outright ([`history.rs:41-62`](../../yidam/cli/src/cmd/lint/history.rs#L41-L62)) |
 | declared properties, types, targets, `edge_policy` | `blob_expectation` deserializes **one** field from a class blob — `direction` — into a three-valued `Expectation` ([`history.rs:225-267`](../../yidam/cli/src/cmd/lint/history.rs#L225-L267)) |
 | relationship names on edges | `targets_of` drops them: `.filter_map(\|l\| l.target.as_ref())` ([`history.rs:82`](../../yidam/cli/src/cmd/lint/history.rs#L82)) |
-| a revision to stop at | `change_stream` runs `git log --reverse … -- .yidam/corpus` with no revision argument and no parameter to supply one ([`history.rs:95-107`](../../yidam/cli/src/cmd/lint/history.rs#L95-L107)) — genesis to HEAD, always |
+| a revision to stop at | `change_stream` runs `git log --reverse … -- .yidam/corpus` with no revision argument and no parameter to supply one ([`change_stream`](../../yidam/cli/src/cmd/lint/history.rs#L116-L126)) — genesis to HEAD, always |
 
 `replay` is the right *shape* and the wrong function. `--at` needs its own reconstruction:
 read the tree at a rev and build the same structure `graph_data` builds, from blobs. The
