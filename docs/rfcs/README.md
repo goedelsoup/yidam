@@ -69,7 +69,7 @@ re-deriving it.
 | [0036](0036-yidam-level-change.md) | G6 | An yidam-level change, and the two shapes a derivation's report takes | Accepted |
 | [0037](0037-open-question-marker.md) | G7 | An open question is a node; `[open]` is a claim's standing | Accepted |
 | [0038](0038-rules-and-evidence.md) | G8 | A rule is separable from the essay that justifies it | Draft |
-| [0039](0039-occasion-scoped-read.md) | G9 | A read is scoped to the occasion, not to the repository | Draft |
+| [0039](0039-occasion-scoped-read.md) | G9 | A read is scoped to the occasion, not to the repository | Implemented |
 | [0040](0040-numeric-property-type.md) | G10 | A numeric property type | Draft |
 | [0041](0041-typed-property-columns.md) | G11 | Typed property columns, and a predicate on a ranked answer (`retrieve --where`) | Draft |
 | [0042](0042-typed-calculator-arm.md) | I31 | A calculator whose purity is a closed scope and a typecheck, not a norm — a typed, effect-tracked arm on the capability manifest | Draft |
