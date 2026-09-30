@@ -753,7 +753,7 @@ description = "Full-feature CI for the yidam CLI (all optional features, and the
 #
 # ── there is no plain `--all-features` test run, and that is #1013 ────────
 #
-# `coverage-full`, two steps later in the same job, runs `cargo llvm-cov nextest
+# `coverage-full`, in the job beside this one since #1016, runs `cargo llvm-cov nextest
 # --all-features` — exactly this feature set, exactly these tests. Running them here as well
 # cost a second codegen-and-link of all 59 test binaries with lancedb, arrow and ort in each:
 # on main run 36175381600 that was 5m51s of compile and 95.5s of run, ≈7.4 minutes of a
