@@ -71,13 +71,13 @@ at depth 2 and all of it at depth 3.
 ([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L612), Error), the properties it may
 and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1136),
 [`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1319)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1620)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1688)), and which class
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1651)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1719)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1757), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L1788), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
-([`checks.rs:1741-1742`](../../yidam/cli/src/cmd/lint/checks.rs#L1741-L1742)):
+([`checks.rs:1772-1773`](../../yidam/cli/src/cmd/lint/checks.rs#L1772-L1773)):
 
 > a relationship in no declaration is worth seeing, because **a traversal that walks by
 > relationship will not find it**
@@ -291,7 +291,7 @@ relationship the class does not declare resolves as:
 
 The first row is load-bearing and is easy to omit. `unlicensed_edge` short-circuits on an empty
 edge list **before** it consults the policy
-([`checks.rs:1697-1698`](../../yidam/cli/src/cmd/lint/checks.rs#L1697-L1698)):
+([`checks.rs:1728-1729`](../../yidam/cli/src/cmd/lint/checks.rs#L1728-L1729)):
 
 ```rust
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
@@ -345,7 +345,7 @@ If a class declares the relationship but only toward class C, a hop asking for c
 **rejected**, naming the declared targets. `edge-target-class` is Error severity for the same
 reason: an edge to the wrong thing resolves, traverses, and exports, and is simply false. A
 declaration with an empty `target` licenses every class, exactly as the check reads it
-([`edge_target_class`](../../yidam/cli/src/cmd/lint/checks.rs#L1757-L1776)), and so does a query hop
+([`edge_target_class`](../../yidam/cli/src/cmd/lint/checks.rs#L1788-L1807)), and so does a query hop
 against it. `*` on the target side is the query-side twin of that empty `target:` and licenses
 every class in the same way.
 

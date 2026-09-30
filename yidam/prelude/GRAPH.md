@@ -95,6 +95,7 @@ against it:
 | `property-type` | a value contradicting the declared `type` | yes |
 | `unlicensed-edge` | a relationship the class does not declare | only under `edge_policy: exhaustive` |
 | `edge-target-class` | an edge resolving to a node of the wrong class | yes |
+| `interval-overlap` | two instances holding one target at once, or an end before its start | only where the class declares `interval:` |
 | `missing-property` | a declared property the instance omits | only where the class says `required: true` |
 | `claim-property-undeclared` | a value spelling a standing in a property the class did not declare `type: claim` | no |
 
@@ -116,6 +117,11 @@ nothing, and an edge to the *wrong* thing resolves, traverses, and exports, and 
 **A `string` that declares `values: [extant, demolished, ruin]` is closed to that set**, and
 an instance holding anything else fails, with the set named. The match is exact, as written.
 [why](GRAPH.evidence.md#values-closed)
+
+**An `interval:` names the `date` properties that start and end an instance**, as
+`start: began` and `end: ended`. `exclusive_over: of-office` adds that no two instances may
+hold one office at once. Intervals are half-open, compared at the precision both sides share,
+and open while the end is absent. [why](GRAPH.evidence.md#interval-overlap)
 
 **A `quotation` is words copied from a catalog entry**: `of:` names the entry, `span:` holds
 the words, and `sha256:` names the artifact when the entry holds more than one.

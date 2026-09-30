@@ -55,7 +55,7 @@ declaration anywhere that says there should have been one.**
 ### The only coverage prose in the model is about a search
 
 The word occurs once, in `GRAPH.md`'s description of the `scope` verb
-([`GRAPH.md:654-655`](../../yidam/prelude/GRAPH.md#L654-L655)):
+([`GRAPH.md:660-661`](../../yidam/prelude/GRAPH.md#L660-L661)):
 
 > a negative result about coverage is the only durable record that the coverage was checked
 

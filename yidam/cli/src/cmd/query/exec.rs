@@ -105,37 +105,10 @@ fn scalars(value: &serde_yaml::Value) -> Vec<String> {
     }
 }
 
-/// Order two ISO dates **at the precision they share**, or `None` if either is not a date.
-///
-/// The corpus writes a date to whatever precision it knows it — `is_iso_date`'s own rationale
-/// records `formed: "1985"` occurring 71 times in one derived corpus — so a comparison has to
-/// say what it does when the two sides disagree about precision. This one drops both to the
-/// coarser: `1893-04-01 < 1900` is decided on the years alone.
-///
-/// **This is deliberately not `=`'s rule, and the divergence is the point.** `=` compares at
-/// the precision the *query* wrote, so `born=1893-04-01` does not match `born: 1893` — a
-/// day-precision question the corpus cannot answer. Ordering at the query's precision would
-/// make `born<=1900-01-01` skip every person whose birth year alone is known, silently, in
-/// the direction of a smaller answer. An equality asked more precisely than the corpus knows
-/// is genuinely unanswerable; an ordering usually is not — `1893` is before `1900-01-01`
-/// whatever day it fell on — and answering it is the reason the operator exists.
-///
-/// The consequence to know: where the corpus is coarser than the query, `<=` and `>=` can
-/// both hold for a value `=` rejects. When the two sides carry the same precision the three
-/// are trichotomous, which is the case a caller reasons about.
-fn compare_dates(left: &str, right: &str) -> Option<std::cmp::Ordering> {
-    let (left, right) = (
-        crate::cmd::lint::checks::iso_date_parts(left.trim())?,
-        crate::cmd::lint::checks::iso_date_parts(right.trim())?,
-    );
-    let shared = left.len().min(right.len());
-    Some(left[..shared].cmp(&right[..shared]))
-}
-
 /// Order two numbers, or `None` if either is not one.
 ///
 /// Exact, with no precision rule: `7` and `7.0` denote the same point, where `1893` denotes
-/// an interval — which is why [`compare_dates`] has one and this does not (RFC-0040). The
+/// an interval — which is why [`crate::cmd::lint::checks::compare_dates`] has one and this does not (RFC-0040). The
 /// reader is `numeric_value`, the gate's own, for `iso_date_parts`'s reason.
 fn compare_numbers(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     crate::cmd::lint::checks::numeric_value(left)?
@@ -192,7 +165,7 @@ pub(crate) fn pred_holds_over(values: &[String], pred: &Pred, declared: Option<&
     // comparison, and guessing an answer for it would be the undercount's louder twin.
     let compare = |v: &str| match numeric {
         true => compare_numbers(v, &pred.value),
-        false => compare_dates(v, &pred.value),
+        false => crate::cmd::lint::checks::compare_dates(v, &pred.value),
     };
     let matches_one = |v: &String| match pred.op {
         // `=` on a `number` is numeric, so `7.0 = 7` holds and the three operators stay
