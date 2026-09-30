@@ -23,7 +23,7 @@
 
 use anyhow::{bail, Result};
 
-use crate::parse::{ArtifactOrigin, CatalogArtifact};
+use crate::parse::{ArtifactOrigin, CatalogArtifact, TextReading};
 
 /// A document split at the frontmatter, losslessly.
 ///
@@ -142,6 +142,21 @@ fn render(a: &CatalogArtifact) -> Vec<String> {
     if let Some(r) = a.redistributable {
         push("redistributable", r.to_string());
     }
+    if let Some(t) = &a.text {
+        out.extend(render_reading(t, "    "));
+    }
+    out
+}
+
+/// A reading's nested lines, `indent` being the column its parent record's keys start at.
+fn render_reading(t: &TextReading, indent: &str) -> Vec<String> {
+    let mut out = vec![format!("{indent}text:")];
+    if let Some(h) = &t.sha256 {
+        out.push(format!("{indent}  sha256: {h}"));
+    }
+    if let Some(e) = &t.extractor {
+        out.push(format!("{indent}  extractor: {}", quote_if_needed(e)));
+    }
     out
 }
 
@@ -230,6 +245,84 @@ pub fn append_artifacts(text: &str, records: &[CatalogArtifact]) -> Result<Strin
     Ok(rejoin(&split, &out.join("\n")))
 }
 
+/// Record a text reading under the artifact record whose digest is `of` (#1172).
+///
+/// `None` when that record already carries a reading. A reading is of fixed bytes and names
+/// the extractor that took it, so a second one is not a correction of the first, and
+/// replacing it would change what every quotation of the PDF was checked against without the
+/// PDF having changed. Taking a reading again is a person deleting the line, in a diff.
+///
+/// The record is found by its `sha256:` line, and the item it belongs to by the list dash two
+/// columns left of that key — which holds whether the digest is the item's first key or not,
+/// and whatever indent the author used for the list. The splice is then read back through
+/// the parser, and an edit that did not land on that record is refused rather than written.
+pub fn set_text_reading(text: &str, of: &str, reading: &TextReading) -> Result<Option<String>> {
+    let split = split(text)?;
+    let lines: Vec<&str> = split.front.split('\n').collect();
+    let Some(range) = block_of(&lines, "artifacts") else {
+        bail!("this entry declares no `artifacts:` list, so it records no `sha256:{of}`");
+    };
+
+    let digest_of = |l: &str| -> Option<(usize, String)> {
+        let body = l.trim_start();
+        let body = body.strip_prefix("- ").map(str::trim_start).unwrap_or(body);
+        let v = body.strip_prefix("sha256:")?;
+        let v = v
+            .split(" #")
+            .next()
+            .unwrap_or(v)
+            .trim()
+            .trim_matches(['"', '\'']);
+        Some((l.len() - body.len(), v.to_string()))
+    };
+    let Some((at, col)) = (range.start + 1..range.end)
+        .find_map(|i| digest_of(lines[i]).and_then(|(col, h)| (h == of).then_some((i, col))))
+    else {
+        bail!("this entry's `artifacts:` list records no `sha256:{of}`");
+    };
+    if col < 2 {
+        bail!("the record of `sha256:{of}` is not a list item this can edit");
+    }
+    let indent_of = |l: &str| l.len() - l.trim_start().len();
+    let start = (range.start + 1..=at)
+        .rev()
+        .find(|&i| indent_of(lines[i]) == col - 2 && lines[i].trim_start().starts_with('-'))
+        .ok_or_else(|| anyhow::anyhow!("no list item holds the record of `sha256:{of}`"))?;
+    let mut end = at + 1;
+    while end < range.end && (lines[end].trim().is_empty() || indent_of(lines[end]) >= col) {
+        end += 1;
+    }
+    while end > at + 1 && lines[end - 1].trim().is_empty() {
+        end -= 1;
+    }
+    let opens_text = |l: &str| {
+        let body = l.trim_start();
+        let body = body.strip_prefix("- ").map(str::trim_start).unwrap_or(body);
+        l.len() - body.len() == col && body.starts_with("text:")
+    };
+    if (start..end).any(|i| opens_text(lines[i])) {
+        return Ok(None);
+    }
+
+    let mut out: Vec<String> = lines.iter().map(|s| (*s).to_string()).collect();
+    out.splice(end..end, render_reading(reading, &" ".repeat(col)));
+    let rebuilt = rejoin(&split, &out.join("\n"));
+
+    let landed = crate::parse::parse_frontmatter(&rebuilt)
+        .artifacts
+        .unwrap_or_default()
+        .into_iter()
+        .find(|a| a.sha256.as_deref() == Some(of))
+        .and_then(|a| a.text);
+    if landed.as_ref() != Some(reading) {
+        bail!(
+            "recording the reading of `sha256:{of}` would not have landed on its record, so \
+             this entry was left as it is. Add the `text:` lines to it by hand."
+        );
+    }
+    Ok(Some(rebuilt))
+}
+
 /// Replace an entry's `used-by:` list with the paths that actually cite it.
 ///
 /// The citations are authoritative — `catalog-used-by-drift` says so in the words this
@@ -312,6 +405,7 @@ The system of record. **Parameter 00060** is discharge.
             from: Some(ArtifactOrigin::Location(0)),
             vault: None,
             redistributable: None,
+            text: None,
         }
     }
 
@@ -496,6 +590,83 @@ The system of record. **Parameter 00060** is discharge.
             refilled.contains("# USGS NWIS"),
             "prose survives both passes"
         );
+    }
+
+    fn reading() -> TextReading {
+        TextReading {
+            sha256: Some("tt".into()),
+            extractor: Some(crate::reading::EXTRACTOR.into()),
+        }
+    }
+
+    /// A reading lands on the record it is of, among others, and nothing else moves.
+    #[test]
+    fn a_reading_is_recorded_under_the_artifact_it_is_of() {
+        let held = append_artifacts(ENTRY, &[artifact("aa"), artifact("bb")]).unwrap();
+        let out = set_text_reading(&held, "aa", &reading()).unwrap().unwrap();
+        assert_eq!(
+            out,
+            held.replace(
+                "    from: 0\n  - sha256: bb",
+                "    from: 0\n    text:\n      sha256: tt\n      extractor: pdf-extract 0.12.1\n  \
+                 - sha256: bb"
+            ),
+            "{out}"
+        );
+        let parsed = crate::parse::parse_frontmatter(&out).artifacts.unwrap();
+        assert_eq!(parsed[0].text, Some(reading()));
+        assert_eq!(parsed[1].text, None);
+    }
+
+    /// The last record, followed by a blank line and a key, and a record whose digest is not
+    /// its first key under an unindented list — two ways a hand-written list differs.
+    #[test]
+    fn a_reading_finds_its_record_however_the_list_was_written() {
+        let last = "---\nname: s\nartifacts:\n  - sha256: aa\n    bytes: 3\n\ntype: x\n---\n";
+        let out = set_text_reading(last, "aa", &reading()).unwrap().unwrap();
+        assert!(
+            out.contains("    bytes: 3\n    text:\n      sha256: tt\n      extractor: pdf-extract 0.12.1\n\ntype: x\n"),
+            "{out}"
+        );
+        let flush = "---\nname: s\nartifacts:\n- bytes: 3\n  sha256: \"aa\"\n- sha256: bb\n---\n";
+        let out = set_text_reading(flush, "aa", &reading()).unwrap().unwrap();
+        assert!(
+            out.contains("  sha256: \"aa\"\n  text:\n    sha256: tt\n"),
+            "{out}"
+        );
+        let parsed = crate::parse::parse_frontmatter(&out).artifacts.unwrap();
+        assert_eq!(parsed[0].text, Some(reading()));
+        assert_eq!(parsed[1].text, None);
+    }
+
+    /// A reading already taken is not replaced: it would change what a quotation was checked
+    /// against with the PDF unchanged.
+    #[test]
+    fn a_record_that_has_a_reading_keeps_it() {
+        let mut a = artifact("aa");
+        a.text = Some(TextReading {
+            sha256: Some("old".into()),
+            extractor: Some("pdf-extract 0.11.0".into()),
+        });
+        let held = append_artifacts(ENTRY, &[a]).unwrap();
+        assert!(held.contains("    text:\n      sha256: old\n"), "{held}");
+        assert_eq!(set_text_reading(&held, "aa", &reading()).unwrap(), None);
+    }
+
+    #[test]
+    fn a_reading_of_a_digest_not_recorded_is_refused() {
+        let held = append_artifacts(ENTRY, &[artifact("aa")]).unwrap();
+        let err = set_text_reading(&held, "zz", &reading()).unwrap_err();
+        assert!(err.to_string().contains("records no `sha256:zz`"), "{err}");
+        let err = set_text_reading(ENTRY, "aa", &reading()).unwrap_err();
+        assert!(err.to_string().contains("no `artifacts:` list"), "{err}");
+    }
+
+    /// A shape the splice misreads is caught by reading the result back, not written.
+    #[test]
+    fn a_splice_that_would_land_elsewhere_is_refused() {
+        let odd = "---\nname: s\nartifacts:\n  - {bytes: 3}\n    sha256: aa\n---\n";
+        assert!(set_text_reading(odd, "aa", &reading()).is_err());
     }
 
     #[test]

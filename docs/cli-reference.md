@@ -925,6 +925,7 @@ knowledge claim, only the time to re-fetch.
 | `vault materialize` | Hardlink cached artifacts into `.yidam/vault/<slug>/` under names a person can open; `--entry` narrows |
 | `vault-status` * | Writes the `<!-- REGEN: yidam vault-status -->` block in README.md. Committed files only — never the cache, never the network. `yidam vault status`, a hyphen apart, is the read-only report; `yidam regen` runs this one with the rest |
 | `catalog-fetch [entry]` * | Follow a catalog entry's declared address, cache the bytes under their digest, record them in `artifacts:`, and commit it as `refresh:`. `--location` narrows to one address; `--bind name=value` fills a `url_template` slot; `--dry-run` resolves and writes nothing |
+| `catalog-extract [entry]` * | Take a text reading of each PDF artifact that has none, file it in the cache, record it under the PDF as `text:`, and commit it as `extract:`. `--dry-run` reports and reads nothing |
 | `catalog-reconcile [entry]` * | Rewrite a drifted `used-by` list to the citations, which are authoritative, and commit it as `reconcile:`. `--dry-run` reports and writes nothing |
 
 ### Following an address
@@ -1008,6 +1009,21 @@ Re-running is free. A fetch that finds bytes the entry already records writes no
 commits nothing. That is what makes it safe to put on a `ttl_days` clock. A source that
 *changed* appends a second record beside the first rather than replacing it. Overwriting would
 delete the provenance of every claim resting on the older bytes.
+
+### Reading a PDF
+
+A quotation of a PDF is compared with a text reading of the PDF. Lint never extracts text
+itself. Run `catalog-extract` once, on the machine that holds the PDF:
+
+1. Run `yidam vault pull` if the cache lacks the PDF.
+2. Run `yidam catalog-extract <entry>`.
+3. Run `yidam vault push` to share the reading with the other machines.
+
+The command records the reading's digest and its extractor under the PDF's record. A record
+that has a reading keeps it. To take a new reading, delete the `text:` lines and run it again.
+
+A scanned page has no text layer. The command refuses a reading with no letters or digits. It
+reports that PDF as skipped.
 
 ### Reconciling a `used-by` list
 

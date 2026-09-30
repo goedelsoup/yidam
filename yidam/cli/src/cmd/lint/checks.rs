@@ -1629,22 +1629,21 @@ pub fn property_type(
             continue;
         };
         for (key, value) in instance_properties(n) {
-            // The class first, then the corpus. Universal does not mean untyped — a
-            // fiscal-year snapshot is prose and a `claim` written into one is still
-            // counted as no claim — but a class naming the same property has said
-            // something more specific about its own instances, and wins.
-            let own = class.properties.iter().find(|p| p.name == key);
-            let declared = own
-                .map(|p| p.r#type.as_str())
-                .or_else(|| universal.declared_type(&key));
-            let Some(declared) = declared else {
+            // The class first, then `universal.yml` — the one precedence rule
+            // [`crate::universal::Universal::declared_type_for`] states, so this and the
+            // other three readers of it cannot disagree about which values are typed.
+            let Some(declared) = universal.declared_type_for(Some(*class), &key) else {
                 continue;
             };
             // The shape first, then the set. A value that is not text is reported for what
             // it is, not also for being outside a list of text — and the set is the class's
             // own: `universal.yml` declares a type and nothing more.
             let why = property_type_violation(declared, value).or_else(|| {
-                own.filter(|p| p.r#type == "string")
+                class
+                    .properties
+                    .iter()
+                    .find(|p| p.name == key)
+                    .filter(|p| p.r#type == "string")
                     .and_then(|p| declared_value_violation(&p.values, value))
             });
             if let Some(why) = why {
@@ -2694,24 +2693,14 @@ pub fn catalog_artifact_malformed(sources: &[Source]) -> Check {
     for s in sources {
         for (i, a) in s.artifacts.iter().enumerate() {
             let mut problems = Vec::new();
-            match a.sha256.as_deref().map(str::trim) {
-                None | Some("") => problems.push("no `sha256`".to_string()),
-                Some(h) if h.len() != 64 => {
-                    problems.push(format!("`sha256` is {} characters, not 64: {h:?}", h.len()))
+            problems.extend(digest_problem("sha256", a.sha256.as_deref()));
+            // A text reading (#1172) is a second digest, and the extractor it names is what
+            // lets a person reproduce it — a reading without one is text of unknown origin.
+            if let Some(t) = &a.text {
+                problems.extend(digest_problem("text.sha256", t.sha256.as_deref()));
+                if t.extractor.as_deref().is_none_or(|e| e.trim().is_empty()) {
+                    problems.push("`text` names no `extractor`".to_string());
                 }
-                Some(h) if !h.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')) => {
-                    // Uppercase named separately: hex is case-insensitive and a store is not,
-                    // so the two spellings would be two keys for one artifact.
-                    if h.chars().any(|c| c.is_ascii_uppercase()) {
-                        problems.push(format!(
-                            "`sha256` is uppercase; vault keys are lowercase hex — use {}",
-                            h.to_ascii_lowercase()
-                        ));
-                    } else {
-                        problems.push(format!("`sha256` is not hex: {h:?}"));
-                    }
-                }
-                Some(_) => {}
             }
             // A `from:` index naming no location is the one cross-field error worth having:
             // it means the record cites a provenance the entry does not carry.
@@ -2742,6 +2731,30 @@ pub fn catalog_artifact_malformed(sources: &[Source]) -> Check {
          is settled entirely by files in this repository.",
         violations,
     )
+}
+
+/// What is wrong with a recorded digest, if anything. `field` is how the finding names it.
+fn digest_problem(field: &str, digest: Option<&str>) -> Option<String> {
+    match digest.map(str::trim) {
+        None | Some("") => Some(format!("no `{field}`")),
+        Some(h) if h.len() != 64 => Some(format!(
+            "`{field}` is {} characters, not 64: {h:?}",
+            h.len()
+        )),
+        // Uppercase named separately: hex is case-insensitive and a store is not, so the two
+        // spellings would be two keys for one artifact.
+        Some(h) if !h.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')) => {
+            Some(if h.chars().any(|c| c.is_ascii_uppercase()) {
+                format!(
+                    "`{field}` is uppercase; vault keys are lowercase hex — use {}",
+                    h.to_ascii_lowercase()
+                )
+            } else {
+                format!("`{field}` is not hex: {h:?}")
+            })
+        }
+        Some(_) => None,
+    }
 }
 
 /// An artifact routed to a vault this repository does not declare.
@@ -5216,6 +5229,35 @@ mod tests {
         assert_eq!(v.len(), 2);
         assert!(v[0].detail.contains("not 64"), "{:?}", v[0].detail);
         assert!(v[1].detail.contains("not hex"), "{:?}", v[1].detail);
+    }
+
+    /// A text reading is a second digest held to the first one's form, and it names the
+    /// extractor that took it (#1172).
+    #[test]
+    fn a_text_reading_is_held_to_a_digest_and_an_extractor() {
+        let ok = with_artifacts(
+            "ok",
+            &format!("- sha256: {GOOD}\n  text:\n    sha256: {GOOD}\n    extractor: x 1\n"),
+        );
+        assert!(catalog_artifact_malformed(&[ok]).violations.is_empty());
+        let sources = vec![
+            with_artifacts(
+                "short",
+                &format!("- sha256: {GOOD}\n  text:\n    sha256: abc\n    extractor: x 1\n"),
+            ),
+            with_artifacts(
+                "anonymous",
+                &format!("- sha256: {GOOD}\n  text:\n    sha256: {GOOD}\n"),
+            ),
+        ];
+        let v = &catalog_artifact_malformed(&sources).violations;
+        assert_eq!(v.len(), 2, "{v:?}");
+        assert!(
+            v[0].detail.contains("`text.sha256` is 3"),
+            "{:?}",
+            v[0].detail
+        );
+        assert!(v[1].detail.contains("no `extractor`"), "{:?}", v[1].detail);
     }
 
     /// A `from:` index naming no location means the record cites a provenance the entry does

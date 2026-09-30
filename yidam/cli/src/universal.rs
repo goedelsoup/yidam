@@ -42,6 +42,8 @@ use std::path::Path;
 
 use regex::Regex;
 
+use crate::corpus::Class;
+
 /// The file's name under the corpus directory.
 pub const FILENAME: &str = "universal.yml";
 
@@ -272,6 +274,36 @@ impl Universal {
             .map(|p| p.r#type.as_str())
     }
 
+    /// The declared type of `key` for `class` — the class's own declaration first, then this
+    /// file's — with the precedence stated once (#1186).
+    ///
+    /// Before this, the rule was written out by hand at four sites: `lint::checks`'s
+    /// `property_type`, `lint::quotations`'s `checks`, `query::check`'s `declared_type`, and
+    /// `embed`'s `ordered_properties`. All four agreed that a class naming the property wins
+    /// over `universal.yml` — a class has said something more specific about its own
+    /// instances. #1174 moved the quotation reading into `lint::quotations::Declared`, shared
+    /// by `quotations::checks` and the citation count, and that is the caller here now.
+    ///
+    /// **`class` is `None` for a class this corpus does not define, and `universal.yml`
+    /// still applies.** This module's own header is the reason: universal properties are
+    /// "any class may carry them, whatever its own ontology declares" — including a class
+    /// with no ontology entry at all. `lint::checks::property_type` and
+    /// `lint::quotations::Declared::in_node` never call this with `None` — each skips a node of an
+    /// undefined class before it ever asks about one property, so that the node is reported
+    /// once, by `unknown-class`, and not again by every check that reads a declaration. That
+    /// is a decision about *which node gets reported*, not about this precedence rule, and
+    /// `embed::ordered_properties` has no such reporting concern to defer to: it indexes a
+    /// node's properties for `--where` to filter on, and withholding a `date` or `number`
+    /// this corpus *did* declare — because the node's own class happens not to be one of
+    /// this corpus's `.ont.yml` files — would make the index quietly incomplete for no
+    /// reader's benefit. So `embed` is the one caller that passes `None` through, on purpose.
+    pub fn declared_type_for<'a>(&'a self, class: Option<&'a Class>, key: &str) -> Option<&'a str> {
+        class
+            .and_then(|c| c.properties.iter().find(|p| p.name == key))
+            .map(|p| p.r#type.as_str())
+            .or_else(|| self.declared_type(key))
+    }
+
     /// Whether any class may carry this property name.
     pub fn covers(&self, key: &str) -> bool {
         self.properties.iter().any(|p| p.matches(key))
@@ -452,5 +484,56 @@ properties:
                 .expect("under the root"),
             Path::new(REL)
         );
+    }
+
+    // ── declared_type_for (#1186) ─────────────────────────────────────────────
+
+    /// A class declaring the property wins, whatever `universal.yml` says about the same
+    /// name — the class has said something more specific about its own instances.
+    #[test]
+    fn a_class_declaring_the_key_wins_over_universal() {
+        let u = Universal::parse(OHIO);
+        let class = Class::parse(
+            ".yidam/corpus/gage.ont.yml",
+            "properties:\n  - name: seeded_because\n    type: claim\n",
+        );
+        assert_eq!(
+            u.declared_type_for(Some(&class), "seeded_because"),
+            Some("claim"),
+            "the class's own `claim` beats universal's `text`"
+        );
+    }
+
+    /// A property the class does not name falls through to `universal.yml`.
+    #[test]
+    fn a_key_only_universal_declares_falls_through_to_it() {
+        let u = Universal::parse(OHIO);
+        let class = Class::parse(".yidam/corpus/gage.ont.yml", "properties: []\n");
+        assert_eq!(
+            u.declared_type_for(Some(&class), "seeded_because"),
+            Some("text")
+        );
+    }
+
+    /// A key neither declares is undeclared, whether or not a class was asked.
+    #[test]
+    fn a_key_neither_declares_is_undeclared() {
+        let u = Universal::parse(OHIO);
+        let class = Class::parse(".yidam/corpus/gage.ont.yml", "properties: []\n");
+        assert_eq!(
+            u.declared_type_for(Some(&class), "nothing_names_this"),
+            None
+        );
+        assert_eq!(u.declared_type_for(None, "nothing_names_this"), None);
+    }
+
+    /// `None` is a class this corpus does not define, and `universal.yml`'s declarations
+    /// still apply — the decision #1186 asks for, and the one place `embed::ordered_properties`
+    /// exercises it: an undefined class is `unknown-class`'s finding, not a reason to drop a
+    /// property whose type this corpus otherwise declared.
+    #[test]
+    fn an_undefined_class_still_gets_universals_declarations() {
+        let u = Universal::parse(OHIO);
+        assert_eq!(u.declared_type_for(None, "seeded_because"), Some("text"));
     }
 }

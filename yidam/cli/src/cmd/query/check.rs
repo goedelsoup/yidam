@@ -364,13 +364,14 @@ pub(crate) fn nearest(name: &str, declared: &[&str]) -> String {
 // ── property predicates ───────────────────────────────────────────────────────
 
 /// The declared type of a property on a class, or from `universal.yml`.
+///
+/// A thin adapter over [`crate::universal::Universal::declared_type_for`] — the one
+/// precedence rule, stated there rather than here (#1186). `class` is always a class this
+/// corpus defines: a step's class name is resolved against the schema before a predicate is
+/// checked against it, so the `None` arm — where `universal.yml` still applies — is
+/// `embed`'s to take, not this one's.
 fn declared_type<'a>(class: &'a Class, prop: &str, universal: &'a Universal) -> Option<&'a str> {
-    class
-        .properties
-        .iter()
-        .find(|p| p.name == prop)
-        .map(|p| p.r#type.as_str())
-        .or_else(|| universal.declared_type(prop))
+    universal.declared_type_for(Some(class), prop)
 }
 
 /// Check one predicate against one class.
