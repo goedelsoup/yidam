@@ -44,6 +44,50 @@ gates. A repository whose vendored PROTOCOL.md lacks the line only warns, until 
 position file the loop read under `positions:`. A shallow clone cannot see the ancestry, so there
 every finding warns.
 
+### A `quotation` property type
+
+**A property may be declared `type: quotation` (#1070, RFC-0046).** Its value names a catalog
+entry in `of:` and holds the copied words in `span:`. Add `sha256:` when the entry holds more
+than one artifact. `quotation-span-drift` fails when the entry's cached bytes lack the words.
+`quotation-unresolved` fails when `of:` or the pin names nothing. Where the bytes are not in
+this machine's vault cache, or are not text, `quotation-unchecked` reports it at Info. A CI
+runner with no cache sees only Info findings.
+
+Nothing changes until a class declares the type. A corpus that coined `quotation` for itself
+is now checked against this shape. `yidam rename` rewrites `of:` with the entry.
+
+### Lint reports a decision or a URL nothing registers
+
+**New Info finding, `decision-uncited` (#1068).** It reports a decision record nothing in the
+repository refers to. A markdown link to the record counts. So does its path, `decisions/<stem>`,
+named in any file git tracks, code included. A `links:` target or an edge `source:` naming its
+`id:` counts. So does a `decision/<id>` entry in `references:`, or another record's `supersedes:`.
+Text inside a REGEN block, or in a vendored or generated region, does not count. Across 13
+derived corpora, it reported 29 of 346 records. Info, not a gate: your exit code does not change.
+
+**New Info finding, `source-unregistered` (#1068).** It reports a URL in a node or a catalog
+body that no catalog `location:` covers. A location covers its own path and every path beneath
+it on that host. A corpus that declares no `url` or `url_template` location is not read. To
+clear a finding, register the source, or add the URL as a `location:` on its entry. Info, not a
+gate: your exit code does not change.
+
+### `yidam rename` moves a catalog entry
+
+**`yidam rename catalog/old new` renames a catalog entry (#1159).** Before, the command
+took corpus nodes only. Renaming an entry by hand left every edge `source:` naming its old
+stem, which `edge-source-unresolved` then reported.
+
+The command now moves `.yidam/catalog/old.md` to `new.md` and rewrites every citation of it.
+An edge `source:` is rewritten in the spelling its author used, stem or path. A markdown link
+under `.yidam/` that resolved to the entry is re-relativized from the file that holds it. That
+covers node prose, other entries, decision records and the catalog README. On the largest
+corpus we measured, one rename rewrote 107 citations across 41 files. Lint was identical
+before and after.
+
+Anything that names the old file without linking it is reported and not rewritten. The
+report's `corpus_dir` is `.yidam` for a catalog entry, and `from` and `to` read
+`catalog/<name>.md`. `--dry-run` prints the plan and changes nothing. Nothing changes for a
+corpus node rename.
 ### An edge `source:` counts as a citation
 
 **`catalog-uncited` and `verified-unsourced` read edge sources (#1158).** Before, only a
@@ -82,6 +126,18 @@ warned on every omitted property that was not `required: true`. A property marke
 It is now silent on `required: false`. A property that says nothing still warns, and
 `required: true` still gates. To accept a standing `missing-property` floor, write
 `required: false` on the properties an instance may omit. No baseline is needed.
+
+### The graph report says what omitting a property costs
+
+**A new field, `omission`, on each class property in `yidam graph --format json` (#1155).**
+Its value is `gates`, `reported` or `licensed`: the verdict `missing-property` gives when an
+instance omits the property. Before, the report carried only `required`, one bool. A property
+marked `required: false` and one that said nothing both arrived as `false`. The web
+editor labelled a licensed omission **reported**.
+
+`required` is unchanged. The web editor reads `omission` and labels a licensed property
+**allowed**. Against a binary older than the field, it labels a `false` property **does not
+gate** rather than guessing. Nothing changes for a corpus.
 
 ### `yidam schema` leaves a schema file it did not write alone
 

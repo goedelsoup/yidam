@@ -171,8 +171,8 @@ pub struct Class {
 pub struct ClassProperty {
     #[serde(default)]
     pub name: String,
-    /// `string`, `text`, `date`, `number`, `ref`, `claim` — or anything else, which is
-    /// unchecked.
+    /// `string`, `text`, `date`, `number`, `ref`, `claim`, `quotation` — or anything else,
+    /// which is unchecked.
     #[serde(default)]
     pub r#type: String,
     /// What the property is for, as the class writes it.
@@ -245,6 +245,35 @@ impl ClassProperty {
     pub fn required(&self) -> bool {
         self.declared_required.unwrap_or(false)
     }
+
+    /// What `missing-property` does when an instance omits this property.
+    ///
+    /// The one place the three answers of [`Self::declared_required`] become a verdict. The
+    /// check and the `graph` report both read it, so a client labelling a property's omission
+    /// and the gate judging one cannot disagree (#1155).
+    pub fn omission(&self) -> Omission {
+        match self.declared_required {
+            Some(true) => Omission::Gates,
+            Some(false) => Omission::Licensed,
+            None => Omission::Reported,
+        }
+    }
+}
+
+/// What omitting a declared property costs an instance, as `missing-property` decides it.
+///
+/// A verdict rather than the declaration, because the report's `required` bool folds
+/// `required: false` into silence and a client re-deriving the check's rule from it gets
+/// the licensed case wrong (#1155).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Omission {
+    /// `required: true`. The omission is an error and fails the gate.
+    Gates,
+    /// No `required:` at all. The omission is a warning; nobody decided.
+    Reported,
+    /// `required: false`. The class said an instance may omit it, so nothing is reported.
+    Licensed,
 }
 /// One relationship a class declares.
 #[derive(Default, serde::Deserialize)]

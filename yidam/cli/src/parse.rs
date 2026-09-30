@@ -236,6 +236,28 @@ pub use yidam_core::corpus::{parse_instance, CorpusInstance, CorpusLink, Externa
 pub struct Decision {
     pub id: Option<String>,
     pub summary: Option<String>,
+    /// The records this one replaces, by `id:` or stem — one, or a list.
+    ///
+    /// Untyped, because a field no tool read until #1068 was written as both, and a typed
+    /// field would turn every record spelling it the other way into a parse failure that
+    /// `malformed-yaml` reports as an Error. [`Self::superseded`] is the reading.
+    pub supersedes: Option<serde_yaml::Value>,
+}
+
+impl Decision {
+    /// The ids [`Self::supersedes`] names: a string, or each string in a list. Anything else
+    /// names nothing.
+    pub fn superseded(&self) -> Vec<&str> {
+        match &self.supersedes {
+            Some(serde_yaml::Value::String(s)) => vec![s.trim()],
+            Some(serde_yaml::Value::Sequence(items)) => items
+                .iter()
+                .filter_map(|v| v.as_str())
+                .map(str::trim)
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
 }
 
 /// A seed file from samudaya/ (markdown with kind/constitutional frontmatter).

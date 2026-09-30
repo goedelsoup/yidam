@@ -55,7 +55,7 @@ pub struct OntologyClass {
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct OntologyProperty {
     pub name: String,
-    /// `string`, `text`, `date`, `number`, `ref`, `claim` — or a type this corpus coined,
+    /// `string`, `text`, `date`, `number`, `ref`, `claim`, `quotation` — or a type this corpus coined,
     /// which is carried through and left unconstrained.
     #[serde(default, rename = "type")]
     pub property_type: String,
@@ -246,6 +246,22 @@ fn property_schema(property_type: &str, values: &[String]) -> Value {
                 { "type": "array", "items": { "enum": CLAIM_TOKENS } }
             ]
         }),
+        // A span and the catalog entry it is quoted from, one or a non-empty list of them
+        // (RFC-0046). Only the shape: whether the words are in the bytes needs the vault
+        // cache, which no schema can reach. No fourth key, because the gate refuses one.
+        "quotation" => {
+            let one = json!({
+                "type": "object",
+                "properties": {
+                    "of": { "type": "string", "minLength": 1 },
+                    "span": { "type": "string", "minLength": 1 },
+                    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+                },
+                "required": ["of", "span"],
+                "additionalProperties": false
+            });
+            json!({ "anyOf": [one, { "type": "array", "minItems": 1, "items": one }] })
+        }
         _ => Value::Bool(true),
     }
 }

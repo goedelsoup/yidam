@@ -28,7 +28,7 @@ use crate::corpus::{Class, Corpus, DecisionRecord, Edges, Node, Overlay, Source}
 
 use super::{
     attest, calculators, checks, citations, commitments, deliberation, edge_claims, independence,
-    line_citations, lineage, local_citations, scope, ttl, Check, Options,
+    line_citations, lineage, local_citations, quotations, scope, ttl, Check, Options,
 };
 
 /// The corpus, the options, and every reading the checks are answered from.
@@ -65,6 +65,7 @@ pub(crate) struct Input<'a> {
     commitments: OnceLock<Vec<commitments::Commitments>>,
     prose_paths: OnceLock<Vec<PathBuf>>,
     regen_files: OnceLock<Vec<(String, String)>>,
+    authored_text: OnceLock<Vec<(String, String)>>,
     links: OnceLock<(Vec<checks::ProseLink>, Vec<checks::UnauthoredLink<'a>>)>,
     object_links: OnceLock<Vec<checks::ProseLink>>,
     stale_regions: OnceLock<Vec<&'a Region>>,
@@ -82,6 +83,7 @@ pub(crate) struct Input<'a> {
     // its id and `the_roster_declares_the_id_each_entry_produces` compares the two.
     citation_checks: OnceLock<[Check; 4]>,
     local_citation_checks: OnceLock<[Check; 4]>,
+    quotation_checks: OnceLock<[Check; 3]>,
     edge_claim_checks: OnceLock<[Check; 4]>,
     scope_checks: OnceLock<[Check; 2]>,
     lineage_checks: OnceLock<[Check; 3]>,
@@ -124,6 +126,7 @@ impl<'a> Input<'a> {
             commitments: OnceLock::new(),
             prose_paths: OnceLock::new(),
             regen_files: OnceLock::new(),
+            authored_text: OnceLock::new(),
             links: OnceLock::new(),
             object_links: OnceLock::new(),
             stale_regions: OnceLock::new(),
@@ -133,6 +136,7 @@ impl<'a> Input<'a> {
             scripts: OnceLock::new(),
             citation_checks: OnceLock::new(),
             local_citation_checks: OnceLock::new(),
+            quotation_checks: OnceLock::new(),
             edge_claim_checks: OnceLock::new(),
             scope_checks: OnceLock::new(),
             lineage_checks: OnceLock::new(),
@@ -168,7 +172,7 @@ impl<'a> Input<'a> {
         self.corpus.sources()
     }
 
-    /// Every decision record, for the one check whose subject is whether they parse.
+    /// Every decision record: for whether they parse, and whether anything refers to them.
     pub(crate) fn decisions(&self) -> &'a [DecisionRecord] {
         self.corpus.decisions()
     }
@@ -481,6 +485,56 @@ impl<'a> Input<'a> {
         })
     }
 
+    /// Every file this repository authors, read (#1068).
+    ///
+    /// [`Self::regen_files`], and then whatever else git tracks under the root: code,
+    /// `AGENTS.md`, a crate's README. For the one question no narrower walk answers, which is
+    /// whether any file names a record. Measured across thirteen derived corpora, a walk of
+    /// `.yidam/` and `docs/` called 32 of 61 decision records uncited that a file in their own
+    /// repository names by path, 23 of them from outside that walk.
+    ///
+    /// `ls-files` without `--full-name`, so the paths are relative to the root even where the
+    /// root is a directory inside a larger checkout. A root git does not answer for tracks
+    /// nothing, and the prose walk is then the whole of it. A binary file reads as empty.
+    ///
+    /// Only files no declared region covers, which is narrower than `regen_files`. A generated
+    /// or vendored file is reportable, since a generator or an upstream can act on a finding
+    /// in it. But what such a file says is not this repository saying it: the prelude names
+    /// `decisions/ontology` in every derived corpus, whether or not that corpus has the record.
+    pub(crate) fn authored_text(&self) -> &[(String, String)] {
+        self.authored_text.get_or_init(|| {
+            let mine = |rel: &str| self.authorship.covering(rel).is_none();
+            let mut files: Vec<(String, String)> = self
+                .regen_files()
+                .iter()
+                .filter(|(rel, _)| mine(rel))
+                .cloned()
+                .collect();
+            let walked: HashSet<String> = self
+                .regen_files()
+                .iter()
+                .map(|(rel, _)| rel.clone())
+                .collect();
+            let tracked = crate::git::Git::new(self.root)
+                .args(["ls-files", "-z"])
+                .output()
+                .ok()
+                .filter(|out| out.status.success())
+                .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+                .unwrap_or_default();
+            let mut rest: Vec<&str> = tracked
+                .split('\0')
+                .filter(|rel| !rel.is_empty() && !walked.contains(*rel) && mine(rel))
+                .collect();
+            rest.sort_unstable();
+            files.extend(
+                rest.into_iter()
+                    .map(|rel| (rel.to_string(), self.overlay.read(&self.root.join(rel)))),
+            );
+            files
+        })
+    }
+
     /// The markdown links in this repository's own prose.
     pub(crate) fn prose_links(&self) -> &[checks::ProseLink] {
         &self.links().0
@@ -619,6 +673,24 @@ impl<'a> Input<'a> {
     pub(crate) fn local_citation_checks(&self) -> &[Check; 4] {
         self.local_citation_checks
             .get_or_init(|| local_citations::checks(self.nodes(), self.claim_fields()))
+    }
+
+    /// A value that is a span of a catalogued document (RFC-0046), held against the bytes this
+    /// machine's vault cache has. The cache is resolved from the environment exactly as
+    /// `catalog fetch` resolves it, and a machine with none has every quotation unchecked
+    /// rather than a lint run that fails.
+    pub(crate) fn quotation_checks(&self) -> &[Check; 3] {
+        self.quotation_checks.get_or_init(|| {
+            let cache = crate::vault::Cache::resolve(|k| std::env::var(k).ok()).ok();
+            quotations::checks(
+                self.nodes(),
+                self.classes(),
+                self.universal(),
+                self.sources(),
+                self.catalog_dir(),
+                cache.as_ref(),
+            )
+        })
     }
 
     /// The graph's own half of the same discipline (#587): an edge is a claim written as

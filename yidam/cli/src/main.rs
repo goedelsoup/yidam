@@ -451,11 +451,11 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
-    /// Rename a corpus node, rewriting every edge into it
+    /// Rename a corpus node or a catalog entry, rewriting every edge into it
     Rename {
-        /// Node to rename, e.g. `concept/old.yml` or `concept/old`
+        /// Node to rename, e.g. `concept/old.yml` or `concept/old`; or a catalog entry, `catalog/old`
         old: String,
-        /// Its new id, e.g. `concept/new` — may move it to another class
+        /// Its new id, e.g. `concept/new` — may move it to another class. For a catalog entry, `new`
         new: String,
         /// Print the plan and change nothing
         #[arg(long)]
@@ -1195,8 +1195,8 @@ enum MigrateCommand {
         class: String,
         /// The property to retype
         property: String,
-        /// The new type — `string`, `text`, `date`, `number`, `ref`, `claim`, or one this
-        /// corpus coined
+        /// The new type — `string`, `text`, `date`, `number`, `ref`, `claim`, `quotation`, or
+        /// one this corpus coined
         new_type: String,
     },
     /// Rename one value of a declared `values:` set, on the declaration and on every instance holding it

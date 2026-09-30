@@ -11,7 +11,8 @@ use crate::parse::CATALOG_LOCATION_KINDS;
 
 use super::model::{Check, Severity, Violation};
 use crate::corpus::{
-    edge_views, normalize, source_classes, Class, DecisionRecord, EdgePolicy, Edges, Node, Source,
+    edge_views, normalize, source_classes, Class, DecisionRecord, EdgePolicy, Edges, Node,
+    Omission, Source,
 };
 
 /// One corpus file's prose and where it lives — all [`claim_tag_malformed`] reads.
@@ -1209,30 +1210,31 @@ pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
             // property drew all 36 of its warnings from the 8 it had marked `false`, and the
             // deliberate omissions were indistinguishable from the ones nobody decided.
             // Silence stays reported: absent means the ontology was never asked.
-            if declared.declared_required == Some(false) {
-                continue;
-            }
+            //
             // The severity is a function of the DECLARATION, not a blanket judgement about
             // omissions — the shape `orphan-in` already has, where residence time rather
             // than the check's level decides. A class that said `required: true` has
             // written the contract this instance contradicts, and contradiction is what the
             // other four checks gate on. A class that said nothing has not, and gating
             // there would assert a contract the ontology never wrote.
+            //
+            // Read through `omission()` because `graph` reports the same verdict to editors,
+            // and a second derivation is how the two came to disagree (#1155).
+            let (qualifier, escalated) = match declared.omission() {
+                Omission::Licensed => continue,
+                Omission::Gates => (" as `required: true`", Some(Severity::Error)),
+                Omission::Reported => ("", None),
+            };
             let violation = Violation::new(
                 &n.rel,
                 format!(
-                    "`{}` is declared by `{}`{} and this instance does not carry it",
-                    declared.name,
-                    class.rel,
-                    match declared.required() {
-                        true => " as `required: true`",
-                        false => "",
-                    }
+                    "`{}` is declared by `{}`{qualifier} and this instance does not carry it",
+                    declared.name, class.rel,
                 ),
             );
-            violations.push(match declared.required() {
-                true => violation.at(Severity::Error),
-                false => violation,
+            violations.push(match escalated {
+                Some(severity) => violation.at(severity),
+                None => violation,
             });
         }
     }
@@ -1419,6 +1421,11 @@ pub(crate) fn property_type_violation(declared: &str, value: &serde_yaml::Value)
             serde_yaml::Value::Bool(_) => Some("is a boolean, not a number".to_string()),
             other => scalar(other).err(),
         },
+        // **A value that names its document** (RFC-0046). The shape is all this can test —
+        // whether the words are in the bytes is `quotation-span-drift`'s question, and needs
+        // the catalog and the vault cache — and it is read by the one parser those checks
+        // read with, so a value this admits is one they can resolve.
+        super::quotations::QUOTATION_PROPERTY_TYPE => super::quotations::read(value).err(),
         _ => None,
     }
 }
@@ -2075,12 +2082,12 @@ pub fn linked_paths(node_path: &Path, rel: &str, text: &str, catalog: &Path) -> 
 /// and is not resolved here: `edge-source-unresolved` reads it, and a citation is a thing that
 /// resolves to the catalog.
 ///
-/// **This is the one place both directions resolve a stem.** `edge-source-unresolved` asks
+/// **This is the one place every direction resolves a stem.** `edge-source-unresolved` asks
 /// whether a `source:` names something held; `catalog-uncited` asks whether an entry is named
-/// by anything. Until #1158 the second read only links, so an entry cited from edges alone was
-/// reported uncited while every edge citing it resolved. Sharing the readings is what makes
-/// that impossible to reintroduce.
-pub(super) fn source_targets(dir: &Path, catalog: &Path, written: &str) -> [PathBuf; 2] {
+/// by anything; `rename` asks which edges name the entry it is moving (#1159). Until #1158 the
+/// second read only links, so an entry cited from edges alone was reported uncited while every
+/// edge citing it resolved. Sharing the readings is what makes that impossible to reintroduce.
+pub(crate) fn source_targets(dir: &Path, catalog: &Path, written: &str) -> [PathBuf; 2] {
     [
         normalize(&catalog.join(format!("{written}.md"))),
         normalize(&dir.join(written)),
@@ -6526,6 +6533,34 @@ edges:
         }
     }
 
+    /// **A quotation names its document** (RFC-0046). Text in a `quotation` field is the
+    /// `type: text` anchors of hb-96 again: words that read like a quotation with nothing to
+    /// hold them against. The shape is this check's; the bytes are `quotation-span-drift`'s.
+    #[test]
+    fn a_quotation_field_holding_bare_text_is_reported() {
+        let classes = vec![class_from(
+            "provision",
+            "properties:\n  - name: anchors\n    type: quotation\n",
+        )];
+        let anchors = |v: &str| {
+            vec![node(
+                ".yidam/corpus/provision/item-12.yml",
+                &format!("class: provision\nproperties:\n  anchors:\n{v}links: []\n"),
+            )]
+        };
+        let held = anchors("    - of: veto-message\n      span: in the public interest\n");
+        assert!(property_type(&held, &classes, &NONE).passed());
+
+        let bare = property_type(&anchors("    in the public interest\n"), &classes, &NONE);
+        assert_eq!(bare.violations.len(), 1);
+        assert!(
+            bare.violations[0]
+                .detail
+                .contains("is declared `quotation` and is not a quotation"),
+            "{bare:#?}"
+        );
+    }
+
     #[test]
     fn a_date_field_holding_prose_is_reported() {
         let nodes = vec![node(
@@ -7480,20 +7515,20 @@ fn link_parts(raw: &str) -> (String, Option<super::line_citations::LineFragment>
     }
 }
 
-/// Every checkable markdown link in one file.
+/// The lines of `text` a reader takes as prose: each with its 1-based number, and with inline
+/// code spans blanked to spaces so byte offsets into it are offsets into the raw line.
 ///
-/// `dir` is the directory the file sits in — links resolve against it, not against the
-/// repository root.
+/// Fenced blocks are left out whole. The marker is remembered, so a ```` ``` ```` inside a
+/// `~~~` block does not close it.
 ///
-/// **Fenced code blocks are skipped.** A path inside a fence is an example, a shell
-/// command, or a directory tree drawing; these documents are full of them and every one
-/// would be a false positive. Inline code spans are skipped for the same reason.
-pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
+/// [`prose_links`] reads these lines, and so does `source-unregistered` (#1068). One reading
+/// of "what is an example" is what keeps a URL in a shell command from being a finding there
+/// when a link in the same command is not one here.
+pub(crate) fn prose_lines(text: &str) -> Vec<(usize, String)> {
     let mut out = Vec::new();
     let mut fence: Option<String> = None;
     for (i, raw) in text.lines().enumerate() {
         let trimmed = raw.trim_start();
-        // Fence open/close. The marker is repeated to allow ``` inside a ~~~ block.
         if let Some(open) = &fence {
             if trimmed.starts_with(open.as_str()) {
                 fence = None;
@@ -7504,8 +7539,22 @@ pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
             fence = Some(trimmed.chars().take(3).collect());
             continue;
         }
-        // Blank out inline code spans so a `[a](b)` shown as code is not read as a link.
-        let line = crate::markdown::mask_code_spans(raw);
+        out.push((i + 1, crate::markdown::mask_code_spans(raw)));
+    }
+    out
+}
+
+/// Every checkable markdown link in one file.
+///
+/// `dir` is the directory the file sits in — links resolve against it, not against the
+/// repository root.
+///
+/// **Fenced code blocks are skipped.** A path inside a fence is an example, a shell
+/// command, or a directory tree drawing; these documents are full of them and every one
+/// would be a false positive. Inline code spans are skipped for the same reason.
+pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
+    let mut out = Vec::new();
+    for (number, line) in prose_lines(text) {
         let bytes = line.as_bytes();
         let mut j = 0;
         while j < bytes.len() {
@@ -7545,7 +7594,7 @@ pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
             }
             out.push(ProseLink {
                 file: file.to_string(),
-                line: i + 1,
+                line: number,
                 target: target.clone(),
                 resolved: dir.join(&target),
                 fragment,

@@ -1460,7 +1460,7 @@
     },
     "corpus_dir": {
       "type": "string",
-      "description": "`corpus-index`, `graph`, `neighbors` and `rename`. Repository-relative corpus root; every `node` path in the same report is relative to it. Emitted so a consumer never hardcodes `.yidam/corpus` \u2014 the one path in this contract a repository could plausibly move."
+      "description": "`corpus-index`, `graph`, `neighbors` and `rename`. Repository-relative corpus root; every `node` path in the same report is relative to it. Emitted so a consumer never hardcodes `.yidam/corpus` \u2014 the one path in this contract a repository could plausibly move. On a `rename` of a catalog entry it is `.yidam`, and `from` and `to` are `catalog/<name>.md`: the moved file is always `corpus_dir/to`."
     },
     "classes": {
       "type": "array",
@@ -1507,7 +1507,16 @@
                 },
                 "required": {
                   "type": "boolean",
-                  "description": "Whether every instance of the class must carry this property. `missing-property` GATES on a property declared true and reports the rest, so this is the difference between a finding that fails CI and one that does not \u2014 and until #606 this report did not carry it, which made `yidam schema`'s claim that one declaration decides both, 'so the editor and the gate cannot disagree', false along this route. Always emitted, including when false: a client is versioned independently of the binary it talks to, so an absent field would be ambiguous between 'this property is optional' and 'this binary predates the field', and it was the second reading that produced a page claiming every property in a corpus was optional. Absent therefore means the binary is older than the field, never that the property is optional."
+                  "description": "Whether every instance of the class must carry this property. `missing-property` GATES on a property declared true, so this is the difference between a finding that fails CI and one that does not \u2014 but `false` folds two answers the check treats differently, a property declared `required: false` and one that says nothing, and `omission` keeps them apart (#1155). Until #606 this report did not carry it, which made `yidam schema`'s claim that one declaration decides both, 'so the editor and the gate cannot disagree', false along this route. Always emitted, including when false: a client is versioned independently of the binary it talks to, so an absent field would be ambiguous between 'this property is optional' and 'this binary predates the field', and it was the second reading that produced a page claiming every property in a corpus was optional. Absent therefore means the binary is older than the field, never that the property is optional."
+                },
+                "omission": {
+                  "type": "string",
+                  "enum": [
+                    "gates",
+                    "reported",
+                    "licensed"
+                  ],
+                  "description": "What `missing-property` does when an instance omits this property: `gates` for a property declared `required: true` (an error that fails CI), `reported` for one whose class says nothing about `required` (a warning), and `licensed` for one declared `required: false` (not reported at all). It exists because `required` folds the last two into one `false`, and a client labelling every `false` property as reported was wrong about the licensed ones (#1155). It names the verdict rather than the declaration, so a client never re-derives the check's rule. Always emitted, for `required`'s reason: absent means the binary predates the field, and a client falls back to `required`."
                 }
               }
             }
@@ -1615,11 +1624,11 @@
     },
     "from": {
       "type": "string",
-      "description": "`rename` only. Corpus-relative source."
+      "description": "`rename` only. Source, relative to `corpus_dir`: `<class>/<name>.yml` for a node, `catalog/<name>.md` for a catalog entry."
     },
     "to": {
       "type": "string",
-      "description": "`rename` only. Corpus-relative destination; may name a different class."
+      "description": "`rename` only. Destination, relative to `corpus_dir`; may name a different class. A catalog entry stays in the catalog."
     },
     "applied": {
       "type": "boolean",
@@ -1656,7 +1665,7 @@
     },
     "edits": {
       "type": "array",
-      "description": "`rename` only. Every `target:` rewrite, located. Covers inbound edges AND the moved node's own outgoing links, which need re-relativizing when it changes class \u2014 a same-directory target survives a rename inside one class and breaks the moment the node leaves it.",
+      "description": "`rename` only. Every `target:` rewrite, located \u2014 or, for a catalog entry, every edge `source:` rewrite in the spelling its author used (stem or path) and every markdown link under `.yidam/` that resolved to the entry. Covers inbound edges AND the moved node's own outgoing links, which need re-relativizing when it changes class \u2014 a same-directory target survives a rename inside one class and breaks the moment the node leaves it.",
       "items": {
         "type": "object",
         "required": [

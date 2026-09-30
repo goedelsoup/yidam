@@ -134,7 +134,7 @@ relative path, which is a *fifth* convention, and unrelated to any of the above.
 | `yidam://corpus/class/name` | [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56) | — | — |
 | the same string as an RDF subject | [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135) | — | — |
 | `file:///…/class/name.yml` | [`path_to_uri`](../../yidam/cli/src/cmd/lsp.rs#L107) | n/a | — |
-| `/node/class/name` | [`graph.ts:145`](../../yidam/editors/web/src/lib/graph.ts#L145) | — | — |
+| `/node/class/name` | [`nodeHref`](../../yidam/editors/web/src/lib/graph.ts#L195-L196) | — | — |
 | a GraphML `node id` | `export_graphml.rs` | — | — |
 | `{package, node, commit, tag}` | [`ExternalCitation`](../../yidam/prelude/sdks/rust/src/corpus.rs#L83) | yes | yes |
 | `<public-base>/class/name` | RFC-0027 §5, unshipped | yes | — |
@@ -158,7 +158,7 @@ kind         node | crate | catalog | skill | decision | issue
 The corpus moves into the authority and the kind into the path, which is the minimal change that
 creates the slot §1 lacks. `<path>` is `<class>/<name>` for `node` and a single segment for the
 others. Every segment in a **conforming** corpus is a slug — the rule
-[`name_not_a_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L807) reports against, through its
+[`name_not_a_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L808) reports against, through its
 predicate [`is_slug`](../../yidam/prelude/sdks/rust/src/uri.rs#L132) — so **no percent-encoding is
 required anywhere in this grammar**, which is why there is one string form and not one per
 encoder.
@@ -300,7 +300,7 @@ built or split. It retires [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#
 tolerated spellings, [`qualified_id`](../../yidam/cli/src/model.rs#L450),
 [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135),
 [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56)'s prefix chain and
-[`graph.ts:145`](../../yidam/editors/web/src/lib/graph.ts#L145)'s route builder. It lands on the
+[`nodeHref`](../../yidam/editors/web/src/lib/graph.ts#L195-L196)'s route builder. It lands on the
 parity surface, so Rust, TypeScript and Python must agree — three implementations and one shared
 case set, not one implementation.
 

@@ -115,8 +115,10 @@ sourceClasses(classes) : Set<string>
 
 OntologyProperty
   name        : string
-  type        : string             — string | text | date | number | ref | claim, or a type
-                                     this corpus coined, which is carried through unconstrained
+  type        : string             — string | text | date | number | ref | claim | quotation,
+                                     or a type this corpus coined, which is carried through
+                                     unconstrained. A quotation is {of, span, sha256?}, or a
+                                     non-empty list of them
   description : string
   required    : boolean            — must every instance carry it? absent means false
   unit        : string             — what a number is written in; empty is dimensionless.

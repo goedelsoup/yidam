@@ -26,7 +26,7 @@ use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::corpus::{resolve_target, Corpus};
+use crate::corpus::{resolve_target, Corpus, Omission};
 
 /// One declared property, as this report serialises it.
 ///
@@ -59,7 +59,8 @@ pub struct OntProperty {
     /// **One bool still folds two answers.** `required: false` and silence both arrive as
     /// `false`, and since #1055 `missing-property` reports the second and not the first. A
     /// client labelling every `false` property "reported" is wrong about the ones declared
-    /// `false`, and the web editor's table does exactly that (#1155).
+    /// `false`. [`Self::omission`] keeps the three apart, and this field stays as it was for
+    /// the clients that already read it.
     ///
     /// What that cost is a client that cannot tell the one property whose omission fails CI
     /// from the four whose omission is reported and forgiven. It was found by a surface that
@@ -81,6 +82,19 @@ pub struct OntProperty {
     /// of `required` reads everything else exactly as before.
     #[serde(default)]
     pub required: bool,
+    /// What `missing-property` does when an instance omits this property: `gates`,
+    /// `reported`, or `licensed` (#1155).
+    ///
+    /// **The verdict, not the declaration.** Carrying `required` as `true | false | null`
+    /// would also keep the three answers apart, but every client then re-derives the check's
+    /// rule from it. It would also break the clients that exist: the web editor reads a
+    /// non-boolean `required` on any property as *this binary predates the field*, and would
+    /// drop the column for every class with one undeclared property. That is a consumer
+    /// mis-reading the report, which `report.schema.json` says only a `format_version` bump
+    /// may do.
+    ///
+    /// Always emitted, for `required`'s reason: absent means the binary predates the field.
+    pub omission: Omission,
 }
 
 /// One relationship a class may enter into, as this report serialises it.
@@ -283,6 +297,7 @@ pub(crate) fn graph_data(read: &Corpus) -> GraphReport {
                     r#type: p.r#type.clone(),
                     description: p.description.clone(),
                     required: p.required(),
+                    omission: p.omission(),
                 })
                 .collect(),
             edges: c
@@ -619,6 +634,42 @@ mod tests {
             "an optional property must still carry `required: false`, so its presence \
              answers whether this binary reports requiredness at all"
         );
+    }
+
+    /// `required: false` and silence both serialise `required` as `false`, and
+    /// `missing-property` treats them differently (#1055). `omission` is what keeps them
+    /// apart in the report, so an editor does not label a licensed omission "reported" (#1155).
+    #[test]
+    fn a_property_carries_what_omitting_it_costs() {
+        let (_t, root, corpus) = corpus();
+        write(
+            &corpus.join("concept.ont.yml"),
+            "class: concept\nlabel: Concept\ndescription: A unit.\n\
+             properties:\n  - name: parameter\n    type: string\n    required: true\n    \
+             description: Gates.\n\
+             \x20 - name: datum\n    type: string\n    description: Nobody decided.\n\
+             \x20 - name: note\n    type: string\n    required: false\n    \
+             description: Licensed.\n",
+        );
+        let r = graph_data(&Corpus::open(&root));
+        let json = serde_json::to_value(&r.classes[0]).expect("classes serialise");
+        let omission: Vec<_> = json["properties"]
+            .as_array()
+            .expect("properties is an array")
+            .iter()
+            .map(|p| (p["name"].as_str().unwrap(), p["omission"].clone()))
+            .collect();
+        assert_eq!(
+            omission,
+            [
+                ("parameter", serde_json::json!("gates")),
+                ("datum", serde_json::json!("reported")),
+                ("note", serde_json::json!("licensed")),
+            ],
+        );
+        // The bool is unchanged for the clients that already read it, which is why it cannot
+        // tell the last two apart.
+        assert_eq!(json["properties"][2]["required"], serde_json::json!(false));
     }
 
     /// The filename governs when the field is absent — `graph-check` matches an instance's

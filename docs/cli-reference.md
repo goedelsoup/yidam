@@ -418,7 +418,7 @@ the read-only overview.
 | `decisions-log` * | Decision records in `.yidam/decisions/`, newest first. Writes the `<!-- REGEN: yidam decisions-log -->` block where that directory has a README carrying one *(no flags)* |
 | `sangha` | Electors, positions, and settled resolutions |
 | `vocabulary` | The closed commit vocabulary. `--check <subject>` tests a subject line before the commit exists |
-| `rename <old> <new>` * | Rename a node, rewriting every edge into it. `--dry-run` |
+| `rename <old> <new>` * | Rename a node or a catalog entry (`catalog/old`), rewriting every edge into it. `--dry-run` |
 | `migrate <sub>` * | Change an ontology and every instance that adopted it, as one event. `--dry-run` |
 | `propose` * | Draft findings as proposed epistemic commits on a `propose/<head>` branch |
 | `run [step]` * | Invoke the stale capabilities declared in `.yidam/capabilities.toml`, in dependency order, and commit what each produced with a receipt. Named with a step, runs that step and everything it declares it comes `after`; with nothing, the whole manifest. `--dry-run` plans and writes nothing |

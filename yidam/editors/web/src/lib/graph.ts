@@ -64,6 +64,51 @@ export interface GraphProperty {
   type?: string
   description?: string
   required?: boolean
+  /**
+   * What `missing-property` does when an instance omits this property (#1155).
+   *
+   * `required` folds `required: false` and silence into one `false`, and the check treats them
+   * differently: silence is reported, and `required: false` is not. A page that labelled every
+   * `false` property "reported" was wrong about the ones the class allowed. This is the check's
+   * verdict, carried by the binary so the page does not re-derive it. Optional for the reason
+   * `required` is: a binary older than the field does not send it.
+   */
+  omission?: Omission
+}
+
+/** The three verdicts `missing-property` gives an omitted property. */
+export type Omission = 'gates' | 'reported' | 'licensed'
+
+/**
+ * What omitting a property costs, as far as the binary that answered can say.
+ *
+ * `omission` when the binary sends it. A binary older than that field still sends `required`,
+ * which can tell `gates` from the rest and nothing more, so `false` there is `ungated` rather
+ * than `reported`: guessing `reported` is the mistake the field was added to stop. `undefined`
+ * means the binary does not report requiredness at all.
+ */
+export function omissionOf(property: GraphProperty): Omission | 'ungated' | undefined {
+  switch (property.omission) {
+    case 'gates':
+    case 'reported':
+    case 'licensed':
+      return property.omission
+  }
+  if (property.required === true) return 'gates'
+  if (property.required === false) return 'ungated'
+  return undefined
+}
+
+/**
+ * The words the properties table uses for each answer. It says what happens rather than
+ * "required" and "optional", because a reader looking at a node wants to know which omissions
+ * fail CI.
+ */
+export const OMISSION_LABEL: Record<Omission | 'ungated', string> = {
+  gates: 'fails the gate',
+  reported: 'reported',
+  licensed: 'allowed',
+  ungated: 'does not gate',
 }
 
 /**
