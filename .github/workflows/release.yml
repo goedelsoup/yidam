@@ -319,8 +319,8 @@ jobs:
       # The generated list is still the body. `docs/upgrading.md`'s section for
       # THIS tag goes above it, because the person who needs it is reading the top
       # of the page and stops there. A release with no section prepends nothing and
-      # looks exactly as it did before; `release.sh` is what refuses a note staged
-      # under `## Unreleased` rather than filed under the tag.
+      # looks exactly as it did before; `release.sh` is what refuses a note still
+      # staged in `changes/upgrading/` rather than filed under the tag.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
