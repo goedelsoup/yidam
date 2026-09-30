@@ -1309,16 +1309,17 @@ fn lock_subject(root: &Path, d: vault::Derived, entry: &vault::Entry) -> String 
 
 /// What the commit says beyond its subject: the digest, the size, the store, and the model.
 fn lock_body(entry: &vault::Entry) -> String {
-    let mut body = format!(
-        "sha256 {}\n{} in vault `{}`",
+    let model = entry
+        .model
+        .as_ref()
+        .map(|m| format!("\nembedded with {m}"))
+        .unwrap_or_default();
+    format!(
+        "sha256 {}\n{} in vault `{}`{model}",
         entry.sha256,
         human_size(entry.bytes),
         entry.vault
-    );
-    if let Some(model) = &entry.model {
-        body.push_str(&format!("\nembedded with {model}"));
-    }
-    body
+    )
 }
 
 /// A string field of the built index's `meta.json`, if there is one.
