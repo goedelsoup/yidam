@@ -25,9 +25,9 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use super::commit::{Commit, Writer};
 use super::fetch::{select, staging};
 use super::record;
+use crate::cmd::operational::{Commit, Writer};
 use crate::parse::{parse_frontmatter, CatalogArtifact, TextReading};
 use crate::paths::{repo_root, yidam_catalog_dir};
 use crate::reading::{self, EXTRACTOR};
@@ -224,7 +224,7 @@ pub(crate) fn extract_in(
         let mut written = None;
         if updated != text {
             let (subject, body) = message(&name, &read);
-            written = writer.commit(&root, &subject, &body, &[(rel, updated)])?;
+            written = writer.commit(&root, super::WHO, &subject, &body, &[(rel, updated)])?;
         }
         out.push(EntryOutcome {
             entry: name,
@@ -286,7 +286,7 @@ fn render(entries: &[EntryOutcome], dry_run: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cmd::catalog::commit;
+    use crate::cmd::operational as commit;
 
     fn pdf(sha: &str, text: Option<&str>) -> CatalogArtifact {
         CatalogArtifact {

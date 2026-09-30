@@ -10,12 +10,11 @@
 //!   citations, which are authoritative — the `reconcile:` row of the same table.
 //!
 //! The last two write commits, which nothing under `cmd/` but `propose` did before. What
-//! licenses them to is RFC-0026's invariant, and [`commit::author`] enforces it against
+//! licenses them to is RFC-0026's invariant, and [`crate::cmd::operational::author`] enforces it against
 //! `classify_commit` rather than trusting the call sites: **a run authors operational commits
 //! directly, and every epistemic commit it produces goes to a proposal branch.**
 
 pub(crate) mod audit;
-mod commit;
 mod extract;
 mod fetch;
 mod location;
@@ -24,8 +23,21 @@ mod record;
 pub(crate) mod superseded;
 mod transport;
 
+pub(crate) use crate::cmd::operational::{refuse_epistemic, Detached, Writer};
 pub use audit::catalog_audit;
-pub(crate) use commit::{refuse_epistemic, Detached, Writer, AUTHOR_EMAIL, AUTHOR_NAME};
+
+/// The author every catalog commit carries.
+///
+/// Author and committer are separated for `propose`'s reason, which applies unchanged: the
+/// tool performed the fetch, a person ran it, and recording both is a true account without
+/// borrowing an identity. It matters more here than there — an operational commit lands on
+/// the branch rather than on a proposal nobody has merged yet, so the record of what wrote it
+/// is the only thing distinguishing it from a person's own work.
+pub(crate) const AUTHOR_NAME: &str = "yidam catalog";
+pub(crate) const AUTHOR_EMAIL: &str = "catalog@yidam";
+
+/// [`AUTHOR_NAME`] and [`AUTHOR_EMAIL`], as the writer takes them.
+pub(crate) const WHO: crate::cmd::operational::Who<'static> = (AUTHOR_NAME, AUTHOR_EMAIL);
 pub(crate) use extract::extract_in;
 pub use extract::{extract, ExtractOptions};
 pub(crate) use fetch::fetch_in;

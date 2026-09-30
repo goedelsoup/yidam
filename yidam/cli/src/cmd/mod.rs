@@ -55,6 +55,7 @@ pub(crate) mod migrate_findings;
 pub(crate) mod migrate_references;
 pub(crate) mod migrate_routes;
 pub(crate) mod migrate_scaffold;
+pub(crate) mod operational;
 mod overlay;
 pub(crate) mod pack;
 pub(crate) mod phase;

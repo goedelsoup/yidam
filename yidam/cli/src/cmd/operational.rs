@@ -1,4 +1,11 @@
-//! Authoring the operational commit a connector run produces.
+//! Authoring an operational commit on the current branch.
+//!
+//! Every command that performs one of `GRAPH.md`'s pipeline verbs and records it in a tracked
+//! file writes its commit here: the `catalog-*` commands (`refresh:`, `reconcile:`,
+//! `extract:`), `regen --commit` (`regen:`), and `vault push --commit` (`index:`, `bundle:`).
+//! It lived under `catalog/` until those last two arrived (#1215), and one writer rather than
+//! four is the point: the refusal below is the permission argument, and a copy of it is a
+//! second place for it to be weakened.
 //!
 //! # What licenses this to write a commit at all
 //!
@@ -8,12 +15,20 @@
 //! > A run authors **operational** commits directly. Every **epistemic** commit it produces
 //! > goes to a proposal branch, and nothing merges itself.
 //!
-//! `refresh:` and `reconcile:` are both in `OPERATIONAL_VERBS`, so both land on the current
-//! branch. That is not an assertion this module makes about itself — [`author`] classifies
-//! its own subject line with `classify_commit`, the parity function with fixtures in three
-//! SDKs, and refuses to write anything the vocabulary calls epistemic. The check is cheap,
-//! and it is what stops a later patch from adding an `establish:` path here without going
-//! red.
+//! Every verb above is in `OPERATIONAL_VERBS`, so each lands on the current branch. That is
+//! not an assertion this module makes about itself — [`author`] classifies its own subject
+//! line with `classify_commit`, the parity function with fixtures in three SDKs, and refuses
+//! to write anything the vocabulary calls epistemic. The check is cheap, and it is what stops
+//! a later patch from adding an `establish:` path here without going red.
+//!
+//! # Who the author is
+//!
+//! The caller says, as `(name, email)` — the shape `commit_tree` takes. Each command that
+//! writes commits names itself (`yidam catalog`, `yidam regen`, `yidam vault`), for the reason
+//! `propose` separates author from committer: the tool performed the act, a person ran it,
+//! and on the current branch the author is the only thing distinguishing a tool's commit from
+//! a person's own work. One shared identity would say which module wrote the commit and not
+//! which act it was.
 //!
 //! # Why this does not write the way `propose` writes
 //!
@@ -44,7 +59,7 @@
 //! which is a ref the pod has no business writing even locally.
 //!
 //! So [`Writer`] has two modes. [`Writer::WorkingTree`] is everything above and the default
-//! every shipped command uses. [`Writer::Detached`] is `propose`'s machinery — a
+//! every shipped catalog command uses. [`Writer::Detached`] is `propose`'s machinery — a
 //! [`TempIndex`] and [`commit_tree`] — chaining each commit onto the last from a pinned
 //! parent and moving no ref at all. Both refuse an epistemic subject before anything is
 //! written, through one check, [`refuse_epistemic`]; that refusal is the permission
@@ -58,15 +73,8 @@ use yidam_core::git::{classify_commit, CommitKind};
 
 use crate::cmd::propose::write::{commit_tree, git as git_at, short_of, TempIndex};
 
-/// The author every commit written here carries.
-///
-/// Author and committer are separated for `propose`'s reason, which applies unchanged: the
-/// tool performed the fetch, a person ran it, and recording both is a true account without
-/// borrowing an identity. It matters more here than there — an operational commit lands on
-/// the branch rather than on a proposal nobody has merged yet, so the record of what wrote it
-/// is the only thing distinguishing it from a person's own work.
-pub(crate) const AUTHOR_NAME: &str = "yidam catalog";
-pub(crate) const AUTHOR_EMAIL: &str = "catalog@yidam";
+/// Who a commit written here is authored by: `(name, email)`. See the module doc.
+pub type Who<'a> = (&'a str, &'a str);
 
 /// A commit this module wrote.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -84,7 +92,7 @@ fn git(root: &Path, args: &[&str]) -> Result<String> {
 /// Checked *before* the edit, so the refusal names work a person has not committed rather
 /// than work this command just did. Narrowed to the paths being written for the reason given
 /// in the module header: `require_committed_corpus` gates the whole of `.yidam/` because a
-/// proposal is drafted from a corpus-wide read, and a fetch is not.
+/// proposal is drafted from a corpus-wide read, and none of this module's callers is.
 pub fn require_clean(root: &Path, paths: &[String]) -> Result<()> {
     if paths.is_empty() {
         return Ok(());
@@ -96,9 +104,9 @@ pub fn require_clean(root: &Path, paths: &[String]) -> Result<()> {
         return Ok(());
     }
     bail!(
-        "these entries have uncommitted changes, and a fetch records what a committed entry \
-         declares:\n{}\n\n  Commit or stash them first — otherwise the `refresh:` commit \
-         would carry edits nobody reviewed alongside the digest it went to record.",
+        "these files have uncommitted changes, and this command is about to commit them:\n{}\n\n  \
+         Commit or stash them first — otherwise the operational commit would carry edits \
+         nobody reviewed alongside what it went to record.",
         dirty
             .lines()
             .map(|l| format!("  {}", l.trim()))
@@ -114,7 +122,7 @@ pub fn require_clean(root: &Path, paths: &[String]) -> Result<()> {
 /// of act a machine may perform without a person in the loop. Asking `classify_commit` rather
 /// than matching a local list is deliberate: a second copy of the vocabulary here is one that
 /// can drift from the one three SDKs are held to.
-pub(super) fn is_operational(subject: &str) -> bool {
+pub(crate) fn is_operational(subject: &str) -> bool {
     classify_commit("", subject).kind == CommitKind::Operational
 }
 
@@ -204,6 +212,7 @@ impl Writer {
     pub fn commit(
         &mut self,
         root: &Path,
+        who: Who,
         subject: &str,
         body: &str,
         files: &[(String, String)],
@@ -217,7 +226,7 @@ impl Writer {
                         .with_context(|| format!("writing {}", path.display()))?;
                 }
                 let paths: Vec<String> = files.iter().map(|(rel, _)| rel.clone()).collect();
-                author(root, subject, body, &paths)
+                author(root, who, subject, body, &paths)
             }
             Self::Detached(d) => {
                 if files.is_empty() {
@@ -253,13 +262,7 @@ impl Writer {
                 if tree == before {
                     return Ok(None);
                 }
-                let sha = commit_tree(
-                    root,
-                    &tree,
-                    &d.tip,
-                    &message_of(subject, body),
-                    (AUTHOR_NAME, AUTHOR_EMAIL),
-                )?;
+                let sha = commit_tree(root, &tree, &d.tip, &message_of(subject, body), who)?;
                 d.tip = sha.clone();
                 for (rel, content) in files {
                     d.written.retain(|(p, _)| p != rel);
@@ -279,7 +282,13 @@ impl Writer {
 /// `None` when the paths hold nothing to commit — a re-run that found the same bytes edits
 /// nothing, and an empty commit asserting a fetch happened would be the *"provenance invented
 /// rather than recorded"* failure RFC-0026 opens with.
-pub fn author(root: &Path, subject: &str, body: &str, paths: &[String]) -> Result<Option<Commit>> {
+pub fn author(
+    root: &Path,
+    who: Who,
+    subject: &str,
+    body: &str,
+    paths: &[String],
+) -> Result<Option<Commit>> {
     refuse_epistemic(subject)?;
     if paths.is_empty() {
         return Ok(None);
@@ -305,8 +314,8 @@ pub fn author(root: &Path, subject: &str, body: &str, paths: &[String]) -> Resul
     crate::git::Git::new(root)
         .args(["commit", "--no-verify", "-m", &message])
         .paths(paths)
-        .env("GIT_AUTHOR_NAME", AUTHOR_NAME)
-        .env("GIT_AUTHOR_EMAIL", AUTHOR_EMAIL)
+        .env("GIT_AUTHOR_NAME", who.0)
+        .env("GIT_AUTHOR_EMAIL", who.1)
         .run()?;
     Ok(Some(Commit {
         sha: git(root, &["rev-parse", "--short", "HEAD"])?,
@@ -328,6 +337,10 @@ mod tests {
     }
 
     const ENTRY: &str = ".yidam/catalog/a.md";
+
+    /// A caller's identity. Not any real command's, so a test here cannot pass by agreeing
+    /// with a constant this module no longer owns.
+    const WHO: Who = ("yidam test", "test@yidam");
 
     const EPISTEMIC: [&str; 4] = [
         "establish: a new concept",
@@ -364,7 +377,7 @@ mod tests {
         let head = git(root, &["rev-parse", "HEAD"]).unwrap();
         for subject in EPISTEMIC {
             let mut w = Writer::Detached(Detached::new(root, &head).unwrap());
-            let err = w.commit(root, subject, "", &edited()).unwrap_err();
+            let err = w.commit(root, WHO, subject, "", &edited()).unwrap_err();
             assert!(
                 err.to_string().contains("not an operational subject line"),
                 "{subject} should be refused: {err}"
@@ -388,7 +401,7 @@ mod tests {
         let root = dir.path();
         let before = std::fs::read_to_string(root.join(ENTRY)).unwrap();
         let err = Writer::WorkingTree
-            .commit(root, "establish: a new concept", "", &edited())
+            .commit(root, WHO, "establish: a new concept", "", &edited())
             .unwrap_err();
         assert!(err.to_string().contains("not an operational subject line"));
         assert_eq!(std::fs::read_to_string(root.join(ENTRY)).unwrap(), before);
@@ -405,12 +418,13 @@ mod tests {
         let refs = git(root, &["for-each-ref"]).unwrap();
         let mut w = Writer::Detached(Detached::new(root, &head).unwrap());
         let first = w
-            .commit(root, "refresh: a from its source", "", &edited())
+            .commit(root, WHO, "refresh: a from its source", "", &edited())
             .unwrap()
             .expect("an edit was made");
         let second = w
             .commit(
                 root,
+                WHO,
                 "reconcile: a used-by",
                 "",
                 &[(
@@ -457,7 +471,7 @@ mod tests {
         assert_eq!(
             log,
             format!(
-                "yidam catalog <catalog@yidam>\n{}",
+                "yidam test <test@yidam>\n{}",
                 crate::git::fixture::FIXTURE_EMAIL
             )
         );
@@ -474,6 +488,7 @@ mod tests {
         assert!(w
             .commit(
                 root,
+                WHO,
                 "refresh: nothing moved",
                 "",
                 &[(ENTRY.to_string(), same)]
@@ -497,7 +512,7 @@ mod tests {
             "question: what is this",
             "no verb at all",
         ] {
-            let err = author(dir.path(), subject, "", &[ENTRY.to_string()]).unwrap_err();
+            let err = author(dir.path(), WHO, subject, "", &[ENTRY.to_string()]).unwrap_err();
             assert!(
                 err.to_string().contains("not an operational subject line"),
                 "{subject} should be refused: {err}"
@@ -515,14 +530,20 @@ mod tests {
         )
         .unwrap();
 
-        let c = author(root, "refresh: a from its source", "", &[ENTRY.to_string()])
-            .unwrap()
-            .expect("an edit was made, so a commit is written");
+        let c = author(
+            root,
+            WHO,
+            "refresh: a from its source",
+            "",
+            &[ENTRY.to_string()],
+        )
+        .unwrap()
+        .expect("an edit was made, so a commit is written");
         assert_eq!(c.subject, "refresh: a from its source");
 
         let log = git(root, &["log", "-1", "--format=%an <%ae>%n%ce%n%s"]).unwrap();
         let mut lines = log.lines();
-        assert_eq!(lines.next().unwrap(), "yidam catalog <catalog@yidam>");
+        assert_eq!(lines.next().unwrap(), "yidam test <test@yidam>");
         assert_eq!(
             lines.next().unwrap(),
             crate::git::fixture::FIXTURE_EMAIL,
@@ -540,6 +561,7 @@ mod tests {
         let before = git(dir.path(), &["rev-parse", "HEAD"]).unwrap();
         assert!(author(
             dir.path(),
+            WHO,
             "refresh: nothing moved",
             "",
             &[ENTRY.to_string()]
@@ -563,9 +585,15 @@ mod tests {
             "---\nname: a\nobtained: true\n---\n\n# A\n",
         )
         .unwrap();
-        author(root, "refresh: a from its source", "", &[ENTRY.to_string()])
-            .unwrap()
-            .unwrap();
+        author(
+            root,
+            WHO,
+            "refresh: a from its source",
+            "",
+            &[ENTRY.to_string()],
+        )
+        .unwrap()
+        .unwrap();
 
         let committed = git(root, &["show", "--name-only", "--format=", "HEAD"]).unwrap();
         assert_eq!(committed.trim(), ENTRY, "only the entry is in the commit");
@@ -607,6 +635,7 @@ mod tests {
         .unwrap();
         author(
             root,
+            WHO,
             "refresh: a",
             "sha256:abc from location 0\n",
             &[ENTRY.to_string()],

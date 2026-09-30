@@ -165,7 +165,9 @@ pub(crate) fn render_regen_check(r: &RegenReport) -> String {
         for s in &r.stale {
             let _ = writeln!(out, "  {}  ({})", s.file, s.generator);
         }
-        out.push_str("\nRun `yidam regen` and commit the result as a `regen:` commit.\n");
+        out.push_str(
+            "\nRun `yidam regen --commit` to refresh them and author the `regen:` commit.\n",
+        );
     }
     if !r.unclaimed.is_empty() {
         if !r.stale.is_empty() {
@@ -283,13 +285,15 @@ pub(crate) fn unclaimed_blocks(root: &std::path::Path) -> Result<Vec<crate::rege
     Ok(found)
 }
 
-/// Refresh every REGEN block, or — with `check` — report which ones would change.
+/// Refresh every REGEN block, or — with `check` — report which ones would change, or — with
+/// `commit` — refresh them and author the `regen:` commit.
 ///
 /// `--check` runs the same [`GENERATORS`] list, which is the whole point: a check that
 /// walked its own list would be the third list this command exists to have prevented.
 pub fn regen(
     root: Option<&std::path::Path>,
     check: bool,
+    commit: bool,
     format: crate::report::Format,
 ) -> Result<()> {
     let resolved = crate::paths::resolve_root(root)?;
@@ -299,11 +303,113 @@ pub fn regen(
         let unclaimed = unclaimed_blocks(&resolved)?;
         return report_check(&resolved, stale, unclaimed, format);
     }
+    if commit {
+        return refresh_and_commit(root, &resolved);
+    }
+    run_all(root)
+}
+
+fn run_all(root: Option<&std::path::Path>) -> Result<()> {
     for (name, run) in GENERATORS {
         println!("── {name}");
         run(root).with_context(|| format!("running {name}"))?;
     }
     Ok(())
+}
+
+/// Who a `regen:` commit is authored by. See [`crate::cmd::operational`].
+const WHO: crate::cmd::operational::Who<'static> = ("yidam regen", "regen@yidam");
+
+/// `regen --commit`: refresh every block and commit exactly the files that changed (#1215).
+///
+/// **The files are known before anything is written.** [`stale_blocks`] is `--check`, and its
+/// answer is the set of files the write is about to change. That set is what
+/// [`require_clean`](crate::cmd::operational::require_clean) is asked about. It has to be asked
+/// before the write, because afterwards a hand edit and a refreshed block are the same diff.
+/// It is also the set the commit is limited to, so a person's unrelated work stays staged and
+/// out of the `regen:` commit.
+///
+/// `phase settle` does not come here. It refreshes the blocks through [`refresh_quietly`] and
+/// stages them, and a person commits. That is deliberate and pinned by
+/// `settle_authors_no_commit_and_moves_no_ref`.
+fn refresh_and_commit(root: Option<&std::path::Path>, resolved: &std::path::Path) -> Result<()> {
+    let stale = stale_blocks(root)?;
+    let paths = repository_paths(resolved, &stale)?;
+    crate::cmd::operational::require_clean(resolved, &paths)?;
+    run_all(root)?;
+    match crate::cmd::operational::author(
+        resolved,
+        WHO,
+        &commit_subject(&stale),
+        &commit_body(&stale),
+        &paths,
+    )? {
+        Some(c) => println!("\ncommitted {} {}", c.sha, c.subject),
+        None => println!("\nEvery REGEN block was current. Nothing to commit."),
+    }
+    Ok(())
+}
+
+/// The subject a `regen:` commit carries: which generators' blocks moved.
+///
+/// Named up to three, because a subject that says `status, corpus-index` tells a reader of
+/// `git log --oneline` which reports changed. Past three the list stops being readable in a
+/// subject line, and the body names every one.
+fn commit_subject(stale: &[crate::regen::Stale]) -> String {
+    let mut generators: Vec<&str> = Vec::new();
+    for s in stale {
+        if !generators.contains(&s.generator.as_str()) {
+            generators.push(&s.generator);
+        }
+    }
+    if generators.len() <= 3 {
+        format!("regen: refresh {}", generators.join(", "))
+    } else {
+        format!("regen: refresh {} generators' blocks", generators.len())
+    }
+}
+
+/// One line per stale block: the file and the generator that wrote it.
+fn commit_body(stale: &[crate::regen::Stale]) -> String {
+    stale
+        .iter()
+        .map(|s| format!("{}  (yidam {})", s.file, s.generator))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Each stale block's file, relative to `root`.
+///
+/// [`crate::regen::Stale::file`] is written for a person to read. It is relative to the
+/// repository the *process* stands in, or absolute when that is not `root`. That is the wrong
+/// base for a pathspec when `--root` names another repository, so this undoes it.
+fn repository_paths(root: &std::path::Path, stale: &[crate::regen::Stale]) -> Result<Vec<String>> {
+    let base = root
+        .canonicalize()
+        .with_context(|| format!("resolving {}", root.display()))?;
+    let here = crate::paths::repo_root().ok();
+    let mut out: Vec<String> = Vec::new();
+    for s in stale {
+        let named = std::path::Path::new(&s.file);
+        let absolute = match (&here, named.is_absolute()) {
+            (Some(here), false) => here.join(named),
+            _ => named.to_path_buf(),
+        };
+        let absolute = absolute.canonicalize().unwrap_or(absolute);
+        let rel = absolute.strip_prefix(&base).with_context(|| {
+            format!(
+                "`yidam {}` wrote {}, which is outside {}",
+                s.generator,
+                absolute.display(),
+                base.display()
+            )
+        })?;
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        if !out.contains(&rel) {
+            out.push(rel);
+        }
+    }
+    Ok(out)
 }
 
 /// Refuse to run against a truncated history — in either mode.
