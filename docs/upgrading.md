@@ -30,6 +30,353 @@ is to run the filing task and commit.
 
 <!-- file-upgrade-notes: new release sections go below this line -->
 
+## cli/v0.17.0
+
+### An interval's target may seat more than one
+
+**`interval:` accepts `capacity:`, naming a property on the `exclusive_over` target (#1205).**
+Write `capacity: seats` on a tenure class. Then an office with `seats: 3` may have three
+holders at once. A target that omits the property holds one. Quoted digits such as `"3"` count.
+A value that is not a whole number of at least one is reported on the target.
+
+`interval-overlap` now reports each holder once, naming every earlier holder it overlaps. It
+used to report once for each overlapping pair.
+
+### A class may declare its interval
+
+**`interval:` names an instance's start and end (#1201).** Write `start:` and `end:`, each a
+`date` property the class declares. Add `exclusive_over:` with a relationship from `edges:`.
+No two instances may then link one target by it at once.
+
+A new `interval-overlap` lint check is an error for each overlapping pair, and for an end before
+its start. Intervals are half-open. They compare as `query` orders dates, at the precision both
+sides share. So `1893` and `1893-06-01` meet rather than overlap. An absent end is still open.
+
+Nothing changes until a class declares `interval:`. A declaration with a misspelled key, or no
+`end:`, is a malformed class.
+
+### A new version of a source names the nodes that read the old one
+
+**`yidam catalog-fetch` names every node citing an entry when it records a new version (#1200).**
+A new version is a digest from a location the entry already held a digest from. The report and
+the `refresh:` commit both list the nodes. The JSON row gains a `superseded` list.
+
+**`yidam due` gains a fifth clock, `superseded`.** It lists each node citing a source that has
+changed since the node was last committed. Set `[due] superseded_after` in days to let it come
+due. A commit touching the node discharges it. A new text reading of a PDF is not a new version.
+
+Nothing needs changing. The clock reads `undeclared` until the key is set, and still reports
+what it measured.
+
+### F2 rewrites the moved node's own links
+
+**An editor rename between classes now re-relativizes the moved node's links (#1193).** Before,
+F2 moved the file and rewrote inbound links. It dropped every edit to the moved node itself. A
+link written as `./sibling.yml` was left pointing into the wrong class. `yidam rename` was not
+affected.
+
+*What to do.* Run `yidam lint` after any cross-class F2 rename made before this release.
+`graph-check` reports each link it left dangling.
+
+### A class rename keeps its instances' ages
+
+**`yidam migrate class` writes `moved-from:` into every instance it moves (#1192).** Before, a
+class rename restarted both commit counts for each instance. Every orphan's escalation clock
+reset. Every open question dropped off `due`'s overdue list.
+
+The line is the one `yidam rename` writes, for example `moved-from: ../gage/canyon-outlet.yml`.
+An instance that already declared one has it replaced. The migrate plan lists each line it adds.
+The JSON report gains a `moved_from` list. Class renames made before this release are not
+backfilled.
+
+### A renamed node keeps its ages
+
+**`yidam rename` writes `moved-from:` into the node it moves (#1180).** Before, a rename
+restarted two counts of commits. One is how long nothing has cited a node, which `orphan-in`
+escalates on. The other is how long a question has stood `[open]`, which `due` reads. A renamed
+overdue question dropped out of `due` entirely, and its clock read Ok.
+
+The new line names the old path the way a `target:` does, for example
+`moved-from: ../concept/low-flow.yml`. Both counts now carry across the move. A move that also
+adds a citation or answers the question still ends that count. F2 in an editor writes the same
+line. A second rename replaces it.
+
+A move made without the command still restarts both counts. To keep them, add the line by hand
+in the commit that moves the file. Moves made before this release are not backfilled. The
+`rename` JSON report gains a `moved_from` object.
+
+### A quotation of a PDF is checked against a text reading
+
+**New command, `yidam catalog-extract` (#1172).** It takes a text reading of each PDF artifact.
+It files the reading in the vault cache and records it under the PDF as `text:`. It commits the
+change as `extract:`.
+
+**Lint compares a quotation of a PDF with that reading.** Before, every such quotation was
+`quotation-unchecked`. Now a span missing from the reading is `quotation-span-drift`, an error.
+Run `catalog-extract` on the machine that holds the PDFs, then run `yidam lint`.
+
+**Nothing changes until you run it.** A PDF with no reading stays `quotation-unchecked`. An older
+binary ignores the `text:` key.
+
+### `yidam rename` moves a catalog entry
+
+**`yidam rename catalog/old new` renames a catalog entry (#1159).** Before, the command
+took corpus nodes only. Renaming an entry by hand left every edge `source:` naming its old
+stem, which `edge-source-unresolved` then reported.
+
+The command now moves `.yidam/catalog/old.md` to `new.md` and rewrites every citation of it.
+An edge `source:` is rewritten in the spelling its author used, stem or path. A markdown link
+under `.yidam/` that resolved to the entry is re-relativized from the file that holds it. That
+covers node prose, other entries, decision records and the catalog README. On the largest
+corpus we measured, one rename rewrote 107 citations across 41 files. Lint was identical
+before and after.
+
+Anything that names the old file without linking it is reported and not rewritten. The
+report's `corpus_dir` is `.yidam` for a catalog entry, and `from` and `to` read
+`catalog/<name>.md`. `--dry-run` prints the plan and changes nothing. Nothing changes for a
+corpus node rename.
+
+### An edge `source:` counts as a citation
+
+**`catalog-uncited` and `verified-unsourced` read edge sources (#1158).** Before, only a
+`links:` target or a prose link to a catalog entry counted as a citation. An entry cited only
+from edge `source:` values was reported uncited. A node whose `[verified]` claim rested on such
+an edge was reported unsourced. Yet `edge-source-unresolved` resolved every one of those edges.
+
+Now the resolver every citation count shares reads edge sources too. It admits the same two
+catalog spellings: the entry's file stem, or a path written as a `target:` is. `catalog audit`
+and the MCP claim surface read the same function, so their counts move with the gate's.
+
+Two checks may change on upgrade. `catalog-used-by-drift` compares an entry's hand-written
+`used-by` list to the nodes citing it. More citations can mean more drift. On the largest corpus
+we measured it rose from 79 to 86 findings, all Warn. `catalog-unobtained-but-cited` is Error and
+now fires for an edge resting on an `obtained: false` entry. No corpus we measured had one.
+
+### The graph report says what omitting a property costs
+
+**A new field, `omission`, on each class property in `yidam graph --format json` (#1155).**
+Its value is `gates`, `reported` or `licensed`: the verdict `missing-property` gives when an
+instance omits the property. Before, the report carried only `required`, one bool. A property
+marked `required: false` and one that said nothing both arrived as `false`. The web
+editor labelled a licensed omission **reported**.
+
+`required` is unchanged. The web editor reads `omission` and labels a licensed property
+**allowed**. Against a binary older than the field, it labels a `false` property **does not
+gate** rather than guessing. Nothing changes for a corpus.
+
+### `doctor` asks whether the ontology ever stated its contract
+
+**A new `contract` check (#1078).** It warns when no property in the ontology says `required:`.
+It also warns when no class with edges says `edge_policy:`. Either way, `missing-property` or
+`unlicensed-edge` can warn there and never gate.
+
+Writing the key is the answer, whatever its value. `required: false` counts, and so does
+`edge_policy: characteristic`. One class answering answers for the whole ontology.
+
+It is a `warn`, so `doctor` still exits 0. **`doctor --strict` does not.** Of 16 derived
+ontologies measured, 14 warn.
+
+`doctor --only <id>` reports only the named checks. `yidam-vendor-update` runs
+`doctor --only contract` after it re-vendors. A binary that predates the flag prints nothing
+there, so the first re-vendor after an upgrade may stay quiet.
+
+### Lint warns on a node linked only to its class
+
+**`only-instance-of` is a new warning (#1072).** It reports a node whose only link is to its
+own `.ont.yml`. The finding names the relationships its class declares. Add one of them to
+the node, or delete the node if it is a stub.
+
+A class the ontology names only as an edge's target is a leaf by design. Its instances are
+exempt. The warning never fails the gate.
+
+### A `quotation` property type
+
+**A property may be declared `type: quotation` (#1070, RFC-0046).** Its value names a catalog
+entry in `of:` and holds the copied words in `span:`. Add `sha256:` when the entry holds more
+than one artifact. `quotation-span-drift` fails when the entry's cached bytes lack the words.
+`quotation-unresolved` fails when `of:` or the pin names nothing. Where the bytes are not in
+this machine's vault cache, or are not text, `quotation-unchecked` reports it at Info. A CI
+runner with no cache sees only Info findings.
+
+Nothing changes until a class declares the type. A corpus that coined `quotation` for itself
+is now checked against this shape. `yidam rename` rewrites `of:` with the entry.
+
+A quotation's `of:` is a citation of its entry (#1174). `catalog-uncited` and
+`verified-unsourced` count it, as they count an edge `source:`.
+
+### Lint reports a decision or a URL nothing registers
+
+**New Info finding, `decision-uncited` (#1068).** It reports a decision record nothing in the
+repository refers to. A markdown link to the record counts. So does its path, `decisions/<stem>`,
+named in any file git tracks, code included. A `links:` target or an edge `source:` naming its
+`id:` counts. So does a `decision/<id>` entry in `references:`, or another record's `supersedes:`.
+Text inside a REGEN block, or in a vendored or generated region, does not count. Across 13
+derived corpora, it reported 29 of 346 records. Info, not a gate: your exit code does not change.
+
+**New Info finding, `source-unregistered` (#1068).** It reports a URL in a node or a catalog
+body that no catalog `location:` covers. A location covers its own path and every path beneath
+it on that host. A corpus that declares no `url` or `url_template` location is not read. To
+clear a finding, register the source, or add the URL as a `location:` on its entry. Info, not a
+gate: your exit code does not change.
+
+### An edge `source:` is resolved
+
+**A new Error check, `edge-source-unresolved` (#1067).** Before, lint checked only that a
+`verified` edge wrote a `source:`. A value naming a renamed or nonexistent catalog entry passed.
+
+Lint now resolves the value on every edge that writes one, whatever its tag. Three spellings
+resolve: a catalog entry's file stem, a path written the way `target:` is, or a decision
+record's `id:`. Every edge source in every derived corpus we measured already resolves. A
+corpus that writes none has nothing to do.
+
+If the check fires, the finding names the edge and the value as written. Rename the value to
+the entry's current stem, or baseline the finding.
+
+### The scaffolded `.gitignore` ignores `.vscode/settings.json`
+
+**The yidam extension writes this file itself (#1065).** At activation its vendor guard marks
+`.yidam/.vendor/**` read-only. Its schema wiring adds the `yidam schema --settings` mapping. Both
+land in `.vscode/settings.json`. A `git add -A` then commits the file. Three derived repositories
+did.
+
+*Why that matters.* Other extensions write machine paths into the same file, such as a Python
+interpreter under your home directory. A tracked copy publishes the next one.
+
+*What to do.* A new repository gets the rule at genesis. It matches at any depth. An existing
+repository can copy it from `sadhana/root/gitignore`. If the file is already committed,
+`git rm --cached .vscode/settings.json` untracks it. The extension re-applies the guard in every
+window, so no protection is lost. To keep sharing the file on purpose, add
+`!.vscode/settings.json` after the rule.
+
+### `skills-index` reports whether a skill is built
+
+**A skill's frontmatter may say `status: built` or `status: stub` (#1063).** `yidam
+skills-index` adds a Status column and a count line above the table. A skill that says neither
+is reported as `unstated`, never as built. The bootstrap now writes `status: stub` into each
+calculator stub it leaves.
+
+After this upgrade, `yidam regen --check` reports `.yidam/skills/README.md` as stale. Run
+`yidam skills-index` and commit the table. Every existing skill reads `unstated` until you add
+the field. Nothing gates on the value.
+
+A built skill that another derivation also wrote can now be sent upstream. `upstream.md` names
+the `from:derived-skill` label and its template.
+
+### `yidam schema` leaves a schema file it did not write alone
+
+**Repo-owned schemas (#1057).** Every file `yidam schema` writes now carries a marker in its
+`$comment`. When a target in `.yidam/schemas/` has no marker, the run refuses before writing
+anything, and names the files. A repository that compiles its own, stricter schemas into that
+directory keeps them. It needs no guard task around `mise run schema` any more.
+
+Files an earlier release wrote have no marker either. The first run after this upgrade
+refuses them. Replace them once, and commit the result:
+
+```sh
+yidam schema --force
+```
+
+`yidam schema --settings` is unchanged. It reads no schema file and writes none.
+
+### `required: false` silences `missing-property`
+
+**An omission the class licensed is no longer a warning (#1055).** Before, `missing-property`
+warned on every omitted property that was not `required: true`. A property marked
+`required: false` warned the same as one that said nothing.
+
+It is now silent on `required: false`. A property that says nothing still warns, and
+`required: true` still gates. To accept a standing `missing-property` floor, write
+`required: false` on the properties an instance may omit. No baseline is needed.
+
+### A re-vendor names the workarounds it makes unnecessary
+
+**Cited issues (#1054).** Record a workaround with the upstream issue it works around, as
+`yidam#587` or as the issue's URL. After a re-vendor, `yidam-vendor-update` lists each cited issue that a commit at
+the new pin fixes. The workaround for it can go. `git grep yidam#587` finds it.
+
+It reads tracked files only, and skips `.yidam/.vendor/` and `.yidam/corpus/`. It needs no
+network beyond the clone the re-vendor already makes.
+
+### A re-vendor now reaches `ci.yml` and `CLAUDE.md`
+
+**Scaffold regions (#1054).** Genesis installs `.github/workflows/ci.yml` and `.claude/CLAUDE.md`
+once. Until now no re-vendor touched them again. So a gate added upstream never reached your CI.
+
+The scaffold now marks the part of each file that is yidam's. In `ci.yml` that is the `privacy`
+and `corpus` jobs, between `# <!-- YIDAM:CI -->` and `# <!-- /YIDAM:CI -->`. In `CLAUDE.md` it is
+the template's sections, between `<!-- YIDAM:CLAUDE -->` and `<!-- /YIDAM:CLAUDE -->`.
+`mise run yidam-vendor-update` rewrites each region from the scaffold at the new pin. It never
+reads the rest of the file.
+
+An existing repository has no markers. Install them once, then re-vendor:
+
+```sh
+yidam migrate --dry-run scaffold   # see what each region takes in
+yidam migrate scaffold             # do it
+mise run yidam-vendor-update       # fill the regions
+```
+
+Commit the migration as a `migrate:` commit. **Anything inside a region is replaced.** A step you
+added to the `privacy` or `corpus` job shows in the re-vendor's diff as removed. Move it to a job
+of your own, outside the markers.
+
+A workflow with neither job gets an empty region, and the re-vendor fills it. A `CLAUDE.md` with
+none of the template's headings is yours, and is left unmarked. The migration refuses when one of
+your sections sits between two of the template's. Move it, then run it again.
+
+`yidam doctor` has two new checks. `scaffold` warns while a file has no region. `ci` warns when no
+workflow runs a corpus gate. It reads `.github/workflows/` only, and follows a `mise run` into
+your own `mise.toml`.
+
+### A node may declare a refusal, and `derive check` holds an argument to it
+
+**`refuses:` is a named node field (#1053, RFC-0045).** It lists the sentences in which a node
+declines an inference. A new `refusal-span-drift` lint check is an error when one quotes text
+the node's prose no longer holds. A corpus that declares no refusals sees nothing new.
+
+**`yidam derive check` reads artifacts under `[derive] paths`.** Without that key, it reads
+nothing and passes. With it, every memo or dossier there needs a `reach:` and `cites:` spans.
+It must also answer each declared refusal in a paragraph it cites.
+
+SDK parity moves 0.16.0 → 0.17.0 and `yidam-core` 0.10.0 → 0.11.0, for the new field. An SDK
+that predates it keeps `refuses:` in `extra`, where nothing reads it.
+
+### `export --format llms` prints instead of writing `llms.txt`
+
+**Stdout by default (#919).** Without `--out`, `yidam export --format llms` wrote `llms.txt` at
+the repository root. A reader who only meant to look at the corpus got an untracked file.
+
+It now prints the pack to stdout. The summary line goes to stderr. With `--out`, nothing
+changes. A script that reads `llms.txt` after the export needs `--out llms.txt`.
+
+### A domain article is checked, as the genesis commit holds it
+
+**Four new checks read `.yidam/constitution/` (#593, RFC-0047).** Bootstrap now writes a
+constitutional augmentation there, with its Rego rule and cases. `yidam lint` reads each rule
+from the genesis commit. `domain-article-violated` fails on a rule's refusal.
+`domain-article-edited` fails when a file there differs from the genesis commit.
+`domain-article-unproven` warns on a rule with no cases, or a failing case.
+`domain-article-unverifiable` warns in a shallow clone, where no rule is read.
+
+**Nothing changes without the directory.** No derived repository has one yet. An article appended
+to the vendored `CONSTITUTION.md` did not survive `yidam-vendor-update`, and none was found.
+
+### A resolution record must name its rounds and positions
+
+**New check, `resolution-deliberation-unrecorded` (#592).** It names a resolution record missing
+`rounds:` or `positions:`. It also names a `rounds:` that is not a count of at least one.
+PROTOCOL.md has asked for both fields since 2026-08-20. No record in any derived repository
+carries them.
+
+**Old records warn. New ones gate.** Git ancestry decides which is which. A record gates when the
+commit that added it descends from the commit that put `rounds:` into your PROTOCOL.md. A
+repository bootstrapped after 2026-08-20 has that line from genesis, so every record it adds
+gates. A repository whose vendored PROTOCOL.md lacks the line only warns, until it re-vendors.
+
+**The repair is two lines of frontmatter.** Write `rounds: 1` if the loop ran once. List every
+position file the loop read under `positions:`. A shallow clone cannot see the ancestry, so there
+every finding warns.
+
 ## cli/v0.16.0
 
 ### A multi-line value leaves an inline block that shares its line
