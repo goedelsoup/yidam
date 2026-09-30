@@ -58,7 +58,7 @@ fn find<'a>(clocks: &'a [Clock], id: &str) -> &'a Clock {
 fn a_corpus_that_declared_nothing_is_owed_nothing() {
     let tmp = repo();
     let all = clocks(tmp.path());
-    assert_eq!(all.len(), 4, "four clocks: {all:?}");
+    assert_eq!(all.len(), 5, "five clocks: {all:?}");
     for c in &all {
         assert_ne!(
             c.state,
@@ -68,8 +68,8 @@ fn a_corpus_that_declared_nothing_is_owed_nothing() {
         );
         assert_eq!(c.overdue, 0, "{}", c.id);
         // The row set does not vary by build. `Unbuildable` was added instead of dropping the
-        // clock precisely so that a reader comparing two `due` runs is comparing four rows to
-        // four rows — see [`State::Unbuildable`].
+        // clock precisely so that a reader comparing two `due` runs is comparing five rows to
+        // five rows — see [`State::Unbuildable`].
         let expected = match (c.id, cfg!(feature = "index")) {
             ("index", false) => State::Unbuildable,
             _ => State::Undeclared,
@@ -356,7 +356,7 @@ fn a_question_moved_under_a_declared_origin_stays_overdue() {
 /// Answering an open question is a resolution event, so the remedy must not name `propose`.
 ///
 /// RFC-0020 and `cmd/sangha.rs` both draw that line, and #289 proposed crossing it — "under
-/// E4, proposes the commits that would discharge them" is true of exactly one of the four
+/// E4, proposes the commits that would discharge them" is true of exactly one of the five
 /// clocks. A remedy pointing a person at `yidam propose` here would be telling them a tool
 /// can close a question, which it deliberately cannot.
 #[test]
@@ -500,6 +500,120 @@ fn an_expired_source_is_due_and_propose_is_what_discharges_it() {
     );
 }
 
+// ── the superseded clock ──────────────────────────────────────────────────────
+
+/// A catalog entry for `gauge`, holding one record per digest, each fetched from location 0.
+fn gauge(root: &Path, digests: &[&str]) {
+    let records: String = digests
+        .iter()
+        .map(|d| format!("  - sha256: {d}\n    retrieved: 2026-01-01\n    from: 0\n"))
+        .collect();
+    let dir = root.join(".yidam/catalog");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("gauge.md"),
+        format!("---\nid: gauge\nlocation:\n  - kind: file\n    value: sources/gauge.csv\nartifacts:\n{records}---\n\nA gauge record.\n"),
+    )
+    .unwrap();
+}
+
+fn citing(root: &Path, rel: &str, label: &str) {
+    node(
+        root,
+        rel,
+        &format!("class: concept\nlabel: {label}\nlinks:\n  - target: ../../catalog/gauge.md\n    relationship: sourced-from\n"),
+    );
+}
+
+/// The case #1200 names: one entry, two versions, a node citing it on each side of the new
+/// digest. The node read before it is owed; the node committed to after it is not.
+fn two_versions_one_node_either_side() -> tempfile::TempDir {
+    let tmp = repo();
+    let root = tmp.path();
+    gauge(root, &["aaaaaaaaaaaaaaaa"]);
+    citing(root, "concept/before.yml", "Before");
+    citing(root, "concept/after.yml", "After");
+    commit(root, "2026-01-10", "cite: the gauge, twice");
+    gauge(root, &["aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"]);
+    commit(root, "2026-02-01", "fetch: gauge changed");
+    citing(root, "concept/after.yml", "After, re-read");
+    commit(root, "2026-02-05", "revise: after, against the new gauge");
+    tmp
+}
+
+#[test]
+fn a_node_read_before_a_new_version_is_owed_and_one_touched_after_is_not() {
+    let tmp = two_versions_one_node_either_side();
+    let root = tmp.path();
+    config(root, "[due]\nsuperseded_after = 14\n");
+
+    let c = find(&clocks(root), "superseded").clone();
+    assert_eq!(c.state, State::Due, "{c:?}");
+    assert_eq!(c.overdue, 1, "{c:?}");
+    assert_eq!(c.subjects.len(), 1, "{c:?}");
+    let s = &c.subjects[0];
+    assert!(s.starts_with(".yidam/corpus/concept/before.yml"), "{s}");
+    assert!(s.contains("gauge"), "{s}");
+    assert!(s.contains("28 day(s)"), "{s}");
+    assert!(s.contains("sha256:bbbbbbbbbbbb"), "{s}");
+    assert!(!c.subjects.iter().any(|s| s.contains("after.yml")), "{c:?}");
+}
+
+/// Undeclared, the clock still names what it measured, and never comes due.
+#[test]
+fn an_unset_superseded_clock_measures_and_owes_nothing() {
+    let tmp = two_versions_one_node_either_side();
+    let c = find(&clocks(tmp.path()), "superseded").clone();
+    assert_eq!(c.state, State::Undeclared, "{c:?}");
+    assert_eq!(c.overdue, 0);
+    assert!(c.subjects.is_empty(), "{c:?}");
+    assert!(c.detail.contains("1 node(s) cite 1 of 1"), "{}", c.detail);
+}
+
+/// Inside its interval the node is not yet owed. The interval runs from the superseding
+/// commit, not from the node's own last touch.
+#[test]
+fn a_new_version_inside_its_interval_is_not_yet_due() {
+    let tmp = two_versions_one_node_either_side();
+    let root = tmp.path();
+    config(root, "[due]\nsuperseded_after = 60\n");
+    let c = find(&clocks(root), "superseded").clone();
+    assert_eq!(c.state, State::Ok, "{c:?}");
+    assert!(c.subjects.is_empty(), "{c:?}");
+}
+
+/// A commit to the node is what discharges it — any commit, since the corpus cannot tell a
+/// re-read from a typo fix, and a pin to the new digest is one such commit.
+#[test]
+fn a_commit_to_the_owed_node_discharges_it() {
+    let tmp = two_versions_one_node_either_side();
+    let root = tmp.path();
+    citing(root, "concept/before.yml", "Before, re-read");
+    commit(root, "2026-02-20", "revise: before, against the new gauge");
+    config(root, "[due]\nsuperseded_after = 14\n");
+    let c = find(&clocks(root), "superseded").clone();
+    assert_eq!(c.state, State::Ok, "{c:?}");
+    assert!(c.subjects.is_empty(), "{c:?}");
+}
+
+/// One version is not a supersession, however old the node citing it.
+#[test]
+fn a_source_with_one_version_owes_nothing() {
+    let tmp = repo();
+    let root = tmp.path();
+    gauge(root, &["aaaaaaaaaaaaaaaa"]);
+    citing(root, "concept/before.yml", "Before");
+    commit(root, "2026-01-10", "cite: the gauge");
+    config(root, "[due]\nsuperseded_after = 1\n");
+    let c = find(&clocks(root), "superseded").clone();
+    assert_eq!(c.state, State::Ok, "{c:?}");
+    assert!(
+        c.detail.contains("no source holds a second version"),
+        "{}",
+        c.detail
+    );
+}
+
 // ── the verdict, and the sentence about it ────────────────────────────────────
 
 /// Being owed is not a failure. `--strict` is the only thing that makes it one.
@@ -609,7 +723,7 @@ fn a_clock_declined_in_writing_is_not_a_clock_nobody_set() {
     // And it leaves the sentence about unset clocks to the clocks that really are unset.
     let report = DueReport::new(all, false);
     assert_eq!(report.declined, 1);
-    assert_eq!(report.undeclared, 3, "a decline was counted as an absence");
+    assert_eq!(report.undeclared, 4, "a decline was counted as an absence");
     assert_eq!(report.due, 0);
 }
 

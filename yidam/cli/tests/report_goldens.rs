@@ -2315,6 +2315,17 @@ const UNREACHED: &[(&str, &str)] = &[
          other goldens, so breaking one would move all of them to reach two declarations",
     ),
     (
+        "clocks[].subjects",
+        "the `superseded` clock names its subjects only when `due`, which needs a catalog entry \
+         whose committed history holds two digests from one location and a `[due] \
+         superseded_after` — a second fetch and a config key every other golden would read. \
+         `due/tests.rs` builds that history, and tests/catalog_fetch.rs runs it end to end",
+    ),
+    (
+        "owed[].subjects",
+        "`cycle`'s owed half is `due`'s clocks through `due`'s reader — see `clocks[].subjects`",
+    ),
+    (
         "extracted[].commit.sha",
         "the golden is a `--dry-run`, which commits nothing, against the fixture every other \
          golden reads — the committed arm is tests/catalog_extract.rs, end to end",

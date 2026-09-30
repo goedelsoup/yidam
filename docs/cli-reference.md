@@ -137,7 +137,7 @@ a session runs none of them, or one.
 
 | Half | What it reads |
 |---|---|
-| **owed** | `due`'s four clocks, through `due`'s own reader |
+| **owed** | `due`'s five clocks, through `due`'s own reader |
 | **in flight** | the unsettled inquiry refs `yidam phases` lists — `active`, never a settled phase or a standing position |
 | **blocked** | what `lint`'s baseline ratchet and `graph-check` would fail on **today** |
 | **next** | one act per half, each carrying the finding, clock or declaration behind it |
@@ -294,6 +294,7 @@ corpus said about itself, never a number in the binary. The reasoning is
 | `catalog` | How long since a source record was retrieved | `[catalog] ttl_days`, or an entry's own | days |
 | `questions` | How long a question has gone unanswered | `[due] questions_after` | corpus commits |
 | `phases` | How long a bounded inquiry has been in flight | `[due] phases_after` | days |
+| `superseded` | How long a node has cited a source that changed since it was last committed | `[due] superseded_after` | days |
 
 The catalog clock reads the interval [where it already lived](configuration.md#catalog-ttl_days)
 rather than restating it under `[due]`. A source's TTL is a statement about the source. Two places
@@ -309,14 +310,14 @@ one. The clock reads `declined`, still prints what it measured, and prints the d
 behind it. The record is required, so a decline is something a corpus wrote down and can be
 asked about.
 
-Two of the four count days and two do not, which is deliberate. How long a question has gone
+Three of the five count days and two do not, which is deliberate. How long a question has gone
 unanswered is a fact about the repository, so its clock is `HEAD`. A corpus that has not committed
-has not ignored anything. A source's TTL and a phase's time in flight are facts about the world.
+has not ignored anything. A source's TTL, a phase's time in flight and a source's new version are facts about the world.
 The world does not stop moving because nobody committed.
 
 ### What discharges a clock
 
-`due` reports; it does not act. Only one of the four clocks is discharged by something
+`due` reports; it does not act. Only one of the five clocks is discharged by something
 [`propose`](#propose-is-deliberately-small) can draft:
 
 | Clock | What discharges it |
@@ -325,6 +326,7 @@ The world does not stop moving because nobody committed.
 | `catalog` | `yidam propose`, which already drafts an `open:` against each expired source |
 | `questions` | A person. Deciding a question is answered is a resolution event, and Article V confines those to a sangha |
 | `phases` | A person. Settling a phase or abandoning it is not a mechanical consequence of a finding |
+| `superseded` | A person re-reading the source, and a commit to each node it lists. Any commit touching the node counts |
 
 Each clock names its own remedy in the report. The distinction is visible where it matters, not
 only here.
@@ -997,6 +999,21 @@ response code.
 
 Only the latest record for that location is consulted. Change your answer and every edition
 after it inherits the new one. A record that says nothing carries nothing forward.
+
+A re-capture with **new bytes** is a new version of the source. Every node citing the entry was
+read against an earlier one. The report and the `refresh:` commit both name them, and `yidam due`
+keeps naming each one until a commit touches it:
+
+```console
+$ yidam catalog-fetch local-registry --location 0
+local-registry
+  location 0 — /repo/sources/registry-2026.csv
+    sha256:4be1… (131 bytes)
+    push route: sources (s3://newsroom-sources/yidam)
+  c07d2e9 refresh: local-registry from sources/registry-2026.csv
+  a new version — 1 node(s) cite an earlier one, and `yidam due` holds them until each is re-read:
+    .yidam/corpus/record/hydrant-count.yml
+```
 
 The `refresh:` commit body names each field it carried and the digest it came from. So a licence
 appearing on a new record is reviewable as continued rather than established.

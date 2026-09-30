@@ -61,9 +61,9 @@ docs/rfcs/0020-proposal-surface.md → ../../yidam/cli/src/config.rs#L25-L43
 docs/rfcs/0020-proposal-surface.md → ../../yidam/cli/src/corpus/class.rs#L107-L114
 docs/rfcs/0020-proposal-surface.md → ../../yidam/cli/src/corpus/class.rs#L76-L85
 docs/rfcs/0028-kuten-layer.md → ../../VERSIONING.md#L138-L141
-docs/rfcs/0028-kuten-layer.md → ../../yidam/cli/src/cmd/due.rs#L218
-docs/rfcs/0028-kuten-layer.md → ../../yidam/cli/src/cmd/due.rs#L354
-docs/rfcs/0028-kuten-layer.md → ../../yidam/cli/src/cmd/due.rs#L442
+docs/rfcs/0028-kuten-layer.md → ../../yidam/cli/src/cmd/due.rs#L233
+docs/rfcs/0028-kuten-layer.md → ../../yidam/cli/src/cmd/due.rs#L369
+docs/rfcs/0028-kuten-layer.md → ../../yidam/cli/src/cmd/due.rs#L457
 docs/rfcs/0028-kuten-layer.md → ../../yidam/cli/src/cmd/lint/commits.rs#L52
 docs/rfcs/0028-kuten-layer.md → ../../yidam/cli/src/cmd/log.rs#L119
 docs/rfcs/0028-kuten-layer.md → ../../yidam/cli/src/cmd/sangha.rs#L14-L16
