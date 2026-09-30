@@ -132,6 +132,111 @@ fn regen_then_check_passes() {
     assert_eq!(doc["stale"].as_array().unwrap().len(), 0);
 }
 
+// ── `regen --commit`: the `regen:` commit (#1215) ──────────────────────────────
+
+fn git_out(root: &Path, args: &[&str]) -> String {
+    common::git::out(root, args)
+}
+
+/// **The `regen:` verb has an author.** The commit holds exactly the files `--check` named,
+/// classifies as operational, and satisfies the gate. A re-run authors nothing.
+#[test]
+fn regen_commit_authors_the_regen_commit_and_a_rerun_authors_none() {
+    let tmp = stage();
+    let stale = run(tmp.path(), &["regen", "--check", "--format", "json"]);
+    let doc: serde_json::Value = serde_json::from_str(&stale.stdout).unwrap();
+    let mut named: Vec<String> = doc["stale"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["file"].as_str().unwrap().to_string())
+        .collect();
+    named.sort();
+    named.dedup();
+    assert!(!named.is_empty(), "the fixture starts stale");
+
+    let r = run(tmp.path(), &["regen", "--commit"]);
+    assert_eq!(r.code, 0, "{}", r.stdout);
+
+    let subject = git_out(tmp.path(), &["log", "-1", "--format=%s"]);
+    assert!(subject.starts_with("regen: refresh "), "{subject}");
+    assert_eq!(
+        yidam_core::git::classify_commit("", &subject).kind,
+        yidam_core::git::CommitKind::Operational,
+        "`{subject}` must classify as operational"
+    );
+    assert_eq!(
+        git_out(tmp.path(), &["log", "-1", "--format=%an <%ae>"]),
+        "yidam regen <regen@yidam>"
+    );
+    let mut committed: Vec<String> =
+        git_out(tmp.path(), &["show", "--name-only", "--format=", "HEAD"])
+            .lines()
+            .map(str::to_string)
+            .collect();
+    committed.sort();
+    assert_eq!(committed, named, "the commit is exactly what --check named");
+    assert!(
+        git_out(tmp.path(), &["status", "--porcelain"]).is_empty(),
+        "nothing is left uncommitted"
+    );
+    assert_eq!(run(tmp.path(), &["regen", "--check"]).code, 0);
+
+    let before = git_out(tmp.path(), &["rev-parse", "HEAD"]);
+    let again = run(tmp.path(), &["regen", "--commit"]);
+    assert_eq!(again.code, 0, "{}", again.stdout);
+    assert!(
+        again.stdout.contains("Nothing to commit"),
+        "{}",
+        again.stdout
+    );
+    assert_eq!(
+        git_out(tmp.path(), &["rev-parse", "HEAD"]),
+        before,
+        "current blocks are no commit"
+    );
+}
+
+/// A hand edit in a file whose block is stale is refused before any block is written. After
+/// the write, the edit and the refreshed block would be one diff under one `regen:` subject.
+#[test]
+fn regen_commit_refuses_a_hand_edited_file_before_writing() {
+    let tmp = stage();
+    let edited = format!("{}\nA note nobody has committed.\n", readme(tmp.path()));
+    std::fs::write(tmp.path().join("README.md"), &edited).unwrap();
+    let before = git_out(tmp.path(), &["rev-parse", "HEAD"]);
+
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(tmp.path())
+        .args(["regen", "--commit"])
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "a dirty target has to refuse");
+    assert!(said.contains("uncommitted changes"), "{said}");
+    assert!(said.contains("README.md"), "names the file: {said}");
+    assert_eq!(git_out(tmp.path(), &["rev-parse", "HEAD"]), before);
+    assert_eq!(readme(tmp.path()), edited, "no block was written");
+}
+
+/// A person's staged work elsewhere stays staged and stays out of the `regen:` commit.
+#[test]
+fn regen_commit_leaves_work_staged_elsewhere_alone() {
+    let tmp = stage();
+    std::fs::write(tmp.path().join("notes.txt"), "half-finished\n").unwrap();
+    common::git::git(tmp.path(), &["add", "notes.txt"]);
+
+    let r = run(tmp.path(), &["regen", "--commit"]);
+    assert_eq!(r.code, 0, "{}", r.stdout);
+    let committed = git_out(tmp.path(), &["show", "--name-only", "--format=", "HEAD"]);
+    assert!(!committed.contains("notes.txt"), "{committed}");
+    assert_eq!(
+        git_out(tmp.path(), &["diff", "--cached", "--name-only"]),
+        "notes.txt",
+        "the person's work is still staged"
+    );
+}
+
 /// A `vault-status` block is one this gate reports, which it was not until #831.
 ///
 /// The block sat outside the generator list, so `yidam regen` did not populate it and

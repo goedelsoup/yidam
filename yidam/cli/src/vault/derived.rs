@@ -259,6 +259,14 @@ pub struct Entry {
     /// after the push and look in the wrong place — which is a mutable ref by another name,
     /// and the thing this whole design exists to avoid.
     pub vault: String,
+    /// The embedding model an index was built with, from its `meta.json`. Index only, and
+    /// optional because a lock written before it existed has none (#1215).
+    ///
+    /// Recorded here because the digest alone cannot say it. Two indexes over one corpus
+    /// built with different models are different bytes, and a reader of the `index:` commit
+    /// should not have to fetch hundreds of megabytes to learn which model changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 impl DerivedLock {
@@ -474,6 +482,7 @@ mod tests {
                 sha256: "a".repeat(64),
                 bytes: 12,
                 vault: "default".into(),
+                model: Some("BGESmallENV15".into()),
             },
         );
         save_lock(tmp.path(), &lock).unwrap();

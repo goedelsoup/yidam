@@ -134,7 +134,7 @@ it knows, under a command it spells as a literal. `count` cannot: its blocks are
 document put them, and its command carries the query, so the set of `(file, command)` pairs is a
 property of the tree and not of the source. Three things assume otherwise.
 
-- [`every_generator_in_the_crate_is_listed`](../../yidam/cli/src/cmd/regen.rs#L441-L470) requires
+- [`every_generator_in_the_crate_is_listed`](../../yidam/cli/src/cmd/regen.rs#L547-L576) requires
   every `update_file_regen` call site to name its generator with a `"yidam …"` literal, so that
   the guard can see which block each one writes. A computed command has no literal.
 - `update_regen` matches its open tag by **prefix**, so `yidam count district` finds and
@@ -283,11 +283,11 @@ two documents, run. What #1097 bought is a model that says so. It did not buy sa
 ### `count` is pull-shaped, and the guard says so
 
 `count` reads the tracked markdown set — `tracked::list`, for the reason
-[`unclaimed_blocks`](../../yidam/cli/src/cmd/regen.rs#L260) already gives at length — collects
+[`unclaimed_blocks`](../../yidam/cli/src/cmd/regen.rs#L262) already gives at length — collects
 every block whose command begins `yidam count `, runs each distinct query once, and writes each
 block through the single write point.
 
-[`every_generator_in_the_crate_is_listed`](../../yidam/cli/src/cmd/regen.rs#L441-L470) is
+[`every_generator_in_the_crate_is_listed`](../../yidam/cli/src/cmd/regen.rs#L547-L576) is
 amended, not exempted. Its `named == call_sites` clause exists so that the guard can see which
 block each call site writes; a call site whose command is computed is one the guard genuinely
 cannot read, and the honest amendment is to require that such a site name its generator's
@@ -297,7 +297,7 @@ that names neither still fails. The floor clause is unchanged.
 **Revised on implementation.** The prefix a call site can spell is not `"yidam count "` but
 `format!("yidam count {}", argument)` — the command has to be built to be passed, and a site
 that spelled the bare prefix beside a computed command would be naming a string it does not
-use. So [`generator_named_by`](../../yidam/cli/src/cmd/regen.rs#L414-L420) reads a `"yidam …"`
+use. So [`generator_named_by`](../../yidam/cli/src/cmd/regen.rs#L520-L526) reads a `"yidam …"`
 literal containing a `{` as a prefix and truncates at the brace: `"yidam count {}"` names
 `count`. The clause the RFC asked for is unchanged in effect — the site names its generator, and
 the guard can attribute the block — and the literal it reads is now one the code actually

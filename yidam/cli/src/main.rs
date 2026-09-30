@@ -467,6 +467,10 @@ enum Command {
         /// Report which blocks are stale and write nothing. Exits nonzero when any is.
         #[arg(long)]
         check: bool,
+        /// Refresh the blocks and author the `regen:` commit for exactly the files that changed.
+        /// Refuses if one of those files has uncommitted edits.
+        #[arg(long, conflicts_with = "check")]
+        commit: bool,
         #[command(flatten)]
         format: FormatArg,
     },
@@ -1555,8 +1559,9 @@ fn run() -> Result<()> {
         Command::Regen {
             root,
             check,
+            commit,
             format,
-        } => yidam::regen(root.as_deref(), check, format.value),
+        } => yidam::regen(root.as_deref(), check, commit, format.value),
         Command::Cohort {
             root,
             repos,

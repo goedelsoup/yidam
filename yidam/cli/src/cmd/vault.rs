@@ -88,6 +88,11 @@ pub enum VaultCommand {
         /// Send `.yidam/bundle.yiz`
         #[arg(long)]
         bundle: bool,
+        /// Commit `.yidam/index.lock` once it records what was sent: an `index:` commit for the
+        /// index or its embeddings, a `bundle:` commit for the bundle, one per artifact.
+        /// Only with `--index`, `--embeddings` or `--bundle`.
+        #[arg(long, conflicts_with = "dry_run")]
+        commit: bool,
     },
     /// Fetch what the corpus names and the cache lacks
     Pull {
@@ -145,9 +150,15 @@ pub fn run(sub: VaultCommand) -> Result<()> {
             index,
             embeddings,
             bundle,
+            commit,
         } => match chosen(index, embeddings, bundle) {
+            picked if picked.is_empty() && commit => bail!(
+                "`--commit` records what `.yidam/index.lock` gained, and a catalog push writes \
+                 nothing there — the catalog entry already names the artifact.\n  \
+                 Use it with `--index`, `--embeddings` or `--bundle`."
+            ),
             picked if picked.is_empty() => push(dry_run, artifact.as_deref(), vault.as_deref()),
-            picked => push_derived(&picked, dry_run, vault.as_deref()),
+            picked => push_derived(&picked, dry_run, commit, vault.as_deref()),
         },
         VaultCommand::Pull {
             vault,
@@ -1259,9 +1270,79 @@ fn chosen(index: bool, embeddings: bool, bundle: bool) -> Vec<vault::Derived> {
     .collect()
 }
 
-fn push_derived(picked: &[vault::Derived], dry_run: bool, only: Option<&str>) -> Result<()> {
+/// Who an `index:` or `bundle:` commit is authored by. See [`crate::cmd::operational`].
+const WHO: crate::cmd::operational::Who<'static> = ("yidam vault", "vault@yidam");
+
+/// The lock's path relative to `root`, as a pathspec.
+fn lock_rel(root: &Path) -> String {
+    let path = vault::lock_path(root);
+    path.strip_prefix(root)
+        .unwrap_or(&path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// The subject an artifact's commit carries.
+///
+/// **Why the commit is here and not in `index-build` or `bundle` (#1215).** Both write
+/// untracked bytes: `.yidam/index/` and `.yidam/bundle.yiz` are gitignored in every derived
+/// repository, because the index stamps HEAD into its own `meta.json`, so a committed index
+/// would be stale one commit later. The only tracked record of either artifact is its entry in
+/// `.yidam/index.lock`, and this command writes it. So this command authors the commit. RFC-0023's
+/// rule, *a vault stores bytes, git stores the record of them*, decides where the verb lives.
+///
+/// The index subject keeps the wording `index.yml` typed by hand before this existed, so a
+/// corpus's history reads the same on either side of the change.
+fn lock_subject(root: &Path, d: vault::Derived, entry: &vault::Entry) -> String {
+    let short = &entry.sha256[..entry.sha256.len().min(12)];
+    match d {
+        vault::Derived::Index => match index_meta(root, "indexed_commit") {
+            Some(at) => format!("index: store the index built at {at}"),
+            None => format!("index: store the index {short}"),
+        },
+        vault::Derived::Embeddings => {
+            format!("index: store the embeddings {short} the index is built from")
+        }
+        vault::Derived::Bundle => format!("bundle: store the bundle {short}"),
+    }
+}
+
+/// What the commit says beyond its subject: the digest, the size, the store, and the model.
+fn lock_body(entry: &vault::Entry) -> String {
+    let model = entry
+        .model
+        .as_ref()
+        .map(|m| format!("\nembedded with {m}"))
+        .unwrap_or_default();
+    format!(
+        "sha256 {}\n{} in vault `{}`{model}",
+        entry.sha256,
+        human_size(entry.bytes),
+        entry.vault
+    )
+}
+
+/// A string field of the built index's `meta.json`, if there is one.
+fn index_meta(root: &Path, key: &str) -> Option<String> {
+    let path = vault::Derived::Index.path(root).join("meta.json");
+    let text = std::fs::read_to_string(path).ok()?;
+    let meta: serde_json::Value = serde_json::from_str(&text).ok()?;
+    meta.get(key)?.as_str().map(str::to_string)
+}
+
+fn push_derived(
+    picked: &[vault::Derived],
+    dry_run: bool,
+    commit: bool,
+    only: Option<&str>,
+) -> Result<()> {
     let root = repo_root()?;
     require_yidam_repo(&root)?;
+    // Before anything is packed or sent: a lock with somebody's hand edit in it would be
+    // committed under a subject that says only what this push recorded.
+    if commit {
+        crate::cmd::operational::require_clean(&root, &[lock_rel(&root)])?;
+    }
     let vaults = configured(&root)?;
     if vaults.is_empty() {
         bail!("this repository declares no vault — `yidam vault list` shows the shape.");
@@ -1356,14 +1437,33 @@ fn push_derived(picked: &[vault::Derived], dry_run: bool, only: Option<&str>) ->
             sha256: hash.as_str().to_string(),
             bytes,
             vault: name.to_string(),
+            model: match d {
+                vault::Derived::Index => index_meta(&root, "model_name"),
+                _ => None,
+            },
         };
         if lock.get(d) != Some(&entry) {
-            lock.set(d, entry);
+            lock.set(d, entry.clone());
             changed = true;
+            // One commit per artifact, so each carries one verb and one record. A re-run that
+            // sends the same bytes never gets here, because the lock already holds the entry.
+            // That keeps `author`'s contract that nothing changed means no commit.
+            if commit {
+                vault::save_lock(&root, &lock)?;
+                if let Some(c) = crate::cmd::operational::author(
+                    &root,
+                    WHO,
+                    &lock_subject(&root, d, &entry),
+                    &lock_body(&entry),
+                    &[lock_rel(&root)],
+                )? {
+                    println!("committed {} {}", c.sha, c.subject);
+                }
+            }
         }
     }
 
-    if changed && !dry_run {
+    if changed && !dry_run && !commit {
         vault::save_lock(&root, &lock)?;
         println!();
         println!(

@@ -30,11 +30,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use super::commit::{Commit, Writer};
 use super::location::{self, Plan};
 use super::record;
 use super::superseded;
 use super::transport;
+use crate::cmd::operational::{Commit, Writer};
 use crate::parse::{parse_frontmatter, ArtifactOrigin, CatalogArtifact, CatalogLocation};
 use crate::paths::{repo_root, yidam_catalog_dir};
 use crate::vault::{Cache, ContentHash, Route};
@@ -504,7 +504,13 @@ pub(crate) fn fetch_in(
                 }
                 let (subject, mut body) = message(&name, &obtained, &held, &records);
                 body.push_str(&owed_lines(&owed));
-                written = writer.commit(&root, &subject, &body, &[(rel.clone(), updated)])?;
+                written = writer.commit(
+                    &root,
+                    super::WHO,
+                    &subject,
+                    &body,
+                    &[(rel.clone(), updated)],
+                )?;
             }
         }
 

@@ -40,9 +40,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use super::audit::draws_on;
-use super::commit::{Commit, Writer};
 use super::record;
 use crate::cmd::lint::checks::{used_by_drift, UsedByDrift};
+use crate::cmd::operational::{Commit, Writer};
 use crate::corpus::normalize;
 use crate::parse::parse_frontmatter;
 use crate::paths::{repo_root, yidam_catalog_dir, yidam_corpus_dir};
@@ -183,7 +183,13 @@ pub(crate) fn reconcile_in(
         if !opts.dry_run {
             writer.require_clean(&root, &[rel.clone()])?;
             let (subject, body) = message(&name, &drift);
-            written = writer.commit(&root, &subject, &body, &[(rel.clone(), updated)])?;
+            written = writer.commit(
+                &root,
+                super::WHO,
+                &subject,
+                &body,
+                &[(rel.clone(), updated)],
+            )?;
         }
 
         out.push(Reconciled {

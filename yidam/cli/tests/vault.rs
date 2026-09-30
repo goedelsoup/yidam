@@ -1065,6 +1065,170 @@ fn pushing_an_unchanged_index_is_a_no_op() {
     );
 }
 
+// ── `push --commit`: the `index:` and `bundle:` commits (#1215) ─────────────────
+
+/// A derived repository with one commit and a committer identity, so `--commit` has a branch
+/// to write to. The identity is set in the repository because a CI runner has none.
+fn committed_repo(store: &Path) -> tempfile::TempDir {
+    let tmp = repo(Some(&derived_config(store)));
+    let git = |args: &[&str]| common::git::git(tmp.path(), args);
+    git(&["config", "user.email", "fixture@yidam.test"]);
+    git(&["config", "user.name", "Fixture"]);
+    // The cache sits inside the repository in these tests. The index and bundle are ignored
+    // for the reason a derived repository ignores them: the lock is the record, not the bytes.
+    write(
+        &tmp.path().join(".gitignore"),
+        b"cache/\n.yidam/index/\n.yidam/bundle.yiz\n",
+    );
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "genesis: a derived repository"]);
+    tmp
+}
+
+fn head(root: &Path, format: &str) -> String {
+    common::git::out(root, &["log", "-1", &format!("--format={format}")])
+}
+
+fn assert_operational(subject: &str) {
+    assert_eq!(
+        yidam_core::git::classify_commit("", subject).kind,
+        yidam_core::git::CommitKind::Operational,
+        "`{subject}` must classify as operational"
+    );
+}
+
+/// **The `index:` verb has an author.** The commit holds the lock and nothing else, carries the
+/// model, and a re-run that sends the same bytes writes nothing.
+#[test]
+fn push_commit_authors_the_index_commit_and_a_rerun_authors_none() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = committed_repo(store.path());
+    let cache = tmp.path().join("cache");
+    index_at(tmp.path(), b"the vectors");
+
+    let said = run(
+        tmp.path(),
+        &cache,
+        &["vault", "push", "--index", "--commit"],
+    )
+    .ok()
+    .said();
+    assert!(said.contains("committed"), "{said}");
+
+    let subject = head(tmp.path(), "%s");
+    assert_eq!(subject, "index: store the index built at abc123");
+    assert_operational(&subject);
+    assert_eq!(head(tmp.path(), "%an <%ae>"), "yidam vault <vault@yidam>");
+    assert_eq!(
+        common::git::out(tmp.path(), &["show", "--name-only", "--format=", "HEAD"]),
+        ".yidam/index.lock",
+        "the lock is the only thing committed"
+    );
+    assert!(
+        head(tmp.path(), "%b").contains("embedded with BAAI/bge-small-en-v1.5"),
+        "the body names the model"
+    );
+    let lock = std::fs::read_to_string(tmp.path().join(".yidam/index.lock")).unwrap();
+    assert!(
+        lock.contains("model = \"BAAI/bge-small-en-v1.5\""),
+        "the lock records the model: {lock}"
+    );
+    assert!(
+        common::git::out(tmp.path(), &["status", "--porcelain"]).is_empty(),
+        "nothing is left uncommitted"
+    );
+
+    let before = head(tmp.path(), "%H");
+    run(
+        tmp.path(),
+        &cache,
+        &["vault", "push", "--index", "--commit"],
+    )
+    .ok();
+    assert_eq!(
+        head(tmp.path(), "%H"),
+        before,
+        "the same bytes are no commit"
+    );
+}
+
+/// **The `bundle:` verb has an author, and two artifacts are two commits.** One verb and one
+/// record per commit, in the order the flags are resolved.
+#[test]
+fn push_commit_authors_one_commit_per_artifact() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = committed_repo(store.path());
+    let cache = tmp.path().join("cache");
+    index_at(tmp.path(), b"the vectors");
+    write(&tmp.path().join(".yidam/bundle.yiz"), b"a bundle");
+
+    run(
+        tmp.path(),
+        &cache,
+        &["vault", "push", "--index", "--bundle", "--commit"],
+    )
+    .ok();
+
+    let log = common::git::out(tmp.path(), &["log", "-3", "--format=%s"]);
+    let subjects: Vec<&str> = log.lines().collect();
+    assert_eq!(subjects.len(), 3, "{log}");
+    assert!(
+        subjects[0].starts_with("bundle: store the bundle "),
+        "{log}"
+    );
+    assert_eq!(subjects[1], "index: store the index built at abc123");
+    assert_eq!(subjects[2], "genesis: a derived repository");
+    for s in &subjects[..2] {
+        assert_operational(s);
+    }
+}
+
+/// A hand edit in the lock is refused before anything is sent, so the commit cannot carry an
+/// edit its subject does not describe.
+#[test]
+fn push_commit_refuses_an_uncommitted_lock_before_sending() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = committed_repo(store.path());
+    let cache = tmp.path().join("cache");
+    index_at(tmp.path(), b"the vectors");
+    write(
+        &tmp.path().join(".yidam/index.lock"),
+        b"format_version = 1\n# edited by hand\n",
+    );
+    let before = head(tmp.path(), "%H");
+
+    let said = run(
+        tmp.path(),
+        &cache,
+        &["vault", "push", "--index", "--commit"],
+    )
+    .failed()
+    .said();
+    assert!(said.contains("uncommitted changes"), "{said}");
+    assert!(said.contains("index.lock"), "names the file: {said}");
+    assert_eq!(head(tmp.path(), "%H"), before);
+    assert!(
+        !store.path().join("sha256").exists(),
+        "nothing may reach the store"
+    );
+}
+
+/// A catalog push writes nothing tracked, so it has nothing to commit, and says so rather than
+/// quietly ignoring the flag.
+#[test]
+fn push_commit_without_a_derived_artifact_is_refused() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = committed_repo(store.path());
+    let said = run(
+        tmp.path(),
+        &tmp.path().join("cache"),
+        &["vault", "push", "--commit"],
+    )
+    .failed()
+    .said();
+    assert!(said.contains("--index"), "{said}");
+}
+
 /// **The lock decides where to look, not the routing.** A `holds` edit made after a push must
 /// send the pull to the store the bytes are actually in.
 ///
