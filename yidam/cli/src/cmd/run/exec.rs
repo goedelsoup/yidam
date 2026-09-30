@@ -267,10 +267,27 @@ pub struct Produced {
 /// of it, a typed calculator is handed a value and there is nothing else.
 pub fn invoke(cap: &Capability, inputs: &Inputs, step: &str, commit: &str) -> Result<Produced> {
     match &cap.run {
-        Run::Argv(argv) => process(argv, inputs, step, commit),
+        Run::Argv(argv) => process(argv, inputs, step, commit, &[]),
         // The budget is resolved inside, where the default lives — see [`super::manifest::Run`].
         Run::Gluon { calls, .. } => typed::evaluate(cap, inputs, step, *calls),
     }
+}
+
+/// The shell arm with variables of the caller's own beside the five, for a producer that is not a
+/// manifest step (#477).
+///
+/// `yidam dispatch` runs an elector through exactly this arm — the same materialized tree, the
+/// same scratch output, the same refusal of an undeclared write — and hands it the seat, the
+/// question and the path its position is expected at. Those are not part of a capability's
+/// contract, so they are passed here rather than added to [`process`] for every step.
+pub(crate) fn invoke_argv(
+    argv: &[String],
+    inputs: &Inputs,
+    step: &str,
+    commit: &str,
+    extra: &[(&str, &str)],
+) -> Result<Produced> {
+    process(argv, inputs, step, commit, extra)
 }
 
 /// The shell arm: a process, standing in the input tree, writing into a scratch output tree.
@@ -285,7 +302,13 @@ pub fn invoke(cap: &Capability, inputs: &Inputs, step: &str, commit: &str) -> Re
 /// resolved corpus at all. A script that wants it tests for it — `[ -n "${YIDAM_GRAPH:-}" ]`
 /// — rather than assuming the file is there, which is the same shape as the other four and is
 /// what the manifest doc states.
-fn process(argv: &[String], inputs: &Inputs, step: &str, commit: &str) -> Result<Produced> {
+fn process(
+    argv: &[String],
+    inputs: &Inputs,
+    step: &str,
+    commit: &str,
+    extra: &[(&str, &str)],
+) -> Result<Produced> {
     let out = Scratch::new("out")?;
     let mut command = Command::new(&argv[0]);
     command
@@ -295,6 +318,7 @@ fn process(argv: &[String], inputs: &Inputs, step: &str, commit: &str) -> Result
         .env("YIDAM_OUT", out.path())
         .env("YIDAM_STEP", step)
         .env("YIDAM_INPUT_COMMIT", commit)
+        .envs(extra.iter().copied())
         .stdin(Stdio::null());
     // Removed and not merely left unset, because the process inherits this environment: a
     // `YIDAM_GRAPH` the caller happened to export would otherwise point a step at a file this

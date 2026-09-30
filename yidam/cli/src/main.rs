@@ -1078,6 +1078,39 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
+    /// Run agent electors on a question and propose each position onto its seat
+    ///
+    /// Each seat declares its occupant in `.yidam/sangha/dispatch/<seat>.toml` on its own
+    /// `ma/<seat>` branch: the model and version, the argv that runs it, the files it reads,
+    /// and which of those are its operative configuration. Everything is read at the seat's
+    /// tip. A seat is refused unless its `electors.md` row there already names the same
+    /// `Model`, `Version` and `Config` — the registry is read, the run only corroborates it.
+    ///
+    /// The elector runs in a scratch tree holding what it declared, is handed `$YIDAM_SEAT`,
+    /// `$YIDAM_QUESTION` and `$YIDAM_POSITION`, and may write only its position and its
+    /// commitments file. The position and a receipt land as one `open:` (or `revise:`)
+    /// commit on `propose/elector/<seat>/<question>/<tip>`, parented on the seat's tip.
+    /// Nothing moves `ma/*`, transports a position, or resolves anything.
+    ///
+    /// Reports each seat and the `independence:` its rows derive — never a count of
+    /// positions. Exits non-zero if any seat named was refused or failed.
+    ///
+    /// See docs/rfcs/0026-orchestrator-layer.md §9.
+    Dispatch {
+        /// The question, as the slug positions/<seat>-<question>.md is named by
+        question: String,
+        /// A seat to dispatch, by name (`auditor` for `ma/auditor`); repeat for several
+        #[arg(long = "seat", required = true)]
+        seats: Vec<String>,
+        /// Run every elector and report, writing no branch
+        #[arg(long)]
+        dry_run: bool,
+        /// Replace an existing proposal at this tip that holds a different position
+        #[arg(long)]
+        force: bool,
+        #[command(flatten)]
+        format: FormatArg,
+    },
     /// Draft findings as proposed epistemic commits on a `propose/<head>` branch
     ///
     /// Turns findings that are failing the gate into commits a person reviews and
@@ -1555,6 +1588,19 @@ fn run() -> Result<()> {
             format,
         } => yidam::gather(yidam::GatherOptions {
             name,
+            dry_run,
+            force,
+            format: format.value,
+        }),
+        Command::Dispatch {
+            question,
+            seats,
+            dry_run,
+            force,
+            format,
+        } => yidam::dispatch(yidam::DispatchOptions {
+            question,
+            seats,
             dry_run,
             force,
             format: format.value,

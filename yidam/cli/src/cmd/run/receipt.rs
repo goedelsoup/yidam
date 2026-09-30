@@ -126,9 +126,11 @@ pub struct Receipt {
     /// and none of them is in [`Self::input_state`]. That is the line: the input state decides
     /// whether a step has already run against this corpus, and a new binary or a new image is
     /// not a new corpus — folding them in would re-run every step at every upgrade and commit
-    /// nothing but the upgrade. What they are for is the reader that asks *who answered*: #477's
-    /// independence lint compares them with the seat's registry row, and a receipt that did not
-    /// say what ran leaves that comparison nothing to compare.
+    /// nothing but the upgrade. What they are for is the reader that asks *who answered*: the
+    /// `elector-receipt-disagrees` lint compares them with the seat's registry row at the same
+    /// tip (#477), and a receipt that did not say what ran leaves that comparison nothing to
+    /// compare. They corroborate the row and never stand in for it: `independence:` is derived
+    /// from the registry alone.
     ///
     /// Each is `None` where it does not apply, and absent from the YAML then, so a step that has
     /// none of them writes the bytes a v1 producer wrote but for the version line.
@@ -136,7 +138,8 @@ pub struct Receipt {
     pub model: Option<String>,
     /// The version of the program that produced the output, where yidam knows it: this binary's,
     /// for a step whose program is this binary — a built-in, or a typed calculator this binary
-    /// interprets. `None` for a shell step, whose program is an argv yidam only launched.
+    /// interprets. `None` for a shell step, whose program is an argv yidam only launched. For an
+    /// elector it is the model's version, as its dispatch declaration and registry row name it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     /// The digest of the configuration the producer ran under, where it has one beyond the

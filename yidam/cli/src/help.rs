@@ -227,6 +227,10 @@ pub const GROUPS: &[Group] = &[
             // commits on `propose/gather/<name>/<head>` and nothing else — no working-tree
             // file, no edge, no merge. A question landed from peers is history, not a block.
             w("gather"),
+            // Beside `gather`, on the same branch discipline (#477): it runs an agent elector
+            // and writes one `open:`/`revise:` commit on `propose/elector/<seat>/<question>/<tip>`
+            // parented on the seat's tip. It never moves `ma/*` itself; a person does.
+            w("dispatch"),
             r("log"),
             r("phases"),
             r("replay"),

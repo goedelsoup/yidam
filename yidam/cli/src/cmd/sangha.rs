@@ -14,6 +14,10 @@
 //! Read-only, and that is a constitutional limit rather than a scoping one. Article V
 //! confines synthesis to resolution events, so a tool that *wrote* a position or drafted a
 //! resolution would be performing one outside the protocol that routes them.
+//!
+//! `yidam dispatch` (#477) is not an exception to that. The elector writes the position; the
+//! tool only proposes it on `propose/elector/*`, and it reaches a seat when whoever answers for
+//! the seat takes it. Nothing there moves a `ma/*` branch or drafts a resolution.
 
 use anyhow::Result;
 use std::fmt::Write as _;

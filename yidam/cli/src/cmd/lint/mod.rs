@@ -15,6 +15,7 @@ pub(crate) mod commitments;
 pub(crate) mod commits;
 pub(crate) mod deliberation;
 pub(crate) mod edge_claims;
+pub(crate) mod elector_receipt;
 pub(crate) mod history;
 pub(crate) mod independence;
 pub(crate) mod input;
@@ -633,6 +634,11 @@ const ROSTER: &[Entry] = &[
         id: "resolution-independence-mismatch",
         asked: Asked::Always,
         run: |i| independence::independence_mismatch(i.independence_audits()),
+    },
+    Entry {
+        id: "elector-receipt-disagrees",
+        asked: Asked::Always,
+        run: |i| elector_receipt::elector_receipt_disagrees(i.receipt_audits()),
     },
     Entry {
         id: "elector-signature-unverified",

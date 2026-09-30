@@ -6,7 +6,6 @@
 # Delete a line when you anchor its citation (UPDATE_GOLDENS=1 does this and nothing else).
 # Never add one to make the test pass: quote the passage or label the symbol instead.
 docs/rfcs/0008-emergent-claims.md → ../../yidam/prelude/CONSTITUTION.md#L40-L41
-docs/rfcs/0009-resolution-executor.md → ../../sadhana/sangha/PROTOCOL.md#L201
 docs/rfcs/0009-resolution-executor.md → ../../sadhana/sangha/PROTOCOL.md#L36-L58
 docs/rfcs/0009-resolution-executor.md → ../../sadhana/sangha/PROTOCOL.md#L61-L81
 docs/rfcs/0009-resolution-executor.md → ../../sadhana/sangha/PROTOCOL.md#L61-L81

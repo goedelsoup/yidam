@@ -28,7 +28,8 @@ use crate::corpus::{Class, Corpus, DecisionRecord, Edges, Node, Overlay, Source}
 
 use super::{
     articles, attest, calculators, checks, citations, commitments, deliberation, edge_claims,
-    independence, line_citations, lineage, local_citations, quotations, scope, ttl, Check, Options,
+    elector_receipt, independence, line_citations, lineage, local_citations, quotations, scope,
+    ttl, Check, Options,
 };
 
 /// The corpus, the options, and every reading the checks are answered from.
@@ -60,6 +61,7 @@ pub(crate) struct Input<'a> {
     attestations: OnceLock<Vec<attest::Attestation>>,
     scope_audits: OnceLock<Vec<scope::ScopeAudit>>,
     independence_audits: OnceLock<Vec<independence::IndependenceAudit>>,
+    receipt_audits: OnceLock<Vec<elector_receipt::ReceiptAudit>>,
     deliberation_asked: OnceLock<std::collections::BTreeSet<String>>,
     standings: OnceLock<Vec<lineage::Standing>>,
     commitments: OnceLock<Vec<commitments::Commitments>>,
@@ -122,6 +124,7 @@ impl<'a> Input<'a> {
             attestations: OnceLock::new(),
             scope_audits: OnceLock::new(),
             independence_audits: OnceLock::new(),
+            receipt_audits: OnceLock::new(),
             deliberation_asked: OnceLock::new(),
             standings: OnceLock::new(),
             commitments: OnceLock::new(),
@@ -426,6 +429,16 @@ impl<'a> Input<'a> {
     pub(crate) fn independence_audits(&self) -> &[independence::IndependenceAudit] {
         self.independence_audits
             .get_or_init(|| independence::audit(self.root, &self.sangha().resolutions))
+    }
+
+    /// Each dispatched elector's receipt beside its seat's row, both read at one tip (#477).
+    ///
+    /// The tips are the seats' current refs and every tip a resolution names; see
+    /// [`elector_receipt::audit`]. A thin clone without the `ma/*` commits has no receipts to
+    /// read and reports nothing, which is the same answer it gets from the independence audit.
+    pub(crate) fn receipt_audits(&self) -> &[elector_receipt::ReceiptAudit] {
+        self.receipt_audits
+            .get_or_init(|| elector_receipt::audit(self.root, &self.sangha().resolutions))
     }
 
     /// The resolution records added after this repository's PROTOCOL.md asked for `rounds:`
