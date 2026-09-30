@@ -38,6 +38,7 @@ use crate::vault::Store;
 pub(super) fn run(
     name: &str,
     digest: &str,
+    image: Option<&str>,
     vault: &VaultArgs,
     out: Option<&Path>,
     format: Format,
@@ -50,7 +51,15 @@ pub(super) fn run(
     let root = scratch.path().join("corpus");
     bundle::clone(&file, &branch, &root)?;
     super::commits_as_the_pod(&root)?;
-    let record = step_in(&root, name, &input, store.as_ref(), scratch.path())?;
+    let image_digest = image.and_then(receipt::image_digest);
+    let record = step_in(
+        &root,
+        name,
+        &input,
+        image_digest,
+        store.as_ref(),
+        scratch.path(),
+    )?;
     deliver(&root, format, out, record, render)
 }
 
@@ -59,11 +68,12 @@ pub(super) fn step_in(
     root: &Path,
     name: &str,
     input: &str,
+    image_digest: Option<String>,
     store: &dyn Store,
     scratch: &Path,
 ) -> Result<StepOutput> {
     if let Some(b) = builtin::find(name) {
-        return builtin_in(root, b, input, store, scratch);
+        return builtin_in(root, b, input, image_digest, store, scratch);
     }
     let m = Manifest::load(root)?;
     let cap = m.get(name)?;
@@ -163,6 +173,10 @@ pub(super) fn step_in(
                 sha256: sha256(bytes),
             })
             .collect(),
+        model: None,
+        version: cap.run.gluon().and_then(|_| receipt::this_version()),
+        config: None,
+        image_digest,
     };
     let mut landing: Vec<(String, Vec<u8>)> = produced.outputs.clone();
     landing.push((receipt_path.clone(), receipt.to_yaml()?.into_bytes()));
@@ -228,6 +242,7 @@ fn builtin_in(
     root: &Path,
     b: &Builtin,
     input: &str,
+    image_digest: Option<String>,
     store: &dyn Store,
     scratch: &Path,
 ) -> Result<StepOutput> {
@@ -286,6 +301,10 @@ fn builtin_in(
                 sha256: sha256(bytes),
             })
             .collect(),
+        model: None,
+        version: receipt::this_version(),
+        config: None,
+        image_digest,
     };
 
     let sha = fold(

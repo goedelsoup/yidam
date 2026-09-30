@@ -12,3 +12,7 @@ is absent by default. No existing command changed its behaviour.
 **Every workflow also runs the catalog.** `catalog-fetch`, `catalog-extract` and `catalog-reconcile`
 run ahead of your manifest's steps. A manifest that declares one of those names has no workflow.
 Rename the capability.
+
+**Receipts are now `format_version: 2`.** A receipt can record `version`, and `image_digest` on a
+cluster. The digest is recorded only for an image pinned by `@sha256:`. Version 0.17.0 reads these
+receipts unchanged.

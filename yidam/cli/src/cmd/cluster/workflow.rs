@@ -306,7 +306,12 @@ fn spec(s: &Settings) -> String {
         "step",
         &["step", "bundle"],
         &["cluster", "step", "{{inputs.parameters.step}}"],
-        &["--bundle", "{{inputs.parameters.bundle}}"],
+        &[
+            "--bundle",
+            "{{inputs.parameters.bundle}}",
+            "--image",
+            "{{workflow.parameters.image}}",
+        ],
         Credential::None,
         true,
     ));
@@ -587,5 +592,41 @@ mod tests {
             .unwrap()
             .contains("$.next.bundle"));
         let _ = overrides();
+    }
+
+    /// A step is told the image it was started from by the parameter that started it, so the
+    /// digest its receipt records is the one the pod ran and never a tag read from a registry.
+    #[test]
+    fn a_step_names_its_image_by_the_parameter_its_container_runs() {
+        let s = Settings {
+            slug: "corpus".into(),
+            image: format!("img@sha256:{}", "a".repeat(64)),
+            remote: "r".into(),
+            branch: "main".into(),
+            vault_name: "default".into(),
+            vault_url: "file:///vault".into(),
+            vault_region: None,
+            vault_endpoint: None,
+            vault_path_style: false,
+            namespace: None,
+            cron: None,
+            steps: vec!["a".into()],
+        };
+        let doc: serde_yaml::Value = serde_yaml::from_str(&spec(&s)).unwrap();
+        let step = doc["templates"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "step")
+            .unwrap();
+        let image = step["container"]["image"].as_str().unwrap();
+        let args: Vec<&str> = step["container"]["args"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .filter_map(|a| a.as_str())
+            .collect();
+        let at = args.iter().position(|a| *a == "--image").expect("--image");
+        assert_eq!(args[at + 1], image);
     }
 }

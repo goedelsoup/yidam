@@ -30,7 +30,13 @@ use super::manifest::{Capability, Run};
 
 /// The receipt record's version. Bumped when a consumer that understood the previous version
 /// would mis-read this one — see the module doc for why it exists before any consumer does.
-pub const FORMAT_VERSION: u32 = 1;
+///
+/// **2** added what produced the output — [`Receipt::model`], [`Receipt::version`],
+/// [`Receipt::config`] and [`Receipt::image_digest`] (#475, amended 2026-09-30). Every one is
+/// optional and skipped when absent, so the bump is additive: a v1 reader ([`Landed`], and
+/// [`Receipt::committed_state`] before it) names the fields it reads and ignores the rest, and
+/// the shipped 0.17.0 binary reading a v2 receipt is a test (`receipt_compat`), not a claim.
+pub const FORMAT_VERSION: u32 = 2;
 
 /// One file, by repository-relative path and content digest.
 ///
@@ -114,6 +120,57 @@ pub struct Receipt {
     pub writes: Vec<String>,
     /// What it produced, by digest.
     pub outputs: Vec<File>,
+    /// The model an elector ran, where the producer is one (#477).
+    ///
+    /// **The four fields below are what produced the output, not what it was produced from**,
+    /// and none of them is in [`Self::input_state`]. That is the line: the input state decides
+    /// whether a step has already run against this corpus, and a new binary or a new image is
+    /// not a new corpus — folding them in would re-run every step at every upgrade and commit
+    /// nothing but the upgrade. What they are for is the reader that asks *who answered*: #477's
+    /// independence lint compares them with the seat's registry row, and a receipt that did not
+    /// say what ran leaves that comparison nothing to compare.
+    ///
+    /// Each is `None` where it does not apply, and absent from the YAML then, so a step that has
+    /// none of them writes the bytes a v1 producer wrote but for the version line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The version of the program that produced the output, where yidam knows it: this binary's,
+    /// for a step whose program is this binary — a built-in, or a typed calculator this binary
+    /// interprets. `None` for a shell step, whose program is an argv yidam only launched.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// The digest of the configuration the producer ran under, where it has one beyond the
+    /// corpus config already in [`Input::config_sha256`] — an elector's (#477).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<String>,
+    /// The content address of the container image a cluster pod ran, as `sha256:<hex>`.
+    ///
+    /// Only ever from a digest reference (`…@sha256:<hex>`) — see [`image_digest`]. A tag names
+    /// whatever was pushed under it last, so recording one would be recording a claim that
+    /// stops being true at the next push; a pod started from a tag records nothing here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_digest: Option<String>,
+}
+
+/// The digest an image reference pins, or `None` for a reference that does not pin one.
+///
+/// `registry/name@sha256:<64 hex>` gives `sha256:<64 hex>`; `registry/name:tag` gives `None`,
+/// and so does anything after the `@` that is not a whole SHA-256 digest. The reference is the
+/// one the pod was started from — Argo substitutes the same workflow parameter into the
+/// container's `image` and into this argument — so no registry is asked and no tag is read.
+pub fn image_digest(image: &str) -> Option<String> {
+    let (_, digest) = image.rsplit_once('@')?;
+    let hex = digest.strip_prefix("sha256:")?;
+    (hex.len() == 64
+        && hex
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+    .then(|| digest.to_string())
+}
+
+/// This binary's version, for a receipt whose producer is this binary.
+pub fn this_version() -> Option<String> {
+    Some(env!("CARGO_PKG_VERSION").to_string())
 }
 
 /// The part of a receipt that decides whether a run has already happened.
@@ -323,6 +380,10 @@ mod tests {
                 path: ".yidam/computed/x.yml".into(),
                 sha256: sha256(b"x"),
             }],
+            model: None,
+            version: None,
+            config: None,
+            image_digest: None,
         }
     }
 
@@ -330,7 +391,73 @@ mod tests {
     #[test]
     fn a_receipt_carries_its_format_version() {
         let y = receipt().to_yaml().unwrap();
-        assert!(y.starts_with("format_version: 1\n"), "{y}");
+        assert!(
+            y.starts_with(&format!("format_version: {FORMAT_VERSION}\n")),
+            "{y}"
+        );
+    }
+
+    #[test]
+    fn only_a_digest_reference_yields_an_image_digest() {
+        let hex = "0123456789abcdef".repeat(4);
+        assert_eq!(
+            image_digest(&format!("ghcr.io/x/yidam@sha256:{hex}")),
+            Some(format!("sha256:{hex}"))
+        );
+        assert_eq!(
+            image_digest(&format!("ghcr.io/x/yidam:0.17.0@sha256:{hex}")),
+            Some(format!("sha256:{hex}")),
+            "a tag beside a digest is decoration; the digest is what the runtime pulls"
+        );
+        for tag in [
+            "ghcr.io/x/yidam:latest",
+            "ghcr.io/x/yidam",
+            "localhost:5000/yidam:dev",
+            "ghcr.io/x/yidam@sha256:abc",
+            &format!("ghcr.io/x/yidam@sha512:{hex}{hex}"),
+            &format!("ghcr.io/x/yidam@sha256:{}", hex.to_uppercase()),
+        ] {
+            assert_eq!(image_digest(tag), None, "{tag}");
+        }
+    }
+
+    /// An absent v2 field is absent from the YAML, a present one is written, and the narrow
+    /// readers a v1 binary shipped read a v2 receipt to the same answer. (They move no input
+    /// state by construction: [`Receipt::input_state`] is not handed them.)
+    #[test]
+    fn the_producer_fields_are_written_when_present_and_read_past_by_the_narrow_readers() {
+        let bare = receipt();
+        let y = bare.to_yaml().unwrap();
+        for key in ["model:", "version:", "config:", "image_digest:"] {
+            assert!(
+                !y.lines().any(|l| l.starts_with(key)),
+                "an absent `{key}` was written:\n{y}"
+            );
+        }
+        let mut full = receipt();
+        full.model = Some("m".into());
+        full.version = Some("v".into());
+        full.config = Some("c".into());
+        full.image_digest = Some("sha256:d".into());
+        let y2 = full.to_yaml().unwrap();
+        for key in [
+            "model: m",
+            "version: v",
+            "config: c",
+            "image_digest: sha256:d",
+        ] {
+            assert!(y2.lines().any(|l| l == key), "`{key}` is missing:\n{y2}");
+        }
+        let landed = Receipt::landed(&y2).expect("a v1 reader reads a v2 receipt");
+        assert_eq!(
+            landed.input_state.as_deref(),
+            Some(bare.input_state.as_str())
+        );
+        assert_eq!(landed.outputs.len(), 1);
+        assert_eq!(
+            Receipt::committed_state(&y2).as_deref(),
+            Some(bare.input_state.as_str())
+        );
     }
 
     /// The property the absent clock buys, asserted rather than described.

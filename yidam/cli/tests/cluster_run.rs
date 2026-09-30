@@ -196,6 +196,11 @@ impl Cluster {
     }
 
     fn step(&self, name: &str, bundle: &str) -> Value {
+        self.step_from(name, bundle, None)
+    }
+
+    /// A step started from `image`, which the workflow hands every step as `--image`.
+    fn step_from(&self, name: &str, bundle: &str, image: Option<&str>) -> Value {
         let mut args = vec![
             "cluster".to_string(),
             "step".to_string(),
@@ -203,6 +208,9 @@ impl Cluster {
             "--bundle".to_string(),
             bundle.to_string(),
         ];
+        if let Some(image) = image {
+            args.extend(["--image".to_string(), image.to_string()]);
+        }
         args.extend(self.vault_args());
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         self.record(&args)
@@ -318,6 +326,22 @@ impl Cluster {
 /// The file `declare_a_file_location` points a catalog entry at.
 const GAUGES: &str = "sources/gauges.csv";
 
+/// An image pinned by digest, as a release workflow names it.
+const PINNED_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+fn pinned_image() -> String {
+    format!("ghcr.io/example/yidam@sha256:{PINNED_HEX}")
+}
+
+/// The receipt committed on `main` for `step`.
+fn committed_receipt(c: &Cluster, step: &str) -> serde_yaml::Value {
+    serde_yaml::from_str(&out(
+        &c.remote(),
+        &["show", &format!("refs/heads/main:.yidam/runs/{step}.yml")],
+    ))
+    .unwrap()
+}
+
 fn s(v: &Value) -> &str {
     v.as_str().unwrap_or_else(|| panic!("not a string: {v}"))
 }
@@ -352,8 +376,8 @@ fn the_pipeline_lands_every_step_with_its_receipt_and_then_owes_nothing() {
         "the pin was put in the vault"
     );
 
-    // ── step one ──
-    let step = c.step("travel-tier", &bundle);
+    // ── step one, from an image named by a tag ──
+    let step = c.step_from("travel-tier", &bundle, Some("ghcr.io/example/yidam:latest"));
     assert_eq!(step["outcome"], "ran", "{step}");
     assert_eq!(step["class"], "operational");
     assert_eq!(step["verb"], "compute");
@@ -416,6 +440,16 @@ fn the_pipeline_lands_every_step_with_its_receipt_and_then_owes_nothing() {
             "`{step}`'s receipt is on the branch — the receipt is the provenance, not the log"
         );
     }
+    // A tag is not a digest and a shell step's program is not this binary: the v2 receipt
+    // records neither, rather than a claim the next push to `latest` would falsify.
+    let receipt = committed_receipt(&c, "travel-tier");
+    assert_eq!(receipt["format_version"].as_u64(), Some(2));
+    for absent in ["image_digest", "version", "model", "config"] {
+        assert!(
+            receipt.get(absent).is_none(),
+            "a shell step from a tagged image records no `{absent}`: {receipt:?}"
+        );
+    }
 
     // ── afterwards ──
     let admission = c.admit();
@@ -475,7 +509,7 @@ fn a_builtin_steps_sha_without_the_write_credential_does_not_land() {
     let c = Cluster::new();
     c.declare_a_file_location();
     let pin = c.pin();
-    let step = c.step("catalog-fetch", s(&pin["bundle"]));
+    let step = c.step_from("catalog-fetch", s(&pin["bundle"]), Some(&pinned_image()));
     assert_eq!(step["outcome"], "ran", "{step}");
     assert_eq!(step["class"], "operational");
     refused_without_the_write_credential(&c, &step);
@@ -678,7 +712,11 @@ fn a_typed_step_runs_in_a_pod_and_lands_with_its_receipt() {
     );
 
     let pin = c.pin();
-    let step = c.step("travel-tier-typed", s(&pin["bundle"]));
+    let step = c.step_from(
+        "travel-tier-typed",
+        s(&pin["bundle"]),
+        Some(&pinned_image()),
+    );
     assert_eq!(step["outcome"], "ran", "{step}");
     assert_eq!(step["class"], "operational");
     let landed = c.land(&step);
@@ -692,6 +730,13 @@ fn a_typed_step_runs_in_a_pod_and_lands_with_its_receipt() {
             "refs/heads/main:.yidam/runs/travel-tier-typed.yml"
         ]
     ));
+    // This binary interpreted the script, so its version is what produced the output.
+    let receipt = committed_receipt(&c, "travel-tier-typed");
+    assert_eq!(receipt["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
+    assert_eq!(
+        receipt["image_digest"].as_str(),
+        Some(format!("sha256:{PINNED_HEX}").as_str())
+    );
 }
 
 /// A build without the feature refuses the plan by name at admission, before any pod is
@@ -832,7 +877,7 @@ fn a_catalog_fetch_step_run_as_a_pod_lands_a_refresh_commit_with_its_receipt() {
     let pin = c.pin();
     assert_eq!(s(&pin["sha"]), before);
 
-    let step = c.step("catalog-fetch", s(&pin["bundle"]));
+    let step = c.step_from("catalog-fetch", s(&pin["bundle"]), Some(&pinned_image()));
     assert_eq!(step["outcome"], "ran", "{step}");
     assert_eq!(step["class"], "operational");
     assert_eq!(step["verb"], "refresh");
@@ -867,12 +912,16 @@ fn a_catalog_fetch_step_run_as_a_pod_lands_a_refresh_commit_with_its_receipt() {
         "the tool authors, the pod commits"
     );
 
-    let receipt: serde_yaml::Value = serde_yaml::from_str(&out(
-        &c.remote(),
-        &["show", "refs/heads/main:.yidam/runs/catalog-fetch.yml"],
-    ))
-    .unwrap();
+    let receipt = committed_receipt(&c, "catalog-fetch");
+    assert_eq!(receipt["format_version"].as_u64(), Some(2));
     assert_eq!(receipt["step"].as_str(), Some("catalog-fetch"));
+    // What produced it: this binary, in the image the pod was started from, by digest.
+    assert_eq!(receipt["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
+    assert_eq!(
+        receipt["image_digest"].as_str(),
+        Some(format!("sha256:{PINNED_HEX}").as_str())
+    );
+    assert!(receipt.get("model").is_none() && receipt.get("config").is_none());
     assert_eq!(receipt["kind"].as_str(), Some("connector"));
     assert_eq!(receipt["verb"].as_str(), Some("refresh"));
     assert_eq!(receipt["input"]["commit"].as_str(), Some(before.as_str()));

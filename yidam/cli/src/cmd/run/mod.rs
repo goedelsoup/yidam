@@ -435,6 +435,10 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
                     sha256: sha256(bytes),
                 })
                 .collect(),
+            model: None,
+            version: cap.run.gluon().and_then(|_| receipt::this_version()),
+            config: None,
+            image_digest: None,
         };
 
         let mut landing: Vec<(String, Vec<u8>)> = produced.outputs.clone();

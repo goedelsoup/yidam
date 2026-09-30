@@ -215,6 +215,8 @@ spec:
           args:
             - "--bundle"
             - "{{inputs.parameters.bundle}}"
+            - "--image"
+            - "{{workflow.parameters.image}}"
             - "--vault-url"
             - "{{workflow.parameters.vault-url}}"
             - "--out"

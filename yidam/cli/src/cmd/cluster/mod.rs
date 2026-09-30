@@ -143,6 +143,10 @@ pub enum ClusterCommand {
         /// The vault digest of the bundle to run against — a `pin` or a `land` wrote it
         #[arg(long, value_name = "DIGEST")]
         bundle: String,
+        /// The image reference this pod was started from. Recorded in the receipt only when it
+        /// pins a digest (`…@sha256:<hex>`); a tag is not read and records nothing
+        #[arg(long, value_name = "REF")]
+        image: Option<String>,
         #[command(flatten)]
         vault: VaultArgs,
         /// Write the step record to this file, for the lander
@@ -271,10 +275,18 @@ pub fn run(sub: ClusterCommand) -> Result<()> {
         ClusterCommand::Step {
             name,
             bundle,
+            image,
             vault,
             out,
             format,
-        } => step::run(&name, &bundle, &vault, out.as_deref(), format),
+        } => step::run(
+            &name,
+            &bundle,
+            image.as_deref(),
+            &vault,
+            out.as_deref(),
+            format,
+        ),
         ClusterCommand::Land {
             step_output,
             remote,
@@ -611,6 +623,10 @@ mod tests {
             },
             writes: vec![".yidam/computed/**".into()],
             outputs: vec![file()],
+            model: Some("m".into()),
+            version: Some("v".into()),
+            config: Some("c".into()),
+            image_digest: Some(format!("sha256:{}", "i".repeat(64))),
         };
         let record = StepOutput {
             format_version: CONTRACT_VERSION,
