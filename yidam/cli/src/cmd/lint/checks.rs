@@ -7290,20 +7290,20 @@ fn link_parts(raw: &str) -> (String, Option<super::line_citations::LineFragment>
     }
 }
 
-/// Every checkable markdown link in one file.
+/// The lines of `text` a reader takes as prose: each with its 1-based number, and with inline
+/// code spans blanked to spaces so byte offsets into it are offsets into the raw line.
 ///
-/// `dir` is the directory the file sits in — links resolve against it, not against the
-/// repository root.
+/// Fenced blocks are left out whole. The marker is remembered, so a ```` ``` ```` inside a
+/// `~~~` block does not close it.
 ///
-/// **Fenced code blocks are skipped.** A path inside a fence is an example, a shell
-/// command, or a directory tree drawing; these documents are full of them and every one
-/// would be a false positive. Inline code spans are skipped for the same reason.
-pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
+/// [`prose_links`] reads these lines, and so does `source-unregistered` (#1068). One reading
+/// of "what is an example" is what keeps a URL in a shell command from being a finding there
+/// when a link in the same command is not one here.
+pub(crate) fn prose_lines(text: &str) -> Vec<(usize, String)> {
     let mut out = Vec::new();
     let mut fence: Option<String> = None;
     for (i, raw) in text.lines().enumerate() {
         let trimmed = raw.trim_start();
-        // Fence open/close. The marker is repeated to allow ``` inside a ~~~ block.
         if let Some(open) = &fence {
             if trimmed.starts_with(open.as_str()) {
                 fence = None;
@@ -7314,8 +7314,22 @@ pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
             fence = Some(trimmed.chars().take(3).collect());
             continue;
         }
-        // Blank out inline code spans so a `[a](b)` shown as code is not read as a link.
-        let line = crate::markdown::mask_code_spans(raw);
+        out.push((i + 1, crate::markdown::mask_code_spans(raw)));
+    }
+    out
+}
+
+/// Every checkable markdown link in one file.
+///
+/// `dir` is the directory the file sits in — links resolve against it, not against the
+/// repository root.
+///
+/// **Fenced code blocks are skipped.** A path inside a fence is an example, a shell
+/// command, or a directory tree drawing; these documents are full of them and every one
+/// would be a false positive. Inline code spans are skipped for the same reason.
+pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
+    let mut out = Vec::new();
+    for (number, line) in prose_lines(text) {
         let bytes = line.as_bytes();
         let mut j = 0;
         while j < bytes.len() {
@@ -7355,7 +7369,7 @@ pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
             }
             out.push(ProseLink {
                 file: file.to_string(),
-                line: i + 1,
+                line: number,
                 target: target.clone(),
                 resolved: dir.join(&target),
                 fragment,

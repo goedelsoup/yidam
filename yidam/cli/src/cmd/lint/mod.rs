@@ -24,6 +24,7 @@ pub(crate) mod model;
 pub(crate) mod refusals;
 pub(crate) mod scope;
 pub(crate) mod ttl;
+pub(crate) mod uncited;
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -519,6 +520,18 @@ const ROSTER: &[Entry] = &[
         id: "catalog-uncited",
         asked: Asked::Always,
         run: |i| checks::catalog_uncited(i.sources(), i.cites()),
+    },
+    Entry {
+        id: "decision-uncited",
+        asked: Asked::Always,
+        run: |i| {
+            uncited::decision_uncited(i.decisions(), i.nodes(), i.prose_links(), i.authored_text())
+        },
+    },
+    Entry {
+        id: "source-unregistered",
+        asked: Asked::Always,
+        run: |i| uncited::source_unregistered(i.sources(), i.nodes()),
     },
     Entry {
         id: "class-asserts-purpose",
@@ -1854,6 +1867,116 @@ decision := {"allow": true, "deny": []}
         let detail = &check(&all, "unauthored-prose-link").violations[0].detail;
         assert!(detail.contains("yidam report"), "{detail}");
         assert!(detail.contains("the generator's"), "{detail}");
+    }
+
+    // ── #1068: decision-uncited and source-unregistered, through the driver ───────
+
+    /// The paths the prose walk resolves links to and the paths decisions load from have to
+    /// agree for any link to count. Only a real tree exercises that.
+    #[test]
+    fn a_decision_is_cited_by_prose_and_supersedes_but_not_by_the_generated_log() {
+        let tmp = clean_repo();
+        let dir = tmp.path().join(".yidam/decisions");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("a.yml"), "id: a\nsummary: A.\n").unwrap();
+        fs::write(dir.join("b.yml"), "id: b\nsummary: B.\n").unwrap();
+        fs::write(dir.join("c.yml"), "id: c\nsummary: C.\nsupersedes: b\n").unwrap();
+        fs::write(
+            dir.join("README.md"),
+            "# Decisions\n\n<!-- REGEN: yidam decisions-log -->\n\
+             | [a](a.yml) | A. |\n| [b](b.yml) | B. |\n| [c](c.yml) | C. |\n<!-- /REGEN -->\n",
+        )
+        .unwrap();
+        fs::create_dir_all(tmp.path().join("docs")).unwrap();
+        fs::write(
+            tmp.path().join("docs/why.md"),
+            "See [the choice](../.yidam/decisions/a.yml).\n",
+        )
+        .unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+        let found: Vec<&str> = check(&all, "decision-uncited")
+            .violations
+            .iter()
+            .map(|v| v.node.as_str())
+            .collect();
+        assert_eq!(found, vec![".yidam/decisions/c.yml"]);
+    }
+
+    /// Code git tracks cites a record. Vendored prose, a generated directory, and a file git
+    /// does not track outside the prose walk, do not.
+    ///
+    /// The corpus is a directory inside a larger checkout, as every corpus under `examples/`
+    /// is: `ls-files` names paths from the repository's top unless asked not to, and a path
+    /// read from the wrong base reads as empty.
+    #[test]
+    fn a_decision_named_in_tracked_code_is_cited_from_inside_a_larger_checkout() {
+        let tmp = clean_repo();
+        let root = tmp.path().join("corpus");
+        fs::create_dir_all(&root).unwrap();
+        fs::rename(tmp.path().join(".yidam"), root.join(".yidam")).unwrap();
+        let dir = root.join(".yidam/decisions");
+        fs::create_dir_all(&dir).unwrap();
+        for id in ["a", "b", "c", "d"] {
+            fs::write(dir.join(format!("{id}.yml")), format!("id: {id}\n")).unwrap();
+        }
+        let write = |rel: &str, body: &str| {
+            let p = root.join(rel);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, body).unwrap();
+        };
+        write(
+            "crates/x/README.md",
+            "Implements [it](../../.yidam/decisions/a.yml).\n",
+        );
+        write(".yidam/.vendor/prelude/x.md", "See decisions/b.\n");
+        write(
+            ".yidam/authorship.yml",
+            "generated:\n  - path: web/data/\n    by: yidam export\n",
+        );
+        write("web/data/index.json", "{\"why\": \"decisions/d.yml\"}\n");
+        crate::git::fixture::init(tmp.path());
+        // `-f`, so what the fixture tracks does not depend on a global ignore file: one that
+        // ignored this directory would hide it, and the region would never be asked about.
+        crate::git::fixture::git(tmp.path(), &["add", "-A", "-f"]);
+        write("notes.md", "See decisions/c.\n");
+
+        let all = run_checks(&root, &Options::default());
+        let found: Vec<&str> = check(&all, "decision-uncited")
+            .violations
+            .iter()
+            .map(|v| v.node.as_str())
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                ".yidam/decisions/b.yml",
+                ".yidam/decisions/c.yml",
+                ".yidam/decisions/d.yml"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_url_no_location_covers_is_reported_at_its_line_in_the_node() {
+        let tmp = clean_repo();
+        let catalog = tmp.path().join(".yidam/catalog");
+        fs::create_dir_all(&catalog).unwrap();
+        fs::write(
+            catalog.join("census.md"),
+            "---\ntitle: Census\nlocation:\n  - kind: url\n    value: https://census.gov/data\n---\n",
+        )
+        .unwrap();
+        fs::write(
+            tmp.path().join(".yidam/corpus/reach/gamma.yml"),
+            "class: reach\nlabel: Gamma\ndescription: >-\n  From https://census.gov/data/x.csv\n  \
+             and https://example.org/y.\n",
+        )
+        .unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+        let c = check(&all, "source-unregistered");
+        let found: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
+        assert_eq!(found, vec![".yidam/corpus/reach/gamma.yml:5"]);
+        assert!(c.violations[0].detail.contains("https://example.org/y`"));
     }
 
     /// The escape hatch, and the only kind that produces silence.

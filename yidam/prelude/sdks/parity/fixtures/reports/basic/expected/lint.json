@@ -442,6 +442,22 @@
       "violations": []
     },
     {
+      "id": "decision-uncited",
+      "title": "Decision record nothing refers to",
+      "severity": "info",
+      "rationale": "A decision record says why the corpus is shaped as it is. One that no file, edge or later record refers to cannot be reached by a reader of the corpus: it is found only by listing the directory. It may be a record of the tooling rather than of the knowledge, which is fine, or a decision whose consequence was never written where it applies. Name it, as `decisions/<stem>`, from the node, page or code it shaped. A REGEN block a generator wrote does not count.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "source-unregistered",
+      "title": "URL in prose no catalog entry registers",
+      "severity": "info",
+      "rationale": "The catalog is where a corpus says what it read. A URL cited in a node or a catalog entry's body that no `location:` covers is a source the catalog does not know about: nothing records when it was retrieved, and `catalog-expired` cannot age it. A location covers a URL on the same host at its own path or beneath it; scheme, `www.`, query and fragment are ignored. Info, because some URLs are a subject of study rather than a source, and only a person can tell which. A corpus that declares no URL location is not read.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "class-asserts-purpose",
       "title": "Class definition asserts a purpose rather than describing a kind",
       "severity": "warn",
