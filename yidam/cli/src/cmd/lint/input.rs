@@ -64,6 +64,7 @@ pub(crate) struct Input<'a> {
     commitments: OnceLock<Vec<commitments::Commitments>>,
     prose_paths: OnceLock<Vec<PathBuf>>,
     regen_files: OnceLock<Vec<(String, String)>>,
+    authored_text: OnceLock<Vec<(String, String)>>,
     links: OnceLock<(Vec<checks::ProseLink>, Vec<checks::UnauthoredLink<'a>>)>,
     object_links: OnceLock<Vec<checks::ProseLink>>,
     stale_regions: OnceLock<Vec<&'a Region>>,
@@ -123,6 +124,7 @@ impl<'a> Input<'a> {
             commitments: OnceLock::new(),
             prose_paths: OnceLock::new(),
             regen_files: OnceLock::new(),
+            authored_text: OnceLock::new(),
             links: OnceLock::new(),
             object_links: OnceLock::new(),
             stale_regions: OnceLock::new(),
@@ -168,7 +170,7 @@ impl<'a> Input<'a> {
         self.corpus.sources()
     }
 
-    /// Every decision record, for the one check whose subject is whether they parse.
+    /// Every decision record: for whether they parse, and whether anything refers to them.
     pub(crate) fn decisions(&self) -> &'a [DecisionRecord] {
         self.corpus.decisions()
     }
@@ -470,6 +472,56 @@ impl<'a> Input<'a> {
                 })
                 .map(|(rel, p)| (rel, self.overlay.read(p)))
                 .collect()
+        })
+    }
+
+    /// Every file this repository authors, read (#1068).
+    ///
+    /// [`Self::regen_files`], and then whatever else git tracks under the root: code,
+    /// `AGENTS.md`, a crate's README. For the one question no narrower walk answers, which is
+    /// whether any file names a record. Measured across thirteen derived corpora, a walk of
+    /// `.yidam/` and `docs/` called 32 of 61 decision records uncited that a file in their own
+    /// repository names by path, 23 of them from outside that walk.
+    ///
+    /// `ls-files` without `--full-name`, so the paths are relative to the root even where the
+    /// root is a directory inside a larger checkout. A root git does not answer for tracks
+    /// nothing, and the prose walk is then the whole of it. A binary file reads as empty.
+    ///
+    /// Only files no declared region covers, which is narrower than `regen_files`. A generated
+    /// or vendored file is reportable, since a generator or an upstream can act on a finding
+    /// in it. But what such a file says is not this repository saying it: the prelude names
+    /// `decisions/ontology` in every derived corpus, whether or not that corpus has the record.
+    pub(crate) fn authored_text(&self) -> &[(String, String)] {
+        self.authored_text.get_or_init(|| {
+            let mine = |rel: &str| self.authorship.covering(rel).is_none();
+            let mut files: Vec<(String, String)> = self
+                .regen_files()
+                .iter()
+                .filter(|(rel, _)| mine(rel))
+                .cloned()
+                .collect();
+            let walked: HashSet<String> = self
+                .regen_files()
+                .iter()
+                .map(|(rel, _)| rel.clone())
+                .collect();
+            let tracked = crate::git::Git::new(self.root)
+                .args(["ls-files", "-z"])
+                .output()
+                .ok()
+                .filter(|out| out.status.success())
+                .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+                .unwrap_or_default();
+            let mut rest: Vec<&str> = tracked
+                .split('\0')
+                .filter(|rel| !rel.is_empty() && !walked.contains(*rel) && mine(rel))
+                .collect();
+            rest.sort_unstable();
+            files.extend(
+                rest.into_iter()
+                    .map(|rel| (rel.to_string(), self.overlay.read(&self.root.join(rel)))),
+            );
+            files
         })
     }
 
