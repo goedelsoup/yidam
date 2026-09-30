@@ -308,6 +308,11 @@ pub struct Interval {
     /// instance's own `links:`; `None` checks the interval's order and nothing else.
     #[serde(default)]
     pub exclusive_over: Option<String>,
+    /// The property on the `exclusive_over` target saying how many instances may hold it at
+    /// once: `seats` on an office, so a three-member board's staggered terms are not
+    /// overlaps. A target that omits it holds one (#1205). `None` is one for every target.
+    #[serde(default)]
+    pub capacity: Option<String>,
 }
 
 /// One relationship a class declares.

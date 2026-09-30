@@ -162,9 +162,9 @@
     },
     {
       "id": "interval-overlap",
-      "title": "Two holders of one target at once, or an interval ending before it starts",
+      "title": "More holders of one target at once than it seats, or an interval ending before it starts",
       "severity": "error",
-      "rationale": "A class that declares `interval:` has said which of its properties are an instance's start and end, and one that also declares `exclusive_over:` has said no two instances may hold the same target by that relationship at once — one sheriff at a time. Two that overlap give *who held it then* two answers. Intervals are half-open and compared as `query` orders dates: at the precision both sides share, so `1893` and `1893-06-01` are adjacent rather than overlapping, and an absent end is still open. A class that declares no `interval:` is not checked.",
+      "rationale": "A class that declares `interval:` has said which of its properties are an instance's start and end, and one that also declares `exclusive_over:` has said no two instances may hold the same target by that relationship at once — one sheriff at a time. Two that overlap give *who held it then* two answers. A `capacity:` names the target's own count, so three commissioners at once is not a finding. Intervals are half-open and compared as `query` orders dates: at the precision both sides share, so `1893` and `1893-06-01` are adjacent rather than overlapping, and an absent end is still open. A class that declares no `interval:` is not checked.",
       "escalation_eligible": false,
       "violations": []
     },

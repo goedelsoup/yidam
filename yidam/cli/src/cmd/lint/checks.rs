@@ -1888,8 +1888,36 @@ fn earlier_end<'a>(a: Option<&'a str>, b: Option<&'a str>) -> Option<&'a str> {
     }
 }
 
-/// Two instances of an interval class holding one target at once, and intervals that end
-/// before they start (#1201).
+/// Whether `a` began before `b`: by [`compare_dates`], and where that cannot tell them apart,
+/// by path — so of two holders, exactly one began first.
+fn began_first(nodes: &[Node], a: &Placed, b: &Placed) -> bool {
+    match compare_dates(&a.start, &b.start) {
+        Some(std::cmp::Ordering::Less) => true,
+        Some(std::cmp::Ordering::Greater) => false,
+        _ => nodes[a.node].rel < nodes[b.node].rel,
+    }
+}
+
+/// How many instances may hold `target` at once: its `capacity` property, or one where the
+/// class names none or the target omits it. `None` when the value is not a whole number of at
+/// least one. Digits in quotes count, because a corpus that declared the property `string`
+/// before this check existed writes `seats: "3"`, and it is still a count.
+fn capacity_of(target: &Node, capacity: Option<&str>) -> Option<usize> {
+    let Some(cap) = capacity else {
+        return Some(1);
+    };
+    let value = target.inst.properties.as_ref().and_then(|m| m.get(cap));
+    let n = match value {
+        None => return Some(1),
+        Some(serde_yaml::Value::Number(n)) => n.as_u64(),
+        Some(serde_yaml::Value::String(s)) => s.trim().parse::<u64>().ok(),
+        Some(_) => None,
+    };
+    n.filter(|&n| n >= 1).map(|n| n as usize)
+}
+
+/// More instances of an interval class holding one target at once than it holds, and
+/// intervals that end before they start (#1201).
 ///
 /// **The question a `tenure` class exists to answer is the one this protects.** A corpus
 /// models tenures so it can say who was sheriff in 1893, and two tenures of one office that
@@ -1912,10 +1940,19 @@ fn earlier_end<'a>(a: Option<&'a str>, b: Option<&'a str>) -> Option<&'a str> {
 /// `missing-property` and `property-type` report those, and guessing a date to compare would
 /// be a finding the corpus did not make.
 ///
+/// **A target may hold more than one, and says how many itself (#1205).** A board of three
+/// commissioners with staggered terms is three tenures of one office open at once, and correct.
+/// `interval.capacity` names the target's property that counts its seats; a holder is reported
+/// only when that many others already held the target at its start. The count is the target's,
+/// not the class's, because one `office` class holds both the sheriff and the board. A target
+/// that omits it holds one — the calculator the corpus already had read it the same way — and
+/// one whose value is not a whole number is reported on the target and left unchecked.
+///
 /// **A declaration naming what the class does not declare is reported on the class.** A
 /// `start` that is not a `date` property of the class, or an `exclusive_over` naming no
 /// relationship in its `edges:`, would otherwise read every instance as unplaceable and report
-/// nothing — the check switched off by the typo it most needs to catch.
+/// nothing — the check switched off by the typo it most needs to catch. So would a `capacity`
+/// no target class declares, or one with no `exclusive_over` to bound.
 ///
 /// Error, because the population is empty by construction: nothing is checked until a class
 /// declares `interval:`, and no class could before this check existed. Gaps in coverage — a
@@ -1923,6 +1960,8 @@ fn earlier_end<'a>(a: Option<&'a str>, b: Option<&'a str>) -> Option<&'a str> {
 /// acknowledged gap is a finding the corpus records rather than one the gate should.
 pub fn interval_overlap(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Check {
     let mut violations = Vec::new();
+    // A target two classes both bound by capacity is reported unreadable once.
+    let mut unreadable: HashSet<usize> = HashSet::new();
     let mut by_class: HashMap<String, Vec<usize>> = HashMap::new();
     for (i, n) in nodes.iter().enumerate() {
         by_class.entry(class_of(n)).or_default().push(i);
@@ -1963,6 +2002,47 @@ pub fn interval_overlap(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Che
                         class.name
                     ),
                 ));
+            }
+        }
+        if let Some(cap) = interval.capacity.as_deref() {
+            match exclusive {
+                None => {
+                    declared = false;
+                    violations.push(Violation::new(
+                        &class.rel,
+                        format!(
+                            "`interval.capacity` names `{cap}`, but `{}` declares no \
+                             `exclusive_over` for it to bound",
+                            class.name
+                        ),
+                    ));
+                }
+                Some(rel) => {
+                    let mut targets: BTreeSet<&str> = class
+                        .edges
+                        .iter()
+                        .filter(|e| e.relationship == rel)
+                        .map(|e| e.target.as_str())
+                        .collect();
+                    // A target class that does not exist is `edge-target-class`'s finding.
+                    targets.retain(|t| classes.iter().any(|c| c.name == *t));
+                    for t in targets {
+                        let declares = classes
+                            .iter()
+                            .filter(|c| c.name == t)
+                            .any(|c| c.properties.iter().any(|p| p.name == cap));
+                        if !declares {
+                            declared = false;
+                            violations.push(Violation::new(
+                                &class.rel,
+                                format!(
+                                    "`interval.capacity` names `{cap}`, which `{t}` — a \
+                                     `{rel}` target — does not declare"
+                                ),
+                            ));
+                        }
+                    }
+                }
             }
         }
         if !declared {
@@ -2022,41 +2102,69 @@ pub fn interval_overlap(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Che
             }
         }
         for (target, held) in holders {
-            for (x, a) in held.iter().enumerate() {
-                for b in &held[x + 1..] {
-                    if !(starts_before_end(a, b) && starts_before_end(b, a)) {
-                        continue;
-                    }
-                    // Reported on the one that began later — the holder who took the target
-                    // while the other still had it — and at a tie, on the later path.
-                    let (first, second) = match compare_dates(&a.start, &b.start) {
-                        Some(std::cmp::Ordering::Greater) => (b, a),
-                        Some(std::cmp::Ordering::Less) => (a, b),
-                        _ if nodes[a.node].rel > nodes[b.node].rel => (b, a),
-                        _ => (a, b),
-                    };
-                    let span_to = earlier_end(a.end.as_deref(), b.end.as_deref()).unwrap_or("open");
+            let Some(seats) = capacity_of(&nodes[target], interval.capacity.as_deref()) else {
+                if unreadable.insert(target) {
+                    let cap = interval.capacity.as_deref().unwrap_or_default();
                     violations.push(Violation::new(
-                        &nodes[second.node].rel,
+                        &nodes[target].rel,
                         format!(
-                            "overlaps `{}` over `{rel}` `{}`, from {} to {span_to}",
-                            nodes[first.node].rel,
-                            nodes[target].rel,
-                            later(&a.start, &b.start),
+                            "`{cap}` is not a whole number of at least one, so \
+                             `{}` cannot say how many of its holders overlap",
+                            class.name
                         ),
                     ));
                 }
+                continue;
+            };
+            // Reported on the holder that took the target while `seats` others already had
+            // it. Every holder that began first and overlaps it is open at its start, so
+            // those are the ones holding at once — exact for intervals on one line, and no
+            // sort, because `compare_dates` is not a total order across precisions.
+            for b in &held {
+                let before: Vec<&&Placed> = held
+                    .iter()
+                    .filter(|a| a.node != b.node)
+                    .filter(|a| began_first(nodes, a, b))
+                    .filter(|a| starts_before_end(a, b) && starts_before_end(b, a))
+                    .collect();
+                if before.len() < seats {
+                    continue;
+                }
+                let from = before
+                    .iter()
+                    .fold(b.start.as_str(), |f, a| later(f, &a.start));
+                let to = before
+                    .iter()
+                    .fold(b.end.as_deref(), |t, a| earlier_end(t, a.end.as_deref()))
+                    .unwrap_or("open");
+                let others = before
+                    .iter()
+                    .map(|a| format!("`{}`", nodes[a.node].rel))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let beyond = match interval.capacity.as_deref() {
+                    Some(cap) => format!(", beyond its `{cap}: {seats}`"),
+                    None => String::new(),
+                };
+                violations.push(Violation::new(
+                    &nodes[b.node].rel,
+                    format!(
+                        "overlaps {others} over `{rel}` `{}`{beyond}, from {from} to {to}",
+                        nodes[target].rel,
+                    ),
+                ));
             }
         }
     }
     Check::new(
         "interval-overlap",
-        "Two holders of one target at once, or an interval ending before it starts",
+        "More holders of one target at once than it seats, or an interval ending before it starts",
         Severity::Error,
         "A class that declares `interval:` has said which of its properties are an instance's \
          start and end, and one that also declares `exclusive_over:` has said no two instances \
          may hold the same target by that relationship at once — one sheriff at a time. Two \
-         that overlap give *who held it then* two answers. Intervals are half-open and \
+         that overlap give *who held it then* two answers. A `capacity:` names the target's \
+         own count, so three commissioners at once is not a finding. Intervals are half-open and \
          compared as `query` orders dates: at the precision both sides share, so `1893` and \
          `1893-06-01` are adjacent rather than overlapping, and an absent end is still open. \
          A class that declares no `interval:` is not checked.",
@@ -6607,6 +6715,178 @@ mod tests {
             assert!(c.malformed.is_some(), "{bad}");
         }
         assert!(tenure(EXCLUSIVE).malformed.is_none());
+    }
+
+    const SEATED: &str = "interval:\n  start: began\n  end: ended\n  exclusive_over: of-office\n  \
+                          capacity: seats\n";
+
+    /// An office carrying `seats` as written, where `None` writes no `seats` at all.
+    fn seated_office(name: &str, seats: Option<&str>) -> Node {
+        let seats = seats
+            .map(|s| format!("properties:\n  seats: {s}\n"))
+            .unwrap_or_default();
+        Node::parse(
+            PathBuf::from(format!("/repo/.yidam/corpus/office/{name}.yml")),
+            format!(".yidam/corpus/office/{name}.yml"),
+            format!("class: office\nlabel: {name}\n{seats}"),
+        )
+    }
+
+    /// `interval-overlap` over the given tenures and offices, with an `office` class declaring
+    /// `seats` as the corpus that asked for it does: `type: string`.
+    fn seated(interval: &str, offices: Vec<Node>, terms: Vec<Node>) -> Check {
+        let office = class_from("office", "properties:\n  - name: seats\n    type: string\n");
+        let mut nodes = offices;
+        nodes.extend(terms);
+        let edges = Edges::build(&nodes);
+        interval_overlap(&nodes, &edges, &[tenure(interval), office])
+    }
+
+    /// The case #1205 measured: a board of three with staggered terms is three at once, and
+    /// correct. A holder who has left does not count against the one who arrives after.
+    #[test]
+    fn three_holders_of_three_seats_are_not_reported() {
+        let c = seated(
+            SEATED,
+            vec![seated_office("board", Some("\"3\""))],
+            vec![
+                term("a", "board", "1880", Some("1890")),
+                term("b", "board", "1882", Some("1892")),
+                term("c", "board", "1884", Some("1894")),
+                term("d", "board", "1890", Some("1900")),
+            ],
+        );
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
+    }
+
+    /// A fourth on a board of three is reported on the one who arrived fourth, naming the
+    /// three already there and the count it exceeds.
+    #[test]
+    fn a_fourth_holder_of_three_seats_is_reported() {
+        let c = seated(
+            SEATED,
+            vec![seated_office("board", Some("\"3\""))],
+            vec![
+                term("a", "board", "1880", Some("1890")),
+                term("b", "board", "1882", Some("1892")),
+                term("c", "board", "1884", Some("1894")),
+                term("d", "board", "1886", Some("1896")),
+            ],
+        );
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        let v = &c.violations[0];
+        assert_eq!(v.node, ".yidam/corpus/tenure/d.yml");
+        for other in ["tenure/a.yml", "tenure/b.yml", "tenure/c.yml"] {
+            assert!(v.detail.contains(other), "{}", v.detail);
+        }
+        assert!(v.detail.contains("beyond its `seats: 3`"), "{}", v.detail);
+        assert!(v.detail.ends_with("from 1886 to 1890"), "{}", v.detail);
+    }
+
+    /// A target that omits its count holds one, as the corpus's own calculator read it; and
+    /// an unquoted count is a count too.
+    #[test]
+    fn a_target_omitting_its_capacity_holds_one_and_a_number_counts() {
+        let c = seated(
+            SEATED,
+            vec![
+                seated_office("sheriff", None),
+                seated_office("bench", Some("2")),
+            ],
+            vec![
+                term("a", "sheriff", "1889", Some("1893")),
+                term("b", "sheriff", "1891", Some("1895")),
+                term("c", "bench", "1889", Some("1893")),
+                term("d", "bench", "1891", Some("1895")),
+            ],
+        );
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert_eq!(c.violations[0].node, ".yidam/corpus/tenure/b.yml");
+        assert!(
+            c.violations[0].detail.contains("beyond its `seats: 1`"),
+            "{}",
+            c.violations[0].detail
+        );
+    }
+
+    /// A count that is not a whole number of at least one is reported on the target, once,
+    /// and its holders are left unchecked rather than checked against a guess.
+    #[test]
+    fn an_unreadable_capacity_is_reported_on_the_target() {
+        for bad in ["three", "\"0\"", "1.5"] {
+            let c = seated(
+                SEATED,
+                vec![seated_office("board", Some(bad))],
+                vec![
+                    term("a", "board", "1880", Some("1890")),
+                    term("b", "board", "1882", Some("1892")),
+                ],
+            );
+            assert_eq!(c.violations.len(), 1, "{bad}: {:?}", c.violations);
+            assert_eq!(c.violations[0].node, ".yidam/corpus/office/board.yml");
+            assert!(
+                c.violations[0]
+                    .detail
+                    .contains("`seats` is not a whole number"),
+                "{}",
+                c.violations[0].detail
+            );
+        }
+    }
+
+    /// With one seat, a holder overlapping two earlier ones is one finding naming both.
+    #[test]
+    fn a_holder_overlapping_two_is_one_finding_naming_both() {
+        let c = overlaps(
+            tenure(EXCLUSIVE),
+            vec![
+                term("a", "sheriff", "1880", Some("1895")),
+                term("b", "sheriff", "1885", Some("1895")),
+                term("c", "sheriff", "1890", Some("1895")),
+            ],
+        );
+        let nodes: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
+        assert_eq!(
+            nodes,
+            [".yidam/corpus/tenure/b.yml", ".yidam/corpus/tenure/c.yml"],
+            "{:?}",
+            c.violations
+        );
+        let c_detail = &c.violations[1].detail;
+        assert!(c_detail.contains("`.yidam/corpus/tenure/a.yml`, `.yidam/corpus/tenure/b.yml`"));
+        assert!(c_detail.ends_with("from 1890 to 1895"), "{c_detail}");
+    }
+
+    /// A `capacity` with nothing to bound, or naming what no target class declares, is
+    /// reported on the class rather than read as one seat everywhere.
+    #[test]
+    fn a_capacity_the_class_cannot_read_is_reported_on_the_class() {
+        let terms = || vec![term("a", "board", "1880", Some("1890"))];
+        let unbound = seated(
+            "interval:\n  start: began\n  end: ended\n  capacity: seats\n",
+            vec![seated_office("board", Some("\"3\""))],
+            terms(),
+        );
+        assert_eq!(unbound.violations.len(), 1, "{:?}", unbound.violations);
+        assert_eq!(unbound.violations[0].node, ".yidam/corpus/tenure.ont.yml");
+        assert!(unbound.violations[0].detail.contains("no `exclusive_over`"));
+
+        let undeclared = seated(
+            &SEATED.replace("capacity: seats", "capacity: chairs"),
+            vec![seated_office("board", Some("\"3\""))],
+            terms(),
+        );
+        assert_eq!(
+            undeclared.violations.len(),
+            1,
+            "{:?}",
+            undeclared.violations
+        );
+        assert_eq!(
+            undeclared.violations[0].node,
+            ".yidam/corpus/tenure.ont.yml"
+        );
+        assert!(undeclared.violations[0].detail.contains("which `office`"));
     }
 
     // ── node-too-long ─────────────────────────────────────────────────────────
