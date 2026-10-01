@@ -8,6 +8,7 @@ import { haversineKm, bearingDeg, centralAngleDeg } from '../src/index.ts'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const FIXTURES_DIR = join(__dirname, '../../../parity/fixtures')
+// Absolute, in km on distance, degrees on angles. Why this domain is not exact: geodesics/README.md#parity-tolerance
 const EPSILON = 1e-4
 
 function loadFixtures(fn: string): Record<string, unknown>[] {

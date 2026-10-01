@@ -1,5 +1,6 @@
 use yidam_domain_finance::{future_value, present_value, sharpe_ratio, simple_interest};
 
+// Absolute, in the input's currency. Why this domain is not exact: finance/README.md#parity-tolerance
 const EPSILON: f64 = 1e-9;
 
 use yidam_domain_testkit::load_fixtures;

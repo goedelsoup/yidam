@@ -1,5 +1,6 @@
 use yidam_domain_geodesics::{bearing_deg, central_angle_deg, haversine_km};
 
+// Absolute, in km on distance, degrees on angles. Why this domain is not exact: geodesics/README.md#parity-tolerance
 const EPSILON: f64 = 1e-4;
 
 use yidam_domain_testkit::load_fixtures;

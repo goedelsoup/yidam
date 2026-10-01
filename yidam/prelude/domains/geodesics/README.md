@@ -18,3 +18,18 @@ pub fn central_angle_deg(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64;
 ## When to use this domain
 
 Use this domain for lightweight spherical geometry: nearest-node lookup, bounding-box queries, or cross-language parity verification of map-distance calculations. It assumes a perfect sphere — for sub-metre geodetic accuracy use a proper WGS-84 ellipsoid library.
+
+## Parity tolerance
+
+The parity tests compare with an absolute `EPSILON = 1e-4`, and its meaning depends on the
+function. On `haversine_km` it is a tolerance on kilometres: 10 cm. On `bearing_deg` and
+`central_angle_deg` it is a tolerance on degrees, and `1e-4°` of arc is 11 m at the
+surface. The same constant is about a hundred times looser on angles than on distance.
+
+A tolerance is needed because the functions go through `sin`, `cos` and `atan2`, which
+IEEE-754 does not require to be correctly rounded. It is also absorbing a known divergence
+between the implementations. TypeScript converts degrees as `x * π / 180` and Rust and Python
+as `x * (π / 180)`, so `haversine_km/equator-quarter` differs by 1.8e-12 km and
+`central_angle_deg/quarter-turn` by 1.4e-14°. Both fixtures hold the TypeScript value
+rather than the reference's (#1280). The rule this follows is in
+[Comparing floats](../parity/README.md#comparing-floats).

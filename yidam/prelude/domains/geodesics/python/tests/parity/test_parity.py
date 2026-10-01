@@ -4,6 +4,7 @@ from pathlib import Path
 from yidam_domain_geodesics import haversine_km, bearing_deg, central_angle_deg
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"
+# Absolute, in km on distance, degrees on angles. Why this domain is not exact: geodesics/README.md#parity-tolerance
 EPSILON = 1e-4
 
 def load_fixtures(function: str) -> list[dict]:

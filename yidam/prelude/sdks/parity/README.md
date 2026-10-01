@@ -146,6 +146,11 @@ TypeScript SDK carries an explicit comparator, and `find_reachable/astral-and-bm
 `find_citations/astral-and-bmp.toml` are what fail when it is removed. Every ASCII fixture
 passes either way, which is the shape the divergence would have hidden in.
 
+**Floats are compared exactly unless a domain declares otherwise.** No fixture in this
+suite carries a float. The domain suite does, and its rule — bit-identical by default, a
+tolerance only when declared with its unit and its reason — is in
+[`domains/parity/README.md`](https://github.com/goedelsoup/yidam/blob/main/yidam/prelude/domains/parity/README.md#comparing-floats).
+
 ## Fixture format
 
 Each fixture is a TOML file under `fixtures/<function>/`:

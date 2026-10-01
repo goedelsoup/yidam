@@ -3,6 +3,7 @@ from pathlib import Path
 from yidam_domain_finance import present_value, future_value, simple_interest, sharpe_ratio
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"
+# Absolute, in the input's currency. Why this domain is not exact: finance/README.md#parity-tolerance
 EPSILON = 1e-9
 
 def load_fixtures(function: str) -> list[dict]:

@@ -8,6 +8,7 @@ import { rationalProduct, manningVelocity, returnPeriod } from '../src/index.ts'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const FIXTURES_DIR = join(__dirname, '../../../parity/fixtures')
+// Absolute, in each function's output unit. Why this domain is not exact: hydrology/README.md#parity-tolerance
 const EPSILON = 1e-9
 
 function loadFixtures(fn: string): Record<string, unknown>[] {
