@@ -1,0 +1,150 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "corpus": "streamflow",
+  "runs": [
+    {
+      "workflow": null,
+      "phase": "unknown",
+      "scheduled": "2026-10-01T06:00:00Z",
+      "admission": {
+        "state": "unknown",
+        "because": "`yidam-streamflow` last created a run for 2026-10-01T06:00:00Z, and no Workflow for it remains. Argo deletes a run 86400s after it succeeds and 604800s after it fails ([cluster.cleanup]), and a run deleted by hand looks the same",
+        "owed": [],
+        "stale": []
+      },
+      "steps": [],
+      "gathers": [],
+      "unknown": "`yidam-streamflow` last created a run for 2026-10-01T06:00:00Z, and no Workflow for it remains. Argo deletes a run 86400s after it succeeds and 604800s after it fails ([cluster.cleanup]), and a run deleted by hand looks the same"
+    },
+    {
+      "workflow": "yidam-streamflow-1790748000",
+      "phase": "Failed",
+      "scheduled": "2026-09-30T06:00:00Z",
+      "started": "2026-09-30T06:00:00Z",
+      "finished": "2026-09-30T06:04:10Z",
+      "admission": {
+        "state": "admitted",
+        "because": "1 clock due, 2 steps stale",
+        "owed": [
+          "catalog"
+        ],
+        "stale": [
+          "travel-tier",
+          "disclosure-envelope"
+        ],
+        "open_proposals": 1,
+        "max_open_proposals": 3
+      },
+      "steps": [
+        {
+          "step": "travel-tier",
+          "outcome": "landed",
+          "target": "main",
+          "commit": "1111111111111111111111111111111111111111"
+        },
+        {
+          "step": "disclosure-envelope",
+          "outcome": "proposed",
+          "target": "propose/1111111",
+          "commit": "2222222222222222222222222222222222222222",
+          "still_open": false
+        },
+        {
+          "step": "reach-index",
+          "outcome": "fresh"
+        },
+        {
+          "step": "gauge-summary",
+          "outcome": "refused",
+          "reason": "main moved and touched what it reads: .yidam/computed/travel-tier.yml"
+        },
+        {
+          "step": "flow-report",
+          "outcome": "not-reached"
+        }
+      ],
+      "gathers": [
+        {
+          "gather": "flows",
+          "step": "flows",
+          "outcome": "proposed",
+          "target": "propose/1111111",
+          "commit": "2222222222222222222222222222222222222222",
+          "still_open": false,
+          "peers": [
+            {
+              "peer": "basin",
+              "outcome": "answered"
+            },
+            {
+              "peer": "gauges",
+              "outcome": "missing",
+              "reason": "named by the gather, not installed"
+            },
+            {
+              "peer": "reach",
+              "outcome": "refused"
+            },
+            {
+              "peer": "weirs",
+              "outcome": "unknown",
+              "reason": "the asker ended Error and left no record (pod deleted); `gather` counts it refused"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "workflow": "yidam-streamflow-manual-x7k2p",
+      "phase": "Error",
+      "started": "2026-09-29T14:00:00Z",
+      "finished": "2026-09-29T14:01:00Z",
+      "admission": {
+        "state": "not-asked",
+        "because": "a one-shot Workflow has no `admit` task; it runs when it is created",
+        "owed": [],
+        "stale": []
+      },
+      "steps": [
+        {
+          "step": "travel-tier",
+          "outcome": "failed",
+          "reason": "the step failed and left no record (OOMKilled (exit code 137))"
+        },
+        {
+          "step": "disclosure-envelope",
+          "outcome": "unknown",
+          "reason": "the lander ended Succeeded and left no record"
+        }
+      ],
+      "gathers": [
+        {
+          "gather": "levels",
+          "step": "levels",
+          "outcome": "refused",
+          "reason": "the commit carries no receipt at .yidam/runs/gather/levels.yml; a commit without one is not a run's, and is not landed",
+          "peers": [
+            {
+              "peer": "gauges",
+              "outcome": "answered"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "refs": {
+    "remote": ".",
+    "branch": "main",
+    "tip": "999ae28aafc1edbec7d2b761afb7bfc4cc7bde0d",
+    "proposals": []
+  }
+}

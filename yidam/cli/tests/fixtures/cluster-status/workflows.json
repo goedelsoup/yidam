@@ -1,0 +1,596 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "argoproj.io/v1alpha1",
+      "kind": "Workflow",
+      "metadata": {
+        "name": "yidam-streamflow-manual-x7k2p",
+        "labels": {
+          "yidam.dev/corpus": "streamflow"
+        },
+        "annotations": {},
+        "creationTimestamp": "2026-09-29T14:00:00Z"
+      },
+      "spec": {
+        "templates": [
+          {
+            "name": "run",
+            "dag": {
+              "tasks": [
+                {
+                  "name": "step-travel-tier",
+                  "template": "step",
+                  "arguments": {
+                    "parameters": [
+                      {
+                        "name": "step",
+                        "value": "travel-tier"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "land-travel-tier",
+                  "template": "land"
+                },
+                {
+                  "name": "step-disclosure-envelope",
+                  "template": "step",
+                  "arguments": {
+                    "parameters": [
+                      {
+                        "name": "step",
+                        "value": "disclosure-envelope"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "land-disclosure-envelope",
+                  "template": "land"
+                },
+                {
+                  "name": "survey-levels",
+                  "template": "survey",
+                  "arguments": {
+                    "parameters": [
+                      {
+                        "name": "gather",
+                        "value": "levels"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "ask-levels",
+                  "template": "ask"
+                },
+                {
+                  "name": "gather-levels",
+                  "template": "gather"
+                },
+                {
+                  "name": "land-gather-levels",
+                  "template": "land"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "status": {
+        "phase": "Error",
+        "startedAt": "2026-09-29T14:00:00Z",
+        "nodes": {
+          "yidam-streamflow-manual-x7k2p-0": {
+            "id": "yidam-streamflow-manual-x7k2p-0",
+            "displayName": "step-travel-tier",
+            "type": "Retry",
+            "phase": "Failed",
+            "message": "OOMKilled (exit code 137)"
+          },
+          "yidam-streamflow-manual-x7k2p-1": {
+            "id": "yidam-streamflow-manual-x7k2p-1",
+            "displayName": "step-disclosure-envelope",
+            "type": "Retry",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"step\": \"disclosure-envelope\", \"outcome\": \"unchanged\", \"sha\": null, \"class\": \"operational\", \"verb\": \"compute\", \"receipt\": \".yidam/runs/disclosure-envelope.yml\", \"input\": \"000000000000000000000000000000000000000a\", \"bundle\": null}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-manual-x7k2p-2": {
+            "id": "yidam-streamflow-manual-x7k2p-2",
+            "displayName": "land-disclosure-envelope",
+            "type": "Pod",
+            "phase": "Succeeded"
+          },
+          "yidam-streamflow-manual-x7k2p-3": {
+            "id": "yidam-streamflow-manual-x7k2p-3",
+            "displayName": "survey-levels",
+            "type": "Retry",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"gather\": \"levels\", \"input\": \"000000000000000000000000000000000000000a\", \"bundle\": \"sha256:cc\", \"asking\": 1, \"asks\": [], \"peers\": []}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-manual-x7k2p-4": {
+            "id": "yidam-streamflow-manual-x7k2p-4",
+            "displayName": "ask-levels(0:gauges)",
+            "type": "Pod",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"gather\": \"levels\", \"peer\": \"gauges\", \"outcome\": \"answered\", \"record\": \"sha256:dd\"}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-manual-x7k2p-5": {
+            "id": "yidam-streamflow-manual-x7k2p-5",
+            "displayName": "ask-levels",
+            "type": "TaskGroup",
+            "phase": "Succeeded",
+            "children": [
+              "yidam-streamflow-manual-x7k2p-4"
+            ]
+          },
+          "yidam-streamflow-manual-x7k2p-6": {
+            "id": "yidam-streamflow-manual-x7k2p-6",
+            "displayName": "gather-levels",
+            "type": "Retry",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"step\": \"gather/levels\", \"outcome\": \"ran\", \"sha\": \"2222222222222222222222222222222222222222\", \"class\": \"epistemic\", \"verb\": \"open\", \"receipt\": \"\", \"input\": \"000000000000000000000000000000000000000a\", \"bundle\": \"sha256:ee\"}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-manual-x7k2p-7": {
+            "id": "yidam-streamflow-manual-x7k2p-7",
+            "displayName": "land-gather-levels",
+            "type": "Pod",
+            "phase": "Failed",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"step\": \"gather/levels\", \"input\": \"000000000000000000000000000000000000000a\", \"refused\": \"the commit carries no receipt at .yidam/runs/gather/levels.yml; a commit without one is not a run's, and is not landed\"}"
+                }
+              ]
+            },
+            "message": "Error (exit code 1)"
+          }
+        },
+        "finishedAt": "2026-09-29T14:01:00Z"
+      }
+    },
+    {
+      "apiVersion": "argoproj.io/v1alpha1",
+      "kind": "Workflow",
+      "metadata": {
+        "name": "yidam-streamflow-1790748000",
+        "labels": {
+          "workflows.argoproj.io/cron-workflow": "yidam-streamflow"
+        },
+        "annotations": {
+          "workflows.argoproj.io/scheduled-time": "2026-09-30T06:00:00Z"
+        },
+        "creationTimestamp": "2026-09-30T06:00:00Z"
+      },
+      "spec": {
+        "templates": [
+          {
+            "name": "run",
+            "dag": {
+              "tasks": [
+                {
+                  "name": "admit",
+                  "template": "admit"
+                },
+                {
+                  "name": "pin",
+                  "template": "pin"
+                },
+                {
+                  "name": "step-travel-tier",
+                  "template": "step",
+                  "arguments": {
+                    "parameters": [
+                      {
+                        "name": "step",
+                        "value": "travel-tier"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "land-travel-tier",
+                  "template": "land"
+                },
+                {
+                  "name": "step-disclosure-envelope",
+                  "template": "step",
+                  "arguments": {
+                    "parameters": [
+                      {
+                        "name": "step",
+                        "value": "disclosure-envelope"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "land-disclosure-envelope",
+                  "template": "land"
+                },
+                {
+                  "name": "step-reach-index",
+                  "template": "step",
+                  "arguments": {
+                    "parameters": [
+                      {
+                        "name": "step",
+                        "value": "reach-index"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "land-reach-index",
+                  "template": "land"
+                },
+                {
+                  "name": "step-gauge-summary",
+                  "template": "step",
+                  "arguments": {
+                    "parameters": [
+                      {
+                        "name": "step",
+                        "value": "gauge-summary"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "land-gauge-summary",
+                  "template": "land"
+                },
+                {
+                  "name": "step-flow-report",
+                  "template": "step",
+                  "arguments": {
+                    "parameters": [
+                      {
+                        "name": "step",
+                        "value": "flow-report"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "land-flow-report",
+                  "template": "land"
+                },
+                {
+                  "name": "survey-flows",
+                  "template": "survey",
+                  "arguments": {
+                    "parameters": [
+                      {
+                        "name": "gather",
+                        "value": "flows"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "ask-flows",
+                  "template": "ask"
+                },
+                {
+                  "name": "gather-flows",
+                  "template": "gather"
+                },
+                {
+                  "name": "land-gather-flows",
+                  "template": "land"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "status": {
+        "phase": "Failed",
+        "startedAt": "2026-09-30T06:00:00Z",
+        "nodes": {
+          "yidam-streamflow-1790748000-0": {
+            "id": "yidam-streamflow-1790748000-0",
+            "displayName": "admit",
+            "type": "Pod",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"admitted\": true, \"because\": \"1 clock due, 2 steps stale\", \"owed\": [\"catalog\"], \"stale\": [\"travel-tier\", \"disclosure-envelope\"], \"open_proposals\": 1, \"max_open_proposals\": 3}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-1790748000-1": {
+            "id": "yidam-streamflow-1790748000-1",
+            "displayName": "step-travel-tier",
+            "type": "Retry",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"step\": \"travel-tier\", \"outcome\": \"ran\", \"sha\": \"1111111111111111111111111111111111111111\", \"class\": \"operational\", \"verb\": \"compute\", \"receipt\": \".yidam/runs/travel-tier.yml\", \"input\": \"000000000000000000000000000000000000000a\", \"bundle\": \"sha256:aa\"}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-1790748000-2": {
+            "id": "yidam-streamflow-1790748000-2",
+            "displayName": "land-travel-tier",
+            "type": "Pod",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"step\": \"travel-tier\", \"landed\": \"1111111111111111111111111111111111111111\", \"target\": \"main\", \"class\": \"operational\", \"reparented\": false, \"attempts\": 1, \"next\": {\"format_version\": 1, \"branch\": \"main\", \"sha\": \"1111111111111111111111111111111111111111\", \"bundle\": \"sha256:bb\"}}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-1790748000-3": {
+            "id": "yidam-streamflow-1790748000-3",
+            "displayName": "step-disclosure-envelope",
+            "type": "Retry",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"step\": \"disclosure-envelope\", \"outcome\": \"ran\", \"sha\": \"1111111111111111111111111111111111111111\", \"class\": \"epistemic\", \"verb\": \"establish\", \"receipt\": \".yidam/runs/disclosure-envelope.yml\", \"input\": \"000000000000000000000000000000000000000a\", \"bundle\": \"sha256:aa\"}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-1790748000-4": {
+            "id": "yidam-streamflow-1790748000-4",
+            "displayName": "land-disclosure-envelope",
+            "type": "Pod",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"step\": \"disclosure-envelope\", \"landed\": \"2222222222222222222222222222222222222222\", \"target\": \"propose/1111111\", \"class\": \"epistemic\", \"reparented\": false, \"attempts\": 1, \"next\": {\"format_version\": 1, \"branch\": \"main\", \"sha\": \"1111111111111111111111111111111111111111\", \"bundle\": \"sha256:bb\"}}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-1790748000-5": {
+            "id": "yidam-streamflow-1790748000-5",
+            "displayName": "step-reach-index",
+            "type": "Retry",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"step\": \"reach-index\", \"outcome\": \"fresh\", \"sha\": null, \"class\": \"operational\", \"verb\": \"compute\", \"receipt\": \".yidam/runs/reach-index.yml\", \"input\": \"000000000000000000000000000000000000000a\", \"bundle\": null}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-1790748000-6": {
+            "id": "yidam-streamflow-1790748000-6",
+            "displayName": "land-reach-index",
+            "type": "Pod",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"step\": \"reach-index\", \"landed\": null, \"target\": null, \"class\": \"operational\", \"reparented\": false, \"attempts\": 1, \"next\": {\"format_version\": 1, \"branch\": \"main\", \"sha\": \"1111111111111111111111111111111111111111\", \"bundle\": \"sha256:bb\"}}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-1790748000-7": {
+            "id": "yidam-streamflow-1790748000-7",
+            "displayName": "step-gauge-summary",
+            "type": "Retry",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"step\": \"gauge-summary\", \"outcome\": \"ran\", \"sha\": \"1111111111111111111111111111111111111111\", \"class\": \"operational\", \"verb\": \"compute\", \"receipt\": \".yidam/runs/gauge-summary.yml\", \"input\": \"000000000000000000000000000000000000000a\", \"bundle\": \"sha256:aa\"}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-1790748000-8": {
+            "id": "yidam-streamflow-1790748000-8",
+            "displayName": "land-gauge-summary",
+            "type": "Pod",
+            "phase": "Failed",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"step\": \"gauge-summary\", \"input\": \"000000000000000000000000000000000000000a\", \"refused\": \"main moved and touched what it reads: .yidam/computed/travel-tier.yml\"}"
+                }
+              ]
+            },
+            "message": "Error (exit code 1)"
+          },
+          "yidam-streamflow-1790748000-9": {
+            "id": "yidam-streamflow-1790748000-9",
+            "displayName": "step-flow-report",
+            "type": "Skipped",
+            "phase": "Omitted",
+            "message": "omitted: depends condition not met"
+          },
+          "yidam-streamflow-1790748000-10": {
+            "id": "yidam-streamflow-1790748000-10",
+            "displayName": "survey-flows",
+            "type": "Retry",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"gather\": \"flows\", \"input\": \"000000000000000000000000000000000000000a\", \"bundle\": \"sha256:cc\", \"asking\": 3, \"asks\": [], \"peers\": [{\"package\": \"gauges\", \"outcome\": \"missing\", \"reason\": \"named by the gather, not installed\", \"matched\": 0, \"cited\": 0, \"unquotable\": []}]}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-1790748000-11": {
+            "id": "yidam-streamflow-1790748000-11",
+            "displayName": "ask-flows(0:basin)",
+            "type": "Pod",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"gather\": \"flows\", \"peer\": \"basin\", \"outcome\": \"answered\", \"record\": \"sha256:dd\"}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-1790748000-12": {
+            "id": "yidam-streamflow-1790748000-12",
+            "displayName": "ask-flows(1:reach)",
+            "type": "Pod",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"gather\": \"flows\", \"peer\": \"reach\", \"outcome\": \"refused\", \"record\": \"sha256:dd\"}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-1790748000-13": {
+            "id": "yidam-streamflow-1790748000-13",
+            "displayName": "ask-flows(2:weirs)",
+            "type": "Pod",
+            "phase": "Error",
+            "message": "pod deleted",
+            "inputs": {
+              "parameters": [
+                {
+                  "name": "ask",
+                  "value": "{\"peer\":\"weirs\"}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-1790748000-14": {
+            "id": "yidam-streamflow-1790748000-14",
+            "displayName": "ask-flows",
+            "type": "TaskGroup",
+            "phase": "Failed",
+            "children": [
+              "yidam-streamflow-1790748000-11",
+              "yidam-streamflow-1790748000-12",
+              "yidam-streamflow-1790748000-13"
+            ]
+          },
+          "yidam-streamflow-1790748000-15": {
+            "id": "yidam-streamflow-1790748000-15",
+            "displayName": "gather-flows",
+            "type": "Retry",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"step\": \"gather/flows\", \"outcome\": \"ran\", \"sha\": \"2222222222222222222222222222222222222222\", \"class\": \"epistemic\", \"verb\": \"open\", \"receipt\": \"\", \"input\": \"000000000000000000000000000000000000000a\", \"bundle\": \"sha256:ee\"}"
+                }
+              ]
+            }
+          },
+          "yidam-streamflow-1790748000-16": {
+            "id": "yidam-streamflow-1790748000-16",
+            "displayName": "land-gather-flows",
+            "type": "Pod",
+            "phase": "Succeeded",
+            "outputs": {
+              "parameters": [
+                {
+                  "name": "output",
+                  "value": "{\"format_version\": 1, \"step\": \"gather/flows\", \"landed\": \"2222222222222222222222222222222222222222\", \"target\": \"propose/1111111\", \"class\": \"epistemic\", \"reparented\": false, \"attempts\": 1, \"next\": {\"format_version\": 1, \"branch\": \"main\", \"sha\": \"1111111111111111111111111111111111111111\", \"bundle\": \"sha256:bb\"}}"
+                }
+              ]
+            }
+          }
+        },
+        "finishedAt": "2026-09-30T06:04:10Z"
+      }
+    },
+    {
+      "apiVersion": "argoproj.io/v1alpha1",
+      "kind": "Workflow",
+      "metadata": {
+        "name": "yidam-gauges-1790748000",
+        "labels": {
+          "yidam.dev/corpus": "gauges"
+        },
+        "annotations": {},
+        "creationTimestamp": "2026-09-30T06:00:00Z"
+      },
+      "spec": {
+        "templates": [
+          {
+            "name": "run",
+            "dag": {
+              "tasks": []
+            }
+          }
+        ]
+      },
+      "status": {
+        "phase": "Succeeded",
+        "startedAt": "2026-09-30T06:00:00Z",
+        "nodes": {}
+      }
+    },
+    {
+      "apiVersion": "argoproj.io/v1alpha1",
+      "kind": "CronWorkflow",
+      "metadata": {
+        "name": "yidam-streamflow"
+      },
+      "status": {
+        "lastScheduledTime": "2026-10-01T06:00:00Z"
+      }
+    }
+  ]
+}

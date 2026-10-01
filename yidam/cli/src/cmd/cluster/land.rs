@@ -67,16 +67,61 @@ pub(super) fn run(
     format: Format,
 ) -> Result<()> {
     let claim = read_step_output(step_output)?;
-    let store = vault.open()?;
-    // Before the clone, which needs the credential too. For an App this mints the token:
-    // nothing else in the workflow ever holds it (#1233).
-    let (url, push) = auth.resolve(&remote.remote)?;
-    let scratch = Scratch::new("land")?;
-    let root = scratch.path().join("corpus");
-    clone_branch_as(&url, &remote.branch, &root, &push)?;
-    super::commits_as_the_pod(&root)?;
-    let record = land_in(&root, scratch.path(), &claim, remote, &push, store.as_ref())?;
-    deliver(&root, format, out, record, render)
+    let landed = (|| {
+        let store = vault.open()?;
+        // Before the clone, which needs the credential too. For an App this mints the token:
+        // nothing else in the workflow ever holds it (#1233).
+        let (url, push) = auth.resolve(&remote.remote)?;
+        let scratch = Scratch::new("land")?;
+        let root = scratch.path().join("corpus");
+        clone_branch_as(&url, &remote.branch, &root, &push)?;
+        super::commits_as_the_pod(&root)?;
+        let record = land_in(&root, scratch.path(), &claim, remote, &push, store.as_ref())?;
+        Ok::<_, anyhow::Error>((scratch, root, record))
+    })();
+    match landed {
+        Ok((_scratch, root, record)) => deliver(&root, format, out, record, render),
+        Err(e) => {
+            // The lander's reason outranks the record of it: a failed write is added to the
+            // error, never put in its place.
+            if let Some(path) = out {
+                if let Err(w) = write_refusal(path, &claim, &e) {
+                    return Err(e.context(format!("and the refusal was not recorded: {w:#}")));
+                }
+            }
+            Err(e)
+        }
+    }
+}
+
+/// What the lander writes when it lands nothing and fails: the reason, as a record.
+///
+/// Without it, a refusal's reason reached the pod's stderr and nowhere else, and a log is not
+/// a record. Argo keeps a failed node's output parameter, so `cluster status` reads this where
+/// it reads a landing (#1236). The pod still fails: a refusal stops the chain.
+#[derive(Debug, serde::Serialize)]
+pub(super) struct Refused {
+    pub format_version: u32,
+    pub step: String,
+    /// The pinned commit the step ran against.
+    pub input: String,
+    /// The lander's reason, as it printed it.
+    pub refused: String,
+}
+
+fn write_refusal(path: &Path, claim: &StepOutput, e: &anyhow::Error) -> Result<()> {
+    let record = Refused {
+        format_version: CONTRACT_VERSION,
+        step: claim.step.clone(),
+        input: claim.input.clone(),
+        refused: format!("{e:#}"),
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    let json = serde_json::to_string_pretty(&record).context("serializing the refusal")?;
+    std::fs::write(path, json).with_context(|| format!("writing {}", path.display()))
 }
 
 /// Land `claim`'s commit from the clone at `root`, whose `origin` is the remote. Every git

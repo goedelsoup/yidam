@@ -3358,6 +3358,264 @@
           }
         }
       }
+    },
+    "corpus": {
+      "type": "string",
+      "description": "`cluster status` only. The corpus slug whose runs are reported: the `yidam.dev/corpus` label, and the `CronWorkflow` named `yidam-<corpus>`."
+    },
+    "runs": {
+      "type": "array",
+      "description": "`cluster status` only. The corpus's recent runs, newest first, read from the records Argo keeps on each `Workflow` — never from a log. Operational status: nothing here is committed (#1236).",
+      "items": {
+        "type": "object",
+        "required": [
+          "workflow",
+          "phase",
+          "admission",
+          "steps",
+          "gathers"
+        ],
+        "properties": {
+          "workflow": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The `Workflow`'s name. Null for a run Argo has deleted, seen only through its `CronWorkflow`'s last scheduled time."
+          },
+          "phase": {
+            "type": "string",
+            "description": "Argo's phase for the run, or `unknown`."
+          },
+          "scheduled": {
+            "type": "string",
+            "description": "The cron tick the run was created for. Absent for a run created any other way."
+          },
+          "started": {
+            "type": "string",
+            "description": "When Argo started the run."
+          },
+          "finished": {
+            "type": "string",
+            "description": "When Argo finished the run."
+          },
+          "unknown": {
+            "type": "string",
+            "description": "Why nothing below the run is known: its `Workflow` is gone, or its node status was offloaded."
+          },
+          "admission": {
+            "type": "object",
+            "required": [
+              "state",
+              "because",
+              "owed",
+              "stale"
+            ],
+            "properties": {
+              "state": {
+                "enum": [
+                  "admitted",
+                  "not-admitted",
+                  "not-asked",
+                  "running",
+                  "unknown"
+                ],
+                "description": "`not-asked` is a one-shot `Workflow`, which has no `admit` task."
+              },
+              "because": {
+                "type": "string",
+                "description": "The admission record's own reason, or why there is none."
+              },
+              "owed": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The `due` clocks that were owed, by id."
+              },
+              "stale": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The steps whose receipt did not match the tip."
+              },
+              "open_proposals": {
+                "type": "integer",
+                "description": "The `propose/*` branches open when admission ran."
+              },
+              "max_open_proposals": {
+                "type": "integer",
+                "description": "`[cluster] max_open_proposals`, when declared."
+              }
+            }
+          },
+          "steps": {
+            "type": "array",
+            "description": "In the order the workflow runs them.",
+            "items": {
+              "type": "object",
+              "required": [
+                "step",
+                "outcome"
+              ],
+              "properties": {
+                "step": {
+                  "type": "string",
+                  "description": "The capability."
+                },
+                "outcome": {
+                  "enum": [
+                    "landed",
+                    "proposed",
+                    "fresh",
+                    "unchanged",
+                    "refused",
+                    "failed",
+                    "running",
+                    "not-reached",
+                    "unknown"
+                  ],
+                  "description": "What became of it. `landed` is an operational commit on the branch and `proposed` an epistemic one on `propose/*`; `fresh` and `unchanged` landed nothing because there was nothing to land; `refused` is the lander declining, with its reason; `failed` is a pod that failed without a record; `unknown` is a node whose record is missing, never a guess."
+                },
+                "target": {
+                  "type": "string",
+                  "description": "The ref the commit landed on, `main` or `propose/<pin>`."
+                },
+                "commit": {
+                  "type": "string",
+                  "description": "The sha that landed. Absent when the ref already held the result."
+                },
+                "still_open": {
+                  "type": "boolean",
+                  "description": "For a proposal, whether its branch is still on the remote. Absent when the refs were not read."
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "The lander's refusal, or what is missing for an outcome that is `failed` or `unknown`."
+                }
+              }
+            }
+          },
+          "gathers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "gather",
+                "outcome",
+                "peers"
+              ],
+              "properties": {
+                "gather": {
+                  "type": "string",
+                  "description": "The gather, by name."
+                },
+                "step": {
+                  "type": "string",
+                  "description": "The gather's landing, as its step record names it: `gather/<name>`."
+                },
+                "outcome": {
+                  "enum": [
+                    "landed",
+                    "proposed",
+                    "fresh",
+                    "unchanged",
+                    "refused",
+                    "failed",
+                    "running",
+                    "not-reached",
+                    "unknown"
+                  ],
+                  "description": "What became of it. `landed` is an operational commit on the branch and `proposed` an epistemic one on `propose/*`; `fresh` and `unchanged` landed nothing because there was nothing to land; `refused` is the lander declining, with its reason; `failed` is a pod that failed without a record; `unknown` is a node whose record is missing, never a guess."
+                },
+                "target": {
+                  "type": "string",
+                  "description": "The ref the commit landed on, `main` or `propose/<pin>`."
+                },
+                "commit": {
+                  "type": "string",
+                  "description": "The sha that landed. Absent when the ref already held the result."
+                },
+                "still_open": {
+                  "type": "boolean",
+                  "description": "For a proposal, whether its branch is still on the remote. Absent when the refs were not read."
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "The lander's refusal, or what is missing for an outcome that is `failed` or `unknown`."
+                },
+                "peers": {
+                  "type": "array",
+                  "description": "Every peer the survey decided on or an asker answered for, by name.",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "peer",
+                      "outcome"
+                    ],
+                    "properties": {
+                      "peer": {
+                        "type": "string",
+                        "description": "The peer package."
+                      },
+                      "outcome": {
+                        "type": "string",
+                        "description": "`gather`'s own outcome word, or `unknown` for an asker that left no record."
+                      },
+                      "reason": {
+                        "type": "string",
+                        "description": "Why, when the survey or the missing record gives one."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "refs": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "`cluster status` only. The branch and the proposal branches on the remote, by `ls-remote`. Null when no `--remote` was given and `[cluster] remote` is unset.",
+      "required": [
+        "remote",
+        "branch",
+        "tip",
+        "proposals"
+      ],
+      "properties": {
+        "remote": {
+          "type": "string",
+          "description": "The remote read."
+        },
+        "branch": {
+          "type": "string",
+          "description": "The branch runs land on."
+        },
+        "tip": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The branch's tip. Null when it is not on the remote or the remote could not be read."
+        },
+        "proposals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Every `propose/*` branch, without `refs/heads/`."
+        },
+        "unread": {
+          "type": "string",
+          "description": "Why the remote could not be read. The runs are reported regardless."
+        }
+      }
     }
   }
 }
