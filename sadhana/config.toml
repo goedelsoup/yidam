@@ -228,6 +228,8 @@
 # git_write       = "yidam-corpus-git-write"
 # vault_secret    = "yidam-corpus-vault"
 # vault_claim     = "yidam-corpus-vault"
+# events_account  = "yidam-corpus-events"   # read by --on-push alone: the Sensor's account
+# webhook_secret  = "yidam-corpus-webhook"  # read by --on-push alone: what a push is checked against
 #
 # What every pod requests, may use and may run for. Unset keys take the sizes shown, which
 # are the binary's own, so a namespace with a `ResourceQuota` admits every pod. A capability

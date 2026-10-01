@@ -65,10 +65,17 @@ yidam cluster workflow --cron "0 6 * * *" > yidam.cronworkflow.yml
 
 The admission task runs `yidam cluster admit`. Its record says `admitted`. The pin task and
 everything after it carry a `when` on that field. A clock that is not owed submits no step.
-`concurrencyPolicy: Forbid` keeps two runs of one corpus apart.
+
+Every form holds one mutex per corpus, `yidam-<corpus>`. Two runs of one corpus never land at
+once. A second run waits, then asks `admit` about the tip the first one left. The field is
+`synchronization.mutexes`, which needs Argo Workflows 3.6 or later.
+
+With `--on-push` the output adds an Argo Events `EventSource` and `Sensor`. A push to the
+branch submits the same run, which admits first. See [Run on push](#run-on-push).
 
 The worked example is [streamflow.workflow.yml](../yidam/cluster/overlays/streamflow/streamflow.workflow.yml),
 generated from `examples/streamflow` and pinned by a test. The cron form is beside it.
+The push form is in [streamflow-on-push](../yidam/cluster/overlays/streamflow-on-push/streamflow.onpush.yml).
 
 ## What admission reads
 
@@ -137,6 +144,8 @@ name is its root directory's, lowercased. The manifest's header names both git s
 | Write key | Secret | `yidam-<corpus>-git-write` |
 | S3 vault keys | Secret | `yidam-<corpus>-vault` |
 | File vault | PersistentVolumeClaim | `yidam-<corpus>-vault` |
+| Sensor account (on push) | ServiceAccount | `yidam-<corpus>-events` |
+| Webhook secret (on push) | Secret | `yidam-<corpus>-webhook` |
 
 One Kustomize overlay creates all of them, beside the workflow that names them. The worked
 example is [yidam/cluster/overlays/streamflow](../yidam/cluster/overlays/streamflow/kustomization.yaml).
@@ -241,6 +250,59 @@ kubectl create -f yidam.workflow.yml -n <namespace>
 ```
 
 A corpus with no schedule lists `objects` alone in its top `kustomization.yaml`.
+
+### Run on push
+
+A cron runs on the clock. A corpus edited by people wants a run when they push. With
+`--on-push`, a push to the branch submits the run, and the run asks `admit` first.
+
+```sh
+yidam cluster workflow --on-push github > deploy/<corpus>.onpush.yml
+```
+
+The output is two objects. The `EventSource` listens for the push on port 12000 at `/push`. The
+`Sensor` creates the run when the push's `ref` is `refs/heads/<branch>`. A push to `propose/*`
+creates nothing.
+
+The source is one of two:
+
+- `github` checks GitHub's signature against the webhook secret. It reads the owner and the
+  repository from `--remote`.
+- `webhook` takes any `POST` with `Authorization: Bearer <secret>`. Its body must carry
+  `{"ref": "refs/heads/<branch>"}`. Use it for a host other than GitHub.
+
+The cluster supplies three things this does not generate:
+
+- Argo Events, installed.
+- An `EventBus` named `default` in the corpus's namespace.
+- A route from the git host to the `EventSource`'s Service, such as an Ingress.
+
+Argo Events registers no hook here, so it holds no GitHub token. Add the hook yourself: the
+route's URL, content type JSON, the push event, and the secret.
+
+The worked example is [streamflow-on-push](../yidam/cluster/overlays/streamflow-on-push/kustomization.yaml).
+It is the streamflow overlay plus three things: the Sensor's account, its role, and the
+webhook secret. Put the secret in `objects/secrets/webhook.secret`. It is a separate overlay
+because the two kinds exist only where Argo Events is installed.
+
+The Sensor's account may create a `Workflow` and nothing else. The run it creates runs as
+`yidam-<corpus>-run`, like the cron's. A forged push could submit a run, and the run would
+find nothing owed.
+
+#### The lander's own push
+
+The lander pushes to the branch, so the lander's push is a push too. It submits a run. That run
+asks `admit`, finds every receipt matching the tip, and stops. A test drives this through.
+A person's push is admitted, the chain lands, and the lander's last push is not.
+
+The Sensor does not filter on the committer. The committer is a name a deployment sets. A
+filter on it breaks silently when the name changes. Admission reads what is owed, which is
+the actual question.
+
+A chain of several steps lands several times. Each landing is a push, and each push submits a
+run. The mutex queues those runs behind the one landing. Each asks `admit` after it finishes,
+and finds nothing owed. Without the mutex, a run submitted mid-chain would be admitted and
+race the first.
 
 ### A restricted namespace
 

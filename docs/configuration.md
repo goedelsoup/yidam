@@ -238,7 +238,12 @@ git_read        = "yidam-corpus-git-read"
 git_write       = "yidam-corpus-git-write"
 vault_secret    = "yidam-corpus-vault"
 vault_claim     = "yidam-corpus-vault"
+events_account  = "yidam-corpus-events"
+webhook_secret  = "yidam-corpus-webhook"
 ```
+
+`events_account` and `webhook_secret` are read only by `--on-push`. The first is the account
+the Sensor creates the run as. The second holds the secret a push is checked against.
 
 The defaults differ per corpus, so two corpora in one namespace share no write key. Override
 one only to keep a name you already have. Two corpora given one `git_write` share its key.

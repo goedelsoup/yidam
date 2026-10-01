@@ -166,6 +166,13 @@ pub struct ClusterNamesConfig {
     /// The `PersistentVolumeClaim` a `file://` vault is mounted from.
     #[serde(default)]
     pub vault_claim: Option<String>,
+    /// The service account the `--on-push` Sensor creates workflows as.
+    #[serde(default)]
+    pub events_account: Option<String>,
+    /// The secret an `--on-push` EventSource checks each push against: GitHub's webhook
+    /// secret, or a generic webhook's bearer token.
+    #[serde(default)]
+    pub webhook_secret: Option<String>,
 }
 
 /// `[cluster.pod]`, and the same keys under `[capability.<name>.cluster]`: one pod's bounds.

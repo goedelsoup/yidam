@@ -482,6 +482,103 @@ fn the_pipeline_lands_every_step_with_its_receipt_and_then_owes_nothing() {
     assert_eq!(nothing["next"]["sha"], s(&step2["sha"]));
 }
 
+/// Run every step admission calls stale, in its order, as the workflow would: a pin, then a
+/// step and a land each, each step on the pin the last landing left. Returns the landings.
+fn run_admitted(c: &Cluster, stale: &[Value]) -> Vec<Value> {
+    let mut bundle = s(&c.pin()["bundle"]).to_string();
+    let mut landings = vec![];
+    for step in stale {
+        let record = c.step(s(step), &bundle);
+        let landed = c.land(&record);
+        bundle = s(&landed["next"]["bundle"]).to_string();
+        landings.push(landed);
+    }
+    landings
+}
+
+/// #1235. `--on-push` submits a run on every push to the branch, and the lander's push is a
+/// push. What keeps that from looping is admission's answer rather than a filter on the
+/// committer, so the answer is asserted here rather than assumed.
+///
+/// The sequence is a person's push, the run it is admitted for, and then the run each landing
+/// push submits. Those queue on the corpus's mutex behind the run that landed them, so each
+/// asks `admit` after that run has finished. The mid-chain question is asked too, and is
+/// answered *admitted*. That is the race the mutex exists for, and if it ever answered
+/// otherwise the mutex would be decoration.
+#[test]
+fn a_push_is_admitted_once_and_the_landers_own_push_is_not() {
+    let c = Cluster::new();
+    let quiet = c.admit();
+    let landings = run_admitted(&c, quiet["stale"].as_array().unwrap());
+    assert!(
+        !landings.is_empty(),
+        "the corpus started with nothing to run"
+    );
+    assert_eq!(c.admit()["admitted"], false, "the corpus did not settle");
+
+    // A person downgrades a claim. `travel-tier` reads it, and its output changes, so
+    // `disclosure-envelope`, which reads that output, has something to do as well.
+    c.push_to_main("revise: canyon-outlet's claim is open again", |root| {
+        let node = root.join(".yidam/corpus/gage/canyon-outlet.yml");
+        let text = std::fs::read_to_string(&node).unwrap();
+        let text = text.replacen("claim_tag: inference", "claim_tag: open", 1);
+        assert!(
+            text.contains("claim_tag: open"),
+            "canyon-outlet moved its claim tag"
+        );
+        std::fs::write(node, text).unwrap();
+    });
+    let admission = c.admit();
+    assert_eq!(admission["admitted"], true, "{admission}");
+    let stale = admission["stale"].as_array().unwrap().clone();
+    assert_eq!(
+        stale.first().map(s),
+        Some("travel-tier"),
+        "the edit made its reader stale: {admission}"
+    );
+
+    // The run, asking what a push-submitted run would ask after each landing push.
+    let mut bundle = s(&c.pin()["bundle"]).to_string();
+    let mut mid_chain = vec![];
+    for (i, step) in stale.iter().enumerate() {
+        let landed = c.land(&c.step(s(step), &bundle));
+        assert_eq!(landed["target"], "main", "{landed}");
+        bundle = s(&landed["next"]["bundle"]).to_string();
+        if i + 1 < stale.len() {
+            mid_chain.push(c.admit());
+        }
+    }
+    assert!(
+        !mid_chain.is_empty(),
+        "one step was stale, so no run asked between two landings and the race below is unread"
+    );
+    for early in &mid_chain {
+        assert_eq!(
+            early["admitted"], true,
+            "a run that asked between two landings would race the run still landing: \
+             {early}. That is why every generated workflow holds the corpus's mutex."
+        );
+    }
+
+    // What every run the lander's pushes submitted asks, once the run before it is done.
+    assert_eq!(
+        out(
+            &c.remote(),
+            &["log", "-1", "--format=%cn", "refs/heads/main"]
+        ),
+        "yidam cluster",
+        "the last push to main was the lander's"
+    );
+    let after = c.admit();
+    assert_eq!(
+        after["admitted"], false,
+        "the lander's own push was admitted, so a run on push would run again on its own \
+         landing: {after}"
+    );
+    assert_eq!(after["stale"], serde_json::json!([]));
+    assert!(s(&after["because"]).contains("nothing is owed"), "{after}");
+}
+
 // ── the boundary ──────────────────────────────────────────────────────────────
 
 fn set_mode_recursively(dir: &Path, dir_mode: u32, file_mode: u32) {
@@ -1371,7 +1468,8 @@ fn named_objects(doc: &serde_yaml::Value) -> Vec<Named> {
                             name: name.clone(),
                             optional: false,
                         }),
-                        ("secretRef" | "secretKeyRef", _) => {
+                        // `webhookSecret` and `authSecret` are Argo Events' (#1235).
+                        ("secretRef" | "secretKeyRef" | "webhookSecret" | "authSecret", _) => {
                             if let Some(name) = v["name"].as_str() {
                                 found.push(Named {
                                     field: field.to_string(),
@@ -1413,6 +1511,8 @@ fn two_corpora_in_one_namespace_share_no_named_object() {
         .unwrap();
     assert!(copied.success());
 
+    // On push and on a cron, so the Sensor's account, the webhook secret, the objects' own
+    // names and the mutex are compared too (#1235).
     let generate = |dir: &Path| -> serde_yaml::Value {
         let o = Command::new(env!("CARGO_BIN_EXE_yidam"))
             .current_dir(dir)
@@ -1425,6 +1525,10 @@ fn two_corpora_in_one_namespace_share_no_named_object() {
                 "ghcr.io/goedelsoup/yidam-cluster:test",
                 "--vault-url",
                 "file:///var/yidam/vault",
+                "--cron",
+                "0 6 * * *",
+                "--on-push",
+                "webhook",
             ])
             .output()
             .unwrap();
@@ -1434,13 +1538,59 @@ fn two_corpora_in_one_namespace_share_no_named_object() {
             dir.display(),
             String::from_utf8_lossy(&o.stderr)
         );
-        serde_yaml::from_slice(&o.stdout).expect("the manifest parses")
+        let text = String::from_utf8(o.stdout).unwrap();
+        serde_yaml::Value::Sequence(
+            serde_yaml::Deserializer::from_str(&text)
+                .map(|d| serde_yaml::Value::deserialize(d).expect("the manifest parses"))
+                .collect(),
+        )
     };
-    let a = named_objects(&generate(&c.e.path()));
-    let b = named_objects(&generate(&other));
+    // What a manifest names, and what it is itself named and locks: an EventSource or a
+    // mutex two corpora shared would be one corpus's push running the other's chain.
+    let own = |docs: &serde_yaml::Value| -> Vec<Named> {
+        let mut found = named_objects(docs);
+        for d in docs.as_sequence().unwrap() {
+            let name = d["metadata"]["name"].as_str().map(str::to_string);
+            found.extend(name.map(|name| Named {
+                field: format!("{}.metadata.name", d["kind"].as_str().unwrap()),
+                name,
+                optional: false,
+            }));
+        }
+        for d in docs.as_sequence().unwrap() {
+            let spec = if d["kind"] == "CronWorkflow" {
+                &d["spec"]["workflowSpec"]
+            } else {
+                &d["spec"]["triggers"][0]["template"]["k8s"]["source"]["resource"]["spec"]
+            };
+            for m in spec["synchronization"]["mutexes"]
+                .as_sequence()
+                .into_iter()
+                .flatten()
+            {
+                found.push(Named {
+                    field: "mutex".to_string(),
+                    name: m["name"].as_str().unwrap().to_string(),
+                    optional: false,
+                });
+            }
+        }
+        found
+    };
+    let a = own(&generate(&c.e.path()));
+    let b = own(&generate(&other));
 
     // Every kind of reference is present, so an empty intersection is not a blind walker's.
-    for field in ["serviceAccountName", "secretName", "claimName", "secretRef"] {
+    for field in [
+        "serviceAccountName",
+        "secretName",
+        "claimName",
+        "secretRef",
+        "authSecret",
+        "EventSource.metadata.name",
+        "Sensor.metadata.name",
+        "mutex",
+    ] {
         for (corpus, found) in [("streamflow", &a), ("rivergage", &b)] {
             assert!(
                 found.iter().any(|n| n.field == field),
@@ -1461,6 +1611,16 @@ fn two_corpora_in_one_namespace_share_no_named_object() {
         a.iter()
             .any(|n| n.field == "secretName" && n.name == "yidam-streamflow-git-write"),
         "the write secret is not named for its corpus: {a:?}"
+    );
+    assert!(
+        a.iter()
+            .any(|n| n.field == "serviceAccountName" && n.name == "yidam-streamflow-events"),
+        "the Sensor's account is not named for its corpus: {a:?}"
+    );
+    assert_eq!(
+        a.iter().filter(|n| n.field == "mutex").count(),
+        2,
+        "the cron's run and the push's run should each hold the mutex: {a:?}"
     );
 }
 
@@ -1605,13 +1765,18 @@ fn overlay() -> PathBuf {
     common::repo_root().join("yidam/cluster/overlays/streamflow")
 }
 
+/// The streamflow overlay on push (#1235): the streamflow overlay, plus the EventSource and the
+/// Sensor that submit its run.
+fn on_push_overlay() -> PathBuf {
+    common::repo_root().join("yidam/cluster/overlays/streamflow-on-push")
+}
+
 /// The manifests in the streamflow overlay are generated from the streamflow example and
 /// checked in. They are regenerated with `UPDATE_GOLDENS=1`, and this fails when the generator
 /// and the files disagree, so the overlay never deploys a workflow the binary would not write.
 #[test]
 fn the_documented_workflow_is_what_the_generator_writes() {
     let c = Cluster::as_declared();
-    let dir = overlay();
     let workflow = [
         "cluster",
         "workflow",
@@ -1632,13 +1797,19 @@ fn the_documented_workflow_is_what_the_generator_writes() {
         "--executor",
         "192.0.2.1/32",
     ];
-    for (file, args) in [
-        ("streamflow.workflow.yml", workflow.to_vec()),
+    for (dir, file, args) in [
+        (overlay(), "streamflow.workflow.yml", workflow.to_vec()),
         (
+            overlay(),
             "streamflow.cronworkflow.yml",
             [&workflow[..], &["--cron", "0 6 * * *"]].concat(),
         ),
-        ("streamflow.netpol.yml", policy.to_vec()),
+        (overlay(), "streamflow.netpol.yml", policy.to_vec()),
+        (
+            on_push_overlay(),
+            "streamflow.onpush.yml",
+            [&workflow[..], &["--on-push", "github"]].concat(),
+        ),
     ] {
         let o = Command::new(env!("CARGO_BIN_EXE_yidam"))
             .current_dir(c.e.path())
@@ -1686,7 +1857,9 @@ fn every_form_a_pod_names_an_object_by_is_read() {
          templates:\n\
          - container:\n    \
              envFrom: [{secretRef: {name: e, optional: true}}]\n    \
-             env: [{name: X, valueFrom: {secretKeyRef: {name: k, key: x}}}]\n",
+             env: [{name: X, valueFrom: {secretKeyRef: {name: k, key: x}}}]\n\
+         github: {push: {webhookSecret: {name: w, key: secret}}}\n\
+         webhook: {push: {authSecret: {name: t, key: secret}}}\n",
     )
     .unwrap();
     let mut got: Vec<(&str, String, bool)> = named_objects(&spec)
@@ -1701,6 +1874,8 @@ fn every_form_a_pod_names_an_object_by_is_read() {
             ("Secret", "e".to_string(), true),
             ("Secret", "k".to_string(), false),
             ("Secret", "s".to_string(), false),
+            ("Secret", "t".to_string(), false),
+            ("Secret", "w".to_string(), false),
             ("ServiceAccount", "sa".to_string(), false),
         ]
     );
@@ -1723,36 +1898,45 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
-/// `kustomize build` of the streamflow overlay, from a copy with a placeholder at every path
-/// its secret generators read. The paths are read off the generators rather than listed here,
+/// `kustomize build` of the overlay `name` under `yidam/cluster/overlays/`, from a copy with a
+/// placeholder at every path its secret generators read. The paths are read off the generators rather than listed here,
 /// so a key added to a secret is written too.
-fn build_overlay() -> Vec<serde_yaml::Value> {
+fn build_overlay(name: &str) -> Vec<serde_yaml::Value> {
     let tmp = tempfile::tempdir().unwrap();
     copy_tree(&common::repo_root().join("yidam/cluster"), tmp.path());
-    let objects = tmp.path().join("overlays/streamflow/objects");
-    let k: serde_yaml::Value =
-        serde_yaml::from_str(&std::fs::read_to_string(objects.join("kustomization.yaml")).unwrap())
-            .unwrap();
+    // Every kustomization's generators, since an overlay layered on streamflow's builds
+    // streamflow's objects too. Counted for the named overlay's own, so a walk that found
+    // none is not a pass.
+    let own = tmp.path().join("overlays").join(name).join("objects");
     let mut placeholders = 0;
-    for g in k["secretGenerator"].as_sequence().into_iter().flatten() {
-        let files = g["files"].as_sequence().into_iter().flatten();
-        let envs = g["envs"].as_sequence().into_iter().flatten();
-        for f in files.chain(envs).filter_map(serde_yaml::Value::as_str) {
-            let path = objects.join(f.rsplit_once('=').map_or(f, |(_, p)| p));
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(&path, "placeholder\n").unwrap();
-            placeholders += 1;
+    for entry in walkdir::WalkDir::new(tmp.path()) {
+        let entry = entry.unwrap();
+        if entry.file_name() != "kustomization.yaml" {
+            continue;
+        }
+        let dir = entry.path().parent().unwrap();
+        let k: serde_yaml::Value =
+            serde_yaml::from_str(&std::fs::read_to_string(entry.path()).unwrap()).unwrap();
+        for g in k["secretGenerator"].as_sequence().into_iter().flatten() {
+            let files = g["files"].as_sequence().into_iter().flatten();
+            let envs = g["envs"].as_sequence().into_iter().flatten();
+            for f in files.chain(envs).filter_map(serde_yaml::Value::as_str) {
+                let path = dir.join(f.rsplit_once('=').map_or(f, |(_, p)| p));
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(&path, "placeholder\n").unwrap();
+                placeholders += usize::from(dir == own);
+            }
         }
     }
     assert!(
         placeholders > 0,
-        "the streamflow overlay's objects generate no secret from a file, so this read the \
+        "the {name} overlay's objects generate no secret from a file, so this read the \
          wrong kustomization or the generators moved"
     );
 
     let o = Command::new("kustomize")
         .arg("build")
-        .arg(tmp.path().join("overlays/streamflow"))
+        .arg(tmp.path().join("overlays").join(name))
         .output()
         .unwrap_or_else(|e| {
             panic!(
@@ -1762,7 +1946,7 @@ fn build_overlay() -> Vec<serde_yaml::Value> {
         });
     assert!(
         o.status.success(),
-        "kustomize build of the streamflow overlay failed:\n{}",
+        "kustomize build of the {name} overlay failed:\n{}",
         String::from_utf8_lossy(&o.stderr)
     );
     let text = String::from_utf8(o.stdout).unwrap();
@@ -1789,7 +1973,7 @@ fn overlay_manifest(file: &str) -> serde_yaml::Value {
 fn the_overlay_creates_what_the_workflow_mounts_and_nothing_else() {
     use std::collections::BTreeSet;
 
-    let built = build_overlay();
+    let built = build_overlay("streamflow");
     let kind = |v: &serde_yaml::Value| v["kind"].as_str().unwrap_or_default().to_string();
     let name = |v: &serde_yaml::Value| {
         v["metadata"]["name"]
@@ -1947,6 +2131,121 @@ fn the_overlay_creates_what_the_workflow_mounts_and_nothing_else() {
     assert!(
         unread.is_empty(),
         "the overlay deploys kinds this check does not compare with the workflow: {unread:?}"
+    );
+}
+
+/// #1235. The on-push overlay is the streamflow overlay and three things more: the Sensor's
+/// account with the one role it needs, the webhook secret, and the two generated objects.
+///
+/// The Sensor creates the run streamflow's CronWorkflow schedules, so the run it carries is
+/// compared with the CronWorkflow's: the same spec, under the same mutex, admitting first.
+/// A difference would be a second kind of run, and the mutex would be all that kept two
+/// landers apart.
+#[test]
+fn the_on_push_overlay_adds_what_the_sensor_names_and_nothing_else() {
+    use std::collections::BTreeSet;
+
+    let base = build_overlay("streamflow");
+    let built = build_overlay("streamflow-on-push");
+    let kind = |v: &serde_yaml::Value| v["kind"].as_str().unwrap_or_default().to_string();
+    let name = |v: &serde_yaml::Value| {
+        v["metadata"]["name"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    };
+    for b in &base {
+        assert!(
+            built.contains(b),
+            "the on-push overlay changed or dropped streamflow's {} {:?}",
+            kind(b),
+            name(b)
+        );
+    }
+    let added: Vec<&serde_yaml::Value> = built.iter().filter(|v| !base.contains(v)).collect();
+    let mut kinds: Vec<String> = added.iter().map(|v| kind(v)).collect();
+    kinds.sort();
+    assert_eq!(
+        kinds,
+        [
+            "EventSource",
+            "Role",
+            "RoleBinding",
+            "Secret",
+            "Sensor",
+            "ServiceAccount"
+        ],
+        "the on-push overlay should add these and only these"
+    );
+    let one = |k: &str| *added.iter().find(|v| kind(v) == k).unwrap();
+
+    // The generated objects arrive as generated: a prefix would rename them, and the Sensor's
+    // `eventSourceName` would name nothing.
+    let text = std::fs::read_to_string(on_push_overlay().join("streamflow.onpush.yml")).unwrap();
+    let generated: Vec<serde_yaml::Value> = serde_yaml::Deserializer::from_str(&text)
+        .map(|d| serde_yaml::Value::deserialize(d).unwrap())
+        .collect();
+    assert_eq!(generated.len(), 2);
+    for g in &generated {
+        assert!(
+            added.contains(&g),
+            "the overlay does not deploy {} as generated",
+            kind(g)
+        );
+    }
+    let (source, sensor) = (one("EventSource"), one("Sensor"));
+    let dependency = &sensor["spec"]["dependencies"][0];
+    assert_eq!(dependency["eventSourceName"], source["metadata"]["name"]);
+
+    // The account the Sensor creates the run as exists, and may create a Workflow and nothing
+    // else. The run itself is the CronWorkflow's account's, which streamflow's overlay made.
+    let account = sensor["spec"]["template"]["serviceAccountName"]
+        .as_str()
+        .expect("the Sensor names its account");
+    assert_eq!(name(one("ServiceAccount")), account);
+    let binding = one("RoleBinding");
+    assert_eq!(binding["subjects"][0]["name"].as_str(), Some(account));
+    assert_eq!(binding["subjects"].as_sequence().map(Vec::len), Some(1));
+    let role = one("Role");
+    assert_eq!(
+        binding["roleRef"]["name"].as_str(),
+        Some(name(role).as_str())
+    );
+    let rules: serde_yaml::Value = serde_yaml::from_str(
+        "[{apiGroups: [argoproj.io], resources: [workflows], verbs: [create]}]",
+    )
+    .unwrap();
+    assert_eq!(
+        role["rules"], rules,
+        "the Sensor's account may do more than create a run"
+    );
+
+    // The secret the EventSource checks a push against, with the key it reads.
+    let wanted = named_objects(source);
+    assert_eq!(wanted.len(), 1, "{wanted:?}");
+    let secret = one("Secret");
+    assert_eq!(name(secret), wanted[0].name);
+    let key = source["spec"]["github"]["push"]["webhookSecret"]["key"]
+        .as_str()
+        .unwrap();
+    let keys: BTreeSet<&str> = secret["data"]
+        .as_mapping()
+        .into_iter()
+        .flatten()
+        .filter_map(|(k, _)| k.as_str())
+        .collect();
+    assert_eq!(keys, BTreeSet::from([key]));
+
+    // The run on push is the run on the cron.
+    let run = &sensor["spec"]["triggers"][0]["template"]["k8s"]["source"]["resource"];
+    assert_eq!(run["kind"].as_str(), Some("Workflow"));
+    assert!(run["metadata"]["generateName"].is_string());
+    let cron = base.iter().find(|v| kind(v) == "CronWorkflow").unwrap();
+    assert_eq!(run["spec"], cron["spec"]["workflowSpec"]);
+    assert_eq!(
+        run["spec"]["synchronization"]["mutexes"][0]["name"].as_str(),
+        Some("yidam-streamflow"),
+        "a run on push and a run on the cron would not queue on one lock"
     );
 }
 

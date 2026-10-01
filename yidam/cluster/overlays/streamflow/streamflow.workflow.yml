@@ -23,6 +23,11 @@ metadata:
     yidam.dev/corpus: "streamflow"
 spec:
   entrypoint: run
+  # One run of this corpus at a time, however it was submitted. A run submitted while
+  # another lands waits here, then asks `admit` about the tip the first one left.
+  synchronization:
+    mutexes:
+      - name: "yidam-streamflow"
   serviceAccountName: "yidam-streamflow-run"
   # No pod gets a Kubernetes token in its main container; the executor sidecar has its own.
   automountServiceAccountToken: false

@@ -23,11 +23,16 @@ metadata:
     yidam.dev/corpus: "streamflow"
 spec:
   schedule: "0 6 * * *"
-  # One run at a time per corpus: a second admission while one is landing would
-  # pin a tip the first is about to move.
+  # One tick at a time: a tick while a run is landing is skipped, not queued. The
+  # workflow's mutex is what keeps a cron run and a push run apart.
   concurrencyPolicy: Forbid
   workflowSpec:
     entrypoint: run
+    # One run of this corpus at a time, however it was submitted. A run submitted while
+    # another lands waits here, then asks `admit` about the tip the first one left.
+    synchronization:
+      mutexes:
+        - name: "yidam-streamflow"
     serviceAccountName: "yidam-streamflow-run"
     # No pod gets a Kubernetes token in its main container; the executor sidecar has its own.
     automountServiceAccountToken: false
