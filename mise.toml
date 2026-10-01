@@ -1182,6 +1182,10 @@ run = "./release.sh"
 description = "File the staged upgrade notes in .changes/upgrading/ under a release tag. Usage: mise run file-upgrade-notes <tag>"
 run = "scripts/file-upgrade-notes.sh"
 
+[tasks.repo-metadata]
+description = "Apply .github/repository.json (description, homepage, topics) to the GitHub repository. Usage: mise run repo-metadata [--check]"
+run = "scripts/repo-metadata.sh"
+
 [tasks.ci]
 description = "Full CI pass: harness + yidam CLI fmt-check, clippy, test; domain crate fmt-check."
 depends = ["ci-harness", "ci-cli", "ci-domains"]

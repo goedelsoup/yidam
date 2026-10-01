@@ -63,6 +63,28 @@ fn the_readme_advertises_the_url_the_site_is_built_for() {
     );
 }
 
+/// The repository's homepage is the address the site is built for.
+///
+/// GitHub's About box is the one link a reader finds without already having one, and it was
+/// empty on a repository with a published site (#949). `.github/repository.json` holds it so a
+/// change is reviewed; `mise run repo-metadata` applies it. This keeps it from naming a site
+/// that moved, which nothing applying it would notice.
+#[test]
+fn the_repository_homepage_is_the_url_the_site_is_built_for() {
+    let declared: serde_json::Value = serde_json::from_str(&read(".github/repository.json"))
+        .unwrap_or_else(|e| panic!(".github/repository.json is not JSON ({e})"));
+    let homepage = declared["homepage"]
+        .as_str()
+        .unwrap_or_else(|| panic!(".github/repository.json declares no `homepage`"));
+
+    assert_eq!(
+        homepage,
+        published_url(),
+        ".github/repository.json's homepage is not where astro.config.mjs's `site` + `base` \
+         put the docs site."
+    );
+}
+
 /// A step's `run:` script with its comment lines removed.
 ///
 /// `docs.yml` argues about `pages_build_version` at length in prose, so a check that

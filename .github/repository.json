@@ -1,0 +1,17 @@
+{
+  "description": "A template and toolchain for living knowledge artifacts",
+  "homepage": "https://goedelsoup.github.io/yidam/",
+  "topics": [
+    "claude-code",
+    "claude-code-plugin",
+    "cli",
+    "git",
+    "knowledge-graph",
+    "mcp",
+    "mcp-server",
+    "ontology",
+    "rust",
+    "second-brain",
+    "zettelkasten"
+  ]
+}
