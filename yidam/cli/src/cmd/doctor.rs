@@ -1660,18 +1660,25 @@ fn check_vault(root: &Path) -> Answer {
     // Credentials, for the stores that need them. A `file://` vault needs none, and demanding
     // them would report a healthy setup as broken.
     let mut principals: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+    // Where each vault's credentials came from (#1234). With static keys, a role and an ambient
+    // fallback all possible, "has credentials" no longer says which ones a vault will sign with.
+    let mut origins: Vec<String> = Vec::new();
     for (name, cfg) in vaults.iter() {
         if !cfg.url.trim().starts_with("s3://") {
             continue;
         }
-        if let Err(e) = crate::vault::credentials_available(name) {
-            return Answer::warn(
-                first_line(&e.to_string()),
-                Some(
-                    "Credentials come from the environment only — `.yidam/config.toml` is \
-                      committed and must never carry one.",
-                ),
-            );
+        match crate::vault::credentials_available(name) {
+            Err(e) => {
+                return Answer::warn(
+                    first_line(&e.to_string()),
+                    Some(
+                        "Credentials come from the environment only — `.yidam/config.toml` is \
+                          committed and must never carry one.",
+                    ),
+                );
+            }
+            Ok(origin) if !origin.is_empty() => origins.push(format!("`{name}` {origin}")),
+            Ok(_) => {}
         }
         if let Some(id) = crate::vault::credential_principal(name) {
             principals.entry(id).or_default().push(name);
@@ -1691,8 +1698,8 @@ fn check_vault(root: &Path) -> Answer {
             ),
             Some(
                 "Legal — one account can own two buckets. It is also what an unfinished \
-                  isolation setup looks like; export YIDAM_VAULT_<NAME>_ACCESS_KEY_ID per \
-                  vault if they were meant to differ.",
+                  isolation setup looks like; export YIDAM_VAULT_<NAME>_ACCESS_KEY_ID, or \
+                  YIDAM_VAULT_<NAME>_ROLE_ARN, per vault if they were meant to differ.",
             ),
         );
     }
@@ -1707,9 +1714,13 @@ fn check_vault(root: &Path) -> Answer {
         }
     };
     let configured = format!(
-        "{} vault{} configured",
+        "{} vault{} configured{}",
         vaults.len(),
-        if vaults.len() == 1 { "" } else { "s" }
+        if vaults.len() == 1 { "" } else { "s" },
+        match origins.is_empty() {
+            true => String::new(),
+            false => format!(" ({})", origins.join(", ")),
+        }
     );
     let uncached = named.iter().filter(|a| !cache.contains(&a.hash)).count();
     if uncached > 0 {

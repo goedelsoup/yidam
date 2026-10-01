@@ -280,13 +280,17 @@ lets each pod reach. A NetworkPolicy cannot name a host, so each key is a list o
 executor = ["172.18.0.2/32"]
 remote   = ["140.82.112.0/20"]
 vault    = ["10.20.0.0/16"]
+sts      = ["10.20.8.0/24"]
 ```
 
 `executor` is the API server's endpoint addresses. Argo's executor sidecar reports through
 them from inside every pod, and the generator refuses without them. `remote` is optional.
 Unset, the pods holding a git key reach anywhere. Under `git_auth = "github-app"` the lander
 also calls the GitHub API, so `remote` must cover it too. `vault` is required for an `s3://` vault and
-refused for a `file://` one. Each CIDR must be a network address: `10.0.0.1/8` is refused.
+refused for a `file://` one. `sts` is needed only when pods assume a role by web identity, as
+IRSA gives them. List the regional STS interface endpoint's addresses. See
+[cli-reference.md](cli-reference.md#s3-compatible-stores). Each CIDR must be a network address: `10.0.0.1/8` is
+refused.
 
 ### `[due]`
 

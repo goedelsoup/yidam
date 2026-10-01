@@ -344,6 +344,9 @@ vault exists precisely because its readership differs, and letting it silently i
 credentials is the failure the boundary was drawn to prevent. A vault that wants isolation has
 to say which keys it uses.
 
+A vault may also assume a role by web identity instead of holding keys. The rule above carries
+over unchanged; see [the amendment of 2026-09-30](#amendment--web-identity-counts-as-the-environment-2026-09-30).
+
 This repository has already found an untracked `.env` that any of its own prescribed
 `git add -A` steps would have staged. The vault must not add a second route by which a key
 gets committed.
@@ -722,6 +725,61 @@ tell that a path it has been handed is a directory when there is nothing there. 
 the state the first `materialize` runs in, so the guard refused every legitimate first run. The
 probe is a path *inside* the destination instead, which is both robust and the question actually
 at issue: would a file written here be committable?
+
+## Amendment — web identity counts as the environment (2026-09-30)
+
+#1234 (under #1226) found that a pod on EKS could reach an `s3://` vault only with a long-lived
+IAM user key stored in a secret. IRSA and EKS Pod Identity give a pod a role instead: a token
+the platform projects into a file, named with the role by `AWS_WEB_IDENTITY_TOKEN_FILE` and
+`AWS_ROLE_ARN`, and exchanged through STS's `AssumeRoleWithWebIdentity`. Two questions had to
+be settled against [Configuration, and where the credential is not](#configuration-and-where-the-credential-is-not)
+before any code.
+
+**1. A token file named by the environment counts as the environment.** The section's rule
+exists so that no key can be committed. A projected token is written by the platform, is never
+in the working tree, and expires within hours. The variable holds a path, not a key. So reading
+it crosses nothing the rule protects.
+
+**2. A second vault opts in by name, and `default` alone inherits.** Workload identity is
+ambient by nature: every pod under a service account gets it. That is the case the `AWS_*`
+asymmetry was drawn for, so the asymmetry applies as it stands. `AWS_ROLE_ARN` stands in for
+`default` and no other vault. Any vault, `default` included, may name its own role with
+`YIDAM_VAULT_<NAME>_ROLE_ARN` and `YIDAM_VAULT_<NAME>_WEB_IDENTITY_TOKEN_FILE`.
+
+**The order is own before ambient.** The issue proposed *vault role, `AWS_ROLE_ARN`, static
+keys*. That would let an injected role overrule keys an operator exported for one vault on
+purpose, which the original rule already forbids. What shipped:
+
+1. the vault's own role;
+2. the vault's own keys;
+3. for `default` only, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`;
+4. for `default` only, `AWS_ROLE_ARN`.
+
+Three before four is the AWS SDKs' own order. A vault's own role and own keys together are
+refused, as half a key pair is: they name two principals, and choosing one is a guess. Half a
+role is refused the same way. A token file that does not exist is reported at resolution, so
+`doctor` says so without a network call.
+
+The remote vector index (RFC-0033) reads the same order under `YIDAM_INDEX_`. Its ambient
+licence was already argued there, so it inherits `AWS_ROLE_ARN` too.
+
+**What was built.** One unsigned form POST through the `reqwest` already present, read for
+four elements, with no STS client and no XML parser. STS is `AWS_ENDPOINT_URL_STS` if set, else
+the regional endpoint for `AWS_REGION`. The credentials are a lease: each store asks for them
+per request and exchanges again inside five minutes of expiry. A push or `serve` can outlive
+the hour a lease lasts. The token file is read on each exchange, because the kubelet rotates
+it. `doctor` names each vault's source and compares a role, not a lease's key id, for its
+two-vaults-one-account warning.
+
+**A fenced cluster must reach STS.** Under `yidam cluster network-policy` a pod reaches only
+what its kind allows. `[cluster.egress] sts` lists the STS interface endpoint's addresses and
+rides with the vault into every kind's policy. Unset, the policies are unchanged.
+
+**GKE has no equivalent through this path.** Cloud Storage's XML API accepts SigV4 only with
+HMAC keys, which are long-lived. Workload Identity Federation for GKE yields OAuth 2.0 access
+tokens, which the XML API takes as a bearer header, not as a signature. Supporting that means a
+second authentication scheme in the S3 client, or a native GCS backend. Both are out of scope
+for #1226. On GKE, HMAC keys in the vault's secret remain the route.
 
 ## Testing
 

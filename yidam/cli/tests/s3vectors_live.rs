@@ -119,7 +119,7 @@ fn client() -> (Client, RemoteIndex) {
             .iter()
             .find_map(|k| std::env::var(k).ok()),
     };
-    let client = Client::new(index.clone(), creds).expect("building the client");
+    let client = Client::new(index.clone(), creds.into()).expect("building the client");
     (client, index)
 }
 

@@ -252,7 +252,7 @@ fn canonical_uri(path: &str) -> String {
 ///
 /// Uppercase hex, which the specification requires: `%2f` and `%2F` are the same byte and
 /// only one of them signs.
-fn uri_encode(s: &str) -> String {
+pub(crate) fn uri_encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {

@@ -138,6 +138,9 @@ pub enum ClusterCommand {
         /// Where an s3:// vault's endpoint is; replaces `[cluster.egress] vault`
         #[arg(long = "vault-cidr", value_name = "CIDR")]
         vault_cidr: Vec<String>,
+        /// Where STS is, for pods that assume a role; replaces `[cluster.egress] sts`
+        #[arg(long = "sts-cidr", value_name = "CIDR")]
+        sts_cidr: Vec<String>,
     },
     /// Read the branch tip and put a git bundle of it in the vault — the input every step reads
     ///
@@ -370,11 +373,13 @@ pub fn run(sub: ClusterCommand) -> Result<()> {
             executor,
             remote_cidr,
             vault_cidr,
+            sts_cidr,
         } => egress::run(&egress::Overrides {
             vault_url,
             executor,
             remote: remote_cidr,
             vault: vault_cidr,
+            sts: sts_cidr,
         }),
         ClusterCommand::Pin {
             remote,

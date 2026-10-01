@@ -508,7 +508,7 @@ unproductive the report says so rather than shrugging:
 
 A rejected query **emits its report and exits 1**. That is the shape four commands already
 have — `doctor`
-([`crate::report::gate`](../../yidam/cli/src/cmd/doctor.rs#L2165)), `regen`
+([`crate::report::gate`](../../yidam/cli/src/cmd/doctor.rs#L2176)), `regen`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/regen.rs#L467)), `rename`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/rename.rs#L798)) and `index-verify`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/index_verify.rs#L260)) all print, then

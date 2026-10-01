@@ -281,7 +281,7 @@ impl ClusterCleanupConfig {
 
 /// `[cluster.egress]`: the addresses a generated NetworkPolicy lets a pod reach (#1232).
 ///
-/// Three hostnames a pod needs, given as CIDRs, because a NetworkPolicy cannot name a host.
+/// The hostnames a pod needs, given as CIDRs, because a NetworkPolicy cannot name a host.
 /// What each pod may reach is the generator's (`cmd/cluster/egress.rs`); this says only where
 /// those things are on this cluster's network.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -300,6 +300,11 @@ pub struct ClusterEgressConfig {
     /// which is a volume and reaches no network.
     #[serde(default)]
     pub vault: Vec<String>,
+    /// Where STS is, for an `s3://` vault whose pods assume a role by web identity (#1234):
+    /// the regional STS interface endpoint's addresses. Optional, since keys need no STS, and
+    /// refused for a `file://` vault, like `vault`.
+    #[serde(default)]
+    pub sts: Vec<String>,
 }
 
 impl ClusterEgressConfig {
@@ -309,6 +314,7 @@ impl ClusterEgressConfig {
             ("executor", &self.executor),
             ("remote", &self.remote),
             ("vault", &self.vault),
+            ("sts", &self.sts),
         ] {
             for cidr in list {
                 if let Err(why) = parse_cidr(cidr) {

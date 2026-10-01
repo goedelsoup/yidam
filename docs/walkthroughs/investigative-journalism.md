@@ -194,7 +194,7 @@ default
   holds     index, embeddings, bundle
   routed    0 artifacts the corpus names
   store     unusable — no credentials for vault `default`.
-            Set YIDAM_VAULT_DEFAULT_ACCESS_KEY_ID and YIDAM_VAULT_DEFAULT_SECRET_ACCESS_KEY, or AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
+            Set YIDAM_VAULT_DEFAULT_ACCESS_KEY_ID and YIDAM_VAULT_DEFAULT_SECRET_ACCESS_KEY, or YIDAM_VAULT_DEFAULT_ROLE_ARN and YIDAM_VAULT_DEFAULT_WEB_IDENTITY_TOKEN_FILE; or AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or AWS_ROLE_ARN and AWS_WEB_IDENTITY_TOKEN_FILE.
             Credentials come from the environment only — `.yidam/config.toml` is committed and must never carry one.
 
 sources
