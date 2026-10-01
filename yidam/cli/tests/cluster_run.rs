@@ -1388,6 +1388,87 @@ fn an_epistemic_step_lands_on_a_proposal_branch_and_main_does_not_move() {
     assert_eq!(admission["open_proposals"], 0);
 }
 
+/// A run with a landing after its proposal owes nothing on the next tick.
+///
+/// The e2e found this (#1237). Streamflow planned `disclosure-envelope` between two landings,
+/// so its proposal was cut at a tip the run then moved past. Admission looks for a proposal
+/// at the branch's tip, found none, and every tick re-proposed. Here the steps run in the
+/// order the generated workflow gives them, as the pods would, and `zone-count` waits only
+/// for `travel-tier`, which a depth-first plan alone puts after the proposal.
+#[test]
+fn a_run_that_proposes_and_lands_owes_nothing_after() {
+    let c = Cluster::new();
+    c.push_to_main(
+        "scaffold: disclosure-envelope establishes, and a count lands after it",
+        |root| {
+            let manifest = root.join(".yidam/capabilities.toml");
+            let text = std::fs::read_to_string(&manifest).unwrap();
+            let at = text.find("[capability.disclosure-envelope]").unwrap();
+            let (head, tail) = text.split_at(at);
+            let tail = tail.replacen("verb   = \"compute\"", "verb   = \"establish\"", 1);
+            assert_ne!(tail, text[at..], "nothing was re-declared");
+            let count = "\n[capability.zone-count]\nkind   = \"calculator\"\n\
+                         run    = [\"sh\", \"-c\", \"mkdir -p .yidam/computed && \
+                         ls .yidam/corpus | wc -l > .yidam/computed/zone-count.txt\"]\n\
+                         reads  = [\".yidam/corpus/**\"]\n\
+                         writes = [\".yidam/computed/zone-count.txt\"]\n\
+                         verb   = \"compute\"\nafter  = [\"travel-tier\"]\n";
+            std::fs::write(manifest, format!("{head}{tail}{count}")).unwrap();
+        },
+    );
+
+    let o = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(c.e.path())
+        .args([
+            "cluster",
+            "workflow",
+            "--remote",
+            "git@example.com:corpus.git",
+            "--image",
+            "ghcr.io/goedelsoup/yidam-cluster:test",
+            "--vault-url",
+            "file:///var/yidam/vault",
+        ])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let workflow: serde_yaml::Value = serde_yaml::from_slice(&o.stdout).unwrap();
+    let ours = ["travel-tier", "zone-count", "disclosure-envelope"];
+    let order: Vec<String> = workflow["spec"]["templates"]
+        .as_sequence()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "run")
+        .expect("the workflow has its DAG")["dag"]["tasks"]
+        .as_sequence()
+        .unwrap()
+        .iter()
+        .filter_map(|t| t["name"].as_str()?.strip_prefix("step-"))
+        .filter(|n| ours.contains(n))
+        .map(str::to_string)
+        .collect();
+    assert_eq!(order, ours, "the proposal is not the run's last step");
+
+    let mut bundle = s(&c.pin()["bundle"]).to_string();
+    for name in &order {
+        let step = c.step(name, &bundle);
+        assert_eq!(step["outcome"], "ran", "{step}");
+        let landed = c.land(&step);
+        bundle = s(&landed["next"]["bundle"]).to_string();
+    }
+    let tip = c.main_tip();
+    let short = &tip[..out(&c.remote(), &["rev-parse", "--short", &tip]).len()];
+    assert!(
+        c.remote_ref(&format!("refs/heads/propose/{short}"))
+            .is_some(),
+        "the proposal is not at the tip the run left"
+    );
+
+    let admission = c.admit();
+    assert_eq!(admission["admitted"], false, "{admission}");
+    assert_eq!(admission["stale"], serde_json::json!([]), "{admission}");
+}
+
 // ── the built-in steps ────────────────────────────────────────────────────────
 
 /// #475's definition of done: `catalog-fetch`, run the way a pod runs it — a pinned bundle, no
@@ -1605,6 +1686,18 @@ fn named_objects(doc: &serde_yaml::Value) -> Vec<Named> {
     while let Some(v) = stack.pop() {
         match v {
             serde_yaml::Value::Mapping(m) => {
+                // Argo's, and named by no field: a spec that keeps the token from its pods
+                // mounts `<executor account>.service-account-token` into the executor, and the
+                // pod waits in `Init` until that secret exists (#1237).
+                if v["automountServiceAccountToken"].as_bool() == Some(false) {
+                    if let Some(account) = v["executor"]["serviceAccountName"].as_str() {
+                        found.push(Named {
+                            field: "executor.serviceAccountName".to_string(),
+                            name: format!("{account}.service-account-token"),
+                            optional: false,
+                        });
+                    }
+                }
                 for (k, v) in m {
                     let field = k.as_str().unwrap_or_default();
                     match (field, v) {
@@ -2232,6 +2325,23 @@ fn the_overlay_creates_what_the_workflow_mounts_and_nothing_else() {
         "the RoleBinding does not bind {account:?}: {b:?}"
     );
 
+    // The executor's token secret is filled in for the account its annotation names. The
+    // prefix renames the account, so the annotation must follow it, or no token ever arrives
+    // and the pods wait on the mount (#1237).
+    let executor = cron["spec"]["workflowSpec"]["executor"]["serviceAccountName"]
+        .as_str()
+        .expect("the CronWorkflow names its executor's account");
+    let token = built
+        .iter()
+        .find(|v| kind(v) == "Secret" && name(v) == format!("{executor}.service-account-token"))
+        .expect("the overlay creates the executor's token secret");
+    assert_eq!(token["type"], "kubernetes.io/service-account-token");
+    assert_eq!(
+        token["metadata"]["annotations"]["kubernetes.io/service-account.name"].as_str(),
+        Some(executor),
+        "the token secret is for another account: {token:?}"
+    );
+
     // A git secret holds the files its pod reads out of the mount. The file names come from
     // the workflow's own ssh command, not from a list here.
     let text = serde_yaml::to_string(cron).unwrap();
@@ -2505,6 +2615,110 @@ fn the_one_shot_workflow_names_what_the_cron_workflow_names() {
     let once = sorted(&once["spec"]);
     assert!(!once.is_empty(), "the one-shot workflow names nothing");
     assert_eq!(once, sorted(&cron["spec"]["workflowSpec"]));
+}
+
+/// A bare `depends: pin` holds when `pin` is Skipped, which it is on a run not admitted. The
+/// first step then read pin's output, which nothing wrote, and the e2e's second submission
+/// ended in Error rather than with nothing owed (#1237). Every edge names the phase it waits for.
+#[test]
+fn every_dependency_names_the_phase_it_waits_for() {
+    fn edges<'a>(v: &'a serde_yaml::Value, out: &mut Vec<(&'a str, &'a str)>) {
+        match v {
+            serde_yaml::Value::Mapping(m) => {
+                if let (Some(name), Some(on)) = (
+                    m.get("name").and_then(|n| n.as_str()),
+                    m.get("depends").and_then(|d| d.as_str()),
+                ) {
+                    out.push((name, on));
+                }
+                m.values().for_each(|v| edges(v, out));
+            }
+            serde_yaml::Value::Sequence(s) => s.iter().for_each(|v| edges(v, out)),
+            _ => {}
+        }
+    }
+    for file in [
+        "streamflow.workflow.yml",
+        "streamflow.cronworkflow.yml",
+        "../streamflow-on-push/streamflow.onpush.yml",
+    ] {
+        let text = std::fs::read_to_string(overlay().join(file)).unwrap();
+        let docs: Vec<serde_yaml::Value> = serde_yaml::Deserializer::from_str(&text)
+            .map(|d| serde::Deserialize::deserialize(d).unwrap())
+            .collect();
+        let mut found = Vec::new();
+        docs.iter().for_each(|d| edges(d, &mut found));
+        // Every step and every landing waits on something, so a scan that found only a few
+        // edges is not reading the DAG.
+        assert!(
+            found.len() >= 10,
+            "{file}: only {} edges found",
+            found.len()
+        );
+        for (name, on) in found {
+            for term in on
+                .split(&['|', '&'][..])
+                .map(|t| t.trim_matches([' ', '(', ')']))
+            {
+                assert!(
+                    term.is_empty() || term.ends_with(".Succeeded") || term.ends_with(".Failed"),
+                    "{file}: `{name}` waits on `{term}`, which a skipped task also satisfies"
+                );
+            }
+        }
+    }
+}
+
+/// Inside `{{=…}}`, Argo's expr reads `tasks.land-x` as `tasks.land - x`. The parameter never
+/// resolves, and the DAG waits on it with nothing failed: the e2e found streamflow stopped
+/// after its first landing (#1237). Every task an expression names is bracketed.
+#[test]
+fn an_expression_names_a_task_in_brackets() {
+    for file in [
+        "streamflow.workflow.yml",
+        "streamflow.cronworkflow.yml",
+        "../streamflow-on-push/streamflow.onpush.yml",
+    ] {
+        let text = std::fs::read_to_string(overlay().join(file)).unwrap();
+        let expressions: Vec<&str> = text
+            .split("{{=")
+            .skip(1)
+            .map(|rest| rest.split("}}").next().unwrap())
+            .collect();
+        // Read off a hyphenated task's landing, so a scan that found only `admit` and `pin`
+        // has not looked at the form that broke.
+        assert!(
+            expressions.iter().any(|e| e.contains("tasks['land-")),
+            "{file}: no expression reads a landing, so this scan reads nothing that can break"
+        );
+        for e in expressions {
+            let dotted = e
+                .split("tasks.")
+                .skip(1)
+                .find(|after| !after.starts_with(['[', '\'']));
+            assert!(
+                dotted.is_none(),
+                "{file}: `{{{{={e}}}}}` names a task with a dot, and expr will not resolve it"
+            );
+        }
+    }
+}
+
+/// Argo 4.x refuses a CronWorkflow carrying the singular `spec.schedule` as an unknown field,
+/// and 3.6, the oldest the mutex allows, reads the list. The e2e found it (#1237): the overlay
+/// would not apply.
+#[test]
+fn the_cron_workflow_schedules_as_a_list() {
+    let cron = overlay_manifest("streamflow.cronworkflow.yml");
+    assert!(
+        cron["spec"].get("schedule").is_none(),
+        "`spec.schedule` is gone from Argo 4: {:?}",
+        cron["spec"]["schedule"]
+    );
+    let schedules = cron["spec"]["schedules"]
+        .as_sequence()
+        .expect("`spec.schedules` is a list");
+    assert_eq!(schedules, &[serde_yaml::Value::from("0 6 * * *")]);
 }
 
 // ── a gather as a cluster step (#1217) ────────────────────────────────────────

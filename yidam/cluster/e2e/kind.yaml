@@ -1,0 +1,12 @@
+# The cluster `run.sh` builds: one node, and no default CNI.
+#
+# kindnet, kind's default, accepts a NetworkPolicy and enforces nothing, so the egress half of
+# the test would pass on a cluster where a step pod can reach the remote (#1232, #1255). Calico
+# is installed in its place. Its manifest assumes 192.168.0.0/16 for pods.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true
+  podSubnet: 192.168.0.0/16
+nodes:
+  - role: control-plane

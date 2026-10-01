@@ -604,6 +604,13 @@ impl Manifest {
         for root in roots {
             self.visit(root, &mut order, &mut done, &mut path)?;
         }
+        // Every epistemic step last. A proposal lands on `propose/<head>` for the head it was
+        // resolved against, and the next run judges it fresh only on `propose/<its head>`. A
+        // proposal cut before an operational landing names a tip the run then moves past, so
+        // the next run finds no proposal at its own head and proposes again, every run
+        // (#1237). Still dependencies first: no step may wait on an epistemic one, which
+        // `check_graph` refuses, and a stable sort keeps each group's own order.
+        order.sort_by_key(|s| self.capability[*s].route() == Route::Proposal);
         Ok(order)
     }
 
@@ -1392,6 +1399,25 @@ verb   = "compute"
             plan_of(&text, Some("envelope")),
             ["gather", "tier", "envelope"]
         );
+    }
+
+    /// An epistemic step is planned after every operational one, wherever its name or its
+    /// dependencies would put it.
+    ///
+    /// Its proposal is cut at the head it was resolved against, and the next run looks for it
+    /// at that run's head. Planned between two landings, it named a tip the run then moved
+    /// past, and every later run proposed it again (#1237). `envelope` sorts first and waits
+    /// only for `tier`, so a depth-first plan alone would put it before `typed`.
+    #[test]
+    fn an_epistemic_step_is_planned_after_every_landing() {
+        let text = graph(&[("envelope", &["tier"]), ("tier", &[]), ("typed", &["tier"])]).replacen(
+            r#"verb   = "compute""#,
+            r#"verb   = "establish""#,
+            1,
+        );
+        assert!(text.starts_with("[capability.envelope]"), "{text}");
+        assert_eq!(plan_of(&text, None), ["tier", "typed", "envelope"]);
+        assert_eq!(plan_of(&text, Some("envelope")), ["tier", "envelope"]);
     }
 
     /// A step two dependents both wait for is in the plan once, not twice.

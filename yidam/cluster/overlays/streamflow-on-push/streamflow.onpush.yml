@@ -172,100 +172,100 @@ spec:
                         # submits no run — this task is the whole workflow that ran.
                         - name: pin
                           template: pin
-                          depends: admit
-                          when: "{{=jsonpath(tasks.admit.outputs.parameters.output, '$.admitted') == true}}"
+                          depends: admit.Succeeded
+                          when: "{{=jsonpath(tasks['admit'].outputs.parameters.output, '$.admitted') == true}}"
                         - name: step-catalog-fetch
                           template: step-catalog-fetch
-                          depends: pin
+                          depends: pin.Succeeded
                           arguments:
                             parameters:
                               - name: step
                                 value: "catalog-fetch"
                               - name: bundle
-                                value: "{{=jsonpath(tasks.pin.outputs.parameters.output, '$.bundle')}}"
+                                value: "{{=jsonpath(tasks['pin'].outputs.parameters.output, '$.bundle')}}"
                         - name: land-catalog-fetch
                           template: land
-                          depends: step-catalog-fetch
+                          depends: step-catalog-fetch.Succeeded
                           arguments:
                             parameters:
                               - name: step-output
                                 value: "{{tasks.step-catalog-fetch.outputs.parameters.output}}"
                         - name: step-catalog-extract
                           template: step
-                          depends: land-catalog-fetch
+                          depends: land-catalog-fetch.Succeeded
                           arguments:
                             parameters:
                               - name: step
                                 value: "catalog-extract"
                               - name: bundle
-                                value: "{{=jsonpath(tasks.land-catalog-fetch.outputs.parameters.output, '$.next.bundle')}}"
+                                value: "{{=jsonpath(tasks['land-catalog-fetch'].outputs.parameters.output, '$.next.bundle')}}"
                         - name: land-catalog-extract
                           template: land
-                          depends: step-catalog-extract
+                          depends: step-catalog-extract.Succeeded
                           arguments:
                             parameters:
                               - name: step-output
                                 value: "{{tasks.step-catalog-extract.outputs.parameters.output}}"
                         - name: step-catalog-reconcile
                           template: step
-                          depends: land-catalog-extract
+                          depends: land-catalog-extract.Succeeded
                           arguments:
                             parameters:
                               - name: step
                                 value: "catalog-reconcile"
                               - name: bundle
-                                value: "{{=jsonpath(tasks.land-catalog-extract.outputs.parameters.output, '$.next.bundle')}}"
+                                value: "{{=jsonpath(tasks['land-catalog-extract'].outputs.parameters.output, '$.next.bundle')}}"
                         - name: land-catalog-reconcile
                           template: land
-                          depends: step-catalog-reconcile
+                          depends: step-catalog-reconcile.Succeeded
                           arguments:
                             parameters:
                               - name: step-output
                                 value: "{{tasks.step-catalog-reconcile.outputs.parameters.output}}"
                         - name: step-travel-tier
                           template: step
-                          depends: land-catalog-reconcile
+                          depends: land-catalog-reconcile.Succeeded
                           arguments:
                             parameters:
                               - name: step
                                 value: "travel-tier"
                               - name: bundle
-                                value: "{{=jsonpath(tasks.land-catalog-reconcile.outputs.parameters.output, '$.next.bundle')}}"
+                                value: "{{=jsonpath(tasks['land-catalog-reconcile'].outputs.parameters.output, '$.next.bundle')}}"
                         - name: land-travel-tier
                           template: land
-                          depends: step-travel-tier
+                          depends: step-travel-tier.Succeeded
                           arguments:
                             parameters:
                               - name: step-output
                                 value: "{{tasks.step-travel-tier.outputs.parameters.output}}"
                         - name: step-disclosure-envelope
                           template: step
-                          depends: land-travel-tier
+                          depends: land-travel-tier.Succeeded
                           arguments:
                             parameters:
                               - name: step
                                 value: "disclosure-envelope"
                               - name: bundle
-                                value: "{{=jsonpath(tasks.land-travel-tier.outputs.parameters.output, '$.next.bundle')}}"
+                                value: "{{=jsonpath(tasks['land-travel-tier'].outputs.parameters.output, '$.next.bundle')}}"
                         - name: land-disclosure-envelope
                           template: land
-                          depends: step-disclosure-envelope
+                          depends: step-disclosure-envelope.Succeeded
                           arguments:
                             parameters:
                               - name: step-output
                                 value: "{{tasks.step-disclosure-envelope.outputs.parameters.output}}"
                         - name: step-travel-tier-typed
                           template: step
-                          depends: land-disclosure-envelope
+                          depends: land-disclosure-envelope.Succeeded
                           arguments:
                             parameters:
                               - name: step
                                 value: "travel-tier-typed"
                               - name: bundle
-                                value: "{{=jsonpath(tasks.land-disclosure-envelope.outputs.parameters.output, '$.next.bundle')}}"
+                                value: "{{=jsonpath(tasks['land-disclosure-envelope'].outputs.parameters.output, '$.next.bundle')}}"
                         - name: land-travel-tier-typed
                           template: land
-                          depends: step-travel-tier-typed
+                          depends: step-travel-tier-typed.Succeeded
                           arguments:
                             parameters:
                               - name: step-output

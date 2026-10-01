@@ -1,4 +1,5 @@
-# What every corpus on a cluster needs, whatever its vault: the account its pods run as.
+# What every corpus on a cluster needs, whatever its vault: the account its pods run as, and
+# the token its executor mounts.
 #
 # Nothing here carries a corpus's name. An overlay prefixes it with `yidam-<corpus>-`, and the
 # generated workflow already names the result (RFC-0026 §7.2). A derived repository has no
@@ -10,3 +11,5 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - rbac.yml
+configurations:
+  - name-reference.yml

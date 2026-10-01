@@ -1,0 +1,47 @@
+# The corpus's remote, inside the cluster. `run.sh` creates the `git-server-keys` secret first:
+# the host key, and the public halves of the overlay's read and write keys.
+#
+# Its own namespace, unrestricted, since sshd starts as root. Nothing in it is under test.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: git
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: git
+  template:
+    metadata:
+      labels:
+        app: git
+    spec:
+      containers:
+        - name: sshd
+          image: yidam-e2e-git:local
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 22
+          readinessProbe:
+            tcpSocket:
+              port: 22
+            periodSeconds: 2
+          volumeMounts:
+            - name: keys
+              mountPath: /etc/git-server
+              readOnly: true
+      volumes:
+        - name: keys
+          secret:
+            secretName: git-server-keys
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: git
+spec:
+  selector:
+    app: git
+  ports:
+    - port: 22
+      targetPort: 22
