@@ -29,6 +29,8 @@
 - **Amended 2026-09-28 (#577):** A6 shipped in two places. The `broken-object-link` lint check
   holds each link, and a coupling section in `kuten check`'s report counts them. Neither is a
   command of its own. Erratum 6 in §6 records why both read markdown links and not `cites:`.
+- **Amended 2026-10-01 (#643):** the mixed-register conduct finding is withdrawn, not exempted.
+  Erratum 7 in §4 records why, and Open Question 3 is struck.
 - **Downstream reference case:** A0's population — eighteen derived corpora on disk, 6,900
   commits, read-only. Six of them define `inquiry`; two are object-coupled; one is a projected
   mirror of 1,656 commits (#582).
@@ -258,7 +260,7 @@ paths they touch shows narrowing helps one of three populations:
 |---|---|---|
 | **Register bleed** | one repository: 24 of 32 off-vocabulary commits touch **no corpus file at all** — `feat:`/`fix:`/`test:` on the artifact, reported as corpus violations. Another: 107 of 111 | **Path-scoped registers** (§4) |
 | **Genuine coinage** | one repository: 260 off-vocabulary commits touching only `.yidam/`; `corpus:` coined against a *closed* list, 40 uses | #292's forum, which currently has a gap and no subject |
-| **Mixed commits** | one repository spans both registers in 27 of 37 off-vocabulary commits | A conduct norm, applied one level out — [`PHASES.md:136`](../../yidam/prelude/PHASES.md#L136): *"Do not mix phase types in one commit"* |
+| **Mixed commits** | one repository spans both registers in 27 of 37 off-vocabulary commits | ~~A conduct norm, applied one level out — [`PHASES.md:136`](../../yidam/prelude/PHASES.md#L136): *"Do not mix phase types in one commit"*~~ Withdrawn; see Erratum 7 in §4. A register is not a phase type |
 
 **A repository with an object has two commit registers and yidam models one.**
 
@@ -556,11 +558,61 @@ because history cannot be rewritten to fix it.~~
 > measurement Open Question 3 pre-registered *"before A3 fixes the proposed severity"*. It
 > produces ~710 findings across six corpora that are already 100% vocabulary-conformant —
 > grindcore 138/247, audio-effect-design 61/122, bitrecover-bitwipe 61/157, bitlocker 31/82,
-> hermetic-ch 27/73, allen-county-ohio 392/1267 — most often on `regen`, the corpus → `web/`
-> export, which is the one act whose job is to cross the registers. A rule that fires hardest
+> hermetic-ch 27/73, allen-county-ohio 392/1267 — ~~most often on `regen`, the corpus → `web/`
+> export, which is the one act whose job is to cross the registers~~. A rule that fires hardest
 > on the best-behaved repositories teaches readers to ignore the line, which is `due`'s own
-> argument. It needs an exemption for the export act, and that exemption needs its own
-> evidence.
+> argument. ~~It needs an exemption for the export act, and that exemption needs its own
+> evidence.~~
+
+> **Erratum 7 — struck 2026-10-01, closing #643 (B3 of #1210); the rule is withdrawn, not
+> exempted.** Re-measured over the same six repositories. The ~710 was an upper bound for three
+> reasons, and the residue does not justify an exemption.
+>
+> - **About 293 of the ~710 are authored `phase:` merges, counted by first-parent diff**
+>   (grindcore 53, audio-effect-design 28, bitrecover-bitwipe 24, bitlocker 11, hermetic-ch 11,
+>   allen-county-ohio 166 at today's head). The first five reproduce the table above exactly. The rule could never have fired on them: `lint --commits` reads
+>   `--name-only`, which lists nothing for a merge, and a commit with no paths is governed by
+>   the corpus:
+>   *"Absence of evidence is not a declaration of jurisdiction"* ([`kuten.rs:175`](../../yidam/cli/src/kuten.rs#L175)).
+>   A phase merge carries the whole phase,
+>   so it was never one act to judge.
+> - **The "cheapest arm" is already the shipped semantics.** #643 proposed letting the corpus
+>   register claim the regen target, but the shipped type has none to claim:
+>   *"There is no corpus glob list"* ([`kuten.rs:191`](../../yidam/cli/src/kuten.rs#L191)). Any path not declared as the object is
+>   corpus. The `corpus = .yidam/**` reading above is a counterfactual that no declaration
+>   produces.
+> - **`regen` is not the export.** Its vocabulary row says
+>   *"REGEN blocks refreshed"* ([`GRAPH.md:694`](../../yidam/prelude/GRAPH.md#L694)). Of the 278 `regen` commits that
+>   reach outside `.yidam/`, 267 touch only files that carry a REGEN block. Nearly all of
+>   those are the root `README.md`, which is corpus under the shipped rules. Of the other
+>   eleven, ten are allen-county-ohio's writes to `web/src/feeds/*.json`, and those ten are the
+>   only corpus → `web/` export.
+>
+> **The residue is coupling.** The re-measurement used allen-county-ohio's declared
+> `web/** crates/** design/**`. The other five declare no object, so it assumed `web/`,
+> `crates/`, `design/`, `agents/`, `tools/` and `.astro/` for them. Under those declarations,
+> **212 of 2,130** authored non-merge commits span both registers:
+>
+> | Commit touches | Commits |
+> |---|---|
+> | a node together with object source or a page | 106 |
+> | the corpus side, but no node (catalog, decisions, skills) | 60 |
+> | a node together with generated feeds | 20 |
+> | genesis, vendor or scaffold | 15 |
+> | a node together with only the test that pins it | 11 |
+>
+> The typical case is `establish:` or `revise:` moving a node together with
+> `crates/publish/tests/corpus.rs`, the test that asserts it. Splitting that commit leaves a red
+> commit between the two halves. No verb, path or pairing exemption separates this from
+> misconduct, because none of it is misconduct.
+>
+> **What went wrong is a category error.** The rule it borrowed is about phase types:
+> *"Do not mix phase types in one commit"* ([`PHASES.md:136`](../../yidam/prelude/PHASES.md#L136)).
+> A register says which vocabulary governs a path, which is jurisdiction, not type. The phrase "applied one level out" moved the rule from one axis to
+> the other. The type version of the rule is an operational verb that changes a node. That
+> matches 121 commits, but `extract`, `compute` and `migrate` write nodes by definition, so it
+> is a question rather than a rule, and it lives in #1301. Nothing ships under #643, and
+> Open Question 3 is struck.
 
 The load-bearing question is *where the register split lives relative to `classify_commit`* —
 because `classify_commit` is a parity function fixtured in three SDKs, its totality is
@@ -993,9 +1045,13 @@ an interval, and this RFC adds no second one — the same sentence RFC-0026 wrot
 2. **Where the vendored binding rule lands.** §8 fixes the text and its destination class
    (vendored prelude, at the head of the kuten profile document); whether a one-line pointer
    also belongs in `GRAPH.md` or `CONSTITUTION.md`'s commentary is A2's placement call.
-3. **The mixed-register conduct finding's proposed severity.** §4 proposes Warn by analogy with
+3. ~~**The mixed-register conduct finding's proposed severity.** §4 proposes Warn by analogy with
    `unrecognized-verb`. A0 can be re-read for how often mixed commits occur in otherwise
-   conformant repositories before A3 fixes the proposal.
+   conformant repositories before A3 fixes the proposal.~~ **Struck 2026-10-01 (#643).** There
+   is no severity to choose, because there is no finding. Erratum 7 in §4 records the
+   re-measurement: about 40% of the ~710 was phase merges the rule could not see, the rest
+   was measured against a register no declaration produces, and the remaining 212 commits are coupling. The
+   phase-type question the rule was reaching for is #1301.
 4. **Whether `log` ever grows a register presentation.** The (b) residue in §4: left until a
    reader is measured to be misled, not merely until the tally looks untidy.
 5. **The second kuten's trigger.** Scope decision 1 waits for a second instance at comparable
