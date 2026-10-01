@@ -64,7 +64,7 @@ yidam cluster workflow --cron "0 6 * * *" > yidam.cronworkflow.yml
 ```
 
 The admission task runs `yidam cluster admit`. Its record says `admitted`. The pin task carries a
-`when` on that field, and every task after it waits for the one before to succeed. A clock that is
+`when` on that field. Every task after it waits for the one before to succeed. A clock that is
 not owed runs no step, and the workflow still ends `Succeeded`.
 
 Every form holds one mutex per corpus, `yidam-<corpus>`. Two runs of one corpus never land at
