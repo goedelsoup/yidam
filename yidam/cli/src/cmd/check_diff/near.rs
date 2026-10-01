@@ -8,8 +8,8 @@
 //!
 //! The obvious implementation is an embedding, and it was measured before it was rejected.
 //! Across the 516 unmatched type names in the three instrumented repositories, cosine
-//! similarity over `AllMiniLML6V2Q` offers 55 candidates at ≥ 0.70 — and the rule below
-//! finds 50 of them, because the near-misses are *morphological* rather than semantic:
+//! similarity over `AllMiniLML6V2Q` offers 55 candidates at ≥ 0.70 — and the rule below,
+//! with the four-character floor it first shipped with, found 50 of them, because the near-misses are *morphological* rather than semantic:
 //! plurals, tenses, and compounds sharing a root. The five the model adds are `held→holds`,
 //! `placement→position`, `edition→version`, `totals→amount`, and `answer→question`, which is
 //! wrong.
@@ -29,9 +29,9 @@
 //!
 //! The threshold calibration #23 left open is not a question here, because **the candidate
 //! annotates a finding that exists either way**. Phase A has already decided to report the
-//! type; a near-miss adds a clause to a row rather than creating one. Measured, this offers
-//! a candidate for 56 of A's 273 unmatched types, 11 of B's 46 and 79 of C's 203, and adds
-//! no row to any report.
+//! type; a near-miss adds a clause to a row rather than creating one. Measured over fourteen
+//! corpora at the floor below, this offers a candidate for 286 of 1,656 unmatched types, and
+//! adds no row to any report.
 
 use std::collections::BTreeSet;
 
@@ -46,9 +46,16 @@ pub struct Nearest {
 
 /// How much of a word two names must agree on before they are the same word.
 ///
-/// Four characters and three trailing is what fits A, B and C. It is a string rule with two
-/// magic numbers and no corpus has argued with it yet; RFC-0022 records that as open.
-const PREFIX: usize = 4;
+/// Four characters was what fit A, B and C. Twelve corpora that did not produce it disagreed
+/// (#390): more than half of what four characters offered them was wrong, and most of the
+/// wrong ones shared a truncated root rather than a word — `statement` offered `status` on
+/// `stat`. Five characters drops 106 wrong candidates across fourteen corpora for 8 right
+/// ones, `vote-row` → `adopting-vote` among them. Three trailing was never in question:
+/// moving it either way changes the count by about one candidate in a hundred.
+///
+/// What a constant cannot reach is a whole word that is shared and generic — `FetchError`
+/// is still nearly `margin-of-error` — and #1298 is that rule question.
+const PREFIX: usize = 5;
 const TRAILING: usize = 3;
 
 /// The characters two words share from the start — `sponsorship` and `sponsored` give
@@ -200,6 +207,20 @@ mod tests {
         assert_eq!(near("held", &["holds"]), None);
         assert_eq!(near("answer", &["question"]), None);
         assert_eq!(near("edition", &["version"]), None);
+    }
+
+    /// Nor is four, which is #390's finding. The truncations it admitted were more than half of
+    /// all wrong candidates, and the four-letter words it lost are a handful of right ones.
+    #[test]
+    fn four_shared_characters_are_not_enough() {
+        assert_eq!(near("statement", &["status"]), None);
+        assert_eq!(near("instance", &["first-instrument"]), None);
+        assert_eq!(near("vote-row", &["adopting-vote"]), None);
+        assert_eq!(
+            near("votes", &["voted"]),
+            None,
+            "a four-letter root is below the floor even when it is the whole word"
+        );
     }
 
     /// `by`, `to` and `on` are everywhere in a vocabulary, and a rule that let them match
