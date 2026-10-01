@@ -1,0 +1,6 @@
+# What a corpus that runs on push needs beside its run account: the account the Sensor creates
+# the workflow as. A corpus on the cron alone leaves this component out.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - rbac.yml

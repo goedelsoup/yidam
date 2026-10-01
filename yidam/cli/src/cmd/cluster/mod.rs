@@ -60,6 +60,7 @@ mod egress;
 pub mod gather;
 pub mod github_app;
 pub mod land;
+pub mod on_push;
 pub mod pin;
 pub mod step;
 pub mod workflow;
@@ -93,7 +94,9 @@ pub enum ClusterCommand {
     /// `catalog-extract`, `catalog-reconcile`) and each capability in dependency order. A
     /// chain rather than a wider DAG because a run is a chain: each step is invoked against
     /// the commit the one before it landed. `--cron` writes a `CronWorkflow` whose first
-    /// task is `admit`, and nothing below it runs unless admission says so.
+    /// task is `admit`, and nothing below it runs unless admission says so. `--on-push` writes
+    /// an Argo Events `EventSource` and `Sensor` that submit the same admitted workflow when
+    /// the branch moves; with `--cron` too, the output holds all three.
     ///
     /// Reads `[cluster]` and `[vault.<name>]` from `.yidam/config.toml`; every flag below
     /// overrides the matching key, so a corpus with no config can still be generated for.
@@ -101,6 +104,10 @@ pub enum ClusterCommand {
         /// Write a CronWorkflow on this schedule (five-field cron), gated by `admit`
         #[arg(long, value_name = "SCHEDULE")]
         cron: Option<String>,
+        /// Also write an Argo Events EventSource and Sensor that submit the run, gated by
+        /// `admit`, when the branch is pushed
+        #[arg(long = "on-push", value_name = "SOURCE", value_enum)]
+        on_push: Option<on_push::Source>,
         /// The container image every pod runs; overrides `[cluster] image`
         #[arg(long, value_name = "IMAGE")]
         image: Option<String>,
@@ -357,12 +364,14 @@ pub fn run(sub: ClusterCommand) -> Result<()> {
     match sub {
         ClusterCommand::Workflow {
             cron,
+            on_push,
             image,
             remote,
             branch,
             vault_url,
         } => workflow::run(&workflow::Overrides {
             cron,
+            on_push,
             image,
             remote,
             branch,

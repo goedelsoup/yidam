@@ -938,7 +938,9 @@ yidam cluster gather units --bundle <digest> --asked '[…ask records…]' --vau
 ```
 
 **`workflow`** reads `.yidam/capabilities.toml` and `[cluster]` in `.yidam/config.toml`, and
-prints an Argo `Workflow`. With `--cron` it prints a `CronWorkflow` that admits itself. It
+prints an Argo `Workflow`. With `--cron` it prints a `CronWorkflow` that admits itself. With
+`--on-push` it also prints an Argo Events `EventSource` and `Sensor`. A push to the branch
+then submits the run, which admits first. It
 runs in a checkout and writes nothing. Every flag it takes overrides one `[cluster]` key.
 
 **`admit`** clones the branch and reads `due`'s clocks, the manifest's staleness and the count

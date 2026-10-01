@@ -1,0 +1,19 @@
+# The objects running on push adds to streamflow's: the Sensor's account and the webhook
+# secret. Prefixed as `../../streamflow/objects` is, so the names are the ones
+# `yidam cluster workflow --on-push` derives.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namePrefix: yidam-streamflow-
+components:
+  - ../../../components/on-push
+# Off for the reason streamflow's are: the EventSource names `yidam-streamflow-webhook`, and
+# kustomize does not know the field it is named in.
+generatorOptions:
+  disableNameSuffixHash: true
+# `secret` is the webhook's shared secret: what GitHub signs a push with, or the bearer token a
+# generic webhook sends. Not committed: `secrets/` is ignored. Put the same value in the
+# repository's webhook settings.
+secretGenerator:
+  - name: webhook
+    files:
+      - secret=secrets/webhook.secret
