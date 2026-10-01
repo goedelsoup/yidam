@@ -299,7 +299,7 @@ impl Entry {
 /// unit test does not save it: the `lib` target is built without `cfg(test)`.
 ///
 /// That guarantee is a property of the privacy, not of this file, and nothing stated it until
-/// `tests/lint_registry.rs` — which asserts each link of that chain, because the day someone
+/// `tests/gates/lint_registry.rs` — which asserts each link of that chain, because the day someone
 /// writes `pub use cmd::lint;` the hole opens with nothing going red.
 const ROSTER: &[Entry] = &[
     // First, because it is the finding that says whether the rest of the report is about the

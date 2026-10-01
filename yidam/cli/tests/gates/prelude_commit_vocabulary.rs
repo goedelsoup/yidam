@@ -13,7 +13,7 @@
 
 use std::path::{Path, PathBuf};
 
-mod common;
+use crate::common;
 
 use yidam_core::git::is_recognized_verb;
 

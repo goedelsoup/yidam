@@ -24,7 +24,7 @@
 //! incomplete: see [`every_lockfile_is_one_dependabot_resolves_or_has_no_registry_dependency`]
 //! — a lockfile no entry names is one nobody maintains, and it looks exactly like one that is.
 
-mod common;
+use crate::common;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

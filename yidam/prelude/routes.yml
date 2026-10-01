@@ -7,7 +7,7 @@
 # Every `read:` is a path relative to this directory. A `#fragment` names one `##` or `###`
 # heading, and the section runs from that heading to the next one at the same level or higher.
 # No fragment means the whole file. Word ceilings for each occasion are in
-# `yidam/cli/tests/prelude_rules_and_evidence.rs`.
+# `yidam/cli/tests/gates/prelude_rules_and_evidence.rs`.
 #
 # An occasion is named by the commit verb it ends in, from GRAPH.md's closed vocabulary,
 # because every agent has to choose a verb anyway. Where the verb and PHASES.md's phase types

@@ -761,7 +761,7 @@ mod tests {
     ///
     /// This is the typed half of that check — right section, right spelling, right type,
     /// through the binary's own deserializer, which is why it lives here and not in
-    /// `tests/scaffolded_config.rs`: `mod config` is private. `VaultConfig` and
+    /// `tests/gates/scaffolded_config.rs`: `mod config` is private. `VaultConfig` and
     /// `RemoteIndexConfig` are `deny_unknown_fields`, so a leaf typo fails here rather than
     /// parsing into nothing.
     #[test]

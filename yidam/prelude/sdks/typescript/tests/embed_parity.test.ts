@@ -1,6 +1,6 @@
 // TypeScript runner for the embedding reproducibility contract
 // (parity/fixtures/embed_config/). Mirrors the Rust reference runner in
-// yidam/cli/tests/embed_parity.rs.
+// yidam/cli/tests/gates/embed_parity.rs.
 //
 // Downloads model weights on first run, so it only executes when
 // YIDAM_EMBED_PARITY=1 is set (see the `embed-parity` mise task).

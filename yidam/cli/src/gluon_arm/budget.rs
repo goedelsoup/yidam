@@ -20,7 +20,7 @@ use gluon::vm::Error as VmError;
 /// The default number of calls a calculator may make.
 ///
 /// Measured against the shape a calculator actually has: the worked example in
-/// `tests/gluon_arm.rs` folds two properties across two nodes in 75 calls, so this is roughly
+/// `tests/gates/gluon_arm.rs` folds two properties across two nodes in 75 calls, so this is roughly
 /// four orders of magnitude of headroom over a small corpus and two over a large one. It is a
 /// constant here rather than a manifest field because whether a corpus may raise its own budget
 /// is RFC-0042's open question 4 and not something to settle by shipping a field.

@@ -35,7 +35,7 @@
 //! [`some_example_declares_a_capability_and_implements_it`] is what closes that, and is the
 //! test to fix first if this file ever goes quiet.
 
-mod common;
+use crate::common;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;

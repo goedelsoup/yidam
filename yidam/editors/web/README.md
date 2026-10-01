@@ -125,7 +125,7 @@ refused rather than configured.
 [`src/lib/binary.ts`](src/lib/binary.ts) and [`src/lib/handshake.ts`](src/lib/handshake.ts) are
 **byte-identical copies** of the VS Code extension's, which are `vscode`-free by deliberate
 design. They are copies rather than imports because `npm publish` packs only what lives under
-the package root — the identical property [`packaging.rs`](../../cli/tests/packaging.rs)
+the package root — the identical property [`packaging.rs`](../../cli/tests/gates/packaging.rs)
 records for `cargo package`, and a lesson two near-miss releases already paid for.
 
 [`test/parity.mjs`](test/parity.mjs) holds them byte-identical rather than

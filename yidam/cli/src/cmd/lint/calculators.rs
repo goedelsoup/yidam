@@ -12,7 +12,7 @@
 //! passes something `run` refuses, or refuses something `run` would have accepted." So nothing
 //! here builds a prelude, injects a type or decides what a calculator is: it calls
 //! [`entry::admit`], which is the function [`crate::gluon_arm::evaluate`] opens with, and
-//! `tests/gluon_arm.rs` says so. The same shape #1080 arrived at, for the same reason.
+//! `tests/gates/gluon_arm.rs` says so. The same shape #1080 arrived at, for the same reason.
 //!
 //! # Three refusals, three checks
 //!

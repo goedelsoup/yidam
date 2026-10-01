@@ -665,7 +665,7 @@ than one that enforces a blunt one twice.
 > **An adjacent hole, found while mirroring it and not fixed here.** A bundle carries
 > `index/corpus.arrow` (`cmd/bundle.rs:147`), and that index encodes catalog text — but the
 > release workflow's `bundled=` list names only `.yidam/corpus`, `.yidam/skills` and
-> `.yidam/decisions`. `tests/publish_guard.rs` reasons `index/` away as "generated rather than
+> `.yidam/decisions`. `tests/gates/publish_guard.rs` reasons `index/` away as "generated rather than
 > authored", which is true of the file and false of its contents. A private catalog directory
 > can therefore reach a published bundle. Filed separately: it is a defect in the bundle
 > channel, it predates this RFC, and making a derived repository's release guard stricter is a

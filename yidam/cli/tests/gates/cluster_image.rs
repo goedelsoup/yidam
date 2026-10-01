@@ -8,7 +8,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-mod common;
+use crate::common;
 
 fn read(rel: &str) -> String {
     let p = common::repo_root().join(rel);

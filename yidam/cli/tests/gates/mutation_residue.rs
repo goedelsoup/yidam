@@ -28,7 +28,7 @@
 
 use std::path::PathBuf;
 
-mod common;
+use crate::common;
 
 /// The comment `cargo-mutants` injects beside every change it makes.
 ///

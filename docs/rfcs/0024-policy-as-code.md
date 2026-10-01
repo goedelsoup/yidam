@@ -66,7 +66,7 @@ mirrors the other.
 
 ### The mirror has already cost a defect
 
-**#443.** [`publish_guard.rs:45`](../../yidam/cli/tests/publish_guard.rs) now pins the workflow's
+**#443.** [`publish_guard.rs:45`](../../yidam/cli/tests/gates/publish_guard.rs) now pins the workflow's
 directory list to `vault::derived_sources`, and its comment records why:
 
 > until #443 it named the three directories the archive carries as files and reasoned that

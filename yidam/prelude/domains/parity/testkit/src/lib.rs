@@ -21,7 +21,7 @@
 //!
 //! So the assertion moved inside [`load_fixtures`], where it is not a line anyone has to
 //! remember to write. Sharing the code is the smaller half of that; making the guard
-//! unskippable is the point, and `yidam/cli/tests/domain_parity_testkit.rs` is the other half
+//! unskippable is the point, and `yidam/cli/tests/gates/domain_parity_testkit.rs` is the other half
 //! — it walks every `domains/*/rust/` and fails one that loads fixtures by hand instead.
 //!
 //! The fixture root is resolved from **this** crate's `CARGO_MANIFEST_DIR`, not the caller's,

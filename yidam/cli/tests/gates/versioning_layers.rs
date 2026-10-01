@@ -21,7 +21,7 @@
 
 use std::path::PathBuf;
 
-mod common;
+use crate::common;
 
 fn repo_root() -> PathBuf {
     // CARGO_MANIFEST_DIR = yidam/cli/

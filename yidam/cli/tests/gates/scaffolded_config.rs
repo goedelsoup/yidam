@@ -26,7 +26,7 @@
 
 use std::collections::BTreeSet;
 
-mod common;
+use crate::common;
 
 use common::{repo_root, tracked_under, MAPPING};
 

@@ -436,7 +436,7 @@ One clause of it does transfer, and it is worth carrying over rather than redisc
 > escapes it … resolves in the working tree and in every CI job, because the tree is right
 > there, and is simply **absent from the tarball**.
 >
-> — [`packaging.rs:1-19`](../../yidam/cli/tests/packaging.rs#L1-L19)
+> — [`packaging.rs:1-19`](../../yidam/cli/tests/gates/packaging.rs#L1-L19)
 
 `npm publish` has the identical property with an identical failure signature: a module imported
 from outside the package root resolves in the working tree and in every CI job, and is absent
@@ -700,7 +700,7 @@ does not propose to move it.
   a copy plus that test; the extraction is a decision this RFC does not force.
 - ~~**`tsx` is not in the design gate's scope.**~~ **Settled 2026-09-22 (#611): the gates read
   TypeScript, and the lint reaches its consumers.** The consumer scan discovers surfaces by file
-  extension, and says so — [`design_tokens.rs:169-171`](../../yidam/cli/tests/design_tokens.rs#L169-L171):
+  extension, and says so — [`design_tokens.rs:169-171`](../../yidam/cli/tests/gates/design_tokens.rs#L169-L171):
   *"A consumer is any file of a [`CONSUMER_EXTENSIONS`] type outside `yidam/design/` that
   references a token the system declares. The next UI kit is covered the moment it uses the
   palette, which is the point: a roster here would stop covering whatever came next."*

@@ -89,7 +89,7 @@ most of its substance: of 25 bumps, 11 changed no structured field at all. A dig
 tiers and schemas would have been silent on the one that specified what an ordering does when
 two dates disagree about precision, which lives in two paragraphs of `notes`.
 
-A bump therefore edits five things, and `yidam/cli/tests/mcp_contract_digest.rs` prints the
+A bump therefore edits five things, and `yidam/cli/tests/gates/mcp_contract_digest.rs` prints the
 list with the line to append whenever they disagree:
 
 1. `tools.json` — the `contract` field. The live one: `serve --mcp` compiles it in.

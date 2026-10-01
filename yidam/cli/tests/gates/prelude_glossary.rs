@@ -41,7 +41,7 @@
 
 use std::collections::BTreeSet;
 
-mod common;
+use crate::common;
 
 use common::{repo_root, step_one_read_list, tracked_under, BOOTSTRAP_SKILL as SKILL};
 

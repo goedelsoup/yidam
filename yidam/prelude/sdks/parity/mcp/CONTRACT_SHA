@@ -18,7 +18,7 @@
 # that prose too, deliberately. A digest over names, tiers and schemas would have been silent
 # on those bumps, which is most of what this contract has ever changed.
 #
-# Appending is part of a bump, and `yidam/cli/tests/mcp_contract_digest.rs` is what says so:
+# Appending is part of a bump, and `yidam/cli/tests/gates/mcp_contract_digest.rs` is what says so:
 # it recomputes the digest of the contract in the tree, fails when the last record disagrees,
 # and prints the line to append. Reformatting `tools.json` is free — keys are sorted and
 # whitespace dropped before hashing — and a reworded sentence is not: the contract is the

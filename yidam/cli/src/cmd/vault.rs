@@ -346,7 +346,7 @@ fn push(dry_run: bool, artifact: Option<&str>, only: Option<&str>) -> Result<()>
     // asking once per artifact keeps a refusal's reason attached to the artifact it is about.
     //
     // The rule moved out of this file in #440 and into `.yidam/policy/` (RFC-0024). What it
-    // says is unchanged — `tests/policy_equivalence.rs` holds the policy to `may_push` over
+    // says is unchanged — `tests/gates/policy_equivalence.rs` holds the policy to `may_push` over
     // every combination of licence and path — and a repository may now disagree with it in a
     // file `yidam policy check` will name.
     let mut policies = crate::policy::Policies::load(&root)?;

@@ -174,7 +174,7 @@ consequence of the form rather than as a second change to make.
 
 ### The gate: a ceiling paired with a floor
 
-`yidam/cli/tests/prelude_rules_and_evidence.rs`. Nine checks, every one naming the item that
+`yidam/cli/tests/gates/prelude_rules_and_evidence.rs`. Nine checks, every one naming the item that
 failed rather than reporting a total:
 
 | check | fails when |
