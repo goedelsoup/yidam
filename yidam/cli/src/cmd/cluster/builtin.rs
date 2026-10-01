@@ -102,6 +102,7 @@ impl Builtin {
             verb: self.verb.to_string(),
             after: Vec::new(),
             ageing_days: None,
+            cluster: None,
         }
     }
 

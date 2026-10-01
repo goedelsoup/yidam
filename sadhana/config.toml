@@ -216,3 +216,23 @@
 # git_write       = "yidam-corpus-git-write"
 # vault_secret    = "yidam-corpus-vault"
 # vault_claim     = "yidam-corpus-vault"
+#
+# What every pod requests, may use and may run for. Unset keys take the sizes shown, which
+# are the binary's own, so a namespace with a `ResourceQuota` admits every pod. A capability
+# that knows its cost better sets the same keys under `[capability.<name>.cluster]` in
+# `.yidam/capabilities.toml`, and only its own step pod changes.
+#
+# [cluster.pod]
+# cpu_request      = "250m"
+# memory_request   = "512Mi"
+# cpu_limit        = "2"
+# memory_limit     = "2Gi"
+# deadline_seconds = 3600
+#
+# When Argo deletes a finished run. A pod that succeeded goes at once and its record is in
+# the commit; a failed one stays with its workflow, for whoever reads its logs.
+#
+# [cluster.cleanup]
+# pod_gc                = "OnPodSuccess"
+# seconds_after_success = 86400
+# seconds_after_failure = 604800

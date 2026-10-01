@@ -247,7 +247,7 @@ neither — it is a property of the build in hand. Which is why the predicate ga
 rather than a third arm. `Kind::unrunnable_because` is a property of the taxonomy and the same in
 every build; [`Run::unrunnable_because`](../../yidam/cli/src/cmd/run/manifest.rs#L409-L429) is a
 property of this binary; and only the whole declaration knows it has to ask both, so
-[`Capability::unrunnable_because`](../../yidam/cli/src/cmd/run/manifest.rs#L515-L526) asks the kind
+[`Capability::unrunnable_because`](../../yidam/cli/src/cmd/run/manifest.rs#L520-L531) asks the kind
 first. A featurizer declaring a `.glu` is refused for being a featurizer, because no build has that
 executor and the feature is not the thing its author can act on. So the sentence names the feature, and the
 manifest still **parses** in a light build, because a corpus that declares a gluon calculator is

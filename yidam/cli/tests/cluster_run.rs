@@ -1235,6 +1235,90 @@ fn a_declared_name_overrides_the_derived_one() {
     );
 }
 
+/// `[capability.<name>.cluster]` reaches that step's pod and no other, over `[cluster.pod]`
+/// key by key (#1231).
+///
+/// Two capabilities override two different keys, so a template shared between them, or bounds
+/// applied by position, would put one's key on the other. `travel-tier-typed` declares none and
+/// shares `travel-tier`'s prefix, so a match by prefix would hand it `travel-tier`'s bounds.
+#[test]
+fn a_capability_bounds_reach_only_its_own_step_pod() {
+    let c = Cluster::as_declared();
+    let root = c.e.path();
+    let manifest = root.join(".yidam/capabilities.toml");
+    let text = std::fs::read_to_string(&manifest).unwrap();
+    std::fs::write(
+        &manifest,
+        format!(
+            "{text}\n[capability.travel-tier.cluster]\nmemory_limit = \"8Gi\"\n\n\
+             [capability.disclosure-envelope.cluster]\ndeadline_seconds = 600\n"
+        ),
+    )
+    .unwrap();
+    let config = root.join(".yidam/config.toml");
+    let before = std::fs::read_to_string(&config).unwrap_or_default();
+    std::fs::write(
+        &config,
+        format!("{before}\n[cluster.pod]\ncpu_request = \"1\"\n"),
+    )
+    .unwrap();
+
+    let o = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(root)
+        .args([
+            "cluster",
+            "workflow",
+            "--remote",
+            "git@example.com:corpus.git",
+            "--image",
+            "img",
+            "--vault-url",
+            "file:///var/yidam/vault",
+        ])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let doc: serde_yaml::Value = serde_yaml::from_slice(&o.stdout).unwrap();
+    let templates = doc["spec"]["templates"].as_sequence().unwrap();
+    let template = |name: &str| {
+        templates
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("no template {name}"))
+    };
+    let bounds = |name: &str| {
+        let t = template(name);
+        let r = &t["container"]["resources"];
+        (
+            r["requests"]["cpu"].as_str().unwrap().to_string(),
+            r["limits"]["memory"].as_str().unwrap().to_string(),
+            t["activeDeadlineSeconds"].as_u64().unwrap(),
+        )
+    };
+    // Each override, and the corpus's CPU request kept beneath it.
+    assert_eq!(bounds("step-travel-tier"), ("1".into(), "8Gi".into(), 3600));
+    assert_eq!(
+        bounds("step-disclosure-envelope"),
+        ("1".into(), "2Gi".into(), 600)
+    );
+    // Every other pod has the corpus's bounds and neither capability's.
+    for other in ["step", "pin", "land"] {
+        assert_eq!(bounds(other), ("1".into(), "2Gi".into(), 3600), "{other}");
+    }
+
+    let tasks = templates[0]["dag"]["tasks"].as_sequence().unwrap();
+    let uses = |task: &str| {
+        tasks.iter().find(|t| t["name"] == task).unwrap()["template"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(uses("step-travel-tier"), "step-travel-tier");
+    assert_eq!(uses("step-disclosure-envelope"), "step-disclosure-envelope");
+    assert_eq!(uses("step-travel-tier-typed"), "step");
+    assert_eq!(uses("step-catalog-fetch"), "step");
+}
+
 // ── the worked example ────────────────────────────────────────────────────────
 
 /// The streamflow overlay: the worked example's generated workflows, and the objects they name.

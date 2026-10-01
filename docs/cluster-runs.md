@@ -237,6 +237,33 @@ Argo adds its own `init` and `wait` containers to each pod. Their container sett
 the controller's `executor` config, not from this manifest. They must also drop all
 capabilities and forbid privilege escalation.
 
+### Resources, deadlines and cleanup
+
+Every pod declares CPU and memory requests and limits, so a namespace with a `ResourceQuota`
+admits it. Every pod has a deadline. A hung calculator fails at it rather than holding the
+corpus's one run slot. The sizes are set in `[cluster.pod]`. See
+[configuration.md](configuration.md#cluster).
+
+A calculator that knows its own cost sets the same keys in `.yidam/capabilities.toml`:
+
+```toml
+[capability.travel-tier.cluster]
+memory_limit     = "8Gi"
+deadline_seconds = 7200
+```
+
+That step then runs from its own template, `step-travel-tier`. No other pod changes. A key it
+leaves unset comes from `[cluster.pod]`.
+
+Argo retries `pin`, `survey` and `step` twice on failure. Each is safe to repeat: it reads a
+pinned bundle and moves no ref. It never retries `land`. The lander retries its own
+compare-and-swap. When it refuses, the refusal is the answer, and the next admission runs the
+step again.
+
+Argo deletes a pod that succeeded at once. A failed pod stays until its workflow is deleted,
+a week after it ends. A succeeded workflow is deleted after a day. `[cluster.cleanup]` sets
+all three.
+
 ### Names you set yourself
 
 To keep names you already have, set them under `[cluster.names]`. See
@@ -285,7 +312,7 @@ The secret is optional in the manifest, so a `file://` deployment creates none.
 
 ## Pod logs are not provenance
 
-Argo keeps a log per pod. Read it when a step fails. Do not cite it. A calculator's stderr is
+Argo keeps a log per pod until the pod is deleted. Read it when a step fails. Do not cite it. A calculator's stderr is
 passed through to the pod's own and recorded nowhere. Everything that matters is in the commit
 the lander pushed. That is the outputs, and the receipt at `.yidam/runs/<step>.yml`. The
 receipt names the input state it was computed from. A log can be rotated, truncated or lost.
