@@ -82,7 +82,7 @@ file onto the same pane.
 
 ### Claude Code, as a plugin
 
-This is the one that gives you both halves. Four of the thirteen read tools the contract
+This is the one that gives you both halves. Four of the fourteen read tools the contract
 freezes exist for one reason. The practice is documented in the prelude. But *an agent that has
 to hold that prose in context complies by having remembered*. The plugin puts the prose and the
 tools in the same install.
@@ -298,6 +298,7 @@ Give the client the same header:
 | `claim_tags` | The three tags, their meanings, and how each may be written | Before you tag a claim |
 | `licensed_edges` | What a class declares it may link to | Before you write the link |
 | `query` | A typed path over the graph — `reach -measured-by-> gage`, optionally `across` the dependency set | You know the *shape* of the answer, not the node |
+| `paths` | The typed paths between two nodes, each written as a `query` you can run | You hold two nodes and do not know how they are related |
 | `pack` | That path's answer as prose, filled to a token budget, with what did not fit | You are about to write from the corpus and have a budget |
 | `estimate` | What that would cost, in nodes and approximate tokens, before you pay for it | You have a budget and want to know what fits |
 | `cycle` | Where this repository is in its loop: what is owed, in flight, blocked, and what the next act is | You are starting a session and do not know where to begin |
@@ -329,6 +330,13 @@ the result and reads neither as an input. `query` takes the relationship and the
 question. The difference matters most where it is least visible. A misspelled relationship comes
 back from a flood as a plausible neighbourhood. From `query` it comes back as a rejection naming
 the near miss.
+
+**`paths` finds the walk you did not know to ask for.** `query` needs the path written out.
+`neighbors` gives you the nodes next to one node. Neither says how two nodes you already hold are
+related. `paths` answers with class paths in `query`'s language, and the server has run each one.
+Send one to `query` unchanged and the target is in the answer. `matched` is the size of that
+answer. A path matching one node is close to a fact about the pair. An empty answer carries
+`nearest`, the shortest connection at any depth, so you can tell *too far* from *not connected*.
 
 **Both say why an empty answer is empty.** Zero rows could otherwise be a bad embedding. It could
 be a class nobody has written into, or a corpus that genuinely has no view. An agent that cannot
@@ -391,7 +399,7 @@ much of each node to ask for*. That is why it comes back as a table rather than 
 It is also the most speculative thing here, and the epic that asked for it says so. If agents do
 not act differently given a quote, this is the surface to drop. Nothing depends on it.
 
-`licensed_edges`, `query`, `pack` and `estimate` are the four a server may not back. All of them
+`licensed_edges`, `query`, `paths`, `pack` and `estimate` are the five a server may not back. All of them
 need the class definitions. A projected mirror can hold nodes and edges and no `.ont.yml`. Such a
 server declares `"ontology": false` in the handshake. That is a statement you can read, not a hole
 you discover.
@@ -420,9 +428,9 @@ act = true
 ```
 
 Until it is written, `tools/list` carries the read tier and nothing else. That is at most
-thirteen tools, and usually fewer. Five of the thirteen are listed only where the corpus backs
-them. `query`, `pack`, `estimate` and `licensed_edges` need declared classes, and
-`check_citation` needs an installed dependency. **Thirteen is the contract's count, not a
+fourteen tools, and usually fewer. Six of the fourteen are listed only where the corpus backs
+them. `query`, `paths`, `pack`, `estimate` and `licensed_edges` need declared classes, and
+`check_citation` needs an installed dependency. **Fourteen is the contract's count, not a
 promise about any one server.** What decides each, and what the example corpus below backs, is
 in §4. A call to either of these comes back `capability-not-supported`, exactly as an unbacked
 `query` does.
@@ -633,7 +641,7 @@ only where you look for it.
 tool-not-found errors:
 
 ```json
-{"contract": "0.26.0",
+{"contract": "0.27.0",
  "corpus": {"domain": "streamflow", "commit": "a1b2c3d",
             "nodes": 8, "skills": 1, "decisions": 2,
             "indexed_commit": null, "stale": false},
@@ -654,13 +662,13 @@ working git repository behind it. The key is null rather than absent. A client n
 
 `phases` and `sangha` are false and will stay false for this server. Both read live `ma/*` and
 `rigpa/*` refs. This one reads a built model on disk. `ontology` follows the corpus. A repository
-with no `.ont.yml` has no class contract to back. The four tools at that tier — `query`, `pack`,
-`estimate`, `licensed_edges` — are then neither listed nor callable.
+with no `.ont.yml` has no class contract to back. The five tools at that tier — `query`, `paths`,
+`pack`, `estimate`, `licensed_edges` — are then neither listed nor callable.
 
 `dependencies` follows the corpus the same way. It is true iff this server resolved at least
 one installed dependency. `check_citation` is neither listed nor callable when it did not.
 **The block above is such a server.** `examples/streamflow` declares classes and installs
-nothing. So it backs the four ontology tools, and not `check_citation`. That is the ordinary
+nothing. So it backs the five ontology tools, and not `check_citation`. That is the ordinary
 case: most corpora depend on none. A server with nothing installed *could* serve the tool and
 answer `external-citation-unresolved` to every citation put to it. That is correct every time,
 and a statement about a dependency set it does not have. That is the same thing the contract

@@ -631,6 +631,59 @@ fn array<'a>(response: &'a Value, path: &str, tool: &str, why: &str) -> &'a Vec<
 /// its cases written against a flattened response, which is a second shape for one answer. A
 /// single segment resolves to exactly what `response[name]` used to, so the existing cases
 /// mean what they meant.
+/// #1225's acceptance: every path the `paths` tool returns, sent back through the `query`
+/// tool, returns a result whose `node` is `to`.
+///
+/// `every_printed_path_returns_the_target_when_run` holds this for the CLI. This holds it for
+/// the tool, over every ordered pair of distinct nodes in the fixture rather than a chosen few,
+/// so a pair walked against its edges is covered because the corpus has one.
+#[test]
+fn every_path_the_tool_returns_returns_the_target_through_query() {
+    let repo = make_fixture_repo();
+    let mut client = McpClient::spawn(repo.path());
+
+    let nodes: Vec<String> = client.tool_json("query", json!({"query": "*", "limit": 1000}))
+        ["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["node"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(nodes.len(), 4, "the fixture's node count moved: {nodes:?}");
+
+    let mut checked = 0;
+    for from in &nodes {
+        for to in nodes.iter().filter(|to| *to != from) {
+            let found = client.tool_json("paths", json!({"from": from, "to": to}));
+            assert!(found["rejected"].is_null(), "{from} → {to}: {found}");
+            for path in found["paths"].as_array().unwrap() {
+                let text = path["query"].as_str().unwrap();
+                let ran = client.tool_json("query", json!({"query": text, "limit": 1000}));
+                assert!(
+                    ran["results"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|row| row["node"] == *to),
+                    "{from} → {to}: `{text}` was returned by `paths` and its answer does not \
+                     contain the target\n{ran}"
+                );
+                assert_eq!(
+                    ran["matched"], path["matched"],
+                    "{from} → {to}: `paths` reported a different answer size for `{text}`"
+                );
+                checked += 1;
+            }
+        }
+    }
+    // The fixture is one chain of four, so every ordered pair is joined within the default four
+    // hops by exactly one class path. Fewer would mean pairs answered empty and passed vacuously.
+    assert_eq!(
+        checked, 12,
+        "paths checked across the fixture's twelve ordered pairs"
+    );
+}
+
 fn check_case(case: &Value, response: &Value) {
     let tool = case["tool"].as_str().unwrap();
     let expect = &case["expect"];

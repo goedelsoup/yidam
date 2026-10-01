@@ -230,8 +230,8 @@ pub mod code {
     /// frozen name missing from here is a branch that can never be taken — and checks the
     /// value on the way out of the tool besides.
     ///
-    /// [`UNKNOWN_NODE`] is absent because `--paths` is CLI-only; #1202 defers the MCP half
-    /// until the CLI surface has been used.
+    /// [`UNKNOWN_NODE`] is absent because `query` cannot answer it. The MCP `paths` tool
+    /// can, and freezes it in [`PATHS_SURFACED`] instead (#1225).
     ///
     /// [`ANCHOR_AT_REVISION`] and [`HISTORY_UNREADABLE`] are deliberately absent. Both are
     /// about a revision and the MCP surface has none: the contract's `at` is null for a
@@ -256,6 +256,15 @@ pub mod code {
         ANCHOR_UNRESOLVABLE,
         ANCHOR_ACROSS,
     ];
+
+    /// The codes a caller of the MCP `paths` tool can receive on `rejected`, frozen in that
+    /// tool's notes (#1225).
+    ///
+    /// **A second roster, not one more name in [`SURFACED`].** That list is what `query`'s
+    /// notes freeze, and `query` takes no node id, so `unknown-node` there would be a branch
+    /// every client writes and no `query` call can take. A `withheld[].code` on the same
+    /// report is a refusal of `query`'s own and comes from [`SURFACED`].
+    pub const PATHS_SURFACED: &[Code] = &[UNKNOWN_NODE];
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
