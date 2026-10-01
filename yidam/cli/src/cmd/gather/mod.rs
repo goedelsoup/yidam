@@ -977,6 +977,7 @@ fn peer_receipt(
         verb: "open".into(),
         after: vec![],
         ageing_days: None,
+        cluster: None,
     };
     let mut files = vec![File {
         path: spec_path,

@@ -1525,6 +1525,7 @@ mod tests {
             verb: "compute".into(),
             after: vec![],
             ageing_days: None,
+            cluster: None,
         };
         let landing = vec![(".yidam/computed/x.yml".to_string(), b"x".to_vec())];
         for route in [Route::Branch, Route::Proposal] {

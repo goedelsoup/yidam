@@ -31,6 +31,12 @@ spec:
     serviceAccountName: "yidam-streamflow-run"
     # No pod gets a Kubernetes token in its main container; the executor sidecar has its own.
     automountServiceAccountToken: false
+    # A pod that succeeded is deleted at once; a failed one stays with its workflow.
+    podGC:
+      strategy: OnPodSuccess
+    ttlStrategy:
+      secondsAfterSuccess: 86400
+      secondsAfterFailure: 604800
     executor:
       serviceAccountName: "yidam-streamflow-run"
     arguments:
@@ -178,6 +184,13 @@ spec:
             - name: output
               valueFrom:
                 path: /tmp/yidam/out.json
+        activeDeadlineSeconds: 3600
+        retryStrategy:
+          limit: 2
+          retryPolicy: Always
+          backoff:
+            duration: "30s"
+            factor: 2
         securityContext:
           runAsNonRoot: true
           runAsUser: 1000
@@ -202,6 +215,13 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
           env:
             - name: TMPDIR
               value: "/tmp/yidam"
@@ -235,6 +255,13 @@ spec:
             - name: output
               valueFrom:
                 path: /tmp/yidam/out.json
+        activeDeadlineSeconds: 3600
+        retryStrategy:
+          limit: 2
+          retryPolicy: Always
+          backoff:
+            duration: "30s"
+            factor: 2
         securityContext:
           runAsNonRoot: true
           runAsUser: 1000
@@ -259,6 +286,13 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
           env:
             - name: TMPDIR
               value: "/tmp/yidam"
@@ -278,7 +312,8 @@ spec:
               mountPath: "/var/yidam/vault"
       - name: land
         # The lander. It classifies the commit by its own subject line, chooses the ref
-        # the class permits, and writes it with a compare-and-swap.
+        # the class permits, and writes it with a compare-and-swap. No retryStrategy: it
+        # retries its own race, and a refusal it reaches is the answer, not a fault.
         inputs:
           parameters:
             - name: step-output
@@ -287,6 +322,7 @@ spec:
             - name: output
               valueFrom:
                 path: /tmp/yidam/out.json
+        activeDeadlineSeconds: 3600
         securityContext:
           runAsNonRoot: true
           runAsUser: 1000
@@ -313,6 +349,13 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
           env:
             - name: TMPDIR
               value: "/tmp/yidam"
@@ -341,6 +384,7 @@ spec:
             - name: output
               valueFrom:
                 path: /tmp/yidam/out.json
+        activeDeadlineSeconds: 3600
         securityContext:
           runAsNonRoot: true
           runAsUser: 1000
@@ -363,6 +407,13 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
           env:
             - name: TMPDIR
               value: "/tmp/yidam"

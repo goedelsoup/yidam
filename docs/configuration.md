@@ -187,7 +187,8 @@ Absent means no entry expires unless it says so itself.
 ### `[cluster]`
 
 What `yidam cluster workflow` needs to write an Argo manifest, and what `cluster admit` caps.
-Every key but `[cluster.names]` has a flag that overrides it. See
+Every key outside `[cluster.names]`, `[cluster.pod]` and `[cluster.cleanup]` has a flag that
+overrides it. See
 [cluster-runs.md](cluster-runs.md).
 
 ```toml
@@ -224,6 +225,34 @@ vault_claim     = "yidam-corpus-vault"
 The defaults differ per corpus, so two corpora in one namespace share no write key. Override
 one only to keep a name you already have. Two corpora given one `git_write` share its key.
 The generator refuses a name Kubernetes would refuse: lowercase letters, digits, `-` and `.`.
+
+`[cluster.pod]` sets what every pod requests, may use and may run for. The values shown are
+the defaults:
+
+```toml
+[cluster.pod]
+cpu_request      = "250m"
+memory_request   = "512Mi"
+cpu_limit        = "2"
+memory_limit     = "2Gi"
+deadline_seconds = 3600
+```
+
+A quantity is spelled as Kubernetes spells it, and the generator refuses one it would refuse.
+A capability may set any of these keys under `[capability.<name>.cluster]` in
+`.yidam/capabilities.toml`. Only that step's pod changes, and each key it leaves unset comes
+from here.
+
+`[cluster.cleanup]` sets when Argo deletes a finished run:
+
+```toml
+[cluster.cleanup]
+pod_gc                = "OnPodSuccess"
+seconds_after_success = 86400
+seconds_after_failure = 604800
+```
+
+`pod_gc` is Argo's `podGC` strategy. The two `seconds_*` keys are the workflow's `ttlStrategy`.
 
 ### `[due]`
 

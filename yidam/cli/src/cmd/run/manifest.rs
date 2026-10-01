@@ -482,6 +482,11 @@ pub struct Capability {
     /// changed. It claims nobody has looked."*
     #[serde(default)]
     pub ageing_days: Option<u32>,
+    /// What this step's pod requests, may use and may run for on a cluster, over
+    /// `[cluster.pod]` key by key (#1231). A calculator knows its own cost better than the
+    /// corpus-wide default does. Read only by `yidam cluster workflow`; a local run ignores it.
+    #[serde(default)]
+    pub cluster: Option<crate::config::ClusterPodConfig>,
 }
 
 impl Capability {
@@ -683,6 +688,10 @@ impl Manifest {
 
 /// Every rule a declaration must satisfy, checked before anything runs.
 fn validate(name: &str, cap: &Capability, registers: &Registers) -> Result<()> {
+    if let Some(pod) = &cap.cluster {
+        pod.check(&format!("[capability.{name}.cluster]"))?;
+    }
+
     // Empty and absent are different declarations. `run = []` claims a program and names none;
     // no `run` at all is [`Run::Unbuilt`], a contract with nothing behind it yet.
     if matches!(&cap.run, Run::Argv(argv) if argv.is_empty()) {
@@ -1210,6 +1219,7 @@ verb   = "compute"
             verb: verb.to_string(),
             after: vec![],
             ageing_days: None,
+            cluster: None,
         };
         for verb in yidam_core::git::OPERATIONAL_VERBS {
             assert_eq!(cap(verb).route(), Route::Branch, "{verb}");
@@ -1506,6 +1516,34 @@ verb   = "compute"
         let text = format!("{CALC}ageing_days = 30\n");
         let m = Manifest::parse(&text, &corpus_only()).unwrap();
         assert_eq!(m.get("low-flow").unwrap().ageing_days, Some(30));
+    }
+
+    /// A capability's cluster bounds parse, are absent by default, and a quantity the cluster
+    /// would refuse — or a key nothing reads — refuses the whole manifest here.
+    #[test]
+    fn cluster_bounds_are_declared_per_capability_and_checked() {
+        let m = Manifest::parse(CALC, &corpus_only()).unwrap();
+        assert_eq!(m.get("low-flow").unwrap().cluster, None);
+
+        let text = format!(
+            "{CALC}\n[capability.low-flow.cluster]\nmemory_limit = \"8Gi\"\ndeadline_seconds = 600\n"
+        );
+        let m = Manifest::parse(&text, &corpus_only()).unwrap();
+        let pod = m.get("low-flow").unwrap().cluster.clone().unwrap();
+        assert_eq!(pod.memory_limit.as_deref(), Some("8Gi"));
+        assert_eq!(pod.deadline_seconds, Some(600));
+        assert_eq!(pod.cpu_request, None);
+
+        let text = format!("{CALC}\n[capability.low-flow.cluster]\nmemory_limit = \"8 GB\"\n");
+        let err = format!("{:#}", Manifest::parse(&text, &corpus_only()).unwrap_err());
+        assert!(
+            err.contains("[capability.low-flow.cluster] memory_limit") && err.contains("8 GB"),
+            "{err}"
+        );
+
+        let text = format!("{CALC}\n[capability.low-flow.cluster]\nmemory = \"8Gi\"\n");
+        let err = format!("{:#}", Manifest::parse(&text, &corpus_only()).unwrap_err());
+        assert!(err.contains("unknown field `memory`"), "{err}");
     }
 
     #[test]

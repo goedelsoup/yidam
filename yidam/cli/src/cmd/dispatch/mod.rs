@@ -480,6 +480,7 @@ fn prepare(
         .to_string(),
         after: vec![],
         ageing_days: None,
+        cluster: None,
     };
     let inputs = match exec::materialize(root, tip, &cap) {
         Ok(i) => i,

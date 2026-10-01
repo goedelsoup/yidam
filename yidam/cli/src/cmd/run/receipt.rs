@@ -344,6 +344,7 @@ mod tests {
             verb: "compute".into(),
             after: vec![],
             ageing_days: None,
+            cluster: None,
         }
     }
 
@@ -526,6 +527,7 @@ mod tests {
             verb: "compute".into(),
             after: vec![],
             ageing_days: None,
+            cluster: None,
         };
         let files = vec![
             File {

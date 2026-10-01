@@ -86,6 +86,14 @@ pub struct ClusterConfig {
     /// corpus, so two corpora in one namespace share no credential (#1228).
     #[serde(default)]
     pub names: ClusterNamesConfig,
+    /// What every pod requests, may use and may run for, unless its capability says otherwise
+    /// in `.yidam/capabilities.toml` (#1231). Unset keys take the compiled-in sizes in
+    /// `cmd/cluster/workflow.rs`, so a namespace with a `ResourceQuota` admits every pod.
+    #[serde(default)]
+    pub pod: ClusterPodConfig,
+    /// How long a finished run's pods and workflow stay on the cluster (#1231).
+    #[serde(default)]
+    pub cleanup: ClusterCleanupConfig,
 }
 
 /// `[cluster.names]`: an override for each object a generated workflow refers to by name.
@@ -113,6 +121,117 @@ pub struct ClusterNamesConfig {
     pub vault_claim: Option<String>,
 }
 
+/// `[cluster.pod]`, and the same keys under `[capability.<name>.cluster]`: one pod's bounds.
+///
+/// Each key is optional at both levels. A capability's key wins over `[cluster.pod]`'s, which
+/// wins over the compiled-in size, key by key — so a calculator that needs more memory says so
+/// and keeps the corpus's CPU request. A quantity is Kubernetes's own spelling (`"250m"`,
+/// `"2Gi"`), checked when the manifest is generated rather than when the cluster refuses it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClusterPodConfig {
+    /// The CPU the scheduler reserves for the pod.
+    #[serde(default)]
+    pub cpu_request: Option<String>,
+    /// The memory the scheduler reserves for the pod.
+    #[serde(default)]
+    pub memory_request: Option<String>,
+    /// The CPU the pod is throttled at.
+    #[serde(default)]
+    pub cpu_limit: Option<String>,
+    /// The memory the pod is killed at.
+    #[serde(default)]
+    pub memory_limit: Option<String>,
+    /// How long the pod may run before Argo fails it. A hung calculator is stopped here,
+    /// rather than holding the corpus's only run slot until someone deletes it.
+    #[serde(default)]
+    pub deadline_seconds: Option<u64>,
+}
+
+impl ClusterPodConfig {
+    /// Every key set is one Kubernetes would accept, or an error naming `table` and the key.
+    pub fn check(&self, table: &str) -> Result<()> {
+        for (key, value) in [
+            ("cpu_request", &self.cpu_request),
+            ("memory_request", &self.memory_request),
+            ("cpu_limit", &self.cpu_limit),
+            ("memory_limit", &self.memory_limit),
+        ] {
+            if let Some(v) = value {
+                if !is_quantity(v) {
+                    anyhow::bail!(
+                        "{table} {key} = {v:?} is not a Kubernetes quantity: a number, then \
+                         optionally one of m, k, M, G, T, P, E, Ki, Mi, Gi, Ti, Pi, Ei"
+                    );
+                }
+            }
+        }
+        if self.deadline_seconds == Some(0) {
+            anyhow::bail!("{table} deadline_seconds = 0 would fail every pod before it starts");
+        }
+        Ok(())
+    }
+}
+
+/// A Kubernetes resource quantity in the forms a person writes: `"500m"`, `"2"`, `"1.5Gi"`.
+///
+/// Narrower than the API's grammar, which also takes a sign and an exponent (`"1e3"`). Neither
+/// is a size anyone sets for a pod, and a value refused here is one the corpus can respell; a
+/// value passed here that the cluster refuses is a run that never starts.
+fn is_quantity(s: &str) -> bool {
+    const SUFFIXES: &[&str] = &[
+        "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "m", "k", "M", "G", "T", "P", "E", "",
+    ];
+    let digits = s.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+    let suffix = &s[digits.len()..];
+    let mut parts = digits.splitn(2, '.');
+    let whole = parts.next().unwrap_or("");
+    let frac = parts.next();
+    SUFFIXES.contains(&suffix)
+        && !whole.is_empty()
+        && whole.chars().all(|c| c.is_ascii_digit())
+        && frac.is_none_or(|f| !f.is_empty() && f.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// `[cluster.cleanup]`: when Argo deletes a finished run's pods and the workflow itself.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClusterCleanupConfig {
+    /// Argo's `podGC.strategy`: `OnPodSuccess`, `OnPodCompletion`, `OnWorkflowSuccess` or
+    /// `OnWorkflowCompletion`.
+    #[serde(default)]
+    pub pod_gc: Option<String>,
+    /// How long a workflow that succeeded is kept, in seconds.
+    #[serde(default)]
+    pub seconds_after_success: Option<u64>,
+    /// How long a workflow that failed is kept, in seconds — longer, for whoever reads its logs.
+    #[serde(default)]
+    pub seconds_after_failure: Option<u64>,
+}
+
+impl ClusterCleanupConfig {
+    /// The strategies Argo's `podGC` takes. A misspelt one is refused by the cluster when the
+    /// workflow is submitted, which for a `CronWorkflow` is the next morning.
+    pub const POD_GC: &[&str] = &[
+        "OnPodSuccess",
+        "OnPodCompletion",
+        "OnWorkflowSuccess",
+        "OnWorkflowCompletion",
+    ];
+
+    pub fn check(&self) -> Result<()> {
+        if let Some(gc) = &self.pod_gc {
+            if !Self::POD_GC.contains(&gc.as_str()) {
+                anyhow::bail!(
+                    "[cluster.cleanup] pod_gc = {gc:?} is not an Argo podGC strategy: one of {}",
+                    Self::POD_GC.join(", ")
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Default for ClusterConfig {
     fn default() -> Self {
         Self {
@@ -123,6 +242,8 @@ impl Default for ClusterConfig {
             namespace: None,
             max_open_proposals: None,
             names: ClusterNamesConfig::default(),
+            pod: ClusterPodConfig::default(),
+            cleanup: ClusterCleanupConfig::default(),
         }
     }
 }
@@ -548,6 +669,55 @@ mod tests {
             "the example `[index.remote.corpora]` nickname did not survive — a key with a \
              hyphen in it is how that reads, and a parse that drops it would pass every \
              other assertion here"
+        );
+    }
+
+    #[test]
+    fn a_quantity_is_spelled_as_kubernetes_spells_it() {
+        for ok in ["250m", "2", "0.5", "1.5Gi", "512Mi", "1k", "3E"] {
+            assert!(is_quantity(ok), "{ok}");
+        }
+        for bad in [
+            "", "Gi", "2 Gi", "2GB", "-1", "1.", ".5", "1e3", "2gi", "1.2.3",
+        ] {
+            assert!(!is_quantity(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_pod_table_names_its_bad_key() {
+        let pod = ClusterPodConfig {
+            cpu_limit: Some("two".into()),
+            ..Default::default()
+        };
+        let err = pod.check("[cluster.pod]").unwrap_err().to_string();
+        assert!(err.contains("[cluster.pod] cpu_limit = \"two\""), "{err}");
+
+        let pod = ClusterPodConfig {
+            deadline_seconds: Some(0),
+            ..Default::default()
+        };
+        assert!(pod.check("[cluster.pod]").is_err());
+        assert!(ClusterPodConfig::default().check("[cluster.pod]").is_ok());
+    }
+
+    #[test]
+    fn pod_gc_is_one_of_argos_strategies() {
+        for gc in ClusterCleanupConfig::POD_GC {
+            let c = ClusterCleanupConfig {
+                pod_gc: Some(gc.to_string()),
+                ..Default::default()
+            };
+            assert!(c.check().is_ok(), "{gc}");
+        }
+        let c = ClusterCleanupConfig {
+            pod_gc: Some("OnSuccess".into()),
+            ..Default::default()
+        };
+        let err = c.check().unwrap_err().to_string();
+        assert!(
+            err.contains("\"OnSuccess\"") && err.contains("OnPodSuccess"),
+            "{err}"
         );
     }
 }

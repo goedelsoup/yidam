@@ -8,6 +8,9 @@
 //! - `step` mounts no git credential and is handed no remote.
 //! - `land` mounts the write credential, and is the only template that does.
 //!
+//! A capability that declares `[capability.<name>.cluster]` gets its own copy of `step`,
+//! `step-<name>`, carrying its bounds, so its override reaches no other step's pod (#1231).
+//!
 //! The steps are [`super::builtin::BUILTINS`] — the catalog's connectors, compiled in — and
 //! then the manifest's plan. Every corpus gets the first three whatever it declares, and a
 //! corpus whose catalog has nothing to do gets three steps that build nothing.
@@ -26,12 +29,14 @@
 //! credential's mount is worth more than the guarantee that a value is quoted. The output
 //! is parse-checked in the tests, which is the guarantee that matters.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
 use anyhow::{bail, Result};
 
 use crate::cmd::run::manifest::{Manifest, Run, MANIFEST};
+use crate::config::{ClusterCleanupConfig, ClusterPodConfig};
 use crate::paths::{repo_root, require_yidam_repo};
 
 /// Flags that override `[cluster]` and `[vault.<name>]`.
@@ -56,6 +61,8 @@ const HOME: &str = "/home/yidam";
 const UID: u32 = 1000;
 /// Where a git credential secret is mounted: `key` and `known_hosts` inside it.
 const GIT_DIR: &str = "/etc/yidam/git";
+/// How often Argo runs a pod again after it fails, on the templates that may be repeated.
+const RETRIES: u32 = 2;
 const GIT_SSH: &str =
     "ssh -i /etc/yidam/git/key -o UserKnownHostsFile=/etc/yidam/git/known_hosts -o IdentitiesOnly=yes";
 
@@ -82,6 +89,85 @@ struct Settings {
     /// `.yidam/gathers/<name>.toml`, by name — each a fan-out after the chain (#1217).
     gathers: Vec<String>,
     names: Names,
+    /// Every pod's bounds: `[cluster.pod]` over the compiled-in sizes.
+    pod: Bounds,
+    /// The bounds of each capability that declares its own, by capability name. A step named
+    /// here runs from its own template; every other step shares `step`.
+    step_pods: BTreeMap<String, Bounds>,
+    cleanup: Cleanup,
+}
+
+/// One pod's resources and deadline, every key resolved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Bounds {
+    cpu_request: String,
+    memory_request: String,
+    cpu_limit: String,
+    memory_limit: String,
+    deadline_seconds: u64,
+}
+
+impl Bounds {
+    /// The sizes a corpus gets when it sets none (#1231).
+    ///
+    /// Compiled in, unlike a clock, because unset is not a state a cluster has: a namespace
+    /// with a `ResourceQuota` refuses a pod that requests nothing, and a pod with no deadline
+    /// is a hung calculator holding the corpus's one `concurrencyPolicy: Forbid` slot until a
+    /// person deletes it. These are sized for what most pods do — clone, run a shell
+    /// calculator, bundle — with headroom, and a corpus that knows better says so.
+    fn builtin() -> Self {
+        Self {
+            cpu_request: "250m".into(),
+            memory_request: "512Mi".into(),
+            cpu_limit: "2".into(),
+            memory_limit: "2Gi".into(),
+            deadline_seconds: 3600,
+        }
+    }
+
+    /// These bounds with each key `o` sets replaced, and every other kept.
+    fn over(&self, o: &ClusterPodConfig) -> Self {
+        let pick = |set: &Option<String>, kept: &String| set.clone().unwrap_or(kept.clone());
+        Self {
+            cpu_request: pick(&o.cpu_request, &self.cpu_request),
+            memory_request: pick(&o.memory_request, &self.memory_request),
+            cpu_limit: pick(&o.cpu_limit, &self.cpu_limit),
+            memory_limit: pick(&o.memory_limit, &self.memory_limit),
+            deadline_seconds: o.deadline_seconds.unwrap_or(self.deadline_seconds),
+        }
+    }
+}
+
+/// When Argo deletes a finished run's pods and the workflow, every key resolved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Cleanup {
+    pod_gc: String,
+    seconds_after_success: u64,
+    seconds_after_failure: u64,
+}
+
+impl Cleanup {
+    /// A pod that succeeded goes at once: its record is in the commit, and its logs are not
+    /// provenance. A failed one stays with its workflow, a week, for whoever debugs it.
+    fn builtin() -> Self {
+        Self {
+            pod_gc: "OnPodSuccess".into(),
+            seconds_after_success: 86_400,
+            seconds_after_failure: 604_800,
+        }
+    }
+
+    fn over(&self, o: &ClusterCleanupConfig) -> Self {
+        Self {
+            pod_gc: o.pod_gc.clone().unwrap_or(self.pod_gc.clone()),
+            seconds_after_success: o
+                .seconds_after_success
+                .unwrap_or(self.seconds_after_success),
+            seconds_after_failure: o
+                .seconds_after_failure
+                .unwrap_or(self.seconds_after_failure),
+        }
+    }
 }
 
 /// The Kubernetes objects a workflow refers to by name, one set per corpus (#1228).
@@ -163,8 +249,15 @@ fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
         );
     }
     super::builtin::refuse_shadowing(&plan)?;
+    cfg.cluster.pod.check("[cluster.pod]")?;
+    cfg.cluster.cleanup.check()?;
+    let pod = Bounds::builtin().over(&cfg.cluster.pod);
+    let mut step_pods = BTreeMap::new();
     for name in &plan {
         let cap = m.get(name)?;
+        if let Some(o) = &cap.cluster {
+            step_pods.insert(name.to_string(), pod.over(o));
+        }
         if let Some(reason) = cap.kind.unrunnable_because() {
             bail!(
                 "`{name}` declares `kind = \"{}\"` and a cluster step invokes calculators \
@@ -241,6 +334,9 @@ fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
             .map(str::to_string)
             .collect(),
         gathers,
+        pod,
+        step_pods,
+        cleanup: Cleanup::builtin().over(&cfg.cluster.cleanup),
     })
 }
 
@@ -361,6 +457,14 @@ fn spec(s: &Settings) -> String {
          its own.\n",
     );
     y.push_str("automountServiceAccountToken: false\n");
+    let c = &s.cleanup;
+    let _ = writeln!(
+        y,
+        "# A pod that succeeded is deleted at once; a failed one stays with its workflow.\n\
+         podGC:\n  strategy: {}\nttlStrategy:\n  secondsAfterSuccess: {}\n  \
+         secondsAfterFailure: {}",
+        c.pod_gc, c.seconds_after_success, c.seconds_after_failure
+    );
     let _ = writeln!(
         y,
         "executor:\n  serviceAccountName: {}",
@@ -422,9 +526,13 @@ fn spec(s: &Settings) -> String {
     }
     for step in &s.steps {
         let task = task_name(step);
+        let template = match s.step_pods.contains_key(step) {
+            true => format!("step-{task}"),
+            false => "step".to_string(),
+        };
         let _ = writeln!(
             y,
-            "        - name: step-{task}\n          template: step\n          depends: {previous}\n          \
+            "        - name: step-{task}\n          template: {template}\n          depends: {previous}\n          \
              arguments:\n            parameters:\n              - name: step\n                \
              value: {}\n              - name: bundle\n                \
              value: \"{{{{=jsonpath(tasks.{previous}.outputs.parameters.output, '{previous_bundle}')}}}}\"",
@@ -446,53 +554,81 @@ fn spec(s: &Settings) -> String {
     // ── the four container templates ──────────────────────────────────────────
     y.push_str(&template(
         s,
-        "pin",
-        &[],
-        &["cluster", "pin"],
-        &remote_args(),
-        Credential::Read,
-        true,
+        &Pod {
+            name: "pin",
+            inputs: &[],
+            command: &["cluster", "pin"],
+            args: &remote_args(),
+            cred: Credential::Read,
+            vault: true,
+            retry: true,
+            bounds: &s.pod,
+        },
     ));
+    y.push_str(&template(s, &step_pod("step", &s.pod)));
+    for (step, bounds) in &s.step_pods {
+        let name = format!("step-{}", task_name(step));
+        y.push_str(&template(s, &step_pod(&name, bounds)));
+    }
     y.push_str(&template(
         s,
-        "step",
-        &["step", "bundle"],
-        &["cluster", "step", "{{inputs.parameters.step}}"],
-        &[
-            "--bundle",
-            "{{inputs.parameters.bundle}}",
-            "--image",
-            "{{workflow.parameters.image}}",
-        ],
-        Credential::None,
-        true,
-    ));
-    y.push_str(&template(
-        s,
-        "land",
-        &["step-output"],
-        &["cluster", "land"],
-        &[
-            &["--step-output", "{{inputs.parameters.step-output}}"][..],
-            &remote_args(),
-        ]
-        .concat(),
-        Credential::Write,
-        true,
+        &Pod {
+            name: "land",
+            inputs: &["step-output"],
+            command: &["cluster", "land"],
+            args: &[
+                &["--step-output", "{{inputs.parameters.step-output}}"][..],
+                &remote_args(),
+            ]
+            .concat(),
+            cred: Credential::Write,
+            vault: true,
+            // Never. The lander retries its own compare-and-swap, and refuses when it loses a
+            // race it cannot rebuild over; an Argo retry would re-attempt that deliberate
+            // refusal and hide it.
+            retry: false,
+            bounds: &s.pod,
+        },
     ));
     if !s.gathers.is_empty() {
         gather_templates(&mut y, s);
     }
     y.push_str(&template(
         s,
-        "admit",
-        &[],
-        &["cluster", "admit"],
-        &remote_args(),
-        Credential::Read,
-        false,
+        &Pod {
+            name: "admit",
+            inputs: &[],
+            command: &["cluster", "admit"],
+            args: &remote_args(),
+            cred: Credential::Read,
+            vault: false,
+            retry: false,
+            bounds: &s.pod,
+        },
     ));
     y
+}
+
+/// The step template, under `name` and with `bounds`: `step` itself, or a capability's own.
+///
+/// Repeatable, because a step is a function of its input state: a second run against the same
+/// bundle builds the same commit, and nothing it does is visible until a lander moves a ref.
+fn step_pod<'a>(name: &'a str, bounds: &'a Bounds) -> Pod<'a> {
+    Pod {
+        name,
+        inputs: &["step", "bundle"],
+        command: &["cluster", "step", "{{inputs.parameters.step}}"],
+        args: &[
+            "--bundle",
+            "{{inputs.parameters.bundle}}",
+            "--image",
+            "{{workflow.parameters.image}}",
+        ],
+        cred: Credential::None,
+        vault: true,
+        retry: true,
+        bounds,
+    }
 }
 
 /// One gather's four tasks: plan it, ask every planned peer in its own pod, settle, land.
@@ -543,40 +679,53 @@ fn gather_tasks(y: &mut String, g: &str, previous: &str, previous_bundle: &str) 
 fn gather_templates(y: &mut String, s: &Settings) {
     y.push_str(&template(
         s,
-        "survey",
-        &["gather", "bundle"],
-        &["cluster", "survey", "{{inputs.parameters.gather}}"],
-        &["--bundle", "{{inputs.parameters.bundle}}"],
-        Credential::None,
-        true,
+        &Pod {
+            name: "survey",
+            inputs: &["gather", "bundle"],
+            command: &["cluster", "survey", "{{inputs.parameters.gather}}"],
+            args: &["--bundle", "{{inputs.parameters.bundle}}"],
+            cred: Credential::None,
+            vault: true,
+            // A plan read from the pin: the same bundle plans the same asks.
+            retry: true,
+            bounds: &s.pod,
+        },
     ));
     y.push_str(&template(
         s,
-        "ask",
-        &["ask"],
-        &["cluster", "ask"],
-        &[
-            "--ask",
-            "{{inputs.parameters.ask}}",
-            "--image",
-            "{{workflow.parameters.image}}",
-        ],
-        Credential::None,
-        true,
+        &Pod {
+            name: "ask",
+            inputs: &["ask"],
+            command: &["cluster", "ask"],
+            args: &[
+                "--ask",
+                "{{inputs.parameters.ask}}",
+                "--image",
+                "{{workflow.parameters.image}}",
+            ],
+            cred: Credential::None,
+            vault: true,
+            retry: false,
+            bounds: &s.pod,
+        },
     ));
     y.push_str(&template(
         s,
-        "gather",
-        &["gather", "bundle", "asked"],
-        &["cluster", "gather", "{{inputs.parameters.gather}}"],
-        &[
-            "--bundle",
-            "{{inputs.parameters.bundle}}",
-            "--asked",
-            "{{inputs.parameters.asked}}",
-        ],
-        Credential::None,
-        true,
+        &Pod {
+            name: "gather",
+            inputs: &["gather", "bundle", "asked"],
+            command: &["cluster", "gather", "{{inputs.parameters.gather}}"],
+            args: &[
+                "--bundle",
+                "{{inputs.parameters.bundle}}",
+                "--asked",
+                "{{inputs.parameters.asked}}",
+            ],
+            cred: Credential::None,
+            vault: true,
+            retry: false,
+            bounds: &s.pod,
+        },
     ));
 }
 
@@ -596,15 +745,31 @@ fn remote_args() -> Vec<&'static str> {
     ]
 }
 
-fn template(
-    s: &Settings,
-    name: &str,
-    inputs: &[&str],
-    command: &[&str],
-    args: &[&str],
+/// One container template, as [`template`] writes it.
+struct Pod<'a> {
+    name: &'a str,
+    inputs: &'a [&'a str],
+    command: &'a [&'a str],
+    args: &'a [&'a str],
     cred: Credential,
     vault: bool,
-) -> String {
+    /// Whether Argo runs the pod again when it fails. Only for a pod whose second run computes
+    /// what its first would have and moves nothing: `pin`, `survey` and `step` (#1231).
+    retry: bool,
+    bounds: &'a Bounds,
+}
+
+fn template(s: &Settings, pod: &Pod) -> String {
+    let Pod {
+        name,
+        inputs,
+        command,
+        args,
+        cred,
+        vault,
+        retry,
+        bounds,
+    } = *pod;
     let mut y = String::new();
     let _ = writeln!(y, "  - name: {name}");
     match cred {
@@ -613,7 +778,8 @@ fn template(
         ),
         Credential::Write => y.push_str(
             "    # The lander. It classifies the commit by its own subject line, chooses the ref\n    \
-             # the class permits, and writes it with a compare-and-swap.\n",
+             # the class permits, and writes it with a compare-and-swap. No retryStrategy: it\n    \
+             # retries its own race, and a refusal it reaches is the answer, not a fault.\n",
         ),
         Credential::Read => {}
     }
@@ -627,6 +793,15 @@ fn template(
         y,
         "    outputs:\n      parameters:\n        - name: output\n          valueFrom:\n            path: {OUT}"
     );
+    // Per attempt: a retried pod gets its own deadline, so a hang costs at most one each.
+    let _ = writeln!(y, "    activeDeadlineSeconds: {}", bounds.deadline_seconds);
+    if retry {
+        let _ = writeln!(
+            y,
+            "    retryStrategy:\n      limit: {RETRIES}\n      retryPolicy: Always\n      \
+             backoff:\n        duration: \"30s\"\n        factor: 2"
+        );
+    }
     // The `restricted` Pod Security Standard, so a namespace enforcing it admits the pod
     // (#1230). `fsGroup` is what makes a `file://` vault's claim writable by the user.
     let _ = writeln!(
@@ -672,6 +847,15 @@ fn template(
         y,
         "      securityContext:\n        allowPrivilegeEscalation: false\n        \
          readOnlyRootFilesystem: true\n        capabilities:\n          drop: [\"ALL\"]"
+    );
+    let _ = writeln!(
+        y,
+        "      resources:\n        requests:\n          cpu: {}\n          memory: {}\n        \
+         limits:\n          cpu: {}\n          memory: {}",
+        quote(&bounds.cpu_request),
+        quote(&bounds.memory_request),
+        quote(&bounds.cpu_limit),
+        quote(&bounds.memory_limit)
     );
     let _ = writeln!(
         y,
@@ -886,6 +1070,9 @@ mod tests {
             steps: vec!["a".into(), "b".into()],
             gathers: vec![],
             names: Names::derived("corpus"),
+            pod: Bounds::builtin(),
+            step_pods: BTreeMap::new(),
+            cleanup: Cleanup::builtin(),
         };
         let text = spec(&s);
         let doc: serde_yaml::Value = serde_yaml::from_str(&text).expect("the spec parses");
@@ -943,6 +1130,9 @@ mod tests {
             steps: vec!["a".into()],
             gathers: vec![],
             names: Names::derived("corpus"),
+            pod: Bounds::builtin(),
+            step_pods: BTreeMap::new(),
+            cleanup: Cleanup::builtin(),
         };
         let doc: serde_yaml::Value = serde_yaml::from_str(&spec(&s)).unwrap();
         let step = doc["templates"]
@@ -982,6 +1172,9 @@ mod tests {
             steps: vec!["a".into()],
             gathers: vec!["units".into()],
             names: Names::derived("corpus"),
+            pod: Bounds::builtin(),
+            step_pods: BTreeMap::new(),
+            cleanup: Cleanup::builtin(),
         };
         let text = spec(&s);
         let doc: serde_yaml::Value = serde_yaml::from_str(&text).expect("the spec parses");
@@ -1047,6 +1240,9 @@ mod tests {
             steps: vec!["a".into()],
             gathers: vec!["units".into()],
             names: Names::derived("corpus"),
+            pod: Bounds::builtin(),
+            step_pods: BTreeMap::from([("a".into(), Bounds::builtin())]),
+            cleanup: Cleanup::builtin(),
         };
         let doc: serde_yaml::Value = serde_yaml::from_str(&spec(&s)).expect("the spec parses");
         // The volume types `restricted` allows; a hostPath, say, fails admission.
@@ -1155,6 +1351,175 @@ mod tests {
         );
     }
 
+    /// Every template the generator has: a cron, a gather and a capability with its own
+    /// bounds, so no template sits behind a condition this does not meet.
+    fn every_template() -> Settings {
+        let mut wide = Bounds::builtin();
+        wide.memory_limit = "8Gi".into();
+        Settings {
+            slug: "corpus".into(),
+            image: "img".into(),
+            remote: "r".into(),
+            branch: "main".into(),
+            vault_name: "default".into(),
+            vault_url: "file:///vault".into(),
+            vault_region: None,
+            vault_endpoint: None,
+            vault_path_style: false,
+            namespace: None,
+            cron: Some("0 6 * * *".into()),
+            steps: vec!["a".into(), "b".into()],
+            gathers: vec!["units".into()],
+            names: Names::derived("corpus"),
+            pod: Bounds::builtin(),
+            step_pods: BTreeMap::from([("b".into(), wide)]),
+            cleanup: Cleanup::builtin(),
+        }
+    }
+
+    /// The `yidam cluster` subcommand a container template runs: what it *is*, whatever it is
+    /// called.
+    fn subcommand(t: &serde_yaml::Value) -> Option<&str> {
+        t["container"]["command"].as_sequence()?.get(2)?.as_str()
+    }
+
+    /// No pod that runs `cluster land` carries a `retryStrategy`, and nothing hands it one.
+    ///
+    /// The lander retries its own compare-and-swap and refuses when it loses a race it cannot
+    /// rebuild over. That refusal is the answer — the next admission runs the step over — and
+    /// an Argo retry on top would attempt it again and bury it. Landers are found by the
+    /// command they run, so one under another name is still a lander; and the pods that may
+    /// repeat are asserted to, so a walk that read nothing cannot pass.
+    #[test]
+    fn no_land_template_carries_a_retry_strategy() {
+        let doc: serde_yaml::Value =
+            serde_yaml::from_str(&spec(&every_template())).expect("the spec parses");
+        assert!(
+            doc.get("templateDefaults").is_none(),
+            "templateDefaults would reach the lander too"
+        );
+        assert!(
+            doc.get("retryStrategy").is_none(),
+            "a workflow retryStrategy would reach the lander too"
+        );
+        let mut retried = vec![];
+        let mut landers = 0;
+        for t in doc["templates"].as_sequence().expect("templates") {
+            let Some(cmd) = subcommand(t) else { continue };
+            let name = t["name"].as_str().unwrap();
+            if cmd == "land" {
+                landers += 1;
+                assert!(
+                    t.get("retryStrategy").is_none(),
+                    "{name} runs `cluster land` and carries a retryStrategy"
+                );
+            } else if let Some(r) = t.get("retryStrategy") {
+                assert_eq!(r["limit"].as_u64(), Some(RETRIES.into()), "{name}");
+                retried.push(cmd);
+            }
+        }
+        assert_eq!(landers, 1);
+        // The overridden step is a second `step` template, and it retries too.
+        retried.sort();
+        assert_eq!(retried, ["pin", "step", "step", "survey"]);
+    }
+
+    /// Every pod requests, is limited and has a deadline, and the workflow cleans up after
+    /// itself. A namespace with a `ResourceQuota` refuses a pod that requests nothing.
+    #[test]
+    fn every_pod_is_bounded_and_every_run_is_collected() {
+        let s = every_template();
+        let doc: serde_yaml::Value = serde_yaml::from_str(&spec(&s)).expect("the spec parses");
+        assert_eq!(doc["podGC"]["strategy"].as_str(), Some("OnPodSuccess"));
+        assert_eq!(
+            doc["ttlStrategy"]["secondsAfterSuccess"].as_u64(),
+            Some(86_400)
+        );
+        assert_eq!(
+            doc["ttlStrategy"]["secondsAfterFailure"].as_u64(),
+            Some(604_800)
+        );
+        let mut bounded = 0;
+        for t in doc["templates"].as_sequence().expect("templates") {
+            if t.get("dag").is_some() {
+                continue;
+            }
+            let name = t["name"].as_str().unwrap();
+            let r = &t["container"]["resources"];
+            for side in ["requests", "limits"] {
+                for key in ["cpu", "memory"] {
+                    assert!(
+                        r[side][key].as_str().is_some(),
+                        "{name} has no {side}.{key}"
+                    );
+                }
+            }
+            assert_eq!(t["activeDeadlineSeconds"].as_u64(), Some(3600), "{name}");
+            bounded += 1;
+        }
+        let call_sites = include_str!("workflow.rs")
+            .matches(concat!("y.push_str(&", "template("))
+            .count();
+        assert_eq!(
+            bounded, call_sites,
+            "a template this fixture does not write"
+        );
+    }
+
+    /// A capability's bounds reach its own step's template and no other, and its task runs
+    /// from it. Two steps, only the second overridden, so a template chosen by position or
+    /// shared by all would both be wrong here.
+    #[test]
+    fn a_capability_bounds_reach_only_its_own_step() {
+        let doc: serde_yaml::Value =
+            serde_yaml::from_str(&spec(&every_template())).expect("the spec parses");
+        let templates = doc["templates"].as_sequence().unwrap();
+        let memory = |name: &str| {
+            templates
+                .iter()
+                .find(|t| t["name"] == name)
+                .unwrap_or_else(|| panic!("no template {name}"))["container"]["resources"]["limits"]
+                ["memory"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(memory("step-b"), "8Gi");
+        for other in ["step", "pin", "land"] {
+            assert_eq!(memory(other), "2Gi", "{other}");
+        }
+        assert!(templates.iter().all(|t| t["name"] != "step-a"));
+        let tasks = templates[0]["dag"]["tasks"].as_sequence().unwrap();
+        let uses = |task: &str| {
+            tasks.iter().find(|t| t["name"] == task).unwrap()["template"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(uses("step-a"), "step");
+        assert_eq!(uses("step-b"), "step-b");
+    }
+
+    /// A capability's key replaces the corpus's, and every key it leaves unset is the
+    /// corpus's, not the compiled-in one.
+    #[test]
+    fn bounds_layer_key_by_key() {
+        let corpus = Bounds::builtin().over(&ClusterPodConfig {
+            cpu_request: Some("1".into()),
+            ..Default::default()
+        });
+        let cap = corpus.over(&ClusterPodConfig {
+            memory_limit: Some("8Gi".into()),
+            deadline_seconds: Some(600),
+            ..Default::default()
+        });
+        assert_eq!(cap.cpu_request, "1");
+        assert_eq!(cap.memory_limit, "8Gi");
+        assert_eq!(cap.deadline_seconds, 600);
+        assert_eq!(cap.memory_request, Bounds::builtin().memory_request);
+        assert_eq!(corpus.deadline_seconds, 3600);
+    }
+
     /// A corpus with no gather gets none of the gather templates, so its workflow is unchanged.
     #[test]
     fn no_gather_writes_no_gather_template() {
@@ -1173,6 +1538,9 @@ mod tests {
             steps: vec!["a".into()],
             gathers: vec![],
             names: Names::derived("corpus"),
+            pod: Bounds::builtin(),
+            step_pods: BTreeMap::new(),
+            cleanup: Cleanup::builtin(),
         };
         let text = spec(&s);
         for t in ["survey", "ask", "gather"] {
