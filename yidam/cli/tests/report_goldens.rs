@@ -2470,6 +2470,13 @@ const UNREACHED: &[(&str, &str)] = &[
          field included — against this schema (#1019)",
     ),
     (
+        "consumption.reach",
+        "populated only over a record whose `retrieve` lines carry `node_ids`, and the fixture \
+         holds no record, so the `record` golden pins the `null` arm. \
+         `a_recorded_session_is_reported_by_yidam_record` in `mcp_serve.rs` emits the object \
+         from a real server's lines and holds each field against this schema (#1020)",
+    ),
+    (
         "reconciled[].commit",
         "null on `--dry-run` by declaration, and a writing run would corrupt the shared fixture",
     ),

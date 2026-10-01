@@ -1252,6 +1252,56 @@ fn a_query_that_returned_nothing_is_recorded_as_zero_rows() {
     assert_eq!(line["rejected"], false, "{line}");
 }
 
+/// Which nodes came back, and they are those nodes (#1020).
+///
+/// A row count answered *which queries came back empty* and not *which nodes were never
+/// returned* — #719's lead question. The ids on the line are held to the ids the client was
+/// sent, and the reader's complement to the corpus `list_nodes` reports, so a writer and a
+/// reader that disagreed on how an id is spelled would put every node in `unreached` here.
+#[test]
+fn a_recorded_retrieve_names_its_nodes_and_the_rest_are_unreached() {
+    let repo = recording_repo();
+    let (sent, all) = {
+        let mut client = McpClient::spawn(repo.path());
+        client.initialize();
+        let answer = client.tool_json("retrieve", json!({"query": "knowledge graph", "k": 2}));
+        let listed = client.tool_json("list_nodes", json!({}));
+        let ids = |rows: &Value| -> Vec<String> {
+            rows.as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["id"].as_str().unwrap().to_string())
+                .collect()
+        };
+        (ids(&answer["results"]), ids(&listed["nodes"]))
+    };
+    assert!(!sent.is_empty(), "the fixture answers this query");
+    assert!(all.len() > sent.len(), "some node must go unreturned");
+
+    let lines = record_lines(repo.path());
+    assert_eq!(lines[0]["node_ids"], json!(sent), "{}", lines[0]);
+    assert!(
+        lines[1]["node_ids"].is_null(),
+        "list_nodes is not retrieval"
+    );
+
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .args(["record", "--format", "json"])
+        .current_dir(repo.path())
+        .output()
+        .expect("spawning yidam record");
+    assert!(out.status.success(), "{out:?}");
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let reach = &doc["consumption"]["reach"];
+    let mut expected: Vec<&String> = all.iter().filter(|id| !sent.contains(id)).collect();
+    expected.sort();
+    assert_eq!(reach["unreached"], json!(expected), "{reach:#}");
+    assert_eq!(reach["nodes"], all.len(), "{reach:#}");
+    assert_eq!(reach["returned"], sent.len(), "{reach:#}");
+    assert_eq!(reach["calls"], 1, "{reach:#}");
+    assert_eq!(reach["unrecorded"], 0, "{reach:#}");
+}
+
 /// The record has a reader (#1019): what a server wrote, `yidam record` reports.
 ///
 /// Through the binary on both sides, because the unit tests in `cmd/record.rs` read lines this

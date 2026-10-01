@@ -51,6 +51,30 @@
 //! in a working tree. The digest answers every question above — *which queries came back empty*
 //! is a set with counts either way — and answers them identically on both transports, so there
 //! is no transport-conditional record shape for anyone to reason about.
+//!
+//! # Which nodes, and what that gives away
+//!
+//! The last question above — how much of the corpus the read surface reaches — was not
+//! answerable from a row count. `results: 3` says three nodes came back and not which three, so
+//! *which nodes has `retrieve` never once returned* (#719's lead question, and the consumption
+//! side of `lint`'s uncited check) had no complement to compute. [`node_ids`] is that set, on
+//! `retrieve` lines only (#1020).
+//!
+//! **`retrieve` and no other tool.** `get_node` returns the node its caller named, so recording
+//! it would answer *was this reached*, a different question with its own answer already in
+//! `args_digest`. The listing and graph tools return what their arguments select rather than
+//! what a question surfaced. `retrieve` is the one tool whose answer the corpus chose.
+//!
+//! **This is closer to the query than a count is, and the argument above is reaffirmed rather
+//! than assumed.** A returned id set is not the words, but it is a better index into them than
+//! a digest: two calls that got the same ids asked related things, and the ids say roughly
+//! what about. It is kept anyway, for three reasons. Every id is a name the served corpus
+//! already publishes to any caller through `list_nodes`, so the line carries no text the
+//! operator does not hold. No line names a caller — no address, no token, no session — so what
+//! the ids link is one anonymous call to another. And an empty answer, the case most likely to
+//! carry a question the corpus could not answer, records an empty set: the questions a corpus
+//! is missing stay digests. What would change this argument is a line that names the caller,
+//! and none does.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -194,6 +218,7 @@ fn entry(
             Err(_) => "error",
         },
         "results": body.and_then(results),
+        "node_ids": body.and_then(|b| node_ids(tool, b)),
         "degraded": body.and_then(|b| b.get("degraded").and_then(Value::as_bool)),
         // A REJECTION IS NOT AN ABSENCE — `retrieve`'s own distinction, carried here because
         // collapsing it would put a caller's typo and a hole in the corpus in the same bucket,
@@ -212,8 +237,7 @@ fn entry(
 /// structural rule needs no table and is honest about what it cannot count: a response with no
 /// array, or with two, records `null` rather than a number somebody would read as a row count.
 ///
-/// A count and not the ids, which is the gap #1020 names: this answers *which queries came back
-/// empty* and not *which nodes were never returned*, though #719 led with the second.
+/// A count and not the ids. The ids are [`node_ids`], and only for `retrieve`.
 fn results(body: &Value) -> Option<u64> {
     let mut arrays = body.as_object()?.values().filter_map(Value::as_array);
     let first = arrays.next()?;
@@ -221,6 +245,29 @@ fn results(body: &Value) -> Option<u64> {
         None => Some(first.len() as u64),
         Some(_) => None,
     }
+}
+
+/// Which nodes `retrieve` answered with, in rank order, or `None` for any other tool.
+///
+/// Each row's `id`, as the response spelled it: a local id, `pkg::class/name` for an installed
+/// dependency, or a `yidam://` reference for a row from another corpus. A row whose id is null
+/// — a path the resolver could not place — names no node and is left out, so the array can be
+/// shorter than `results`. A rejection answers with no rows and records `[]`; the `rejected`
+/// key already says why.
+///
+/// Read by tool name rather than by shape, unlike [`results`]: the question is about one tool,
+/// and a structural rule would sweep `neighbors` and `list_nodes` into an answer about what
+/// retrieval surfaced. See the module doc for why no other tool.
+fn node_ids(tool: &str, body: &Value) -> Option<Vec<String>> {
+    if tool != "retrieve" {
+        return None;
+    }
+    let rows = body.get("results")?.as_array()?;
+    Some(
+        rows.iter()
+            .filter_map(|r| r.get("id").and_then(Value::as_str).map(str::to_string))
+            .collect(),
+    )
 }
 
 /// A stable digest of the arguments, and never the arguments.
@@ -368,6 +415,64 @@ mod tests {
         assert_eq!(results(&json!("a string")), None);
     }
 
+    /// Which nodes came back, and they are those nodes (#1020).
+    #[test]
+    fn a_retrieve_records_the_ids_it_returned() {
+        let e = entry(
+            "abc1234",
+            "retrieve",
+            &json!({"query": "x"}),
+            &ok(json!({
+                "degraded": true,
+                "rejected": null,
+                "results": [
+                    {"id": "concept/a", "path": ".yidam/corpus/concept/a.yml"},
+                    {"id": "dep::concept/b", "path": ".yidam/tonpa/dep/corpus/concept/b.yml"},
+                    {"id": "yidam://other/node/concept/c", "corpus": "other"},
+                ],
+            })),
+            Duration::ZERO,
+        );
+        assert_eq!(e["results"], 3);
+        assert_eq!(
+            e["node_ids"],
+            json!([
+                "concept/a",
+                "dep::concept/b",
+                "yidam://other/node/concept/c"
+            ])
+        );
+    }
+
+    /// A row the resolver could not name is not a node, and an empty answer is an empty set.
+    #[test]
+    fn an_unnamed_row_is_left_out_and_an_empty_answer_records_no_ids() {
+        let unnamed = ok(json!({"results": [{"id": null, "path": "x"}, {"id": "concept/a"}]}));
+        let e = entry("c", "retrieve", &json!({}), &unnamed, Duration::ZERO);
+        assert_eq!(e["node_ids"], json!(["concept/a"]));
+
+        let empty = ok(json!({"rejected": null, "results": []}));
+        let e = entry("c", "retrieve", &json!({}), &empty, Duration::ZERO);
+        assert_eq!(e["node_ids"], json!([]));
+    }
+
+    /// `get_node` returns what its caller named, so it is not what retrieval surfaced; and a
+    /// refusal returned nothing to name.
+    #[test]
+    fn only_an_answered_retrieve_records_ids() {
+        for (tool, outcome) in [
+            ("get_node", ok(json!({"results": [{"id": "concept/a"}]}))),
+            ("list_nodes", ok(json!({"nodes": [{"id": "concept/a"}]}))),
+            (
+                "retrieve",
+                Err("missing required argument: query".to_string()),
+            ),
+        ] {
+            let e = entry("c", tool, &json!({}), &outcome, Duration::ZERO);
+            assert!(e["node_ids"].is_null(), "{tool}: {e}");
+        }
+    }
+
     #[test]
     fn an_entry_names_the_commit_it_answered_from() {
         let e = entry(
@@ -420,6 +525,7 @@ mod tests {
             "args_digest",
             "outcome",
             "results",
+            "node_ids",
             "degraded",
             "rejected",
             "ms",

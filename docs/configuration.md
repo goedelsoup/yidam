@@ -486,6 +486,7 @@ Four questions a corpus cannot ask about itself without this, and can with it:
 | Did the degraded keyword path serve real traffic? | `degraded` per line. `retrieve` always reported it per call, and nothing aggregated it, so *this corpus has been answering from keyword search for a month* was not a statement anyone could make |
 | Did anything act on a clock? | A `cycle` or `propose` line. Four freshness clocks, and no closing evidence that one was ever discharged through this surface |
 | How much of the read surface is used at all? | `tool` and `ms` across the file |
+| Which nodes has `retrieve` never returned? | `node_ids` on `retrieve` lines, against the corpus. A row count has no complement; the ids do (#1020) |
 
 One line per call, and every key is present on every line. `null` where a key does not apply to the
 tool in hand. So a reader never has to tell *nothing to report* from *a writer too old to report
@@ -494,6 +495,7 @@ it*:
 ```json
 {"at":1758758400,"commit":"2bb499a","tool":"retrieve",
  "args_digest":"sha256:9f3a…","outcome":"ok","results":3,
+ "node_ids":["concept/a","concept/b","concept/c"],
  "degraded":true,"rejected":false,"ms":12}
 ```
 
@@ -507,6 +509,12 @@ cannot authenticate. A plaintext record would be a file of their questions, accu
 working tree. The digest still answers every question above — *which queries came back empty* is a
 set with counts either way. It answers them identically on both transports, so no
 transport-conditional shape exists for anyone to reason about.
+
+**`node_ids` is closer to the query, and is kept anyway.** It is on `retrieve` lines only, and null
+on every other tool. Two calls that got the same ids asked related things. That is more than a
+digest says. Three things bound it. Every id is a name `list_nodes` already publishes to any caller.
+No line names a caller, so the ids link one anonymous call to another. And an empty answer records
+an empty set, so the questions a corpus could not answer stay digests.
 
 **`yidam record` reads it.** It answers the four questions above in sentences, below a table of
 calls per tool. Pass `--format json` for the same counts as a report. A line from an older

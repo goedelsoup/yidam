@@ -3111,7 +3111,8 @@
         "empty_questions",
         "errors",
         "tools",
-        "never_called"
+        "never_called",
+        "reach"
       ],
       "properties": {
         "path": {
@@ -3238,6 +3239,49 @@
             "type": "string"
           },
           "description": "Tools the MCP contract carries that no line names, in the contract's order. Every tier is listed, including ones this corpus does not back."
+        },
+        "reach": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Which of this corpus's nodes `retrieve` has returned, from the `node_ids` record lines carry (#1020) \u2014 the consumption side of `lint`'s uncited check. NULL when no answered `retrieve` line carries `node_ids`: an older writer recorded a row count, and the complement of a count is not computable. A consumer MUST NOT read null as every node unreached.",
+          "required": [
+            "nodes",
+            "returned",
+            "unreached",
+            "calls",
+            "unrecorded"
+          ],
+          "properties": {
+            "nodes": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "This corpus's own nodes at the working tree. A dependency's are not counted."
+            },
+            "returned": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "How many of `nodes` some recorded `retrieve` returned."
+            },
+            "unreached": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "`nodes` no recorded `retrieve` returned, sorted by id."
+            },
+            "calls": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Answered `retrieve` calls whose line names the nodes it returned."
+            },
+            "unrecorded": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Answered `retrieve` calls whose line does not, from an older writer. They are in no count here, so a nonzero value means `unreached` may list a node one of them returned."
+            }
+          }
         }
       }
     }

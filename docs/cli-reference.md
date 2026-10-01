@@ -1497,7 +1497,7 @@ retrieval was degraded, and the corpus commit it answered from. Never the query 
 
 **`yidam record` reads that file.** It prints the calls per tool, then one sentence per
 question the record answers. Those are the empty answers, degraded retrieval, `act`-tier calls,
-and tools never called. A missing file is reported as *nothing was recorded*. That is not the same
+and tools never called. It also names the corpus nodes no recorded `retrieve` returned. A missing file is reported as *nothing was recorded*. That is not the same
 as *nothing was asked*, and the command says which one it found. It never gates: the file is
 gitignored, so a fresh clone or CI runner does not have it.
 

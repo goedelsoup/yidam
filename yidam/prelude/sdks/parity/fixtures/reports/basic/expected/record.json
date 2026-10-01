@@ -21,6 +21,7 @@
     "empty_questions": 0,
     "errors": 0,
     "tools": [],
-    "never_called": []
+    "never_called": [],
+    "reach": null
   }
 }

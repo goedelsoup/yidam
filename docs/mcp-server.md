@@ -597,6 +597,7 @@ answering from keyword search for a month.* *Did anything ever act on a clock.*
 ```json
 {"at":1758758400,"commit":"2bb499a","tool":"retrieve",
  "args_digest":"sha256:9f3a…","outcome":"ok","results":3,
+ "node_ids":["concept/a","concept/b","concept/c"],
  "degraded":true,"rejected":false,"ms":12}
 ```
 
@@ -609,6 +610,10 @@ A refusal is recorded too, on the same shape with `outcome: "error"`. That is th
 server answers callers it cannot tell apart, token or no token. The record must not become a file
 of their questions. A request the token refuses never reaches a tool, so it is never recorded. The digest is stable, so the same call digests alike. *This was asked forty times* is
 still answerable.
+
+A `retrieve` line also carries `node_ids`: which nodes came back, in rank order. That is how
+`yidam record` names the nodes nothing ever retrieved. The ids are names `list_nodes` already gives
+any caller. No line says who the caller was.
 
 `.yidam/record/` must be gitignored, and the server **refuses to start** until it is. A tracked
 record would dirty the working tree after every session anyone served. Nothing here writes a
