@@ -1,0 +1,11 @@
+# No `storageClassName`: which class offers `ReadWriteMany` (NFS, EFS, Filestore, CephFS) is the
+# cluster's to say. Patch one in from the overlay when the default class cannot provide it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vault
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 10Gi

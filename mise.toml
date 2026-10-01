@@ -34,6 +34,12 @@ node = "lts"
 # namespace and tags this one `cargo-nextest-<version>`; mise resolves the string literally,
 # so the prefix is part of the pin rather than noise in it.
 "github:nextest-rs/nextest" = "cargo-nextest-0.9.143"
+# kustomize — `cluster_run.rs` builds the streamflow overlay under `yidam/cluster/` and
+# compares it with the workflow the generator writes (#1229). Here for nextest's reason: the
+# test is in the CLI suite, which six tasks run, and a per-task pin would be a list to keep in
+# step with them. A single binary of about 15MB. 5.7.1 is the version kubectl 1.34 embeds, so
+# `kubectl apply -k` builds what the test built.
+"aqua:kubernetes-sigs/kustomize" = "5.7.1"
 # dafny and LEAN are NOT here on purpose — see [tasks.verify]. Neither is in the mise
 # registry, both are large, and both are needed by exactly one task. `mise install` runs in
 # every derived repository, so a tool pinned here is a download every corpus pays for.

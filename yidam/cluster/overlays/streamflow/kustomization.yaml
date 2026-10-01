@@ -1,0 +1,19 @@
+# The worked example: everything streamflow's generated workflow names, and the workflow.
+#
+#   kubectl apply -k yidam/cluster/overlays/streamflow -n <namespace>
+#
+# Two layers, because `namePrefix` renames every object in the kustomization that declares it.
+# `objects/` holds the corpus's own objects and prefixes them. The `CronWorkflow` sits here,
+# above the prefix: it is `yidam cluster workflow --cron` output, already carries every name,
+# and would otherwise become `yidam-streamflow-yidam-streamflow`.
+#
+# `streamflow.workflow.yml` beside this file is the one-shot form, and is not listed. It is
+# written with `generateName`, which kustomize refuses (`missing metadata.name`) and
+# `kubectl apply` cannot create. Submit it with `kubectl create -f` after this is applied.
+#
+# `cluster_run.rs` builds this and checks the two agree, in both directions.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - objects
+  - streamflow.cronworkflow.yml

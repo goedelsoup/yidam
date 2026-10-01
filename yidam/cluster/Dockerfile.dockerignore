@@ -5,3 +5,6 @@
 **/dist
 **/dist-*
 .git
+# The build context is the whole checkout, and the build stage copies all of it. An overlay's
+# secret values must not reach an image layer.
+yidam/cluster/overlays/*/objects/secrets

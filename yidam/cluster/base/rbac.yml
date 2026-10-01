@@ -6,21 +6,18 @@
 # for the executor alone. Git and the vault are reached with the secrets the workflow mounts,
 # never with a Kubernetes identity.
 #
-# The name is streamflow's, the worked example's: `yidam-<corpus>-run`, or whatever
-# `[cluster.names] service_account` declares. Each corpus in a namespace applies its own copy
-# under its own name. Put yours in place of `yidam-streamflow-run` before applying:
-#
-#   sed 's/yidam-streamflow-run/yidam-<corpus>-run/' docs/cluster/argo-rbac.yml \
-#     | kubectl apply -n <namespace> -f -
+# The name is the role alone. An overlay's `namePrefix: yidam-<corpus>-` makes it
+# `yidam-<corpus>-run`, the name `yidam cluster workflow` derives, and rewrites the binding's
+# references to match.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: yidam-streamflow-run
+  name: run
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: yidam-streamflow-run
+  name: run
 rules:
   - apiGroups: ["argoproj.io"]
     resources: ["workflowtaskresults"]
@@ -29,11 +26,11 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: yidam-streamflow-run
+  name: run
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: yidam-streamflow-run
+  name: run
 subjects:
   - kind: ServiceAccount
-    name: yidam-streamflow-run
+    name: run

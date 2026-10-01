@@ -5,8 +5,8 @@
 //! run can be driven here without Argo: pin, step, land, in the order the DAG imposes, with
 //! the records passed between them as the workflow passes them. What Argo adds — scheduling,
 //! retries, which secret is mounted where — is asserted over the generated manifest in
-//! `src/cmd/cluster/workflow.rs`'s own tests and pinned as the worked example under
-//! `docs/cluster/`.
+//! `src/cmd/cluster/workflow.rs`'s own tests and pinned as the worked example in
+//! `yidam/cluster/overlays/streamflow/`, which is built and compared with the objects it names.
 //!
 //! # The boundary
 //!
@@ -1051,12 +1051,32 @@ fn a_manifest_that_shadows_a_builtin_has_no_workflow() {
 
 // ── one corpus, one credential ────────────────────────────────────────────────
 
+/// One object a manifest refers to: the field that names it, the name, and whether the pod
+/// starts without it (`optional: true` on a `secretRef`).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct Named {
+    field: String,
+    name: String,
+    optional: bool,
+}
+
+impl Named {
+    /// The kind of object the field names.
+    fn kind(&self) -> &'static str {
+        match self.field.as_str() {
+            "serviceAccountName" => "ServiceAccount",
+            "claimName" => "PersistentVolumeClaim",
+            _ => "Secret",
+        }
+    }
+}
+
 /// Every object a manifest refers to by name, by the field that names it.
 ///
 /// Walked from the parsed document rather than searched for in its text, so a name in a
 /// comment is not a name in the manifest, and `yidam-a-git-write` is not mistaken for a
 /// match of `yidam-a-git`.
-fn named_objects(doc: &serde_yaml::Value) -> Vec<(String, String)> {
+fn named_objects(doc: &serde_yaml::Value) -> Vec<Named> {
     let mut found = Vec::new();
     let mut stack = vec![doc];
     while let Some(v) = stack.pop() {
@@ -1068,10 +1088,18 @@ fn named_objects(doc: &serde_yaml::Value) -> Vec<(String, String)> {
                         (
                             "serviceAccountName" | "secretName" | "claimName",
                             serde_yaml::Value::String(name),
-                        ) => found.push((field.to_string(), name.clone())),
-                        ("secretRef", _) => {
+                        ) => found.push(Named {
+                            field: field.to_string(),
+                            name: name.clone(),
+                            optional: false,
+                        }),
+                        ("secretRef" | "secretKeyRef", _) => {
                             if let Some(name) = v["name"].as_str() {
-                                found.push(("secretRef".to_string(), name.to_string()));
+                                found.push(Named {
+                                    field: field.to_string(),
+                                    name: name.to_string(),
+                                    optional: v["optional"].as_bool() == Some(true),
+                                });
                             }
                         }
                         _ => {}
@@ -1137,13 +1165,13 @@ fn two_corpora_in_one_namespace_share_no_named_object() {
     for field in ["serviceAccountName", "secretName", "claimName", "secretRef"] {
         for (corpus, found) in [("streamflow", &a), ("rivergage", &b)] {
             assert!(
-                found.iter().any(|(f, _)| f == field),
+                found.iter().any(|n| n.field == field),
                 "{corpus}'s manifest names no `{field}`; found {found:?}"
             );
         }
     }
-    let names = |found: &[(String, String)]| -> std::collections::BTreeSet<String> {
-        found.iter().map(|(_, n)| n.clone()).collect()
+    let names = |found: &[Named]| -> std::collections::BTreeSet<String> {
+        found.iter().map(|n| n.name.clone()).collect()
     };
     let shared: Vec<String> = names(&a).intersection(&names(&b)).cloned().collect();
     assert!(
@@ -1153,7 +1181,7 @@ fn two_corpora_in_one_namespace_share_no_named_object() {
     );
     assert!(
         a.iter()
-            .any(|(f, n)| f == "secretName" && n == "yidam-streamflow-git-write"),
+            .any(|n| n.field == "secretName" && n.name == "yidam-streamflow-git-write"),
         "the write secret is not named for its corpus: {a:?}"
     );
 }
@@ -1187,12 +1215,14 @@ fn a_declared_name_overrides_the_derived_one() {
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let doc: serde_yaml::Value = serde_yaml::from_slice(&o.stdout).unwrap();
     let found = named_objects(&doc);
+    let mounts = |name: &str| {
+        found
+            .iter()
+            .any(|n| n.field == "secretName" && n.name == name)
+    };
+    assert!(mounts("streamflow-lander"), "{found:?}");
     assert!(
-        found.contains(&("secretName".into(), "streamflow-lander".into())),
-        "{found:?}"
-    );
-    assert!(
-        found.contains(&("secretName".into(), "yidam-streamflow-git-read".into())),
+        mounts("yidam-streamflow-git-read"),
         "an override of one name moved another: {found:?}"
     );
 
@@ -1207,13 +1237,18 @@ fn a_declared_name_overrides_the_derived_one() {
 
 // ── the worked example ────────────────────────────────────────────────────────
 
-/// The manifest under `docs/cluster/` is generated from the streamflow example and checked
-/// in. It is regenerated with `UPDATE_GOLDENS=1`, and this fails when the generator and the
-/// document disagree, so the docs never show a workflow the binary would not write.
+/// The streamflow overlay: the worked example's generated workflows, and the objects they name.
+fn overlay() -> PathBuf {
+    common::repo_root().join("yidam/cluster/overlays/streamflow")
+}
+
+/// The manifests in the streamflow overlay are generated from the streamflow example and
+/// checked in. They are regenerated with `UPDATE_GOLDENS=1`, and this fails when the generator
+/// and the files disagree, so the overlay never deploys a workflow the binary would not write.
 #[test]
 fn the_documented_workflow_is_what_the_generator_writes() {
     let c = Cluster::as_declared();
-    let docs = common::repo_root().join("docs/cluster");
+    let dir = overlay();
     for (file, extra) in [
         ("streamflow.workflow.yml", vec![]),
         ("streamflow.cronworkflow.yml", vec!["--cron", "0 6 * * *"]),
@@ -1240,9 +1275,9 @@ fn the_documented_workflow_is_what_the_generator_writes() {
             String::from_utf8_lossy(&o.stderr)
         );
         let actual = String::from_utf8_lossy(&o.stdout).to_string();
-        let path = docs.join(file);
+        let path = dir.join(file);
         if std::env::var("UPDATE_GOLDENS").is_ok() {
-            std::fs::create_dir_all(&docs).unwrap();
+            std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(&path, &actual).unwrap();
             continue;
         }
@@ -1262,48 +1297,274 @@ fn the_documented_workflow_is_what_the_generator_writes() {
     }
 }
 
-/// `argo-rbac.yml` creates the account the worked example runs as. Its names were a constant
-/// the generator no longer writes (#1228), so pin them to the golden's rather than to a
-/// literal: a rename in the generator reddens this instead of leaving a dead account.
+/// The walker reads optionality and every form a pod names a secret by, since the overlay check
+/// below treats an optional secret as one the overlay need not create.
 #[test]
-fn the_documented_rbac_binds_the_account_the_workflow_runs_as() {
-    let docs = common::repo_root().join("docs/cluster");
-    let workflow: serde_yaml::Value = serde_yaml::from_str(
-        &std::fs::read_to_string(docs.join("streamflow.workflow.yml")).unwrap(),
+fn every_form_a_pod_names_an_object_by_is_read() {
+    let spec: serde_yaml::Value = serde_yaml::from_str(
+        "serviceAccountName: sa\n\
+         volumes:\n\
+         - {name: a, secret: {secretName: s}}\n\
+         - {name: b, persistentVolumeClaim: {claimName: c}}\n\
+         templates:\n\
+         - container:\n    \
+             envFrom: [{secretRef: {name: e, optional: true}}]\n    \
+             env: [{name: X, valueFrom: {secretKeyRef: {name: k, key: x}}}]\n",
     )
     .unwrap();
-    let account = workflow["spec"]["serviceAccountName"]
-        .as_str()
-        .expect("the worked example names a service account")
-        .to_string();
+    let mut got: Vec<(&str, String, bool)> = named_objects(&spec)
+        .iter()
+        .map(|n| (n.kind(), n.name.clone(), n.optional))
+        .collect();
+    got.sort();
     assert_eq!(
-        workflow["spec"]["executor"]["serviceAccountName"].as_str(),
-        Some(account.as_str())
+        got,
+        [
+            ("PersistentVolumeClaim", "c".to_string(), false),
+            ("Secret", "e".to_string(), true),
+            ("Secret", "k".to_string(), false),
+            ("Secret", "s".to_string(), false),
+            ("ServiceAccount", "sa".to_string(), false),
+        ]
+    );
+}
+
+/// Copy `from` to `to`, leaving out any `secrets/` directory: an operator's real keys in a
+/// checkout have no business in a test's tempdir.
+fn copy_tree(from: &Path, to: &Path) {
+    for entry in walkdir::WalkDir::new(from)
+        .into_iter()
+        .filter_entry(|e| e.file_name() != "secrets")
+    {
+        let entry = entry.unwrap();
+        let dest = to.join(entry.path().strip_prefix(from).unwrap());
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&dest).unwrap();
+        } else {
+            std::fs::copy(entry.path(), &dest).unwrap();
+        }
+    }
+}
+
+/// `kustomize build` of the streamflow overlay, from a copy with a placeholder at every path
+/// its secret generators read. The paths are read off the generators rather than listed here,
+/// so a key added to a secret is written too.
+fn build_overlay() -> Vec<serde_yaml::Value> {
+    let tmp = tempfile::tempdir().unwrap();
+    copy_tree(&common::repo_root().join("yidam/cluster"), tmp.path());
+    let objects = tmp.path().join("overlays/streamflow/objects");
+    let k: serde_yaml::Value =
+        serde_yaml::from_str(&std::fs::read_to_string(objects.join("kustomization.yaml")).unwrap())
+            .unwrap();
+    let mut placeholders = 0;
+    for g in k["secretGenerator"].as_sequence().into_iter().flatten() {
+        let files = g["files"].as_sequence().into_iter().flatten();
+        let envs = g["envs"].as_sequence().into_iter().flatten();
+        for f in files.chain(envs).filter_map(serde_yaml::Value::as_str) {
+            let path = objects.join(f.rsplit_once('=').map_or(f, |(_, p)| p));
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, "placeholder\n").unwrap();
+            placeholders += 1;
+        }
+    }
+    assert!(
+        placeholders > 0,
+        "the streamflow overlay's objects generate no secret from a file, so this read the \
+         wrong kustomization or the generators moved"
     );
 
-    let rbac = std::fs::read_to_string(docs.join("argo-rbac.yml")).unwrap();
-    let mut kinds = Vec::new();
-    for doc in serde_yaml::Deserializer::from_str(&rbac) {
-        let doc = serde_yaml::Value::deserialize(doc).unwrap();
-        let kind = doc["kind"].as_str().unwrap_or_default().to_string();
-        let mut named = vec![doc["metadata"]["name"].as_str()];
-        if kind == "RoleBinding" {
-            named.push(doc["roleRef"]["name"].as_str());
-            for s in doc["subjects"].as_sequence().into_iter().flatten() {
-                named.push(s["name"].as_str());
-            }
-        }
-        for name in named {
-            assert_eq!(
-                name,
-                Some(account.as_str()),
-                "argo-rbac.yml's {kind} names {name:?}, and the worked example runs as \
-                 {account:?}"
-            );
-        }
-        kinds.push(kind);
+    let o = Command::new("kustomize")
+        .arg("build")
+        .arg(tmp.path().join("overlays/streamflow"))
+        .output()
+        .unwrap_or_else(|e| {
+            panic!(
+                "could not run `kustomize` ({e}). `mise run ci-cli` provisions the version \
+                 mise.toml pins; running the suite outside it needs `kustomize` on PATH"
+            )
+        });
+    assert!(
+        o.status.success(),
+        "kustomize build of the streamflow overlay failed:\n{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    let text = String::from_utf8(o.stdout).unwrap();
+    serde_yaml::Deserializer::from_str(&text)
+        .map(|doc| serde_yaml::Value::deserialize(doc).unwrap())
+        .collect()
+}
+
+/// A manifest in the streamflow overlay, parsed.
+fn overlay_manifest(file: &str) -> serde_yaml::Value {
+    serde_yaml::from_str(&std::fs::read_to_string(overlay().join(file)).unwrap()).unwrap()
+}
+
+/// #1229. Deploying a corpus was `argo-rbac.yml` under a `sed`, two `kubectl create secret`
+/// lines and a claim, from a docs page, with nothing checking they agreed with the workflow.
+/// A secret named wrong showed up as a pod stuck in `ContainerCreating`.
+///
+/// The overlay's build is compared with the workflow in both directions. Every object the
+/// workflow needs exists, as the kind its field names. Every account, secret and claim the
+/// build creates is one the workflow names, so a leftover is as red as a gap. Kustomize's
+/// secret hash suffix is exactly such a gap: it renames the secret and cannot rewrite the
+/// workflow's reference, because it does not know Argo's fields.
+#[test]
+fn the_overlay_creates_what_the_workflow_mounts_and_nothing_else() {
+    use std::collections::BTreeSet;
+
+    let built = build_overlay();
+    let kind = |v: &serde_yaml::Value| v["kind"].as_str().unwrap_or_default().to_string();
+    let name = |v: &serde_yaml::Value| {
+        v["metadata"]["name"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    let crons: Vec<&serde_yaml::Value> =
+        built.iter().filter(|v| kind(v) == "CronWorkflow").collect();
+    assert_eq!(crons.len(), 1, "the overlay should deploy one CronWorkflow");
+    let cron = crons[0];
+    assert_eq!(
+        cron,
+        &overlay_manifest("streamflow.cronworkflow.yml"),
+        "the overlay changed the generated CronWorkflow on the way through. A transformer \
+         (a prefix, a label, a namespace) reached it, and the names inside it may no longer \
+         be the ones the objects were given"
+    );
+
+    let wanted = named_objects(&cron["spec"]["workflowSpec"]);
+    for k in ["ServiceAccount", "Secret", "PersistentVolumeClaim"] {
+        assert!(
+            wanted.iter().any(|n| n.kind() == k && !n.optional),
+            "the CronWorkflow names no {k}, so the walk is not reading it:\n{wanted:#?}"
+        );
     }
-    assert_eq!(kinds, ["ServiceAccount", "Role", "RoleBinding"]);
+
+    let objects = ["ServiceAccount", "Secret", "PersistentVolumeClaim"];
+    let created: BTreeSet<(String, String)> = built
+        .iter()
+        .filter(|v| objects.contains(&kind(v).as_str()))
+        .map(|v| (kind(v), name(v)))
+        .collect();
+
+    let missing: BTreeSet<String> = wanted
+        .iter()
+        .filter(|n| !n.optional && !created.contains(&(n.kind().to_string(), n.name.clone())))
+        .map(|n| format!("  {} {:?}, named by `{}`", n.kind(), n.name, n.field))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "the workflow names objects the overlay does not create, and its pods will not start:\n\
+         {}\ncreated: {created:?}",
+        missing.into_iter().collect::<Vec<_>>().join("\n")
+    );
+
+    let unnamed: Vec<String> = created
+        .iter()
+        .filter(|(k, n)| !wanted.iter().any(|w| w.kind() == k && &w.name == n))
+        .map(|(k, n)| format!("  {k} {n:?}"))
+        .collect();
+    assert!(
+        unnamed.is_empty(),
+        "the overlay creates objects the workflow never names:\n{}",
+        unnamed.join("\n")
+    );
+
+    // One role, bound to the account the workflow runs as.
+    let account = cron["spec"]["workflowSpec"]["serviceAccountName"]
+        .as_str()
+        .expect("the CronWorkflow names its account");
+    let roles: Vec<String> = built
+        .iter()
+        .filter(|v| kind(v) == "Role")
+        .map(name)
+        .collect();
+    let bindings: Vec<&serde_yaml::Value> =
+        built.iter().filter(|v| kind(v) == "RoleBinding").collect();
+    assert_eq!(bindings.len(), 1, "the overlay should bind one role");
+    let b = bindings[0];
+    assert_eq!(
+        roles,
+        [b["roleRef"]["name"].as_str().unwrap_or_default()],
+        "the RoleBinding should refer to the one Role the overlay creates: {b:?}"
+    );
+    assert!(
+        b["subjects"]
+            .as_sequence()
+            .into_iter()
+            .flatten()
+            .any(|s| s["kind"].as_str() == Some("ServiceAccount")
+                && s["name"].as_str() == Some(account)),
+        "the RoleBinding does not bind {account:?}: {b:?}"
+    );
+
+    // A git secret holds the files its pod reads out of the mount. The file names come from
+    // the workflow's own ssh command, not from a list here.
+    let text = serde_yaml::to_string(cron).unwrap();
+    let files: BTreeSet<&str> = text
+        .split("/etc/yidam/git/")
+        .skip(1)
+        .map(|rest| {
+            let end = rest
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .unwrap_or(rest.len());
+            &rest[..end]
+        })
+        .collect();
+    assert!(
+        files.contains("key"),
+        "the workflow reads no `key` under /etc/yidam/git/, so the git mount moved: {files:?}"
+    );
+    let mounted: Vec<&Named> = wanted.iter().filter(|n| n.field == "secretName").collect();
+    assert!(!mounted.is_empty());
+    for n in mounted {
+        let secret = built
+            .iter()
+            .find(|v| kind(v) == "Secret" && name(v) == n.name)
+            .unwrap();
+        let keys: BTreeSet<&str> = secret["data"]
+            .as_mapping()
+            .into_iter()
+            .flatten()
+            .filter_map(|(k, _)| k.as_str())
+            .collect();
+        assert_eq!(
+            keys, files,
+            "{} holds {keys:?}, and the pod that mounts it reads {files:?}",
+            n.name
+        );
+    }
+
+    // Anything else the build carries is something this check does not compare yet.
+    let read = ["Role", "RoleBinding", "CronWorkflow"];
+    let unread: BTreeSet<String> = built
+        .iter()
+        .map(kind)
+        .filter(|k| !objects.contains(&k.as_str()) && !read.contains(&k.as_str()))
+        .collect();
+    assert!(
+        unread.is_empty(),
+        "the overlay deploys kinds this check does not compare with the workflow: {unread:?}"
+    );
+}
+
+/// The one-shot workflow is not in the overlay, since kustomize refuses its `generateName`.
+/// It is submitted against the objects the overlay created, so it must name the same ones.
+#[test]
+fn the_one_shot_workflow_names_what_the_cron_workflow_names() {
+    let once = overlay_manifest("streamflow.workflow.yml");
+    let cron = overlay_manifest("streamflow.cronworkflow.yml");
+    assert!(once["metadata"]["generateName"].is_string());
+    let sorted = |v: &serde_yaml::Value| {
+        let mut n = named_objects(v);
+        n.sort();
+        n.dedup();
+        n
+    };
+    let once = sorted(&once["spec"]);
+    assert!(!once.is_empty(), "the one-shot workflow names nothing");
+    assert_eq!(once, sorted(&cron["spec"]["workflowSpec"]));
 }
 
 // ── a gather as a cluster step (#1217) ────────────────────────────────────────
