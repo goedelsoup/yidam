@@ -322,7 +322,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 # Both already in the build through reqwest: `ring` is rustls's crypto provider and signs the
 # RS256 JWT, and `base64` 0.22 encodes it. Named so the lander can call them, not to add them.
 ring = { version = "0.17", optional = true }
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.23", optional = true }
 
 # ── `vault-s3` — SigV4 signing for the S3 transport. ──────────────────────────
 #
