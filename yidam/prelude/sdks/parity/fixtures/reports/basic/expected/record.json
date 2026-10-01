@@ -13,6 +13,7 @@
     "declared": false,
     "present": false,
     "calls": 0,
+    "folded": 0,
     "unreadable": 0,
     "commits": 0,
     "first_at": null,
@@ -21,6 +22,7 @@
     "empty_questions": 0,
     "errors": 0,
     "tools": [],
-    "never_called": []
+    "never_called": [],
+    "reach": null
   }
 }

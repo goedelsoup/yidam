@@ -15,11 +15,13 @@
 //! build that never served anything. So this reports and never gates: it exits 0 whatever the
 //! record says, as `cohort` and `check-diff` do.
 //!
-//! # The file, and not the fold
+//! # The file, and the fold
 //!
-//! #1018 folds the file into commits. That fold does not exist yet, and a reader of commits
-//! nobody writes would be a second surface with no input. This reads the file; the fold, when it
-//! lands, is a second source for the same report rather than a reason to hold this one.
+//! The file is gitignored, so on its own it says nothing a clone can read. `yidam record --fold`
+//! (#1018, `record/fold.rs`) counts its lines into a tracked tally and commits it. This reads
+//! both: the committed tally, then whatever the file holds past the point the fold reached. The
+//! two go through one type (`record/tally.rs`) whose every field merges exactly, so a fold
+//! changes where a call is counted and never what the report says.
 //!
 //! # Absent is not empty
 //!
@@ -37,16 +39,19 @@
 //! reported as a number: a torn last line from a killed server is the likeliest one, and a
 //! reader that dropped it silently would report N−1 calls as N.
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::Path;
 
 use anyhow::Result;
 use serde::Serialize;
-use serde_json::Value;
 
 use crate::cmd::serve::record::PATH;
 use crate::report::Format;
+
+pub(crate) mod fold;
+mod tally;
+
+use tally::{Retrieved, Tally};
 
 /// The report, under one key.
 ///
@@ -68,8 +73,11 @@ pub struct Consumption {
     /// Whether the file exists. `false` means nothing was recorded, which is not a claim that
     /// nothing was asked.
     pub present: bool,
-    /// Lines read as calls.
+    /// Calls counted, from the history and the file together. See [`Self::folded`].
     pub calls: usize,
+    /// How many of [`Self::calls`] were read from the committed fold (#1018), rather than
+    /// from the file. Zero in a corpus that has never folded.
+    pub folded: usize,
     /// Lines that were not a JSON object naming a `tool`, and are in no other count.
     pub unreadable: usize,
     /// Distinct corpus commits the calls answered from.
@@ -88,6 +96,27 @@ pub struct Consumption {
     pub tools: Vec<ToolRow>,
     /// Tools the MCP contract carries that no line names, in the contract's order.
     pub never_called: Vec<String>,
+    /// Which of this corpus's nodes `retrieve` has returned, from the lines that say (#1020).
+    /// Null when no `retrieve` line carries `node_ids`, which is every line an older writer
+    /// wrote: the complement is not computable from a row count, and a list of every node
+    /// here would read as a corpus nobody reached.
+    pub reach: Option<Reach>,
+}
+
+/// The consumption side of `lint`'s uncited check: nodes nothing retrieved.
+#[derive(Debug, Default, Serialize)]
+pub struct Reach {
+    /// This corpus's own nodes now, at the working tree. Not a dependency's.
+    pub nodes: usize,
+    /// How many of [`Self::nodes`] some recorded `retrieve` returned.
+    pub returned: usize,
+    /// [`Self::nodes`] minus the returned ones, sorted by id.
+    pub unreached: Vec<String>,
+    /// Answered `retrieve` calls whose line names the nodes it returned.
+    pub calls: usize,
+    /// Answered `retrieve` calls whose line does not — an older writer's. They are in no count
+    /// above, so a nonzero value means `unreached` may list a node one of them returned.
+    pub unrecorded: usize,
 }
 
 /// One tool's share of the record.
@@ -110,128 +139,114 @@ pub struct ToolRow {
     pub p50_ms: Option<u64>,
 }
 
-/// One line, read as far as it can be.
-#[derive(Debug, Default)]
-struct Line {
-    at: Option<u64>,
-    commit: Option<String>,
-    tool: String,
-    digest: Option<String>,
-    error: bool,
-    results: Option<u64>,
-    degraded: Option<bool>,
-    rejected: Option<bool>,
-    ms: Option<u64>,
-}
-
-/// A line as a [`Line`], or `None` for one that is not an object naming a tool.
-fn parse(text: &str) -> Option<Line> {
-    let v: Value = serde_json::from_str(text).ok()?;
-    let o = v.as_object()?;
-    let str_of = |k: &str| o.get(k).and_then(Value::as_str).map(str::to_string);
-    Some(Line {
-        at: o.get("at").and_then(Value::as_u64),
-        commit: str_of("commit"),
-        tool: str_of("tool")?,
-        digest: str_of("args_digest"),
-        error: o.get("outcome").and_then(Value::as_str) == Some("error"),
-        results: o.get("results").and_then(Value::as_u64),
-        degraded: o.get("degraded").and_then(Value::as_bool),
-        rejected: o.get("rejected").and_then(Value::as_bool),
-        ms: o.get("ms").and_then(Value::as_u64),
-    })
-}
-
-impl Line {
-    /// An answer with no rows that was not a rejection — the record's reason to exist.
-    ///
-    /// `rejected` absent reads as not rejected: a writer too old to report it answered, and
-    /// what it answered with was zero rows.
-    fn empty(&self) -> bool {
-        !self.error && self.results == Some(0) && self.rejected != Some(true)
-    }
-}
-
 /// The report over a record's text. `None` text is an absent file.
 ///
 /// `contract` is every tool the MCP contract carries with its tier, taken as an argument so a
-/// test can hold the roster still while the contract grows.
+/// test can hold the roster still while the contract grows. `nodes` is this corpus's node ids,
+/// for the same reason.
+#[cfg(test)]
 pub(crate) fn read(
     text: Option<&str>,
     declared: bool,
     contract: &[(String, String)],
+    nodes: &[String],
 ) -> Consumption {
-    let mut c = Consumption {
-        path: PATH,
-        declared,
-        present: text.is_some(),
-        ..Consumption::default()
+    read_folded(None, text, declared, contract, nodes)
+}
+
+/// The report over what has been folded into the history and what the file holds past it.
+///
+/// `folded` is the committed tally, when there is one; only the part of `text` it has not
+/// already counted is read, so a fold changes where a call is counted and never how often.
+pub(crate) fn read_folded(
+    folded: Option<&fold::Folded>,
+    text: Option<&str>,
+    declared: bool,
+    contract: &[(String, String)],
+    nodes: &[String],
+) -> Consumption {
+    let mut tally = folded.map(|f| f.tally.clone()).unwrap_or_default();
+    let unfolded = text.map(|t| match folded {
+        Some(f) => f.unfolded(t),
+        None => t,
+    });
+    tally.merge(&Tally::of_text(unfolded.unwrap_or_default()));
+    // With no record at all, no tool was *never called* — none was recorded either way.
+    let contract = match (folded, text) {
+        (None, None) => &[],
+        _ => contract,
     };
-    let Some(text) = text else {
-        return c;
-    };
+    let mut c = report(&tally, contract, nodes);
+    c.declared = declared;
+    c.present = text.is_some();
+    c.folded = folded.map_or(0, |f| f.tally.calls);
+    c
+}
 
-    let mut lines = Vec::new();
-    for raw in text.lines().filter(|l| !l.trim().is_empty()) {
-        match parse(raw) {
-            Some(line) => lines.push(line),
-            None => c.unreadable += 1,
-        }
-    }
-
-    c.calls = lines.len();
-    c.commits = lines
-        .iter()
-        .filter_map(|l| l.commit.as_deref())
-        .collect::<BTreeSet<_>>()
-        .len();
-    c.first_at = lines.iter().filter_map(|l| l.at).min();
-    c.last_at = lines.iter().filter_map(|l| l.at).max();
-    c.empty = lines.iter().filter(|l| l.empty()).count();
-    c.empty_questions = lines
-        .iter()
-        .filter(|l| l.empty())
-        .filter_map(|l| l.digest.as_deref())
-        .collect::<BTreeSet<_>>()
-        .len();
-    c.errors = lines.iter().filter(|l| l.error).count();
-
-    let mut by_tool: BTreeMap<&str, Vec<&Line>> = BTreeMap::new();
-    for line in &lines {
-        by_tool.entry(line.tool.as_str()).or_default().push(line);
-    }
+/// A tally as the report: every count, the tools by row, and the corpus's complement.
+fn report(t: &Tally, contract: &[(String, String)], nodes: &[String]) -> Consumption {
     let tier_of = |name: &str| {
         contract
             .iter()
             .find(|(n, _)| n == name)
             .map(|(_, t)| t.clone())
     };
-    c.tools = by_tool
+    let mut tools: Vec<ToolRow> = t
+        .tools
         .iter()
-        .map(|(tool, calls)| {
-            let reported: Vec<bool> = calls.iter().filter_map(|l| l.degraded).collect();
-            let mut ms: Vec<u64> = calls.iter().filter_map(|l| l.ms).collect();
-            ms.sort_unstable();
-            ToolRow {
-                tool: tool.to_string(),
-                tier: tier_of(tool),
-                calls: calls.len(),
-                errors: calls.iter().filter(|l| l.error).count(),
-                empty: calls.iter().filter(|l| l.empty()).count(),
-                degraded: (!reported.is_empty()).then(|| reported.iter().filter(|d| **d).count()),
-                reported_degraded: reported.len(),
-                p50_ms: (!ms.is_empty()).then(|| ms[(ms.len() - 1) / 2]),
-            }
+        .map(|(tool, row)| ToolRow {
+            tool: tool.clone(),
+            tier: tier_of(tool),
+            calls: row.calls,
+            errors: row.errors,
+            empty: row.empty,
+            degraded: (row.reported_degraded > 0).then_some(row.degraded),
+            reported_degraded: row.reported_degraded,
+            p50_ms: row.p50(),
         })
         .collect();
     // Busiest first; the map already ordered ties by name, and the sort is stable.
-    c.tools.sort_by(|a, b| b.calls.cmp(&a.calls));
-    c.never_called = contract
+    tools.sort_by(|a, b| b.calls.cmp(&a.calls));
+    Consumption {
+        path: PATH,
+        calls: t.calls,
+        unreadable: t.unreadable,
+        commits: t.commits.len(),
+        first_at: t.first_at,
+        last_at: t.last_at,
+        empty: t.empty,
+        empty_questions: t.empty_questions.len(),
+        errors: t.errors,
+        tools,
+        never_called: contract
+            .iter()
+            .filter(|(name, _)| !t.tools.contains_key(name))
+            .map(|(name, _)| name.clone())
+            .collect(),
+        reach: reach(&t.retrieved, nodes),
+        ..Consumption::default()
+    }
+}
+
+/// Which nodes some recorded `retrieve` returned, or `None` where no line says.
+fn reach(r: &Retrieved, nodes: &[String]) -> Option<Reach> {
+    if r.named == 0 {
+        return None;
+    }
+    let mut unreached: Vec<String> = nodes
         .iter()
-        .filter(|(name, _)| !by_tool.contains_key(name.as_str()))
-        .map(|(name, _)| name.clone())
+        .filter(|id| !r.nodes.contains_key(*id))
+        .cloned()
         .collect();
-    c
+    unreached.sort();
+    unreached.dedup();
+    Some(Reach {
+        nodes: nodes.len(),
+        returned: nodes.len() - unreached.len(),
+        unreached,
+        calls: r.named,
+        unrecorded: r.unnamed,
+    })
 }
 
 /// `YYYY-MM-DD`, UTC, for a timestamp the writer took from the system clock.
@@ -252,7 +267,7 @@ pub(crate) fn render(c: &Consumption) -> String {
     let mut out = String::new();
     let config = ".yidam/config.toml";
 
-    if !c.present {
+    if !c.present && c.folded == 0 {
         if c.declared {
             let _ = write!(
                 out,
@@ -272,6 +287,15 @@ pub(crate) fn render(c: &Consumption) -> String {
             );
         }
         return out;
+    }
+
+    if !c.present {
+        let _ = write!(
+            out,
+            "{} is not here; this is what was folded into {} before it went.\n\n",
+            c.path,
+            fold::COMMITTED
+        );
     }
 
     if !c.declared {
@@ -304,9 +328,18 @@ pub(crate) fn render(c: &Consumption) -> String {
         (Some(a), Some(b)) => format!(", {} → {}", day(a), day(b)),
         _ => String::new(),
     };
+    let split = match (c.folded, c.calls - c.folded) {
+        (0, _) => String::new(),
+        (_, 0) => format!(" — all folded into {}", fold::COMMITTED),
+        (folded, rest) => format!(
+            " — {folded} folded into {}, {rest} in {} since",
+            fold::COMMITTED,
+            c.path
+        ),
+    };
     let _ = write!(
         out,
-        "{} over {}{span}\n\n",
+        "{} over {}{span}{split}\n\n",
         plural(c.calls, "call", "calls"),
         plural(c.commits, "commit", "commits"),
     );
@@ -399,6 +432,20 @@ fn findings(c: &Consumption) -> Vec<String> {
         ));
     }
 
+    if let Some(r) = &c.reach {
+        out.push(reach_sentence(r));
+    } else if c
+        .tools
+        .iter()
+        .any(|t| t.tool == "retrieve" && t.calls > t.errors)
+    {
+        out.push(
+            "No retrieve line names the nodes it returned — the record predates `node_ids`, so \
+             which nodes were never returned cannot be said."
+                .to_string(),
+        );
+    }
+
     if c.errors > 0 {
         out.push(format!(
             "{} refused.",
@@ -415,6 +462,59 @@ fn findings(c: &Consumption) -> Vec<String> {
     out
 }
 
+/// How many ids the prose names before it says how many more. The JSON carries all of them.
+const NAMED: usize = 10;
+
+fn reach_sentence(r: &Reach) -> String {
+    let mut s = if r.nodes == 0 {
+        "This corpus has no nodes for retrieve to have returned.".to_string()
+    } else if r.unreached.is_empty() && r.nodes == 1 {
+        "This corpus's one node has been returned by retrieve.".to_string()
+    } else if r.unreached.is_empty() {
+        format!(
+            "Every one of this corpus's {} has been returned by retrieve at least once.",
+            plural(r.nodes, "node", "nodes")
+        )
+    } else {
+        let mut named = r.unreached[..r.unreached.len().min(NAMED)].join(", ");
+        if r.unreached.len() > NAMED {
+            let _ = write!(named, ", and {} more", r.unreached.len() - NAMED);
+        }
+        format!(
+            "{} of this corpus's {} {} never returned by retrieve: {named}.",
+            r.unreached.len(),
+            plural(r.nodes, "node", "nodes"),
+            if r.unreached.len() == 1 {
+                "was"
+            } else {
+                "were"
+            },
+        )
+    };
+    if r.unrecorded > 0 {
+        let _ = write!(
+            s,
+            " Counted over {}; {} `node_ids` and {} in no count here.",
+            plural(r.calls, "retrieve call", "retrieve calls"),
+            plural(r.unrecorded, "earlier one predates", "earlier ones predate"),
+            if r.unrecorded == 1 { "is" } else { "are" }
+        );
+    }
+    s
+}
+
+/// This corpus's own node ids, spelled as `serve` spells them in `retrieve`'s `id`.
+///
+/// Through the loader `serve` uses, so an id here and an id in a record line are the same
+/// string for the same node — a second spelling would put every node in `unreached`.
+fn corpus_ids(root: &Path) -> Result<Vec<String>> {
+    let model = crate::model::load_domain_model(root)?;
+    Ok(crate::model::corpus_nodes(&model)
+        .into_iter()
+        .map(|n| n.id)
+        .collect())
+}
+
 /// `yidam record`: read the consumption record and say what it holds. Never gates.
 pub fn record(root: Option<&Path>, format: Format) -> Result<()> {
     let root = crate::paths::resolve_root(root)?;
@@ -426,8 +526,21 @@ pub fn record(root: Option<&Path>, format: Format) -> Result<()> {
         Err(e) => anyhow::bail!("reading {} ({e})", path.display()),
     };
     let contract = crate::cmd::serve::tools::contract_tools();
+    // Only over a record there is: an absent one reports nothing about nodes, and loading
+    // the corpus to say so would be the slowest way to print two sentences.
+    let folded = fold::load(&root)?;
+    let nodes = match (&text, &folded) {
+        (None, None) => Vec::new(),
+        _ => corpus_ids(&root)?,
+    };
     let report = Report {
-        consumption: read(text.as_deref(), declared, &contract),
+        consumption: read_folded(
+            folded.as_ref(),
+            text.as_deref(),
+            declared,
+            &contract,
+            &nodes,
+        ),
     };
     crate::report::finish(&root, format, report, |r| {
         print!("{}", render(&r.consumption))
@@ -459,7 +572,7 @@ mod tests {
     /// Absent and empty are different findings, and neither is a table of zeros.
     #[test]
     fn an_absent_file_is_not_an_empty_one() {
-        let absent = read(None, false, &contract());
+        let absent = read(None, false, &contract(), &[]);
         assert!(!absent.present);
         let text = render(&absent);
         assert!(text.starts_with("Nothing recorded:"), "{text}");
@@ -469,10 +582,10 @@ mod tests {
             "no table over a file that does not exist: {text}"
         );
 
-        let declared = render(&read(None, true, &contract()));
+        let declared = render(&read(None, true, &contract(), &[]));
         assert!(declared.starts_with("Nothing recorded yet:"), "{declared}");
 
-        let empty = read(Some(""), true, &contract());
+        let empty = read(Some(""), true, &contract(), &[]);
         assert!(empty.present);
         let text = render(&empty);
         assert!(text.starts_with("0 calls recorded."), "{text}");
@@ -482,7 +595,7 @@ mod tests {
     #[test]
     fn every_line_is_counted_once() {
         let text = [line("retrieve"), line("retrieve"), line("get_node")].join("\n");
-        let c = read(Some(&text), true, &contract());
+        let c = read(Some(&text), true, &contract(), &[]);
         assert_eq!(c.calls, 3);
         assert_eq!(c.unreadable, 0);
         assert_eq!(c.tools.iter().map(|t| t.calls).sum::<usize>(), 3);
@@ -502,7 +615,7 @@ mod tests {
             r#"["not","an","object"]"#.to_string(),
         ]
         .join("\n");
-        let c = read(Some(&text), true, &contract());
+        let c = read(Some(&text), true, &contract(), &[]);
         assert_eq!(c.calls, 2);
         assert_eq!(c.unreadable, 2);
         // No `rejected` key: an answer with no rows, from a writer too old to say more.
@@ -528,7 +641,7 @@ mod tests {
                 .replace(r#""results":1"#, r#""results":null"#),
         ]
         .join("\n");
-        let c = read(Some(&text), true, &contract());
+        let c = read(Some(&text), true, &contract(), &[]);
         assert_eq!(c.empty, 1);
         assert_eq!(c.errors, 1);
         assert_eq!(c.empty_questions, 1);
@@ -544,7 +657,7 @@ mod tests {
             line("get_node"),
         ]
         .join("\n");
-        let c = read(Some(&all), true, &contract());
+        let c = read(Some(&all), true, &contract(), &[]);
         let retrieve = c.tools.iter().find(|t| t.tool == "retrieve").unwrap();
         assert_eq!(retrieve.degraded, Some(2));
         assert_eq!(retrieve.reported_degraded, 2);
@@ -553,7 +666,7 @@ mod tests {
         assert!(render(&c).contains("Every retrieve was served degraded"));
 
         let some = all.replacen(r#""degraded":true"#, r#""degraded":false"#, 1);
-        let text = render(&read(Some(&some), true, &contract()));
+        let text = render(&read(Some(&some), true, &contract(), &[]));
         assert!(
             text.contains("1 of 2 retrieve calls were served degraded."),
             "{text}"
@@ -564,9 +677,9 @@ mod tests {
     /// The `act` tier is read from the contract, not from a list of names here.
     #[test]
     fn a_clock_is_acted_on_only_through_the_act_tier() {
-        let none = render(&read(Some(&line("retrieve")), true, &contract()));
+        let none = render(&read(Some(&line("retrieve")), true, &contract(), &[]));
         assert!(none.contains("Nothing acted on a clock"), "{none}");
-        let acted = render(&read(Some(&line("cycle")), true, &contract()));
+        let acted = render(&read(Some(&line("cycle")), true, &contract(), &[]));
         assert!(
             acted.contains("Acted through this surface: cycle 1 time."),
             "{acted}"
@@ -580,18 +693,135 @@ mod tests {
             .map(|ms| line("get_node").replace(r#""ms":5"#, &format!(r#""ms":{ms}"#)))
             .collect::<Vec<_>>()
             .join("\n");
-        let c = read(Some(&text), true, &contract());
+        let c = read(Some(&text), true, &contract(), &[]);
         assert_eq!(c.tools[0].p50_ms, Some(2));
+    }
+
+    fn ids(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn retrieved(ids: &str) -> String {
+        line("retrieve").replace(r#""ms":5"#, &format!(r#""ms":5,"node_ids":{ids}"#))
+    }
+
+    /// The complement #719 led with: corpus nodes no recorded call returned (#1020).
+    #[test]
+    fn a_node_no_retrieve_returned_is_unreached() {
+        let text = [
+            retrieved(r#"["concept/a","concept/b"]"#),
+            retrieved(r#"["concept/b","dep::concept/z"]"#),
+            line("get_node"),
+        ]
+        .join("\n");
+        let corpus = ids(&["concept/a", "concept/b", "concept/c", "concept/d"]);
+        let c = read(Some(&text), true, &contract(), &corpus);
+        let r = c.reach.as_ref().expect("two lines name their nodes");
+        assert_eq!(r.nodes, 4);
+        assert_eq!(r.returned, 2, "a dependency's node is not this corpus's");
+        assert_eq!(r.unreached, ["concept/c", "concept/d"]);
+        assert_eq!((r.calls, r.unrecorded), (2, 0));
+        let text = render(&c);
+        assert!(
+            text.contains(
+                "2 of this corpus's 4 nodes were never returned by retrieve: concept/c, concept/d."
+            ),
+            "{text}"
+        );
+    }
+
+    /// An older writer's line has no ids, and a record of only those cannot say what was
+    /// never returned — which is not the same as saying everything was.
+    #[test]
+    fn a_record_without_ids_cannot_name_the_unreached() {
+        let corpus = ids(&["concept/a"]);
+        let c = read(Some(&line("retrieve")), true, &contract(), &corpus);
+        assert!(c.reach.is_none());
+        let text = render(&c);
+        assert!(text.contains("the record predates `node_ids`"), "{text}");
+        assert!(!text.contains("never returned by retrieve:"), "{text}");
+
+        // A mixed record counts what it can and says what it could not.
+        let mixed = [line("retrieve"), retrieved(r#"["concept/a"]"#)].join("\n");
+        let c = read(Some(&mixed), true, &contract(), &corpus);
+        let r = c.reach.as_ref().unwrap();
+        assert_eq!((r.calls, r.unrecorded), (1, 1));
+        let text = render(&c);
+        assert!(
+            text.contains("Counted over 1 retrieve call; 1 earlier one predates"),
+            "{text}"
+        );
+    }
+
+    /// The prose names ten and counts the rest; the report carries every one.
+    #[test]
+    fn a_long_unreached_list_is_cut_in_prose_only() {
+        let corpus: Vec<String> = (0..13).map(|i| format!("concept/n{i:02}")).collect();
+        let c = read(Some(&retrieved("[]")), true, &contract(), &corpus);
+        assert_eq!(c.reach.as_ref().unwrap().unreached.len(), 13);
+        assert!(render(&c).contains("concept/n09, and 3 more."));
     }
 
     /// A record that outlived its declaration is still read, and says so.
     #[test]
     fn an_undeclared_record_is_read_and_flagged() {
-        let text = render(&read(Some(&line("retrieve")), false, &contract()));
+        let text = render(&read(Some(&line("retrieve")), false, &contract(), &[]));
         assert!(
             text.starts_with("`[serve] record` is not declared"),
             "{text}"
         );
         assert!(text.contains("1 call over 1 commit"), "{text}");
+    }
+
+    /// A fold over the first two lines, as `--fold` would have committed it.
+    fn folded_over(text: &str, upto: usize) -> fold::Folded {
+        let mut f = fold::Folded::default();
+        f.sources
+            .insert(fold::source_of(text).unwrap(), upto as u64);
+        f.tally = Tally::of_text(&text[..upto]);
+        f
+    }
+
+    /// The report before a fold and after it is the same report, but for the split it states.
+    #[test]
+    fn a_fold_moves_calls_and_does_not_change_them() {
+        let text = [line("retrieve"), line("retrieve"), line("get_node")].join("\n") + "\n";
+        let before = read(Some(&text), true, &contract(), &[]);
+        let upto = 2 * (line("retrieve").len() + 1);
+        let after = read_folded(
+            Some(&folded_over(&text, upto)),
+            Some(&text),
+            true,
+            &contract(),
+            &[],
+        );
+        assert_eq!((after.calls, after.folded), (3, 2));
+        assert_eq!(
+            serde_json::to_value(Consumption { folded: 0, ..after }).unwrap(),
+            serde_json::to_value(before).unwrap()
+        );
+    }
+
+    /// The prose states the split, and a file gone after a fold reads from the history.
+    #[test]
+    fn a_folded_record_says_where_its_calls_are() {
+        let text = [line("retrieve"), line("retrieve"), line("get_node")].join("\n") + "\n";
+        let upto = 2 * (line("retrieve").len() + 1);
+        let f = folded_over(&text, upto);
+        let both = render(&read_folded(Some(&f), Some(&text), true, &contract(), &[]));
+        assert!(
+            both.contains(
+                "3 calls over 1 commit, 2025-09-25 — 2 folded into .yidam/consumption.json, 1 in"
+            ),
+            "{both}"
+        );
+
+        let gone = render(&read_folded(Some(&f), None, true, &contract(), &[]));
+        assert!(
+            gone.starts_with(".yidam/record/calls.jsonl is not here"),
+            "{gone}"
+        );
+        assert!(gone.contains("2 calls over 1 commit"), "{gone}");
+        assert!(gone.contains("all folded into"), "{gone}");
     }
 }

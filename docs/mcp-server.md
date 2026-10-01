@@ -597,6 +597,7 @@ answering from keyword search for a month.* *Did anything ever act on a clock.*
 ```json
 {"at":1758758400,"commit":"2bb499a","tool":"retrieve",
  "args_digest":"sha256:9f3a…","outcome":"ok","results":3,
+ "node_ids":["concept/a","concept/b","concept/c"],
  "degraded":true,"rejected":false,"ms":12}
 ```
 
@@ -610,9 +611,15 @@ server answers callers it cannot tell apart, token or no token. The record must 
 of their questions. A request the token refuses never reaches a tool, so it is never recorded. The digest is stable, so the same call digests alike. *This was asked forty times* is
 still answerable.
 
+A `retrieve` line also carries `node_ids`: which nodes came back, in rank order. That is how
+`yidam record` names the nodes nothing ever retrieved. The ids are names `list_nodes` already gives
+any caller. No line says who the caller was.
+
 `.yidam/record/` must be gitignored, and the server **refuses to start** until it is. A tracked
-record would dirty the working tree after every session anyone served. Nothing here writes a
-commit. The file is a staging buffer, and folding it into the history is a scheduled run.
+record would dirty the working tree after every session anyone served. The server writes no
+commit. The file is a staging buffer, and `yidam record --fold` moves it into the history. That
+writes `.yidam/consumption.json` as one `refresh:` commit, holding counts rather than lines. Run
+it on whatever clock you like: with nothing new, it commits nothing.
 
 ---
 
