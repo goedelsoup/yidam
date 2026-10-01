@@ -436,6 +436,7 @@ pub(crate) fn git_author(root: &Path) -> Option<String> {
 /// `0.0.0.0` and `::` are the two that matter and are not loopback: they are the default
 /// spelling of "every interface", and a server that read the first octet would call
 /// `0.0.0.0` foreign and `127.0.0.1` local by accident rather than on purpose.
+#[cfg_attr(not(feature = "serve-http"), allow(dead_code))]
 pub(crate) fn is_loopback(bind: &str) -> bool {
     match bind.parse::<std::net::IpAddr>() {
         Ok(std::net::IpAddr::V4(v4)) => v4.is_loopback(),

@@ -802,6 +802,7 @@ pub struct Standing {
 ///
 /// Called twice by `tonpa update` — once before the fetch and once after — because the
 /// question is not what the dependency says, it is *what changed about what I was leaning on*.
+#[cfg_attr(not(feature = "tonpa"), allow(dead_code))]
 pub fn survey(root: &Path) -> Vec<Standing> {
     let corpus_dir = crate::paths::yidam_corpus_dir(root);
     let nodes = crate::corpus::load_nodes(
@@ -878,6 +879,7 @@ pub struct Movement {
 /// Matched on `(node, package, target)`. A citation present in one survey and not the other is
 /// not a movement — the corpus itself changed between the two, which cannot happen inside an
 /// update and would be a different report if it could.
+#[cfg_attr(not(feature = "tonpa"), allow(dead_code))]
 pub fn moved(before: &[Standing], after: &[Standing]) -> Vec<Movement> {
     let mut out = Vec::new();
     for old in before {
@@ -985,6 +987,7 @@ fn describe_standings(standings: &[&'static str]) -> String {
 /// **Questions, and a sentence saying nothing was changed.** The temptation on a report like
 /// this is a summary line that reads like a verdict — *3 claims weakened* — and that is
 /// precisely the synthesis this must not perform.
+#[cfg_attr(not(feature = "tonpa"), allow(dead_code))]
 pub fn render_movements(movements: &[Movement]) -> String {
     if movements.is_empty() {
         return "Nothing your corpus cites moved.".to_string();

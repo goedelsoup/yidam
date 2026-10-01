@@ -1558,6 +1558,10 @@ fn check_remote_index(root: &Path) -> Answer {
         }
     };
 
+    // Only a build that can send them asks whether they are there. Without `s3-vectors` the
+    // index is unreachable whatever the environment holds, and the declaration above is
+    // still checked (#1257).
+    #[cfg(feature = "s3-vectors")]
     if let Err(e) = crate::vault::creds::resolve_scope(&crate::vault::creds::index_scope(), |k| {
         std::env::var(k).ok()
     }) {

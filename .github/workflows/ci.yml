@@ -546,7 +546,7 @@ jobs:
     # never on PRs, so PR latency stays on the light build. This is the guard
     # against the reports and index paths drifting apart inside yidam (RFC-0003).
     #
-    # What a pull request gets instead is `cli-features` below: this job's two clippy legs
+    # What a pull request gets instead is `cli-features` below: this job's three clippy legs
     # and none of its tests. That is the compile half, which is where all three of the
     # recorded outages were; running the gated suite is still a thing only the merge does.
     #
@@ -804,7 +804,7 @@ jobs:
       # writes go to the PR's own scope, where nothing else can read them and where they
       # count against the repository's 10GB before being evicted — so this job would pay to
       # store a copy of a tree it borrowed and never reads again. Restoring from main is what
-      # makes the two clippy legs 8.5s and 11.8s instead of a dependency build.
+      # makes the `vector-read` and `--all-features` legs 8.5s and 11.8s instead of a dependency build.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: yidam/cli

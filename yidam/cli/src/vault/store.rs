@@ -75,6 +75,8 @@ pub fn open(vault: &str, cfg: &VaultConfig) -> Result<Box<dyn Store>> {
         #[cfg(feature = "vault-s3")]
         return Ok(Box::new(super::s3::S3Store::new(vault, cfg)?));
         #[cfg(not(feature = "vault-s3"))]
+        let _ = vault;
+        #[cfg(not(feature = "vault-s3"))]
         bail!(
             "vault url {url:?} names an S3 store, and this build has no S3 transport.\n  \
              `vault-s3` is in the default feature set, so this is a build compiled without \
