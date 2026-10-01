@@ -63,12 +63,14 @@ With `--cron` the output is a `CronWorkflow` that admits itself first:
 yidam cluster workflow --cron "0 6 * * *" > yidam.cronworkflow.yml
 ```
 
-The admission task runs `yidam cluster admit`. Its record says `admitted`. The pin task and
-everything after it carry a `when` on that field. A clock that is not owed submits no step.
+The admission task runs `yidam cluster admit`. Its record says `admitted`. The pin task carries a
+`when` on that field, and every task after it waits for the one before to succeed. A clock that is
+not owed runs no step, and the workflow still ends `Succeeded`.
 
 Every form holds one mutex per corpus, `yidam-<corpus>`. Two runs of one corpus never land at
 once. A second run waits, then asks `admit` about the tip the first one left. The field is
-`synchronization.mutexes`, which needs Argo Workflows 3.6 or later.
+`synchronization.mutexes`, which needs Argo Workflows 3.6 or later. The cron form lists its time under
+`schedules`, since Argo Workflows 4 refuses the older `schedule` field.
 
 With `--on-push` the output adds an Argo Events `EventSource` and `Sensor`. A push to the
 branch submits the same run, which admits first. See [Run on push](#run-on-push).
@@ -243,6 +245,10 @@ Two lines in the example matter, so keep them:
 
 The run account can do one thing: record task results for Argo's executor. Pods do not mount its
 token. The executor sidecar uses it, and the main container never sees it.
+
+The base also creates that token, as the secret `yidam-<corpus>-run.service-account-token`.
+Argo mounts it into the executor alone. Kubernetes 1.24 and later create no such secret, so
+without it every pod waits in `Init`.
 
 ### Run once
 
@@ -508,6 +514,23 @@ A receipt is on the ref.
 - **No long-lived pod holding a checkout.** Each pod clones into scratch, does one act, and
   exits. The clone is gone with it. The server pod lives long, but it holds a bundle at one
   digest, not a checkout.
+
+## Checked on a real cluster
+
+`mise run cluster-e2e` runs streamflow on a kind cluster, under Calico and Argo Workflows 4.1.
+It needs Docker, and builds the image from the checkout. The script is
+[run.sh](../yidam/cluster/e2e/run.sh).
+
+It applies the overlay in a namespace that enforces `restricted`. Then it reads the remote, never
+a log:
+
+- Each `compute:` commit is on the branch, with its receipt.
+- The epistemic step is on `propose/*`, and the branch did not move for it.
+- A second submission is not admitted, and moves no ref.
+- A step pod holding the write key cannot reach the remote. A lander pod can push with it.
+
+It runs nightly, on a pull request labelled `cluster`, and on any change to the generator or
+`yidam/cluster/`. `YIDAM_E2E_KEEP=1` keeps the cluster after the run.
 
 ## When something looks wrong
 

@@ -34,3 +34,16 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: run
+---
+# The executor's token. With `automountServiceAccountToken: false`, Argo mounts the secret
+# `<account>.service-account-token` into the executor alone, and since Kubernetes 1.24 nothing
+# creates that secret: without this, every pod waits in `Init` on a mount that never succeeds
+# (#1237). Kubernetes fills in the token once the account exists. `name-reference.yml` carries
+# the overlay's prefix into the annotation, which names the account.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: run.service-account-token
+  annotations:
+    kubernetes.io/service-account.name: run
+type: kubernetes.io/service-account-token

@@ -757,7 +757,8 @@ A manifest is a plan. An entry's `after` names the steps it waits for. `yidam ru
 runs that step and everything it comes `after`, dependencies first. `yidam run` alone runs the
 whole manifest. An `after` that forms a cycle is refused with the cycle named, and nothing runs.
 A step may not come `after` an epistemic one. That step's output is on `propose/<head>`, not in
-the tree a dependent is checked out from.
+the tree a dependent is checked out from. So every epistemic step runs last, at the head the
+branch steps leave.
 
 A step whose input state matches its committed receipt is skipped, not invoked. The report names
 each skipped step and why. A step that reads what the repository does not hold declares

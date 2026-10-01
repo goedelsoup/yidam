@@ -1,0 +1,102 @@
+# A cluster run, end to end (#1237).
+#
+# Every other test of `yidam cluster` calls the library a pod calls, against a bare repository
+# on disk. This one builds the image, starts kind with Calico and Argo Workflows, pushes
+# streamflow to a git server inside the cluster, applies the shipped overlay in a namespace
+# that enforces `restricted`, and submits the run. Then it reads the remote: the compute
+# commits and their receipts on the branch, the epistemic step on `propose/*`, a second
+# submission that moves nothing, and a write key that cannot push from a step pod. The script
+# is `yidam/cluster/e2e/run.sh`, and `mise run cluster-e2e` runs it locally.
+#
+# ── not in the per-PR gate ───────────────────────────────────────────────────
+#
+# A release build of the image, kind and Argo together cost more than `ci (cli)` can carry. So
+# it runs nightly on main, on a pull request labelled `cluster`, and on any pull request that
+# changes the generator or what it deploys: `yidam/cli/src/cmd/cluster/` or `yidam/cluster/`.
+#
+# The label and the paths are an OR, which `on.pull_request` cannot say: its `paths` filter
+# would hold back a labelled PR that touches neither. So every pull request starts `decide`,
+# which costs one API call, and `e2e` runs when it says so.
+
+name: Cluster e2e
+
+on:
+  schedule:
+    - cron: '23 4 * * *'
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  decide:
+    name: decide
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          ADDED: ${{ github.event.label.name }}
+          LABELLED: ${{ contains(github.event.pull_request.labels.*.name, 'cluster') }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          run=false
+          if [ "$EVENT" != pull_request ]; then
+            run=true
+          elif [ "$ACTION" = labeled ]; then
+            # Another label added to the PR is not a change to anything this tests.
+            [ "$ADDED" = cluster ] && run=true
+          elif [ "$LABELLED" = true ]; then
+            run=true
+          elif gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename' \
+              | grep -qE '^(yidam/cli/src/cmd/cluster/|yidam/cluster/|\.github/workflows/cluster-e2e\.yml$)'; then
+            run=true
+          fi
+          echo "run=$run" | tee -a "$GITHUB_OUTPUT"
+
+  e2e:
+    name: cluster e2e
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      # The image's release build, kind's node image and Argo's together outgrow the runner's
+      # free disk. These are toolchains nothing here uses.
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: mise run cluster-e2e
+        env:
+          YIDAM_E2E_ARTIFACTS: ${{ runner.temp }}/cluster-e2e
+        run: mise run cluster-e2e
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: cluster-e2e-diagnostics
+          path: ${{ runner.temp }}/cluster-e2e
+          if-no-files-found: ignore

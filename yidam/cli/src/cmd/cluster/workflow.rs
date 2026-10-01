@@ -475,7 +475,9 @@ pub(super) fn generate(root: &Path, o: &Overrides) -> Result<String> {
         let _ = writeln!(y, "  name: yidam-{}", s.slug);
         metadata(&mut y, &s);
         y.push_str("spec:\n");
-        let _ = writeln!(y, "  schedule: {}", quote(schedule));
+        // The list form: Argo 3.6 reads `schedule` and `schedules` both, and 4.x refuses the
+        // singular outright (#1237).
+        let _ = writeln!(y, "  schedules:\n    - {}", quote(schedule));
         y.push_str(
             "  # One tick at a time: a tick while a run is landing is skipped, not queued. The\n  \
              # workflow's mutex is what keeps a cron run and a push run apart.\n",
@@ -672,6 +674,9 @@ fn spec(s: &Settings) -> String {
 
     y.push_str("templates:\n");
     y.push_str("  - name: run\n    dag:\n      tasks:\n");
+    // Every edge names `.Succeeded`. A bare `depends: pin` also holds when `pin` is Skipped, as
+    // it is on a run not admitted, and the next task then reads an output nothing wrote: the
+    // workflow ends in Error where it should end with nothing owed (#1237).
     let mut previous = String::from("pin");
     let mut previous_bundle = "$.bundle";
     if s.admitted_first() {
@@ -681,8 +686,8 @@ fn spec(s: &Settings) -> String {
              # submits no run — this task is the whole workflow that ran.\n",
         );
         y.push_str(
-            "        - name: pin\n          template: pin\n          depends: admit\n          \
-             when: \"{{=jsonpath(tasks.admit.outputs.parameters.output, '$.admitted') == true}}\"\n",
+            "        - name: pin\n          template: pin\n          depends: admit.Succeeded\n          \
+             when: \"{{=jsonpath(tasks['admit'].outputs.parameters.output, '$.admitted') == true}}\"\n",
         );
     } else {
         y.push_str("        - name: pin\n          template: pin\n");
@@ -695,15 +700,16 @@ fn spec(s: &Settings) -> String {
         };
         let _ = writeln!(
             y,
-            "        - name: step-{task}\n          template: {template}\n          depends: {previous}\n          \
+            "        - name: step-{task}\n          template: {template}\n          depends: {previous}.Succeeded\n          \
              arguments:\n            parameters:\n              - name: step\n                \
              value: {}\n              - name: bundle\n                \
-             value: \"{{{{=jsonpath(tasks.{previous}.outputs.parameters.output, '{previous_bundle}')}}}}\"",
-            quote(step)
+             value: \"{{{{=jsonpath({}, '{previous_bundle}')}}}}\"",
+            quote(step),
+            output_of(&previous)
         );
         let _ = writeln!(
             y,
-            "        - name: land-{task}\n          template: land\n          depends: step-{task}\n          \
+            "        - name: land-{task}\n          template: land\n          depends: step-{task}.Succeeded\n          \
              arguments:\n            parameters:\n              - name: step-output\n                \
              value: \"{{{{tasks.step-{task}.outputs.parameters.output}}}}\""
         );
@@ -819,18 +825,19 @@ fn reaches_the_world(step: &str) -> bool {
 /// peer whose asker left no record is `refused` in the roll call, never missing from it.
 fn gather_tasks(y: &mut String, g: &str, previous: &str, previous_bundle: &str) {
     let task = task_name(g);
-    let survey = format!("tasks.survey-{task}.outputs.parameters.output");
+    let survey = output_of(&format!("survey-{task}"));
     let _ = writeln!(
         y,
-        "        - name: survey-{task}\n          template: survey\n          depends: {previous}\n          \
+        "        - name: survey-{task}\n          template: survey\n          depends: {previous}.Succeeded\n          \
          arguments:\n            parameters:\n              - name: gather\n                \
          value: {}\n              - name: bundle\n                \
-         value: \"{{{{=jsonpath(tasks.{previous}.outputs.parameters.output, '{previous_bundle}')}}}}\"",
-        quote(g)
+         value: \"{{{{=jsonpath({}, '{previous_bundle}')}}}}\"",
+        quote(g),
+        output_of(previous)
     );
     let _ = writeln!(
         y,
-        "        - name: ask-{task}\n          template: ask\n          depends: survey-{task}\n          \
+        "        - name: ask-{task}\n          template: ask\n          depends: survey-{task}.Succeeded\n          \
          when: \"{{{{=jsonpath({survey}, '$.asking') > 0}}}}\"\n          \
          withParam: \"{{{{=toJson(jsonpath({survey}, '$.asks'))}}}}\"\n          \
          continueOn:\n            failed: true\n          \
@@ -850,7 +857,7 @@ fn gather_tasks(y: &mut String, g: &str, previous: &str, previous_bundle: &str) 
     );
     let _ = writeln!(
         y,
-        "        - name: land-gather-{task}\n          template: land\n          depends: gather-{task}\n          \
+        "        - name: land-gather-{task}\n          template: land\n          depends: gather-{task}.Succeeded\n          \
          arguments:\n            parameters:\n              - name: step-output\n                \
          value: \"{{{{tasks.gather-{task}.outputs.parameters.output}}}}\""
     );
@@ -1115,6 +1122,15 @@ fn file_vault_mount(url: &str) -> Option<String> {
 }
 
 /// An Argo task name from a capability name: the characters a DNS label allows.
+/// A task's output inside an Argo `{{=…}}` expression.
+///
+/// Bracketed, since expr reads `tasks.land-x` as `tasks.land - x`: the parameter never
+/// resolves, and the DAG waits on it with nothing failed (#1237). A plain `{{tasks.…}}`
+/// substitution is not parsed, and takes the dotted form.
+fn output_of(task: &str) -> String {
+    format!("tasks['{task}'].outputs.parameters.output")
+}
+
 fn task_name(step: &str) -> String {
     step.chars()
         .map(|c| {
@@ -1315,7 +1331,7 @@ mod tests {
         let tasks = doc["templates"][0]["dag"]["tasks"].as_sequence().unwrap();
         let names: Vec<&str> = tasks.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(names, ["pin", "step-a", "land-a", "step-b", "land-b"]);
-        assert_eq!(tasks[3]["depends"].as_str(), Some("land-a"));
+        assert_eq!(tasks[3]["depends"].as_str(), Some("land-a.Succeeded"));
         assert!(tasks[3]["arguments"]["parameters"][1]["value"]
             .as_str()
             .unwrap()
@@ -1537,11 +1553,14 @@ mod tests {
             ]
         );
         let task = |n: &str| tasks.iter().find(|t| t["name"] == n).unwrap();
-        assert_eq!(task("survey-units")["depends"].as_str(), Some("land-a"));
+        assert_eq!(
+            task("survey-units")["depends"].as_str(),
+            Some("land-a.Succeeded")
+        );
         assert!(task("survey-units")["arguments"]["parameters"][1]["value"]
             .as_str()
             .unwrap()
-            .contains("tasks.land-a.outputs.parameters.output, '$.next.bundle'"));
+            .contains("tasks['land-a'].outputs.parameters.output, '$.next.bundle'"));
         let ask = task("ask-units");
         assert!(ask["withParam"].as_str().unwrap().contains("'$.asks'"));
         assert_eq!(ask["continueOn"]["failed"].as_bool(), Some(true));

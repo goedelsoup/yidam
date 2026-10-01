@@ -1,0 +1,8 @@
+# The token secret names its account in an annotation, which Kustomize does not know is a name.
+# Without this, `namePrefix` renames the account and the secret but leaves the annotation saying
+# `run`, and Kubernetes never fills in a token for an account that does not exist.
+nameReference:
+  - kind: ServiceAccount
+    fieldSpecs:
+      - kind: Secret
+        path: metadata/annotations/kubernetes.io\/service-account.name

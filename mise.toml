@@ -401,6 +401,17 @@ description = "Run the receipt-compatibility test against the last released CLI,
 env = { YIDAM_PREVIOUS_VERSION = "0.17.0", TZ = "UTC" }
 run = "scripts/receipt-compat.sh"
 
+# A cluster run end to end (#1237): kind with Calico, Argo Workflows, streamflow pushed to a git
+# server in the cluster, and assertions read off that remote. Its own task and its own workflow,
+# `cluster-e2e.yml`, never part of `ci`: a release image build, kind and Argo together are more
+# than a per-PR gate can afford. Needs Docker. The tools are per-task for [tasks.verify]'s
+# reason. kubectl 1.34 embeds kustomize 5.7.1, the version [tools] pins, so `kubectl apply -k`
+# builds what `cluster_run.rs` built.
+[tasks.cluster-e2e]
+description = "Run streamflow on a kind cluster under Argo and check what landed on the remote. Needs Docker."
+tools = { "aqua:kubernetes-sigs/kind" = "0.33.0", "aqua:kubernetes/kubernetes/kubectl" = "1.34.12" }
+run = "yidam/cluster/e2e/run.sh"
+
 [tasks.semver-check]
 description = "API compatibility of yidam-core against the last version published to crates.io."
 tools = { "github:obi1kenobi/cargo-semver-checks" = "v0.50.0" }
