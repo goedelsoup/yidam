@@ -322,7 +322,7 @@ run = [
   # `vector-read`, not `index`: this runner embeds text and never builds an index, so
   # `index` bought it protoc and lancedb for nothing. #442 split the two features for
   # exactly this and `embed_parity.rs` records it — the task kept the old flag.
-  "cargo test --manifest-path yidam/cli/Cargo.toml --features vector-read --test embed_parity",
+  "cargo test --manifest-path yidam/cli/Cargo.toml --features vector-read --test gates embed_parity",
   "scripts/npm-ensure.sh yidam/prelude/sdks/typescript",
   "cd yidam/prelude/sdks/typescript && npm test -- embed_parity",
   "cd yidam/prelude/sdks/python && uv run --extra dev --extra embed pytest tests/parity/test_embed_config.py",

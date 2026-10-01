@@ -79,7 +79,7 @@ pub(crate) fn search(
     if embedder.is_none() {
         let (model, _, _) = crate::embedding::resolve_model(&state.model_id)
             .map_err(|e| format!("resolving embedding model: {e}"))?;
-        let loaded = fastembed::TextEmbedding::try_new(fastembed::InitOptions::new(model))
+        let mut loaded = fastembed::TextEmbedding::try_new(fastembed::TextInitOptions::new(model))
             .map_err(|e| format!("loading embedding model {}: {e}", state.model_id))?;
 
         let contract = witness_contract(&session, state);
@@ -111,7 +111,7 @@ pub(crate) fn search(
     }
 
     let query_vec = embedder
-        .as_ref()
+        .as_mut()
         .ok_or("the embedder was initialised above and is missing")?
         .embed(vec![query.to_string()], None)
         .map_err(|e| format!("embedding query: {e}"))?

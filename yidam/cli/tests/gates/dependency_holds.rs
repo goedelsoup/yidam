@@ -18,6 +18,11 @@
 //! #945 added a fifth, on the typescript major, and the same rule applies: the ignore stops a
 //! weekly proposal, and [`every_editor_type_checks_with_one_typescript_major`] is the hold.
 //!
+//! #536 removed the fastembed `ignore`: the hold resolved when transformers.js moved into the
+//! same space, and a proposed fastembed major is now a measurement to run, not a known-bad bump
+//! to suppress. The gate stayed, and gained its other half — see
+//! [`every_conforming_parity_runtime_is_the_major_its_lockfile_resolves`].
+//!
 //! Two things are gated about the configuration itself. That it is not stale: see
 //! [`every_dependabot_ignore_names_something_that_exists`] — an `ignore` for a dependency
 //! nobody declares any more reads as a hold and holds nothing. And that it is not
@@ -202,26 +207,8 @@ fn every_arrow_this_workspace_declares_is_the_one_lancedb_resolves() {
 
 // ── the embedding reference is the runtime that recorded it ───────────────────
 
-/// The runtime that recorded the parity prefix is the one this workspace resolves.
-///
-/// `prelude/sdks/parity/fixtures/embed_config/` holds eight normalized dimensions that three
-/// runtimes must agree on to 1e-5. They were produced by fastembed 4.9.1, and fastembed 6
-/// answers ~3e-4 differently — one `ort` rc.12 → rc.13 bump, which skips the bundled ONNX
-/// Runtime ahead four versions. transformers.js agrees with 4.9.1 and not with 6, so the bump
-/// moves the *Rust reference* out of the space the other two share, and re-recording the
-/// fixture relabels the outlier as the reference and makes the TypeScript SDK non-conforming
-/// to its own parity contract (#536).
-///
-/// None of that was checkable, because the fixture recorded eight floats and not what produced
-/// them. It now records `reference = { runtime, version }`, and this compares that major
-/// against the version the lockfile resolves — so the bump is red here, on every PR, rather
-/// than red only in `embed_config_parity`, which needs `YIDAM_EMBED_PARITY=1` and model weights
-/// and does not run on a pull request at all.
-///
-/// Patch and minor releases within the major are wanted and pass: they are where the fix this
-/// hold is waiting for will arrive.
-#[test]
-fn every_parity_reference_runtime_is_the_major_the_lockfile_resolves() {
+/// Every `embed_config` fixture, by file name, parsed.
+fn embed_fixtures() -> Vec<(String, toml::Value)> {
     let dir = repo_root().join("yidam/prelude/sdks/parity/fixtures/embed_config");
     let mut fixtures: Vec<PathBuf> = std::fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("{} unreadable: {e}", dir.display()))
@@ -235,15 +222,39 @@ fn every_parity_reference_runtime_is_the_major_the_lockfile_resolves() {
         "no embed_config fixtures in {}; this test is reading the wrong tree",
         dir.display()
     );
+    fixtures
+        .iter()
+        .map(|f| {
+            let name = f.file_name().unwrap().to_string_lossy().into_owned();
+            let fx = toml::from_str(
+                &std::fs::read_to_string(f).unwrap_or_else(|e| panic!("{name} unreadable: {e}")),
+            )
+            .unwrap_or_else(|e| panic!("{name} is not TOML: {e}"));
+            (name, fx)
+        })
+        .collect()
+}
 
+/// The runtime that recorded the parity prefix is the one this workspace resolves.
+///
+/// `prelude/sdks/parity/fixtures/embed_config/` holds eight normalized dimensions that three
+/// runtimes must agree on to 1e-5. A major bump on the runtime that recorded them can move them:
+/// fastembed 4 → 6 took `ort` rc.12 → rc.13, which skips the bundled ONNX Runtime ahead four
+/// versions, and answered ~3e-4 differently. transformers.js then still agreed with 4.9.1, so
+/// the bump moved the *Rust reference* out of the space the other two shared, and re-recording
+/// the fixture would have relabelled the outlier as the reference (#536).
+///
+/// None of that was checkable, because the fixture recorded eight floats and not what produced
+/// them. It now records `reference = { runtime, version }`, and this compares that major
+/// against the version the lockfile resolves — so the bump is red here, on every PR, rather
+/// than red only in `embed_config_parity`, which needs `YIDAM_EMBED_PARITY=1` and model weights
+/// and does not run on a pull request at all.
+///
+/// Patch and minor releases within the major are wanted and pass.
+#[test]
+fn every_parity_reference_runtime_is_the_major_the_lockfile_resolves() {
     let packages = locked_packages();
-    for f in &fixtures {
-        let name = f.file_name().unwrap().to_string_lossy().into_owned();
-        let fx: toml::Value = toml::from_str(
-            &std::fs::read_to_string(f).unwrap_or_else(|e| panic!("{name} unreadable: {e}")),
-        )
-        .unwrap_or_else(|e| panic!("{name} is not TOML: {e}"));
-
+    for (name, fx) in embed_fixtures() {
         let reference = fx["expected"].get("reference").unwrap_or_else(|| {
             panic!(
                 "{name} records a `prefix` and not what produced it. Eight floats with no \
@@ -275,15 +286,76 @@ fn every_parity_reference_runtime_is_the_major_the_lockfile_resolves() {
             major(recorded),
             major(&resolved.version),
             "{name} records its prefix from {runtime} {recorded} and this workspace resolves \
-             {runtime} {}. A major bump on the reference runtime is a different embedding \
+             {runtime} {}. A major bump on the reference runtime can be a different embedding \
              space: the eight dimensions in that fixture are the ones the TypeScript and \
-             Python runners are held to, and they were measured somewhere else. Re-recording \
-             them makes whichever runtime still agrees with {recorded} the non-conforming one \
-             (#536). Taking the bump means moving the fixture and both other runtimes \
-             together, deliberately.",
+             Python runners are held to, and they were measured somewhere else. Run \
+             `mise run embed-parity` under the bump; if the prefix moved, move the fixture \
+             and every `conforming` runtime together, deliberately (#536).",
             resolved.version,
         );
     }
+}
+
+/// Every runtime the fixture says conforms is the major its lockfile resolves.
+///
+/// The other half of the hold above, and the half #536 was decided on. The reference is only a
+/// reference while the runtimes held to it still answer the same way, and transformers.js
+/// moves its own ONNX Runtime: 3.8.1 bundles 1.21 and agreed with fastembed 4.9.1; 4.3.0
+/// bundles 1.30 and agrees with fastembed 7.1.0 instead. It is a `devDependency` of the
+/// TypeScript SDK, used by nothing but `embed_parity.test.ts`, which no pull request runs — so
+/// the npm group bumping it a major was exactly as silent as the cargo group bumping fastembed.
+///
+/// `sentence-transformers` is not in `conforming` and is not checked here: it cannot load
+/// `model_file`, runs fp32 weights under `known_delta`, and is ~1e-2 away from any ONNX answer.
+#[test]
+fn every_conforming_parity_runtime_is_the_major_its_lockfile_resolves() {
+    // Where each runtime a fixture may name is locked. A name not here is a runtime nobody
+    // taught this test to find, and failing on it is the point — a `conforming` entry this test
+    // skips is one nothing holds.
+    let lockfiles: BTreeMap<&str, &str> = [(
+        "@huggingface/transformers",
+        "yidam/prelude/sdks/typescript/package-lock.json",
+    )]
+    .into();
+
+    let mut checked = 0;
+    for (name, fx) in embed_fixtures() {
+        let Some(conforming) = fx["expected"].get("conforming") else {
+            continue;
+        };
+        let conforming = conforming
+            .as_table()
+            .unwrap_or_else(|| panic!("{name}: `conforming` is not a table of runtime = version"));
+        for (runtime, recorded) in conforming {
+            let recorded = recorded
+                .as_str()
+                .unwrap_or_else(|| panic!("{name}: conforming.\"{runtime}\" is not a string"));
+            let lock = lockfiles.get(runtime.as_str()).unwrap_or_else(|| {
+                panic!(
+                    "{name} says `{runtime}` conforms and this test does not know which \
+                     lockfile resolves it. Add it to `lockfiles` above."
+                )
+            });
+            let lock_json: serde_json::Value = serde_json::from_str(&read(lock))
+                .unwrap_or_else(|e| panic!("{lock} is not JSON: {e}"));
+            let resolved = lock_json["packages"][format!("node_modules/{runtime}")]["version"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{lock} resolves no `{runtime}`"));
+            assert_eq!(
+                major(recorded),
+                major(resolved),
+                "{name} records `{runtime}` {recorded} as conforming to its prefix and {lock} \
+                 resolves {resolved}. transformers.js bundles its own ONNX Runtime, and the \
+                 quantized kernels have already answered ~3e-4 differently across one such \
+                 move. Run `mise run embed-parity` under the bump before taking it (#536).",
+            );
+            checked += 1;
+        }
+    }
+    assert!(
+        checked > 0,
+        "no embed_config fixture names a `conforming` runtime, so this checked nothing"
+    );
 }
 
 // ── the extension's types follow the floor it declares ───────────────────────
@@ -443,8 +515,8 @@ fn every_dependabot_ignore_names_something_that_exists() {
     }
 
     assert!(
-        checked >= 9,
-        "only {checked} ignore rules found in dependabot.yml. There are five holds — one covers \
+        checked >= 8,
+        "only {checked} ignore rules found in dependabot.yml. There are four holds — one covers \
          three arrow crates and one is repeated in three npm entries — so a count this low \
          means the file was read wrong or a hold was dropped without its reason going with it."
     );
