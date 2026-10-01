@@ -324,7 +324,7 @@ answer the question. See *The class contract* in `.yidam/.vendor/prelude/GRAPH.m
 date you last ran the vendor step. To adopt a newer template:
 
 ```sh
-mise run yidam-vendor-update           # re-vendor and re-pin
+mise run yidam-vendor-update           # re-vendor and re-pin to the newest cli/v* release
 YIDAM_REF=v0.2.0 mise run yidam-vendor-update   # target a tag or branch
 ```
 

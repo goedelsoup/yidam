@@ -719,7 +719,7 @@ through unchanged. A set on a coined type constrains nothing until the property 
 | `YIDAM_REPO` | `install.sh` | Resolve releases from a fork |
 | `GITHUB_TOKEN` | `install.sh` | Optional. Raises the release-listing rate limit; the anonymous limit is 60/hour per IP |
 | `YIDAM_API` | `install.sh` | GitHub API origin, default `https://api.github.com` — for an Enterprise host |
-| `YIDAM_REF` | `yidam-vendor-update` | Re-vendor from a tag or branch instead of the pinned commit |
+| `YIDAM_REF` | `yidam-vendor-update`, `yidam-vendor-status` | Target a tag, branch or `HEAD` instead of the newest `cli/v*` release |
 | `YIDAM_CODE` | `ext-dev` | The editor CLI, when `code` is not on `PATH` |
 | `YIDAM_REQUIRE_CONTRACT` | extension tests | Turn a missing or stale binary from a skip into a failure; CI sets it |
 | `YIDAM_BUILD_COMMIT` | build script | Stamps the commit `yidam --version` reports |

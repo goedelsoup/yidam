@@ -404,23 +404,47 @@ jobs:
               '${{ steps.pin.outputs.source }}' /tmp/yidam
           fi
           cd /tmp/yidam
-          if ! git rev-parse --verify --quiet "origin/HEAD" >/dev/null; then
-            echo "::notice::cannot resolve origin/HEAD; skipping the staleness report."
+          # Measured against the newest `cli/v*` release, which is what
+          # `yidam-vendor-update` adopts by default (#1308) — not origin/HEAD, which is
+          # rarely tagged, so this reported nearly every repository as behind and told it
+          # to run an update that would change nothing. The resolver is the task's own,
+          # byte for byte; a test holds the copies together.
+          # NEWEST-RELEASE BEGIN
+          # The newest `cli/vX.Y.Z` tag at an origin, as `<tag> <commit>`; nothing if it has none.
+          # By version, not by date: `releases/latest` and tag dates span four layers. The peeled
+          # `^{}` line is the commit of an annotated (signed) tag, so it wins over the bare line,
+          # and the refspec globs because ls-remote emits peeled lines only for a glob.
+          # No backslashes, for the reason the tools block gives.
+          newest_release() {
+            git ls-remote --tags "$1" 'refs/tags/cli/v*' 2>/dev/null | awk '
+              { ref = substr($2, 11); peeled = 0
+                if (substr(ref, length(ref) - 2) == "^{}") { ref = substr(ref, 1, length(ref) - 3); peeled = 1 }
+                if (ref !~ "^cli/v[0-9]+[.][0-9]+[.][0-9]+$") next
+                if (peeled || !(ref in sha)) sha[ref] = $1 }
+              END { for (t in sha) print substr(t, 6), t, sha[t] }
+            ' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n1 | cut -d' ' -f2,3
+          }
+          # NEWEST-RELEASE END
+          release=$(newest_release '${{ steps.pin.outputs.source }}')
+          if [ -z "$release" ]; then
+            echo "::notice::the origin has no cli/v* release; skipping the staleness report."
             exit 0
           fi
-          behind=$(git rev-list --count "$pin..origin/HEAD" 2>/dev/null || echo 0)
-          if [ "$behind" -eq 0 ]; then
-            echo "::notice::vendored prelude is current with upstream."
+          tag="${release%% *}"
+          target="${release#* }"
+          if git merge-base --is-ancestor "$target" "$pin" 2>/dev/null; then
+            echo "::notice::vendored prelude is at or ahead of the newest release ($tag)."
             exit 0
           fi
+          behind=$(git rev-list --count "$pin..$target" 2>/dev/null || echo 0)
           pinned_at=$(git log -1 --format=%at "$pin")
           days=$(( ( $(date +%s) - pinned_at ) / 86400 ))
-          moved=$(git diff --name-only "$pin" origin/HEAD -- yidam/prelude/ | wc -l | tr -d ' ')
-          echo "This repository is pinned $behind commit(s) behind upstream, $days day(s) old."
+          moved=$(git diff --name-only "$pin" "$target" -- yidam/prelude/ | wc -l | tr -d ' ')
+          echo "This repository is pinned $behind commit(s) behind $tag, $days day(s) old."
           echo "$moved file(s) under yidam/prelude/ have changed since. Re-pin with:"
           echo "  mise run yidam-vendor-update"
-          if git diff --name-only "$pin" origin/HEAD -- yidam/prelude/GRAPH.md | grep -q .; then
-            echo "::warning::GRAPH.md has moved upstream since this pin — the closed commit \
+          if git diff --name-only "$pin" "$target" -- yidam/prelude/GRAPH.md | grep -q .; then
+            echo "::warning::GRAPH.md has moved in $tag since this pin — the closed commit \
           vocabulary may have gained or lost a verb. Your log is already written against \
           the old one and cannot be rewritten to match. Review before writing more history: \
           mise run yidam-vendor-update"

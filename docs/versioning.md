@@ -90,9 +90,10 @@ in the file.
 ### How a derived repo adopts a newer one
 
 ```sh
-mise run yidam-vendor-update                     # re-vendor at the pinned origin's HEAD
+mise run yidam-vendor-update                     # re-vendor at the newest cli/v* release
+YIDAM_REF=HEAD mise run yidam-vendor-update      # unreleased main (yidam-build compiles it)
 YIDAM_REF=v0.2.0 mise run yidam-vendor-update    # target a tag or branch
-mise run yidam-vendor-status                     # has the origin moved?
+mise run yidam-vendor-status                     # is there a newer release?
 ```
 
 This re-vendors `.yidam/.vendor/prelude/` and rewrites `.yidam.toml`. Domain content is
