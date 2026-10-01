@@ -39,13 +39,13 @@ use std::path::{Path, PathBuf};
 /// error whose message names one crate twice.
 pub use toml;
 
-/// Where `<function>`'s fixtures live: `prelude/domains/parity/fixtures/<function>`.
+/// Where `<function>`'s fixtures live: `domains/parity/fixtures/<function>`.
 ///
 /// Exposed because a test that wants to name the directory in its own failure message should
 /// ask rather than reconstruct it.
 pub fn fixture_dir(function: &str) -> PathBuf {
-    // CARGO_MANIFEST_DIR = prelude/domains/parity/testkit/
-    // ../fixtures/<function>  →  prelude/domains/parity/fixtures/<function>
+    // CARGO_MANIFEST_DIR = domains/parity/testkit/
+    // ../fixtures/<function>  →  domains/parity/fixtures/<function>
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../fixtures")
         .join(function)

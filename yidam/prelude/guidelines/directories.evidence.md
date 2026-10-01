@@ -420,8 +420,9 @@ have.
 
 ## prelude-domains-not-wholesale
 
-Bootstrap keeps only the libraries a calculator named — none, in the common case — so a wholesale
-copy would restore all fifteen on every update, silently reversing a choice made at genesis.
+Bootstrap vendors only the libraries a calculator named — none, in the common case — so a
+wholesale copy would deliver all fifteen on every update, silently reversing a choice made at
+genesis. That is why they live beside the prelude rather than inside it (#934).
 
 ## mise-yidam-toml-is-inherited
 

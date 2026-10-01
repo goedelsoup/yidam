@@ -1,7 +1,7 @@
 # Domain Parity
 
 Cross-language fixture suite for domain calculator functions. Same discipline as
-[`prelude/sdks/parity/`](../../sdks/parity/README.md) — same TOML format, same MUST
+[`prelude/sdks/parity/`](../../prelude/sdks/parity/README.md) — same TOML format, same MUST
 rule, Rust is always the reference implementation.
 
 ## What belongs here

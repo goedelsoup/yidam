@@ -65,7 +65,7 @@ to relevant nodes.
 
 ### 4. Prelude domain functions as pure lookup
 
-Source: `yidam/prelude/domains/README.md`, domain directories
+Source: `yidam/domains/README.md`, domain directories
 
 The prelude ships pure, deterministic, cross-language functions for:
 

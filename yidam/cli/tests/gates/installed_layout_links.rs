@@ -112,10 +112,9 @@ fn installed_tree(root: &Path, conditions: &BTreeSet<&str>) -> BTreeSet<String> 
                 continue;
             };
             // The condition of the row that *claims* this path, which is not always the row
-            // being walked. `yidam/prelude` is unconditional and `yidam/prelude/domains` is
-            // not, so consulting only the outer row installs the domains under the prelude's
-            // answer and the nested condition withholds nothing. The sangha row never showed
-            // this: it is a top-level directory no other row walks over.
+            // being walked: a conditional row nested under an unconditional one would be
+            // installed under the outer row's answer, and its condition would withhold
+            // nothing.
             if owner.when.is_some_and(|w| !conditions.contains(w)) {
                 continue;
             }
@@ -431,12 +430,11 @@ fn resolve_is_lexical_and_bounded() {
 
 /// The domain libraries are absent by default and present when a calculator names one.
 ///
-/// `prelude/domains/` is fifteen libraries in three languages — about 320 of the ~540 files
-/// the vendor step moves, and the majority of its bytes. Every derived repository received
-/// all fifteen, and none could build any of them: there is no mise task, no workspace
-/// membership, and no CI job, and `domain-parity` — the gate that keeps them honest — is
-/// yidam's and does not travel. That is precisely the stale-fork outcome the vendor step
-/// argues against, arriving through the one directory it allows.
+/// `yidam/domains/` is fifteen libraries in three languages — 364 files, more than the rest
+/// of the prelude together. A derived repository can build none of them unless it wires one
+/// in: there is no mise task, no workspace membership, and no CI job, and `domain-parity` —
+/// the gate that keeps them honest — is yidam's and does not travel. They once arrived
+/// inside the vendored prelude and were pruned after it; they now live beside it (#934).
 ///
 /// The same shape as the sangha row, and the same guard for the same reason: a condition
 /// that withholds unconditionally is a deletion, and one that withholds nothing is decoration.
@@ -446,7 +444,7 @@ fn the_domain_libraries_are_absent_by_default_and_present_when_named() {
     let default_tree = installed_tree(&root, &BTreeSet::new());
     let with_domain = installed_tree(&root, &BTreeSet::from([DOMAIN_SELECTED]));
 
-    let index = ".yidam/.vendor/prelude/domains/README.md";
+    let index = ".yidam/.vendor/domains/README.md";
     assert!(
         !default_tree.contains(index),
         "naming no prelude domain is the common case and must vendor none of them"
@@ -456,7 +454,13 @@ fn the_domain_libraries_are_absent_by_default_and_present_when_named() {
         "a condition that withholds unconditionally is just a deletion"
     );
 
-    // The prelude itself is unaffected — this withholds a subtree, not the layer above it.
+    // The prelude itself is unaffected, and no longer carries the libraries at all.
+    assert!(
+        !with_domain
+            .iter()
+            .any(|p| p.starts_with(".yidam/.vendor/prelude/domains")),
+        "the domain libraries are vendored beside the prelude, not inside it"
+    );
     for kept in [
         ".yidam/.vendor/prelude/GRAPH.md",
         ".yidam/.vendor/prelude/guidelines/agent-conduct.md",
