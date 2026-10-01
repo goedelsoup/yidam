@@ -1,6 +1,7 @@
 ---
 name: assess-a-finding
 description: What to check before a finding is published, and which of those checks the corpus can answer for you.
+status: built
 ---
 
 # Assessing a finding

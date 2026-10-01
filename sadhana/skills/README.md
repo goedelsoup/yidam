@@ -21,7 +21,8 @@ Add skills when a repeatable procedure emerges from inquiry — not preemptively
 Each skill's frontmatter says `status: built` when an agent can follow it, or `status: stub`
 when it only names a procedure nobody has written yet. The registry reports a skill that says
 neither as `unstated`, and counts all three, so the table does not read as more capability
-than it holds.
+than it holds. `yidam lint` reports a skill that says neither as `skill-status-unstated`,
+at info severity, which never fails the gate.
 
 A built skill another derivation also wrote belongs upstream: see *Two shapes of report* in
 [upstream.md](../.vendor/prelude/guidelines/upstream.md) for the third.

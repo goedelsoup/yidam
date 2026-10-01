@@ -855,6 +855,14 @@
       "violations": []
     },
     {
+      "id": "skill-status-unstated",
+      "title": "A domain skill that does not say whether it is built",
+      "severity": "info",
+      "rationale": "A skill's frontmatter says `status: built` when an agent can follow it and `status: stub` when it only names a procedure nobody has written. `yidam skills-index` counts the three answers so the registry does not read as more capability than it holds, and it counts a skill that says neither as `unstated` — never as built, because reading silence as capability is the flattering direction. Info, not a gate: an unstated skill is not wrong, only unreported, and every skill written before the field existed is one. A value that is neither word is reported here too, since the index can only print it back.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "calculator-script",
       "title": "a declared calculator reads, and invokes no macro",
       "severity": "error",

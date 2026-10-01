@@ -1,6 +1,7 @@
 ---
 name: read-the-set-not-the-document
 description: The questions a retrospective process should ask across incidents, and which of them a single review document structurally cannot answer.
+status: built
 ---
 
 # Reading the set, not the document

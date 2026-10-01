@@ -23,7 +23,9 @@ pub(crate) enum SkillStatus {
 }
 
 impl SkillStatus {
-    fn of(value: Option<&serde_yaml::Value>) -> Self {
+    /// Read by `skills-index` and by `lint`'s `skill-status-unstated` (#1182), so the two agree
+    /// on what counts as stated.
+    pub(crate) fn of(value: Option<&serde_yaml::Value>) -> Self {
         use serde_yaml::Value;
         match value {
             None | Some(Value::Null) => Self::Unstated,
