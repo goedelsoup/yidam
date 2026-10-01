@@ -8,9 +8,21 @@
 # ecosystems, each needing its own CI run and its own review, and the reliable outcome is
 # that people stop reading them. One batch per ecosystem per week is a thing somebody can
 # actually look at.
+#
+# **Every lockfile is in scope or says why not.** An ecosystem entry resolves the one
+# directory it names, so a manifest nobody names is a lockfile nobody maintains — #945 found
+# six entries over nineteen JS projects. The domain packages and the TypeScript SDK are
+# covered below by `directories`, grouped by dependency name so fourteen identical
+# `package.json`s are one pull request per dependency rather than fourteen per week. The
+# fourteen domain *crates* are not covered, and that is a claim with a gate behind it: each
+# depends on nothing but the path testkit, so there is no registry dependency here for
+# dependabot to propose, and the testkit's own entry is what moves their locks.
+# `every_lockfile_is_one_dependabot_resolves_or_has_no_registry_dependency` holds both
+# halves — a new lockfile is red until it is named, and a domain crate that takes a registry
+# dependency is red until it is too.
 version: 2
 updates:
-  # ── cargo ×3 ───────────────────────────────────────────────────────────────
+  # ── cargo ×4 ───────────────────────────────────────────────────────────────
   # Three separate workspaces with three separate lockfiles. Named individually because
   # dependabot resolves per-manifest; a single entry would update one and leave the others
   # to drift, which is how yidam/cli's lock came to be the only one anybody maintained.
@@ -79,8 +91,29 @@ updates:
     groups:
       cargo-harness:
         patterns: ["*"]
+  # The parity testkit, which every domain crate reaches by path. Its `toml` is the only direct
+  # registry dependency behind any of the fifteen `Cargo.lock`s under `prelude/domains`, so
+  # this entry is what moves them all and the fourteen crates need no entry of their own.
+  - package-ecosystem: cargo
+    directory: /yidam/prelude/domains/parity/testkit
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 1
+    groups:
+      cargo-testkit:
+        patterns: ["*"]
 
-  # ── npm ×3 ─────────────────────────────────────────────────────────────────
+  # ── npm ×4 ─────────────────────────────────────────────────────────────────
+  # **TypeScript majors are not batched.** The docs site and the web editor type-check with
+  # `@astrojs/check`, whose peer range is `typescript ^5 || ^6`; a grouped PR that carried
+  # typescript 7 beside six minors failed `npm ci` with ERESOLVE, and the whole batch was
+  # unmergeable for one entry in it (#826, #886, run 35935115741). So each grouped npm entry
+  # ignores the typescript major, and the minors still flow.
+  #
+  # The extension has no astro and could take 7 alone — which is how it came to compile with
+  # a different major from the editor beside it. One major across all three is the decision;
+  # `every_editor_type_checks_with_one_typescript_major` is what holds it, and moving it is a
+  # change to all three package.json files in one pull request, made once `@astrojs/check`
+  # allows it (#945).
   - package-ecosystem: npm
     directory: /yidam/editors/vscode
     schedule: { interval: weekly, day: monday }
@@ -100,6 +133,8 @@ updates:
     # never have stopped (#904).
     ignore:
       - dependency-name: "@types/vscode"
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
   - package-ecosystem: npm
     directory: /yidam/web/docs
     schedule: { interval: weekly, day: monday }
@@ -107,6 +142,9 @@ updates:
     groups:
       npm-docs:
         patterns: ["*"]
+    ignore:
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
   # The web editor (#609). Its own entry rather than a pattern on one of the two above, for
   # the reason the cargo block gives: dependabot resolves per-manifest, so an entry that does
   # not name this directory leaves this lockfile to drift — and unlike the other two npm
@@ -118,6 +156,24 @@ updates:
     open-pull-requests-limit: 2
     groups:
       npm-edit:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+
+  # The fourteen domain packages and the TypeScript SDK: the same devDependencies, mostly
+  # (`vitest`, `smol-toml`), in fifteen lockfiles. `group-by: dependency-name` makes one pull
+  # request per dependency across every directory, so a vitest major lands in all fifteen at
+  # once instead of leaving fourteen behind the one that went first.
+  - package-ecosystem: npm
+    directories:
+      - /yidam/prelude/sdks/typescript
+      - /yidam/prelude/domains/*/typescript
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    groups:
+      npm-domains:
+        group-by: dependency-name
         patterns: ["*"]
 
   # ── actions ────────────────────────────────────────────────────────────────
