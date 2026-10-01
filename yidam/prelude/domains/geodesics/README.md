@@ -27,9 +27,10 @@ function. On `haversine_km` it is a tolerance on kilometres: 10 cm. On `bearing_
 surface. The same constant is about a hundred times looser on angles than on distance.
 
 A tolerance is needed because the functions go through `sin`, `cos` and `atan2`, which
-IEEE-754 does not require to be correctly rounded. It is also absorbing a known divergence
-between the implementations. TypeScript converts degrees as `x * π / 180` and Rust and Python
-as `x * (π / 180)`, so `haversine_km/equator-quarter` differs by 1.8e-12 km and
-`central_angle_deg/quarter-turn` by 1.4e-14°. Both fixtures hold the TypeScript value
-rather than the reference's (#1280). The rule this follows is in
+IEEE-754 does not require to be correctly rounded, and it is in use. Rust and Python call
+the platform libm and agree bit for bit on every fixture. TypeScript runs V8's own `atan2`,
+which lands one ULP away on three of them. The inputs to `atan2` are identical in all three
+runtimes, because each one converts degrees as `x * (π / 180)` in the reference's order. On
+`haversine_km/equator-quarter` the difference is 1.8e-12 km. The expected values are the
+Rust reference's, at full precision (#1280). The rule this follows is in
 [Comparing floats](../parity/README.md#comparing-floats).
