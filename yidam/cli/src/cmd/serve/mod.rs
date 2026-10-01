@@ -445,6 +445,32 @@ pub(crate) fn is_loopback(bind: &str) -> bool {
     }
 }
 
+/// What an operator is told when the HTTP transport binds somewhere another machine can reach
+/// (#939), or `None` when it binds loopback.
+///
+/// A warning and not a refusal. Serving a public corpus to the network on purpose is a
+/// deployment this repository plans for (#428), and a container behind its own proxy has to
+/// bind `0.0.0.0` to be reached at all. What was wrong was the silence: the transport
+/// authenticates nobody, and a bind that publishes every read tool said nothing at the moment
+/// the operator could still change it.
+///
+/// `tools` is the served list rather than a hand-typed one, so the warning names a tool the
+/// day the contract adds it. It is never `act`'s tools: [`serve_mcp_http`] refuses `act` off
+/// loopback before this is asked.
+#[cfg(feature = "serve-http")]
+pub(crate) fn exposure_warning(bind: &str, port: u16, tools: &[&str]) -> Option<String> {
+    if is_loopback(bind) {
+        return None;
+    }
+    Some(format!(
+        "warning: `--bind {bind}` is not loopback, and this transport authenticates nobody. \
+         Anyone who can reach port {port} can call every tool it serves ({}) and read every \
+         `yidam://` resource: the corpus, its provenance, and `retrieve` over all of it. \
+         Bind 127.0.0.1, or put it behind a tunnel or proxy that authenticates.",
+        tools.join(", ")
+    ))
+}
+
 /// The installed dependency set, with its node text taken from the startup walk (#357).
 ///
 /// [`crate::cmd::lint::citations::installed`] answers where each dependency's corpus is and
@@ -682,6 +708,16 @@ pub fn serve_mcp_http(
         );
     }
     banner(&state);
+    let served = tools::list(&state);
+    let names: Vec<&str> = served["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t["name"].as_str())
+        .collect();
+    if let Some(warning) = exposure_warning(bind, port, &names) {
+        eprintln!("{warning}");
+    }
     http::serve(state, bind, port, allow_origin)
 }
 
@@ -926,6 +962,34 @@ mod tests {
             // No dependencies, which is the state a `across: true` call must be told about
             // rather than left to read as "nothing matched".
             graph_across: None,
+        }
+    }
+
+    /// Off loopback the operator is told, and the warning names what is reachable (#939).
+    ///
+    /// `0.0.0.0` and `::` are the spellings of "every interface" an operator actually types, and
+    /// a hostname is a name `is_loopback` will not guess about — so it warns too.
+    #[test]
+    #[cfg(feature = "serve-http")]
+    fn a_bind_off_loopback_warns_and_names_what_it_exposes() {
+        let tools = ["retrieve", "get_node"];
+        for bind in ["0.0.0.0", "::", "192.168.1.20", "yidam.example"] {
+            let warning = exposure_warning(bind, 8080, &tools)
+                .unwrap_or_else(|| panic!("`--bind {bind}` said nothing"));
+            assert!(warning.contains(bind), "{warning}");
+            assert!(warning.contains("8080"), "{warning}");
+            assert!(warning.contains("retrieve, get_node"), "{warning}");
+            assert!(warning.contains("127.0.0.1"), "no repair named: {warning}");
+        }
+    }
+
+    /// Loopback is the default and the quiet case: a warning on every start would teach the
+    /// operator to skip the one that matters.
+    #[test]
+    #[cfg(feature = "serve-http")]
+    fn a_loopback_bind_says_nothing() {
+        for bind in ["127.0.0.1", "127.8.9.10", "::1", "localhost"] {
+            assert_eq!(exposure_warning(bind, 8080, &["retrieve"]), None, "{bind}");
         }
     }
 

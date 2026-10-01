@@ -68,6 +68,9 @@ fn fixture_repo() -> tempfile::TempDir {
 struct Server {
     child: Child,
     addr: String,
+    /// Every stderr line before the address, which is everything said before the socket
+    /// listened: the corpus banner, and the bind warning when there is one.
+    banner: String,
     stderr: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -99,11 +102,13 @@ fn start(repo: &Path, extra: &[&str]) -> Server {
     let stderr = child.stderr.take().expect("stderr is piped");
     let mut reader = BufReader::new(stderr);
     let mut addr = None;
+    let mut banner = String::new();
     for _ in 0..40 {
         let mut line = String::new();
         if reader.read_line(&mut line).unwrap_or(0) == 0 {
             break;
         }
+        banner.push_str(&line);
         if let Some(rest) = line.split_once("http://") {
             let host = rest.1.split('/').next().unwrap_or("").trim().to_string();
             if !host.is_empty() {
@@ -126,6 +131,7 @@ fn start(repo: &Path, extra: &[&str]) -> Server {
     Server {
         child,
         addr,
+        banner,
         stderr: Some(stderr),
     }
 }
@@ -395,6 +401,39 @@ fn the_default_bind_is_loopback() {
         server.addr.starts_with("127.0.0.1:"),
         "bound {} rather than loopback",
         server.addr
+    );
+}
+
+/// A bind every interface can reach is said aloud, naming what it publishes (#939).
+///
+/// The warning is printed before the socket listens, so it is in the banner `start` collected
+/// on its way to the address. `retrieve` is the tool named because it is the one the issue was
+/// raised about: semantic search over the whole corpus, to anyone on the network.
+#[test]
+fn a_bind_off_loopback_warns_before_it_listens() {
+    let repo = fixture_repo();
+    let server = start(repo.path(), &["--bind", "0.0.0.0"]);
+    assert!(
+        server.banner.contains("`--bind 0.0.0.0` is not loopback"),
+        "no warning for a bind every interface can reach:\n{}",
+        server.banner
+    );
+    assert!(
+        server.banner.contains("retrieve"),
+        "the warning does not name what is exposed:\n{}",
+        server.banner
+    );
+}
+
+/// The converse: the default bind is loopback, and says nothing about exposure.
+#[test]
+fn the_default_bind_does_not_warn() {
+    let repo = fixture_repo();
+    let server = start(repo.path(), &[]);
+    assert!(
+        !server.banner.contains("not loopback"),
+        "a loopback bind warned:\n{}",
+        server.banner
     );
 }
 

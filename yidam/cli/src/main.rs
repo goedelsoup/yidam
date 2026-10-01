@@ -925,7 +925,7 @@ enum Command {
         http: bool,
         /// Address to bind `--http` to. Defaults to loopback, which the MCP spec asks for:
         /// a server on 0.0.0.0 is reachable by anything on the network, and this one
-        /// authenticates nobody.
+        /// authenticates nobody. Any other address prints a warning naming the tools it exposes.
         #[cfg(feature = "serve-http")]
         #[arg(long, default_value = "127.0.0.1", requires = "http")]
         bind: String,
