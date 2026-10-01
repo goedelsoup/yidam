@@ -1,0 +1,34 @@
+# The account the Sensor runs as, and the one thing it may do: create a Workflow.
+#
+# The Sensor never runs a corpus step. It creates the run `yidam cluster workflow --on-push`
+# embedded in it, and that run asks `admit` first and runs as `yidam-<corpus>-run`. So this
+# account holds no git key, no vault key and no read of anything; a Sensor that a forged push
+# reached could submit a run, and the run would find nothing owed.
+#
+# The overlay's `namePrefix: yidam-<corpus>-` makes the name `yidam-<corpus>-events`, the name
+# `yidam cluster workflow` derives (`[cluster.names] events_account` overrides it).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: events
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: events
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflows"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: events
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: events
+subjects:
+  - kind: ServiceAccount
+    name: events

@@ -43,6 +43,7 @@ use crate::paths::{repo_root, require_yidam_repo};
 /// Flags that override `[cluster]` and `[vault.<name>]`.
 pub(super) struct Overrides {
     pub cron: Option<String>,
+    pub on_push: Option<super::on_push::Source>,
     pub image: Option<String>,
     pub remote: Option<String>,
     pub branch: Option<String>,
@@ -86,6 +87,8 @@ struct Settings {
     vault_path_style: bool,
     namespace: Option<String>,
     cron: Option<String>,
+    /// Where an `--on-push` EventSource hears a push from (#1235).
+    on_push: Option<super::on_push::Source>,
     steps: Vec<String>,
     /// `.yidam/gathers/<name>.toml`, by name — each a fan-out after the chain (#1217).
     gathers: Vec<String>,
@@ -251,6 +254,8 @@ struct Names {
     git_write: String,
     vault_secret: String,
     vault_claim: String,
+    events_account: String,
+    webhook_secret: String,
 }
 
 impl Names {
@@ -263,6 +268,8 @@ impl Names {
             git_write: n("git-write"),
             vault_secret: n("vault"),
             vault_claim: n("vault"),
+            events_account: n("events"),
+            webhook_secret: n("webhook"),
         }
     }
 
@@ -288,6 +295,8 @@ impl Names {
             git_write: pick("git_write", &o.git_write, d.git_write)?,
             vault_secret: pick("vault_secret", &o.vault_secret, d.vault_secret)?,
             vault_claim: pick("vault_claim", &o.vault_claim, d.vault_claim)?,
+            events_account: pick("events_account", &o.events_account, d.events_account)?,
+            webhook_secret: pick("webhook_secret", &o.webhook_secret, d.webhook_secret)?,
         })
     }
 }
@@ -387,6 +396,7 @@ fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
         vault_path_style: vault_cfg.and_then(|v| v.path_style).unwrap_or(false),
         namespace: cfg.cluster.namespace.clone(),
         cron: o.cron.clone(),
+        on_push: o.on_push,
         steps: super::builtin::BUILTINS
             .iter()
             .map(|b| b.name)
@@ -399,6 +409,12 @@ fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
         cleanup: Cleanup::builtin().over(&cfg.cluster.cleanup),
         push,
     })
+}
+
+/// The lock every run of the corpus holds: Argo scopes it to the namespace, and the name to
+/// the corpus, so two corpora in one namespace do not wait on each other.
+pub(super) fn mutex(slug: &str) -> String {
+    format!("yidam-{slug}")
 }
 
 /// The corpus's name in every object a cluster holds for it: its root directory's, lowercased,
@@ -428,36 +444,64 @@ fn gathers(root: &Path) -> Vec<String> {
     names
 }
 
+impl Settings {
+    /// Whether the workflow starts with `admit`: every form something other than a person
+    /// submits. A person who submits the one-shot form has decided a run is owed.
+    fn admitted_first(&self) -> bool {
+        self.cron.is_some() || self.on_push.is_some()
+    }
+}
+
 /// The manifest for the corpus at `root`, as text.
+///
+/// The one-shot `Workflow` alone, or one document for each trigger asked for: the
+/// `CronWorkflow` for `--cron`, the `EventSource` and `Sensor` for `--on-push`. Both triggers
+/// submit the same admitted workflow, and its mutex keeps their runs apart.
 pub(super) fn generate(root: &Path, o: &Overrides) -> Result<String> {
     let s = resolve(root, o)?;
-    let mut y = String::new();
-    y.push_str(&header(&s));
-    y.push_str("apiVersion: argoproj.io/v1alpha1\n");
-    match &s.cron {
-        None => {
-            y.push_str("kind: Workflow\nmetadata:\n");
-            let _ = writeln!(y, "  generateName: yidam-{}-", s.slug);
-            metadata(&mut y, &s);
-            y.push_str("spec:\n");
-            y.push_str(&indent(&spec(&s), 2));
-        }
-        Some(schedule) => {
-            y.push_str("kind: CronWorkflow\nmetadata:\n");
-            let _ = writeln!(y, "  name: yidam-{}", s.slug);
-            metadata(&mut y, &s);
-            y.push_str("spec:\n");
-            let _ = writeln!(y, "  schedule: {}", quote(schedule));
-            y.push_str(
-                "  # One run at a time per corpus: a second admission while one is landing \
-                 would\n  # pin a tip the first is about to move.\n",
-            );
-            y.push_str("  concurrencyPolicy: Forbid\n");
-            y.push_str("  workflowSpec:\n");
-            y.push_str(&indent(&spec(&s), 4));
-        }
+    let mut docs = Vec::new();
+    if let Some(schedule) = &s.cron {
+        let mut y =
+            String::from("apiVersion: argoproj.io/v1alpha1\nkind: CronWorkflow\nmetadata:\n");
+        let _ = writeln!(y, "  name: yidam-{}", s.slug);
+        metadata(&mut y, &s);
+        y.push_str("spec:\n");
+        let _ = writeln!(y, "  schedule: {}", quote(schedule));
+        y.push_str(
+            "  # One tick at a time: a tick while a run is landing is skipped, not queued. The\n  \
+             # workflow's mutex is what keeps a cron run and a push run apart.\n",
+        );
+        y.push_str("  concurrencyPolicy: Forbid\n");
+        y.push_str("  workflowSpec:\n");
+        y.push_str(&indent(&spec(&s), 4));
+        docs.push(y);
     }
-    Ok(y)
+    if let Some(source) = s.on_push {
+        docs.push(super::on_push::generate(&super::on_push::OnPush {
+            source,
+            slug: &s.slug,
+            namespace: s.namespace.as_deref(),
+            remote: &s.remote,
+            branch: &s.branch,
+            events_account: &s.names.events_account,
+            webhook_secret: &s.names.webhook_secret,
+            workflow: &workflow(&s),
+        })?);
+    }
+    if docs.is_empty() {
+        docs.push(workflow(&s));
+    }
+    Ok(header(&s) + &docs.join("---\n"))
+}
+
+/// One run as a `Workflow`, named by `generateName` so each submission is a new object.
+fn workflow(s: &Settings) -> String {
+    let mut y = String::from("apiVersion: argoproj.io/v1alpha1\nkind: Workflow\nmetadata:\n");
+    let _ = writeln!(y, "  generateName: yidam-{}-", s.slug);
+    metadata(&mut y, s);
+    y.push_str("spec:\n");
+    y.push_str(&indent(&spec(s), 2));
+    y
 }
 
 fn header(s: &Settings) -> String {
@@ -507,6 +551,16 @@ fn header(s: &Settings) -> String {
          # volume holding a checkout. Pod logs are not provenance: everything that matters is\n\
          # in the receipt, in the commit, on the ref.\n",
     );
+    if s.on_push.is_some() {
+        let _ = writeln!(
+            h,
+            "#\n\
+             # On a push to {}, the Sensor creates the run below, and `admit` decides whether it\n\
+             # does anything. The lander's own push is a push too: the run it submits finds\n\
+             # nothing owed and stops at `admit`.",
+            s.branch
+        );
+    }
     let _ = writeln!(h, "#\n# steps: {}", s.steps.join(" → "));
     if !s.gathers.is_empty() {
         let _ = writeln!(
@@ -530,6 +584,13 @@ fn metadata(y: &mut String, s: &Settings) {
 fn spec(s: &Settings) -> String {
     let mut y = String::new();
     y.push_str("entrypoint: run\n");
+    let _ = writeln!(
+        y,
+        "# One run of this corpus at a time, however it was submitted. A run submitted while\n\
+         # another lands waits here, then asks `admit` about the tip the first one left.\n\
+         synchronization:\n  mutexes:\n    - name: {}",
+        quote(&mutex(&s.slug))
+    );
     let n = &s.names;
     let _ = writeln!(y, "serviceAccountName: {}", quote(&n.service_account));
     y.push_str(
@@ -604,7 +665,7 @@ fn spec(s: &Settings) -> String {
     y.push_str("  - name: run\n    dag:\n      tasks:\n");
     let mut previous = String::from("pin");
     let mut previous_bundle = "$.bundle";
-    if s.cron.is_some() {
+    if s.admitted_first() {
         y.push_str("        - name: admit\n          template: admit\n");
         y.push_str(
             "        # Nothing below runs unless admission says so. A corpus with nothing owed\n        \
@@ -1062,7 +1123,7 @@ pub(super) fn quote(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-fn indent(text: &str, by: usize) -> String {
+pub(super) fn indent(text: &str, by: usize) -> String {
     let pad = " ".repeat(by);
     text.lines()
         .map(|l| {
@@ -1084,6 +1145,7 @@ mod tests {
     fn overrides() -> Overrides {
         Overrides {
             cron: None,
+            on_push: None,
             image: Some("ghcr.io/example/yidam:test".into()),
             remote: Some("git@example.com:corpus.git".into()),
             branch: None,
@@ -1112,6 +1174,8 @@ mod tests {
                 n.git_write.clone(),
                 n.vault_secret.clone(),
                 n.vault_claim.clone(),
+                n.events_account.clone(),
+                n.webhook_secret.clone(),
             ]
         };
         for name in all(&a).iter().chain(all(&b).iter()) {
@@ -1156,6 +1220,17 @@ mod tests {
         assert_eq!(n.git_write, "yidam-git-write");
         assert_eq!(n.git_read, "yidam-streamflow-git-read");
 
+        // #1235's two, each reaching its own name and not the other's.
+        let o = crate::config::ClusterNamesConfig {
+            events_account: Some("argo-events-sa".into()),
+            webhook_secret: Some("github-hook".into()),
+            ..Default::default()
+        };
+        let n = Names::resolve("streamflow", &o).unwrap();
+        assert_eq!(n.events_account, "argo-events-sa");
+        assert_eq!(n.webhook_secret, "github-hook");
+        assert_eq!(n.service_account, "yidam-streamflow-run");
+
         let o = crate::config::ClusterNamesConfig {
             vault_claim: Some("Vault".into()),
             ..Default::default()
@@ -1193,6 +1268,7 @@ mod tests {
             vault_path_style: false,
             namespace: None,
             cron: None,
+            on_push: None,
             steps: vec!["a".into(), "b".into()],
             gathers: vec![],
             names: Names::derived("corpus"),
@@ -1254,6 +1330,7 @@ mod tests {
             vault_path_style: false,
             namespace: None,
             cron: None,
+            on_push: None,
             steps: vec!["a".into()],
             gathers: vec!["g".into()],
             names: Names::derived("corpus"),
@@ -1381,6 +1458,7 @@ mod tests {
             vault_path_style: false,
             namespace: None,
             cron: None,
+            on_push: None,
             steps: vec!["a".into()],
             gathers: vec![],
             names: Names::derived("corpus"),
@@ -1424,6 +1502,7 @@ mod tests {
             vault_path_style: false,
             namespace: None,
             cron: None,
+            on_push: None,
             steps: vec!["a".into()],
             gathers: vec!["units".into()],
             names: Names::derived("corpus"),
@@ -1493,6 +1572,7 @@ mod tests {
             vault_path_style: false,
             namespace: None,
             cron: Some("0 6 * * *".into()),
+            on_push: None,
             steps: vec!["catalog-fetch".into(), "a".into()],
             gathers: vec!["units".into()],
             names: Names::derived("corpus"),
@@ -1608,6 +1688,39 @@ mod tests {
         );
     }
 
+    /// #1235. Every form holds the corpus's mutex, so a run on push and a run on the cron
+    /// queue on one lock. Every form something other than a person submits asks `admit`
+    /// first, and the one-shot form does not, since a person who submits it has decided.
+    #[test]
+    fn every_run_holds_the_corpus_mutex_and_an_unattended_one_admits_first() {
+        use super::super::on_push::Source;
+        for (cron, on_push, admits) in [
+            (None, None, false),
+            (Some("0 6 * * *"), None, true),
+            (None, Some(Source::Github), true),
+            (Some("0 6 * * *"), Some(Source::Webhook), true),
+        ] {
+            let mut s = every_template();
+            s.cron = cron.map(str::to_string);
+            s.on_push = on_push;
+            let doc: serde_yaml::Value = serde_yaml::from_str(&spec(&s)).unwrap();
+            let mutexes = doc["synchronization"]["mutexes"].as_sequence().unwrap();
+            assert_eq!(mutexes.len(), 1);
+            assert_eq!(mutexes[0]["name"].as_str(), Some("yidam-corpus"));
+            let first = &doc["templates"][0]["dag"]["tasks"][0];
+            assert_eq!(
+                first["name"].as_str() == Some("admit"),
+                admits,
+                "cron {cron:?}, on push {on_push:?}: {first:?}"
+            );
+        }
+        assert_ne!(
+            mutex("a"),
+            mutex("b"),
+            "two corpora would wait on each other"
+        );
+    }
+
     /// Every template the generator has: a cron, a gather, a built-in that reads the world and
     /// a capability with its own bounds, so no template sits behind a condition this does not
     /// meet.
@@ -1626,6 +1739,7 @@ mod tests {
             vault_path_style: false,
             namespace: None,
             cron: Some("0 6 * * *".into()),
+            on_push: None,
             steps: vec!["catalog-fetch".into(), "a".into(), "b".into()],
             gathers: vec!["units".into()],
             names: Names::derived("corpus"),
@@ -1992,6 +2106,7 @@ mod tests {
             vault_path_style: false,
             namespace: None,
             cron: None,
+            on_push: None,
             steps: vec!["a".into()],
             gathers: vec![],
             names: Names::derived("corpus"),

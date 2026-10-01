@@ -1,0 +1,2 @@
+# The webhook secret the EventSource checks pushes against. Never committed.
+secrets/

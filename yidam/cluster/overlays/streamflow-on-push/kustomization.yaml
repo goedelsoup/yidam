@@ -1,0 +1,25 @@
+# Streamflow on push (#1235): the streamflow overlay, plus an Argo Events EventSource and Sensor
+# that submit the same run when `main` is pushed.
+#
+#   kubectl apply -k yidam/cluster/overlays/streamflow-on-push -n <namespace>
+#
+# A separate overlay, because these two kinds exist only where Argo Events is installed, and
+# `kubectl apply` of an unknown kind fails the whole apply. A corpus on the cron alone applies
+# `../streamflow` and needs none of it.
+#
+# `streamflow.onpush.yml` is `yidam cluster workflow --on-push github` output. Its Sensor
+# carries the run inline, the run carries every name, so it sits above the prefix like the
+# CronWorkflow. Both runs hold one mutex, `yidam-streamflow`, so a push during the cron's run
+# (or a burst of pushes) queues, and each queued run asks `admit` once the one before it has
+# landed. The lander's own push is one of them: it finds nothing owed and stops.
+#
+# Argo Events, an EventBus in the namespace, and an Ingress (or a tunnel) from the git host to
+# the EventSource's Service are the cluster's, not this overlay's. See docs/cluster-runs.md.
+#
+# `cluster_run.rs` builds this and checks it against the generated file, in both directions.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../streamflow
+  - objects
+  - streamflow.onpush.yml
