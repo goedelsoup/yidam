@@ -315,7 +315,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 # ── `github-app` — the App's JWT (#1233). ─────────────────────────────────────
 #
 # Both already in the build through reqwest: `ring` is rustls's crypto provider and signs the
-# RS256 JWT, and `base64` 0.22 encodes it. Named so the lander can call them, not to add them.
+# RS256 JWT, and `base64` 0.23 encodes it. Named so the lander can call them, not to add them.
 ring = { version = "0.17", optional = true }
 base64 = { version = "0.23", optional = true }
 
