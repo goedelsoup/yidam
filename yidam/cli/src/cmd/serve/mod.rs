@@ -425,8 +425,8 @@ pub(crate) fn git_author(root: &Path) -> Option<String> {
 /// Whether an address is on this machine and nowhere else — RFC-0029 §2.2 clause 3.
 ///
 /// `127.0.0.0/8` and `::1`, and nothing else. Not a security boundary and §2.2 says so: every
-/// socket transport has an unbounded peer set, anything on the host reaches loopback, and the
-/// CLI's own help for `--http` tells an operator to put the server behind a tunnel — which
+/// socket transport has an unbounded peer set, anything on the host reaches loopback, and an
+/// operator who wants `--http` reachable puts it behind a tunnel or a proxy — which
 /// republishes a loopback port off-machine by design. What this separates is *this machine*
 /// from *another machine* without inventing an authenticator, which is the most a server can
 /// see from inside.

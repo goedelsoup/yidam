@@ -189,10 +189,9 @@ parks it there anyway, one transport later.
    security boundary and is not one. Over stdio there is no gap to declare across: the transport
    has exactly one peer and it is the process that started the server, so *who is calling* has
    no second answer. Every socket transport has an unbounded peer set — anything on the host
-   reaches loopback, and the CLI's own help for `serve --mcp --http` instructs an operator to
-   *"put it behind a tunnel or a proxy that supplies one"*
-   ([`main.rs:922`](../../yidam/cli/src/main.rs#L922)), which republishes a loopback port
-   off-machine by design. So a socket server's `act` declaration asserts something about its
+   reaches loopback, and an operator who wants `serve --mcp --http` reachable puts a tunnel or a
+   proxy in front of it ([MCP server](../mcp-server.md#a-bearer-token)), which republishes a
+   loopback port off-machine by design. So a socket server's `act` declaration asserts something about its
    deployment that it cannot verify from inside. That is not a defect introduced here — it is
    what clause 2 already was. `act` is configuration precisely because the fact being declared
    is not observable.
