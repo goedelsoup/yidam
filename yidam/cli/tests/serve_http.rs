@@ -425,7 +425,7 @@ fn the_default_bind_is_loopback() {
 #[test]
 fn an_ipv6_loopback_bind_serves() {
     if std::net::TcpListener::bind("[::1]:0").is_err() {
-        eprintln!("skipped: this host has no IPv6 loopback");
+        ci_report::skipped("this host has no IPv6 loopback");
         return;
     }
     let repo = fixture_repo();
