@@ -3,6 +3,7 @@ from pathlib import Path
 from yidam_domain_hydrology import rational_product, manning_velocity, return_period
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"
+# Absolute, in each function's output unit. Why this domain is not exact: hydrology/README.md#parity-tolerance
 EPSILON = 1e-9
 
 def load_fixtures(function: str) -> list[dict]:

@@ -1,5 +1,6 @@
 use yidam_domain_hydrology::{manning_velocity, rational_product, return_period};
 
+// Absolute, in each function's output unit. Why this domain is not exact: hydrology/README.md#parity-tolerance
 const EPSILON: f64 = 1e-9;
 
 use yidam_domain_testkit::load_fixtures;

@@ -20,3 +20,15 @@ pub fn return_period(record_years: f64, rank: f64) -> f64;
 ## When to use this domain
 
 Use this domain for dependency-free hydrological back-of-envelope calculations or cross-language parity testing of water-resources formulae. It makes no assumptions about units beyond what is documented per function.
+
+## Parity tolerance
+
+The parity tests compare with an absolute `EPSILON = 1e-9`, in the unit of each function's
+output: m/s for `manning_velocity`, years for `return_period`, and the unconverted
+`C · i · A` product for `rational_product`.
+
+The tolerance is defensive. `manning_velocity` calls `powf(2/3)`, and `pow` is not required to
+be correctly rounded, so two runtimes' libms may disagree. No fixture currently needs it:
+every `manning_velocity` fixture uses `r = 1`, and all nine fixtures are bit-identical in all
+three runtimes. A fixture with a non-unit hydraulic radius is the first that could need it.
+The rule this follows is in [Comparing floats](../parity/README.md#comparing-floats).
