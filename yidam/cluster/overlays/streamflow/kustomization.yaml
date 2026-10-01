@@ -11,9 +11,14 @@
 # written with `generateName`, which kustomize refuses (`missing metadata.name`) and
 # `kubectl apply` cannot create. Submit it with `kubectl create -f` after this is applied.
 #
+# `streamflow.netpol.yml` is `yidam cluster network-policy` output: what each pod may reach.
+# It names itself too, so it sits here beside the workflow. Its executor address is a
+# placeholder; regenerate it with your API server's (see docs/cluster-runs.md).
+#
 # `cluster_run.rs` builds this and checks the two agree, in both directions.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - objects
   - streamflow.cronworkflow.yml
+  - streamflow.netpol.yml

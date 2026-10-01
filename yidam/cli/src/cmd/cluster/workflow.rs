@@ -35,6 +35,7 @@ use std::path::Path;
 
 use anyhow::{bail, Result};
 
+use super::egress::{Egress, CORPUS_LABEL, EGRESS_LABEL};
 use crate::cmd::run::manifest::{Manifest, Run, MANIFEST};
 use crate::config::{ClusterCleanupConfig, ClusterPodConfig};
 use crate::paths::{repo_root, require_yidam_repo};
@@ -304,14 +305,7 @@ fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
             )
         })?;
 
-    let slug: String = root
-        .file_name()
-        .map(|n| n.to_string_lossy().to_lowercase())
-        .unwrap_or_else(|| "corpus".to_string())
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-
+    let slug = slug(root);
     let names = Names::resolve(&slug, &cfg.cluster.names)?;
 
     Ok(Settings {
@@ -338,6 +332,17 @@ fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
         step_pods,
         cleanup: Cleanup::builtin().over(&cfg.cluster.cleanup),
     })
+}
+
+/// The corpus's name in every object a cluster holds for it: its root directory's, lowercased,
+/// with every character a name cannot carry made `-`.
+pub(super) fn slug(root: &Path) -> String {
+    root.file_name()
+        .map(|n| n.to_string_lossy().to_lowercase())
+        .unwrap_or_else(|| "corpus".to_string())
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
 }
 
 /// Every gather `.yidam/gathers/` declares, by a name `yidam gather` would accept, in order.
@@ -526,7 +531,7 @@ fn spec(s: &Settings) -> String {
     }
     for step in &s.steps {
         let task = task_name(step);
-        let template = match s.step_pods.contains_key(step) {
+        let template = match s.step_pods.contains_key(step) || reaches_the_world(step) {
             true => format!("step-{task}"),
             false => "step".to_string(),
         };
@@ -560,15 +565,22 @@ fn spec(s: &Settings) -> String {
             command: &["cluster", "pin"],
             args: &remote_args(),
             cred: Credential::Read,
+            egress: Egress::Remote,
             vault: true,
             retry: true,
             bounds: &s.pod,
         },
     ));
-    y.push_str(&template(s, &step_pod("step", &s.pod)));
+    y.push_str(&template(s, &step_pod("step", &s.pod, Egress::Vault)));
     for (step, bounds) in &s.step_pods {
         let name = format!("step-{}", task_name(step));
-        y.push_str(&template(s, &step_pod(&name, bounds)));
+        y.push_str(&template(s, &step_pod(&name, bounds, Egress::Vault)));
+    }
+    // A built-in that reads the world gets its own template, so the internet reaches no
+    // calculator's pod (#1232). Never one of `step_pods`: a manifest cannot declare a built-in.
+    for step in s.steps.iter().filter(|n| reaches_the_world(n)) {
+        let name = format!("step-{}", task_name(step));
+        y.push_str(&template(s, &step_pod(&name, &s.pod, Egress::Internet)));
     }
     y.push_str(&template(
         s,
@@ -582,6 +594,7 @@ fn spec(s: &Settings) -> String {
             ]
             .concat(),
             cred: Credential::Write,
+            egress: Egress::Remote,
             vault: true,
             // Never. The lander retries its own compare-and-swap, and refuses when it loses a
             // race it cannot rebuild over; an Argo retry would re-attempt that deliberate
@@ -601,6 +614,7 @@ fn spec(s: &Settings) -> String {
             command: &["cluster", "admit"],
             args: &remote_args(),
             cred: Credential::Read,
+            egress: Egress::Remote,
             vault: false,
             retry: false,
             bounds: &s.pod,
@@ -613,7 +627,7 @@ fn spec(s: &Settings) -> String {
 ///
 /// Repeatable, because a step is a function of its input state: a second run against the same
 /// bundle builds the same commit, and nothing it does is visible until a lander moves a ref.
-fn step_pod<'a>(name: &'a str, bounds: &'a Bounds) -> Pod<'a> {
+fn step_pod<'a>(name: &'a str, bounds: &'a Bounds, egress: Egress) -> Pod<'a> {
     Pod {
         name,
         inputs: &["step", "bundle"],
@@ -625,10 +639,17 @@ fn step_pod<'a>(name: &'a str, bounds: &'a Bounds) -> Pod<'a> {
             "{{workflow.parameters.image}}",
         ],
         cred: Credential::None,
+        egress,
         vault: true,
         retry: true,
         bounds,
     }
+}
+
+/// Whether `step` is a built-in that fetches from outside the corpus, so its pod needs the
+/// internet. Every other step's pod reaches the vault and nothing else.
+fn reaches_the_world(step: &str) -> bool {
+    super::builtin::find(step).is_some_and(|b| b.op.reaches_the_world())
 }
 
 /// One gather's four tasks: plan it, ask every planned peer in its own pod, settle, land.
@@ -685,6 +706,7 @@ fn gather_templates(y: &mut String, s: &Settings) {
             command: &["cluster", "survey", "{{inputs.parameters.gather}}"],
             args: &["--bundle", "{{inputs.parameters.bundle}}"],
             cred: Credential::None,
+            egress: Egress::Vault,
             vault: true,
             // A plan read from the pin: the same bundle plans the same asks.
             retry: true,
@@ -704,6 +726,7 @@ fn gather_templates(y: &mut String, s: &Settings) {
                 "{{workflow.parameters.image}}",
             ],
             cred: Credential::None,
+            egress: Egress::Internet,
             vault: true,
             retry: false,
             bounds: &s.pod,
@@ -722,6 +745,7 @@ fn gather_templates(y: &mut String, s: &Settings) {
                 "{{inputs.parameters.asked}}",
             ],
             cred: Credential::None,
+            egress: Egress::Vault,
             vault: true,
             retry: false,
             bounds: &s.pod,
@@ -752,6 +776,8 @@ struct Pod<'a> {
     command: &'a [&'a str],
     args: &'a [&'a str],
     cred: Credential,
+    /// What the pod may reach, as its label tells `cluster network-policy`'s policies.
+    egress: Egress,
     vault: bool,
     /// Whether Argo runs the pod again when it fails. Only for a pod whose second run computes
     /// what its first would have and moves nothing: `pin`, `survey` and `step` (#1231).
@@ -766,12 +792,20 @@ fn template(s: &Settings, pod: &Pod) -> String {
         command,
         args,
         cred,
+        egress,
         vault,
         retry,
         bounds,
     } = *pod;
     let mut y = String::new();
     let _ = writeln!(y, "  - name: {name}");
+    // Argo puts a template's labels on its pod, and the policies select on these (#1232).
+    let _ = writeln!(
+        y,
+        "    metadata:\n      labels:\n        {CORPUS_LABEL}: {}\n        {EGRESS_LABEL}: {}",
+        quote(&s.slug),
+        quote(egress.label())
+    );
     match cred {
         Credential::None => y.push_str(
             "    # No git secret and no remote: this pod computes a commit it cannot land.\n",
@@ -932,7 +966,7 @@ fn task_name(step: &str) -> String {
 }
 
 /// A double-quoted YAML scalar.
-fn quote(s: &str) -> String {
+pub(super) fn quote(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
@@ -1237,7 +1271,7 @@ mod tests {
             vault_path_style: false,
             namespace: None,
             cron: Some("0 6 * * *".into()),
-            steps: vec!["a".into()],
+            steps: vec!["catalog-fetch".into(), "a".into()],
             gathers: vec!["units".into()],
             names: Names::derived("corpus"),
             pod: Bounds::builtin(),
@@ -1351,8 +1385,9 @@ mod tests {
         );
     }
 
-    /// Every template the generator has: a cron, a gather and a capability with its own
-    /// bounds, so no template sits behind a condition this does not meet.
+    /// Every template the generator has: a cron, a gather, a built-in that reads the world and
+    /// a capability with its own bounds, so no template sits behind a condition this does not
+    /// meet.
     fn every_template() -> Settings {
         let mut wide = Bounds::builtin();
         wide.memory_limit = "8Gi".into();
@@ -1368,7 +1403,7 @@ mod tests {
             vault_path_style: false,
             namespace: None,
             cron: Some("0 6 * * *".into()),
-            steps: vec!["a".into(), "b".into()],
+            steps: vec!["catalog-fetch".into(), "a".into(), "b".into()],
             gathers: vec!["units".into()],
             names: Names::derived("corpus"),
             pod: Bounds::builtin(),
@@ -1419,9 +1454,10 @@ mod tests {
             }
         }
         assert_eq!(landers, 1);
-        // The overridden step is a second `step` template, and it retries too.
+        // The overridden step and the fetch are second and third `step` templates, and they
+        // retry too.
         retried.sort();
-        assert_eq!(retried, ["pin", "step", "step", "survey"]);
+        assert_eq!(retried, ["pin", "step", "step", "step", "survey"]);
     }
 
     /// Every pod requests, is limited and has a deadline, and the workflow cleans up after
@@ -1485,7 +1521,7 @@ mod tests {
                 .to_string()
         };
         assert_eq!(memory("step-b"), "8Gi");
-        for other in ["step", "pin", "land"] {
+        for other in ["step", "step-catalog-fetch", "pin", "land"] {
             assert_eq!(memory(other), "2Gi", "{other}");
         }
         assert!(templates.iter().all(|t| t["name"] != "step-a"));
@@ -1518,6 +1554,202 @@ mod tests {
         assert_eq!(cap.deadline_seconds, 600);
         assert_eq!(cap.memory_request, Bounds::builtin().memory_request);
         assert_eq!(corpus.deadline_seconds, 3600);
+    }
+
+    /// The container templates `spec` writes, by name.
+    fn containers(doc: &serde_yaml::Value) -> Vec<&serde_yaml::Value> {
+        doc["templates"]
+            .as_sequence()
+            .expect("templates")
+            .iter()
+            .filter(|t| t.get("dag").is_none())
+            .collect()
+    }
+
+    /// The policies for [`every_template`]'s corpus, parsed, with the remote declared so every
+    /// kind's rules are written in full.
+    fn every_policy() -> Vec<serde_yaml::Value> {
+        use serde::Deserialize;
+        let s = super::super::egress::Settings::new(
+            "corpus".into(),
+            None,
+            "file:///vault",
+            crate::config::ClusterEgressConfig {
+                executor: vec!["192.0.2.1/32".into()],
+                remote: vec!["198.51.100.0/24".into()],
+                vault: vec![],
+            },
+        )
+        .unwrap();
+        let text = super::super::egress::policies(&s);
+        serde_yaml::Deserializer::from_str(&text)
+            .map(|d| serde_yaml::Value::deserialize(d).expect("a policy parses"))
+            .collect()
+    }
+
+    /// #1232: every pod's labels select the corpus-wide policy and exactly one kind's, and every
+    /// kind's policy selects some pod.
+    ///
+    /// The templates are the generator's, every one it has, and counted against its call sites,
+    /// so a template added later is held to this without joining a list. A template with no
+    /// kind label, or one no policy names, would reach only DNS and the API server, and fail on
+    /// a cluster in a way no test here would show.
+    #[test]
+    fn every_template_is_selected_by_exactly_one_kind_policy() {
+        let doc: serde_yaml::Value =
+            serde_yaml::from_str(&spec(&every_template())).expect("the spec parses");
+        let policies = every_policy();
+        let selector = |p: &serde_yaml::Value| -> Vec<(String, String)> {
+            p["spec"]["podSelector"]["matchLabels"]
+                .as_mapping()
+                .expect("matchLabels")
+                .iter()
+                .map(|(k, v)| (k.as_str().unwrap().into(), v.as_str().unwrap().into()))
+                .collect()
+        };
+        let mut selected = vec![0usize; policies.len()];
+        let templates = containers(&doc);
+        for t in &templates {
+            let name = t["name"].as_str().unwrap();
+            let labels = t["metadata"]["labels"].as_mapping().expect("labels");
+            let has = |(k, v): &(String, String)| labels.get(k.as_str()) == Some(&v.clone().into());
+            let mut kinds = vec![];
+            let mut corpus = false;
+            for (i, p) in policies.iter().enumerate() {
+                let sel = selector(p);
+                if !sel.iter().all(has) {
+                    continue;
+                }
+                selected[i] += 1;
+                match sel.iter().any(|(k, _)| k == EGRESS_LABEL) {
+                    true => kinds.push(p["metadata"]["name"].as_str().unwrap()),
+                    false => corpus = true,
+                }
+            }
+            assert!(corpus, "{name} is not selected by the corpus-wide policy");
+            assert_eq!(kinds.len(), 1, "{name} is selected by {kinds:?}");
+        }
+        for (p, n) in policies.iter().zip(&selected) {
+            assert!(*n > 0, "{:?} selects no pod", p["metadata"]["name"]);
+        }
+        assert_eq!(policies.len(), 1 + Egress::ALL.len());
+        let call_sites = include_str!("workflow.rs")
+            .matches(concat!("y.push_str(&", "template("))
+            .count();
+        assert_eq!(
+            templates.len(),
+            call_sites,
+            "a template this fixture does not write"
+        );
+    }
+
+    /// The property that matters (#1232): no pod a calculator runs in reaches past the vault.
+    /// Every step task is followed to its template, and only a built-in that reads the world is
+    /// let out. Landers and the pods holding a read key are found by their command.
+    #[test]
+    fn a_calculator_pod_reaches_the_vault_alone() {
+        let doc: serde_yaml::Value =
+            serde_yaml::from_str(&spec(&every_template())).expect("the spec parses");
+        let kind = |template: &str| {
+            containers(&doc)
+                .into_iter()
+                .find(|t| t["name"] == template)
+                .unwrap_or_else(|| panic!("no template {template}"))["metadata"]["labels"]
+                [EGRESS_LABEL]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let tasks = doc["templates"][0]["dag"]["tasks"].as_sequence().unwrap();
+        let mut steps = 0;
+        for t in tasks {
+            let Some(step) = t["arguments"]["parameters"]
+                .as_sequence()
+                .and_then(|p| p.iter().find(|p| p["name"] == "step"))
+                .and_then(|p| p["value"].as_str())
+            else {
+                continue;
+            };
+            steps += 1;
+            let want = match reaches_the_world(step) {
+                true => Egress::Internet,
+                false => Egress::Vault,
+            };
+            assert_eq!(
+                kind(t["template"].as_str().unwrap()),
+                want.label(),
+                "step {step}"
+            );
+        }
+        assert_eq!(steps, every_template().steps.len());
+        assert!(super::super::builtin::BUILTINS
+            .iter()
+            .any(|b| b.op.reaches_the_world()));
+        for t in containers(&doc) {
+            let want = match subcommand(t).unwrap() {
+                "admit" | "pin" | "land" => Egress::Remote,
+                "survey" | "gather" => Egress::Vault,
+                "ask" => Egress::Internet,
+                "step" => continue,
+                other => panic!("{other} has no expected kind here"),
+            };
+            assert_eq!(
+                t["metadata"]["labels"][EGRESS_LABEL].as_str(),
+                Some(want.label()),
+                "{:?}",
+                t["name"]
+            );
+        }
+    }
+
+    /// What each kind's policy lets out, with the remote declared: the remote pods reach it, the
+    /// internet pods reach everywhere but it in both families, and the vault pods, over a
+    /// `file://` vault, reach nothing past DNS and the API server.
+    #[test]
+    fn each_kind_reaches_what_the_table_says() {
+        let policies = every_policy();
+        let by = |n: &str| {
+            policies
+                .iter()
+                .find(|p| p["metadata"]["name"] == n)
+                .unwrap_or_else(|| panic!("no policy {n}"))["spec"]
+                .clone()
+        };
+        let corpus = by("yidam-corpus-egress");
+        let rules = corpus["egress"].as_sequence().unwrap();
+        assert_eq!(rules[0]["ports"][0]["port"].as_u64(), Some(53));
+        assert!(rules[0].get("to").is_none(), "DNS is wherever it is served");
+        assert_eq!(
+            rules[1]["to"][0]["ipBlock"]["cidr"].as_str(),
+            Some("192.0.2.1/32")
+        );
+        assert_eq!(rules.len(), 2);
+
+        let git = by("yidam-corpus-egress-remote");
+        assert_eq!(
+            serde_yaml::to_string(&git["egress"]).unwrap(),
+            "- to:\n  - ipBlock:\n      cidr: 198.51.100.0/24\n"
+        );
+        assert_eq!(
+            by("yidam-corpus-egress-vault")["egress"]
+                .as_sequence()
+                .map(Vec::len),
+            Some(0)
+        );
+        let internet = &by("yidam-corpus-egress-internet")["egress"][0]["to"];
+        assert_eq!(internet[0]["ipBlock"]["cidr"].as_str(), Some("0.0.0.0/0"));
+        assert_eq!(
+            internet[0]["ipBlock"]["except"][0].as_str(),
+            Some("198.51.100.0/24")
+        );
+        assert_eq!(internet[1]["ipBlock"]["cidr"].as_str(), Some("::/0"));
+        assert!(
+            internet[1]["ipBlock"].get("except").is_none(),
+            "a v4 range excepted from v6"
+        );
+        for p in &policies {
+            assert_eq!(p["spec"]["policyTypes"][0].as_str(), Some("Egress"));
+        }
     }
 
     /// A corpus with no gather gets none of the gather templates, so its workflow is unchanged.

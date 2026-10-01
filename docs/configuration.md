@@ -254,6 +254,21 @@ seconds_after_failure = 604800
 
 `pod_gc` is Argo's `podGC` strategy. The two `seconds_*` keys are the workflow's `ttlStrategy`.
 
+`[cluster.egress]` is what [`yidam cluster network-policy`](cluster-runs.md#limit-what-each-pod-reaches)
+lets each pod reach. A NetworkPolicy cannot name a host, so each key is a list of CIDRs:
+
+```toml
+[cluster.egress]
+executor = ["172.18.0.2/32"]
+remote   = ["140.82.112.0/20"]
+vault    = ["10.20.0.0/16"]
+```
+
+`executor` is the API server's endpoint addresses. Argo's executor sidecar reports through
+them from inside every pod, and the generator refuses without them. `remote` is optional.
+Unset, the pods holding a git key reach anywhere. `vault` is required for an `s3://` vault and
+refused for a `file://` one. Each CIDR must be a network address: `10.0.0.1/8` is refused.
+
 ### `[due]`
 
 The intervals [`yidam due`](cli-reference.md#the-practice) reads. Each is an age a subject may

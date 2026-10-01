@@ -86,6 +86,19 @@ pub const BUILTINS: &[Builtin] = &[
     },
 ];
 
+impl Op {
+    /// Whether the step reads from outside the corpus, so its pod needs the internet (#1232).
+    ///
+    /// Fetch reads each entry's source wherever it is. Extract reads only the vault cache
+    /// on its own pod, and reconcile reads the clone, so both reach the vault and no further.
+    pub fn reaches_the_world(self) -> bool {
+        match self {
+            Self::Fetch => true,
+            Self::Extract | Self::Reconcile => false,
+        }
+    }
+}
+
 /// The built-in named `name`, if there is one.
 pub(crate) fn find(name: &str) -> Option<&'static Builtin> {
     BUILTINS.iter().find(|b| b.name == name)

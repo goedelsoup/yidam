@@ -94,6 +94,10 @@ pub struct ClusterConfig {
     /// How long a finished run's pods and workflow stay on the cluster (#1231).
     #[serde(default)]
     pub cleanup: ClusterCleanupConfig,
+    /// What a pod may reach, as `yidam cluster network-policy` writes it (#1232). A
+    /// NetworkPolicy matches addresses, not hostnames, so each is a list of CIDRs.
+    #[serde(default)]
+    pub egress: ClusterEgressConfig,
 }
 
 /// `[cluster.names]`: an override for each object a generated workflow refers to by name.
@@ -232,6 +236,76 @@ impl ClusterCleanupConfig {
     }
 }
 
+/// `[cluster.egress]`: the addresses a generated NetworkPolicy lets a pod reach (#1232).
+///
+/// Three hostnames a pod needs, given as CIDRs, because a NetworkPolicy cannot name a host.
+/// What each pod may reach is the generator's (`cmd/cluster/egress.rs`); this says only where
+/// those things are on this cluster's network.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClusterEgressConfig {
+    /// Where Argo's executor sidecar reaches the Kubernetes API from inside every pod: the
+    /// API server's endpoint addresses, after DNAT, not the `kubernetes` service's cluster IP.
+    /// Required, since without it no pod can report its output.
+    #[serde(default)]
+    pub executor: Vec<String>,
+    /// Where the git remote is. Optional: unset, the pods that hold a git credential reach
+    /// everywhere, and the pods that need the internet can reach the remote too.
+    #[serde(default)]
+    pub remote: Vec<String>,
+    /// Where an `s3://` vault's endpoint is. Required for one, refused for a `file://` vault,
+    /// which is a volume and reaches no network.
+    #[serde(default)]
+    pub vault: Vec<String>,
+}
+
+impl ClusterEgressConfig {
+    /// Every address is a CIDR Kubernetes would accept, or an error naming the key.
+    pub fn check(&self) -> Result<()> {
+        for (key, list) in [
+            ("executor", &self.executor),
+            ("remote", &self.remote),
+            ("vault", &self.vault),
+        ] {
+            for cidr in list {
+                if let Err(why) = parse_cidr(cidr) {
+                    anyhow::bail!("[cluster.egress] {key} holds {cidr:?}, which {why}");
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A CIDR's address and prefix length, or why it is not one Kubernetes accepts as an `ipBlock`.
+///
+/// Host bits must be zero. Kubernetes warns on `10.0.0.1/8` and reads it as `10.0.0.0/8`, so
+/// a corpus that wrote the first meant something narrower than it gets.
+pub fn parse_cidr(cidr: &str) -> std::result::Result<(std::net::IpAddr, u8), String> {
+    let (addr, len) = cidr
+        .split_once('/')
+        .ok_or("has no `/<prefix length>`".to_string())?;
+    let addr: std::net::IpAddr = addr
+        .parse()
+        .map_err(|_| "does not begin with an IP address".to_string())?;
+    let max = if addr.is_ipv4() { 32 } else { 128 };
+    let len: u8 = len
+        .parse()
+        .ok()
+        .filter(|l| *l <= max)
+        .ok_or(format!("has a prefix length that is not 0 to {max}"))?;
+    let bits: u128 = match addr {
+        std::net::IpAddr::V4(a) => u32::from(a).into(),
+        std::net::IpAddr::V6(a) => a.into(),
+    };
+    let host = u32::from(max - len);
+    let mask = 1u128.checked_shl(host).map_or(u128::MAX, |b| b - 1);
+    if bits & mask != 0 {
+        return Err("sets bits past its prefix length; write the network address".to_string());
+    }
+    Ok((addr, len))
+}
+
 impl Default for ClusterConfig {
     fn default() -> Self {
         Self {
@@ -244,6 +318,7 @@ impl Default for ClusterConfig {
             names: ClusterNamesConfig::default(),
             pod: ClusterPodConfig::default(),
             cleanup: ClusterCleanupConfig::default(),
+            egress: ClusterEgressConfig::default(),
         }
     }
 }
@@ -580,6 +655,42 @@ pub fn load_yidam_config(root: &Path) -> Result<YidamConfig> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A CIDR is the network address and a length its family allows. `10.0.0.1/8` is refused
+    /// rather than read as `10.0.0.0/8`, which is wider than whoever wrote it meant.
+    #[test]
+    fn a_cidr_is_a_network_address_and_a_length() {
+        for ok in [
+            "10.0.0.0/8",
+            "192.0.2.1/32",
+            "0.0.0.0/0",
+            "::/0",
+            "2a0a:a440::/29",
+            "::1/128",
+        ] {
+            assert!(parse_cidr(ok).is_ok(), "{ok}");
+        }
+        for (bad, why) in [
+            ("10.0.0.0", "prefix length"),
+            ("host/24", "IP address"),
+            ("10.0.0.0/33", "0 to 32"),
+            ("::/129", "0 to 128"),
+            ("10.0.0.1/8", "network address"),
+            ("2a0a:a440::1/29", "network address"),
+        ] {
+            let err = parse_cidr(bad).unwrap_err();
+            assert!(err.contains(why), "{bad}: {err}");
+        }
+        let e = ClusterEgressConfig {
+            remote: vec!["10.0.0.1/8".into()],
+            ..Default::default()
+        };
+        let err = e.check().unwrap_err().to_string();
+        assert!(
+            err.contains("[cluster.egress] remote") && err.contains("10.0.0.1/8"),
+            "{err}"
+        );
+    }
 
     /// `sadhana/config.toml`, the scaffold a derived repository gets, deserializes into
     /// [`YidamConfig`] once every offered line is uncommented.

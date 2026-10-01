@@ -83,7 +83,7 @@ spec:
               depends: admit
               when: "{{=jsonpath(tasks.admit.outputs.parameters.output, '$.admitted') == true}}"
             - name: step-catalog-fetch
-              template: step
+              template: step-catalog-fetch
               depends: pin
               arguments:
                 parameters:
@@ -179,6 +179,10 @@ spec:
                   - name: step-output
                     value: "{{tasks.step-travel-tier-typed.outputs.parameters.output}}"
       - name: pin
+        metadata:
+          labels:
+            yidam.dev/corpus: "streamflow"
+            yidam.dev/egress: "remote"
         outputs:
           parameters:
             - name: output
@@ -245,6 +249,80 @@ spec:
             - name: vault
               mountPath: "/var/yidam/vault"
       - name: step
+        metadata:
+          labels:
+            yidam.dev/corpus: "streamflow"
+            yidam.dev/egress: "vault"
+        # No git secret and no remote: this pod computes a commit it cannot land.
+        inputs:
+          parameters:
+            - name: step
+            - name: bundle
+        outputs:
+          parameters:
+            - name: output
+              valueFrom:
+                path: /tmp/yidam/out.json
+        activeDeadlineSeconds: 3600
+        retryStrategy:
+          limit: 2
+          retryPolicy: Always
+          backoff:
+            duration: "30s"
+            factor: 2
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
+        container:
+          image: "{{workflow.parameters.image}}"
+          command: ["yidam", "cluster", "step", "{{inputs.parameters.step}}"]
+          args:
+            - "--bundle"
+            - "{{inputs.parameters.bundle}}"
+            - "--image"
+            - "{{workflow.parameters.image}}"
+            - "--vault-url"
+            - "{{workflow.parameters.vault-url}}"
+            - "--out"
+            - "/tmp/yidam/out.json"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          env:
+            - name: TMPDIR
+              value: "/tmp/yidam"
+            - name: HOME
+              value: "/home/yidam"
+          # Vault credentials, for an s3:// vault; absent for file://, which needs none.
+          envFrom:
+            - secretRef:
+                name: "yidam-streamflow-vault"
+                optional: true
+          volumeMounts:
+            - name: scratch
+              mountPath: /tmp/yidam
+            - name: home
+              mountPath: /home/yidam
+            - name: vault
+              mountPath: "/var/yidam/vault"
+      - name: step-catalog-fetch
+        metadata:
+          labels:
+            yidam.dev/corpus: "streamflow"
+            yidam.dev/egress: "internet"
         # No git secret and no remote: this pod computes a commit it cannot land.
         inputs:
           parameters:
@@ -311,6 +389,10 @@ spec:
             - name: vault
               mountPath: "/var/yidam/vault"
       - name: land
+        metadata:
+          labels:
+            yidam.dev/corpus: "streamflow"
+            yidam.dev/egress: "remote"
         # The lander. It classifies the commit by its own subject line, chooses the ref
         # the class permits, and writes it with a compare-and-swap. No retryStrategy: it
         # retries its own race, and a refusal it reaches is the answer, not a fault.
@@ -379,6 +461,10 @@ spec:
             - name: vault
               mountPath: "/var/yidam/vault"
       - name: admit
+        metadata:
+          labels:
+            yidam.dev/corpus: "streamflow"
+            yidam.dev/egress: "remote"
         outputs:
           parameters:
             - name: output

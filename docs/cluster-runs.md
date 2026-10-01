@@ -148,8 +148,9 @@ Copy the example into your corpus's repository. It has two layers:
 
 ```text
 deploy/
-  kustomization.yaml         # resources: objects, and the workflow
+  kustomization.yaml         # resources: objects, the workflow and the policies
   <corpus>.cronworkflow.yml  # yidam cluster workflow --cron output
+  <corpus>.netpol.yml        # yidam cluster network-policy output
   objects/
     kustomization.yaml       # the prefix, the base, the vault and the git secrets
     .gitignore               # secrets/
@@ -263,6 +264,49 @@ step again.
 Argo deletes a pod that succeeded at once. A failed pod stays until its workflow is deleted,
 a week after it ends. A succeeded workflow is deleted after a day. `[cluster.cleanup]` sets
 all three.
+
+### Limit what each pod reaches
+
+Only the lander mounts the write key. A NetworkPolicy makes that a network fact too. Say a key
+reached a step pod by some other route. It still could not push, since a step pod reaches the
+vault and nothing else.
+
+The workflow labels every pod with its corpus, `yidam.dev/corpus`, and its kind,
+`yidam.dev/egress`:
+
+| Kind | Pods | Reaches |
+|---|---|---|
+| `remote` | `admit`, `pin`, `land-*` | the remote |
+| `vault` | `step-*`, `survey-*`, `gather-*`, `catalog-extract`, `catalog-reconcile` | the vault |
+| `internet` | `catalog-fetch`, `ask-*` | anywhere but the remote |
+
+Every pod also reaches DNS and the API server. Argo's `wait` sidecar shares the pod's network
+and records task results through the API. `catalog-fetch` runs from its own template,
+`step-catalog-fetch`, since it alone among the steps reads the internet.
+
+A policy matches addresses, not hosts. Set them in `[cluster.egress]`. See
+[configuration.md](configuration.md#cluster). Then write the policies into the overlay:
+
+```sh
+kubectl get endpoints kubernetes -n default   # the executor's addresses
+yidam cluster network-policy > deploy/<corpus>.netpol.yml
+```
+
+List the file in the top `kustomization.yaml`, beside the workflow. Policies are standing
+objects, so a one-shot run uses them too.
+
+- **`executor`** is the API server's endpoint addresses, not the `kubernetes` service's.
+  Policies match after the service is resolved. The generator refuses without them.
+- **`remote`** is optional. Unset, the `remote` pods reach anywhere, and `catalog-fetch` and
+  `ask` can reach the remote. They hold no key, so that is a weaker fence, not a hole. The
+  generated file says which you chose.
+- **`vault`** is for an `s3://` vault. Every kind reaches it. The generator refuses an
+  `s3://` vault without it. On AWS, use an S3 interface endpoint's subnet CIDRs, or the S3
+  prefixes for your region from `ip-ranges.json`. A gateway endpoint does not help, since it
+  gives S3 no address of its own. A `file://` vault is a mount, so it needs none.
+
+Only a CNI that enforces NetworkPolicy enforces them, such as Calico or Cilium. kind's default
+one does not. A cluster without one applies the policies and enforces nothing.
 
 ### Names you set yourself
 
