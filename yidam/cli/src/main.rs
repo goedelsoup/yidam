@@ -923,7 +923,8 @@ enum Command {
         #[cfg(feature = "serve-http")]
         #[arg(long, requires = "mcp")]
         http: bool,
-        /// Address to bind `--http` to. Defaults to loopback, which the MCP spec asks for:
+        /// IP address to bind `--http` to; a name such as `localhost` is refused. Defaults to
+        /// loopback, which the MCP spec asks for:
         /// a server on 0.0.0.0 is reachable by anything on the network, and this one
         /// authenticates nobody. Any other address prints a warning naming the tools it exposes.
         #[cfg(feature = "serve-http")]

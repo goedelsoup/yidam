@@ -417,6 +417,87 @@ fn the_default_bind_is_loopback() {
     );
 }
 
+/// A bare IPv6 address binds, and answers (#1259).
+///
+/// `::1` is loopback by `is_loopback`'s own rule and named in `docs/mcp-server.md`, and before
+/// #1259 the server could not bind it: `::1:0` is not a socket address. Skipped where the host
+/// has no IPv6 loopback, which some CI containers do not.
+#[test]
+fn an_ipv6_loopback_bind_serves() {
+    if std::net::TcpListener::bind("[::1]:0").is_err() {
+        eprintln!("skipped: this host has no IPv6 loopback");
+        return;
+    }
+    let repo = fixture_repo();
+    let server = start(repo.path(), &["--bind", "::1"]);
+    assert!(
+        server.addr.starts_with("[::1]:"),
+        "bound {} rather than [::1]",
+        server.addr
+    );
+    assert!(
+        !server.banner.contains("not loopback"),
+        "::1 is loopback and warned:\n{}",
+        server.banner
+    );
+    let (status, body) = rpc(
+        &server.addr,
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}),
+    );
+    assert_eq!(status, 200, "{body}");
+}
+
+/// A name is refused at the command, naming the address to write instead (#1259).
+///
+/// `output()` is safe here where `the_http_transport_refuses_a_non_corpus_before_it_binds`
+/// says it is not, because the refusal precedes the corpus load as well as the bind — but a
+/// regression is a server that starts, so it is bounded all the same.
+#[test]
+fn a_name_is_refused_before_it_binds() {
+    let repo = fixture_repo();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .env_remove(TOKEN_VAR)
+        .current_dir(repo.path())
+        .args([
+            "serve",
+            "--mcp",
+            "--http",
+            "--bind",
+            "localhost",
+            "--port",
+            "0",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let status = loop {
+        match child.try_wait().unwrap() {
+            Some(status) => break status,
+            None if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("`--bind localhost` started a server");
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(50)),
+        }
+    };
+    assert!(!status.success());
+    let mut err = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut err)
+        .unwrap();
+    assert!(
+        err.contains("not an IP address") && err.contains("127.0.0.1"),
+        "{err}"
+    );
+    assert!(!err.contains("http://"), "announced an address: {err}");
+}
+
 /// A bind every interface can reach is said aloud, naming what it publishes (#939).
 ///
 /// The warning is printed before the socket listens, so it is in the banner `start` collected

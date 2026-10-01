@@ -232,7 +232,7 @@ capability block, and the `absence` and `degraded` fields. Only the framing diff
 
 | | |
 |---|---|
-| `--bind` | `127.0.0.1`. A server on `0.0.0.0` is reachable by anything on the network, and this one asks no one who they are. Any address off loopback prints a warning at startup, naming every tool it exposes. |
+| `--bind` | `127.0.0.1`. A server on `0.0.0.0` is reachable by anything on the network, and this one asks no one who they are. Any address off loopback prints a warning at startup, naming every tool it exposes. It takes an IP address, not a name: `::1` and `::` work, and `localhost` is refused. |
 | `YIDAM_SERVE_TOKEN` or `--token-file` | Unset. Set one, and every request must carry `Authorization: Bearer <token>`. |
 | `--allow-origin` | Empty. A request carrying an `Origin` header is refused unless you name it; one carrying none — `curl`, and every server-to-server client — passes. |
 

@@ -438,10 +438,11 @@ pub(crate) fn is_loopback(bind: &str) -> bool {
     match bind.parse::<std::net::IpAddr>() {
         Ok(std::net::IpAddr::V4(v4)) => v4.is_loopback(),
         Ok(std::net::IpAddr::V6(v6)) => v6.is_loopback(),
-        // A hostname rather than an address. `localhost` resolves to loopback on every
-        // system this runs on, and anything else is a name this function will not guess
-        // about: an unresolvable claim is refused, which is the direction §2.2 asks for.
-        Err(_) => bind == "localhost",
+        // A name rather than an address, `localhost` included: what it resolves to is a
+        // resolver's answer, not something this can see. Unproven is not loopback, which is
+        // the direction §2.2 asks for — and `http::bind_address` refuses a name before this
+        // is asked, so the address judged here is the address bound (#1259).
+        Err(_) => false,
     }
 }
 
@@ -706,8 +707,9 @@ pub fn serve_mcp_http(
     allow_origin: Vec<String>,
     token_file: Option<&Path>,
 ) -> Result<()> {
-    // Before the corpus loads: a token that cannot be read is a mistake in the command, and
-    // the operator should hear about it before waiting on a walk.
+    // Before the corpus loads: a bind that is not an address and a token that cannot be read
+    // are mistakes in the command, and the operator should hear about them before a walk.
+    let ip = http::bind_address(bind)?;
     let token = http::token_source(|k| std::env::var(k).ok(), token_file)?;
     let root = resolve_root(root)?;
     let state = ServerState::load(&root)?;
@@ -742,7 +744,7 @@ pub fn serve_mcp_http(
         origins: allow_origin,
         token,
     };
-    http::serve(state, bind, port, policy)
+    http::serve(state, ip, port, policy)
 }
 
 /// Read newline-delimited JSON-RPC messages from `input`, write responses to
@@ -992,12 +994,19 @@ mod tests {
     /// Off loopback the operator is told, and the warning names what is reachable (#939).
     ///
     /// `0.0.0.0` and `::` are the spellings of "every interface" an operator actually types, and
-    /// a hostname is a name `is_loopback` will not guess about — so it warns too.
+    /// a hostname is a name `is_loopback` will not guess about — `localhost` included (#1259)
+    /// — so it warns too.
     #[test]
     #[cfg(feature = "serve-http")]
     fn a_bind_off_loopback_warns_and_names_what_it_exposes() {
         let tools = ["retrieve", "get_node"];
-        for bind in ["0.0.0.0", "::", "192.168.1.20", "yidam.example"] {
+        for bind in [
+            "0.0.0.0",
+            "::",
+            "192.168.1.20",
+            "yidam.example",
+            "localhost",
+        ] {
             let warning = exposure_warning(bind, 8080, &tools, false)
                 .unwrap_or_else(|| panic!("`--bind {bind}` said nothing"));
             assert!(warning.contains(bind), "{warning}");
@@ -1021,7 +1030,7 @@ mod tests {
     #[test]
     #[cfg(feature = "serve-http")]
     fn a_loopback_bind_says_nothing() {
-        for bind in ["127.0.0.1", "127.8.9.10", "::1", "localhost"] {
+        for bind in ["127.0.0.1", "127.8.9.10", "::1"] {
             assert_eq!(
                 exposure_warning(bind, 8080, &["retrieve"], false),
                 None,
