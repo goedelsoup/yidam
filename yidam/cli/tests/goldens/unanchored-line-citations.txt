@@ -52,8 +52,8 @@ docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/report.rs#L75-L80
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/retrieval/mod.rs#L56
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/universal.rs#L57-L69
 docs/rfcs/0020-proposal-surface.md → ../../yidam/cli/src/claims.rs#L587-L593
-docs/rfcs/0020-proposal-surface.md → ../../yidam/cli/src/cmd/lint/citations.rs#L855-L865
-docs/rfcs/0020-proposal-surface.md → ../../yidam/cli/src/cmd/lint/citations.rs#L974-L987
+docs/rfcs/0020-proposal-surface.md → ../../yidam/cli/src/cmd/lint/citations.rs#L856-L866
+docs/rfcs/0020-proposal-surface.md → ../../yidam/cli/src/cmd/lint/citations.rs#L976-L989
 docs/rfcs/0020-proposal-surface.md → ../../yidam/cli/src/cmd/lint/model.rs#L58
 docs/rfcs/0020-proposal-surface.md → ../../yidam/cli/src/cmd/sangha.rs#L14-L16
 docs/rfcs/0020-proposal-surface.md → ../../yidam/cli/src/config.rs#L25-L43

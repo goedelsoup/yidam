@@ -103,6 +103,7 @@ impl GitAuthArgs {
 }
 
 /// A GitHub App, as the lander is told about it.
+#[cfg_attr(not(feature = "github-app"), allow(dead_code))]
 pub struct App {
     pub id: u64,
     pub key: PathBuf,
@@ -283,6 +284,7 @@ fn github_message(body: &[u8]) -> String {
 }
 
 /// The installation id in `GET /repos/{owner}/{repo}/installation`'s answer.
+#[cfg_attr(not(feature = "github-app"), allow(dead_code))]
 fn installation_id(body: &[u8]) -> Result<u64> {
     serde_json::from_slice::<serde_json::Value>(body)
         .ok()
@@ -291,6 +293,7 @@ fn installation_id(body: &[u8]) -> Result<u64> {
 }
 
 /// The token in `POST /app/installations/{id}/access_tokens`'s answer.
+#[cfg_attr(not(feature = "github-app"), allow(dead_code))]
 fn token_of(body: &[u8]) -> Result<Token> {
     serde_json::from_slice::<serde_json::Value>(body)
         .ok()
@@ -302,6 +305,7 @@ fn token_of(body: &[u8]) -> Result<Token> {
 }
 
 /// The token request's body: this repository alone, and the one permission a push needs.
+#[cfg_attr(not(feature = "github-app"), allow(dead_code))]
 fn token_request(repo: &Repo) -> serde_json::Value {
     serde_json::json!({
         "repositories": [repo.name],
@@ -310,6 +314,7 @@ fn token_request(repo: &Repo) -> serde_json::Value {
 }
 
 /// The refusal for an answer GitHub gave with a failing status, with GitHub's own words.
+#[cfg_attr(not(feature = "github-app"), allow(dead_code))]
 fn refused(what: &str, repo: &Repo, status: u16, body: &[u8]) -> anyhow::Error {
     let hint = match status {
         401 => {

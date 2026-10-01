@@ -401,6 +401,10 @@ default = ["reports", "tonpa", "vault-s3", "s3-vectors", "export-graph", "serve-
 # downloads. It is written there and nowhere else: two prose restatements of it
 # named `reports` and `tonpa` and went stale when `vault-s3` joined, and
 # `light_build.rs` now refuses a third.
+#
+# The reports-only build is still **compiled, and not tested**. `check-features` clippies it
+# on every pull request: three features below exist only so that it links less, and a build
+# nothing compiles stops compiling (#1257). Its tests are the failures #482 records above.
 reports = []
 # Semantic index build, and upgrades `serve --mcp`'s `retrieve` from keyword to
 # vector search. `serve` itself is in the light default — gating the whole

@@ -727,7 +727,7 @@ run = [
   "cargo test --doc --manifest-path yidam/cli/Cargo.toml --locked",
 ]
 
-# The two clippy legs of `ci-cli-full`, without its tests — the part of that job that a pull
+# The clippy legs of `ci-cli-full`, without its tests — the part of that job that a pull
 # request can afford (#922).
 #
 # `cli-full` is `if: github.event_name != 'pull_request'`, so until this task existed the only
@@ -748,6 +748,12 @@ run = [
 # compiles *instead*: the `#[cfg(not(feature = "index"))]` arms of the build that has
 # fastembed and arrow and no lancedb.
 #
+# And a third, `--no-default-features --features reports`, because both of those turn the
+# defaults on and so compile out every `#[cfg(not(feature = "vault-s3"))]` arm there is.
+# Three features (`serve-http`, `catalog-fetch`, `github-app`) give that build as their
+# reason for being features at all, and nothing compiled it: #1257 was `doctor` reaching
+# `vault::creds` unconditionally, found by hand, with twelve more errors behind it. Compiled, not tested — the `reports` note in yidam/cli/Cargo.toml says why.
+#
 # What it does not cover is the tests — no `--all-targets` here, for the same reason
 # `ci-cli-full` omits it — nor anything that only fails when run. Those stay on main.
 [tasks.check-features]
@@ -755,6 +761,7 @@ description = "Compile-check the feature-gated CLI builds that only `ci-cli-full
 run = [
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --features vector-read --locked -- -D warnings",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-features --locked -- -D warnings",
+  "cargo clippy --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports --locked -- -D warnings",
 ]
 
 # Full-feature CLI build (index/sqlite/rdf) — pulls fastembed/lancedb and needs
@@ -774,6 +781,7 @@ description = "Full-feature CI for the yidam CLI (all optional features, and the
 # reasons that have nothing to do with this feature — `help.rs` groups `tonpa` unconditionally.
 # That argument now lives where a reader meets the flag, on the `reports` feature in
 # yidam/cli/Cargo.toml; #482 was it being recorded only here, against an unrelated task.
+# The last leg below compiles that build without testing it, which is the most it supports.
 #
 # It runs first because it is the cheaper of the two and fails faster.
 #
@@ -797,6 +805,7 @@ run = [
   "cargo test --doc --manifest-path yidam/cli/Cargo.toml --features vector-read --locked",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-features --locked -- -D warnings",
   "cargo test --doc --manifest-path yidam/cli/Cargo.toml --all-features --locked",
+  "cargo clippy --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports --locked -- -D warnings",
 ]
 
 # #264: "Run it in CI against `examples/streamflow`." Which needs the full build, because
