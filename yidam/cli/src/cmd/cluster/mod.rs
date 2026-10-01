@@ -56,6 +56,7 @@
 pub mod admit;
 pub mod builtin;
 mod bundle;
+mod egress;
 pub mod gather;
 pub mod land;
 pub mod pin;
@@ -111,6 +112,31 @@ pub enum ClusterCommand {
         /// The vault url bundles travel through; overrides `[vault.<name>] url`
         #[arg(long = "vault-url", value_name = "URL")]
         vault_url: Option<String>,
+    },
+    /// Write the NetworkPolicies that limit what each of this corpus's pods may reach
+    ///
+    /// One policy for every pod of the corpus: DNS and the API server, which Argo's executor
+    /// sidecar reports through. Then one per kind of pod, selected by the label the workflow
+    /// gives it. `remote` pods (admit, pin, land) reach the remote. `vault` pods (step, survey,
+    /// gather) reach the vault and nothing else. `internet` pods (catalog-fetch, ask) reach
+    /// anywhere but the remote.
+    ///
+    /// A NetworkPolicy matches addresses, so each place is CIDRs, from `[cluster.egress]`.
+    /// Every flag below replaces its key. Apply the output with the corpus's overlay, not
+    /// beside a one-shot workflow, which is created again on every run.
+    NetworkPolicy {
+        /// The vault url bundles travel through; overrides `[vault.<name>] url`
+        #[arg(long = "vault-url", value_name = "URL")]
+        vault_url: Option<String>,
+        /// The API server's endpoint addresses; replaces `[cluster.egress] executor`
+        #[arg(long, value_name = "CIDR")]
+        executor: Vec<String>,
+        /// Where the git remote is; replaces `[cluster.egress] remote`
+        #[arg(long = "remote-cidr", value_name = "CIDR")]
+        remote_cidr: Vec<String>,
+        /// Where an s3:// vault's endpoint is; replaces `[cluster.egress] vault`
+        #[arg(long = "vault-cidr", value_name = "CIDR")]
+        vault_cidr: Vec<String>,
     },
     /// Read the branch tip and put a git bundle of it in the vault — the input every step reads
     ///
@@ -335,6 +361,17 @@ pub fn run(sub: ClusterCommand) -> Result<()> {
             remote,
             branch,
             vault_url,
+        }),
+        ClusterCommand::NetworkPolicy {
+            vault_url,
+            executor,
+            remote_cidr,
+            vault_cidr,
+        } => egress::run(&egress::Overrides {
+            vault_url,
+            executor,
+            remote: remote_cidr,
+            vault: vault_cidr,
         }),
         ClusterCommand::Pin {
             remote,

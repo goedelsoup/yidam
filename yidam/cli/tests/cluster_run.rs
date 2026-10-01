@@ -998,7 +998,8 @@ fn the_workflow_runs_every_builtin_ahead_of_the_manifest() {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|t| t["template"] == "step")
+        // By task, not template: a built-in that reads the world runs from its own (#1232).
+        .filter(|t| s(&t["name"]).starts_with("step-"))
         .map(|t| s(&t["arguments"]["parameters"][0]["value"]).to_string())
         .collect();
     let builtins: Vec<&str> = yidam::CLUSTER_BUILTINS.iter().map(|b| b.name).collect();
@@ -1302,7 +1303,7 @@ fn a_capability_bounds_reach_only_its_own_step_pod() {
         ("1".into(), "2Gi".into(), 600)
     );
     // Every other pod has the corpus's bounds and neither capability's.
-    for other in ["step", "pin", "land"] {
+    for other in ["step", "step-catalog-fetch", "pin", "land"] {
         assert_eq!(bounds(other), ("1".into(), "2Gi".into(), 3600), "{other}");
     }
 
@@ -1316,7 +1317,8 @@ fn a_capability_bounds_reach_only_its_own_step_pod() {
     assert_eq!(uses("step-travel-tier"), "step-travel-tier");
     assert_eq!(uses("step-disclosure-envelope"), "step-disclosure-envelope");
     assert_eq!(uses("step-travel-tier-typed"), "step");
-    assert_eq!(uses("step-catalog-fetch"), "step");
+    // Its own template for its network, not its bounds (#1232).
+    assert_eq!(uses("step-catalog-fetch"), "step-catalog-fetch");
 }
 
 // ── the worked example ────────────────────────────────────────────────────────
@@ -1333,21 +1335,34 @@ fn overlay() -> PathBuf {
 fn the_documented_workflow_is_what_the_generator_writes() {
     let c = Cluster::as_declared();
     let dir = overlay();
-    for (file, extra) in [
-        ("streamflow.workflow.yml", vec![]),
-        ("streamflow.cronworkflow.yml", vec!["--cron", "0 6 * * *"]),
+    let workflow = [
+        "cluster",
+        "workflow",
+        "--remote",
+        "git@github.com:goedelsoup/streamflow.git",
+        "--image",
+        "ghcr.io/goedelsoup/yidam-cluster:latest",
+        "--vault-url",
+        "file:///var/yidam/vault",
+    ];
+    // The executor's address is a placeholder from the documentation range: an operator
+    // regenerates with their own API server's (#1232).
+    let policy = [
+        "cluster",
+        "network-policy",
+        "--vault-url",
+        "file:///var/yidam/vault",
+        "--executor",
+        "192.0.2.1/32",
+    ];
+    for (file, args) in [
+        ("streamflow.workflow.yml", workflow.to_vec()),
+        (
+            "streamflow.cronworkflow.yml",
+            [&workflow[..], &["--cron", "0 6 * * *"]].concat(),
+        ),
+        ("streamflow.netpol.yml", policy.to_vec()),
     ] {
-        let mut args = vec![
-            "cluster",
-            "workflow",
-            "--remote",
-            "git@github.com:goedelsoup/streamflow.git",
-            "--image",
-            "ghcr.io/goedelsoup/yidam-cluster:latest",
-            "--vault-url",
-            "file:///var/yidam/vault",
-        ];
-        args.extend(extra);
         let o = Command::new(env!("CARGO_BIN_EXE_yidam"))
             .current_dir(c.e.path())
             .args(&args)
@@ -1376,8 +1391,9 @@ fn the_documented_workflow_is_what_the_generator_writes() {
             "\n{file} drifted from what `yidam cluster workflow` writes. If the change is \
              intended, re-run with UPDATE_GOLDENS=1 and review the diff.\n"
         );
-        serde_yaml::from_str::<Value>(&actual)
-            .unwrap_or_else(|e| panic!("{file} is not YAML: {e}"));
+        for doc in serde_yaml::Deserializer::from_str(&actual) {
+            Value::deserialize(doc).unwrap_or_else(|e| panic!("{file} is not YAML: {e}"));
+        }
     }
 }
 
@@ -1517,6 +1533,30 @@ fn the_overlay_creates_what_the_workflow_mounts_and_nothing_else() {
          be the ones the objects were given"
     );
 
+    // #1232: the policies arrive as generated. A prefix reaching them would rename them, and
+    // a label transformer would widen what they select.
+    let policies: Vec<&serde_yaml::Value> = built
+        .iter()
+        .filter(|v| kind(v) == "NetworkPolicy")
+        .collect();
+    let text = std::fs::read_to_string(overlay().join("streamflow.netpol.yml")).unwrap();
+    let generated: Vec<serde_yaml::Value> = serde_yaml::Deserializer::from_str(&text)
+        .map(|d| serde_yaml::Value::deserialize(d).unwrap())
+        .collect();
+    assert!(!generated.is_empty());
+    for g in &generated {
+        assert!(
+            policies.contains(&g),
+            "the overlay does not deploy {:?} as generated",
+            g["metadata"]["name"]
+        );
+    }
+    assert_eq!(
+        policies.len(),
+        generated.len(),
+        "the overlay deploys another policy"
+    );
+
     let wanted = named_objects(&cron["spec"]["workflowSpec"]);
     for k in ["ServiceAccount", "Secret", "PersistentVolumeClaim"] {
         assert!(
@@ -1621,7 +1661,7 @@ fn the_overlay_creates_what_the_workflow_mounts_and_nothing_else() {
     }
 
     // Anything else the build carries is something this check does not compare yet.
-    let read = ["Role", "RoleBinding", "CronWorkflow"];
+    let read = ["Role", "RoleBinding", "CronWorkflow", "NetworkPolicy"];
     let unread: BTreeSet<String> = built
         .iter()
         .map(kind)
