@@ -1,10 +1,10 @@
 # The cluster image — the one every pod of a generated Argo workflow runs (#1227).
 #
-# `docs/cluster/Dockerfile` existed for weeks with no workflow building it, and
-# `docs/cluster-runs.md` told every operator to `docker build` their own. That undercut the
-# receipt field #475 added: `--image <ref>@sha256:…` puts `image_digest` on every step receipt
-# so a reader can say which image ran, and a digest of a private build names something nobody
-# reading the corpus can pull, rebuild or compare with another corpus's.
+# The cluster Dockerfile (then under `docs/cluster/`) existed for weeks with no workflow building
+# it, and `docs/cluster-runs.md` told every operator to `docker build` their own. That undercut the
+# receipt field #475 added: `--image <ref>@sha256:…` puts `image_digest` on every step receipt so a
+# reader can say which image ran, and a digest of a private build names something nobody reading the
+# corpus can pull, rebuild or compare with another corpus's.
 #
 # ── two entrances, one set of steps ──────────────────────────────────────────
 #
@@ -34,8 +34,8 @@ name: Cluster image
 on:
   pull_request:
     paths:
-      - 'docs/cluster/Dockerfile'
-      - 'docs/cluster/Dockerfile.dockerignore'
+      - 'yidam/cluster/Dockerfile'
+      - 'yidam/cluster/Dockerfile.dockerignore'
       - 'yidam/cli/**'
       - 'yidam/prelude/sdks/rust/**'
       - 'yidam/tests/harness/ci-report/**'
@@ -45,8 +45,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'docs/cluster/Dockerfile'
-      - 'docs/cluster/Dockerfile.dockerignore'
+      - 'yidam/cluster/Dockerfile'
+      - 'yidam/cluster/Dockerfile.dockerignore'
       - 'yidam/cli/**'
       - 'yidam/prelude/sdks/rust/**'
       - 'yidam/tests/harness/ci-report/**'
@@ -117,7 +117,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docs/cluster/Dockerfile
+          file: yidam/cluster/Dockerfile
           platforms: ${{ matrix.platform }}
           sbom: ${{ inputs.tag != '' }}
           labels: |

@@ -4,7 +4,7 @@
 # checkout to keep warm and no daemon to run. The build stage is the CLI crate alone, so the
 # image is rebuilt when the binary changes and for no other reason.
 #
-#   docker build -f docs/cluster/Dockerfile -t ghcr.io/you/yidam-cluster:<version> .
+#   docker build -f yidam/cluster/Dockerfile -t ghcr.io/you/yidam-cluster:<version> .
 #
 # `.github/workflows/cluster-image.yml` builds it on every pull request that could break it
 # and publishes it as `ghcr.io/goedelsoup/yidam-cluster:<version>` on each `cli/v*` tag.

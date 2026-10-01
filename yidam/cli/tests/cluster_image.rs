@@ -1,6 +1,6 @@
 //! The cluster image is built wherever it can break, and published where the CLI is (#1227).
 //!
-//! `docs/cluster/Dockerfile` went weeks with no workflow building it. `cluster-image.yml` now
+//! The cluster Dockerfile went weeks with no workflow building it. `cluster-image.yml` now
 //! builds it on pull requests and publishes it from `release.yml`. What this file holds is
 //! that the pull-request half keeps reaching the image's inputs. A path filter is a roster,
 //! and a roster stops covering the next path dependency without ever going red.
@@ -93,8 +93,8 @@ fn the_pull_request_build_reaches_every_input_of_the_image() {
     }
 
     let required: Vec<String> = vec![
-        "docs/cluster/Dockerfile".into(),
-        "docs/cluster/Dockerfile.dockerignore".into(),
+        "yidam/cluster/Dockerfile".into(),
+        "yidam/cluster/Dockerfile.dockerignore".into(),
     ];
     let dirs: Vec<String> = std::iter::once("yidam/cli".to_string())
         .chain(deps)
@@ -194,5 +194,5 @@ fn covers_reads_a_directory_glob_and_nothing_looser() {
     assert!(covers("yidam/**", "yidam/prelude/sdks/rust"));
     assert!(!covers("yidam/cli/**", "yidam/cli-other"));
     assert!(!covers("yidam/cli/src/**", "yidam/cli"));
-    assert!(!covers("docs/cluster/Dockerfile", "docs/cluster"));
+    assert!(!covers("yidam/cluster/Dockerfile", "yidam/cluster"));
 }

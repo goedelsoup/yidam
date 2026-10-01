@@ -1,0 +1,10 @@
+# Read by BuildKit beside yidam/cluster/Dockerfile. The context is the repository root, and
+# a checkout's build directories would otherwise be sent to the daemon before COPY runs.
+**/target
+**/node_modules
+**/dist
+**/dist-*
+.git
+# The build context is the whole checkout, and the build stage copies all of it. An overlay's
+# secret values must not reach an image layer.
+yidam/cluster/overlays/*/objects/secrets

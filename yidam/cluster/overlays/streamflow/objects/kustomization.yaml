@@ -1,0 +1,36 @@
+# Streamflow's own objects: its account, its two git secrets and its vault claim.
+#
+# The prefix is the corpus's name as `yidam cluster workflow` derives it: `yidam-<corpus>-`,
+# where the corpus is its root directory's name, lowercased. A corpus with `[cluster.names]`
+# overrides patches those names instead, since no single prefix produces them.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namePrefix: yidam-streamflow-
+resources:
+  # A derived repository names the base by URL, pinned to its `cli/v*` tag. See
+  # base/kustomization.yaml.
+  - ../../../base
+components:
+  # For an `s3://` vault, drop this and generate the vault's keys as `vault` instead:
+  #
+  #   - name: vault
+  #     envs: [secrets/vault.env]   # YIDAM_VAULT_<NAME>_ACCESS_KEY_ID=… and _SECRET_ACCESS_KEY=…
+  - ../../../components/file-vault
+# Off, or no pod starts. Kustomize would name each secret `git-read-<hash>` and rewrite the
+# references it knows about, and it knows none inside an Argo workflow: the workflow would
+# mount `yidam-streamflow-git-read`, which would not exist.
+generatorOptions:
+  disableNameSuffixHash: true
+# The values are yours and are not committed: `secrets/` is ignored. A missing file fails the
+# build and names the file, so the two keys each secret needs are stated here and nowhere else.
+# `key` is a deploy key; `known_hosts` is the git host's. The read key must not have write
+# access. Only the lander mounts the write key, and that mount is the invariant (RFC-0026 §7).
+secretGenerator:
+  - name: git-read
+    files:
+      - key=secrets/git-read.key
+      - known_hosts=secrets/known_hosts
+  - name: git-write
+    files:
+      - key=secrets/git-write.key
+      - known_hosts=secrets/known_hosts

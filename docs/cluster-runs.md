@@ -67,7 +67,7 @@ The admission task runs `yidam cluster admit`. Its record says `admitted`. The p
 everything after it carry a `when` on that field. A clock that is not owed submits no step.
 `concurrencyPolicy: Forbid` keeps two runs of one corpus apart.
 
-The worked example is [cluster/streamflow.workflow.yml](cluster/streamflow.workflow.yml),
+The worked example is [streamflow.workflow.yml](../yidam/cluster/overlays/streamflow/streamflow.workflow.yml),
 generated from `examples/streamflow` and pinned by a test. The cron form is beside it.
 
 ## What admission reads
@@ -114,18 +114,18 @@ A pod holds no git identity. The commits it builds carry `yidam run` as author a
 
 ### Building your own
 
-Build from [cluster/Dockerfile](cluster/Dockerfile) to run a commit that is not released, or to
+Build from [yidam/cluster/Dockerfile](../yidam/cluster/Dockerfile) to run a commit that is not released, or to
 change the features the binary carries. Build from the repository root, because the CLI crate
 has two path dependencies beside it.
 
 ```sh
-docker build -f docs/cluster/Dockerfile -t ghcr.io/you/yidam-cluster:<version> .
+docker build -f yidam/cluster/Dockerfile -t ghcr.io/you/yidam-cluster:<version> .
 ```
 
 A digest of your own build names an image only you can pull. A receipt that records it tells
 a reader which image ran, but not how to get it.
 
-## Secrets and the service account
+## Deploy a corpus
 
 Each name below carries the corpus's name, so two corpora can share a namespace. The corpus
 name is its root directory's, lowercased. The manifest's header names both git secrets.
@@ -138,33 +138,88 @@ name is its root directory's, lowercased. The manifest's header names both git s
 | S3 vault keys | Secret | `yidam-<corpus>-vault` |
 | File vault | PersistentVolumeClaim | `yidam-<corpus>-vault` |
 
-To keep names you already have, set them under `[cluster.names]`. See
-[configuration.md](configuration.md#cluster).
+One Kustomize overlay creates all of them, beside the workflow that names them. The worked
+example is [yidam/cluster/overlays/streamflow](../yidam/cluster/overlays/streamflow/kustomization.yaml).
+A test builds it and checks that it creates exactly what the workflow names.
 
-Apply [cluster/argo-rbac.yml](cluster/argo-rbac.yml) under your corpus's name. It creates the
-run account and the one role Argo's executor needs, which is to record task results. The file
-names streamflow's account, so substitute yours:
+### Make the overlay
 
-```sh
-sed 's/yidam-streamflow-run/yidam-<corpus>-run/' docs/cluster/argo-rbac.yml \
-  | kubectl apply -n <namespace> -f -
+Copy the example into your corpus's repository. It has two layers:
+
+```text
+deploy/
+  kustomization.yaml         # resources: objects, and the workflow
+  <corpus>.cronworkflow.yml  # yidam cluster workflow --cron output
+  objects/
+    kustomization.yaml       # the prefix, the base, the vault and the git secrets
+    .gitignore               # secrets/
+    secrets/                 # your keys, never committed
 ```
 
-Pods do not mount the account's token. The executor sidecar uses it, the main container never
-sees it.
+In `objects/kustomization.yaml`, set the prefix to your corpus's: `namePrefix: yidam-<corpus>-`.
 
-Two git secrets, each holding a deploy key and a known-hosts file:
+Your repository has no copy of the base, so name it by URL. Pin it to the release your image runs:
 
-```sh
-kubectl create secret generic yidam-<corpus>-git-read \
-  --from-file=key=./read-only-deploy-key --from-file=known_hosts=./known_hosts
-kubectl create secret generic yidam-<corpus>-git-write \
-  --from-file=key=./read-write-deploy-key --from-file=known_hosts=./known_hosts
+```yaml
+resources:
+  - https://github.com/goedelsoup/yidam//yidam/cluster/base?ref=cli/v<version>
+components:
+  - https://github.com/goedelsoup/yidam//yidam/cluster/components/file-vault?ref=cli/v<version>
 ```
 
-The read key is a deploy key without write access. The write key is a deploy key with it.
-Only the lander mounts the second. That mount is the invariant. A test tries to break it. It
+The first release to carry the base is the one after `cli/v0.17.0`.
+
+Then write the workflow into the overlay:
+
+```sh
+yidam cluster workflow --cron "0 6 * * *" > deploy/<corpus>.cronworkflow.yml
+```
+
+### Add the keys
+
+Put three files in `objects/secrets/`:
+
+- `git-read.key` is a deploy key without write access.
+- `git-write.key` is a deploy key with write access.
+- `known_hosts` holds the git host's key.
+
+Only the lander mounts the write key. That mount is the invariant. A test tries to break it. It
 hands a valid commit to a process that cannot write, and checks that the remote refuses.
+
+### Apply it
+
+```sh
+kubectl apply -k deploy -n <namespace>
+```
+
+A missing key file fails the build and names the file.
+
+Two lines in the example matter, so keep them:
+
+- `disableNameSuffixHash: true`. Otherwise Kustomize adds a hash to each secret's name. The
+  workflow mounts the plain name, so no pod would start.
+- The workflow is listed above `objects/`, not inside it. The prefix would rename it too.
+
+The run account can do one thing: record task results for Argo's executor. Pods do not mount its
+token. The executor sidecar uses it, and the main container never sees it.
+
+### Run once
+
+A one-shot `Workflow` cannot go in the overlay. It has `generateName` and no name, and Kustomize
+refuses it. Apply the overlay first, then create the run:
+
+```sh
+yidam cluster workflow > yidam.workflow.yml
+kubectl create -f yidam.workflow.yml -n <namespace>
+```
+
+A corpus with no schedule lists `objects` alone in its top `kustomization.yaml`.
+
+### Names you set yourself
+
+To keep names you already have, set them under `[cluster.names]`. See
+[configuration.md](configuration.md#cluster). A prefix cannot produce those names, so patch
+them in `objects/` instead. The test covers the derived names only.
 
 ## Two vault backends
 
@@ -172,9 +227,9 @@ The vault carries every bundle between pods. Either backend works, and the workf
 one volume.
 
 **`file://`, no credentials at all.** Declare a URL under a mount. The generated workflow
-mounts a `PersistentVolumeClaim` named `yidam-<corpus>-vault` at that path on every pod. Create the
-claim with `ReadWriteMany` access, since pin, step and land run on any node. Nothing in it is a
-working tree. Pods write new digests and read old ones. This is not a shared checkout.
+mounts a `PersistentVolumeClaim` named `yidam-<corpus>-vault` at that path on every pod. The
+`file-vault` component creates it with `ReadWriteMany` access, since pin, step and land run on
+any node. Nothing in it is a working tree. Pods write new digests and read old ones.
 
 ```toml
 [cluster]
@@ -184,14 +239,24 @@ vault = "default"
 url = "file:///var/yidam/vault"
 ```
 
+The claim names no storage class. Patch one in if your default class cannot share a volume
+across nodes.
+
 **`s3://`.** Declare the bucket the way [artifact-vaults.md](artifact-vaults.md) declares one.
-Put the credentials in a secret named `yidam-<corpus>-vault`. Every pod reads it as environment. The
-variable names are the ones the vault already reads, prefixed by the vault's name:
+Drop the `file-vault` component, and generate the vault's secret in `objects/` instead:
+
+```yaml
+secretGenerator:
+  - name: vault
+    envs: [secrets/vault.env]
+```
+
+Every pod reads it as environment. The variable names are the ones the vault already reads,
+prefixed by the vault's name:
 
 ```sh
-kubectl create secret generic yidam-<corpus>-vault \
-  --from-literal=YIDAM_VAULT_DEFAULT_ACCESS_KEY_ID=... \
-  --from-literal=YIDAM_VAULT_DEFAULT_SECRET_ACCESS_KEY=...
+YIDAM_VAULT_DEFAULT_ACCESS_KEY_ID=...
+YIDAM_VAULT_DEFAULT_SECRET_ACCESS_KEY=...
 ```
 
 The secret is optional in the manifest, so a `file://` deployment creates none.

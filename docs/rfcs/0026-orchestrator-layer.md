@@ -77,6 +77,11 @@
   commits the files whose blocks changed. `index:` and `bundle:` commit the entry that
   `vault push` writes to `.yidam/index.lock`. `index-build` and `bundle` author nothing, because
   what they write is not tracked.
+- **Amended 2026-09-30 (#1229):** §7.2 is new. The objects around a generated workflow are a
+  Kustomize base and a streamflow overlay under `yidam/cluster/`, and a test builds the overlay
+  against the workflow. The base's names are roles, and an overlay's prefix makes them the ones
+  #1228 derives. A one-shot `Workflow` stays out, because Kustomize refuses `generateName`, and
+  the secret hash suffix is off. `--kustomize` is not built: it would remove no step.
 - **Downstream reference case:** none yet. The first consumer is `examples/streamflow`, by
   construction — see "Why the first thing built is not the manifest".
 
@@ -850,6 +855,46 @@ both key sets off the serialized structs and fails if the record gains a field t
 **What is not built.** In a pod, the bytes a fetch obtains go to that pod's cache, not to the
 vault. `catalog-extract` in a later pod therefore records what it can read and skips the PDFs it
 cannot, saying why. Carrying fetched bytes into the vault between pods is not part of this.
+
+### 7.2 — What surrounds a workflow is a Kustomize overlay
+
+*Amended 2026-09-30 (#1229).*
+
+A generated workflow names four objects it does not create: a service account, two git secrets
+and a vault. Until now they were a manual's `kubectl` lines, and nothing checked that the lines
+created what the workflow named. They are now a Kustomize base and an example overlay under
+`yidam/cluster/`, and a test builds the overlay and compares the result with the workflow.
+
+**Kustomize, not Helm.** yidam already generates the one manifest that varies by corpus. What
+is left is fixed objects under a per-corpus name, which is a prefix, not a template. A chart
+would put a second renderer beside the generator, with its own values file that could disagree
+with `[cluster]`. `kubectl apply -k` needs no tool the cluster does not already have.
+
+**The base carries roles, not names.** Its objects are named `run`, `git-read`, `git-write` and
+`vault`. An overlay's `namePrefix: yidam-<corpus>-` produces the names #1228 derives, and Kustomize
+rewrites the RoleBinding's references to match. The prefix and the derivation are two statements
+of one rule, so the test holds them to each other: every object the workflow names must be built,
+and nothing else may be.
+
+**Two facts the build settled.**
+
+- *A one-shot `Workflow` cannot be in the overlay.* It carries `generateName`, and Kustomize
+  refuses an object without `metadata.name`. So does `kubectl apply`. The overlay holds the
+  `CronWorkflow`, which has a name, and a one-shot run is `kubectl create -f` after the overlay
+  is applied. The cron workflow sits above the prefixed layer, or it would be prefixed twice.
+- *The secret generator's hash suffix is off.* Kustomize rewrites references to a generated
+  secret in the kinds it knows, and it knows none inside an Argo template. With the suffix on,
+  the workflow mounts a secret that does not exist. The test fails if the suffix returns.
+
+**The base is versioned with the binary.** A derived repository has no `yidam/`, so its overlay
+names the base by URL at a `cli/v*` tag. The generator and the base it expects then come from one
+release. CI builds only the in-repo path, since no released tag carries the base until the next
+one.
+
+**What is not built.** `yidam cluster workflow --kustomize` was proposed, to write the overlay as
+well. Its best case writes a kustomization naming a tagged URL, which is one copied file. It
+removes no step, so it waits for a corpus whose overlay shows one. `[cluster.names]` overrides
+are patched by hand; no prefix produces them, and the test covers the derived names only.
 
 ### 8 — A gather asks peers a question and lands what they said, cited
 
