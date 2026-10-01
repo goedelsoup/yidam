@@ -23,12 +23,14 @@ Use this domain for dependency-free hydrological back-of-envelope calculations o
 
 ## Parity tolerance
 
-The parity tests compare with an absolute `EPSILON = 1e-9`, in the unit of each function's
-output: m/s for `manning_velocity`, years for `return_period`, and the unconverted
-`C · i · A` product for `rational_product`.
+The parity tests compare relatively, with an absolute floor:
+`|a − b| ≤ max(1e-12 · max(|a|, |b|), 1e-9)`, the floor in the unit of each function's output:
+m/s for `manning_velocity`, years for `return_period`, and the unconverted `C · i · A` product
+for `rational_product`.
 
 The tolerance is defensive. `manning_velocity` calls `powf(2/3)`, and `pow` is not required to
-be correctly rounded, so two runtimes' libms may disagree. No fixture currently needs it:
-every `manning_velocity` fixture uses `r = 1`, and all nine fixtures are bit-identical in all
-three runtimes. A fixture with a non-unit hydraulic radius is the first that could need it.
-The rule this follows is in [Comparing floats](../parity/README.md#comparing-floats).
+be correctly rounded, so two runtimes' libms may disagree. None do yet:
+`manning_velocity/concrete-channel` is the first fixture with a non-unit hydraulic radius, and
+all ten fixtures are bit-identical in all three runtimes on macOS. The form matches `finance`,
+whose `pow` divergence is measured, because an error in `pow` scales with its result. The rule
+this follows is in [Comparing floats](../parity/README.md#comparing-floats).

@@ -79,14 +79,15 @@ result is not exact may compare with a tolerance. It must:
    [`geodesics.haversine_km/paris-london.toml`](fixtures/geodesics.haversine_km/paris-london.toml)
    records what a two-decimal literal cost.
 
-Three domains carry one today. Their constants are absolute and in different units, so they
-cannot be compared directly:
+Three domains carry one today. `geodesics` is absolute; `finance` and `hydrology` are
+relative with an absolute floor, as Python's `math.isclose` computes it, with the same formula
+written out in Rust and TypeScript:
 
-| domain | tolerance | unit | made necessary by |
+| domain | tolerance | unit of the absolute part | made necessary by |
 |---|---|---|---|
-| [`geodesics`](../geodesics/README.md#parity-tolerance) | `1e-4` absolute | km and degrees | `sin`, `cos`, `atan2` |
-| [`finance`](../finance/README.md#parity-tolerance) | `1e-9` absolute | the currency of the input | `powi` against `pow` |
-| [`hydrology`](../hydrology/README.md#parity-tolerance) | `1e-9` absolute | m/s, years, and the rational product | `powf(2/3)` |
+| [`geodesics`](../geodesics/README.md#parity-tolerance) | `1e-4` absolute | km and degrees | `atan2` |
+| [`finance`](../finance/README.md#parity-tolerance) | `1e-12` relative, `1e-9` floor | the currency of the input | `powi` against `pow` |
+| [`hydrology`](../hydrology/README.md#parity-tolerance) | `1e-12` relative, `1e-9` floor | m/s, years, and the rational product | `powf(2/3)` |
 
 ## Directory layout
 

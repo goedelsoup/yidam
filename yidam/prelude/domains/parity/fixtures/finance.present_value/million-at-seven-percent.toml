@@ -1,0 +1,14 @@
+function = "finance.present_value"
+description = "1,000,000 due in 30 periods at 7% ≈ 131,367.12 today"
+
+# The Rust reference's value. Python and TypeScript land at 131367.11715458962,
+# 1.8e-10 away: inside the old absolute 1e-9, because dividing shrinks the error that
+# multiplying in future_value grows. The relative tolerance treats both the same way.
+
+[input]
+fv = 1000000.0
+rate = 0.07
+periods = 30
+
+[expected]
+pv = 131367.1171545898

@@ -1,7 +1,13 @@
 use yidam_domain_hydrology::{manning_velocity, rational_product, return_period};
 
-// Absolute, in each function's output unit. Why this domain is not exact: hydrology/README.md#parity-tolerance
-const EPSILON: f64 = 1e-9;
+// Relative, with an absolute floor in each function's output unit, as Python's math.isclose computes it.
+// Why this domain is not exact: hydrology/README.md#parity-tolerance
+const REL_TOL: f64 = 1e-12;
+const ABS_TOL: f64 = 1e-9;
+
+fn is_close(a: f64, b: f64) -> bool {
+    (a - b).abs() <= (REL_TOL * a.abs().max(b.abs())).max(ABS_TOL)
+}
 
 use yidam_domain_testkit::load_fixtures;
 
@@ -17,7 +23,7 @@ fn parity_rational_product() {
         );
         let expected = fx["expected"]["result"].as_float().unwrap();
         assert!(
-            (result - expected).abs() < EPSILON,
+            is_close(result, expected),
             "rational_product: got {result}, expected {expected}"
         );
     }
@@ -35,7 +41,7 @@ fn parity_manning_velocity() {
         );
         let expected = fx["expected"]["velocity"].as_float().unwrap();
         assert!(
-            (result - expected).abs() < EPSILON,
+            is_close(result, expected),
             "manning_velocity: got {result}, expected {expected}"
         );
     }
@@ -52,7 +58,7 @@ fn parity_return_period() {
         );
         let expected = fx["expected"]["years"].as_float().unwrap();
         assert!(
-            (result - expected).abs() < EPSILON,
+            is_close(result, expected),
             "return_period: got {result}, expected {expected}"
         );
     }

@@ -1,0 +1,14 @@
+function = "finance.future_value"
+description = "1,000,000 at 7% for 30 periods ≈ 7,612,255.04"
+
+# The Rust reference's value. Python and TypeScript compute `pow` where Rust multiplies
+# repeatedly with `powi`, and land at 7612255.042662042: 1.1e-8 away, ten times the
+# absolute 1e-9 this domain compared with until #1281. The relative tolerance holds it.
+
+[input]
+pv = 1000000.0
+rate = 0.07
+periods = 30
+
+[expected]
+fv = 7612255.042662031

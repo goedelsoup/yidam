@@ -8,8 +8,14 @@ import { presentValue, futureValue, simpleInterest, sharpeRatio } from '../src/i
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const FIXTURES_DIR = join(__dirname, '../../../parity/fixtures')
-// Absolute, in the input's currency. Why this domain is not exact: finance/README.md#parity-tolerance
-const EPSILON = 1e-9
+// Relative, with an absolute floor in the input's currency, as Python's math.isclose computes it.
+// Why this domain is not exact: finance/README.md#parity-tolerance
+const REL_TOL = 1e-12
+const ABS_TOL = 1e-9
+
+function isClose(a: number, b: number): boolean {
+  return Math.abs(a - b) <= Math.max(REL_TOL * Math.max(Math.abs(a), Math.abs(b)), ABS_TOL)
+}
 
 function loadFixtures(fn: string): Record<string, unknown>[] {
   const dir = join(FIXTURES_DIR, fn)
@@ -27,7 +33,7 @@ describe('parity: finance.present_value', () => {
     const inp = fx['input'] as Record<string, number>
     const exp = fx['expected'] as Record<string, number>
     it(fx['description'] as string, () => {
-      expect(Math.abs(presentValue(inp['fv'], inp['rate'], inp['periods']) - exp['pv'])).toBeLessThan(EPSILON)
+      expect(isClose(presentValue(inp['fv'], inp['rate'], inp['periods']), exp['pv'])).toBe(true)
     })
   }
 })
@@ -39,7 +45,7 @@ describe('parity: finance.future_value', () => {
     const inp = fx['input'] as Record<string, number>
     const exp = fx['expected'] as Record<string, number>
     it(fx['description'] as string, () => {
-      expect(Math.abs(futureValue(inp['pv'], inp['rate'], inp['periods']) - exp['fv'])).toBeLessThan(EPSILON)
+      expect(isClose(futureValue(inp['pv'], inp['rate'], inp['periods']), exp['fv'])).toBe(true)
     })
   }
 })
@@ -51,7 +57,7 @@ describe('parity: finance.simple_interest', () => {
     const inp = fx['input'] as Record<string, number>
     const exp = fx['expected'] as Record<string, number>
     it(fx['description'] as string, () => {
-      expect(Math.abs(simpleInterest(inp['principal'], inp['rate'], inp['time']) - exp['interest'])).toBeLessThan(EPSILON)
+      expect(isClose(simpleInterest(inp['principal'], inp['rate'], inp['time']), exp['interest'])).toBe(true)
     })
   }
 })
@@ -63,7 +69,7 @@ describe('parity: finance.sharpe_ratio', () => {
     const inp = fx['input'] as Record<string, number>
     const exp = fx['expected'] as Record<string, number>
     it(fx['description'] as string, () => {
-      expect(Math.abs(sharpeRatio(inp['ret'], inp['risk_free'], inp['std_dev']) - exp['ratio'])).toBeLessThan(EPSILON)
+      expect(isClose(sharpeRatio(inp['ret'], inp['risk_free'], inp['std_dev']), exp['ratio'])).toBe(true)
     })
   }
 })

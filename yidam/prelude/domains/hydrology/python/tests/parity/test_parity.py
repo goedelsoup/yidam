@@ -1,10 +1,13 @@
+import math
 import tomllib
 from pathlib import Path
 from yidam_domain_hydrology import rational_product, manning_velocity, return_period
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"
-# Absolute, in each function's output unit. Why this domain is not exact: hydrology/README.md#parity-tolerance
-EPSILON = 1e-9
+# Relative, with an absolute floor in each function's output unit.
+# Why this domain is not exact: hydrology/README.md#parity-tolerance
+REL_TOL = 1e-12
+ABS_TOL = 1e-9
 
 def load_fixtures(function: str) -> list[dict]:
     d = FIXTURES_DIR / function
@@ -22,7 +25,7 @@ def test_parity_rational_product():
     for fx in fixtures:
         inp = fx["input"]
         result = rational_product(inp["c"], inp["i"], inp["a"])
-        assert abs(result - fx["expected"]["result"]) < EPSILON
+        assert math.isclose(result, fx["expected"]["result"], rel_tol=REL_TOL, abs_tol=ABS_TOL)
 
 def test_parity_manning_velocity():
     fixtures = load_fixtures("hydrology.manning_velocity")
@@ -30,7 +33,7 @@ def test_parity_manning_velocity():
     for fx in fixtures:
         inp = fx["input"]
         result = manning_velocity(inp["n"], inp["r"], inp["s"])
-        assert abs(result - fx["expected"]["velocity"]) < EPSILON
+        assert math.isclose(result, fx["expected"]["velocity"], rel_tol=REL_TOL, abs_tol=ABS_TOL)
 
 def test_parity_return_period():
     fixtures = load_fixtures("hydrology.return_period")
@@ -38,4 +41,4 @@ def test_parity_return_period():
     for fx in fixtures:
         inp = fx["input"]
         result = return_period(inp["record_years"], inp["rank"])
-        assert abs(result - fx["expected"]["years"]) < EPSILON
+        assert math.isclose(result, fx["expected"]["years"], rel_tol=REL_TOL, abs_tol=ABS_TOL)

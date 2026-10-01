@@ -1,0 +1,14 @@
+function = "finance.future_value"
+description = "1,000,000 at 0.5% a month for 360 months ≈ 6,022,575.21"
+
+# The largest divergence measured in this domain: Python and TypeScript land at
+# 6022575.212262986, 9.8e-8 away and 1.6e-14 relative. The `powi` error grows with the
+# period count, which is what a monthly schedule is for.
+
+[input]
+pv = 1000000.0
+rate = 0.005
+periods = 360
+
+[expected]
+fv = 6022575.2122628875
