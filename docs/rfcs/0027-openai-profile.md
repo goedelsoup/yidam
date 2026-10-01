@@ -8,15 +8,19 @@
   - RFC-0019 (the rule that decides what a dependency node's `url` may say)
   - RFC-0003 (the light binary this must run in)
   - RFC-0018 (the precedent that a new surface is a surface and **not** a fourth parity function)
+  - RFC-0029 (the `act` tier, whose two write tools this profile must refuse, and whose §2.5 decides the contract version)
+  - RFC-0032 (whose §4.2 locator is what `url` renders, and which generalises `public_base` off this profile)
 - **Versioning layers touched:** SDK+parity (`mcp/tools.json` gains a `profiles` section
   and one frozen refusal token; new conformance cases) / tooling (the Rust CLI implements
-  `serve --mcp --profile openai`) — **no template change, no node-model change**
-- **Parent epic:** #420 — this RFC specifies **#426**. Blocked on **#423** for a transport
-  and on **#428** for the thing `url` points at.
+  `serve --mcp --profile openai`; `.yidam.toml` gains `public_base`) — **no template change,
+  no node-model change**
+- **Parent epic:** #420 — this RFC specifies **#426**. ~~Blocked on **#423** for a transport~~
+  (#423 shipped 2026-09-03). Leaves Draft on one live observation (Open questions). It does
+  **not** wait on #428 to be built: §5 accepts a loopback base.
 - **Downstream reference case:** none yet — `examples/streamflow` under D1 (#428), by
   construction.
 
-> **Version coordination, 2026-09-04.** Migration below reserves contract `0.12.0 → 0.13.0` for
+> **Version coordination, 2026-09-04.** Migration as first written reserved contract `0.12.0 → 0.13.0` for
 > the `profiles` addition. That version is no longer available: commit 8b49753, landing the corpus
 > handshake block three hours after this RFC did, consumed 0.13.0, and cli/v0.9.0 released it —
 > live `tools.json` reads 0.13.0 with no `profiles` key. Per
@@ -24,6 +28,34 @@
 > reserved in prose**: the `profiles` change takes the next free minor on the day it merges
 > (expected 0.14.0, ahead of RFC-0029's `act` tier at 0.15.0), and the two changes are two
 > separate minors, never one.
+
+> **Re-measured against the tree, 2026-10-01.** Four weeks of other work moved the surface this
+> RFC projects, and the text below is amended in place where it had gone false. What changed, so a
+> reader of the September draft knows what to re-read:
+>
+> - **The transport exists.** #423 shipped `serve --mcp --http` behind the `serve-http` feature,
+>   with `--bind`, `--allow-origin`, a bearer token and a vault-backed bundle source. The
+>   "set aside, unbuilt" framing in Problem is gone.
+> - **Sixteen tools, not thirteen, at contract 0.27.0.** `paths` (ontology) and the `act` tier's
+>   `propose` and `cycle` were added. Fourteen go unlisted under the profile, two of them write
+>   tools — §2 now says what happens when the profile meets `[serve] act = true`.
+> - **`retrieve` grew.** It takes `corpora` and `where`, and answers `scope` and a per-row
+>   `corpus` (#835, contract 0.24.0); `degraded_reason` gained `remote_unavailable` (RFC-0033).
+>   §3 and §4 say what the profile does with each.
+> - **`url` has a grammar now.** RFC-0032 §4.2 defines the locator as `https://<base>/<kind>/<path>`,
+>   so a node renders `<base>/node/<class>/<name>` and not this draft's `<base>/<class>/<name>`;
+>   and it reads the base as a property of the *corpus*, which `export --format rdf` is waiting on
+>   too (`export_rdf.rs`, `instance_iri`). §5 moves the key out of `[serve]` for that reason.
+> - **The vendor now asks for an `outputSchema`.** Re-read 2026-10-01: *"Declare an output schema
+>   for each tool so clients can validate the result shape."* No yidam tool declares one today.
+>   That makes the open question about the `yidam` key mostly ours to answer — §4(a) and Open
+>   questions.
+> - **No dependency can declare a base.** `LockedPackage` (`deps.rs:88-103`) records `url`,
+>   `commit` and `sha256`, and no base. §5's per-package branch is unreachable today, so every
+>   dependency node is omitted from `search` and counted.
+>
+> The design is unchanged: a projection, one new token, a configured base. The conformance list
+> grows from seven cases to nine, plus one CLI test (§7).
 
 ## Summary
 
@@ -59,6 +91,11 @@ to re-read before building. Re-read 2026-09-03:
   neither tool can still be added as a connector and is usable in chat; it is inert in deep
   research and company knowledge, which retrieve only through that pair.
 
+Re-read again 2026-10-01: both quotations above still stand, and the page has gained a sentence —
+*"Declare an output schema for each tool so clients can validate the result shape"* — with an
+example generating `output_schema` from typed return models. It is advice, not a requirement, and
+it constrains nothing outside the two tools. §4(a) takes it.
+
 So the accurate statement of the constraint is:
 
 | | filed as | actually |
@@ -75,7 +112,7 @@ include the same value as a JSON-encoded string in the content array for compati
 **Why this correction is worth its own section.** The wrong premise pointed at the right design
 for the wrong reason, and a design justified by a rule that does not exist is a design nobody can
 argue with. Held to the true constraint, the profile has to earn its place against a one-line
-alternative — add two tools to the thirteen — and the rest of this RFC is that argument.
+alternative — add two tools to the sixteen — and the rest of this RFC is that argument.
 
 ### Why the conclusion survives
 
@@ -87,43 +124,45 @@ Two reasons, both internal to this repository, plus one the vendor states about 
    with three names is what produced three incompatible servers. The constraint that a platform
    spells the name `search` does not make it a second operation; it makes it a second *rendering*.
 2. **The shapes are not compatible, and the incompatibility is load-bearing.** `retrieve` returns
-   `degraded`, `degraded_reason`, `rejected` and `absence` on every call —
-   `prelude/sdks/parity/mcp/tools.json` freezes all four. The `search` shape has three fields per
+   `degraded`, `degraded_reason`, `rejected`, `absence` and `scope` on every call —
+   `prelude/sdks/parity/mcp/tools.json` freezes all five. The `search` shape has three fields per
    result and no envelope. A single tool cannot satisfy both without one of them lying about what
    it carries.
 3. **The vendor argues against a long list on its own account.** The connectors guide:
    *"Some MCP servers can have dozens of tools, and exposing many tools to the model can result in
-   high cost and latency,"* with `allowed_tools` offered as the remedy. yidam serves thirteen. A
+   high cost and latency,"* with `allowed_tools` offered as the remedy. yidam serves sixteen. A
    profile is `allowed_tools` decided by the server, which is the side that knows which subset is
    coherent.
 
 ## Problem
 
-The state of the surface, with the transport question set aside (that is #423, and it is
-unbuilt — `main.rs:490-499` still offers `Serve { mcp, lsp }` and nothing else).
+The state of the surface. The transport is no longer a question: #423 shipped
+`serve --mcp --http` (`main.rs`, the `Serve` arm's `http` flag, behind the `serve-http` feature),
+so a platform can reach a server today and nothing here waits on a transport.
 
-`prelude/sdks/parity/mcp/tools.json` freezes thirteen tools at contract `0.12.0`: `retrieve`,
-`get_node`, `list_nodes`, `open_questions`, `claims`, `check_subject`, `check_citation`,
-`claim_tags`, `neighbors`, `query`, `pack`, `estimate`, `licensed_edges`. Ten are `core` or
-`ontology`; none is named `search` or `fetch`; and the two nearest disagree in shape as well as
-name:
+`prelude/sdks/parity/mcp/tools.json` freezes sixteen tools at contract `0.27.0`: `retrieve`,
+`get_node`, `list_nodes`, `open_questions`, `claims`, `check_subject`, `claim_tags` (`core`);
+`check_citation` (`dependencies`); `neighbors` (`graph`); `query`, `paths`, `pack`, `estimate`,
+`licensed_edges` (`ontology`); and `propose`, `cycle` (`act`, RFC-0029). None is named `search`
+or `fetch`, and the two nearest disagree in shape as well as name:
 
 | | canonical | required by the platform |
 |---|---|---|
-| find | `retrieve` → `{degraded, degraded_reason, rejected, absence, results:[{id, path, class, label, text, score, origin}]}` | `search` → `{results:[{id, title, url}]}` |
-| read | `get_node` → `{id, class, label, description, content, links, origin}` | `fetch` → `{id, title, text, url, metadata}` |
+| find | `retrieve` → `{degraded, degraded_reason, rejected, absence, scope, results:[{id, path, corpus, class, label, text, score, origin}]}` | `search` → `{results:[{id, title, url}]}` |
+| read | `get_node` → `{id, origin, class, label, description, content, links}` | `fetch` → `{id, title, text, url, metadata}` |
 
 Three things follow, and each is a decision this RFC has to take rather than discover:
 
-- **The canonical envelope has four fields with nowhere to go.** `degraded` and `degraded_reason`
+- **The canonical envelope has five fields with nowhere to go.** `degraded` and `degraded_reason`
   say whether an answer is semantic or keyword and what to repair; `absence` says which kind of
   nothing an empty answer is, with the denominator it is about; `rejected` says a call was refused
-  rather than answered empty. The `search` shape has room for none of them. Dropping them silently
-  is the move this repository keeps declining to make.
+  rather than answered empty; `scope` says whether a span across corpora took effect. The `search`
+  shape has room for none of them. Dropping them silently is the move this repository keeps
+  declining to make.
 - **`url` is mandatory and this corpus has no address.** It is the field a research citation is
-  rendered from. `yidam://corpus/<class>/<name>` is well-defined (`cmd/serve/resources.rs:40-71`)
-  and resolves nowhere a reader can follow.
-- **Eleven canonical tools would go unlisted,** and `tools.json` says in terms that this is not
+  rendered from. A node's identifier, `yidam://<corpus>/node/<class>/<name>` (RFC-0032 §4.1), is
+  well-defined and resolves nowhere a reader can follow.
+- **Fourteen canonical tools would go unlisted,** and `tools.json` says in terms that this is not
   allowed on its own: *"A TOOL A SERVER DOES NOT BACK MUST REFUSE, NOT MERELY GO UNLISTED"*
   (contract 0.11.1). The clause was written about capability holes. A profile is a different
   reason for the same silence, and the clause does not currently cover it.
@@ -138,7 +177,7 @@ Not a tier, not a capability, not a second contract.
   backs a tier or declares it false. A profile replaces the vocabulary rather than narrowing it.
 - **Not a capability.** The capability block says what this **corpus and build** can back —
   `retrieve.vector`, `ontology`, `dependencies` are all facts a server discovers about itself
-  (`cmd/serve/tools.rs:31-61`). Which vocabulary it speaks is a fact about how it was *started*.
+  (`capabilities` in `cmd/serve/tools.rs`). Which vocabulary it speaks is a fact about how it was *started*.
   The two are orthogonal: a degraded server under the `openai` profile still degrades, and must
   still say so.
 
@@ -162,13 +201,18 @@ node reading; a profile tool is a rendering of a canonical response, so a server
 two apart without failing a case that compares them (§7).
 
 **The handshake says which vocabulary is live.** The `yidam` capability block
-(`cmd/serve/mod.rs:439-446`) gains `"profile": "openai"`, null under the canonical vocabulary.
-Without it, a client seeing two tools where the contract froze thirteen cannot tell a conforming
-yidam server from a broken one.
+(the `initialize` handler in `cmd/serve/mod.rs`) gains `"profile": "openai"`, null under the
+canonical vocabulary. Without it, a client seeing two tools where the contract froze sixteen
+cannot tell a conforming yidam server from a broken one.
 
-### 2 — Eleven tools go unlisted, and 0.11.1 says that is not enough
+**The profile projects tools, and only tools.** `resources/list` and `resources/read` are
+unchanged under it: the platform reads neither, nothing in the `search`/`fetch` shape refers to a
+resource, and a profile that also rewrote the resource namespace would be a second vocabulary
+for something no platform asked to have renamed.
 
-Under `--profile openai`, `tools/list` is exactly `search` and `fetch`. The other eleven are not
+### 2 — Fourteen tools go unlisted, and 0.11.1 says that is not enough
+
+Under `--profile openai`, `tools/list` is exactly `search` and `fetch`. The other fourteen are not
 served. Contract 0.11.1 requires that an unserved tool **refuse** rather than merely go missing,
 because a server that answers a tool it did not list has told a client two things at once.
 
@@ -187,6 +231,25 @@ spelling mistake), `capability-not-supported` (this server cannot), `not-in-prof
 can, and not under this name). Adding the token is a minor bump of the contract; it does not
 change any behaviour outside a profile.
 
+**When two refusals apply, `not-in-profile` wins.** Under the profile, `query` on an
+unschematised corpus is both unbacked and unspoken. The token a caller receives should name the
+repair that would make the call succeed, and no repair to the corpus will: building an ontology
+leaves `query` exactly as unreachable under this profile as it was. `capability-not-supported`
+sends the caller to fix something that is not the obstacle. So the profile check runs first, in
+front of `refuse_unbacked` (`cmd/serve/tools.rs`), and the capability block still reports
+`ontology: false` truthfully for anyone who reads it.
+
+**The profile is read-only, and a corpus that asks to be written refuses it.** `propose` and
+`cycle` are the `act` tier (RFC-0029), declared only when `[serve] act = true`. Both platform
+tools are read-only by requirement and D2 holds writes closed off-platform, so under the profile
+the `act` tier is unreachable whatever the corpus says. Two readings were possible: declare
+`act: false` and serve, or refuse to start. **Refuse to start, naming both settings.** RFC-0029
+§2.2 already decided this shape for its own clauses — *a server that was told to write and serves
+reads instead is a deployment that believes something false about itself* (`ServeConfig::act`'s
+doc comment) — and a silently-downgraded `act` is that sentence's exact case. The repair is one
+line, and the operator who wrote `act = true` learns about it at startup rather than from a
+connector that never writes.
+
 ### 3 — The mapping
 
 **`search(query)` → `retrieve({query, k: 5})`.**
@@ -201,6 +264,15 @@ change any behaviour outside a profile.
 cannot pass a class filter and `retrieve`'s `rejected` / `unknown-class` arm is **unreachable
 under this profile by construction**. That is worth stating rather than leaving to be noticed —
 it reads as a hole otherwise.
+
+The two arguments `retrieve` gained after this draft are unexposed for the same reason. **`where`**
+(the date/number predicate) has no slot in a one-string call. **`corpora`** is never passed, so
+`scope` is always `local` under the profile and no row can come from another corpus in a shared
+vector index. That matters beyond tidiness: such a row's id is a `yidam://<corpus>/node/…`
+identifier that `get_node` cannot fetch (#835 — *"an identifier rather than a handle"*), and
+`search` hands out ids for the sole purpose of being fetched. Not passing `corpora` is what keeps
+every `search` id fetchable; a later profile revision that spans corpora would have to omit and
+count foreign rows exactly as §5 does for base-less dependencies.
 
 `k` is fixed at the canonical default of 5. A profile that quietly retrieved a different number
 would be a second retrieval policy hiding inside a rendering. Changing it is a claim about how a
@@ -219,8 +291,8 @@ from the reference deployment (#428) and not before.
 
 `metadata` is optional in the platform shape and is the honest home for the three canonical
 fields that have no named slot. **`fetch` is therefore lossless**: every field `get_node` returns
-is present. `search` is lossy per result — `path`, `class`, `text`, `score` and `origin` are not
-in the shape — and the loss is recoverable by the `fetch` that the pair exists to make possible.
+is present. `search` is lossy per result — `path`, `corpus`, `class`, `text`, `score` and
+`origin` are not in the shape — and the loss is recoverable by the `fetch` that the pair exists to make possible.
 
 ### 4 — `degraded` and `absence` have somewhere to go
 
@@ -231,20 +303,40 @@ that most needs them is the one least able to read structured extras.
 `{results: [...], yidam: <the canonical `retrieve` response, verbatim>}`, in `structuredContent`
 and in the JSON-encoded `content` string alike — the platform asks that the two carry *the same
 value*, and they do. Any client that reads the extra key gets `degraded`, `degraded_reason`,
-`rejected` and `absence` unabridged. This is also what makes the projection **invertible**, and
-§7 turns that into a case.
+`rejected`, `absence` and `scope` unabridged. This is also what makes the projection
+**invertible**, and §7 turns that into a case.
+
+**Both profile tools declare an `outputSchema`, and the `yidam` key is in it.** The vendor page
+now asks for one (re-read 2026-10-01). Declaring it turns the question this draft left open —
+*would a strict validator reject the extra key?* — into one the server answers about itself: a
+client that validates against the declared schema finds `yidam` declared, as an optional object,
+and `results` / `id` / `title` / `url` required. What the schema cannot settle is whether the
+platform's own parser holds the shape to a schema of *its* writing instead of ours; that residue
+stays in Open questions. These are the first `outputSchema`s any yidam tool declares, and they
+are generated from `tools.json`'s `profiles` entry, not written beside it — a schema stated in two
+places is the second freeze §7.1 forbids.
 
 **(b) A degraded retrieval appends a notice result.** When `degraded` is true, the profile
 appends one synthetic result:
 
-- `id`: `yidam:notice/degraded` — a reserved prefix no node id can collide with, since a node id
-  is `<class>/<name>` and a dependency's is `pkg::class/name`
-- `title`: the reason in a sentence — *"Results are keyword matches, not semantic: this corpus has
-  no vector index."*
-- `url`: the profile's base
+- `id`: `yidam:notice/degraded` — a reserved prefix no node id in a conforming corpus can collide
+  with: a node id is `<class>/<name>`, a dependency's is `pkg::class/name`, a reference is
+  `yidam://…`, and `:` is not a slug character (`uri::is_slug`). Conformance is reported rather
+  than assumed (RFC-0032's #777 amendment), so `fetch` tests the prefix **before** handing an id
+  to `get_node` rather than relying on no node being named that.
+- `title`: the reason in a sentence, one per frozen `degraded_reason` — e.g. for `no_index`,
+  *"Results are keyword matches, not semantic: this corpus has no vector index."*
+- `url`: the locator of the base itself (§5)
 
 `fetch` on that id returns the frozen `degraded_reason` and its repair as `text`, with
 `metadata.kind = "notice"`. It is appended rather than prepended so it never displaces a real hit.
+
+**`remote_unavailable` is a property of the call, not the deployment** (RFC-0033; `tools.json`
+says so of it in terms). Its notice therefore cannot be fetched back on a later call as though it
+described the server: `fetch("yidam:notice/degraded")` re-reads the reason the *server* holds now,
+which for the other three values is the same answer and for this one may be none. `fetch` on a
+notice whose condition no longer holds returns the notice with `text` saying so — never `node not
+found`, which would tell a research agent the citation it just made was fabricated.
 
 **(c) An empty answer is one notice result, not zero results.** When `results` is empty, the
 profile returns exactly one result carrying the `absence` — code, message, and the `instances`
@@ -265,39 +357,65 @@ footnote.
 `yidam://` URI fails that job by construction. Putting one there chooses an unresolvable link over
 an unattractive one.
 
-> `serve --mcp --profile openai` **requires** a public base, from `--public-base <url>` or
-> `[serve] public_base` in `.yidam.toml`. Without one it exits, naming the flag.
+> `serve --mcp --profile openai` **requires** a public base, from `--public-base <url>` or a
+> top-level `public_base` in `.yidam.toml`. Without one it exits, naming both.
 
-A local node renders `<base>/<class>/<name>`. The base may be any absolute URL, `http://localhost:…`
-included, so testing against the Responses API needs no deployment — the refusal is about
-*absence*, not about publicness.
+**A node renders RFC-0032's locator, `<base>/node/<class>/<name>`,** built by the one renderer in
+`yidam_core::uri` rather than formatted here. This draft first said `<base>/<class>/<name>`;
+RFC-0032 §4.2 has since fixed the locator as `https://<base>/<kind>/<path>`, and a profile that
+assembled its own spelling would be the "fourth hand-built spelling of an id" `export_rdf.rs`
+already records as a defect. The notice results' `url` (§4b) is the base itself.
+
+**The key is top-level, not under `[serve]`.** This draft put it in `[serve]` and called the base
+"a deployment fact, not a corpus one". RFC-0032 §4.2 reads it the other way — *"derived,
+per-corpus, from a declared base"* — and it has a second reader that is not a server: the RDF
+export's subject IRIs use the locator where a base is declared and a `urn:yidam:` form where none
+is, and `instance_iri` (`cmd/export_rdf.rs`) says in a comment that its locator branch "lands with
+`public_base`". A key under `[serve]` read by `export` would misname what it is. `--public-base`
+stays as the flag, because a base for one run — a tunnel, a localhost test — is a deployment fact,
+and the flag overrides the file for that run only.
+
+The base may be any absolute URL, `http://localhost:…` included, so testing against the Responses
+API needs no deployment — the refusal is about *absence*, not about publicness. This is also why
+the build does not wait on #428: #428 supplies a base worth citing, not the code that renders one.
 
 **A dependency node cannot use the local base.** `retrieve` searches every installed dependency and
 hands back qualified ids; rendering `<local-base>/upstream::concept/foo` would assert that this
 corpus publishes a node it does not own. RFC-0019's rule is about edge targets and a rendered
 citation is not an edge, so this is not a constitutional violation — it is simply false. The lock
-file records where each dependency came from and at what commit (`deps.rs:89-102`:
-`LockedPackage { name, url, sha256, commit, … }`), so the honest render is that package's own
-declared base. Where a dependency declares none:
+file records where each dependency came from and at what commit (`deps.rs:88-103`:
+`LockedPackage { name, url, sha256, commit, genesis, model, dims, nodes }`), so the honest render
+is that package's own declared base. Where a dependency declares none:
 
 > Its nodes are **omitted from `search` under this profile, and the omission is counted** — in the
 > `yidam` key and, when the omission empties the answer, in the absence notice. Never silently.
 
-This is the clause that makes D1 concrete rather than deferred: until #428 exists there is nothing
-true for `--public-base` to point at, which is why this RFC specifies a profile and does not ship
-one.
+**Today that is every dependency.** `LockedPackage` has no base field and nothing copies a
+dependency's `.yidam.toml` into the lock, so the per-package branch has no input and the omission
+branch is the only reachable one. That is acceptable for this RFC — the omission is counted, and
+`fetch` still reads a dependency node by its qualified id (§6) — but carrying a base through
+`deps install` is its own change to the lock format and is **not** specified here. Writing the
+branch before a lock can feed it is the surface-with-no-consumer shape RFC-0032 declined for the
+same reason; the profile implements omit-and-count only, and the per-package branch lands with
+whatever puts a base in the lock.
+
+`url` is what still makes D1 concrete: until #428 exists, the only true thing `--public-base` can
+name is a loopback address or a tunnel, which is enough to build and measure against and not
+enough to publish citations from.
 
 ### 6 — `fetch` takes qualified ids, and that is already settled
 
 #426 lists this as open. It is not — the code answered it, and the answer is forced.
 
 `fetch` takes the id `search` returned. `search` projects `retrieve`, and since #425 both arms of
-`retrieve` return the **qualified** id: `cmd/serve/tools.rs:263` resolves the vector row's path
-through `find_node` and takes `qualified_id()`. `get_node` already accepts that form —
-`find_any_node` (`cmd/serve/tools.rs:193`) splits on `::` and reads the dependency, while
-`find_node` (`:170`) refuses `::` outright so a bare id can never fall through to a dependency and
-silently change what this repository says about itself. Both behaviours are under test
-(`tools.rs:1155` and the two tests following it).
+`retrieve` return the **qualified** id: the result builder in `retrieve` (`cmd/serve/tools.rs`)
+resolves a local row's path through `find_node` and takes `qualified_id()`. `get_node` already
+accepts that form — `find_any_node` asks `yidam_core::uri::parse_reference` which corpus an id
+names and reads the dependency when it names one, while `find_node` returns nothing for any id
+that names a corpus, so a bare id can never fall through to a dependency and silently change what
+this repository says about itself. Both behaviours are under test
+(`get_node_reads_a_dependency_by_its_qualified_id` and its neighbours in `tools.rs`). Since
+RFC-0032, `yidam://<pkg>/node/<class>/<name>` reaches the same dependency node by the same path.
 
 So `fetch` accepts `pkg::class/name` because refusing it would break the pair, not because this
 RFC decides so. What the profile adds is §5's consequence: a qualified id is fetchable and its
@@ -324,36 +442,57 @@ running against the same fixture corpora (`corpora.json`). The properties worth 
    absence codes are reachable.
 7. **A dependency node without a declared base is omitted and counted.** `corpus/` installs
    `upstream`, so this is answerable there and nowhere else.
+8. **`not-in-profile` outranks `capability-not-supported`** (§2). `query` over
+   `corpus-unschematised/` is the case: the one call where both refusals apply, so a server that
+   checks them in the other order fails it and no other case.
+9. **Each profile tool's `outputSchema` is the one `tools.json` generates,** and every response in
+   cases 4–7 validates against it. A schema the server served but its own answers violate is the
+   failure §4(a) exists to rule out.
+
+One property is a CLI test, not a parity case, because it is a startup refusal and not a response:
+**`--profile openai` over a corpus with `[serve] act = true` exits non-zero naming both** (§2).
+It belongs beside `tests/mcp_act_tier.rs`, which already runs servers over `corpus-acting/`.
 
 ## What this does not do
 
-- **It does not add a transport.** #423 owns that, and nothing here can be reached until it lands.
+- **It does not add a transport.** #423 did, and the profile rides on it.
 - **It does not deploy anything.** #428 owns the base `url` points at.
-- **It does not touch the canonical thirteen.** No rename, no alias, no new tier. A server started
+- **It does not touch the canonical sixteen.** No rename, no alias, no new tier. A server started
   without `--profile` is byte-identical to today's.
-- **It does not open a write path.** D2 holds `propose` closed until OAuth supplies an author, and
-  both platform tools are read-only by requirement anyway.
+- **It does not open a write path.** D2 holds writes closed off-platform, both platform tools are
+  read-only by requirement, and §2 refuses to start rather than serve a corpus that asked for
+  `act`.
+- **It does not carry a base through the lock.** §5's per-package branch waits for a change that
+  puts one there.
 - **It does not make a second parity function.** Following RFC-0018: a new surface is a surface.
   The projection is specified on the parity layer because it is a contract; it adds no function to
   the parity function set.
 
 ## Migration & compatibility
 
-- **Parity layer.** `mcp/tools.json` gains `profiles` and the `not-in-profile` token; contract
-  `0.12.0` → `0.13.0` (additive: no canonical tool changes). New cases under
-  `profiles/openai/`. `prelude/sdks/parity/VERSION` takes a minor.
-- **Rust CLI.** `Serve` gains `--profile <name>` (`main.rs:490-499`) and `[serve] public_base`
-  joins `YidamConfig` (`config.rs:7-21`). The profile is a rendering layer over the existing
-  dispatch; it adds no retrieval or read path.
+- **Parity layer.** `mcp/tools.json` gains `profiles` and the `not-in-profile` token — one
+  additive minor, its number claimed at landing under RFC-0029 §2.5 (from 0.27.0 as of
+  2026-10-01, so 0.28.0 if nothing lands first). The bump moves every place the version lives:
+  `tools.json`, `mcp/VERSION`, the README and `docs/mcp-server.md` handshake examples, and a new
+  record appended to `mcp/CONTRACT_SHA`. New cases under `profiles/openai/`.
+  `prelude/sdks/parity/VERSION` takes a minor.
+- **Rust CLI.** `Serve` gains `--profile <name>` and `--public-base <url>`, both requiring `--mcp`;
+  `public_base` joins `YidamConfig` as a top-level key (§5). The profile is a rendering layer over
+  the existing dispatch; it adds no retrieval or read path. It is meaningful on stdio as well as
+  `--http` — nothing in the projection depends on the transport — though only `--http` reaches a
+  platform.
+- **RDF export.** Unchanged by this RFC. Once `public_base` exists, `instance_iri`'s locator
+  branch has its input, and turning it on is RFC-0032's change to make, not this one's.
 - **TS and Python servers.** Unaffected until they choose to implement the profile. A server that
-  does not declares no profile and serves the canonical thirteen, which is what it does today —
+  does not declares no profile and serves the canonical sixteen, which is what it does today —
   so this is additive for every existing consumer, BOSC included.
 - **Derived repositories.** Nothing changes for a repository that does not pass `--profile`. One
-  that does needs a `public_base`, which is a deployment fact, not a corpus one.
+  that does needs a base — committed as `public_base` if the corpus has a public home, or passed
+  per run as `--public-base` if it does not.
 
 ## Alternatives considered
 
-- **Add `search` and `fetch` to the canonical thirteen.** The one-line version, and legal now that
+- **Add `search` and `fetch` to the canonical sixteen.** The one-line version, and legal now that
   the exclusivity premise is gone. Rejected: it puts two names on one operation, which is the
   failure RFC-0005 exists to close, and it does it twice. It also leaves the shape problem
   untouched — the two new tools would still need `url`, still have nowhere for `absence`, and
@@ -377,12 +516,16 @@ running against the same fixture corpora (`corpora.json`). The properties worth 
 
 ## Open questions
 
-- **Does a strict `outputSchema` reject the `yidam` key?** §4(a) assumes an extra top-level key is
-  additive. If the platform validates the output schema with `additionalProperties: false`, the key
-  is refused and the fallback is that the canonical fields survive only in the notice result and in
-  `fetch` text — a real loss for structured clients. **This is not knowable from documentation and
-  must be measured against a live connector before this RFC leaves Draft.** It is the one thing here
-  that a fixture cannot settle.
+- **Does the platform hold `search` to a shape of its own writing?** Narrowed 2026-10-01. The
+  September draft asked whether a strict `outputSchema` rejects the `yidam` key; §4(a) now has the
+  server declare the schema, so a client validating against it finds the key declared. What is
+  left is whether ChatGPT parses the result against *its* expected shape and refuses an extra key
+  there — in which case the fallback is that the canonical fields survive only in the notice
+  result and in `fetch` text, a real loss for structured clients. **This is not knowable from
+  documentation and must be observed before this RFC leaves Draft.** It does not need #428: one
+  `search` call through the Responses API's MCP tool, against a server behind a tunnel with
+  `--public-base` set to the tunnel's URL, answers it. It is the one thing here a fixture cannot
+  settle, and it does **not** block building the profile — only accepting the RFC.
 - **Is the notice-as-result right, or should the absence stay in the extra key alone?** §4 takes a
   side and states its cost. A single observation of deep research citing a notice would be enough to
   reverse it.
