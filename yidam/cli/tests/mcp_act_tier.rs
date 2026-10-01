@@ -654,11 +654,26 @@ fn a_checkout_with_no_author_refuses_to_declare_act() {
 /// plain `output()` hangs until CI kills the job with no message. Mutating the clause to
 /// `if false` is what showed that: the guard was load-bearing and its failure was a timeout.
 /// A bounded wait turns it back into an assertion with a sentence on it.
+///
+/// **With a token or without one** (#939). A shared secret says a caller holds it, not who the
+/// caller is, so it cannot supply the author §2.2 asks for, and must not lift the clause.
 #[test]
 #[cfg(feature = "serve-http")]
 fn an_act_declaring_server_refuses_a_non_loopback_bind() {
+    for token in [None, Some("s3cret")] {
+        refuses_a_non_loopback_bind(token);
+    }
+}
+
+#[cfg(feature = "serve-http")]
+fn refuses_a_non_loopback_bind(token: Option<&str>) {
     let repo = stage_streamflow();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_yidam"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_yidam"));
+    match token {
+        Some(t) => command.env("YIDAM_SERVE_TOKEN", t),
+        None => command.env_remove("YIDAM_SERVE_TOKEN"),
+    };
+    let mut child = command
         .args([
             "serve", "--mcp", "--http", "--bind", "0.0.0.0", "--port", "0",
         ])
@@ -682,7 +697,8 @@ fn an_act_declaring_server_refuses_a_non_loopback_bind() {
         let _ = child.wait();
         panic!(
             "the server was still running after 20s with `act` declared and `--bind 0.0.0.0` \
-             — it bound a socket another machine can reach and started serving a write tier"
+             (token: {token:?}) — it bound a socket another machine can reach and started \
+             serving a write tier"
         );
     };
     assert!(!status.success(), "it exited zero, so it did not refuse");

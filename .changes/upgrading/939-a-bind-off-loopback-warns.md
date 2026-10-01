@@ -5,4 +5,4 @@ The transport authenticates nobody. Anyone who reaches the port can call every r
 The warning names each served tool, and the two repairs.
 
 **What changes for you: nothing, unless you watch stderr.** The server still starts and answers.
-Bind `127.0.0.1`, or put it behind a tunnel or proxy that authenticates.
+Bind `127.0.0.1`, or require a bearer token. A token silences the warning.

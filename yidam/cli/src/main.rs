@@ -918,8 +918,8 @@ enum Command {
         /// Serve MCP over HTTP instead of stdio — the remote agent surface (#423).
         ///
         /// Every platform that reaches a corpus by URL needs this; none of them can spawn a
-        /// subprocess on someone else's machine. Read-only, one corpus, no authentication:
-        /// put it behind a tunnel or a proxy that supplies one.
+        /// subprocess on someone else's machine. Read-only and one corpus. With no token it
+        /// authenticates nobody; set YIDAM_SERVE_TOKEN or `--token-file` to require one.
         #[cfg(feature = "serve-http")]
         #[arg(long, requires = "mcp")]
         http: bool,
@@ -942,6 +942,14 @@ enum Command {
         #[cfg(feature = "serve-http")]
         #[arg(long, value_name = "URL", requires = "http")]
         allow_origin: Vec<String>,
+        /// A file holding the bearer token `--http` requires on every request.
+        ///
+        /// Or set YIDAM_SERVE_TOKEN; not both. There is no flag taking the token itself,
+        /// because argv is visible in `ps` and in shell history. A token does not lift the
+        /// loopback rule for `[serve] act`.
+        #[cfg(feature = "serve-http")]
+        #[arg(long, value_name = "PATH", requires = "http")]
+        token_file: Option<std::path::PathBuf>,
     },
     /// Run corpus quality checks against the baseline ratchet
     Lint {
@@ -1871,6 +1879,8 @@ fn run() -> Result<()> {
             port,
             #[cfg(feature = "serve-http")]
             allow_origin,
+            #[cfg(feature = "serve-http")]
+            token_file,
         } => {
             if lsp && mcp {
                 anyhow::bail!("pick one transport — `--lsp` or `--mcp`")
@@ -1881,7 +1891,13 @@ fn run() -> Result<()> {
             }
             #[cfg(feature = "serve-http")]
             if mcp && http {
-                return yidam::serve_mcp_http(root, &bind, port, allow_origin);
+                return yidam::serve_mcp_http(
+                    root,
+                    &bind,
+                    port,
+                    allow_origin,
+                    token_file.as_deref(),
+                );
             }
             if mcp {
                 return yidam::serve_mcp(root);

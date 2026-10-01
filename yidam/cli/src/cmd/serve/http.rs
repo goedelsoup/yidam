@@ -22,7 +22,7 @@
 //!
 //! # The policy is pure, and that is deliberate
 //!
-//! Everything that decides whether a request is served — [`vet`], [`classify`] — takes plain
+//! Everything that decides whether a request is served — [`vet`], [`authorized`], [`classify`] — takes plain
 //! values and returns an [`Outcome`]. None of it needs a socket, so all of it is tested in this
 //! file's own unit tests rather than behind an integration harness that binds a port.
 
@@ -34,11 +34,12 @@ use std::net::SocketAddr;
 use anyhow::{Context, Result};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
-use hyper::header::{HeaderValue, CONTENT_TYPE};
+use hyper::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, WWW_AUTHENTICATE};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 
 use super::ServerState;
 
@@ -61,6 +62,8 @@ const DRAIN_LIMIT: usize = 64 * 1024;
 pub(crate) enum Refusal {
     /// The `Origin` header names a site that was not allowed. 403.
     OriginNotAllowed,
+    /// A token is configured and this request did not carry it. 401.
+    Unauthorized,
     /// `MCP-Protocol-Version` was not a protocol version. 400.
     MalformedProtocolVersion,
     /// GET: this server offers no server-initiated SSE stream. 405, and the spec's own answer.
@@ -80,6 +83,7 @@ impl Refusal {
     pub(crate) fn status(self) -> StatusCode {
         match self {
             Self::OriginNotAllowed => StatusCode::FORBIDDEN,
+            Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::MalformedProtocolVersion => StatusCode::BAD_REQUEST,
             Self::NoSseStream | Self::NoSessionToDelete | Self::MethodNotAllowed => {
                 StatusCode::METHOD_NOT_ALLOWED
@@ -92,6 +96,7 @@ impl Refusal {
     pub(crate) fn token(self) -> &'static str {
         match self {
             Self::OriginNotAllowed => "origin-not-allowed",
+            Self::Unauthorized => "unauthorized",
             Self::MalformedProtocolVersion => "malformed-protocol-version",
             Self::NoSseStream => "no-sse-stream",
             Self::NoSessionToDelete => "no-session-to-delete",
@@ -105,6 +110,13 @@ impl Refusal {
             Self::OriginNotAllowed => format!(
                 "{}: this request carried an Origin this server was not started with. Pass \
                  `--allow-origin <url>` for each browser origin that may reach it.",
+                self.token()
+            ),
+            // Names where the token comes from and never what it is: the caller who lacks it
+            // learns which header to send, and the operator learns which setting to look up.
+            Self::Unauthorized => format!(
+                "{}: this server requires `Authorization: Bearer <token>`, carrying the token \
+                 its operator set in {TOKEN_VAR} or `--token-file`.",
                 self.token()
             ),
             Self::MalformedProtocolVersion => format!(
@@ -185,18 +197,124 @@ pub(crate) fn protocol_version_well_formed(v: &str) -> bool {
             .all(|p| p.bytes().all(|b| b.is_ascii_digit()))
 }
 
+/// The environment variable a bearer token is read from (#939).
+pub(crate) const TOKEN_VAR: &str = "YIDAM_SERVE_TOKEN";
+
+/// A token's SHA-256. What the server keeps instead of the token itself.
+pub(crate) type TokenDigest = [u8; 32];
+
+fn digest(token: &str) -> TokenDigest {
+    Sha256::digest(token.as_bytes()).into()
+}
+
+/// The bearer token this server requires, or `None` when it requires none (#939).
+///
+/// From [`TOKEN_VAR`] or from `--token-file`, and never from a literal flag: argv is in `ps`
+/// and in shell history, and an environment variable and a file are both places an operator
+/// already keeps a secret. `env` is a parameter so this is testable without mutating the
+/// process environment.
+///
+/// **Both at once is refused**, not resolved by precedence. Either one alone is a complete
+/// answer, so a second one is a setting somebody forgot, and whichever lost would be the one
+/// its author believed was in force.
+///
+/// **An empty token is refused**, not read as "off". `YIDAM_SERVE_TOKEN=` is what an unset
+/// secret in a template expands to, and a server that started open from it would be the
+/// failure this exists to prevent, delivered silently.
+///
+/// Surrounding whitespace is trimmed, which is the trailing newline `echo > file` writes. A
+/// token that cannot travel in a header — a space or a control byte inside it — is refused,
+/// because no client could ever send it and every request would be a 401.
+pub(crate) fn token_source(
+    env: impl Fn(&str) -> Option<String>,
+    token_file: Option<&std::path::Path>,
+) -> Result<Option<TokenDigest>> {
+    let from_env = env(TOKEN_VAR);
+    let (raw, origin) = match (from_env, token_file) {
+        (None, None) => return Ok(None),
+        (Some(_), Some(path)) => anyhow::bail!(
+            "{TOKEN_VAR} is set and `--token-file {}` was passed. Use one: either alone names \
+             the token, and with both, one of them is a setting someone believes is in force.",
+            path.display()
+        ),
+        (Some(v), None) => (v, TOKEN_VAR.to_string()),
+        (None, Some(path)) => (
+            std::fs::read_to_string(path)
+                .with_context(|| format!("cannot read `--token-file {}`", path.display()))?,
+            format!("`--token-file {}`", path.display()),
+        ),
+    };
+    let token = raw.trim();
+    if token.is_empty() {
+        anyhow::bail!(
+            "{origin} is empty. An empty token is not \"no token\": unset it to serve without \
+             authentication, or set it to a secret such as `openssl rand -hex 32` prints."
+        );
+    }
+    if !token.bytes().all(|b| b.is_ascii_graphic()) {
+        anyhow::bail!(
+            "{origin} holds a space or a non-printing character, which no client can send in \
+             an `Authorization` header. Use printable ASCII, such as `openssl rand -hex 32` \
+             prints."
+        );
+    }
+    Ok(Some(digest(token)))
+}
+
+/// Whether a request's `Authorization` header carries the configured token.
+///
+/// With no token configured, everything passes and the header is not read: a server started
+/// without one behaves exactly as it did before #939.
+///
+/// The scheme is matched without regard to case, as RFC 7235 asks. The comparison is between
+/// SHA-256 digests, which are always 32 bytes, so its time says nothing about the token's
+/// length; and every byte is compared, so it says nothing about where they first differ.
+pub(crate) fn authorized(authorization: Option<&str>, required: Option<&TokenDigest>) -> bool {
+    let Some(required) = required else {
+        return true;
+    };
+    let Some((scheme, token)) = authorization.and_then(|h| h.trim().split_once(' ')) else {
+        return false;
+    };
+    if !scheme.eq_ignore_ascii_case("bearer") {
+        return false;
+    }
+    let offered = digest(token.trim());
+    offered
+        .iter()
+        .zip(required.iter())
+        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+        == 0
+}
+
+/// What this server admits, set once at startup: the browser origins it names and the token
+/// it requires. One value rather than two arguments, so a third check does not grow [`vet`]'s
+/// signature again.
+#[derive(Debug, Default)]
+pub(crate) struct Policy {
+    pub(crate) origins: Vec<String>,
+    pub(crate) token: Option<TokenDigest>,
+}
+
 /// The transport's decision about one request, before the body is parsed.
 pub(crate) fn vet(
     method: &Method,
     path: &str,
     origin: Option<&str>,
+    authorization: Option<&str>,
     protocol_version: Option<&str>,
-    allowed_origins: &[String],
+    policy: &Policy,
 ) -> Option<Refusal> {
     // Origin first: it is the check that must not be reachable around, so it runs before the
     // request is classified at all — including on the paths that are refused anyway.
-    if !origin_allowed(origin, allowed_origins) {
+    if !origin_allowed(origin, &policy.origins) {
         return Some(Refusal::OriginNotAllowed);
+    }
+    // Then the token, before anything that would tell a caller about the endpoint. A caller
+    // without it gets the same 401 on every path and method, so it cannot learn which path
+    // exists by comparing a 404 against a 405.
+    if !authorized(authorization, policy.token.as_ref()) {
+        return Some(Refusal::Unauthorized);
     }
     if let Some(v) = protocol_version {
         if !protocol_version_well_formed(v) {
@@ -269,7 +387,7 @@ fn json_response(status: StatusCode, value: &Value) -> Response<Full<Bytes>> {
 /// Serve one HTTP request. The only function here that touches hyper types.
 async fn serve_one(
     state: &RefCell<ServerState>,
-    allowed_origins: &[String],
+    policy: &Policy,
     req: Request<hyper::body::Incoming>,
 ) -> Response<Full<Bytes>> {
     let header = |name: &str| {
@@ -279,6 +397,7 @@ async fn serve_one(
             .map(str::to_string)
     };
     let origin = header("origin");
+    let authorization = header(AUTHORIZATION.as_str());
     let version = header("mcp-protocol-version");
     let method = req.method().clone();
     let path = req.uri().path().to_string();
@@ -287,8 +406,9 @@ async fn serve_one(
         &method,
         &path,
         origin.as_deref(),
+        authorization.as_deref(),
         version.as_deref(),
-        allowed_origins,
+        policy,
     ) {
         // Read the body before answering, even though the answer does not depend on it.
         //
@@ -309,7 +429,17 @@ async fn serve_one(
         let _ = http_body_util::Limited::new(req.into_body(), DRAIN_LIMIT)
             .collect()
             .await;
-        return text(refusal.status(), refusal.message());
+        let mut response = text(refusal.status(), refusal.message());
+        // A 401 must name its scheme (RFC 7235 §3.1). No `resource_metadata`: this server
+        // serves no OAuth metadata, and pointing a client at a document that 404s would start
+        // a discovery it cannot finish. #427 is where that changes.
+        if refusal == Refusal::Unauthorized {
+            response.headers_mut().insert(
+                WWW_AUTHENTICATE,
+                HeaderValue::from_static("Bearer realm=\"yidam\""),
+            );
+        }
+        return response;
     }
 
     let body = match req.into_body().collect().await {
@@ -364,12 +494,7 @@ async fn serve_one(
 /// alternative to a `LocalSet` is a lock on the embedder, which buys parallelism this server
 /// has no use for: the work is JSON dispatch over an in-memory corpus, and connections
 /// interleave on one thread perfectly well.
-pub(crate) fn serve(
-    state: ServerState,
-    bind: &str,
-    port: u16,
-    allow_origin: Vec<String>,
-) -> Result<()> {
+pub(crate) fn serve(state: ServerState, bind: &str, port: u16, policy: Policy) -> Result<()> {
     use std::rc::Rc;
 
     let addr: SocketAddr = format!("{bind}:{port}")
@@ -383,7 +508,7 @@ pub(crate) fn serve(
     let local = tokio::task::LocalSet::new();
     crate::runtime::block_on_local(local.run_until(async move {
         let state = Rc::new(RefCell::new(state));
-        let allowed = Rc::new(allow_origin);
+        let policy = Rc::new(policy);
 
         let listener = tokio::net::TcpListener::bind(addr)
             .await
@@ -398,7 +523,7 @@ pub(crate) fn serve(
         // command in a terminal does, and stdout carries no protocol here to pollute. #424 is
         // the issue for the connect-time facts a remote client cannot see at all.
         eprintln!("yidam MCP over HTTP on http://{bound}{ENDPOINT}");
-        if allowed.is_empty() {
+        if policy.origins.is_empty() {
             eprintln!(
                 "  no --allow-origin: a request carrying an Origin header will be refused, \
                  which is every browser and no server-to-server client"
@@ -408,12 +533,12 @@ pub(crate) fn serve(
         loop {
             let (stream, _peer) = listener.accept().await?;
             let state = Rc::clone(&state);
-            let allowed = Rc::clone(&allowed);
+            let policy = Rc::clone(&policy);
             tokio::task::spawn_local(async move {
                 let service = service_fn(move |req| {
                     let state = Rc::clone(&state);
-                    let allowed = Rc::clone(&allowed);
-                    async move { Ok::<_, Infallible>(serve_one(&state, &allowed, req).await) }
+                    let policy = Rc::clone(&policy);
+                    async move { Ok::<_, Infallible>(serve_one(&state, &policy, req).await) }
                 });
                 // A connection that fails is that client's problem, not the server's: report
                 // it and keep serving, or one malformed request ends the process.
@@ -475,7 +600,10 @@ mod tests {
     /// a probe could learn the endpoint path by comparing 404 against 403.
     #[test]
     fn origin_is_checked_before_the_path_or_the_method() {
-        let allowed = origins(&["https://chat.example"]);
+        let allowed = Policy {
+            origins: origins(&["https://chat.example"]),
+            token: Some(digest("s3cret")),
+        };
         for (method, path) in [
             (Method::POST, ENDPOINT),
             (Method::GET, ENDPOINT),
@@ -483,9 +611,17 @@ mod tests {
             (Method::PUT, "/somewhere-else"),
         ] {
             assert_eq!(
-                vet(&method, path, Some("http://evil.test"), None, &allowed),
+                vet(
+                    &method,
+                    path,
+                    Some("http://evil.test"),
+                    None,
+                    None,
+                    &allowed
+                ),
                 Some(Refusal::OriginNotAllowed),
-                "{method} {path} leaked a different refusal to a disallowed origin"
+                "{method} {path} leaked a different refusal to a disallowed origin, even one \
+                 that would also have been unauthorized"
             );
         }
     }
@@ -496,7 +632,7 @@ mod tests {
     #[test]
     fn get_is_refused_because_there_is_no_stream_to_open() {
         assert_eq!(
-            vet(&Method::GET, ENDPOINT, None, None, &[]),
+            vet(&Method::GET, ENDPOINT, None, None, None, &Policy::default()),
             Some(Refusal::NoSseStream)
         );
     }
@@ -505,20 +641,37 @@ mod tests {
     #[test]
     fn delete_is_refused_because_there_is_no_session() {
         assert_eq!(
-            vet(&Method::DELETE, ENDPOINT, None, None, &[]),
+            vet(
+                &Method::DELETE,
+                ENDPOINT,
+                None,
+                None,
+                None,
+                &Policy::default()
+            ),
             Some(Refusal::NoSessionToDelete)
         );
     }
 
     #[test]
     fn post_to_the_endpoint_is_the_one_thing_that_proceeds() {
-        assert_eq!(vet(&Method::POST, ENDPOINT, None, None, &[]), None);
+        assert_eq!(
+            vet(
+                &Method::POST,
+                ENDPOINT,
+                None,
+                None,
+                None,
+                &Policy::default()
+            ),
+            None
+        );
     }
 
     #[test]
     fn another_path_is_told_which_one_it_wanted() {
         assert_eq!(
-            vet(&Method::POST, "/", None, None, &[]),
+            vet(&Method::POST, "/", None, None, None, &Policy::default()),
             Some(Refusal::UnknownEndpoint)
         );
         assert!(Refusal::UnknownEndpoint.message().contains(ENDPOINT));
@@ -535,7 +688,17 @@ mod tests {
     fn a_future_protocol_version_is_not_an_unsupported_one() {
         for v in ["2024-11-05", "2025-03-26", "2025-06-18", "2031-01-01"] {
             assert!(protocol_version_well_formed(v), "{v} rejected");
-            assert_eq!(vet(&Method::POST, ENDPOINT, None, Some(v), &[]), None);
+            assert_eq!(
+                vet(
+                    &Method::POST,
+                    ENDPOINT,
+                    None,
+                    None,
+                    Some(v),
+                    &Policy::default()
+                ),
+                None
+            );
         }
     }
 
@@ -552,7 +715,14 @@ mod tests {
         ] {
             assert!(!protocol_version_well_formed(v), "{v} accepted");
             assert_eq!(
-                vet(&Method::POST, ENDPOINT, None, Some(v), &[]),
+                vet(
+                    &Method::POST,
+                    ENDPOINT,
+                    None,
+                    None,
+                    Some(v),
+                    &Policy::default()
+                ),
                 Some(Refusal::MalformedProtocolVersion),
                 "{v} was served"
             );
@@ -562,7 +732,17 @@ mod tests {
     /// An absent header is not a malformed one — the spec says to assume 2025-03-26.
     #[test]
     fn an_absent_protocol_version_is_not_a_refusal() {
-        assert_eq!(vet(&Method::POST, ENDPOINT, None, None, &[]), None);
+        assert_eq!(
+            vet(
+                &Method::POST,
+                ENDPOINT,
+                None,
+                None,
+                None,
+                &Policy::default()
+            ),
+            None
+        );
     }
 
     // ── request classification ────────────────────────────────────────────────
@@ -593,14 +773,28 @@ mod tests {
     /// apart, which is the failure `degraded_reason` exists to prevent one layer up.
     #[test]
     fn the_refusal_tokens_are_distinct_and_each_says_its_repair() {
+        // The list is held to the enum by an exhaustive match: a variant added later fails to
+        // compile here until it is listed, rather than going untested without a failure.
         let all = [
             Refusal::OriginNotAllowed,
+            Refusal::Unauthorized,
             Refusal::MalformedProtocolVersion,
             Refusal::NoSseStream,
             Refusal::NoSessionToDelete,
             Refusal::MethodNotAllowed,
             Refusal::UnknownEndpoint,
         ];
+        for r in all {
+            match r {
+                Refusal::OriginNotAllowed
+                | Refusal::Unauthorized
+                | Refusal::MalformedProtocolVersion
+                | Refusal::NoSseStream
+                | Refusal::NoSessionToDelete
+                | Refusal::MethodNotAllowed
+                | Refusal::UnknownEndpoint => {}
+            }
+        }
         let mut seen = std::collections::BTreeSet::new();
         for r in all {
             assert!(seen.insert(r.token()), "duplicate token: {}", r.token());
@@ -616,6 +810,196 @@ mod tests {
             );
             assert!(r.status().is_client_error(), "{}", r.token());
         }
+    }
+
+    // ── bearer token ──────────────────────────────────────────────────────────
+
+    fn with_token(token: &str) -> Policy {
+        Policy {
+            origins: vec![],
+            token: Some(digest(token)),
+        }
+    }
+
+    /// A missing header, a wrong token and another scheme are refused; the right token is not.
+    #[test]
+    fn only_the_configured_token_is_authorized() {
+        let required = digest("s3cret");
+        assert!(authorized(Some("Bearer s3cret"), Some(&required)));
+        for header in [
+            None,
+            Some(""),
+            Some("Bearer"),
+            Some("Bearer "),
+            Some("Bearer s3cre"),
+            Some("Bearer s3cret2"),
+            Some("Basic s3cret"),
+            Some("s3cret"),
+        ] {
+            assert!(
+                !authorized(header, Some(&required)),
+                "{header:?} was authorized"
+            );
+        }
+    }
+
+    /// RFC 7235: the scheme is case-insensitive. The token is not.
+    #[test]
+    fn the_scheme_is_matched_without_case_and_the_token_with_it() {
+        let required = digest("s3cret");
+        for header in ["bearer s3cret", "BEARER s3cret", "Bearer  s3cret "] {
+            assert!(authorized(Some(header), Some(&required)), "{header}");
+        }
+        assert!(!authorized(Some("Bearer S3CRET"), Some(&required)));
+    }
+
+    /// With no token configured the header is never read: a server started without one
+    /// behaves exactly as it did before #939.
+    #[test]
+    fn with_no_token_configured_any_header_passes() {
+        for header in [None, Some("Bearer anything"), Some("garbage")] {
+            assert!(authorized(header, None), "{header:?}");
+            assert_eq!(
+                vet(
+                    &Method::POST,
+                    ENDPOINT,
+                    None,
+                    header,
+                    None,
+                    &Policy::default()
+                ),
+                None
+            );
+        }
+    }
+
+    /// Auth runs before the version, path and method checks, so a caller without the token
+    /// gets one answer everywhere and learns nothing about the endpoint.
+    #[test]
+    fn auth_is_checked_before_the_version_the_path_or_the_method() {
+        let policy = with_token("s3cret");
+        for (method, path, version) in [
+            (Method::POST, ENDPOINT, None),
+            (Method::GET, ENDPOINT, None),
+            (Method::DELETE, ENDPOINT, None),
+            (Method::PUT, ENDPOINT, None),
+            (Method::POST, "/somewhere-else", None),
+            (Method::POST, ENDPOINT, Some("latest")),
+        ] {
+            assert_eq!(
+                vet(&method, path, None, None, version, &policy),
+                Some(Refusal::Unauthorized),
+                "{method} {path} {version:?} answered something other than 401 without a token"
+            );
+        }
+        assert_eq!(
+            vet(
+                &Method::POST,
+                ENDPOINT,
+                None,
+                Some("Bearer s3cret"),
+                None,
+                &policy
+            ),
+            None
+        );
+        assert_eq!(
+            vet(
+                &Method::GET,
+                ENDPOINT,
+                None,
+                Some("Bearer s3cret"),
+                None,
+                &policy
+            ),
+            Some(Refusal::NoSseStream),
+            "with the token, the other checks still run"
+        );
+    }
+
+    /// The 401's message names where the token comes from, and the token itself never appears.
+    #[test]
+    fn the_401_names_the_setting_and_not_the_secret() {
+        let m = Refusal::Unauthorized.message();
+        assert!(m.contains(TOKEN_VAR) && m.contains("--token-file"), "{m}");
+        assert_eq!(Refusal::Unauthorized.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    // ── where the token comes from ────────────────────────────────────────────
+
+    fn env_with(value: Option<&str>) -> impl Fn(&str) -> Option<String> + '_ {
+        move |k| {
+            (k == TOKEN_VAR)
+                .then(|| value.map(str::to_string))
+                .flatten()
+        }
+    }
+
+    #[test]
+    fn no_source_means_no_token() {
+        assert_eq!(token_source(env_with(None), None).unwrap(), None);
+    }
+
+    #[test]
+    fn the_variable_is_read_and_trimmed() {
+        assert_eq!(
+            token_source(env_with(Some("s3cret\n")), None).unwrap(),
+            Some(digest("s3cret"))
+        );
+    }
+
+    /// `echo s3cret > file` writes a trailing newline, and it is not part of the token.
+    #[test]
+    fn a_trailing_newline_in_the_file_is_trimmed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("token");
+        std::fs::write(&path, "s3cret\n").unwrap();
+        assert_eq!(
+            token_source(env_with(None), Some(&path)).unwrap(),
+            Some(digest("s3cret"))
+        );
+    }
+
+    /// An empty value is not "auth off": it is refused, in both sources.
+    #[test]
+    fn an_empty_token_is_refused_rather_than_read_as_off() {
+        for value in ["", "   ", "\n"] {
+            let err = token_source(env_with(Some(value)), None).unwrap_err();
+            assert!(err.to_string().contains("is empty"), "{value:?}: {err}");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("token");
+        std::fs::write(&path, "\n").unwrap();
+        let err = token_source(env_with(None), Some(&path)).unwrap_err();
+        assert!(err.to_string().contains("is empty"), "{err}");
+    }
+
+    /// Two sources is a setting someone forgot, and neither silently wins.
+    #[test]
+    fn both_sources_at_once_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("token");
+        std::fs::write(&path, "other").unwrap();
+        let err = token_source(env_with(Some("s3cret")), Some(&path)).unwrap_err();
+        assert!(err.to_string().contains("Use one"), "{err}");
+    }
+
+    /// A token no client can put in a header would make every request a 401.
+    #[test]
+    fn a_token_no_header_can_carry_is_refused() {
+        for value in ["two words", "tab\there", "caf\u{e9}"] {
+            assert!(
+                token_source(env_with(Some(value)), None).is_err(),
+                "{value:?} accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn a_missing_token_file_is_an_error_not_no_token() {
+        let err =
+            token_source(env_with(None), Some(std::path::Path::new("/nonexistent/t"))).unwrap_err();
+        assert!(err.to_string().contains("cannot read"), "{err}");
     }
 
     // ── the seam ──────────────────────────────────────────────────────────────

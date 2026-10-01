@@ -424,7 +424,7 @@ where one fails **the server refuses to start**:
 | Condition | Why |
 |---|---|
 | A git author identity resolves — `user.name` and `user.email`, the values a commit here would take | The history these tools write into *is* the knowledge graph. A commit recording what a process did rather than who decided it is what this clause prevents. It applies on every transport, stdio included |
-| Every listening socket is loopback — `serve --mcp --http --bind 0.0.0.0` is refused | A server reachable from another machine has no author for a remote caller. Vacuous over stdio, where the transport has one peer and it is the process that started the server |
+| Every listening socket is loopback — `serve --mcp --http --bind 0.0.0.0` is refused, with a bearer token or without one | A server reachable from another machine has no author for a remote caller. A shared token says a caller holds it, not who they are. Vacuous over stdio, where the transport has one peer and it is the process that started the server |
 
 The refusal is the point. Serving the read tools and declaring `act: false` would be a silent
 downgrade. Whoever wrote this key would read a running server as the answer to their question.
@@ -662,6 +662,7 @@ through unchanged. A set on a coined type constrains nothing until the property 
 | `YIDAM_CODE` | `ext-dev` | The editor CLI, when `code` is not on `PATH` |
 | `YIDAM_REQUIRE_CONTRACT` | extension tests | Turn a missing or stale binary from a skip into a failure; CI sets it |
 | `YIDAM_BUILD_COMMIT` | build script | Stamps the commit `yidam --version` reports |
+| `YIDAM_SERVE_TOKEN` | `serve --mcp --http` | The bearer token every request must carry. An empty value is refused; so is setting it beside `--token-file` |
 
 ## Editor settings
 
