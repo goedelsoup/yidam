@@ -1,0 +1,98 @@
+# The pod's security is the workflow's: non-root, no privilege escalation, a read-only root,
+# every capability dropped. Scratch and home are emptyDirs, as on a step pod.
+#
+# /healthz answers once the port is bound, before the bundle is fetched; /readyz answers 200
+# once it is loaded. Neither reads the corpus, and neither needs a token or an Origin.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serve
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: yidam-serve
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: yidam-serve
+        # What `yidam cluster network-policy` lets a vault pod reach: DNS and nothing else.
+        yidam.dev/egress: vault
+    spec:
+      serviceAccountName: run
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: serve
+          image: ghcr.io/goedelsoup/yidam-cluster:latest
+          command: ["yidam", "serve", "--mcp", "--http"]
+          args:
+            - "--bind"
+            - "0.0.0.0"
+            - "--port"
+            - "8787"
+            - "--bundle"
+            - "$(YIDAM_SERVE_BUNDLE)"
+            - "--vault-url"
+            - "file:///var/yidam/vault"
+          ports:
+            - name: mcp
+              containerPort: 8787
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          env:
+            # The digest of the bundle to serve. The overlay sets it.
+            - name: YIDAM_SERVE_BUNDLE
+              value: "unset"
+            - name: TMPDIR
+              value: "/tmp/yidam"
+            - name: HOME
+              value: "/home/yidam"
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: mcp
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: mcp
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: mcp
+            periodSeconds: 5
+          volumeMounts:
+            - name: scratch
+              mountPath: /tmp/yidam
+            - name: home
+              mountPath: /home/yidam
+            - name: vault
+              mountPath: /var/yidam/vault
+              readOnly: true
+      volumes:
+        - name: scratch
+          emptyDir: {}
+        - name: home
+          emptyDir: {}
+        - name: vault
+          persistentVolumeClaim:
+            claimName: vault
+            readOnly: true

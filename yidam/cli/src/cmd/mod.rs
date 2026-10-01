@@ -133,7 +133,7 @@ pub use lsp::serve_lsp;
 pub use routes::routes;
 
 pub use cluster::builtin::BUILTINS as CLUSTER_BUILTINS;
-pub use cluster::{run as run_cluster, ClusterCommand};
+pub use cluster::{run as run_cluster, ClusterCommand, VaultArgs};
 pub use dispatch::{dispatch, Options as DispatchOptions};
 pub use gather::{gather, Options as GatherOptions};
 pub use log::{log, Filter as LogFilter};

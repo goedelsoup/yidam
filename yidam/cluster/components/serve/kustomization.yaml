@@ -1,0 +1,13 @@
+# A Deployment that serves one bundle over MCP, and the Service in front of it (#1238).
+#
+# It reads the `file://` vault from the `file-vault` component's claim, read-only, and is
+# pinned by digest: `YIDAM_SERVE_BUNDLE` is set by the overlay, to a digest a run wrote. It
+# mounts no git secret. The bundle is unpacked into scratch with no git and no config, so the
+# pod is read-only by construction, not by a flag (docs/mcp-server.md).
+#
+# An `s3://` corpus patches `--vault-url` and the vault's keys in, and drops the `vault` mount.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - deployment.yml
+  - service.yml

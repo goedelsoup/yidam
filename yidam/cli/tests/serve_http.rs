@@ -18,6 +18,8 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
+use sha2::{Digest, Sha256};
+
 mod common;
 
 const TOKEN_VAR: &str = "YIDAM_SERVE_TOKEN";
@@ -70,8 +72,8 @@ fn fixture_repo() -> tempfile::TempDir {
 struct Server {
     child: Child,
     addr: String,
-    /// Every stderr line before the address, which is everything said before the socket
-    /// listened: the corpus banner, and the bind warning when there is one.
+    /// Every stderr line before the address, which is everything said before the endpoint
+    /// served: the bound line, the corpus banner, and the bind warning when there is one.
     banner: String,
     stderr: Option<std::thread::JoinHandle<()>>,
 }
@@ -110,8 +112,9 @@ fn start_with_token(repo: &Path, extra: &[&str], token: Option<&str>) -> Server 
         .spawn()
         .expect("the binary starts");
 
-    // The banner names the bound address. Reading it is also how this waits for the socket to
-    // be listening — a sleep would be a race whichever number was chosen.
+    // The banner names the bound address. Reading it is also how this waits for the corpus to
+    // be loaded — the line comes after the load — and a sleep would be a race whichever number
+    // was chosen.
     let stderr = child.stderr.take().expect("stderr is piped");
     let mut reader = BufReader::new(stderr);
     let mut addr = None;
@@ -500,7 +503,7 @@ fn a_name_is_refused_before_it_binds() {
 
 /// A bind every interface can reach is said aloud, naming what it publishes (#939).
 ///
-/// The warning is printed before the socket listens, so it is in the banner `start` collected
+/// The warning is printed before the endpoint serves, so it is in the banner `start` collected
 /// on its way to the address. `retrieve` is the tool named because it is the one the issue was
 /// raised about: semantic search over the whole corpus, to anyone on the network.
 #[test]
@@ -659,9 +662,8 @@ fn another_path_names_the_endpoint() {
 /// reach the port.
 ///
 /// The assertion is that **nothing is listening**, not merely that the process failed. A
-/// process that exits after binding leaves a window, and `serve_mcp_http` loads the corpus
-/// before `http::serve` for the neighbouring reason — a repository that cannot be read should
-/// fail at the command rather than as a 500 to whoever connects first.
+/// process that exits after binding leaves a window. The corpus itself loads after the bind,
+/// so the probes answer during it (#1238); whether `root` is a corpus at all is decided before.
 #[test]
 fn the_http_transport_refuses_a_non_corpus_before_it_binds() {
     let tmp = tempfile::TempDir::new().unwrap();
@@ -729,4 +731,169 @@ fn the_http_transport_refuses_a_non_corpus_before_it_binds() {
         TcpStream::connect(format!("127.0.0.1:{port}")).is_err(),
         "something is listening on {port} after the refusal"
     );
+}
+
+// ── probes and bundles (#1238) ────────────────────────────────────────────────
+
+/// A kubelet's request: no Origin, no token, and GET or HEAD.
+///
+/// The server requires a token here, so this is also the assertion that the probes are exempt
+/// from it — and that the endpoint beside them is not.
+#[test]
+fn the_probes_answer_a_caller_with_no_origin_and_no_token() {
+    let repo = fixture_repo();
+    let server = start_with_token(repo.path(), &[], Some("s3cret"));
+
+    for (path, body) in [("/healthz", "live"), ("/readyz", "ready")] {
+        let response = request(&server.addr, "GET", path, &[], "");
+        assert_eq!(status_of(&response), 200, "{path}:\n{response}");
+        assert_eq!(body_of(&response).trim(), body, "{path}");
+
+        let response = request(&server.addr, "HEAD", path, &[], "");
+        assert_eq!(status_of(&response), 200, "HEAD {path}:\n{response}");
+
+        // A browser's Origin does not change the answer: there is nothing in it to protect.
+        let response = request(
+            &server.addr,
+            "GET",
+            path,
+            &[("origin", "http://evil.test")],
+            "",
+        );
+        assert_eq!(
+            status_of(&response),
+            200,
+            "{path} with an Origin:\n{response}"
+        );
+    }
+
+    let response = request(&server.addr, "POST", "/readyz", &[], "");
+    assert_eq!(
+        status_of(&response),
+        401,
+        "a POST is not a probe:\n{response}"
+    );
+    let (status, _) = rpc(
+        &server.addr,
+        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}),
+    );
+    assert_eq!(status, 401, "the endpoint lost its token");
+}
+
+/// `examples/streamflow` as a repository, bundled. The bytes `yidam bundle` wrote.
+fn streamflow_bundle() -> Vec<u8> {
+    const EXAMPLE: &str = "examples/streamflow/";
+    let root = common::repo_root();
+    let dir = tempfile::tempdir().unwrap();
+    for tracked in common::tracked_under(&root, EXAMPLE) {
+        let to = dir.path().join(tracked.strip_prefix(EXAMPLE).unwrap());
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(root.join(&tracked), &to).unwrap();
+    }
+    let git = |args: &[&str]| common::git::git_at(dir.path(), args, common::git::FIXTURE_DATE);
+    git(&["init", "-q", "-b", "main"]);
+    git(&["config", "user.email", "t@example.com"]);
+    git(&["config", "user.name", "t"]);
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "genesis: streamflow"]);
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(dir.path())
+        .arg("bundle")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    std::fs::read(dir.path().join(".yidam/bundle.yiz")).unwrap()
+}
+
+/// A file vault holding `bytes` under `digest`, at the path `FileStore` reads it from.
+fn file_vault(digest: &str, bytes: &[u8]) -> tempfile::TempDir {
+    let vault = tempfile::tempdir().unwrap();
+    let dir = vault.path().join("sha256").join(&digest[..2]);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(digest), bytes).unwrap();
+    vault
+}
+
+fn hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .fold(String::new(), |mut s, b| {
+            let _ = write!(s, "{b:02x}");
+            s
+        })
+}
+
+/// The deployment's shape: an exported bundle, pinned by digest in a vault, served from a
+/// directory that is not a corpus and answering a `query` over HTTP.
+#[test]
+fn a_streamflow_bundle_pinned_by_digest_answers_a_query() {
+    let bytes = streamflow_bundle();
+    let digest = hex(&bytes);
+    let vault = file_vault(&digest, &bytes);
+    let url = format!("file://{}", vault.path().display());
+    // Started somewhere with no corpus, so nothing it answers can have come from the cwd.
+    let cwd = tempfile::tempdir().unwrap();
+    let server = start(cwd.path(), &["--bundle", &digest, "--vault-url", &url]);
+
+    let response = request(&server.addr, "GET", "/readyz", &[], "");
+    assert_eq!(status_of(&response), 200, "{response}");
+
+    let (status, body) = rpc(
+        &server.addr,
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    let yidam = &v["result"]["capabilities"]["yidam"];
+    // What the bundle says it is: scratch has no genesis commit to name the domain and no git
+    // to name the commit.
+    assert_eq!(yidam["corpus"]["domain"], "streamflow", "{yidam}");
+    assert!(
+        yidam["corpus"]["commit"]
+            .as_str()
+            .is_some_and(|c| c.len() >= 7 && c.bytes().all(|b| b.is_ascii_hexdigit())),
+        "the commit is not the bundle's: {yidam}"
+    );
+    assert_eq!(yidam["act"], false, "a bundle is read-only by construction");
+
+    let (status, body) = rpc(
+        &server.addr,
+        json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+               "params": {"name": "query", "arguments": {"query": "*", "limit": 1000}}}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_ne!(v["result"]["isError"], true, "{v}");
+    let text = v["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        text.contains("canyon-outlet"),
+        "the query did not answer from the bundle: {text}"
+    );
+}
+
+/// A vault that answers a digest with other bytes is not served as the pin.
+#[test]
+fn a_bundle_whose_bytes_are_not_its_digest_is_refused() {
+    let bytes = streamflow_bundle();
+    let digest = hex(b"some other bundle");
+    let vault = file_vault(&digest, &bytes);
+    let url = format!("file://{}", vault.path().display());
+    let cwd = tempfile::tempdir().unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .env_remove(TOKEN_VAR)
+        .current_dir(cwd.path())
+        .args(["serve", "--mcp", "--http", "--port", "0"])
+        .args(["--bundle", &digest, "--vault-url", &url])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("refusing to serve"), "{stderr}");
+    assert!(!stderr.contains("http://"), "{stderr}");
 }

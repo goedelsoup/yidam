@@ -281,6 +281,41 @@ Give the client the same header:
 - **It serves no OAuth metadata.** A client that probes `/.well-known/oauth-protected-resource`
   gets `404` and should then use the header it was configured with.
 
+### Two probes
+
+`GET /healthz` and `GET /readyz` answer without a token and without an `Origin` check. An
+orchestrator's probe carries neither. So neither reads anything from the corpus:
+
+| | |
+|---|---|
+| `/healthz` | `200 live` once the port is bound. That is before the corpus is loaded. |
+| `/readyz` | `503` until the corpus is loaded, then `200 ready`. It is `503` again if the graph stops answering. |
+
+The server binds first and loads second. A large corpus takes a while to load, and `/mcp` answers
+`503` until it is done. A `POST` to either probe path is an ordinary request, checked like `/mcp`.
+
+### Serving a bundle, read-only by construction
+
+A server need not run in a checkout. `--bundle` serves a `.yiz` that `yidam bundle` or a cluster
+run wrote:
+
+```sh
+yidam serve --mcp --http --bundle streamflow.yiz
+yidam serve --mcp --http --bundle sha256:<digest> --vault-url file:///var/yidam/vault
+```
+
+A digest is fetched from the vault. Its bytes are hashed before anything is unpacked. A vault that
+answers with other bytes is refused, so the digest pins what is served. `--vault-url`,
+`--vault-region`, `--vault-endpoint` and `--vault-path-style` read as they do for
+[`yidam cluster step`](cluster-runs.md#two-vault-backends). A path needs no vault, and refuses one.
+
+**A bundle server is read-only by construction.** The bundle is unpacked into scratch. Scratch is
+not a git repository and holds no `.yidam/config.toml`. So `[serve] act` cannot be declared, and no
+write tool is listed. A write would have no branch to land on. No flag turns that off.
+
+The commit and the domain come from the bundle's manifest. `initialize` reports the commit the
+bundle was made at, not an unknown one.
+
 ---
 
 ## 3. Choose the right tool

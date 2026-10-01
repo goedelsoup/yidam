@@ -164,8 +164,8 @@ pub use cmd::{
     EmbedOptions, ExportFormat, ExportOptions, ExtractOptions, FetchOptions, GatherOptions,
     KutenCommand, LineCitation, LineFragment, LintCheck, LintOptions, LintViolation, LogFilter,
     MigrateOperation, PhaseCommand, PolicyCommand, PreludeNorm, ProposeOptions, RdfFormat,
-    ReconcileOptions, Relocation, RetrieveOptions, RunOptions, VaultCommand, COMMIT_KINDS,
-    DEFAULT_CLASSES, LINT_SEVERITIES, PRELUDE_NORMS,
+    ReconcileOptions, Relocation, RetrieveOptions, RunOptions, VaultArgs, VaultCommand,
+    COMMIT_KINDS, DEFAULT_CLASSES, LINT_SEVERITIES, PRELUDE_NORMS,
 };
 
 /// The remote transport (#423). Gated because the feature is what pulls the server, and

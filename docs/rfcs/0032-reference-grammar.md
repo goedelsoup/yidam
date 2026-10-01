@@ -44,7 +44,7 @@ corpus.
 
 That is not a latent tidiness issue. [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56)
 interpolates `node.id` into the URI, and the loop it sits in reads `state.nodes` only —
-[`dep_nodes`](../../yidam/cli/src/cmd/serve/mod.rs#L81) is a separate field by deliberate design.
+[`dep_nodes`](../../yidam/cli/src/cmd/serve/mod.rs#L83) is a separate field by deliberate design.
 So a dependency node has **no resource URI at all**, while
 [`find_any_node`](../../yidam/cli/src/cmd/serve/tools.rs#L397) reads one happily by its qualified
 id. One server answers a question through its tool surface that its resource surface cannot

@@ -16,6 +16,18 @@ components:
   #   - name: vault
   #     envs: [secrets/vault.env]   # YIDAM_VAULT_<NAME>_ACCESS_KEY_ID=… and _SECRET_ACCESS_KEY=…
   - ../../../components/file-vault
+  # The read-only MCP server over one bundle (#1238). It reads the claim above.
+  - ../../../components/serve
+# The serve pod's selector carries the corpus, so two corpora's servers in one namespace do
+# not select each other's pods, and the egress policies select it as one of this corpus's.
+labels:
+  - pairs:
+      yidam.dev/corpus: streamflow
+    includeSelectors: true
+# Which bundle it serves: a digest a run wrote to the vault. There is none until the first run
+# lands, so the server starts at zero replicas. Set the digest and scale it up.
+patches:
+  - path: serve.patch.yml
 # Off, or no pod starts. Kustomize would name each secret `git-read-<hash>` and rewrite the
 # references it knows about, and it knows none inside an Argo workflow: the workflow would
 # mount `yidam-streamflow-git-read`, which would not exist.

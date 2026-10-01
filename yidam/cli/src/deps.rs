@@ -129,6 +129,9 @@ pub fn load_lock(path: &Path) -> anyhow::Result<LockFile> {
 /// never an error.
 #[derive(Debug, Default, serde::Deserialize)]
 pub struct BundleManifest {
+    /// The corpus's domain, as its genesis commit names it. What `serve --bundle` calls the
+    /// corpus, since a bundle unpacked into scratch has no genesis commit to read it from.
+    pub domain: Option<String>,
     /// Short SHA of the HEAD commit when the bundle was produced. Its *length* is chosen by
     /// git from the producing repository's object count, so it is not comparable across
     /// repositories — RFC-0019 §2 is about exactly that.

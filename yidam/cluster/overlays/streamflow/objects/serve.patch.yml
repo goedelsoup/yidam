@@ -1,0 +1,14 @@
+# `kubectl scale deployment yidam-streamflow-serve --replicas=1` once the digest is set.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serve
+spec:
+  replicas: 0
+  template:
+    spec:
+      containers:
+        - name: serve
+          env:
+            - name: YIDAM_SERVE_BUNDLE
+              value: "sha256:0000000000000000000000000000000000000000000000000000000000000000"

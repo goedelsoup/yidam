@@ -25,8 +25,21 @@
 //! Everything that decides whether a request is served — [`vet`], [`authorized`], [`classify`] — takes plain
 //! values and returns an [`Outcome`]. None of it needs a socket, so all of it is tested in this
 //! file's own unit tests rather than behind an integration harness that binds a port.
+//!
+//! # Two probes, and nothing from the corpus in either (#1238)
+//!
+//! A kubelet asks two questions a person never does: is the process up, and may traffic be
+//! sent to it. [`HEALTHZ`] answers the first and [`READYZ`] the second, so the socket is bound
+//! *before* the corpus loads — a probe asked during a slow load gets "loading" rather than a
+//! refused connection, which a kubelet cannot tell from a dead process. Until the load
+//! finishes, [`ENDPOINT`] answers 503 as well.
+//!
+//! They are not MCP. They carry no JSON-RPC, are absent from `tools.json`, and are answered
+//! before [`vet`], so neither `--allow-origin` nor a token applies to them: a kubelet sends no
+//! `Origin` and holds no token, and what the two answer says nothing about the corpus — not
+//! its domain, its size or its commit — so there is nothing for either check to protect.
 
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::convert::Infallible;
 use std::io::Write;
 use std::net::{IpAddr, SocketAddr};
@@ -46,6 +59,12 @@ use super::ServerState;
 /// The one endpoint path. The spec asks for a single one, so there is a single one; a request
 /// to any other path is told which it wanted rather than 404'd blankly.
 pub(crate) const ENDPOINT: &str = "/mcp";
+
+/// Liveness: the process is up and its accept loop is running.
+pub(crate) const HEALTHZ: &str = "/healthz";
+
+/// Readiness: the corpus is loaded and a trivial read of it answers.
+pub(crate) const READYZ: &str = "/readyz";
 
 /// How much of a refused request's body is read before closing, so the close is a FIN and not
 /// an RST. 64 KiB — larger than any legitimate JSON-RPC call this server takes, and small
@@ -324,6 +343,87 @@ pub(crate) fn bind_address(bind: &str) -> Result<IpAddr> {
     })
 }
 
+/// Which question a probe asks.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub(crate) enum Probe {
+    /// [`HEALTHZ`].
+    Live,
+    /// [`READYZ`].
+    Ready,
+}
+
+/// What a request is, decided before its body is read.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub(crate) enum Admission {
+    /// A probe, answered without any other check — see the module header.
+    Probe(Probe),
+    /// Refused, for the reason given.
+    Refused(Refusal),
+    /// A JSON-RPC message for [`ENDPOINT`].
+    Mcp,
+}
+
+/// Admit one request: a probe first, and then everything [`vet`] decides.
+///
+/// A probe is a GET or a HEAD and nothing else, so a POST to [`READYZ`] is a request for an
+/// endpoint that does not exist and meets every check that request would.
+pub(crate) fn admit(
+    method: &Method,
+    path: &str,
+    origin: Option<&str>,
+    authorization: Option<&str>,
+    protocol_version: Option<&str>,
+    policy: &Policy,
+) -> Admission {
+    if matches!(*method, Method::GET | Method::HEAD) {
+        match path {
+            HEALTHZ => return Admission::Probe(Probe::Live),
+            READYZ => return Admission::Probe(Probe::Ready),
+            _ => {}
+        }
+    }
+    match vet(
+        method,
+        path,
+        origin,
+        authorization,
+        protocol_version,
+        policy,
+    ) {
+        Some(refusal) => Admission::Refused(refusal),
+        None => Admission::Mcp,
+    }
+}
+
+/// The answer to a probe: a status and a body naming no corpus content.
+///
+/// `state` is `None` until the load finishes. Ready means more than loaded: the summary
+/// resource is computed from the loaded corpus, and only its success reaches the caller —
+/// never the summary itself.
+pub(crate) fn probe_answer(
+    probe: Probe,
+    state: Option<&ServerState>,
+) -> (StatusCode, &'static str) {
+    match (probe, state) {
+        (Probe::Live, _) => (StatusCode::OK, "live\n"),
+        (Probe::Ready, None) => (StatusCode::SERVICE_UNAVAILABLE, LOADING),
+        (Probe::Ready, Some(state)) => {
+            match super::resources::read(state, "yidam://graph/summary") {
+                Ok(_) => (StatusCode::OK, "ready\n"),
+                Err(_) => (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "unready: the corpus loaded and a read of it failed\n",
+                ),
+            }
+        }
+    }
+}
+
+/// What [`READYZ`] and [`ENDPOINT`] both answer while the corpus loads. A 503 and not a
+/// [`Refusal`]: nothing about the request is wrong, and the same request will be served once
+/// the load is done.
+const LOADING: &str = "loading: the corpus is not loaded yet; /readyz answers 200 once it is\n";
+
 /// The transport's decision about one request, before the body is parsed.
 pub(crate) fn vet(
     method: &Method,
@@ -412,9 +512,32 @@ fn json_response(status: StatusCode, value: &Value) -> Response<Full<Bytes>> {
     respond(status, "application/json", Bytes::from(value.to_string()))
 }
 
+/// Read and discard a refused request's body, before answering it.
+///
+/// A server that responds to a `Connection: close` request without consuming the body
+/// closes a socket with unread data in its receive queue, and Linux answers that with an RST
+/// rather than a FIN — so a client that has the whole response still sees "connection reset
+/// by peer" on its last read. This is why nginx has `lingering_close`. The refusal is already
+/// decided; draining only makes the goodbye graceful.
+///
+/// Measured, and stated precisely because it is NOT what fixed the Linux test failure this
+/// was first written for: bisected in a container, this change alone took that failure from
+/// three to two. It removes real resets; it was not the cause.
+///
+/// Bounded, because this runs before any check that the caller is welcome: hyper's `Limited`
+/// stops reading past the cap, and a body larger than that is an oversized request being
+/// refused, which has no claim on politeness.
+async fn drain(req: Request<hyper::body::Incoming>) {
+    let _ = http_body_util::Limited::new(req.into_body(), DRAIN_LIMIT)
+        .collect()
+        .await;
+}
+
 /// Serve one HTTP request. The only function here that touches hyper types.
+///
+/// `state` is empty until the load finishes, and is set once.
 async fn serve_one(
-    state: &RefCell<ServerState>,
+    state: &OnceCell<RefCell<ServerState>>,
     policy: &Policy,
     req: Request<hyper::body::Incoming>,
 ) -> Response<Full<Bytes>> {
@@ -430,7 +553,7 @@ async fn serve_one(
     let method = req.method().clone();
     let path = req.uri().path().to_string();
 
-    if let Some(refusal) = vet(
+    match admit(
         &method,
         &path,
         origin.as_deref(),
@@ -438,37 +561,33 @@ async fn serve_one(
         version.as_deref(),
         policy,
     ) {
-        // Read the body before answering, even though the answer does not depend on it.
-        //
-        // A server that responds to a `Connection: close` request without consuming the body
-        // closes a socket with unread data in its receive queue, and Linux answers that with
-        // an RST rather than a FIN — so a client that has the whole response still sees
-        // "connection reset by peer" on its last read. This is why nginx has
-        // `lingering_close`. The refusal is already decided; draining only makes the goodbye
-        // graceful.
-        //
-        // Measured, and stated precisely because it is NOT what fixed the Linux test failure
-        // this was first written for: bisected in a container, this change alone took that
-        // failure from three to two. It removes real resets; it was not the cause.
-        //
-        // Bounded, because this runs before any check that the caller is welcome: hyper's
-        // `Limited` stops reading past the cap, and a body larger than that is an oversized
-        // request being refused, which has no claim on politeness.
-        let _ = http_body_util::Limited::new(req.into_body(), DRAIN_LIMIT)
-            .collect()
-            .await;
-        let mut response = text(refusal.status(), refusal.message());
-        // A 401 must name its scheme (RFC 7235 §3.1). No `resource_metadata`: this server
-        // serves no OAuth metadata, and pointing a client at a document that 404s would start
-        // a discovery it cannot finish. #427 is where that changes.
-        if refusal == Refusal::Unauthorized {
-            response.headers_mut().insert(
-                WWW_AUTHENTICATE,
-                HeaderValue::from_static("Bearer realm=\"yidam\""),
-            );
+        Admission::Probe(probe) => {
+            // The borrow ends inside the call, which is synchronous; see `Outcome::Answer`.
+            let (status, body) = probe_answer(probe, state.get().map(|s| s.borrow()).as_deref());
+            return text(status, body.to_string());
         }
-        return response;
+        Admission::Refused(refusal) => {
+            drain(req).await;
+            let mut response = text(refusal.status(), refusal.message());
+            // A 401 must name its scheme (RFC 7235 §3.1). No `resource_metadata`: this server
+            // serves no OAuth metadata, and pointing a client at a document that 404s would
+            // start a discovery it cannot finish. #427 is where that changes.
+            if refusal == Refusal::Unauthorized {
+                response.headers_mut().insert(
+                    WWW_AUTHENTICATE,
+                    HeaderValue::from_static("Bearer realm=\"yidam\""),
+                );
+            }
+            return response;
+        }
+        Admission::Mcp => {}
     }
+    // After the policy, so a caller the policy refuses learns nothing — not even that the
+    // server is still loading.
+    let Some(state) = state.get() else {
+        drain(req).await;
+        return text(StatusCode::SERVICE_UNAVAILABLE, LOADING.to_string());
+    };
 
     let body = match req.into_body().collect().await {
         Ok(b) => b.to_bytes(),
@@ -507,6 +626,12 @@ async fn serve_one(
 
 /// Serve MCP over HTTP until the process is stopped.
 ///
+/// The socket is bound first and the corpus loaded after, by `load` on a blocking thread, so
+/// [`HEALTHZ`] answers from the moment the port is held. `announce` runs once the load
+/// finishes, before the address line, which is where the banner and the exposure warning
+/// belong: both describe the loaded corpus. A load that fails ends the process, with the
+/// load's own error.
+///
 /// # One thread, and not by accident
 ///
 /// [`ServerState`] is not `Sync` in every build: under `vector-read` the retrieval state holds
@@ -522,7 +647,16 @@ async fn serve_one(
 /// alternative to a `LocalSet` is a lock on the embedder, which buys parallelism this server
 /// has no use for: the work is JSON dispatch over an in-memory corpus, and connections
 /// interleave on one thread perfectly well.
-pub(crate) fn serve(state: ServerState, ip: IpAddr, port: u16, policy: Policy) -> Result<()> {
+///
+/// The load is the one thing that leaves the thread, and it can: the state is `Send` — it is
+/// `Sync` it is not — and it crosses exactly once, before any connection task can see it.
+pub(crate) fn serve(
+    ip: IpAddr,
+    port: u16,
+    policy: Policy,
+    load: impl FnOnce() -> Result<ServerState> + Send + 'static,
+    announce: impl FnOnce(&ServerState),
+) -> Result<()> {
     use std::rc::Rc;
 
     let addr = SocketAddr::new(ip, port);
@@ -533,7 +667,7 @@ pub(crate) fn serve(state: ServerState, ip: IpAddr, port: u16, policy: Policy) -
     // `block_on` knows it is inside the runtime and does not panic on it.
     let local = tokio::task::LocalSet::new();
     crate::runtime::block_on_local(local.run_until(async move {
-        let state = Rc::new(RefCell::new(state));
+        let state: Rc<OnceCell<RefCell<ServerState>>> = Rc::new(OnceCell::new());
         let policy = Rc::new(policy);
 
         let listener = tokio::net::TcpListener::bind(addr)
@@ -545,42 +679,63 @@ pub(crate) fn serve(state: ServerState, ip: IpAddr, port: u16, policy: Policy) -
         // and a caller who does that has no other way to learn the answer.
         let bound = listener.local_addr().unwrap_or(addr);
 
-        // stderr, not stdout: an HTTP client has no stderr to read, but a person running the
-        // command in a terminal does, and stdout carries no protocol here to pollute. #424 is
-        // the issue for the connect-time facts a remote client cannot see at all.
-        eprintln!("yidam MCP over HTTP on http://{bound}{ENDPOINT}");
-        if policy.origins.is_empty() {
-            eprintln!(
-                "  no --allow-origin: a request carrying an Origin header will be refused, \
-                 which is every browser and no server-to-server client"
-            );
-        }
+        // No `http://` in this line: the address line below is the one that says the MCP
+        // endpoint is served, and it is not yet.
+        eprintln!("yidam: bound {bound}, loading the corpus; {HEALTHZ} answers now");
 
+        let mut loading = tokio::task::spawn_blocking(load);
+        let mut announce = Some(announce);
         loop {
-            let (stream, _peer) = listener.accept().await?;
-            let state = Rc::clone(&state);
-            let policy = Rc::clone(&policy);
-            tokio::task::spawn_local(async move {
-                let service = service_fn(move |req| {
+            tokio::select! {
+                loaded = &mut loading, if state.get().is_none() => {
+                    let loaded = loaded.context("loading the corpus panicked")??;
+                    if let Some(announce) = announce.take() {
+                        announce(&loaded);
+                    }
+                    // Set once, here, and never again: the cell is empty only until this line.
+                    let _ = state.set(RefCell::new(loaded));
+                    // stderr, not stdout: an HTTP client has no stderr to read, but a person
+                    // running the command in a terminal does, and stdout carries no protocol
+                    // here to pollute. #424 is the issue for the connect-time facts a remote
+                    // client cannot see at all.
+                    eprintln!("yidam MCP over HTTP on http://{bound}{ENDPOINT}");
+                    if policy.origins.is_empty() {
+                        eprintln!(
+                            "  no --allow-origin: a request carrying an Origin header will be \
+                             refused, which is every browser and no server-to-server client"
+                        );
+                    }
+                }
+                accepted = listener.accept() => {
+                    let (stream, _peer) = accepted?;
                     let state = Rc::clone(&state);
                     let policy = Rc::clone(&policy);
-                    async move { Ok::<_, Infallible>(serve_one(&state, &policy, req).await) }
-                });
-                // A connection that fails is that client's problem, not the server's: report
-                // it and keep serving, or one malformed request ends the process.
-                //
-                // `writeln!` and not `eprintln!`, and the result deliberately dropped. A
-                // client can provoke this line, and `eprintln!` PANICS if the write fails —
-                // so with stderr closed or a full pipe, a request from outside could take the
-                // server down through its logging. A server whose log can kill it is worse
-                // than one that loses a log line.
-                if let Err(e) = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(TokioIo::new(stream), service)
-                    .await
-                {
-                    let _ = writeln!(std::io::stderr(), "connection error: {e}");
+                    tokio::task::spawn_local(async move {
+                        let service = service_fn(move |req| {
+                            let state = Rc::clone(&state);
+                            let policy = Rc::clone(&policy);
+                            async move {
+                                Ok::<_, Infallible>(serve_one(&state, &policy, req).await)
+                            }
+                        });
+                        // A connection that fails is that client's problem, not the server's:
+                        // report it and keep serving, or one malformed request ends the
+                        // process.
+                        //
+                        // `writeln!` and not `eprintln!`, and the result deliberately dropped.
+                        // A client can provoke this line, and `eprintln!` PANICS if the write
+                        // fails — so with stderr closed or a full pipe, a request from outside
+                        // could take the server down through its logging. A server whose log
+                        // can kill it is worse than one that loses a log line.
+                        if let Err(e) = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(TokioIo::new(stream), service)
+                            .await
+                        {
+                            let _ = writeln!(std::io::stderr(), "connection error: {e}");
+                        }
+                    });
                 }
-            });
+            }
         }
     }))
 }
@@ -1055,6 +1210,83 @@ mod tests {
                 err.contains("127.0.0.1") && err.contains("::1"),
                 "{bind}: {err}"
             );
+        }
+    }
+
+    // ── probes (#1238) ────────────────────────────────────────────────────────
+
+    /// A kubelet sends no Origin and holds no token, and its probes are answered anyway.
+    #[test]
+    fn a_probe_needs_no_origin_and_no_token() {
+        let strict = Policy {
+            origins: origins(&["https://chat.example"]),
+            token: Some(digest("s3cret")),
+        };
+        for method in [Method::GET, Method::HEAD] {
+            for (path, probe) in [(HEALTHZ, Probe::Live), (READYZ, Probe::Ready)] {
+                for origin in [None, Some("http://evil.test")] {
+                    assert_eq!(
+                        admit(&method, path, origin, None, None, &strict),
+                        Admission::Probe(probe),
+                        "{method} {path} {origin:?}"
+                    );
+                }
+            }
+        }
+        // The same request to the MCP endpoint is still refused: the exemption is the probes'.
+        assert_eq!(
+            admit(&Method::POST, ENDPOINT, None, None, None, &strict),
+            Admission::Refused(Refusal::Unauthorized)
+        );
+    }
+
+    /// A probe is a GET or a HEAD; anything else to its path meets every other check.
+    #[test]
+    fn a_post_to_a_probe_path_is_not_a_probe() {
+        assert_eq!(
+            admit(&Method::POST, READYZ, None, None, None, &Policy::default()),
+            Admission::Refused(Refusal::UnknownEndpoint)
+        );
+        assert_eq!(
+            admit(
+                &Method::POST,
+                HEALTHZ,
+                None,
+                None,
+                None,
+                &with_token("s3cret")
+            ),
+            Admission::Refused(Refusal::Unauthorized)
+        );
+    }
+
+    /// Live from the start; ready only once the corpus is loaded and a read of it answers.
+    #[test]
+    fn ready_is_unready_before_the_load_and_ready_after_it() {
+        assert_eq!(probe_answer(Probe::Live, None).0, StatusCode::OK);
+        assert_eq!(
+            probe_answer(Probe::Ready, None).0,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+
+        let state = super::super::tests::test_state();
+        assert_eq!(probe_answer(Probe::Live, Some(&state)).0, StatusCode::OK);
+        let (status, body) = probe_answer(Probe::Ready, Some(&state));
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    /// No probe answer carries anything from the corpus: they are the two answers that skip
+    /// every check, so they must have nothing to give away.
+    #[test]
+    fn a_probe_answer_names_nothing_in_the_corpus() {
+        let state = super::super::tests::test_state();
+        for probe in [Probe::Live, Probe::Ready] {
+            for loaded in [None, Some(&state)] {
+                let (_, body) = probe_answer(probe, loaded);
+                for leak in [state.domain.as_str(), state.commit.as_str()] {
+                    assert!(!body.contains(leak), "{probe:?} answered {body:?}");
+                }
+            }
         }
     }
 
