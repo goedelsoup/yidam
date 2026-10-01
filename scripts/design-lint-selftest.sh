@@ -217,13 +217,13 @@ exts=$(git -C "$root" ls-files \
 # about it. The CSS consumers are covered from the other side, by `design_tokens.rs` itself,
 # which reads them directly.
 declared=$(sed -n 's/^const CONSUMER_EXTENSIONS[^=]*= *&\[\(.*\)\];$/\1/p' \
-             "$root/yidam/cli/tests/design_tokens.rs" \
+             "$root/yidam/cli/tests/gates/design_tokens.rs" \
              | tr -d '"' | tr ',' '\n' | tr -d ' ' | grep -v '^$' | grep -vx css)
 [ -n "$declared" ] || fail "could not read \`CONSUMER_EXTENSIONS\` out of
-yidam/cli/tests/design_tokens.rs. That const is what the token gate declares in scope, and this
+yidam/cli/tests/gates/design_tokens.rs. That const is what the token gate declares in scope, and this
 script unions it into the types it makes oxlint prove — silently probing a smaller set if the
 read fails, which is the shape of defect #611 was filed about. Check the const's spelling:
-  grep -n CONSUMER_EXTENSIONS yidam/cli/tests/design_tokens.rs"
+  grep -n CONSUMER_EXTENSIONS yidam/cli/tests/gates/design_tokens.rs"
 
 exts=$(printf '%s\n%s\n' "$exts" "$declared" | grep -v '^$' | sort -u)
 

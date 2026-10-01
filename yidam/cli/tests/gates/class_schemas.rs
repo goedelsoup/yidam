@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-mod common;
+use crate::common;
 
 use common::{examples, repo_root, tracked_under};
 

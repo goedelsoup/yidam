@@ -6,7 +6,7 @@
   - RFC-0038 (the rules/evidence split, which took 6,687 words off the recurring read and 7,819 off the bootstrap path and stopped where the remaining weight is reference rather than essay — this RFC is the move its ceiling docstring said would be needed next)
   - RFC-0028 (the kuten layer, whose phase types are one of the two vocabularies an occasion can be named in)
   - RFC-0036 (an yidam-level change — the routes this RFC rewrites are vendored read-only into every derivation)
-- **Versioning layers touched:** template only. `AGENTS.md`, `sadhana/root/AGENTS.md` and bootstrap step 1 are rewritten to name sections rather than files; `yidam/cli/tests/prelude_rules_and_evidence.rs` gains per-occasion ceilings and anchor resolution. **No contract bump.** One new command, `yidam routes`, the REGEN generator #969 chose (#972).
+- **Versioning layers touched:** template only. `AGENTS.md`, `sadhana/root/AGENTS.md` and bootstrap step 1 are rewritten to name sections rather than files; `yidam/cli/tests/gates/prelude_rules_and_evidence.rs` gains per-occasion ceilings and anchor resolution. **No contract bump.** One new command, `yidam routes`, the REGEN generator #969 chose (#972).
 - **Downstream reference case:** the two recurring read routes and the bootstrap path, measured 2026-09-24 at 17,686, 22,993 and 26,323 words.
 
 ## Summary

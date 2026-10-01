@@ -19,7 +19,7 @@
   a signal name is corpus-wide and two computed files may not claim one. `disclosure-envelope.sh` is
   the pipeline's second stage and reads the first's computed signals; **#1105 put them in the
   projection**, as a `signals` field on `Corpus` carrying what the step's `reads` resolve to, and
-  `a_second_stage_computes_from_a_previous_step_s_signal` in `tests/gluon_arm.rs` is that rule in
+  `a_second_stage_computes_from_a_previous_step_s_signal` in `tests/gates/gluon_arm.rs` is that rule in
   the typed arm. It is not declared beside the shell one, for the same reason the tier is not:
   the whole of its output is `reaches`, and unlike the chain rule it has no intermediate fact left
   to commit under another name
@@ -254,7 +254,7 @@ manifest still **parses** in a light build, because a corpus that declares a glu
 not a malformed corpus. Refusing to parse would make `yidam lint` and `yidam graph` fail on a
 repository whose only sin is a capability this binary cannot invoke.
 
-`--features full` gains it. The default set does not, and `tests/light_build.rs` is where that is
+`--features full` gains it. The default set does not, and `tests/gates/light_build.rs` is where that is
 asserted rather than in prose.
 
 ### The calculator receives a typed corpus, not a scratch tree
@@ -444,7 +444,7 @@ subsection above for the measurement that settled which is which.
    The constraint this question turned on is satisfied by construction rather than by agreement.
    `lint` does not build a prelude, inject a type or decide what a calculator is: it calls
    `entry::admit`, the one function [`evaluate`](../../yidam/cli/src/gluon_arm/mod.rs#L197)
-   opens with, and `tests/gluon_arm.rs::one_admission_answers_both_callers` asserts those are the
+   opens with, and `tests/gates/gluon_arm.rs::one_admission_answers_both_callers` asserts those are the
    only two callers. There is no second opinion to diverge, so the paragraph below — a gate that
    either passes something `run` refuses or refuses something `run` would have accepted — names a
    failure mode the design has no place to hold. That is #1080's "one builder, one answer" again.

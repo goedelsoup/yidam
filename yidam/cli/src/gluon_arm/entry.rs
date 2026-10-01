@@ -40,7 +40,7 @@
 //! accepted"* — and `#1087` sharpened it, because the arm's purity is a **closed prelude** plus
 //! a typecheck, so the commonest refusal is now a name [`super::PRELUDE_MODULES`] does not bind.
 //! A lint that built its own scope would differ from `run` in exactly the dimension the
-//! hermeticity argument rests on. `tests/gluon_arm.rs` holds the two callers to the one
+//! hermeticity argument rests on. `tests/gates/gluon_arm.rs` holds the two callers to the one
 //! function.
 //!
 //! # The three refusals are told apart, because two of them read alike
@@ -91,7 +91,7 @@ impl Refused {
     /// Every refusal, so a test covering them is held to the enum rather than to a list.
     ///
     /// Public and unconditional, unlike [`crate::cmd::run::manifest::Kind::ALL`]'s `#[cfg(test)]`:
-    /// this arm's tests are `tests/gluon_arm.rs`, an integration target that compiles against the
+    /// this arm's tests are `tests/gates/gluon_arm.rs`, an integration target that compiles against the
     /// library without `cfg(test)`, so a gated constant would be invisible to the only thing that
     /// wants it.
     pub const ALL: [Self; 3] = [Self::Macro, Self::Scope, Self::Shape];

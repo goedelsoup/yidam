@@ -118,7 +118,7 @@ pub fn is_private(rel: &str, private: &[String]) -> bool {
 ///
 /// **No longer the guard, and deliberately still here.** Since #440 the decision is
 /// `disclose/record` in `.yidam/policy/` (RFC-0024), and `vault push` asks that. This is the
-/// **reference implementation the policy is held to**: `tests/policy_equivalence.rs` runs both
+/// **reference implementation the policy is held to**: `tests/gates/policy_equivalence.rs` runs both
 /// over every combination of licence and path and fails if they diverge.
 ///
 /// Deleting it would leave the policy pinned by nothing but its own cases. Two implementations
@@ -188,7 +188,7 @@ pub fn derived_sources(d: Derived) -> &'static [&'static str] {
 ///
 /// **The reference implementation for `disclose/derived`**, on the same footing as
 /// [`may_push`] — see the note there. `vault push`, `release.yml` and `index.yml` all ask the
-/// policy; this is what `tests/policy_equivalence.rs` holds it to.
+/// policy; this is what `tests/gates/policy_equivalence.rs` holds it to.
 ///
 /// A catalog artifact is refused for what its own record says. A derived artifact has no
 /// record — nobody wrote one, because nobody fetched it — so the question is answered from

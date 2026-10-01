@@ -22,7 +22,7 @@
 
 use std::path::{Path, PathBuf};
 
-mod common;
+use crate::common;
 
 /// Names that only a hand-written exclusion list has a reason to spell.
 ///
@@ -44,7 +44,7 @@ const NOT_A_PRUNE: &[(&str, &str)] = &[
          not the filter, and the tree it walks is a tempdir",
     ),
     (
-        "tests/hook_claims.rs",
+        "tests/gates/hook_claims.rs",
         "filters paths out of `git ls-files` output, which never walks a working tree",
     ),
     (
@@ -54,7 +54,7 @@ const NOT_A_PRUNE: &[(&str, &str)] = &[
          builds and walks are tempdirs",
     ),
     (
-        "tests/dependency_holds.rs",
+        "tests/gates/dependency_holds.rs",
         "reads `packages[\"node_modules/typescript\"]`, a key inside package-lock.json — \
          the name is npm's address for a locked package, not a filter, and the only tree \
          this file walks is `.github/`",
@@ -167,7 +167,7 @@ fn only_the_shared_helper_prunes_a_walk_of_this_repository() {
     for (path, text) in suite_sources() {
         // This file, which has to spell the vocabulary it forbids in order to look for it.
         if path == "tests/common/mod.rs"
-            || path == "tests/repo_walks.rs"
+            || path == "tests/gates/repo_walks.rs"
             || excused.contains(&path.as_str())
         {
             continue;
@@ -271,7 +271,7 @@ fn a_test_that_walks_this_repository_uses_the_shared_walker() {
     let mut saw_a_walk = 0usize;
 
     for (path, text) in suite_sources() {
-        if !path.starts_with("tests/") || path == "tests/repo_walks.rs" {
+        if !path.starts_with("tests/") || path == "tests/gates/repo_walks.rs" {
             continue;
         }
         scanned += 1;

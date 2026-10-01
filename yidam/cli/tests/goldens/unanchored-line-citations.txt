@@ -1,6 +1,6 @@
 # Line citations in this repository that carry neither a quote nor a symbol label, so nothing
 # checks them beyond existence. Held exact by `the_unanchored_population_does_not_grow` in
-# tests/line_citations.rs (#899, #932).
+# tests/gates/line_citations.rs (#899, #932).
 #
 # One line per citation: `<citing file> → <target>#<fragment>`, sorted, repeats allowed.
 # Delete a line when you anchor its citation (UPDATE_GOLDENS=1 does this and nothing else).

@@ -71,7 +71,7 @@
 //! `calculators-gluon` resolves 71 marginal packages against `regorus`'s 8, for +6.8 MB. RFC-0024
 //! ungated `regorus` because *a build that cannot evaluate policy is a build that cannot refuse*.
 //! A light build that cannot run a gluon calculator is in no such position: it declines the step
-//! by name and commits nothing. `tests/gluon_arm.rs` is where that gating is asserted.
+//! by name and commits nothing. `tests/gates/gluon_arm.rs` is where that gating is asserted.
 
 pub mod entry;
 
@@ -94,7 +94,7 @@ use marshal::{Computed, Corpus};
 /// The `std` modules a calculator script may use.
 ///
 /// Every one is pure-typed, checked: [`crate::gluon_arm`]'s note explains why that is not the
-/// test that matters, and `tests/gluon_arm.rs` holds this list to the *excluded* set as well, so
+/// test that matters, and `tests/gates/gluon_arm.rs` holds this list to the *excluded* set as well, so
 /// a module added here that turns out to reach the outside world fails a test rather than a
 /// report.
 ///
@@ -132,7 +132,7 @@ pub const EXCLUDED: &[(&str, &str)] = &[
 /// Gluon's variant types are structural, so a textual definition unifies with the one
 /// `#[derive(VmType)]` produces as long as the constructors and their argument types match
 /// exactly. They must therefore be kept in step by hand, which is what
-/// `the_injected_types_match_the_derived_ones` in `tests/gluon_arm.rs` is for: it renders the
+/// `the_injected_types_match_the_derived_ones` in `tests/gates/gluon_arm.rs` is for: it renders the
 /// derived type and compares.
 pub const PRELUDE_TYPES: &[&str] =
     &["type Value = | Text String | Int Int | Number Float | Flag Bool | Empty | Unrepresentable"];

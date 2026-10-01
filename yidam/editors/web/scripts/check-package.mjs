@@ -10,7 +10,7 @@
  * changed, and this repository has paid for it twice: `cli/v0.3.0` was one command from
  * shipping five platform binaries, a GitHub release and a Homebrew formula all naming a
  * version `cargo install` could not install, and `cli/v0.7.0` would have done the same over
- * seven `.rego` files. [`packaging.rs`](../../../cli/tests/packaging.rs) is where that rule
+ * seven `.rego` files. [`packaging.rs`](../../../cli/tests/gates/packaging.rs) is where that rule
  * lives for the crate. This is the same rule one ecosystem over.
  *
  * ── why it installs rather than reading the file list ────────────────────────

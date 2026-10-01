@@ -88,7 +88,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-mod common;
+use crate::common;
 
 use common::{
     blank_code_spans, install_of, repo_root, resolve, step_one_read_list, tracked_under,

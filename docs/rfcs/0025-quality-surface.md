@@ -76,7 +76,7 @@ The skips are the sharp edge. Four suites skip on environment and three tests ar
 
 | Where | Gate |
 |---|---|
-| `tests/embed_parity.rs:27` | `YIDAM_EMBED_PARITY=1` |
+| `tests/gates/embed_parity.rs:27` | `YIDAM_EMBED_PARITY=1` |
 | `tests/vault_s3.rs:36`, plus three `#[ignore]` | `YIDAM_S3_TEST` and a live MinIO |
 | `tests/query_history.rs:640,664` | `ssh-keygen`, and a git that can sign with it |
 

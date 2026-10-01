@@ -102,7 +102,7 @@ pub mod vault;
 mod walk;
 
 /// The one tokio runtime (#930). Compiled for exactly the features that pull `tokio` —
-/// `tests/light_build.rs` derives that set from Cargo.toml and holds this list to it.
+/// `tests/gates/light_build.rs` derives that set from Cargo.toml and holds this list to it.
 #[cfg(any(
     feature = "index",
     feature = "tonpa",

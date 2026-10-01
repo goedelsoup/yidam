@@ -17,7 +17,7 @@
 
 use std::path::PathBuf;
 
-mod common;
+use crate::common;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")

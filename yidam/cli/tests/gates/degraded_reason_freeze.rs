@@ -124,7 +124,7 @@ fn every_frozen_reason_is_produced_by_something() {
 /// It does **not** establish that the version moved when the surface did, and it used to claim
 /// it did (#940). Copies held to copies are green on a branch that adds a tool and reuses the
 /// number, and on a second branch doing the same, and on the merge of both. What the version
-/// names is settled one file over, in `mcp/CONTRACT_SHA` and `tests/mcp_contract_digest.rs`: a
+/// names is settled one file over, in `mcp/CONTRACT_SHA` and `tests/gates/mcp_contract_digest.rs`: a
 /// digest of the document is recorded beside each version, so the number cannot be reused and
 /// two branches claiming one collide in that ledger.
 ///

@@ -21,7 +21,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-mod common;
+use crate::common;
 use common::repo_root;
 
 fn read(rel: &str) -> String {

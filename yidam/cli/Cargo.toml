@@ -257,7 +257,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = tr
 # moved arrow to 54 against lancedb 0.15 anyway, which pins 53: two arrow majors in
 # one binary, and `IntoArrow` unsatisfied where `index_build` hands lancedb a
 # `RecordBatchIterator`. `every_arrow_this_workspace_declares_is_the_one_lancedb_resolves`
-# in tests/dependency_holds.rs now compares them in the lockfile (#904).
+# in tests/gates/dependency_holds.rs now compares them in the lockfile (#904).
 arrow-array = { version = "53", optional = true }
 arrow-schema = { version = "53", optional = true }
 arrow-ipc = { version = "53", optional = true }
@@ -382,7 +382,7 @@ default = ["reports", "tonpa", "vault-s3", "s3-vectors", "export-graph", "serve-
 # The name of the base build — and **not a supported feature set on its own.**
 #
 # It gates nothing. `reports = []` enables no dependency, and there is no
-# `#[cfg(feature = "reports")]` anywhere in `src/`; `tests/light_build.rs`
+# `#[cfg(feature = "reports")]` anywhere in `src/`; `tests/gates/light_build.rs`
 # asserts both. Naming it changes what compiles by exactly nothing, which is
 # why `report.rs` lists it unconditionally rather than behind a `cfg!`.
 #
@@ -473,7 +473,7 @@ export-graph = ["dep:oxrdf", "dep:oxttl"]
 # `install.sh` downloads and release.yml cross-compiles. RFC-0042 makes the exclusion its own
 # kill criterion: *"71 marginal packages and +6.8 MB are acceptable only outside the default
 # set … if anything in the default build ends up linking it, the proposal fails on the first row
-# of the table."* `tests/gluon_arm.rs` is that row, asserted.
+# of the table."* `tests/gates/gluon_arm.rs` is that row, asserted.
 #
 # What the argument's force is spent on instead: `--all-features` is on every pull request
 # through `mise run check-features`, so this is compiled and clippy-clean per PR even though it

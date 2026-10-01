@@ -37,7 +37,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-mod common;
+use crate::common;
 
 use common::{
     blank_code_spans, install_of, repo_root, resolve, ALWAYS_PRESENT, COLLECTIVE, DOMAIN_SELECTED,

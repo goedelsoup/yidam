@@ -225,7 +225,7 @@ done
 
 # The third question — does every SDK *answer* every function — is not asked here. Both loops
 # above are about fixtures, and both passed while `find_reachable` and `find_citations` existed
-# in the Rust SDK alone (#530). It is asked by `yidam/cli/tests/parity_implementations.rs`,
+# in the Rust SDK alone (#530). It is asked by `yidam/cli/tests/gates/parity_implementations.rs`,
 # which reads this `functions=` line rather than restating it, and which needs a comment
 # stripper and a tree walk that this shell task has no business growing.
 
@@ -650,8 +650,9 @@ run = "yidam overlay"
 # gate.
 #
 # Arguments reach nextest, which is where a subset is expressed: `mise run test-cli
-# ci_reporting` for a name filter, or `mise run test-cli -- -E 'binary(ci_reporting)'` for one
-# test binary — which is also the unit that costs, since each is a separate link.
+# ci_reporting` for a name filter, or `mise run test-cli -- -E 'binary(gates)'` for one
+# test binary — which is also the unit that costs, since each is a separate link. The gates
+# that only read files share the one binary, `tests/gates/` (#1010).
 [tasks.test-cli]
 description = "Run the CLI test suite, or the tests a filter names. Usage: mise run test-cli [<filter>]"
 run = "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --locked"

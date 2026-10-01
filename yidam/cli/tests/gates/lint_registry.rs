@@ -46,7 +46,7 @@
 //! `dead_line_citation`, `slid_line_citation`, `citation_label_not_cited`,
 //! `unverified_line_citation` and `citation_range_stated_twice` in its `pub use cmd::{…}`, so
 //! they are reachable from outside the crate and `dead_code` cannot fire on them. Four are
-//! reached by `tests/line_citations.rs`, which is why they were exported;
+//! reached by `tests/gates/line_citations.rs`, which is why they were exported;
 //! `unverified_line_citation` is exported and called by nothing but the registry — a check
 //! that, had it been left out of the registry, nothing would have caught.
 //!
@@ -217,7 +217,7 @@ fn exported_from_cmd() -> BTreeSet<String> {
 /// Exactly these checks are reachable from outside the crate, and no others.
 ///
 /// Recorded rather than derived, because each one is a deliberate export with a consumer —
-/// `tests/line_citations.rs` for four of them, and nothing at all for
+/// `tests/gates/line_citations.rs` for four of them, and nothing at all for
 /// `unverified_line_citation`. An entry here is a check the compiler has stopped guarding, so
 /// the list is the price, and it should get shorter rather than longer.
 const EXPORTED_CHECKS: [&str; 5] = [

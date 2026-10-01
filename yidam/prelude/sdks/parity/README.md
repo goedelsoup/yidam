@@ -223,7 +223,7 @@ enforcement was of a command nobody's CI ran.
 about fixtures, and both passed for as long as `find_reachable` and `find_citations` existed
 in the Rust SDK alone — the directories were there, and one runner read them. Two thirds of
 what the first line of this file promises was missing with every gate green (#530). What asks
-now is `yidam/cli/tests/parity_implementations.rs`, in two tests: every SDK *defines* every
+now is `yidam/cli/tests/gates/parity_implementations.rs`, in two tests: every SDK *defines* every
 function, and every SDK's runner *loads* every fixture directory. Both sides are discovered —
 the functions out of `parity-check`'s own `functions` loop, the SDKs by walking
 `prelude/sdks/*/tests/` — so neither can rot into naming one SDK and forgetting the others.
@@ -326,7 +326,7 @@ so that every consumer of `embed.config.json` retrieves against the same vector 
 
 These fixtures are run by `mise run embed-parity`, not the default `parity` task — the
 runners download model weights on first run and are gated behind `YIDAM_EMBED_PARITY=1`.
-Runners: `yidam/cli/tests/embed_parity.rs` (Rust reference — fill `expected.prefix` from
+Runners: `yidam/cli/tests/gates/embed_parity.rs` (Rust reference — fill `expected.prefix` from
 its output), `typescript/tests/embed_parity.test.ts`, `python/tests/parity/test_embed_config.py`.
 
 A runtime that cannot load the exact weights in `input.model_file` declares its measured
