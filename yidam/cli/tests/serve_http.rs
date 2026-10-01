@@ -20,6 +20,8 @@ use std::process::{Child, Command, Stdio};
 
 mod common;
 
+const TOKEN_VAR: &str = "YIDAM_SERVE_TOKEN";
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
@@ -88,7 +90,18 @@ impl Drop for Server {
 }
 
 fn start(repo: &Path, extra: &[&str]) -> Server {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_yidam"))
+    start_with_token(repo, extra, None)
+}
+
+/// [`start`], with `YIDAM_SERVE_TOKEN` set to `token` — or removed, so a token in the
+/// environment running the suite cannot turn every other test here into a 401.
+fn start_with_token(repo: &Path, extra: &[&str], token: Option<&str>) -> Server {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_yidam"));
+    match token {
+        Some(t) => command.env(TOKEN_VAR, t),
+        None => command.env_remove(TOKEN_VAR),
+    };
+    let mut child = command
         .current_dir(repo)
         .args(["serve", "--mcp", "--http", "--port", "0"])
         .args(extra)
@@ -435,6 +448,113 @@ fn the_default_bind_does_not_warn() {
         "a loopback bind warned:\n{}",
         server.banner
     );
+}
+
+/// With a token set, a request without it is a 401 that names its scheme, and one with it is
+/// served (#939).
+#[test]
+fn a_token_is_required_on_every_request_and_the_right_one_is_served() {
+    let repo = fixture_repo();
+    let server = start_with_token(repo.path(), &[], Some("s3cret"));
+    assert!(
+        server.banner.contains("auth: bearer token required"),
+        "{}",
+        server.banner
+    );
+    assert!(
+        !server.banner.contains("s3cret"),
+        "the banner printed the token:\n{}",
+        server.banner
+    );
+
+    let init = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}).to_string();
+    for headers in [
+        vec![],
+        vec![("authorization", "Bearer wrong")],
+        vec![("authorization", "Basic s3cret")],
+    ] {
+        let response = request(&server.addr, "POST", "/mcp", &headers, &init);
+        assert_eq!(status_of(&response), 401, "{headers:?}:\n{response}");
+        assert!(
+            response
+                .to_ascii_lowercase()
+                .contains("www-authenticate: bearer realm=\"yidam\""),
+            "a 401 must name its scheme:\n{response}"
+        );
+        assert!(body_of(&response).starts_with("unauthorized"), "{response}");
+    }
+    // Every path, not only the endpoint: a caller without the token learns nothing about it.
+    let response = request(&server.addr, "GET", "/elsewhere", &[], "");
+    assert_eq!(status_of(&response), 401, "{response}");
+
+    let response = request(
+        &server.addr,
+        "POST",
+        "/mcp",
+        &[
+            ("authorization", "Bearer s3cret"),
+            ("content-type", "application/json"),
+        ],
+        &init,
+    );
+    assert_eq!(status_of(&response), 200, "{response}");
+    let v: Value = serde_json::from_str(body_of(&response)).unwrap();
+    assert!(
+        v["result"]["capabilities"].is_object(),
+        "initialize did not answer: {v}"
+    );
+}
+
+/// A token is the repair the bind warning names, so with one set off loopback the banner says
+/// auth is required and does not warn.
+#[test]
+fn a_token_off_loopback_says_auth_and_does_not_warn() {
+    let repo = fixture_repo();
+    let server = start_with_token(repo.path(), &["--bind", "0.0.0.0"], Some("s3cret"));
+    assert!(
+        server.banner.contains("auth: bearer token required"),
+        "{}",
+        server.banner
+    );
+    assert!(!server.banner.contains("not loopback"), "{}", server.banner);
+}
+
+/// An empty token is not "auth off". The server refuses to start rather than serving open.
+///
+/// Bounded, for the reason `an_act_declaring_server_refuses_a_non_loopback_bind` gives: the
+/// failure this catches is a server that starts, which never exits on its own.
+#[test]
+fn an_empty_token_refuses_to_start() {
+    let repo = fixture_repo();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .env(TOKEN_VAR, "")
+        .current_dir(repo.path())
+        .args(["serve", "--mcp", "--http", "--port", "0"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let status = loop {
+        match child.try_wait().unwrap() {
+            Some(status) => break status,
+            None if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("the server started with an empty {TOKEN_VAR} and was still serving");
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(50)),
+        }
+    };
+    assert!(!status.success());
+    let mut err = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut err)
+        .unwrap();
+    assert!(err.contains(TOKEN_VAR) && err.contains("empty"), "{err}");
 }
 
 /// A path that is not the endpoint is told which one is.

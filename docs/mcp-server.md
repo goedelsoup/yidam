@@ -228,11 +228,12 @@ many words.
 **It is the same server.** The same code the stdio transport calls produces the tools, the
 capability block, and the `absence` and `degraded` fields. Only the framing differs.
 
-**Read-only, one corpus, and it authenticates nobody.** The defaults reflect that:
+**Read-only, one corpus, and by default it authenticates nobody.** The defaults reflect that:
 
 | | |
 |---|---|
 | `--bind` | `127.0.0.1`. A server on `0.0.0.0` is reachable by anything on the network, and this one asks no one who they are. Any address off loopback prints a warning at startup, naming every tool it exposes. |
+| `YIDAM_SERVE_TOKEN` or `--token-file` | Unset. Set one, and every request must carry `Authorization: Bearer <token>`. |
 | `--allow-origin` | Empty. A request carrying an `Origin` header is refused unless you name it; one carrying none — `curl`, and every server-to-server client — passes. |
 
 The `Origin` rule is the MCP spec's defence against DNS rebinding. That is where a page on some
@@ -243,8 +244,42 @@ origins that may reach it is what makes the check mean something:
 yidam serve --mcp --http --allow-origin https://chat.example
 ```
 
-To expose it beyond your machine, put it behind something that terminates TLS and supplies
-authentication. Neither is in this transport, and neither is planned for it.
+### A bearer token
+
+To require a token, generate one and give it to the server:
+
+```sh
+openssl rand -hex 32 > ~/.yidam-token
+yidam serve --mcp --http --bind 0.0.0.0 --token-file ~/.yidam-token
+# or: YIDAM_SERVE_TOKEN="$(cat ~/.yidam-token)" yidam serve --mcp --http --bind 0.0.0.0
+```
+
+A request without the token gets `401` and `WWW-Authenticate: Bearer realm="yidam"`, on every
+path. The check runs after `Origin` and before everything else, so the caller learns nothing about
+the endpoint. The banner says `auth: bearer token required` and never prints the token.
+
+There is no flag that takes the token itself. Argv shows in `ps` and in shell history. Set the
+variable or the file, not both: the server refuses to start with two. An empty token is refused
+too. It does not mean "no token".
+
+Give the client the same header:
+
+- **Claude Code:** `claude mcp add --transport http yidam https://host/mcp --header "Authorization: Bearer $TOKEN"`.
+- **The OpenAI Responses API:** the `mcp` tool's `headers` map.
+- **claude.ai:** a custom connector's request headers. That option is a beta, and not every
+  organization has it.
+
+**What a token does not do:**
+
+- **It names nobody.** Every caller shares one secret, so it cannot supply the author a write
+  needs. `[serve] act` stays refused off loopback with a token set. #427 is where a real
+  identity arrives.
+- **It does not encrypt.** The token crosses the network in the clear unless something in
+  front of the server terminates TLS. Put one there.
+- **It does not reach a browser.** A browser sends a preflight `OPTIONS` before an
+  `Authorization` header, and this server answers `OPTIONS` with `405`.
+- **It serves no OAuth metadata.** A client that probes `/.well-known/oauth-protected-resource`
+  gets `404` and should then use the header it was configured with.
 
 ---
 
@@ -563,8 +598,8 @@ A refusal is recorded too, on the same shape with `outcome: "error"`. That is th
 *which queries returned nothing*. Dropping it would drop the reason to keep the file.
 
 **Your query text is never written.** A digest of the arguments, and nothing else. Over `--http` a
-server answers callers it cannot authenticate. The record must not become a file of their
-questions. The digest is stable, so the same call digests alike. *This was asked forty times* is
+server answers callers it cannot tell apart, token or no token. The record must not become a file
+of their questions. A request the token refuses never reaches a tool, so it is never recorded. The digest is stable, so the same call digests alike. *This was asked forty times* is
 still answerable.
 
 `.yidam/record/` must be gitignored, and the server **refuses to start** until it is. A tracked

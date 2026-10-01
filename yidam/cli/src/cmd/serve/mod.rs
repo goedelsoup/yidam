@@ -425,8 +425,8 @@ pub(crate) fn git_author(root: &Path) -> Option<String> {
 /// Whether an address is on this machine and nowhere else — RFC-0029 §2.2 clause 3.
 ///
 /// `127.0.0.0/8` and `::1`, and nothing else. Not a security boundary and §2.2 says so: every
-/// socket transport has an unbounded peer set, anything on the host reaches loopback, and the
-/// CLI's own help for `--http` tells an operator to put the server behind a tunnel — which
+/// socket transport has an unbounded peer set, anything on the host reaches loopback, and an
+/// operator who wants `--http` reachable puts it behind a tunnel or a proxy — which
 /// republishes a loopback port off-machine by design. What this separates is *this machine*
 /// from *another machine* without inventing an authenticator, which is the most a server can
 /// see from inside.
@@ -446,7 +446,7 @@ pub(crate) fn is_loopback(bind: &str) -> bool {
 }
 
 /// What an operator is told when the HTTP transport binds somewhere another machine can reach
-/// (#939), or `None` when it binds loopback.
+/// with no token required (#939), or `None` when it binds loopback or requires one.
 ///
 /// A warning and not a refusal. Serving a public corpus to the network on purpose is a
 /// deployment this repository plans for (#428), and a container behind its own proxy has to
@@ -457,17 +457,27 @@ pub(crate) fn is_loopback(bind: &str) -> bool {
 /// `tools` is the served list rather than a hand-typed one, so the warning names a tool the
 /// day the contract adds it. It is never `act`'s tools: [`serve_mcp_http`] refuses `act` off
 /// loopback before this is asked.
+///
+/// A token silences it, and the banner says `auth: bearer token required` instead. A token is
+/// one secret shared by every caller, so it narrows who can reach the tools to whoever holds
+/// it; it does not say who they are, which is why it changes nothing about `act`.
 #[cfg(feature = "serve-http")]
-pub(crate) fn exposure_warning(bind: &str, port: u16, tools: &[&str]) -> Option<String> {
-    if is_loopback(bind) {
+pub(crate) fn exposure_warning(
+    bind: &str,
+    port: u16,
+    tools: &[&str],
+    authenticated: bool,
+) -> Option<String> {
+    if is_loopback(bind) || authenticated {
         return None;
     }
     Some(format!(
         "warning: `--bind {bind}` is not loopback, and this transport authenticates nobody. \
          Anyone who can reach port {port} can call every tool it serves ({}) and read every \
          `yidam://` resource: the corpus, its provenance, and `retrieve` over all of it. \
-         Bind 127.0.0.1, or put it behind a tunnel or proxy that authenticates.",
-        tools.join(", ")
+         Bind 127.0.0.1, or set {} or `--token-file` to require a bearer token.",
+        tools.join(", "),
+        http::TOKEN_VAR
     ))
 }
 
@@ -694,7 +704,11 @@ pub fn serve_mcp_http(
     bind: &str,
     port: u16,
     allow_origin: Vec<String>,
+    token_file: Option<&Path>,
 ) -> Result<()> {
+    // Before the corpus loads: a token that cannot be read is a mistake in the command, and
+    // the operator should hear about it before waiting on a walk.
+    let token = http::token_source(|k| std::env::var(k).ok(), token_file)?;
     let root = resolve_root(root)?;
     let state = ServerState::load(&root)?;
     // RFC-0029 §2.2 clause 3, checked here because this is the only entry point that binds a
@@ -702,6 +716,9 @@ pub fn serve_mcp_http(
     // and got a running server would read that as the answer to the question they asked.
     //
     // Before the bind, so a server that will not be allowed to write never holds the port.
+    //
+    // A token does not lift it (#939). One shared secret says that a caller holds it, not who
+    // the caller is, so it cannot supply the author §2.2 requires for a write.
     if state.act && !is_loopback(bind) {
         anyhow::bail!(
             "`[serve] act = true` and `--bind {bind}`. A server that may write is declarable \n               only where this machine is the whole of its peer set (RFC-0029 §2.2), and \n               `{bind}` is reachable from another one; over HTTP no author exists for a remote \n               caller until #427 supplies one.\n               Bind 127.0.0.1, or drop `[serve] act` and serve the read tools."
@@ -715,10 +732,17 @@ pub fn serve_mcp_http(
         .flatten()
         .filter_map(|t| t["name"].as_str())
         .collect();
-    if let Some(warning) = exposure_warning(bind, port, &names) {
-        eprintln!("{warning}");
+    match exposure_warning(bind, port, &names, token.is_some()) {
+        Some(warning) => eprintln!("{warning}"),
+        // Never the token. It is not held past this point anyway: only its digest is.
+        None if token.is_some() => eprintln!("auth: bearer token required"),
+        None => {}
     }
-    http::serve(state, bind, port, allow_origin)
+    let policy = http::Policy {
+        origins: allow_origin,
+        token,
+    };
+    http::serve(state, bind, port, policy)
 }
 
 /// Read newline-delimited JSON-RPC messages from `input`, write responses to
@@ -974,12 +998,21 @@ mod tests {
     fn a_bind_off_loopback_warns_and_names_what_it_exposes() {
         let tools = ["retrieve", "get_node"];
         for bind in ["0.0.0.0", "::", "192.168.1.20", "yidam.example"] {
-            let warning = exposure_warning(bind, 8080, &tools)
+            let warning = exposure_warning(bind, 8080, &tools, false)
                 .unwrap_or_else(|| panic!("`--bind {bind}` said nothing"));
             assert!(warning.contains(bind), "{warning}");
             assert!(warning.contains("8080"), "{warning}");
             assert!(warning.contains("retrieve, get_node"), "{warning}");
             assert!(warning.contains("127.0.0.1"), "no repair named: {warning}");
+            assert!(
+                warning.contains(http::TOKEN_VAR),
+                "no token repair: {warning}"
+            );
+            assert_eq!(
+                exposure_warning(bind, 8080, &tools, true),
+                None,
+                "a token is the repair, so `--bind {bind}` with one says nothing"
+            );
         }
     }
 
@@ -989,7 +1022,11 @@ mod tests {
     #[cfg(feature = "serve-http")]
     fn a_loopback_bind_says_nothing() {
         for bind in ["127.0.0.1", "127.8.9.10", "::1", "localhost"] {
-            assert_eq!(exposure_warning(bind, 8080, &["retrieve"]), None, "{bind}");
+            assert_eq!(
+                exposure_warning(bind, 8080, &["retrieve"], false),
+                None,
+                "{bind}"
+            );
         }
     }
 

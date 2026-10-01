@@ -1473,7 +1473,7 @@ compiled-in mapping and reads no corpus.
 | Command | What it does |
 |---|---|
 | `serve --mcp` | MCP over stdio — the agent surface. See [Connecting an agent](mcp-server.md) |
-| `serve --mcp --http` | The same server over HTTP, for a client that takes a URL rather than spawning a process. `--bind` (loopback by default), `--port`, `--allow-origin` |
+| `serve --mcp --http` | The same server over HTTP, for a client that takes a URL rather than spawning a process. `--bind` (loopback by default), `--port`, `--allow-origin`, `--token-file` (or `YIDAM_SERVE_TOKEN`) to require a bearer token |
 | `serve --lsp` | LSP over stdio — the editor surface. See [Editor setup](editor-setup.md) |
 | `record` | What `serve --mcp` was asked, read from the record `[serve] record` keeps. Reads only, and exits 0 |
 
