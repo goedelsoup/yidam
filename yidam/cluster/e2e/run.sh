@@ -598,6 +598,16 @@ printf '%s' "$TOKEN" >"$on_push/objects/secrets/webhook.secret"
 kubectl apply -k "$on_push" -n "$NS"
 rolled_out deployment eventsource-name="yidam-$CORPUS"
 rolled_out deployment sensor-name="yidam-$CORPUS"
+# A Ready Sensor is not yet a listening one: it subscribes to the bus once it is leader, and a
+# new subscription gets only what is published after it. A push before then is published to no
+# one (#1235's first CI run lost it by a third of a second). Argo Events reports the
+# subscription only in the Sensor's log, so this waits on that line. It is a wait, not a check.
+deadline=$((SECONDS + 120))
+# A count, not `grep -q`: under pipefail, kubectl killed by a grep that stopped reading fails it.
+until [ "$(kubectl -n "$NS" logs -l sensor-name="yidam-$CORPUS" --tail=-1 | grep -c 'Subscribing to subject')" -gt 0 ]; do
+  [ "$SECONDS" -lt "$deadline" ] || die "the Sensor never subscribed to the event bus"
+  sleep 2
+done
 
 # The remote's half: a post-receive hook posting each updated ref, as a git host's webhook does.
 # It logs every post and its outcome, so a red run can tell an unsent push from an unrun one.
