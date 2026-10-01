@@ -24,6 +24,8 @@
 //! incomplete: see [`every_lockfile_is_one_dependabot_resolves_or_has_no_registry_dependency`]
 //! — a lockfile no entry names is one nobody maintains, and it looks exactly like one that is.
 
+mod common;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -494,17 +496,15 @@ fn every_lockfile_is_one_dependabot_resolves_or_has_no_registry_dependency() {
         covered.push((lockfile, dirs));
     }
 
-    let out = std::process::Command::new("git")
-        .args(["ls-files", "--", "*Cargo.lock", "*package-lock.json"])
-        .current_dir(repo_root())
-        .output()
-        .expect("git ls-files did not run");
-    let tracked = String::from_utf8(out.stdout).expect("git ls-files is not UTF-8");
+    let tracked: Vec<String> = ["*Cargo.lock", "*package-lock.json"]
+        .iter()
+        .flat_map(|spec| common::tracked_under(&repo_root(), spec))
+        .collect();
 
     let mut seen = 0;
     let mut exempt = 0;
     let mut orphaned = Vec::new();
-    for path in tracked.lines() {
+    for path in &tracked {
         seen += 1;
         let (dir, file) = path.rsplit_once('/').unwrap_or(("", path));
         let dir = format!("/{dir}");

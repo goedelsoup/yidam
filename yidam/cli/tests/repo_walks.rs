@@ -53,6 +53,12 @@ const NOT_A_PRUNE: &[(&str, &str)] = &[
          repository — the names are the finding, not the filter, and the trees its fixture \
          builds and walks are tempdirs",
     ),
+    (
+        "tests/dependency_holds.rs",
+        "reads `packages[\"node_modules/typescript\"]`, a key inside package-lock.json — \
+         the name is npm's address for a locked package, not a filter, and the only tree \
+         this file walks is `.github/`",
+    ),
 ];
 
 fn crate_dir() -> PathBuf {
