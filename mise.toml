@@ -803,10 +803,24 @@ run = [
 #
 # The arm that *is* ratcheted is `--scaling`, by `bench_baseline.rs` in the `ci (cli)` gate —
 # it is deterministic, so the baseline is exact and the diff is the review.
+#
+# `--all-features` and not the `--features index` the arm needs, because of where it runs (#1015).
+# `ci-cli-full` has already built `--features vector-read` and `--all-features` in the same job,
+# and cargo unifies features per invocation: `index` was a third set sharing no codegen with
+# either, 58s of this step's 67s on main run 36175381600. `--all-features` is a superset of
+# `index` and finds its dependencies already in `target/`.
+#
+# The superset is not assumed to measure the same thing. What it adds over `index` is
+# `calculators-gluon` and `export-sqlite`, whose code is reached only from `lint`, `run` and
+# `export`. In shared dependencies it moves nothing on the measured path: fastembed, ort,
+# lancedb, arrow and tokio resolve identically, and what does move — `regex-automata`'s `perf`,
+# `futures-util`'s `compat`, `hashbrown`'s default hasher — changes speed or surface, not
+# results. Run both ways over examples/streamflow, every line of `bench-example.sh`'s output
+# matched except the scratch directory's name.
 [tasks.bench-example]
 description = "Run `yidam bench` against examples/streamflow, with a real index (needs --features index)."
 run = [
-  "cargo build --manifest-path yidam/cli/Cargo.toml --features index --locked",
+  "cargo build --manifest-path yidam/cli/Cargo.toml --all-features --locked",
   "bash scripts/bench-example.sh",
 ]
 
