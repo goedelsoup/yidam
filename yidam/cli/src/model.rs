@@ -292,6 +292,9 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
     let genesis = genesis_date(root);
     let genesis_msg = genesis_message(root);
     let first_line = genesis_msg.lines().next().unwrap_or("").trim();
+    // Read here rather than in the exporter, because every export renderer is a pure function
+    // of this model and does no disk I/O of its own.
+    let genesis_hash = crate::git::genesis_hash(root);
     let domain = if let Some(name) = domain_from_genesis(first_line) {
         name
     } else {
@@ -300,20 +303,22 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
             .to_string();
-        eprintln!(
-            "[warn] genesis commit {first_line:?} names no domain — expected `genesis: \
-             <domain>`, as the bootstrap skill's step 8 writes it. Using directory name \
-             {fallback:?}"
-        );
+        // Only a commit that exists can misname the domain. A bundle unpacked into scratch by
+        // `serve --bundle` has no git at all, and its directory is already named for the
+        // manifest's domain (#1269).
+        if genesis_hash.is_some() {
+            eprintln!(
+                "[warn] genesis commit {first_line:?} names no domain — expected `genesis: \
+                 <domain>`, as the bootstrap skill's step 8 writes it. Using directory name \
+                 {fallback:?}"
+            );
+        }
         fallback
     };
     let generated_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    // Read here rather than in the exporter, because every export renderer is a pure function
-    // of this model and does no disk I/O of its own.
-    let genesis_hash = crate::git::genesis_hash(root);
 
     // Prefix "../corpus/": this rendering goes into the export bundle at `index/corpus.md`,
     // where the instances sit at `corpus/<class>/<file>` (see `cmd::bundle`). One directory
