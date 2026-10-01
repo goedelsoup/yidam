@@ -1476,6 +1476,7 @@ compiled-in mapping and reads no corpus.
 | `serve --mcp --http` | The same server over HTTP, for a client that takes a URL rather than spawning a process. `--bind` (loopback by default), `--port`, `--allow-origin`, `--token-file` (or `YIDAM_SERVE_TOKEN`) to require a bearer token |
 | `serve --lsp` | LSP over stdio — the editor surface. See [Editor setup](editor-setup.md) |
 | `record` | What `serve --mcp` was asked, read from the record `[serve] record` keeps. Reads only, and exits 0 |
+| `record --fold` | Commits the record's new lines into `.yidam/consumption.json` as one `refresh:` commit. Commits nothing when nothing is new |
 
 **`--root <DIR>` matters most here**, and `serve` is where it started (#421). A client
 configures a command line, not a working directory. Without the flag the corpus depends on

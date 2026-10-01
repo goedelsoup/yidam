@@ -1417,6 +1417,129 @@ fn a_recorded_session_is_reported_by_yidam_record() {
     }
 }
 
+/// The record reaches the history (#1018): `--fold` commits what the file holds as one
+/// operational commit, and loses no line a server is writing while it runs.
+///
+/// A half-written last line stands in for the concurrent append: it is what the fold sees
+/// when a server's write lands between the fold's read and its commit. The fold must leave it,
+/// and the next fold must take it.
+#[test]
+fn a_fold_commits_the_record_and_loses_no_line() {
+    let repo = recording_repo();
+    let root = repo.path();
+    {
+        let mut client = McpClient::spawn(root);
+        client.initialize();
+        client.tool_json("retrieve", json!({"query": "knowledge graph", "k": 2}));
+        client.tool_json("retrieve", json!({"query": "zzqqxxwv"}));
+        client.tool_json("list_nodes", json!({}));
+    }
+    assert_eq!(record_lines(root).len(), 3);
+    let late = r#"{"at":1758758400,"commit":"abc1234","tool":"retrieve","args_digest":"sha256:late","outcome":"ok","results":0,"node_ids":[],"degraded":true,"rejected":false,"ms":1}"#;
+    let (torn, rest) = late.split_at(40);
+    let record = root.join(".yidam/record/calls.jsonl");
+    let append = |text: &str| {
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&record)
+            .unwrap();
+        f.write_all(text.as_bytes()).unwrap();
+    };
+    append(torn);
+
+    let yidam = |args: &[&str]| -> Value {
+        let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+            .args(args)
+            .args(["--format", "json"])
+            .current_dir(root)
+            .output()
+            .expect("spawning yidam record");
+        assert!(out.status.success(), "{args:?} failed: {out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    };
+    let subject = || common::git::out(root, &["log", "-1", "--format=%s"]);
+
+    let doc = yidam(&["record", "--fold"]);
+    let fold = &doc["fold"];
+    assert_eq!(
+        fold["calls"], 3,
+        "the torn line is not a call yet: {fold:#}"
+    );
+    assert_eq!(
+        subject(),
+        "refresh: fold 3 calls from the consumption record"
+    );
+    assert_eq!(fold["commit"]["subject"], subject());
+    assert_eq!(
+        yidam_core::git::classify_commit("", &subject()).kind,
+        yidam_core::git::CommitKind::Operational
+    );
+    assert_eq!(
+        common::git::out(root, &["show", "--format=", "--name-only", "HEAD"]),
+        ".yidam/consumption.json",
+        "the commit holds the fold and nothing else"
+    );
+    assert_eq!(
+        common::git::out(root, &["log", "-1", "--format=%an <%ae>"]),
+        "yidam record <record@yidam>"
+    );
+
+    // The write lands after the fold read the file, and another follows it.
+    append(&format!("{rest}\n"));
+    append(&format!("{late}\n"));
+    let c = &yidam(&["record"])["consumption"];
+    assert_eq!(
+        (c["calls"].clone(), c["folded"].clone()),
+        (json!(5), json!(3)),
+        "{c:#}"
+    );
+    assert_eq!(c["empty"], 3, "{c:#}");
+
+    let fold = &yidam(&["record", "--fold"])["fold"];
+    assert_eq!(fold["calls"], 2, "{fold:#}");
+    assert_eq!(fold["total"], 5, "{fold:#}");
+    assert_eq!(
+        subject(),
+        "refresh: fold 2 calls from the consumption record"
+    );
+
+    // Nothing new is no commit, so the fold is safe on a clock.
+    let head = common::git::out(root, &["rev-parse", "HEAD"]);
+    let again = yidam(&["record", "--fold"]);
+    assert!(again["fold"]["commit"].is_null(), "{again:#}");
+    assert_eq!(common::git::out(root, &["rev-parse", "HEAD"]), head);
+
+    // The file is never cut; deleting it after a fold loses nothing from the report.
+    assert_eq!(record_lines(root).len(), 5);
+    std::fs::remove_file(&record).unwrap();
+    let c = &yidam(&["record"])["consumption"];
+    assert_eq!(c["present"], false);
+    assert_eq!(
+        (c["calls"].clone(), c["folded"].clone()),
+        (json!(5), json!(5)),
+        "{c:#}"
+    );
+
+    // Every path the fold emits is declared, which the golden cannot hold: its fixture writes
+    // no commits, so `fold` is exempt there (`UNREACHED`) and held here.
+    let schema: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            repo_root().join("yidam/prelude/sdks/parity/fixtures/reports/report.schema.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut emitted = BTreeSet::new();
+    common::paths_of(&doc, "", &mut emitted);
+    for path in &emitted {
+        assert!(
+            common::declares(&schema, path),
+            "`record --fold` emits `{path}`, which report.schema.json does not declare"
+        );
+    }
+    assert!(emitted.contains("fold.commit.sha"), "{emitted:?}");
+}
+
 /// The default, which is every server this repository shipped before #719.
 #[test]
 fn a_corpus_that_declares_nothing_is_not_recorded() {

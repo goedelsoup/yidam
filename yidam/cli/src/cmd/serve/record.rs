@@ -42,7 +42,8 @@
 //! RFC-0029's identity gate currently guards for the `act` tier alone.
 //!
 //! The file is therefore a staging buffer, not the record of last resort, and [`ensure_ignored`]
-//! refuses to open it anywhere git would offer to commit it. The fold is #1018, not this.
+//! refuses to open it anywhere git would offer to commit it. The fold is `yidam record --fold`
+//! (#1018, `cmd/record/fold.rs`), which reads this file and never writes to it.
 //!
 //! # Why no plaintext query
 //!

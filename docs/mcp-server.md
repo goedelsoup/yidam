@@ -616,8 +616,10 @@ A `retrieve` line also carries `node_ids`: which nodes came back, in rank order.
 any caller. No line says who the caller was.
 
 `.yidam/record/` must be gitignored, and the server **refuses to start** until it is. A tracked
-record would dirty the working tree after every session anyone served. Nothing here writes a
-commit. The file is a staging buffer, and folding it into the history is a scheduled run.
+record would dirty the working tree after every session anyone served. The server writes no
+commit. The file is a staging buffer, and `yidam record --fold` moves it into the history. That
+writes `.yidam/consumption.json` as one `refresh:` commit, holding counts rather than lines. Run
+it on whatever clock you like: with nothing new, it commits nothing.
 
 ---
 

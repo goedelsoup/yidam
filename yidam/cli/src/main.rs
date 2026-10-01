@@ -1170,8 +1170,15 @@ enum Command {
     /// calls came back empty, whether retrieval was served degraded, whether anything acted on
     /// a clock, and which tools were never called. A corpus that keeps no record is told so —
     /// *nothing was recorded* is not *nothing was asked*. Reads only, and exits 0 whatever the
-    /// record says.
+    /// record says, unless `--fold` is passed.
+    ///
+    /// The file is gitignored. `--fold` counts its new lines into `.yidam/consumption.json` and
+    /// commits that as one `refresh:` commit on the current branch. The report then reads both.
+    /// The file is never truncated, so a line a server appends during the fold is kept.
     Record {
+        /// Commit the file's new lines into `.yidam/consumption.json` as a `refresh:` commit
+        #[arg(long)]
+        fold: bool,
         #[command(flatten)]
         root: RootArg,
         #[command(flatten)]
@@ -1932,7 +1939,13 @@ fn run() -> Result<()> {
         } => yidam::migrate(operation.into(), dry_run, format.value),
         Command::Schema { settings, force } => yidam::schema(settings, force),
         Command::SamudayaAudit { root } => yidam::samudaya_audit(root.as_deref()),
-        Command::Record { root, format } => yidam::record(root.as_deref(), format.value),
+        Command::Record { fold, root, format } => {
+            if fold {
+                yidam::record_fold(root.as_deref(), format.value)
+            } else {
+                yidam::record(root.as_deref(), format.value)
+            }
+        }
         Command::Sangha { root, format } => yidam::sangha(root.as_deref(), format.value),
         Command::Vocabulary {
             root,

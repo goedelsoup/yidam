@@ -3095,6 +3095,74 @@
         }
       }
     },
+    "fold": {
+      "type": "object",
+      "description": "`record --fold` only (#1018). What one fold counted from `.yidam/record/calls.jsonl` into the tracked `.yidam/consumption.json`, and the `refresh:` commit that holds it. The file is never truncated: `from` and `to` are the bytes this fold counted, and a line past `to` is the next fold's.",
+      "required": [
+        "record",
+        "path",
+        "calls",
+        "unreadable",
+        "from",
+        "to",
+        "commit",
+        "total"
+      ],
+      "properties": {
+        "record": {
+          "type": "string",
+          "description": "The file folded from, always `.yidam/record/calls.jsonl`."
+        },
+        "path": {
+          "type": "string",
+          "description": "The tracked file folded into, always `.yidam/consumption.json`."
+        },
+        "calls": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Calls this fold counted. Zero when there was nothing new."
+        },
+        "unreadable": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lines this fold counted as unreadable."
+        },
+        "from": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The first byte of the file this fold counted."
+        },
+        "to": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "One past the last byte this fold counted: the end of the last complete line it read. Equal to `from` when nothing was counted."
+        },
+        "commit": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "The `refresh:` commit this fold authored, or null when there was nothing new to fold.",
+          "required": [
+            "sha",
+            "subject"
+          ],
+          "properties": {
+            "sha": {
+              "type": "string"
+            },
+            "subject": {
+              "type": "string"
+            }
+          }
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Calls counted in the history after this fold, every fold together."
+        }
+      }
+    },
     "consumption": {
       "type": "object",
       "description": "`record` only (#1019). What `serve --mcp` was asked, read from `.yidam/record/calls.jsonl` \u2014 the file `[serve] record` makes a server append one line per `tools/call` to. `declared` and `present` are two fields and not one because an absent file and an empty one are different findings: the first says nothing was recorded, the second that a server kept the record and was asked nothing. A consumer MUST NOT read `calls: 0` with `present: false` as a corpus nobody read.",
@@ -3103,6 +3171,7 @@
         "declared",
         "present",
         "calls",
+        "folded",
         "unreadable",
         "commits",
         "first_at",
@@ -3130,7 +3199,12 @@
         "calls": {
           "type": "integer",
           "minimum": 0,
-          "description": "Lines read as calls. Excludes `unreadable`."
+          "description": "Lines read as calls. Excludes `unreadable`. Counts the committed fold and the file past it together (#1018)."
+        },
+        "folded": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many of `calls` were read from `.yidam/consumption.json`, the tally `record --fold` commits (#1018), rather than from the file. Zero in a corpus that has never folded. With `present: false` and a nonzero value, the file is gone and the history still says what it held."
         },
         "unreadable": {
           "type": "integer",

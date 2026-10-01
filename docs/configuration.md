@@ -533,7 +533,17 @@ something a tool call does. `git commit-tree` on the read path would make the ch
 the most expensive thing the server does. It would also give `serve` a git-write path that the
 `act` tier's identity gate currently guards alone. A record of what was retrieved is
 **operational** under [RFC-0026](rfcs/0026-orchestrator-layer.md). It is closest to `index:` in the
-commit vocabulary's own table, so it needs no new authority concept. The fold is #1018.
+commit vocabulary's own table, so it needs no new authority concept.
+
+**`yidam record --fold` is that run.** It counts the file's new lines into `.yidam/consumption.json`
+and commits it as one `refresh:` commit on the current branch. The tracked file holds counts, not
+lines, so the history grows with distinct tools and nodes rather than with traffic. A returned
+node keeps how often it came back, and loses which call it came back with. The fold never
+truncates the file. It remembers how many bytes it has counted, and takes only complete lines past
+that point. A line a server is writing during the fold is the next fold's, so none is lost or
+counted twice. With nothing new, it writes no commit, so it is safe on a clock. `yidam record`
+then reads both: the committed counts, and whatever the file has gained since. Deleting the file
+after a fold loses nothing, but only the operator knows no server is still writing to it.
 
 **Not `[serve] act` under another name.** `act` declares what a server may write *into the graph*.
 It carries an identity gate, because the history it writes is the knowledge graph. This key
