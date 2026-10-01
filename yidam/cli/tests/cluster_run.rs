@@ -1937,8 +1937,100 @@ fn the_overlay_creates_what_the_workflow_mounts_and_nothing_else() {
         );
     }
 
+    // #1238: the server is a pod of this corpus like any step, with nothing a step lacks.
+    let deployments: Vec<&serde_yaml::Value> =
+        built.iter().filter(|v| kind(v) == "Deployment").collect();
+    assert_eq!(deployments.len(), 1, "the overlay should deploy one server");
+    let serve = deployments[0];
+    let pod = &serve["spec"]["template"];
+    let step = cron["spec"]["workflowSpec"]["templates"]
+        .as_sequence()
+        .into_iter()
+        .flatten()
+        .find(|t| t["name"].as_str() == Some("step"))
+        .expect("the CronWorkflow has a step template");
+    assert_eq!(
+        pod["spec"]["securityContext"], step["securityContext"],
+        "the server's pod security is not a step pod's"
+    );
+    let containers = pod["spec"]["containers"].as_sequence().unwrap();
+    assert_eq!(containers.len(), 1);
+    let c = &containers[0];
+    assert_eq!(
+        c["securityContext"], step["container"]["securityContext"],
+        "the server's container security is not a step container's"
+    );
+    assert_eq!(
+        pod["spec"]["automountServiceAccountToken"].as_bool(),
+        Some(false)
+    );
+    // Probes are the two paths that read nothing, on the port the server binds.
+    let port = c["ports"][0]["name"].as_str().unwrap();
+    for (probe, path) in [
+        ("startupProbe", "/healthz"),
+        ("livenessProbe", "/healthz"),
+        ("readinessProbe", "/readyz"),
+    ] {
+        assert_eq!(c[probe]["httpGet"]["path"].as_str(), Some(path), "{probe}");
+        assert_eq!(c[probe]["httpGet"]["port"].as_str(), Some(port), "{probe}");
+    }
+    let args: Vec<&str> = c["args"]
+        .as_sequence()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_yaml::Value::as_str)
+        .collect();
+    let bound = args
+        .windows(2)
+        .find(|w| w[0] == "--port")
+        .map(|w| w[1].parse::<u64>().unwrap());
+    assert_eq!(bound, c["ports"][0]["containerPort"].as_u64());
+    // What it names exists, and is no git secret: a read-only server never holds a key.
+    let named = named_objects(&pod["spec"]);
+    for n in &named {
+        assert!(
+            created.contains(&(n.kind().to_string(), n.name.clone())),
+            "the server names {} {:?}, which the overlay does not create",
+            n.kind(),
+            n.name
+        );
+        assert_ne!(n.kind(), "Secret", "the server mounts {:?}", n.name);
+    }
+    assert!(named.iter().any(|n| n.kind() == "PersistentVolumeClaim"));
+    for m in c["volumeMounts"].as_sequence().into_iter().flatten() {
+        if m["mountPath"].as_str() == Some("/var/yidam/vault") {
+            assert_eq!(m["readOnly"].as_bool(), Some(true), "the vault is writable");
+        }
+    }
+    // The egress policy every pod of this corpus is held to selects the server too.
+    let labels = &pod["metadata"]["labels"];
+    let corpus = &generated[0]["spec"]["podSelector"]["matchLabels"];
+    for (k, v) in corpus.as_mapping().unwrap() {
+        assert_eq!(
+            &labels[k], v,
+            "the egress policy does not select the server"
+        );
+    }
+    let services: Vec<&serde_yaml::Value> = built.iter().filter(|v| kind(v) == "Service").collect();
+    assert_eq!(services.len(), 1, "the overlay should deploy one Service");
+    let svc = &services[0]["spec"];
+    for (k, v) in svc["selector"].as_mapping().unwrap() {
+        assert_eq!(
+            &labels[k], v,
+            "the Service does not select the server's pods"
+        );
+    }
+    assert_eq!(svc["ports"][0]["targetPort"].as_str(), Some(port));
+
     // Anything else the build carries is something this check does not compare yet.
-    let read = ["Role", "RoleBinding", "CronWorkflow", "NetworkPolicy"];
+    let read = [
+        "Role",
+        "RoleBinding",
+        "CronWorkflow",
+        "NetworkPolicy",
+        "Deployment",
+        "Service",
+    ];
     let unread: BTreeSet<String> = built
         .iter()
         .map(kind)

@@ -951,6 +951,40 @@ enum Command {
         #[cfg(feature = "serve-http")]
         #[arg(long, value_name = "PATH", requires = "http")]
         token_file: Option<std::path::PathBuf>,
+        /// Serve an exported bundle instead of a checkout: a `.yiz` file, or its sha256 to
+        /// fetch from `--vault-url`.
+        ///
+        /// Unpacked into scratch, which has no git and no config, so the server is read-only
+        /// by construction. A digest is verified before anything is unpacked (#1238).
+        #[cfg(feature = "serve-http")]
+        #[arg(long, value_name = "DIGEST|PATH", requires = "http")]
+        bundle: Option<String>,
+        /// The vault a `--bundle` digest is fetched from — `file:///path` or
+        /// `s3://bucket/prefix`
+        #[cfg(feature = "serve-http")]
+        #[arg(long = "vault-url", value_name = "URL", requires = "bundle")]
+        vault_url: Option<String>,
+        /// The vault's name, which decides which credential variables are read
+        #[cfg(feature = "serve-http")]
+        #[arg(
+            long,
+            value_name = "NAME",
+            default_value = "default",
+            requires = "vault_url"
+        )]
+        vault: String,
+        /// The S3 region, where `--vault-url` is an S3 one
+        #[cfg(feature = "serve-http")]
+        #[arg(long = "vault-region", value_name = "REGION", requires = "vault_url")]
+        vault_region: Option<String>,
+        /// An S3-compatible endpoint, for a store that is not AWS
+        #[cfg(feature = "serve-http")]
+        #[arg(long = "vault-endpoint", value_name = "URL", requires = "vault_url")]
+        vault_endpoint: Option<String>,
+        /// Address the bucket in the path rather than the host, for endpoints that need it
+        #[cfg(feature = "serve-http")]
+        #[arg(long = "vault-path-style", requires = "vault_url")]
+        vault_path_style: bool,
     },
     /// Run corpus quality checks against the baseline ratchet
     Lint {
@@ -1889,6 +1923,18 @@ fn run() -> Result<()> {
             allow_origin,
             #[cfg(feature = "serve-http")]
             token_file,
+            #[cfg(feature = "serve-http")]
+            bundle,
+            #[cfg(feature = "serve-http")]
+            vault_url,
+            #[cfg(feature = "serve-http")]
+            vault,
+            #[cfg(feature = "serve-http")]
+            vault_region,
+            #[cfg(feature = "serve-http")]
+            vault_endpoint,
+            #[cfg(feature = "serve-http")]
+            vault_path_style,
         } => {
             if lsp && mcp {
                 anyhow::bail!("pick one transport — `--lsp` or `--mcp`")
@@ -1899,12 +1945,21 @@ fn run() -> Result<()> {
             }
             #[cfg(feature = "serve-http")]
             if mcp && http {
+                let vault = vault_url.map(|vault_url| yidam::VaultArgs {
+                    vault,
+                    vault_url,
+                    vault_region,
+                    vault_endpoint,
+                    vault_path_style,
+                });
                 return yidam::serve_mcp_http(
                     root,
                     &bind,
                     port,
                     allow_origin,
                     token_file.as_deref(),
+                    bundle.as_deref(),
+                    vault.as_ref(),
                 );
             }
             if mcp {

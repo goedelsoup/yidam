@@ -73,7 +73,7 @@ different pair.
 locked, because hashing a working tree that changes under you records nothing"
 ([`deps.rs:9-12`](../../yidam/cli/src/deps.rs#L9-L12)). It is also the **only** form that
 supports a development loop, and `resolved()` deliberately lets it win over an unpacked
-directory of the same name ([`fetched.retain`](../../yidam/cli/src/deps.rs#L315-L319)).
+directory of the same name ([`fetched.retain`](../../yidam/cli/src/deps.rs#L318-L322)).
 
 A citation form that requires a pin therefore either excludes the dependency form people
 actually develop against, or admits an unpinnable citation. This RFC admits it, and makes the

@@ -20,6 +20,8 @@
 mod absence;
 pub(crate) mod bound;
 #[cfg(feature = "serve-http")]
+mod bundle;
+#[cfg(feature = "serve-http")]
 pub(crate) mod http;
 pub(crate) mod record;
 mod resources;
@@ -696,55 +698,96 @@ pub fn serve_mcp(root: Option<&Path>) -> Result<()> {
 
 /// Serve the same contract over HTTP. Blocks until the process is stopped.
 ///
-/// The corpus is loaded once, before the socket is bound, so a repository that cannot be read
-/// fails at the command rather than at the first request — which over HTTP would be a 500 to
-/// whoever happened to connect first.
+/// What can be refused without the corpus is refused before the socket is bound: an address
+/// that is not one, a token that cannot be read, a bundle that will not fetch, a root that is
+/// not a corpus, and `act` off loopback. The corpus itself is loaded after the bind, so the
+/// probes answer while it loads ([`http::serve`]); a load that fails still ends the process,
+/// before any request has been served from it.
+///
+/// `bundle` serves an exported `.yiz` in place of a checkout — [`bundle`], and read-only by
+/// construction.
 #[cfg(feature = "serve-http")]
+#[allow(clippy::too_many_arguments)]
 pub fn serve_mcp_http(
     root: Option<&Path>,
     bind: &str,
     port: u16,
     allow_origin: Vec<String>,
     token_file: Option<&Path>,
+    bundle: Option<&str>,
+    vault: Option<&crate::cmd::cluster::VaultArgs>,
 ) -> Result<()> {
     // Before the corpus loads: a bind that is not an address and a token that cannot be read
     // are mistakes in the command, and the operator should hear about them before a walk.
     let ip = http::bind_address(bind)?;
     let token = http::token_source(|k| std::env::var(k).ok(), token_file)?;
-    let root = resolve_root(root)?;
-    let state = ServerState::load(&root)?;
+    let unpacked = match (bundle, root) {
+        (Some(_), Some(root)) => anyhow::bail!(
+            "`--bundle` and `--root {}` both name the corpus to serve. Pass one.",
+            root.display()
+        ),
+        (Some(arg), None) => Some(bundle::unpack(arg, vault)?),
+        (None, _) if vault.is_some() => anyhow::bail!(
+            "`--vault-url` is where `--bundle` is fetched from, and no `--bundle` was passed."
+        ),
+        (None, _) => None,
+    };
+    let root = match &unpacked {
+        Some(u) => u.root.clone(),
+        None => resolve_root(root)?,
+    };
+    crate::paths::require_yidam_repo(&root)?;
     // RFC-0029 §2.2 clause 3, checked here because this is the only entry point that binds a
     // socket. A refusal and not a downgrade to `act: false`: an operator who wrote the key
     // and got a running server would read that as the answer to the question they asked.
     //
-    // Before the bind, so a server that will not be allowed to write never holds the port.
+    // Before the bind, so a server that will not be allowed to write never holds the port —
+    // and so from the configuration rather than the loaded state, which does not exist yet.
     //
     // A token does not lift it (#939). One shared secret says that a caller holds it, not who
     // the caller is, so it cannot supply the author §2.2 requires for a write.
-    if state.act && !is_loopback(bind) {
+    if act_declared(&root)? && !is_loopback(bind) {
         anyhow::bail!(
             "`[serve] act = true` and `--bind {bind}`. A server that may write is declarable \n               only where this machine is the whole of its peer set (RFC-0029 §2.2), and \n               `{bind}` is reachable from another one; over HTTP no author exists for a remote \n               caller until #427 supplies one.\n               Bind 127.0.0.1, or drop `[serve] act` and serve the read tools."
         );
     }
-    banner(&state);
-    let served = tools::list(&state);
-    let names: Vec<&str> = served["tools"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|t| t["name"].as_str())
-        .collect();
-    match exposure_warning(bind, port, &names, token.is_some()) {
-        Some(warning) => eprintln!("{warning}"),
-        // Never the token. It is not held past this point anyway: only its digest is.
-        None if token.is_some() => eprintln!("auth: bearer token required"),
-        None => {}
-    }
+    let identity = unpacked
+        .as_ref()
+        .map(|u| (u.commit.clone(), u.domain.clone()));
+    let load = move || {
+        let mut state = ServerState::load(&root)?;
+        // What the bundle says it is, over what scratch says — see [`bundle`].
+        if let Some((commit, domain)) = identity {
+            state.commit = commit.unwrap_or(state.commit);
+            state.domain = domain.unwrap_or(state.domain);
+        }
+        Ok(state)
+    };
+    let has_token = token.is_some();
+    let announce = |state: &ServerState| {
+        banner(state);
+        let served = tools::list(state);
+        let names: Vec<&str> = served["tools"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        match exposure_warning(bind, port, &names, has_token) {
+            Some(warning) => eprintln!("{warning}"),
+            // Never the token. It is not held past this point anyway: only its digest is.
+            None if has_token => eprintln!("auth: bearer token required"),
+            None => {}
+        }
+    };
     let policy = http::Policy {
         origins: allow_origin,
         token,
     };
-    http::serve(state, ip, port, policy)
+    // `unpacked` is held to here: the bundle's scratch directory lives as long as the server.
+    let served = http::serve(ip, port, policy, load, announce);
+    drop(unpacked);
+    served
 }
 
 /// Read newline-delimited JSON-RPC messages from `input`, write responses to

@@ -152,12 +152,14 @@ deploy/
   <corpus>.cronworkflow.yml  # yidam cluster workflow --cron output
   <corpus>.netpol.yml        # yidam cluster network-policy output
   objects/
-    kustomization.yaml       # the prefix, the base, the vault and the git secrets
+    kustomization.yaml       # the prefix, the base, the vault, the server and the git secrets
+    serve.patch.yml          # which bundle the server serves
     .gitignore               # secrets/
     secrets/                 # your keys, never committed
 ```
 
 In `objects/kustomization.yaml`, set the prefix to your corpus's: `namePrefix: yidam-<corpus>-`.
+Set the `yidam.dev/corpus` label beside it to `<corpus>`.
 
 Your repository has no copy of the base, so name it by URL. Pin it to the release your image runs:
 
@@ -166,7 +168,10 @@ resources:
   - https://github.com/goedelsoup/yidam//yidam/cluster/base?ref=cli/v<version>
 components:
   - https://github.com/goedelsoup/yidam//yidam/cluster/components/file-vault?ref=cli/v<version>
+  - https://github.com/goedelsoup/yidam//yidam/cluster/components/serve?ref=cli/v<version>
 ```
+
+Leave `serve` out if nothing will read the corpus over MCP.
 
 The first release to carry the base is the one after `cli/v0.17.0`.
 
@@ -241,6 +246,29 @@ kubectl create -f yidam.workflow.yml -n <namespace>
 ```
 
 A corpus with no schedule lists `objects` alone in its top `kustomization.yaml`.
+
+### Serve what a run landed
+
+The `serve` component adds a Deployment and a Service. The pod runs `yidam serve --mcp --http
+--bundle <digest>` over the vault, on port 8787. It is
+[read-only by construction](mcp-server.md#serving-a-bundle-read-only-by-construction). It mounts
+no git key and the vault read-only. Its security context is a step pod's.
+
+`/healthz` is its liveness and startup probe, and `/readyz` its readiness probe. Neither needs a
+token, and neither reads the corpus.
+
+The example starts it at zero replicas, because no bundle exists before the first run. The last
+`land` step's output names the landed bundle as `next.bundle`. Set it, then scale up:
+
+```sh
+kubectl set env deployment/yidam-streamflow-serve YIDAM_SERVE_BUNDLE=sha256:<digest> -n <namespace>
+kubectl scale deployment/yidam-streamflow-serve --replicas=1 -n <namespace>
+```
+
+The pod carries the corpus label, so the corpus's egress policy holds it to DNS. Put TLS and a
+token in front of it before it leaves the cluster; see
+[A bearer token](mcp-server.md#a-bearer-token). An `s3://` corpus patches its `--vault-url` and
+vault keys in, as it does for a step.
 
 ### A restricted namespace
 
@@ -415,7 +443,8 @@ A receipt is on the ref.
 - **No operator.** Argo's DAG is the dependency graph. The manifest is generated, and a corpus
   regenerates it when its capabilities change.
 - **No long-lived pod holding a checkout.** Each pod clones into scratch, does one act, and
-  exits. The clone is gone with it.
+  exits. The clone is gone with it. The server pod lives long, but it holds a bundle at one
+  digest, not a checkout.
 
 ## When something looks wrong
 
