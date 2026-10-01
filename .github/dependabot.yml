@@ -1,7 +1,7 @@
 # Dependency updates, proposed rather than discovered after they break.
 #
-# The weekly schedule in ci.yml exists to catch arrow/lancedb version-lock rot — *after* it
-# rots. Nothing proposed an update across three cargo manifests, three npm projects and every
+# The weekly schedule in ci.yml exists to catch version-lock rot in the full build — *after*
+# it rots. Nothing proposed an update across three cargo manifests, three npm projects and every
 # pinned action, so every bump in this repository has been a reaction (#463).
 #
 # **Grouped on purpose.** Ungrouped, this opens five or more pull requests a week across six
@@ -33,27 +33,6 @@ updates:
     groups:
       cargo-cli:
         patterns: ["*"]
-    # **arrow must match lancedb's transitive dependency**, which `Cargo.toml` states one line
-    # above the declaration: *"update together if bumping either."* The bump that took
-    # fastembed to 6 also moved arrow 53 → 54 and left lancedb at 0.15, which pins 53 — so
-    # `index_build` handed a lancedb builder a `RecordBatchIterator` of the wrong arrow, and
-    # `IntoArrow` went unsatisfied. Two arrow majors in one binary, from a version bump that
-    # read as routine.
-    #
-    # A major arrow bump is only ever correct alongside a lancedb release that took the same
-    # one, so it is not a thing to propose on its own.
-    #
-    # `every_arrow_this_workspace_declares_is_the_one_lancedb_resolves` is what holds it, and
-    # it reads the lockfile rather than this file: cargo writes a bare `"arrow-array"` in a
-    # dependency list while one version is in the graph and `"arrow-array 54.0.0"` once there
-    # are two, so the disagreement is visible where the two sides actually meet (#904).
-    ignore:
-      - dependency-name: arrow-array
-        update-types: [version-update:semver-major]
-      - dependency-name: arrow-schema
-        update-types: [version-update:semver-major]
-      - dependency-name: arrow-ipc
-        update-types: [version-update:semver-major]
   - package-ecosystem: cargo
     directory: /yidam/prelude/sdks/rust
     schedule: { interval: weekly, day: monday }

@@ -32,15 +32,14 @@ mod export_sqlite;
 mod export_web;
 mod gates;
 pub(crate) mod graph;
-#[cfg(feature = "index")]
-// Widened for `crate::retrieval::vector`, which resolves the embedding model by name and
-// used to live under `cmd/serve` where a sibling `mod` sufficed. The gate that would have
-// caught this on a pull request does not exist: PR CI never compiles `--features index`.
+// `vector-read`, the same build that reads an index: building one writes `corpus.arrow` from
+// a batch already in memory, and needs the model and the encoder and nothing else (#1287).
+#[cfg(feature = "vector-read")]
 pub(crate) mod index_build;
 mod index_verify;
 mod init;
-// `vector-read`, not `index`: pushing an index decodes one and never builds one, so it needs
-// neither lancedb nor protoc. `s3-vectors` is the transport, and it is in the default set.
+// `vector-read`: pushing an index decodes one. `s3-vectors` is the transport, and it is in the
+// default set.
 pub(crate) mod cluster;
 pub(crate) mod dispatch;
 pub(crate) mod gather;
@@ -116,7 +115,7 @@ pub use estimate::estimate;
 pub use export::{export, list_formats, run_export, ExportFormat, ExportOptions, RdfFormat};
 pub use gates::gates;
 pub use graph::{graph, neighbors};
-#[cfg(feature = "index")]
+#[cfg(feature = "vector-read")]
 pub use index_build::index_build;
 #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
 pub use index_push::index_push;

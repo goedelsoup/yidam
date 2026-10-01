@@ -68,7 +68,8 @@ node_modules/
 # Build output, both ecosystems.
 dist/
 
-# LanceDB — the vector index `yidam index-build` writes.
+# LanceDB — the vector index `yidam index-build` wrote before #1287. Kept: a clone with an
+# index built by an older pin still has one.
 *.lance/
 
 # The whole index directory, not only the LanceDB tables inside it. `*.lance/` above left

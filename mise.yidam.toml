@@ -250,7 +250,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 git clone --quiet --filter=blob:none "$origin" "$tmp/yidam"
 git -C "$tmp/yidam" checkout --quiet "$commit"
-# The light `reports` build: no protoc, no fastembed, no lancedb. Add
+# The light `reports` build: no fastembed, no ONNX runtime. Add
 # `--features full` if you need index-build or sqlite export. NOT tonpa,
 # vault-s3 or export-graph — each joined the `default` set (#203, #482, #532),
 # so the released binary carries them and so does this build.
@@ -1041,7 +1041,7 @@ description = "Extract embedding text from corpus instances and catalog sources 
 run = "yidam embed"
 
 [index-build]
-description = "Build LanceDB vector index from embeddings and export Arrow IPC. Downloads model (~22 MB) on first run."
+description = "Build the vector index from embeddings, as Arrow IPC. Downloads model (~22 MB) on first run."
 depends = ["embed"]
 run = "yidam index-build"
 

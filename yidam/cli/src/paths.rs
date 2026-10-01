@@ -200,7 +200,7 @@ pub fn class_of_path(path: &Path) -> String {
 ///
 /// The check `index_build` runs over every record before an index is allowed to declare
 /// `class_source` — see [`crate::embed_config::CLASS_SOURCE_PARENT_DIRECTORY`]. It lives here
-/// rather than beside its caller because its caller is behind `--features index`, and this is
+/// rather than beside its caller because its caller is behind `--features vector-read`, and this is
 /// the decision, not the plumbing: a predicate only the heavy build can compile is one no pull
 /// request checks.
 ///
@@ -209,7 +209,7 @@ pub fn class_of_path(path: &Path) -> String {
 /// two were never the same quantity. The claim being made is about the corpus nodes an
 /// anchored step narrows over, and the query path's ownership residual rejects a source row
 /// before any class is compared.
-#[cfg_attr(not(feature = "index"), allow(dead_code))]
+#[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
 pub fn class_matches_path(path: &str, class: &str) -> bool {
     let path = Path::new(path);
     // [`Path::starts_with`] compares components rather than text. It matters on Windows,

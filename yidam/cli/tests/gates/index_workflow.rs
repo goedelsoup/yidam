@@ -184,3 +184,57 @@ fn the_workflow_never_runs_on_a_pull_request() {
         "it has to be startable somehow"
     );
 }
+
+/// protoc is installed only for a pin whose lockfile needs it (#1287).
+///
+/// The workflow compiles the commit `.yidam.toml` pins, not this tree, so it cannot drop protoc
+/// the way `mise.toml` did: a repository pinned before #1287 still resolves lancedb, whose
+/// `prost-build` runs protoc. Installing it unconditionally pays for protoc on every pin after;
+/// removing it breaks every pin before. The question is asked of the pinned `Cargo.lock`, after
+/// the source is fetched and before anything compiles.
+#[test]
+fn protoc_is_installed_only_when_the_pinned_lockfile_needs_it() {
+    let steps = steps();
+    let setup = steps
+        .iter()
+        .position(|s| {
+            s["uses"]
+                .as_str()
+                .is_some_and(|u| u.starts_with("arduino/setup-protoc"))
+        })
+        .expect("no setup-protoc step — a pin from before #1287 cannot build without it");
+    let cond = steps[setup]["if"].as_str().unwrap_or("");
+    assert!(
+        cond.contains("steps.protoc.outputs.needed"),
+        "setup-protoc must be conditional on the pinned lockfile, got if: {cond:?}"
+    );
+
+    let check = step_index("need protoc");
+    let check_run = steps[check]["run"].as_str().unwrap_or("");
+    assert_eq!(steps[check]["id"].as_str(), Some("protoc"));
+    assert!(
+        check_run.contains("name = \"prost-build\"") && check_run.contains("Cargo.lock"),
+        "the check must read the pinned lockfile for prost-build: {check_run}"
+    );
+    assert!(
+        step_index("Fetch the pinned") < check,
+        "the check reads a fetched tree"
+    );
+    assert!(
+        check < setup,
+        "the check must run before the install it decides"
+    );
+    assert!(
+        setup < step_index("Build yidam"),
+        "protoc must be there before cargo"
+    );
+
+    // The build step must not re-clone: it would build a tree the check never read.
+    let build = steps[step_index("Build yidam")]["run"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        !build.contains("git clone"),
+        "the build re-fetches: {build}"
+    );
+}

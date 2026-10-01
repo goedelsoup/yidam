@@ -993,7 +993,7 @@ The pod still fails. That record is what `status` shows.
 | Command | What it does |
 |---|---|
 | `embed` * | Extract embedding text from corpus instances to `.yidam/embeddings/`. `--no-catalog`, `--dry-run` |
-| `index-build` * | Build the LanceDB vector index and export Arrow IPC for the web shell. `--model`. **Needs `--features index`** |
+| `index-build` * | Build the vector index as Arrow IPC (`corpus.arrow`), which `retrieve` and the web shell read. `--model`. **Needs `--features vector-read`** |
 | `index-push` | Mirror `.yidam/index/` into the vector bucket `[index.remote]` declares. `--dry-run`, `--create`. **Needs `--features vector-read`** |
 
 `embed` walks `.yidam/catalog/` by default. In a real derived corpus the catalog was 51.3% of
@@ -1022,9 +1022,6 @@ push overwrites it. So a push into an index built with different embedding setti
 Two spaces in one index would let a spanning query rank one corpus's rows against the
 other's. The scores would be in the range a correct ranking has. Where the contract cannot be
 read at all — a write-only credential, a throttle — the push says so and proceeds.
-
-It needs `vector-read`, not `index`. Decoding an index wants no protoc, so the machine that
-pushes need not be the one that built.
 
 **The index carries typed properties, and the push does not forward them.** `index-build` writes
 a `properties` column: a JSON object of each row's declared `date` and `number` values. A row
@@ -1290,8 +1287,8 @@ refused with a message that says so. It does not fail at the server as `EntityTo
 
 ### The artifacts this repository computes
 
-`.yidam/index/` is built only by a binary compiled `--features index`, which needs protoc 31 and
-an ONNX runtime. Nothing keeps it in git. So the index exists on whichever machine could build it
+`.yidam/index/` is built only by a binary compiled `--features vector-read`, which carries an
+ONNX runtime the release does not. Nothing keeps it in git. So the index exists on whichever machine could build it
 and nowhere else. The same vault carries it:
 
 ```sh
@@ -1512,7 +1509,7 @@ wherever the client happened to spawn the process. That is what
 -c 'cd … && exec …'` workaround for. A directory that is not in a corpus is refused, not served
 empty.
 
-**Both transports are in the light default build.** `--features index` upgrades MCP's `retrieve`
+**Both transports are in the light default build.** `--features vector-read` upgrades MCP's `retrieve`
 from keyword to semantic search, and adds nothing else. A default binary still serves every other
 tool. It says `degraded` on the calls where the difference shows.
 

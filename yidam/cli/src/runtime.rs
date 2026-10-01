@@ -46,9 +46,8 @@ use tokio::runtime::{Handle, Runtime};
 
 static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     // Multi-threaded with tokio's default worker count, which is what `index-build` had
-    // before through `Runtime::new()` — lancedb spreads its work across the workers, and a
-    // single-worker runtime here would be a slowdown nobody measured. The other users make
-    // one request at a time and leave the pool parked; that costs a few idle threads, once.
+    // through `Runtime::new()` while it wrote a LanceDB table. Its users now make one request
+    // at a time and leave the pool parked; that costs a few idle threads, once.
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

@@ -104,7 +104,6 @@ mod walk;
 /// The one tokio runtime (#930). Compiled for exactly the features that pull `tokio` —
 /// `tests/gates/light_build.rs` derives that set from Cargo.toml and holds this list to it.
 #[cfg(any(
-    feature = "index",
     feature = "tonpa",
     feature = "vault-s3",
     feature = "s3-vectors",
@@ -116,7 +115,7 @@ pub mod runtime;
 
 pub mod model;
 
-#[cfg(feature = "index")]
+#[cfg(feature = "vector-read")]
 #[doc(hidden)]
 pub use cmd::index_build;
 #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]

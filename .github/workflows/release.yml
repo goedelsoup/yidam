@@ -5,7 +5,7 @@
 # and every CI run of every derived repository compiled the CLI from source —
 # which made a Rust toolchain a prerequisite for reading a Markdown corpus.
 #
-# The light default set is the whole reason this is cheap. It needs no protoc, no
+# The light default set is the whole reason this is cheap. It needs no
 # ML runtime, and no C library that has to already exist for the target (see the
 # feature partition in yidam/cli/Cargo.toml). So cross-compiling needs a
 # cross-toolchain and nothing else, and no runner needs provisioning beyond that.
@@ -17,15 +17,16 @@
 # below. openssl-sys — reqwest's default TLS — would instead need an aarch64
 # libssl installed on the runner, which is why Cargo.toml pins rustls.
 #
-# `--features full` is deliberately NOT built here. It needs protoc 31 and the
-# ONNX/LanceDB stack, and the common case must not wait on it. Someone who wants
+# `--features full` is deliberately NOT built here. It needs an ONNX runtime and
+# SQLite from source, and the common case must not wait on it. Someone who wants
 # `index-build` still builds from source, as they do today. (`serve --mcp` used
 # to be in that sentence and no longer belongs: it moved into the light set, and
 # a default binary serves MCP — what it does not serve is *semantic* retrieval.)
 #
 # `--features vector-read` is NOT built here either, and that is a decision
-# rather than an omission — #442 asked it directly. It is much cheaper than
-# `full`: no protoc, no LanceDB. It still carries an ONNX runtime, which is a
+# rather than an omission — #442 asked it directly, and #1287 left it open after
+# making it the build that can also *make* an index (`index` is now its alias, and
+# nothing needs protoc). It still carries an ONNX runtime, which is a
 # native dependency this matrix has never had to cross-compile for aarch64, and
 # publishing it would double the artifacts per platform — which every consumer
 # then has to choose between, on a `releases/latest` that already answers for

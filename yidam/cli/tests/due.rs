@@ -146,7 +146,7 @@ fn due_changes_nothing_on_disk() {
 /// report exists to prevent is that a number in it is a defect.
 ///
 /// Three or four by build, and the difference is the whole of #1061: the index clock is
-/// discharged by `yidam index-build`, which is behind the `index` feature, so in a binary
+/// discharged by `yidam index-build`, which is behind the `vector-read` feature, so in a binary
 /// without it the row is [`unbuildable`] rather than due. The expected count is written as a
 /// `cfg!` rather than loosened to `>= 3` because the point of the assertion is that the
 /// fixture owes on *everything available*, and a floor would pass on a build that had
@@ -158,7 +158,7 @@ fn a_repository_that_owes_on_every_clock_still_exits_zero() {
     let tmp = stage();
     let v = json(tmp.path());
     assert_eq!(v["format_version"], "1");
-    let expected = if cfg!(feature = "index") { 4 } else { 3 };
+    let expected = if cfg!(feature = "vector-read") { 4 } else { 3 };
     assert_eq!(
         v["due"],
         expected,
@@ -178,7 +178,7 @@ fn a_repository_that_owes_on_every_clock_still_exits_zero() {
 /// the two derived repositories that met the defect were reading. Both reached the same row by
 /// following the report's own advice, and one silenced the clock over it.
 #[test]
-#[cfg_attr(feature = "index", ignore = "this build can build an index")]
+#[cfg_attr(feature = "vector-read", ignore = "this build can build an index")]
 fn the_index_clock_in_a_build_that_cannot_make_one() {
     let tmp = stage();
     let v = json(tmp.path());
@@ -194,11 +194,11 @@ fn the_index_clock_in_a_build_that_cannot_make_one() {
     // The remedy is an install, and the report says which one rather than naming a feature and
     // leaving the reader to work out that it is missing.
     let remedy = index["remedy"].as_str().unwrap_or_default();
-    assert!(remedy.contains("--features index"), "{index}");
+    assert!(remedy.contains("--features vector-read"), "{index}");
 
     // And the text rendering carries it to the reader who never asks for json.
     let out = run(tmp.path(), &["due"]).stdout;
-    assert!(out.contains("--features index"), "{out}");
+    assert!(out.contains("--features vector-read"), "{out}");
 }
 
 /// The set of clocks, keyed the way a consumer keys on them.

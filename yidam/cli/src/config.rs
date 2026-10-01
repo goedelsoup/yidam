@@ -5,10 +5,10 @@ use std::path::Path;
 
 #[derive(Debug, Default, Deserialize)]
 pub struct YidamConfig {
-    /// Read only by `index-build`, which the light `reports` binary does not carry. The
+    /// Read only by `index-build`, which the light default binary does not carry. The
     /// field is still parsed there so a config naming a model is not rejected by a binary
     /// that simply cannot act on it.
-    #[cfg_attr(not(feature = "index"), allow(dead_code))]
+    #[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
     #[serde(default)]
     pub index: IndexConfig,
     #[serde(default)]
@@ -391,7 +391,7 @@ fn default_vault() -> String {
 
 #[derive(Debug, Default, Deserialize)]
 pub struct IndexConfig {
-    #[cfg_attr(not(feature = "index"), allow(dead_code))]
+    #[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
     pub model: Option<String>,
     /// The vector index this corpus publishes to and can be queried out of (RFC-0033).
     ///

@@ -1,14 +1,9 @@
 use crate::embedding::{resolve_model, DEFAULT_MODEL};
 use anyhow::{Context, Result};
-use arrow_array::{
-    FixedSizeListArray, Float32Array, RecordBatch, RecordBatchIterator, StringArray,
-};
+use arrow_array::{FixedSizeListArray, Float32Array, RecordBatch, StringArray};
 use arrow_ipc::writer::FileWriter;
 use arrow_schema::{DataType, Field, Schema};
 use fastembed::{TextEmbedding, TextInitOptions};
-use futures::TryStreamExt;
-use lancedb::connect;
-use lancedb::query::{ExecutableQuery, QueryBase as _};
 use std::sync::Arc;
 
 use crate::config::load_yidam_config;
@@ -16,6 +11,9 @@ use crate::embed_config::{EmbedConfig, EMBED_CONFIG_FILENAME};
 use crate::git::head_commit_short;
 use crate::paths::{repo_root, yidam_embeddings_dir, yidam_index_dir};
 
+/// The name `meta.json` records under `table`. There is no table any more — #1287 removed the
+/// LanceDB one nothing read — but the key is part of the contract a pushed index carries, and
+/// `corpus` is still the name of the one file that holds the rows: `corpus.arrow`.
 const TABLE_NAME: &str = "corpus";
 
 /// The columns every index built by this command carries, in the order the schema declares
@@ -55,7 +53,7 @@ impl EmbedRecord {
     }
 }
 
-pub async fn index_build(model_arg: Option<String>) -> Result<()> {
+pub fn index_build(model_arg: Option<String>) -> Result<()> {
     let root = repo_root()?;
     let embeddings_dir = yidam_embeddings_dir(&root);
     let index_dir = yidam_index_dir(&root);
@@ -130,91 +128,16 @@ pub async fn index_build(model_arg: Option<String>) -> Result<()> {
     println!("Embedding {} texts…", texts.len());
     let embeddings = model.embed(texts, None)?;
 
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("path", DataType::Utf8, false),
-        Field::new("class", DataType::Utf8, false),
-        Field::new("label", DataType::Utf8, false),
-        Field::new("text", DataType::Utf8, false),
-        // Nullable: most rows in most corpora carry no ordered property, and the absence is
-        // the value. See `EmbedRecord::properties_cell`.
-        Field::new("properties", DataType::Utf8, true),
-        Field::new(
-            "vector",
-            DataType::FixedSizeList(
-                Arc::new(Field::new("item", DataType::Float32, true)),
-                embedding_dim,
-            ),
-            false,
-        ),
-    ]));
-
-    let paths: StringArray = records.iter().map(|r| Some(r.path.as_str())).collect();
-    let classes: StringArray = records.iter().map(|r| Some(r.class.as_str())).collect();
-    let labels: StringArray = records.iter().map(|r| Some(r.label.as_str())).collect();
-    let texts_arr: StringArray = records.iter().map(|r| Some(r.text.as_str())).collect();
-    let properties_arr: StringArray = records.iter().map(EmbedRecord::properties_cell).collect();
-
-    let flat_floats: Float32Array = embeddings
-        .iter()
-        .flat_map(|v| v.iter().copied())
-        .collect::<Vec<f32>>()
-        .into();
-
-    let item_field = Arc::new(Field::new("item", DataType::Float32, true));
-    let vector_array =
-        FixedSizeListArray::new(item_field, embedding_dim, Arc::new(flat_floats), None);
-
-    let batch = RecordBatch::try_new(
-        schema.clone(),
-        vec![
-            Arc::new(paths),
-            Arc::new(classes),
-            Arc::new(labels),
-            Arc::new(texts_arr),
-            Arc::new(properties_arr),
-            Arc::new(vector_array),
-        ],
-    )?;
+    // Encoded before the old index is removed, so a failure here leaves that one standing.
+    let ipc_bytes = encode_corpus_arrow(&records, &embeddings, embedding_dim)?;
 
     if index_dir.exists() {
         std::fs::remove_dir_all(&index_dir)?;
     }
     std::fs::create_dir_all(&index_dir)?;
 
-    let db_path = index_dir
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("index path is not valid UTF-8: {}", index_dir.display()))?
-        .to_string();
-    let db = connect(&db_path).execute().await?;
-    db.create_table(
-        TABLE_NAME,
-        RecordBatchIterator::new(vec![Ok(batch)], schema),
-    )
-    .execute()
-    .await?;
-
-    // Export Arrow IPC for the web shell (reads from the table to guarantee consistency).
-    //
-    // The limit is explicit because lancedb's is not: a plain `query()` caps its answer at
-    // ten rows, so without it the file the web shell and `retrieve` read held the first ten
-    // of every corpus and `meta.json` said otherwise. Every row is asked for by count.
-    let table = db.open_table(TABLE_NAME).execute().await?;
-    let stream = table.query().limit(records.len()).execute().await?;
-    let batches: Vec<RecordBatch> = stream.try_collect().await?;
-
-    if !batches.is_empty() {
-        let arrow_schema = batches[0].schema();
-        let mut ipc_bytes: Vec<u8> = Vec::new();
-        {
-            let mut writer = FileWriter::try_new(&mut ipc_bytes, &arrow_schema)?;
-            for b in &batches {
-                writer.write(b)?;
-            }
-            writer.finish()?;
-        }
-        std::fs::write(index_dir.join("corpus.arrow"), &ipc_bytes)?;
-        println!("  Arrow IPC exported: {} bytes", ipc_bytes.len());
-    }
+    std::fs::write(index_dir.join("corpus.arrow"), &ipc_bytes)?;
+    println!("  Arrow IPC exported: {} bytes", ipc_bytes.len());
 
     let commit = head_commit_short(&root);
     let node_count = records.len();
@@ -264,4 +187,148 @@ pub async fn index_build(model_arg: Option<String>) -> Result<()> {
         index_dir.display(),
     );
     Ok(())
+}
+
+/// The rows as `corpus.arrow`: Arrow IPC, one batch, in the schema [`COLUMNS`] names.
+///
+/// The batch is what every reader decodes, so it is written as it stands. This used to go
+/// through a LanceDB table first and read the file back out of it "to guarantee consistency".
+/// Nothing ever opened the table, and the round trip was the only thing that could make the
+/// file disagree with the batch: lancedb's `query()` capped its answer at ten rows, so for a
+/// while the file held the first ten of every corpus while `meta.json` said otherwise. Writing
+/// the batch removes that class of bug, and with it lancedb and the protoc it needed (#1287) —
+/// which is why `index-build` is in `vector-read`, the build that reads an index.
+///
+/// Separate from [`index_build`] so the writer can be tested without a model: everything here
+/// is arithmetic on rows already embedded.
+fn encode_corpus_arrow(
+    records: &[EmbedRecord],
+    embeddings: &[Vec<f32>],
+    dim: i32,
+) -> Result<Vec<u8>> {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("path", DataType::Utf8, false),
+        Field::new("class", DataType::Utf8, false),
+        Field::new("label", DataType::Utf8, false),
+        Field::new("text", DataType::Utf8, false),
+        // Nullable: most rows in most corpora carry no ordered property, and the absence is
+        // the value. See `EmbedRecord::properties_cell`.
+        Field::new("properties", DataType::Utf8, true),
+        Field::new(
+            "vector",
+            DataType::FixedSizeList(Arc::new(Field::new("item", DataType::Float32, true)), dim),
+            false,
+        ),
+    ]));
+
+    let paths: StringArray = records.iter().map(|r| Some(r.path.as_str())).collect();
+    let classes: StringArray = records.iter().map(|r| Some(r.class.as_str())).collect();
+    let labels: StringArray = records.iter().map(|r| Some(r.label.as_str())).collect();
+    let texts_arr: StringArray = records.iter().map(|r| Some(r.text.as_str())).collect();
+    let properties_arr: StringArray = records.iter().map(EmbedRecord::properties_cell).collect();
+
+    let flat_floats: Float32Array = embeddings
+        .iter()
+        .flat_map(|v| v.iter().copied())
+        .collect::<Vec<f32>>()
+        .into();
+
+    let item_field = Arc::new(Field::new("item", DataType::Float32, true));
+    let vector_array = FixedSizeListArray::new(item_field, dim, Arc::new(flat_floats), None);
+
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(paths),
+            Arc::new(classes),
+            Arc::new(labels),
+            Arc::new(texts_arr),
+            Arc::new(properties_arr),
+            Arc::new(vector_array),
+        ],
+    )?;
+
+    let mut ipc_bytes: Vec<u8> = Vec::new();
+    {
+        let mut writer = FileWriter::try_new(&mut ipc_bytes, &schema)?;
+        writer.write(&batch)?;
+        writer.finish()?;
+    }
+    Ok(ipc_bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{index_rows, IndexData};
+
+    fn record(i: usize, properties: Option<&str>) -> EmbedRecord {
+        EmbedRecord {
+            path: format!("corpus/gauge/g{i:02}.yml"),
+            class: "gauge".to_string(),
+            label: format!("Gauge {i}"),
+            text: format!("gauge {i} on a river"),
+            properties: properties.map(|p| serde_json::from_str(p).unwrap()),
+        }
+    }
+
+    fn decode(ipc: Vec<u8>) -> IndexData {
+        IndexData {
+            arrow_ipc: ipc,
+            meta_raw: b"{}".to_vec(),
+            meta: serde_json::json!({}),
+            embed_config: None,
+        }
+    }
+
+    /// What `index-build` writes is what every reader decodes, row for row.
+    ///
+    /// Twelve rows, because ten is the number the LanceDB round trip used to stop at: a plain
+    /// `query()` capped its answer there, and the file held the first ten of every corpus. The
+    /// writer no longer has a round trip to get wrong, and this is the test that says so.
+    #[test]
+    fn every_row_written_is_a_row_read_back() {
+        let records: Vec<EmbedRecord> = (0..12)
+            .map(|i| record(i, (i == 3).then_some(r#"{"observed":"2026-01-02"}"#)))
+            .collect();
+        let embeddings: Vec<Vec<f32>> = (0..12).map(|i| vec![i as f32, 1.0, -1.0]).collect();
+
+        let index = decode(encode_corpus_arrow(&records, &embeddings, 3).unwrap());
+        let rows = index_rows(&index).expect("the reader decodes what the writer wrote");
+
+        assert_eq!(rows.len(), 12, "every record is a row");
+        for (i, row) in rows.iter().enumerate() {
+            assert_eq!(row.path, records[i].path);
+            assert_eq!(row.class, "gauge");
+            assert_eq!(row.label, records[i].label);
+            assert_eq!(row.text, records[i].text);
+            assert_eq!(row.vector, embeddings[i]);
+        }
+        assert_eq!(
+            rows[3].properties.as_deref(),
+            Some(r#"{"observed":"2026-01-02"}"#)
+        );
+        assert!(rows
+            .iter()
+            .enumerate()
+            .all(|(i, r)| i == 3 || r.properties.is_none()));
+        assert!(index.has_properties_column());
+    }
+
+    /// The schema written is the one `meta.json` advertises, in that order. [`COLUMNS`] is
+    /// what a reader without an Arrow decoder is told the file holds.
+    #[test]
+    fn the_written_schema_is_the_advertised_one() {
+        let ipc = encode_corpus_arrow(&[record(0, None)], &[vec![0.5, 0.5]], 2).unwrap();
+        let reader = arrow_ipc::reader::FileReader::try_new(std::io::Cursor::new(ipc), None)
+            .expect("an Arrow IPC file");
+        let schema = reader.schema();
+        let names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
+        assert_eq!(names, COLUMNS);
+        assert!(schema.field_with_name("properties").unwrap().is_nullable());
+        assert_eq!(
+            schema.field_with_name("vector").unwrap().data_type(),
+            &DataType::FixedSizeList(Arc::new(Field::new("item", DataType::Float32, true)), 2)
+        );
+    }
 }

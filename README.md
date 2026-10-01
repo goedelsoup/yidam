@@ -183,7 +183,7 @@ yidam propose             draft findings as epistemic commits on a `propose/<hea
 
 # index, serving, export, and bundles
 yidam embed               extract embedding text from corpus instances
-yidam index-build         build the LanceDB vector index
+yidam index-build         build the vector index
 yidam serve --mcp         serve the domain computer to MCP-capable agents over stdio
 yidam serve --lsp         the language server — diagnostics, definition, references, rename
 yidam bench               the committed goal set: anchored traversal against flat retrieval
@@ -222,8 +222,8 @@ The binary is partitioned by cargo feature so the common case stays cheap to ins
 default set is what every released artifact carries. [Check which build you
 have](https://goedelsoup.github.io/yidam/installation/#check-which-build-you-have) is the
 table — which feature adds what, what each one costs to compile, and the two things about it
-that are easy to get backwards. Reading an index is much cheaper than building one, and they
-are separate features.
+that are easy to get backwards. Reading an index and building one are the same feature,
+`vector-read`; `index` is kept as its alias.
 
 That table is the only copy. This file carried a second one until #947, and by then it had gone
 out of step with it: `vector-read` had no row at all, and the capability that feature adds was
@@ -252,7 +252,7 @@ mise run verify          # Dafny specs and Lean 4 proofs (dafny + lake installed
 ## Working on yidam
 
 ```sh
-mise install             # provision toolchains (rust, protoc, python, uv, node)
+mise install             # provision toolchains (rust, python, uv, node)
 mise tasks               # everything available
 mise run yidam-build     # install the full-feature binary into .local/bin
 mise run ci              # fmt-check, clippy -D warnings, tests (harness + CLI)
@@ -261,11 +261,11 @@ mise run docs-dev        # docs site on http://localhost:4321/yidam/
 
 `yidam-build` here is `--features full`, deliberately: working on the CLI means being able to
 run `index-build`, the semantic retrieval path, and the sqlite/rdf exports. That is why `mise install`
-provisions protoc and the rest, and why it is the *maintainer's* setup rather than the one
+provisions what it does, and why it is the *maintainer's* setup rather than the one
 [Getting started](#getting-started) describes.
 
 CI runs the harness and the light CLI build as parallel jobs on every PR; the full-feature
-build (protoc, ML stack) runs on `main` and on a weekly schedule.
+build (ONNX runtime, SQLite) runs on `main` and on a weekly schedule.
 
 ## Naming
 

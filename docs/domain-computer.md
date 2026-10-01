@@ -30,7 +30,7 @@ single connector source, invoke the connector inline rather than deferring.
 ## Feature engineering
 
 - Transforms corpus data into embeddings and feature vectors
-- Bridges corpus and the semantic index (e.g., LanceDB)
+- Bridges corpus and the semantic index (Arrow IPC, `corpus.arrow`)
 - Distinct from calculators: outputs optimized for retrieval quality, not domain correctness
 
 ## Declaring one, so something can run it

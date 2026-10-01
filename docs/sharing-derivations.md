@@ -137,7 +137,7 @@ matching; that is what happened here.
 ### An index is opt-in, by omission
 
 The workflow installs the light build. `export --format bundle` includes a vector index **only
-when one is already built and committed**, so publishing never needs protoc or an ONNX runtime.
+when one is already built and committed**, so publishing never needs an ONNX runtime.
 A corpus is useful to a consumer without an index. Requiring the ML stack in order to publish
 would put sharing behind a toolchain nobody needs to read Markdown.
 
@@ -252,7 +252,7 @@ every corpus metric in every derived repository meaningless.
 > while `tonpa` was in the light default set, so the binary that could fetch a dependency
 > was not the binary that could read one. It is now — and note which way round that landed:
 > the default build's keyword retrieval is the arm that spans dependencies, so composition
-> works out of the box and `--features index` trades that reach for semantic ranking.
+> works out of the box and `--features vector-read` trades that reach for semantic ranking.
 > [mcp-server.md](mcp-server.md) says what an agent should do with `origin`.
 
 > **Worked example.** `examples/journalism/` declares `examples/property/` as a path

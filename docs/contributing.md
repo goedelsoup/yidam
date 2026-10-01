@@ -9,7 +9,7 @@ a bootstrap still works. That shapes what a good change looks like here.
 ```sh
 git clone https://github.com/goedelsoup/yidam
 cd yidam
-mise install          # provisions rust, protoc, python, uv, node
+mise install          # provisions rust, python, uv, node
 mise run yidam-build  # installs the full-feature binary into .local/bin
 mise tasks            # everything available
 ```
@@ -19,7 +19,7 @@ and `rust-toolchain.toml`, which are kept in sync.
 
 `yidam-build` is `--features full` deliberately: working on the CLI means being able to run
 `index-build`, the semantic retrieval path, and the sqlite/rdf exports. That is why `mise
-install` provisions protoc and the rest, and why it is the *maintainer's* setup rather than the
+install` provisions what it does, and why it is the *maintainer's* setup rather than the
 one [Installation](installation.md) describes.
 
 It installs to `.local/bin`, which `mise.toml` puts first on `PATH`, so every task below runs
@@ -66,7 +66,7 @@ runs, over `--features vector-read`, over `--all-features` and over `--no-defaul
 tests, or pass `--all-targets` — a `#[cfg(test)]` fixture behind a feature is still first
 compiled after the merge. **The full-feature test run is on `main` and weekly, not on PRs.**
 
-So `mise run check-features` before you push a change behind `--features index`, and prefer
+So `mise run check-features` before you push a change behind `--features vector-read`, and prefer
 taking gated facts as arguments so the logic around them stays testable from the light build.
 
 ## What a change needs

@@ -20,7 +20,7 @@
 # ── node only ────────────────────────────────────────────────────────────────
 #
 # Every other workflow here starts with `jdx/mise-action`, which provisions the
-# whole [tools] table. To run `astro build` that means a Rust toolchain, protoc,
+# whole [tools] table. To run `astro build` that means a Rust toolchain,
 # Python and uv, none of which this job touches. `actions/setup-node` instead, with
 # `lts/*` tracking mise.toml's `node = "lts"` — the two must stay in step, and the
 # build command itself is `package.json`'s `build` script either way, which is what

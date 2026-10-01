@@ -1,15 +1,16 @@
-//! The read path must not drift back onto the build feature.
+//! Building an index and reading one are one build, and it needs no protoc.
 //!
-//! `vector-read` exists because reading an index and building one have different costs:
-//! `lancedb` is named in exactly one file and it is what requires protoc, while decoding
-//! `corpus.arrow` and embedding a query need neither. RFC-0023 gave an index a way to travel
-//! between machines; this is the build that can receive one.
+//! #442 split `vector-read` out of `index` because the two had different costs: building an
+//! index wrote a LanceDB table, lancedb's `prost-build` required protoc 31, and reading needed
+//! only fastembed and arrow. #1287 found that nothing ever opened that table — every reader
+//! decodes `corpus.arrow` — and removed it. `index-build` moved into `vector-read`, and `index`
+//! became an alias kept so every `--features index` already written still builds.
 //!
-//! The split is enforced by `#[cfg]` attributes scattered across seven files, and a single
-//! `feature = "index"` written in the read path would put vector search back behind protoc
-//! without failing anything — the default build would still degrade correctly, the full build
-//! would still work, and only the middle build nobody's CI compiles would quietly lose its
-//! reason to exist. So the arrangement is asserted rather than assumed.
+//! What this file holds is that the split does not quietly come back. A `feature = "index"`
+//! written anywhere in `src/` would gate code on a flag that enables nothing of its own, so a
+//! `vector-read` build — the one that can now build an index — would lose it without failing
+//! anything. And a dependency that needs protoc would put the cost #1287 removed back on every
+//! machine that builds an index.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -22,59 +23,6 @@ fn read(rel: &str) -> String {
     let p = crate_root().join(rel);
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{} unreadable: {e}", p.display()))
 }
-
-/// Files that answer a query, as opposed to building an index.
-///
-/// Curated, and it has to be: the property is "every `#[cfg]` in this file is about reading",
-/// which no scan can decide. What #468's audit found is that nothing checked the list was
-/// *complete* — three files carrying the `vector-read` gate were absent from it, so the
-/// load-bearing assertion below, whose own comment says "nothing else would notice", did not
-/// look at them. One of the three, `src/cmd/export.rs`, belonged here.
-///
-/// [`MIXED`] carries the other two and the reason each is excluded, and
-/// `every_file_in_the_split_is_accounted_for` requires every gated file to be in one list or
-/// the other. A file added tomorrow fails that test until somebody decides which it is —
-/// which is the inverted-roster shape `report_goldens.rs` uses, for the same reason.
-const READ_PATH: &[&str] = &[
-    "src/retrieval/mod.rs",
-    "src/retrieval/vector.rs",
-    "src/model.rs",
-    "src/cmd/serve/mod.rs",
-    "src/cmd/serve/tools.rs",
-    "src/cmd/serve/bound.rs",
-    "src/cmd/serve/resources.rs",
-    "src/cmd/query/anchor.rs",
-    "src/cmd/export.rs",
-    "src/embedding.rs",
-];
-
-/// Files that take part in the split and may legitimately name `index` as well.
-///
-/// The reasons are load-bearing. Both of these would fail the scan below on a line that is
-/// correct, and writing down why is what keeps the next reader from "fixing" it.
-const MIXED: &[(&str, &str)] = &[
-    (
-        "src/lib.rs",
-        "declares both halves: `#[cfg(feature = \"index\")] pub use cmd::index_build` is the \
-         build path's re-export, not a gate on reading",
-    ),
-    (
-        "src/cmd/mod.rs",
-        "declares both halves: `index_build` is gated on `index` and `index_push` on \
-         `vector-read`, because pushing an index decodes one and never builds one",
-    ),
-    (
-        "src/main.rs",
-        "dispatches both halves, and each arm's `#[cfg(not(…))]` names the feature its own \
-         command needs — `index-build` says `index`, `index-push` says `vector-read`",
-    ),
-    (
-        "src/report.rs",
-        "reports the feature list, so it must ask `cfg!(feature = \"index\")` about the build \
-         it is describing — `the_reported_feature_list_separates_reading_from_building` in \
-         this file requires exactly that",
-    ),
-];
 
 /// Every `.rs` under `src/`.
 fn source_files() -> Vec<PathBuf> {
@@ -97,137 +45,136 @@ fn source_files() -> Vec<PathBuf> {
     out
 }
 
-/// Files that name the read feature, discovered.
-fn files_naming_the_read_feature() -> BTreeSet<String> {
-    let out: BTreeSet<String> = source_files()
-        .into_iter()
-        .filter(|p| {
-            std::fs::read_to_string(p)
-                .unwrap_or_default()
-                .contains("feature = \"vector-read\"")
-        })
-        .map(|p| {
-            p.strip_prefix(crate_root())
-                .unwrap_or(&p)
-                .to_string_lossy()
-                .replace('\\', "/")
-        })
-        .collect();
-    assert!(
-        out.len() >= 8,
-        "only {} files name `vector-read` ({out:?}); if that spelling changed, every \
-         assertion built on this is vacuous",
-        out.len()
-    );
-    out
+fn rel(p: &std::path::Path) -> String {
+    p.strip_prefix(crate_root())
+        .unwrap_or(p)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
-/// Nothing in the split is unaccounted for.
-///
-/// The check the hardcoded list never had. A file that joins the split and lands in neither
-/// list is not scanned by the assertion below and nobody is told — the way `src/cmd/export.rs`
-/// was not scanned, for as long as it has existed.
-#[test]
-fn every_file_in_the_split_is_accounted_for() {
-    let listed: BTreeSet<&str> = READ_PATH
-        .iter()
-        .copied()
-        .chain(MIXED.iter().map(|(rel, _)| *rel))
-        .collect();
-    let unaccounted: Vec<String> = files_naming_the_read_feature()
-        .into_iter()
-        .filter(|rel| !listed.contains(rel.as_str()))
-        .collect();
-    assert!(
-        unaccounted.is_empty(),
-        "these files take part in the vector-read split and are in neither list: \
-         {unaccounted:?}.\n\nAdd each to READ_PATH, so the scan covers it, or to MIXED with \
-         the reason it may also name `index`. Leaving it out is the third option and it is \
-         the one that fails silently."
-    );
-
-    for (rel, reason) in MIXED {
-        assert!(
-            crate_root().join(rel).is_file(),
-            "MIXED names {rel}, which is gone"
-        );
-        assert!(!reason.is_empty(), "{rel} is excluded and does not say why");
-    }
-}
-
-/// **The load-bearing assertion.** A `feature = "index"` anywhere in the read path puts vector
-/// search back behind protoc, and nothing else would notice.
-#[test]
-fn no_read_path_file_is_gated_on_the_build_feature() {
-    let mut offenders = Vec::new();
-    for rel in READ_PATH {
-        let text = read(rel);
+/// `(file, line number, line)` for each line of `src/` whose *code* — not a comment on it —
+/// names `needle`.
+fn code_lines_naming(needle: &str) -> Vec<(String, usize, String)> {
+    let mut out = Vec::new();
+    for path in source_files() {
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
         for (i, line) in text.lines().enumerate() {
             // Comments discuss `--features index` legitimately; a `cfg` is the thing that
             // changes what compiles.
             let code = line.split("//").next().unwrap_or("");
-            if code.contains("feature = \"index\"") {
-                offenders.push(format!("  {rel}:{} — {}", i + 1, line.trim()));
+            if code.contains(needle) {
+                out.push((rel(&path), i + 1, line.trim().to_string()));
             }
         }
     }
+    out
+}
+
+/// **The load-bearing assertion.** No code is gated on `index`.
+///
+/// The whole tree rather than a curated list of read-path files, which is what this used to
+/// scan: the list had to be kept complete by hand, and #468 found three gated files missing
+/// from it. With one feature there is no file that may legitimately name the other.
+#[test]
+fn no_code_is_gated_on_the_alias() {
+    let offenders: Vec<String> = code_lines_naming("feature = \"index\"")
+        .into_iter()
+        .map(|(file, n, line)| format!("  {file}:{n} — {line}"))
+        .collect();
     assert!(
         offenders.is_empty(),
-        "the read path must be gated on `vector-read`, not `index`:\n{}",
+        "`index` is an alias for `vector-read` and enables nothing of its own, so code gated \
+         on it is missing from the `vector-read` build that can run it. Gate on \
+         `vector-read`:\n{}",
         offenders.join("\n")
     );
 }
 
-/// The scan has to be looking at something. A renamed or moved file would otherwise make the
-/// test above pass by reading nothing.
+/// The scan above has to be looking at something. If the spelling of a feature gate changed,
+/// it would pass by matching nothing.
 #[test]
-fn the_read_path_files_all_exist_and_are_gated() {
-    let mut gated = 0;
-    for rel in READ_PATH {
-        assert!(
-            crate_root().join(rel).is_file(),
-            "{rel} is gone — this scan is checking less than it claims"
-        );
-        if read(rel).contains("feature = \"vector-read\"") {
-            gated += 1;
-        }
-    }
+fn the_scan_sees_the_gates_it_is_looking_for() {
+    let gated: BTreeSet<String> = code_lines_naming("feature = \"vector-read\"")
+        .into_iter()
+        .map(|(file, _, _)| file)
+        .collect();
     assert!(
-        gated >= 5,
-        "only {gated} read-path files mention the feature; the split has been undone"
+        gated.len() >= 8,
+        "only {} files gate on `vector-read` ({gated:?}); if that spelling changed, \
+         `no_code_is_gated_on_the_alias` is vacuous",
+        gated.len()
+    );
+    assert!(
+        gated.contains("src/cmd/mod.rs"),
+        "`index_build` is declared in src/cmd/mod.rs behind `vector-read`, and the scan did \
+         not see it: {gated:?}"
     );
 }
 
-/// `index` must imply `vector-read`, or a full build loses the read path it depends on.
+/// `index` is exactly `vector-read`, and nothing more.
+///
+/// A dependency added here would be a cost only `--features index` pays, which is the split
+/// #1287 removed coming back under the old name.
 #[test]
-fn building_an_index_implies_being_able_to_read_one() {
+fn the_index_feature_is_an_alias() {
     let toml = read("Cargo.toml");
-    let index = feature_body(&toml, "index");
-    assert!(
-        index.contains("\"vector-read\""),
-        "`index` must include `vector-read`, got: {index}"
+    let index: Vec<String> = feature_body(&toml, "index")
+        .split(',')
+        .map(|s| s.trim().trim_matches('"').to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    assert_eq!(
+        index,
+        ["vector-read"],
+        "`index` must be an alias for `vector-read`"
     );
 }
 
-/// The point of the feature is what it does *not* pull. `lancedb` is what requires protoc.
+/// The point of the feature is what it does *not* pull.
 #[test]
-fn reading_an_index_needs_neither_lancedb_nor_a_runtime() {
+fn building_an_index_needs_no_runtime_and_no_lancedb() {
     let toml = read("Cargo.toml");
     let vr = feature_body(&toml, "vector-read");
     for forbidden in ["lancedb", "futures", "tokio"] {
         assert!(
             !vr.contains(forbidden),
-            "`vector-read` must not pull {forbidden} — that is a build-an-index cost: {vr}"
+            "`vector-read` must not pull {forbidden}: {vr}"
         );
     }
     assert!(vr.contains("fastembed"), "it does need the model: {vr}");
-    assert!(vr.contains("arrow-ipc"), "and the decoder: {vr}");
+    assert!(vr.contains("arrow-ipc"), "and the encoder: {vr}");
+
+    let manifest: toml::Value = toml::from_str(&toml).expect("Cargo.toml is not TOML");
+    assert!(
+        manifest["dependencies"].get("lancedb").is_none(),
+        "lancedb is back in Cargo.toml. Nothing reads a LanceDB table — every reader decodes \
+         `corpus.arrow` — and lancedb is what made building an index need protoc (#1287)."
+    );
 }
 
-/// The three builds must be distinguishable by what they report, or a client cannot tell
-/// "cannot read an index" from "can read but not build one".
+/// protoc is required by `prost-build`, and only by it. Nothing in the graph may reach it.
+///
+/// Read off the lockfile, so it covers every feature at once: a dependency of `export-sqlite`
+/// or `calculators-gluon` that took `prost-build` would put protoc back on the `--features
+/// full` build as surely as lancedb did, and `mise.toml` no longer provisions it.
 #[test]
-fn the_reported_feature_list_separates_reading_from_building() {
+fn nothing_in_the_lockfile_needs_protoc() {
+    let lock = read("Cargo.lock");
+    assert!(
+        lock.contains("\nname = \"fastembed\""),
+        "Cargo.lock resolves no fastembed — this is reading the wrong lockfile"
+    );
+    assert!(
+        !lock.contains("\nname = \"prost-build\""),
+        "Cargo.lock resolves `prost-build`, which runs protoc at build time. Find what pulls it \
+         with `cargo tree -e build -i prost-build --features full --target all`."
+    );
+}
+
+/// A client tells a build that can make an index from one that cannot by the reported list,
+/// and since #1287 those are the same builds that can and cannot read one.
+#[test]
+fn the_reported_feature_list_says_whether_this_build_can_make_an_index() {
     let features = yidam::report::YidamBlock::current().features;
     let can_read = features.iter().any(|f| f == "vector-read");
     let can_build = features.iter().any(|f| f == "index");
@@ -236,9 +183,9 @@ fn the_reported_feature_list_separates_reading_from_building() {
         cfg!(feature = "vector-read"),
         "the list must say whether this build can read an index: {features:?}"
     );
-    assert!(
-        !can_build || can_read,
-        "a build that can build an index can read one: {features:?}"
+    assert_eq!(
+        can_build, can_read,
+        "a build that can read an index can build one, and the list must say so: {features:?}"
     );
 }
 

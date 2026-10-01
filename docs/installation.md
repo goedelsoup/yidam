@@ -113,8 +113,7 @@ agent](mcp-server.md#claude-desktop-as-a-bundle) has the rest.
 cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.17.0 --locked yidam
 ```
 
-The default build needs **only a Rust toolchain**: no protoc, no system C library, no ML
-runtime. `--locked` builds from the lock file the tag committed, which is what makes this the
+The default build needs **only a Rust toolchain**: no system C library, no ML runtime. `--locked` builds from the lock file the tag committed, which is what makes this the
 same binary the release was built from; without it cargo re-resolves every dependency and you
 get something that merely resembles it.
 
@@ -152,8 +151,8 @@ artifacts — the script, the tap, binstall — carry the **default** set.
 |---|---|---|
 | `reports` *(default)* | Every pure-Rust command: reports, gates, queries, `clone`, `overlay`, `serve --mcp`, `serve --lsp`, export to graphml/llms | None |
 | `tonpa` *(default)* | Bundle dependency manager — `tonpa add`, `verify`, `update` | reqwest (rustls) + tokio; vendored C, no system library |
-| `vector-read` | Upgrades `serve --mcp`'s `retrieve` from keyword to semantic, over an index built elsewhere | fastembed (ONNX); **no protoc** |
-| `index` | `vector-read`, plus `index-build` — the ability to *make* one | + LanceDB; **needs protoc 31 at build time** |
+| `vector-read` | `index-build`, and upgrades `serve --mcp`'s `retrieve` from keyword to semantic | fastembed (ONNX runtime) |
+| `index` | An alias for `vector-read`, kept so existing `--features index` installs still build | Same as `vector-read` |
 | `export-sqlite` | `export --format sqlite` | Bundled SQLite + sqlite-vec, compiled from C |
 | `vault-s3` *(default)* | The `s3://` transport for `yidam vault`. The rest of the vault — addressing, cache, `file://` — is ungated | hmac + reqwest (rustls) + tokio |
 | `s3-vectors` *(default)* | The S3 Vectors transport — `index-push`, and answering `retrieve` out of a vector bucket instead of a local index. Everything that decides *what* would be sent is ungated | **+0 packages**; hmac, reqwest and tokio are already here for `vault-s3` |
@@ -172,18 +171,17 @@ transports, every report and every gate are in the light set. A default binary s
 it does not serve is *semantic* retrieval, and it says so on every call rather than silently
 returning keyword results as though they were embeddings.
 
-**Reading an index is much cheaper than building one, and they are separate features.**
-`lancedb` is what requires protoc, and it is needed only to *write* an index. So a machine that
-will never build one can still answer semantic queries over an index built elsewhere and
-delivered through a vault — `yidam vault pull --index`, then `serve --mcp`. Measured against
-this repository's lockfile: the default build resolves 197 packages, `vector-read` 387, and
-`index` 715. `vector-read` is roughly a third of the way to the full build, and needs no
-protoc.
+**Reading an index and building one are the same build.** Building one used to need
+`--features index`, which added LanceDB and needed protoc 31. Nothing ever read the LanceDB
+table, so it was removed, and `index-build` now writes the `corpus.arrow` every reader decodes.
+Measured against this repository's lockfile with `cargo tree`: the default build resolves 220
+packages, `vector-read` 375, and the old `index` set resolved 616.
 
 It is still not a *default*, because fastembed carries an ONNX runtime and the light set
-deliberately has no native dependency at all. Which of the three you have is on
-`yidam --version` and in `yidam doctor`, so a client can tell "cannot read an index" from
-"can read but not build one".
+deliberately has no native dependency at all. A machine without it can still answer semantic
+queries over an index built elsewhere and delivered through a vault: `yidam vault pull --index`,
+then a `vector-read` build's `serve --mcp`. Whether you have it is on `yidam --version` and in
+`yidam doctor`.
 
 **`tonpa` is a default even though it costs an HTTP stack**, because it is the only feature
 whose absence broke an instruction rather than removing a capability. Without it
@@ -193,16 +191,16 @@ redirected that is indistinguishable from success.
 To build a heavier set from source:
 
 ```sh
-# Semantic retrieval over an index somebody else built. No protoc.
+# Semantic retrieval, and building the index it reads.
 cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.17.0 --locked \
   --features vector-read yidam
 
-# Everything, including the ability to build an index.
+# Everything, including the SQLite export and the gluon calculators.
 cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.17.0 --locked \
   --features full yidam
 ```
 
-`--features full` requires protoc 31 and a C toolchain on the build machine. That is the
+`--features full` requires a C toolchain on the build machine. That is the
 maintainer's build — see [Contributing](contributing.md), where `mise install` provisions all
 of it.
 

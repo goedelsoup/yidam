@@ -23,7 +23,7 @@ on:
       - 'LICENSE'
   schedule:
     # Weekly full-feature build (Mondays 06:00 UTC) — catches gated-code breakage
-    # and arrow/lancedb version-lock rot that the light PR builds never compile.
+    # and dependency rot that the light PR builds never compile.
     - cron: '0 6 * * 1'
   # `ci (mutants)` has guarded on `workflow_dispatch` since it was written and this trigger
   # was not here, so that arm of its condition was unreachable: the job could be reached by
@@ -201,7 +201,7 @@ jobs:
             yidam/tests/harness
           key: vscode-cli
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # The light default (`reports`) — no protoc, no fastembed. The extension needs a
+      # The light default (`reports`) — no fastembed. The extension needs a
       # binary that speaks the contract, not the full feature set.
       - name: Install the yidam CLI so the contract tests have something to read
         run: cargo install --path yidam/cli --locked
@@ -460,7 +460,7 @@ jobs:
     # predates the change.
     #
     # It runs on pull requests, unlike cli-full. cli-full is excluded because it
-    # is heavy — protoc, an ONNX runtime, SQLite from source. This is the light
+    # is heavy — an ONNX runtime, SQLite from source. This is the light
     # default set for one extra target: the same dependency graph the `ci (cli)`
     # job already builds, compiled for a different machine. The thing it guards
     # against is a dependency change that cross-compiles on nobody's laptop and
@@ -541,8 +541,8 @@ jobs:
       - run: mise run bench-scaling
 
   cli-full:
-    # Full-feature CLI (index/sqlite/rdf/tonpa) — heavy: fastembed + lancedb +
-    # protoc + from-source SQLite. Runs on main push + the weekly schedule only,
+    # Full-feature CLI (index/sqlite/rdf/tonpa) — heavy: fastembed + ONNX +
+    # from-source SQLite. Runs on main push + the weekly schedule only,
     # never on PRs, so PR latency stays on the light build. This is the guard
     # against the reports and index paths drifting apart inside yidam (RFC-0003).
     #
@@ -584,7 +584,7 @@ jobs:
       # whole `--all-features` tree, which is why the clippy CHECK above finishes in 8.5s. The
       # expensive step is the one after it, and what it does is codegen and LINK the 59
       # integration test binaries under `yidam/cli/tests/`, each of which statically contains
-      # lancedb, lance, datafusion, arrow and ort with debuginfo.
+      # arrow and ort with debuginfo (and, before #1287, lancedb, lance and datafusion).
       #
       # `-j` is the lever because it bounds how many of those link units run at once, not
       # because it slows a dependency build that is not happening. A 4-vCPU runner defaults to
@@ -637,11 +637,11 @@ jobs:
         run: .github/scripts/with-sampler.sh mise run ci-cli-full
       # #264: "Run it in CI against `examples/streamflow`." It lives here rather than in the
       # light gate because `bench` refuses to measure against keyword search, and the vector
-      # arm of `retrieve` is `--features index`. So the benchmark runs where the full build
+      # arm of `retrieve` is `--features vector-read`. So the benchmark runs where the full build
       # runs — main push and the weekly schedule — and not on pull requests. That is one
       # commit later than the "every PR" the issue imagined, and it is the latest it can be
       # without the number being about keyword matching.
-      # It builds `--all-features` rather than the `--features index` it needs, so it reuses
+      # It builds `--all-features` rather than the `--features vector-read` it needs, so it reuses
       # the tree the step above left instead of unifying a third feature set (#1015; the
       # task's note in mise.toml records that the superset measures the same thing). It
       # still links a binary, and it had no sampler at all once, which is the same hole one
@@ -668,15 +668,15 @@ jobs:
 
   cli-full-coverage:
     # The `--all-features` suite, run once and instrumented (#1013), on a runner of its own
-    # since #1016 — `cli-full` above says why. Same triggers as that job: it needs protoc,
+    # since #1016 — `cli-full` above says why. Same triggers as that job: it needs
     # an ONNX runtime and SQLite from source, which the pull request is spared.
     name: ci (cli · full-feature coverage)
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     env:
       # The memory cap `cli-full` documents, and it was measured HERE first (#539): four
-      # rustc processes holding instrumented LLVM modules for lancedb/lance/datafusion do not
-      # fit a 16GB runner. The narrative is on the step below.
+      # rustc processes holding instrumented LLVM modules for lancedb/lance/datafusion did not
+      # fit a 16GB runner (#1287 removed those three; the cap was not re-measured). The narrative is on the step below.
       CARGO_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@v7
@@ -720,7 +720,7 @@ jobs:
       # splitting the job — the two disk fixes — would have changed nothing.
       #
       # The runner has 4 vCPU, so cargo defaults to `-j 4`, and four rustc processes each
-      # holding an instrumented LLVM module for lancedb/lance/datafusion do not fit in 16GB.
+      # holding an instrumented LLVM module for lancedb/lance/datafusion did not fit in 16GB.
       # `d01cb87` is where it began because that is where arrow went 52.2.0 → 53.4.1 and
       # datafusion 41 → 44, underneath the crate being compiled when the VM went away.
       #

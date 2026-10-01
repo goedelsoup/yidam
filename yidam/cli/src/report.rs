@@ -51,15 +51,17 @@ impl YidamBlock {
         // would report a *flag* where the rest of the list reports a capability. See the
         // note on the feature in Cargo.toml.
         let mut features = vec!["reports".to_string()];
-        // Two entries, not one, and `index` implies the other. A client needs to tell three
-        // builds apart: one that cannot read an index, one that can read but not build, and
-        // one that can do both. The middle build is the point of the split — it needs no
-        // protoc — and collapsing it into `index` would make it indistinguishable from the
-        // build that carries lancedb.
+        // Two entries for one capability, and both follow `vector-read`. There used to be
+        // three builds — cannot read an index, can read but not build, can do both — because
+        // building one wrote a LanceDB table and needed protoc. #1287 removed the table, so a
+        // build that can read an index can build one, and the `index` feature is an alias.
+        //
+        // `index` stays in the list as a capability, the way `reports` does: a client that keys
+        // on it is asking "can this binary run `index-build`", and the answer is now the same
+        // as for `vector-read`. Reporting the *flag* instead would tell a `vector-read` build
+        // it cannot do what it can.
         if cfg!(feature = "vector-read") {
             features.push("vector-read".to_string());
-        }
-        if cfg!(feature = "index") {
             features.push("index".to_string());
         }
         if cfg!(feature = "export-sqlite") {

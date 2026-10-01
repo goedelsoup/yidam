@@ -15,12 +15,12 @@ The rule all three obey is RFC-0016's:
 ## `yidam serve --lsp`
 
 In the **light default feature set** — as, now, is `serve --mcp`. Both transports ship in
-the binary everyone installs; `--features index` upgrades MCP's `retrieve` from keyword to
+the binary everyone installs; `--features vector-read` upgrades MCP's `retrieve` from keyword to
 semantic search and adds nothing else.
 
 ```
-cargo install --path yidam/cli                    # both transports
-cargo install --path yidam/cli --features index   # + semantic `retrieve`
+cargo install --path yidam/cli                          # both transports
+cargo install --path yidam/cli --features vector-read   # + semantic `retrieve`
 ```
 
 ### What it serves

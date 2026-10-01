@@ -72,7 +72,7 @@ jobs:
           workspaces: yidam/cli
           key: editor-cli
 
-      # The light default (`reports`) — no protoc, no ONNX. The extension needs a binary
+      # The light default (`reports`) — no ONNX runtime. The extension needs a binary
       # that speaks the contract, not the full feature set. Built from THIS tree rather
       # than downloaded from the latest CLI release on purpose: what must be true before
       # publishing is that the extension reads the contract as it stands on the commit

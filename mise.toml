@@ -13,9 +13,6 @@
 # Rust — domain computer (crates/), bootstrap harness (yidam/tests/harness/), yidam CLI (yidam/cli/).
 # Must match rust-toolchain.toml in yidam/tests/harness/.
 rust = { version = "1.88.0", components = "rustfmt,clippy" }
-# protoc — required by lance-encoding's build script (prost-build), a
-# transitive dependency of the yidam CLI via lancedb.
-protoc = "31"
 # Python — packages/ ML pipelines, embedding model SDKs, geospatial connectors.
 python = "3.12"
 # uv — fast Python package/venv manager; used in packages/.
@@ -64,7 +61,7 @@ NEXTEST_PROFILE = "ci"
 [tasks.yidam-build]
 description = "Compile and install the full-feature yidam binary from yidam/cli/ into .local/bin/."
 # `--features full` so the maintainer's install has index-build/serve/sqlite/rdf/
-# tonpa. The default build is the light `reports` binary (no protoc, no ML stack).
+# tonpa. The default build is the light `reports` binary (no ML stack).
 #
 # --root rather than ~/.cargo/bin, for the reason in mise.yidam.toml: the install
 # location was per-machine while the thing installed is per-repository, so
@@ -365,7 +362,7 @@ run = [
 # ── supply chain (#463) ───────────────────────────────────────────────────
 #
 # Nothing checked a single advisory before this. The light binary carries rustls (and so
-# `ring`), reqwest and an S3 client; the full build adds an ONNX runtime and LanceDB. Six
+# `ring`), reqwest and an S3 client; the full build adds an ONNX runtime and SQLite. Six
 # install channels deliver it and `install-channels.yml` verifies that they *work* — nothing
 # asked whether what they deliver has a known vulnerability or a licence this repository can
 # ship. The first run found three advisories, one of them in a crate added the week before.
@@ -569,7 +566,7 @@ description = "Coverage including the feature-gated paths no pull request measur
 tools = { "github:taiki-e/cargo-llvm-cov" = "v0.9.0" }
 # Where the gated files stop being unmeasured. This is the run whose number covers the index,
 # sqlite and rdf paths, and it belongs beside `ci-cli-full` on main and the weekly schedule
-# for the same reason that job does: protoc, an ONNX runtime, SQLite from source.
+# for the same reason that job does: an ONNX runtime, SQLite from source.
 run = [
   "cargo llvm-cov --no-report nextest --config-file .config/nextest.toml --all-features --manifest-path yidam/cli/Cargo.toml",
   "cargo llvm-cov report --lcov --output-path yidam/cli/target/coverage-full.lcov --manifest-path yidam/cli/Cargo.toml",
@@ -746,8 +743,8 @@ run = [
 # resolve to artifacts its cache already holds — 8.5s and 11.8s off a warm one.
 #
 # Both legs, because `--all-features` cannot see the code that `--features vector-read`
-# compiles *instead*: the `#[cfg(not(feature = "index"))]` arms of the build that has
-# fastembed and arrow and no lancedb.
+# compiles *instead*: the `#[cfg(not(feature = "export-sqlite"))]`-style arms of a build with
+# fastembed and none of the other optional features.
 #
 # And a third, `--no-default-features --features reports`, because both of those turn the
 # defaults on and so compile out every `#[cfg(not(feature = "vault-s3"))]` arm there is.
@@ -765,16 +762,16 @@ run = [
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports --locked -- -D warnings",
 ]
 
-# Full-feature CLI build (index/sqlite/rdf) — pulls fastembed/lancedb and needs
-# protoc. Heavy: CI runs this only on main + a weekly schedule (see
+# Full-feature CLI build (index/sqlite/rdf) — pulls fastembed and an ONNX runtime.
+# Heavy: CI runs this only on main + a weekly schedule (see
 # .github/workflows/ci.yml), not on every PR. `ci-cli` above builds the default
 # set, which is also what the release publishes.
 [tasks.ci-cli-full]
 description = "Full-feature CI for the yidam CLI (all optional features, and the read-only vector build)."
-# `--all-features` implies `vector-read` through `index`, so it proves that combination and
-# not the one #442 created: a build with fastembed and arrow and NO lancedb. That build is the
-# whole point of the split — it needs no protoc — and it would otherwise be the build nobody
-# ever compiles, which is exactly the position the index path was in before RFC-0023.
+# `--all-features` proves that combination and not the one a user installs to get vector
+# search: `--features vector-read` (alias `index` since #1287), fastembed and arrow without
+# SQLite, RDF or gluon. That build would otherwise be the one nobody ever compiles, which is
+# exactly the position the index path was in before RFC-0023.
 #
 # Defaults stay ON, because that is what the build actually is: `cargo install yidam --features
 # vector-read` does not disable them. Testing `--no-default-features --features
@@ -790,15 +787,15 @@ description = "Full-feature CI for the yidam CLI (all optional features, and the
 #
 # `coverage-full`, in the job beside this one since #1016, runs `cargo llvm-cov nextest
 # --all-features` — exactly this feature set, exactly these tests. Running them here as well
-# cost a second codegen-and-link of all 59 test binaries with lancedb, arrow and ort in each:
+# cost a second codegen-and-link of all 59 test binaries with arrow and ort in each:
 # on main run 36175381600 that was 5m51s of compile and 95.5s of run, ≈7.4 minutes of a
 # 23.5-minute job, for a second execution of the same 2,764 tests. The instrumented run was
 # the faster of the two (85.8s against 95.5s), so what the deletion gives up is only the
 # uninstrumented *execution* — a test sensitive to binary size or timing would notice, and
 # nothing in this suite is. The `vector-read` leg keeps its plain run because there is no
 # coverage run to fold it into: `coverage-full` is `--all-features`, which is the combination
-# the paragraph above says this leg exists *not* to be — fastembed and arrow with lancedb
-# rather than without. Deleting its plain run would delete the only build that proves #442's.
+# the paragraph above says this leg exists *not* to be. Deleting its plain run would delete the
+# only build that proves the one `cargo install --features vector-read` gives.
 run = [
   "cargo fmt --all --manifest-path yidam/cli/Cargo.toml -- --check",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --features vector-read --locked -- -D warnings",
@@ -825,21 +822,21 @@ run = [
 # The arm that *is* ratcheted is `--scaling`, by `bench_baseline.rs` in the `ci (cli)` gate —
 # it is deterministic, so the baseline is exact and the diff is the review.
 #
-# `--all-features` and not the `--features index` the arm needs, because of where it runs (#1015).
+# `--all-features` and not the `--features vector-read` the arm needs, because of where it runs (#1015).
 # `ci-cli-full` has already built `--features vector-read` and `--all-features` in the same job,
-# and cargo unifies features per invocation: `index` was a third set sharing no codegen with
-# either, 58s of this step's 67s on main run 36175381600. `--all-features` is a superset of
-# `index` and finds its dependencies already in `target/`.
+# and cargo unifies features per invocation: `index` (then a distinct set) shared no codegen
+# with either, 58s of this step's 67s on main run 36175381600. `--all-features` is a superset
+# of `vector-read` and finds its dependencies already in `target/`.
 #
-# The superset is not assumed to measure the same thing. What it adds over `index` is
+# The superset is not assumed to measure the same thing. What it adds over `vector-read` is
 # `calculators-gluon` and `export-sqlite`, whose code is reached only from `lint`, `run` and
 # `export`. In shared dependencies it moves nothing on the measured path: fastembed, ort,
-# lancedb, arrow and tokio resolve identically, and what does move — `regex-automata`'s `perf`,
+# arrow and tokio resolve identically, and what does move — `regex-automata`'s `perf`,
 # `futures-util`'s `compat`, `hashbrown`'s default hasher — changes speed or surface, not
 # results. Run both ways over examples/streamflow, every line of `bench-example.sh`'s output
 # matched except the scratch directory's name.
 [tasks.bench-example]
-description = "Run `yidam bench` against examples/streamflow, with a real index (needs --features index)."
+description = "Run `yidam bench` against examples/streamflow, with a real index (needs --features vector-read)."
 run = [
   "cargo build --manifest-path yidam/cli/Cargo.toml --all-features --locked",
   "bash scripts/bench-example.sh",

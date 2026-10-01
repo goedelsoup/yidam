@@ -776,7 +776,7 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Build LanceDB vector index from embeddings and export Arrow IPC for the web shell
+    /// Build the vector index from embeddings, as Arrow IPC every reader decodes
     #[command(name = "index-build")]
     IndexBuild {
         /// Embedding model to use (overrides .yidam/config.toml [index] model and the default)
@@ -1462,10 +1462,9 @@ impl From<MigrateCommand> for yidam::MigrateOperation {
     }
 }
 
-/// Run one of the async commands (`index-build`, `tonpa`) on the crate's runtime. Only
-/// compiled when one of those features is on; the default `reports` build has no async work
-/// and links no runtime.
-#[cfg(any(feature = "index", feature = "tonpa"))]
+/// Run `tonpa`, the one async command, on the crate's runtime. Only compiled when that
+/// feature is on.
+#[cfg(feature = "tonpa")]
 fn block_on<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {
     yidam::runtime::block_on_local(fut)
 }
@@ -1837,19 +1836,18 @@ fn run() -> Result<()> {
             dry_run,
         }),
         Command::IndexBuild { model } => {
-            #[cfg(feature = "index")]
+            #[cfg(feature = "vector-read")]
             {
-                block_on(yidam::index_build(model))
+                yidam::index_build(model)
             }
-            #[cfg(not(feature = "index"))]
+            #[cfg(not(feature = "vector-read"))]
             {
                 let _ = model;
                 anyhow::bail!(
-                    "`index-build` needs the `index` feature — reinstall with \
-                     `cargo install yidam --features index` (pulls fastembed/lancedb; \
-                     requires protoc).\n  \
-                     To *read* an index built elsewhere, `--features vector-read` is enough \
-                     and needs no protoc — see `yidam vault pull --index`."
+                    "`index-build` needs the `vector-read` feature — reinstall with \
+                     `cargo install yidam --locked --features vector-read` (pulls fastembed \
+                     and an ONNX runtime; no protoc).\n  \
+                     Or fetch an index built elsewhere — see `yidam vault pull --index`."
                 )
             }
         }
@@ -1867,8 +1865,8 @@ fn run() -> Result<()> {
                 let _ = (root, dry_run, create);
                 anyhow::bail!(
                     "`index-push` needs the `vector-read` feature to decode the index it \
-                     pushes — reinstall with `cargo install yidam --features vector-read`. \
-                     It needs no protoc: reading an index is a lighter build than building one."
+                     pushes — reinstall with `cargo install yidam --locked --features \
+                     vector-read`."
                 )
             }
         }
