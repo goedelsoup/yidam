@@ -62,6 +62,7 @@ pub mod github_app;
 pub mod land;
 pub mod on_push;
 pub mod pin;
+mod status;
 pub mod step;
 pub mod workflow;
 
@@ -306,6 +307,43 @@ pub enum ClusterCommand {
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
     },
+    /// What the recent runs did: admitted or not, and what each step landed, proposed or refused
+    ///
+    /// Reads the records the pods wrote, which Argo keeps in each `Workflow` as the node's
+    /// `output` parameter, through `kubectl get workflows,cronworkflows -o json`. Reads the
+    /// branch and the `propose/*` branches on the remote with `ls-remote`. Never reads a log.
+    ///
+    /// A record that is missing makes its outcome `unknown`, with what is missing. A run whose
+    /// `Workflow` Argo has deleted is seen only through its CronWorkflow, and is reported
+    /// unknown for that reason. Nothing it prints is committed: this is operational status,
+    /// not provenance.
+    Status {
+        /// Read `kubectl get workflows,cronworkflows -o json` output from this file instead of
+        /// running kubectl
+        #[arg(long, value_name = "FILE")]
+        workflows: Option<PathBuf>,
+        /// The namespace to read; overrides `[cluster] namespace`
+        #[arg(long, value_name = "NAMESPACE")]
+        namespace: Option<String>,
+        /// The kubeconfig context to read
+        #[arg(long, value_name = "CONTEXT")]
+        context: Option<String>,
+        /// The git remote whose refs are read; overrides `[cluster] remote`
+        #[arg(long, value_name = "URL")]
+        remote: Option<String>,
+        /// The branch a run advances; overrides `[cluster] branch`
+        #[arg(long, value_name = "BRANCH")]
+        branch: Option<String>,
+        /// The corpus's name in the cluster's objects; defaults to the root directory's
+        #[arg(long, value_name = "NAME")]
+        corpus: Option<String>,
+        /// How many runs to show, newest first
+        #[arg(long, value_name = "N", default_value_t = 5)]
+        limit: usize,
+        /// Output format. `json` emits the machine-readable report contract (RFC-0016)
+        #[arg(long, value_enum, default_value_t = Format::Text)]
+        format: Format,
+    },
 }
 
 /// The remote a pod reads or writes. Absent from `step` by construction.
@@ -446,6 +484,27 @@ pub fn run(sub: ClusterCommand) -> Result<()> {
             out,
             format,
         } => admit::run(&remote, out.as_deref(), format),
+        ClusterCommand::Status {
+            workflows,
+            namespace,
+            context,
+            remote,
+            branch,
+            corpus,
+            limit,
+            format,
+        } => status::run(
+            &status::Overrides {
+                workflows,
+                namespace,
+                context,
+                remote,
+                branch,
+                corpus,
+                limit,
+            },
+            format,
+        ),
     }
 }
 

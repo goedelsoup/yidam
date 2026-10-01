@@ -935,6 +935,7 @@ yidam cluster land  --step-output @step.json --remote git@host:corpus.git --vaul
 yidam cluster survey units --bundle <digest> --vault-url file:///var/yidam/vault --out survey.json
 yidam cluster ask   --ask '<one of survey.asks>' --vault-url file:///var/yidam/vault --out ask.json
 yidam cluster gather units --bundle <digest> --asked '[…ask records…]' --vault-url file:///var/yidam/vault --out step.json
+yidam cluster status --remote git@host:corpus.git
 ```
 
 **`workflow`** reads `.yidam/capabilities.toml` and `[cluster]` in `.yidam/config.toml`, and
@@ -974,6 +975,17 @@ The generated workflow adds these four tasks per file in `.yidam/gathers/`.
 
 The records are the pod contract, versioned by `format_version`. Under `--format json`
 each sits under a `record` key in the report envelope.
+
+**`status`** reports what the recent runs did. It reads the records Argo keeps on each
+`Workflow`, through `kubectl` or from `--workflows <file>`. For each run it gives the admission
+and its reason. It gives each step's outcome: landed, proposed, refused with the lander's
+reason, or not reached. It gives each gather peer's outcome. With `--remote`, or `[cluster]
+remote`, it reads the branch tip and says whether each proposal is still open. A run whose
+records are gone is `unknown`, with the reason. It never reads a log, and it commits nothing.
+Under `--format json` it is a report, not a pod record.
+
+When `land` refuses, it still writes a record to `--out`, holding `refused` and the reason.
+The pod still fails. That record is what `status` shows.
 
 ## Index and embeddings
 

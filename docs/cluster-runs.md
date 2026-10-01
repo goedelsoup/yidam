@@ -492,7 +492,8 @@ pod calls STS before the vault, so a fenced cluster also needs `[cluster.egress]
 
 ## Pod logs are not provenance
 
-Argo keeps a log per pod until the pod is deleted. Read it when a step fails. Do not cite it. A calculator's stderr is
+Argo keeps a log per pod until the pod is deleted. Read it when a step fails. Do not cite it.
+[`cluster status`](#when-something-looks-wrong) reads the records instead. A calculator's stderr is
 passed through to the pod's own and recorded nowhere. Everything that matters is in the commit
 the lander pushed. That is the outputs, and the receipt at `.yidam/runs/<step>.yml`. The
 receipt names the input state it was computed from. A log can be rotated, truncated or lost.
@@ -510,8 +511,34 @@ A receipt is on the ref.
 
 ## When something looks wrong
 
-Run the same commands by hand against the same remote and vault. Each one is a pod, and each
-one works from a shell.
+Start from `cluster status`, in a checkout of the corpus.
+
+```sh
+yidam cluster status --remote git@host:corpus.git
+```
+
+It lists the recent runs, newest first. For each run it says whether admission let it through,
+and why. For each step it says where the result went:
+
+- `landed`: on the branch, at the commit it names.
+- `proposed`: on `propose/*`, and whether that branch is still open.
+- `refused`: the lander declined, and the line gives its reason.
+- `fresh` or `unchanged`: there was nothing to land.
+- `not reached`: an earlier step stopped the run.
+
+Each gather lists every peer and its outcome, `refused` included.
+
+It reads the `Workflow` objects through `kubectl`, with your current context. `--namespace` and
+`--context` pick another. `--workflows <file>` reads saved `kubectl get -o json` output instead.
+
+It never reads a log. Every pod writes a record, and Argo keeps it on the `Workflow`. A refused
+landing writes one too. A node with no record is `failed` or `unknown`, and the line says
+which record is missing. Argo deletes a finished run after `[cluster.cleanup]`'s delay. Such a
+run shows as `unknown`, from its `CronWorkflow`'s last tick. Nothing `status` prints is
+committed, and nothing in it is provenance.
+
+Then run the failing act by hand against the same remote and vault. Each one is a pod, and
+each one works from a shell.
 
 ```sh
 yidam cluster admit --remote git@host:corpus.git

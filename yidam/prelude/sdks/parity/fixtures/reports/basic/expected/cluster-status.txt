@@ -1,0 +1,26 @@
+(deleted)  unknown  2026-10-01T06:00:00Z
+  unknown: `yidam-streamflow` last created a run for 2026-10-01T06:00:00Z, and no Workflow for it remains. Argo deletes a run 86400s after it succeeds and 604800s after it fails ([cluster.cleanup]), and a run deleted by hand looks the same
+
+yidam-streamflow-1790748000  Failed  2026-09-30T06:00:00Z
+  admitted: 1 clock due, 2 steps stale
+    due: catalog
+    stale: travel-tier, disclosure-envelope
+  travel-tier          landed on main at 1111111111
+  disclosure-envelope  proposed on propose/1111111 at 2222222222 (gone from the remote)
+  reach-index          fresh
+  gauge-summary        refused: main moved and touched what it reads: .yidam/computed/travel-tier.yml
+  flow-report          not reached
+  gather flows         proposed on propose/1111111 at 2222222222 (gone from the remote)
+    basin: answered
+    gauges: missing — named by the gather, not installed
+    reach: refused
+    weirs: unknown — the asker ended Error and left no record (pod deleted); `gather` counts it refused
+
+yidam-streamflow-manual-x7k2p  Error  2026-09-29T14:00:00Z
+  not asked: a one-shot Workflow has no `admit` task; it runs when it is created
+  travel-tier          failed: the step failed and left no record (OOMKilled (exit code 137))
+  disclosure-envelope  unknown: the lander ended Succeeded and left no record
+  gather levels        refused: the commit carries no receipt at .yidam/runs/gather/levels.yml; a commit without one is not a run's, and is not landed
+    gauges: answered
+
+refs on .: main at 999ae28aaf, 0 proposal branches open

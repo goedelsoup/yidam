@@ -411,6 +411,15 @@ fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
     })
 }
 
+/// How long Argo keeps a finished run of the corpus, which is how long its records last.
+pub(super) fn retention(o: &ClusterCleanupConfig) -> super::status::Retention {
+    let c = Cleanup::builtin().over(o);
+    super::status::Retention {
+        after_success: c.seconds_after_success,
+        after_failure: c.seconds_after_failure,
+    }
+}
+
 /// The lock every run of the corpus holds: Argo scopes it to the namespace, and the name to
 /// the corpus, so two corpora in one namespace do not wait on each other.
 pub(super) fn mutex(slug: &str) -> String {

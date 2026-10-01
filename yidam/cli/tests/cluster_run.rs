@@ -27,7 +27,7 @@ use std::process::Command;
 use common::git::{git, out, succeeded};
 use common::Example;
 use serde::Deserialize as _;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 /// A corpus, the bare remote it pushes to, a vault directory, and a workspace for records.
 struct Cluster {
@@ -136,8 +136,13 @@ impl Cluster {
     /// Run the binary in the workspace — deliberately **not** in a checkout, because no pod
     /// stands in one either.
     fn yidam(&self, args: &[&str]) -> (String, String, i32) {
+        self.yidam_in(self.work.path(), args)
+    }
+
+    /// Run the binary in `dir`, as an operator runs what reads a cluster from a checkout.
+    fn yidam_in(&self, dir: &Path, args: &[&str]) -> (String, String, i32) {
         let o = Command::new(env!("CARGO_BIN_EXE_yidam"))
-            .current_dir(self.work.path())
+            .current_dir(dir)
             .args(args)
             // A `file://` vault reads no credential, and a developer's ambient AWS session
             // must not be what decides whether this suite passes.
@@ -242,9 +247,26 @@ impl Cluster {
             Some(app) => args.extend(app.land_args()),
         }
         args.extend(self.vault_args());
-        args.extend(["--format".to_string(), "json".to_string()]);
+        // As the workflow passes it: where Argo reads the node's output parameter from.
+        args.extend([
+            "--out".to_string(),
+            self.landed_path().display().to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ]);
+        let _ = std::fs::remove_file(self.landed_path());
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         self.yidam(&args)
+    }
+
+    /// The record the last landing left at `--out`, refusal or not.
+    fn landed_path(&self) -> PathBuf {
+        self.work.path().join("landed.json")
+    }
+
+    fn landed_record(&self) -> Value {
+        let text = std::fs::read_to_string(self.landed_path()).expect("the lander wrote no record");
+        serde_json::from_str(&text).unwrap()
     }
 
     fn land(&self, record: &Value) -> Value {
@@ -1064,6 +1086,132 @@ fn a_landing_re_parents_over_an_unrelated_commit_and_refuses_over_a_moved_input(
         "the refusal names the reason:\n{stderr}"
     );
     assert_eq!(c.main_tip(), moved, "main is where the edit left it");
+
+    // …and leaves it as a record, where `cluster status` reads it (#1236): the pod's stderr
+    // is a log, and a log is not a record.
+    let refused = c.landed_record();
+    assert_eq!(refused["step"], "disclosure-envelope", "{refused}");
+    assert_eq!(refused["format_version"], 1);
+    assert_eq!(refused["input"], step2["input"]);
+    assert!(
+        s(&refused["refused"]).contains("touched what it reads"),
+        "{refused}"
+    );
+}
+
+// ── what status reads ─────────────────────────────────────────────────────────────
+
+/// `cluster status` over what the real lander left at `--out` (#1236), wrapped as Argo keeps
+/// it: each record the output parameter of its node. The proposal is open while its branch
+/// is on the remote, which status reads from the remote itself, and closed once it is gone.
+#[test]
+fn status_reads_the_landers_records_and_asks_the_remote_whether_a_proposal_is_open() {
+    let c = Cluster::new();
+    c.push_to_main(
+        "scaffold: disclosure-envelope establishes rather than computes",
+        |root| {
+            let manifest = root.join(".yidam/capabilities.toml");
+            let text = std::fs::read_to_string(&manifest).unwrap();
+            let at = text.find("[capability.disclosure-envelope]").unwrap();
+            let (head, tail) = text.split_at(at);
+            let tail = tail.replacen("verb   = \"compute\"", "verb   = \"establish\"", 1);
+            assert_ne!(tail, text[at..], "nothing was re-declared");
+            std::fs::write(manifest, format!("{head}{tail}")).unwrap();
+        },
+    );
+
+    let pin = c.pin();
+    let up = c.step("travel-tier", s(&pin["bundle"]));
+    let landed = c.land(&up);
+    let landed_record = c.landed_record();
+    assert_eq!(landed_record, landed, "--out holds what stdout reported");
+    let down = c.step("disclosure-envelope", s(&landed["next"]["bundle"]));
+    let proposed = c.land(&down);
+    let proposed_record = c.landed_record();
+    let proposal = s(&proposed["target"]).to_string();
+    assert!(proposal.starts_with("propose/"), "{proposed}");
+
+    let output = |record: &Value| json!({ "parameters": [{ "name": "output", "value": record.to_string() }] });
+    let task = |step: &str| {
+        json!({
+            "name": format!("step-{step}"),
+            "template": "step",
+            "arguments": { "parameters": [{ "name": "step", "value": step }] },
+        })
+    };
+    let node = |id: &str, record: &Value| {
+        json!({
+            "id": id, "displayName": id, "type": "Pod", "phase": "Succeeded", "outputs": output(record),
+        })
+    };
+    let workflows = json!({
+        "kind": "List",
+        "items": [{
+            "kind": "Workflow",
+            "metadata": {
+                "name": "yidam-streamflow-x",
+                "labels": { "yidam.dev/corpus": "streamflow" },
+                "creationTimestamp": "2026-09-30T06:00:00Z",
+            },
+            "spec": { "templates": [{ "name": "run", "dag": { "tasks": [
+                task("travel-tier"), { "name": "land-travel-tier", "template": "land" },
+                task("disclosure-envelope"), { "name": "land-disclosure-envelope", "template": "land" },
+            ] } }] },
+            "status": {
+                "phase": "Succeeded",
+                "startedAt": "2026-09-30T06:00:00Z",
+                "nodes": {
+                    "a": node("step-travel-tier", &up),
+                    "b": node("land-travel-tier", &landed_record),
+                    "c": node("step-disclosure-envelope", &down),
+                    "d": node("land-disclosure-envelope", &proposed_record),
+                },
+            },
+        }],
+    });
+    let file = c.work.path().join("workflows.json");
+    std::fs::write(&file, workflows.to_string()).unwrap();
+
+    let status = || {
+        let remote = c.remote().display().to_string();
+        let (stdout, stderr, code) = c.yidam_in(
+            &c.e.path(),
+            &[
+                "cluster",
+                "status",
+                "--workflows",
+                file.to_str().unwrap(),
+                "--remote",
+                &remote,
+                "--corpus",
+                "streamflow",
+                "--format",
+                "json",
+            ],
+        );
+        assert_eq!(code, 0, "cluster status failed:\n{stdout}{stderr}");
+        serde_json::from_str::<Value>(&stdout).unwrap()
+    };
+    let report = status();
+    let steps = &report["runs"][0]["steps"];
+    assert_eq!(steps[0]["step"], "travel-tier", "{report}");
+    assert_eq!(steps[0]["outcome"], "landed");
+    assert_eq!(steps[0]["target"], "main");
+    assert_eq!(steps[0]["commit"], landed["landed"]);
+    assert_eq!(steps[1]["outcome"], "proposed", "{report}");
+    assert_eq!(steps[1]["target"], proposal.as_str());
+    assert_eq!(steps[1]["still_open"], true);
+    assert_eq!(report["refs"]["tip"], c.main_tip().as_str(), "{report}");
+    assert_eq!(report["refs"]["proposals"], json!([proposal]));
+
+    // Merged, or abandoned: either way the branch is gone, and status says so.
+    git(&c.remote(), &["branch", "-qD", &proposal]);
+    let report = status();
+    assert_eq!(
+        report["runs"][0]["steps"][1]["still_open"], false,
+        "{report}"
+    );
+    assert_eq!(report["refs"]["proposals"], json!([]));
 }
 
 // ── the typed arm ─────────────────────────────────────────────────────────────

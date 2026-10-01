@@ -467,6 +467,27 @@ const COMMANDS: &[(&str, &[&str])] = &[
     // and no reading of it. `--dry-run` reads no cache, so the golden does not depend on what
     // the machine running it has fetched; the reading itself is `tests/catalog_extract.rs`.
     ("catalog-extract", &["catalog-extract", "--dry-run"]),
+    // The one `cluster` reader that needs no cluster: it reads `kubectl get -o json` output
+    // from a file, so the fixture is that output and the golden holds every outcome a run
+    // records (#1236). `--remote .` is the staged repository itself, which has a `main` and no
+    // `propose/*`, so the two proposals in the fixture read as gone. That they read as open
+    // while their branch exists is `cluster_run.rs`, over a real lander's records.
+    (
+        "cluster-status",
+        &[
+            "cluster",
+            "status",
+            "--workflows",
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/cluster-status/workflows.json"
+            ),
+            "--corpus",
+            "streamflow",
+            "--remote",
+            ".",
+        ],
+    ),
 ];
 
 /// Reports checked by running them, because they cannot have a golden.
@@ -2349,6 +2370,12 @@ fn declarations(
 /// `stage.toml` says why the followable catalog arm and the held kuten arm are covered end-to-end
 /// instead of here, and `NO_REPORT` says why `index-verify` cannot run at all.
 const UNREACHED: &[(&str, &str)] = &[
+    (
+        "refs.unread",
+        "`cluster status` reports a remote it cannot read rather than failing, and the reason \
+         is git's own error, whose wording moves between git versions — so a golden of it would \
+         pin the runner's git. `cluster/status/tests.rs` holds the arm",
+    ),
     (
         "derivations[]",
         "`derive check` emits an entry only for an artifact under `[derive] paths`, and this \
