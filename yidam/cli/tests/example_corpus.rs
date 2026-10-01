@@ -750,6 +750,31 @@ fn the_genesis_fixture_sees_a_subject_that_names_no_domain() {
     );
 }
 
+/// **A corpus with no git has no genesis commit to blame (#1269).**
+///
+/// `serve --bundle` unpacks a `.yiz` into scratch, which has no repository, and every pod log
+/// opened with a warning telling the operator to fix a commit they do not have. The fixture
+/// above proves the binary does warn when a commit exists, so silence here is not the
+/// binary declining to load the model.
+#[test]
+fn a_corpus_with_no_git_gets_no_genesis_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    let here = dir.path();
+    std::fs::create_dir_all(here.join(".yidam/corpus")).unwrap();
+    std::fs::write(here.join(".yidam/corpus/.gitkeep"), "").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(here)
+        .arg("bundle")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "bundle failed: {stderr}");
+    assert!(
+        !stderr.contains(NO_DOMAIN),
+        "a directory with no git warned about its genesis commit:\n{stderr}"
+    );
+}
+
 /// **A documented `git init` + commit teaches a genesis subject the binary accepts.**
 ///
 /// Held to the binary, not to a spelling: the message is committed and `bundle` is asked.
