@@ -556,7 +556,7 @@ clap pre-dispatch arm for `InvalidSubcommand | ErrorKind::UnknownArgument`
 make every rejection this section specifies invisible to a JSON consumer.
 
 The one `Err` that is not ordinary is
-[`report::GateFailed`](../../yidam/cli/src/report.rs#L181), the sentinel #926 introduced so
+[`report::GateFailed`](../../yidam/cli/src/report.rs#L186), the sentinel #926 introduced so
 that the library could stop calling `std::process::exit` from inside a published crate. It
 carries no message, and `main.rs` prints nothing for it
 ([`fn main`](../../yidam/cli/src/main.rs#L1435-L1442)) — so the report emitted above it is

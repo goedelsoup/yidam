@@ -58,6 +58,7 @@ pub mod builtin;
 mod bundle;
 mod egress;
 pub mod gather;
+pub mod github_app;
 pub mod land;
 pub mod pin;
 pub mod step;
@@ -199,6 +200,8 @@ pub enum ClusterCommand {
         step_output: String,
         #[command(flatten)]
         remote: RemoteArgs,
+        #[command(flatten)]
+        auth: github_app::GitAuthArgs,
         #[command(flatten)]
         vault: VaultArgs,
         /// Write the landing record — what moved, and the next pin — to this file
@@ -397,10 +400,11 @@ pub fn run(sub: ClusterCommand) -> Result<()> {
         ClusterCommand::Land {
             step_output,
             remote,
+            auth,
             vault,
             out,
             format,
-        } => land::run(&step_output, &remote, &vault, out.as_deref(), format),
+        } => land::run(&step_output, &remote, &auth, &vault, out.as_deref(), format),
         ClusterCommand::Survey {
             gather: name,
             bundle,
@@ -602,8 +606,18 @@ pub(crate) fn class_of(route: crate::cmd::run::manifest::Route) -> &'static str 
 /// fetched into a repository that holds the prerequisite, and a lander that cloned shallow
 /// would then fail on the first step whose input had moved one commit back.
 pub(crate) fn clone_branch(remote: &str, branch: &str, dest: &Path) -> Result<()> {
+    clone_branch_as(remote, branch, dest, &github_app::PushAuth::none())
+}
+
+/// [`clone_branch`], with the credential the lander pushes with.
+pub(crate) fn clone_branch_as(
+    remote: &str,
+    branch: &str,
+    dest: &Path,
+    auth: &github_app::PushAuth,
+) -> Result<()> {
     let parent = dest.parent().unwrap_or(dest);
-    crate::git::Git::new(parent)
+    auth.git(parent)
         .args(["clone", "-q", "--branch", branch, "--single-branch", remote])
         .arg(dest)
         .run()

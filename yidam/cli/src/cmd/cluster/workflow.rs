@@ -96,6 +96,71 @@ struct Settings {
     /// here runs from its own template; every other step shares `step`.
     step_pods: BTreeMap<String, Bounds>,
     cleanup: Cleanup,
+    /// What the lander pushes with (#1233).
+    push: Push,
+}
+
+/// The lander's push credential, as `[cluster] git_auth` and `[cluster.github_app]` declare it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Push {
+    /// An SSH key in the `git_write` secret, which `GIT_SSH_COMMAND` names.
+    DeployKey,
+    /// A GitHub App's private key in the `git_write` secret, from which the lander mints an
+    /// installation token. Nothing but the App's id and the API reach the manifest; the token
+    /// is never a parameter, since Argo records parameters in the Workflow object.
+    GithubApp {
+        app_id: u64,
+        api_url: Option<String>,
+    },
+}
+
+impl Push {
+    fn resolve(cfg: &crate::config::ClusterConfig, remote: &str) -> Result<Self> {
+        use crate::config::GitAuth;
+        match (cfg.git_auth, &cfg.github_app) {
+            (GitAuth::DeployKey, None) => Ok(Self::DeployKey),
+            (GitAuth::DeployKey, Some(_)) => bail!(
+                "[cluster.github_app] is set and `[cluster] git_auth` is not \"github-app\", so \
+                 the lander would ignore it. Set `git_auth = \"github-app\"`, or remove the table."
+            ),
+            (GitAuth::GithubApp, None) => {
+                bail!("`[cluster] git_auth = \"github-app\"` needs `[cluster.github_app] app_id`")
+            }
+            (GitAuth::GithubApp, Some(app)) => {
+                // Checked here as well as in the pod, so a remote the lander would refuse is
+                // refused before anything is applied to a cluster.
+                super::github_app::Repo::of_remote(remote)?;
+                if let Some(url) = &app.api_url {
+                    super::github_app::check_api(url)?;
+                }
+                Ok(Self::GithubApp {
+                    app_id: app.app_id,
+                    api_url: app.api_url.clone(),
+                })
+            }
+        }
+    }
+
+    /// The flags `land` is given for this credential.
+    fn land_args(&self) -> Vec<String> {
+        match self {
+            Self::DeployKey => vec![],
+            Self::GithubApp { app_id, api_url } => {
+                let mut a = vec![
+                    "--git-auth".to_string(),
+                    "github-app".to_string(),
+                    "--github-app-id".to_string(),
+                    app_id.to_string(),
+                    "--github-app-key".to_string(),
+                    format!("{GIT_DIR}/{}", super::github_app::KEY_FILE),
+                ];
+                if let Some(url) = api_url {
+                    a.extend(["--github-api".to_string(), url.clone()]);
+                }
+                a
+            }
+        }
+    }
 }
 
 /// One pod's resources and deadline, every key resolved.
@@ -307,6 +372,7 @@ fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
 
     let slug = slug(root);
     let names = Names::resolve(&slug, &cfg.cluster.names)?;
+    let push = Push::resolve(&cfg.cluster, &remote)?;
 
     Ok(Settings {
         names,
@@ -331,6 +397,7 @@ fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
         pod,
         step_pods,
         cleanup: Cleanup::builtin().over(&cfg.cluster.cleanup),
+        push,
     })
 }
 
@@ -425,6 +492,14 @@ fn header(s: &Settings) -> String {
         "#   land        mounts {:w$}  and is the only pod that can move one",
         n.git_write
     );
+    if let Push::GithubApp { app_id, .. } = &s.push {
+        let _ = writeln!(
+            h,
+            "#\n\
+             # land pushes over HTTPS with a token it mints from GitHub App {app_id}'s key. The\n\
+             # token expires in an hour and is in no parameter, so the Workflow never records it."
+        );
+    }
     h.push_str(
         "#\n\
          # Every name is this corpus's own, so no other corpus's lander holds its write key.\n\
@@ -490,11 +565,24 @@ fn spec(s: &Settings) -> String {
         "  - name: git-read\n    secret:\n      secretName: {}\n      defaultMode: 256",
         quote(&n.git_read)
     );
+    match s.push {
+        Push::DeployKey => y.push_str(
+            "  # The one credential that can move a ref. Mounted by `land` and by nothing \
+             else.\n",
+        ),
+        Push::GithubApp { .. } => {
+            let _ = writeln!(
+                y,
+                "  # The one credential that can move a ref: a GitHub App's private key, under\n  \
+                 # `{}`. Mounted by `land` and by nothing else, which mints an installation\n  \
+                 # token from it that expires in an hour.",
+                super::github_app::KEY_FILE
+            );
+        }
+    }
     let _ = writeln!(
         y,
-        "  # The one credential that can move a ref. Mounted by `land` and by nothing \
-         else.\n  - name: git-write\n    secret:\n      secretName: {}\n      \
-         defaultMode: 256",
+        "  - name: git-write\n    secret:\n      secretName: {}\n      defaultMode: 256",
         quote(&n.git_write)
     );
     y.push_str(
@@ -582,17 +670,19 @@ fn spec(s: &Settings) -> String {
         let name = format!("step-{}", task_name(step));
         y.push_str(&template(s, &step_pod(&name, &s.pod, Egress::Internet)));
     }
+    let push_args = s.push.land_args();
+    let land_args: Vec<&str> = ["--step-output", "{{inputs.parameters.step-output}}"]
+        .into_iter()
+        .chain(remote_args())
+        .chain(push_args.iter().map(String::as_str))
+        .collect();
     y.push_str(&template(
         s,
         &Pod {
             name: "land",
             inputs: &["step-output"],
             command: &["cluster", "land"],
-            args: &[
-                &["--step-output", "{{inputs.parameters.step-output}}"][..],
-                &remote_args(),
-            ]
-            .concat(),
+            args: &land_args,
             cred: Credential::Write,
             egress: Egress::Remote,
             vault: true,
@@ -898,7 +988,9 @@ fn template(s: &Settings, pod: &Pod) -> String {
         quote(SCRATCH),
         quote(HOME)
     );
-    if cred != Credential::None {
+    // A key file for ssh to use: the read key, and the write key unless the lander pushes over
+    // HTTPS with an App token, when the mount holds no SSH key at all.
+    if cred == Credential::Read || (cred == Credential::Write && s.push == Push::DeployKey) {
         let _ = writeln!(
             y,
             "        - name: GIT_SSH_COMMAND\n          value: {}",
@@ -1107,6 +1199,7 @@ mod tests {
             pod: Bounds::builtin(),
             step_pods: BTreeMap::new(),
             cleanup: Cleanup::builtin(),
+            push: Push::DeployKey,
         };
         let text = spec(&s);
         let doc: serde_yaml::Value = serde_yaml::from_str(&text).expect("the spec parses");
@@ -1148,6 +1241,133 @@ mod tests {
     /// A step is told the image it was started from by the parameter that started it, so the
     /// digest its receipt records is the one the pod ran and never a tag read from a registry.
     #[test]
+    fn an_app_key_is_mounted_by_the_lander_alone_and_named_only_there() {
+        let s = Settings {
+            slug: "corpus".into(),
+            image: "img".into(),
+            remote: "git@github.com:acme/corpus.git".into(),
+            branch: "main".into(),
+            vault_name: "default".into(),
+            vault_url: "file:///vault".into(),
+            vault_region: None,
+            vault_endpoint: None,
+            vault_path_style: false,
+            namespace: None,
+            cron: None,
+            steps: vec!["a".into()],
+            gathers: vec!["g".into()],
+            names: Names::derived("corpus"),
+            pod: Bounds::builtin(),
+            step_pods: BTreeMap::new(),
+            cleanup: Cleanup::builtin(),
+            push: Push::GithubApp {
+                app_id: 4242,
+                api_url: Some("https://ghe.example.com/api/v3".into()),
+            },
+        };
+        let text = spec(&s);
+        let doc: serde_yaml::Value = serde_yaml::from_str(&text).expect("the spec parses");
+        let mut landed = false;
+        for t in doc["templates"].as_sequence().expect("templates") {
+            let name = t["name"].as_str().unwrap();
+            let c = &t["container"];
+            let mounts: Vec<&str> = c["volumeMounts"]
+                .as_sequence()
+                .map(|m| m.iter().filter_map(|v| v["name"].as_str()).collect())
+                .unwrap_or_default();
+            let env: Vec<&str> = c["env"]
+                .as_sequence()
+                .map(|e| e.iter().filter_map(|v| v["name"].as_str()).collect())
+                .unwrap_or_default();
+            let body = serde_yaml::to_string(c).unwrap();
+            if name == "land" {
+                landed = true;
+                assert!(mounts.contains(&"git-write"), "{mounts:?}");
+                // The key is not an SSH identity, so ssh is not pointed at it.
+                assert!(!env.contains(&"GIT_SSH_COMMAND"), "{body}");
+                let args: Vec<&str> = c["args"]
+                    .as_sequence()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|a| a.as_str())
+                    .collect();
+                let after = |flag: &str| {
+                    let i = args.iter().position(|a| *a == flag).unwrap_or_else(|| {
+                        panic!("land has no {flag}: {args:?}");
+                    });
+                    args[i + 1]
+                };
+                assert_eq!(after("--git-auth"), "github-app");
+                assert_eq!(after("--github-app-id"), "4242");
+                assert_eq!(after("--github-app-key"), "/etc/yidam/git/private-key.pem");
+                assert_eq!(after("--github-api"), "https://ghe.example.com/api/v3");
+            } else {
+                assert!(!mounts.contains(&"git-write"), "{name}: {mounts:?}");
+                assert!(
+                    !body.contains("github-app"),
+                    "{name} names the App:\n{body}"
+                );
+                if mounts.contains(&"git-read") {
+                    // A reading pod still clones over SSH with the read key.
+                    assert!(env.contains(&"GIT_SSH_COMMAND"), "{name}: {body}");
+                }
+            }
+        }
+        assert!(landed, "no land template");
+        assert!(header(&s).contains("GitHub App 4242"), "{}", header(&s));
+        assert!(!header(&Settings {
+            push: Push::DeployKey,
+            ..s
+        })
+        .contains("GitHub App"));
+    }
+
+    #[test]
+    fn app_auth_is_all_or_nothing_and_checked_before_apply() {
+        use crate::config::{ClusterConfig, ClusterGithubAppConfig, GitAuth};
+        let remote = "git@github.com:acme/corpus.git";
+        let app = |api: Option<&str>| ClusterGithubAppConfig {
+            app_id: 7,
+            api_url: api.map(str::to_string),
+        };
+        let cfg = |git_auth, github_app| ClusterConfig {
+            git_auth,
+            github_app,
+            ..ClusterConfig::default()
+        };
+        assert_eq!(
+            Push::resolve(&cfg(GitAuth::DeployKey, None), remote).unwrap(),
+            Push::DeployKey
+        );
+        assert!(Push::DeployKey.land_args().is_empty());
+        let e = Push::resolve(&cfg(GitAuth::DeployKey, Some(app(None))), remote).unwrap_err();
+        assert!(e.to_string().contains("would ignore it"), "{e}");
+        let e = Push::resolve(&cfg(GitAuth::GithubApp, None), remote).unwrap_err();
+        assert!(e.to_string().contains("app_id"), "{e}");
+        let ok = Push::resolve(&cfg(GitAuth::GithubApp, Some(app(None))), remote).unwrap();
+        assert_eq!(
+            ok.land_args(),
+            [
+                "--git-auth",
+                "github-app",
+                "--github-app-id",
+                "7",
+                "--github-app-key",
+                "/etc/yidam/git/private-key.pem"
+            ]
+        );
+        // A remote the lander could not turn into a repository, and an API it would refuse to
+        // send a JWT to, are refused while the manifest is written, not in the pod.
+        let gh = cfg(GitAuth::GithubApp, Some(app(None)));
+        assert!(Push::resolve(&gh, "/srv/corpus.git").is_err());
+        let plain = cfg(
+            GitAuth::GithubApp,
+            Some(app(Some("http://api.example.com"))),
+        );
+        assert!(Push::resolve(&plain, remote).is_err());
+    }
+
+    #[test]
     fn a_step_names_its_image_by_the_parameter_its_container_runs() {
         let s = Settings {
             slug: "corpus".into(),
@@ -1167,6 +1387,7 @@ mod tests {
             pod: Bounds::builtin(),
             step_pods: BTreeMap::new(),
             cleanup: Cleanup::builtin(),
+            push: Push::DeployKey,
         };
         let doc: serde_yaml::Value = serde_yaml::from_str(&spec(&s)).unwrap();
         let step = doc["templates"]
@@ -1209,6 +1430,7 @@ mod tests {
             pod: Bounds::builtin(),
             step_pods: BTreeMap::new(),
             cleanup: Cleanup::builtin(),
+            push: Push::DeployKey,
         };
         let text = spec(&s);
         let doc: serde_yaml::Value = serde_yaml::from_str(&text).expect("the spec parses");
@@ -1277,6 +1499,7 @@ mod tests {
             pod: Bounds::builtin(),
             step_pods: BTreeMap::from([("a".into(), Bounds::builtin())]),
             cleanup: Cleanup::builtin(),
+            push: Push::DeployKey,
         };
         let doc: serde_yaml::Value = serde_yaml::from_str(&spec(&s)).expect("the spec parses");
         // The volume types `restricted` allows; a hostPath, say, fails admission.
@@ -1409,6 +1632,7 @@ mod tests {
             pod: Bounds::builtin(),
             step_pods: BTreeMap::from([("b".into(), wide)]),
             cleanup: Cleanup::builtin(),
+            push: Push::DeployKey,
         }
     }
 
@@ -1773,6 +1997,7 @@ mod tests {
             pod: Bounds::builtin(),
             step_pods: BTreeMap::new(),
             cleanup: Cleanup::builtin(),
+            push: Push::DeployKey,
         };
         let text = spec(&s);
         for t in ["survey", "ask", "gather"] {

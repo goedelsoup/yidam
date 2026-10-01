@@ -187,8 +187,8 @@ Absent means no entry expires unless it says so itself.
 ### `[cluster]`
 
 What `yidam cluster workflow` needs to write an Argo manifest, and what `cluster admit` caps.
-Every key outside `[cluster.names]`, `[cluster.pod]` and `[cluster.cleanup]` has a flag that
-overrides it. See
+Every key outside `git_auth`, `[cluster.names]`, `[cluster.pod]`, `[cluster.cleanup]` and
+`[cluster.github_app]` has a flag that overrides it. See
 [cluster-runs.md](cluster-runs.md).
 
 ```toml
@@ -209,6 +209,24 @@ max_open_proposals = 1
 many `propose/*` branches stand open on the remote is not admitted. Absent means no cap. This
 is the throughput judgement RFC-0026 §3 leaves to the corpus. It never decides what a run may
 author.
+
+`git_auth` is what the lander pushes with. `deploy-key`, the default, is an SSH key.
+`github-app` is a GitHub App's private key, from which the lander mints a token per push:
+
+```toml
+[cluster]
+git_auth = "github-app"
+
+[cluster.github_app]
+app_id  = 123456
+api_url = "https://github.example.com/api/v3"
+```
+
+`app_id` is required. `api_url` is for GitHub Enterprise Server and defaults to
+`https://api.github.com`. The generator refuses a `remote` that names no GitHub repository,
+and an `api_url` that is not HTTPS. It also refuses the table without
+`git_auth = "github-app"`, since the lander would ignore it. See
+[cluster-runs.md](cluster-runs.md#push-as-a-github-app).
 
 `[cluster.names]` sets the Kubernetes objects the workflow refers to by name. Each defaults to
 a name derived from the corpus, its root directory's name lowercased:
@@ -266,7 +284,8 @@ vault    = ["10.20.0.0/16"]
 
 `executor` is the API server's endpoint addresses. Argo's executor sidecar reports through
 them from inside every pod, and the generator refuses without them. `remote` is optional.
-Unset, the pods holding a git key reach anywhere. `vault` is required for an `s3://` vault and
+Unset, the pods holding a git key reach anywhere. Under `git_auth = "github-app"` the lander
+also calls the GitHub API, so `remote` must cover it too. `vault` is required for an `s3://` vault and
 refused for a `file://` one. Each CIDR must be a network address: `10.0.0.1/8` is refused.
 
 ### `[due]`

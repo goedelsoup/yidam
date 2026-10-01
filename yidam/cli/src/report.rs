@@ -113,6 +113,11 @@ impl YidamBlock {
         if cfg!(feature = "pdf-text") {
             features.push("pdf-text".to_string());
         }
+        // Not a subcommand gate: `cluster land` exists in every build. This says whether it
+        // can push with a GitHub App's hour-long token, or only with a deploy key (#1233).
+        if cfg!(feature = "github-app") {
+            features.push("github-app".to_string());
+        }
         Self {
             version: env!("CARGO_PKG_VERSION").to_string(),
             commit: env!("YIDAM_BUILD_COMMIT").to_string(),

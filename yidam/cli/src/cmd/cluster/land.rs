@@ -35,8 +35,9 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 
+use super::github_app::{GitAuthArgs, PushAuth};
 use super::{
-    bundle, clone_branch, deliver, pin, read_step_output, Landed, RemoteArgs, StepOutput,
+    bundle, clone_branch_as, deliver, pin, read_step_output, Landed, RemoteArgs, StepOutput,
     VaultArgs, CONTRACT_VERSION,
 };
 use crate::cmd::propose::write::{branch_for, commit_tree, git, short_of, TempIndex};
@@ -60,26 +61,32 @@ const ATTEMPTS: u32 = 5;
 pub(super) fn run(
     step_output: &str,
     remote: &RemoteArgs,
+    auth: &GitAuthArgs,
     vault: &VaultArgs,
     out: Option<&Path>,
     format: Format,
 ) -> Result<()> {
     let claim = read_step_output(step_output)?;
     let store = vault.open()?;
+    // Before the clone, which needs the credential too. For an App this mints the token:
+    // nothing else in the workflow ever holds it (#1233).
+    let (url, push) = auth.resolve(&remote.remote)?;
     let scratch = Scratch::new("land")?;
     let root = scratch.path().join("corpus");
-    clone_branch(&remote.remote, &remote.branch, &root)?;
+    clone_branch_as(&url, &remote.branch, &root, &push)?;
     super::commits_as_the_pod(&root)?;
-    let record = land_in(&root, scratch.path(), &claim, remote, store.as_ref())?;
+    let record = land_in(&root, scratch.path(), &claim, remote, &push, store.as_ref())?;
     deliver(&root, format, out, record, render)
 }
 
-/// Land `claim`'s commit from the clone at `root`, whose `origin` is the remote.
+/// Land `claim`'s commit from the clone at `root`, whose `origin` is the remote. Every git
+/// call that reaches `origin` carries `push`.
 pub(super) fn land_in(
     root: &Path,
     scratch: &Path,
     claim: &StepOutput,
     remote: &RemoteArgs,
+    push: &PushAuth,
     store: &dyn Store,
 ) -> Result<Landed> {
     let branch = &remote.branch;
@@ -122,7 +129,7 @@ pub(super) fn land_in(
     }
 
     if let Some(name) = claim.step.strip_prefix("gather/") {
-        return land_gather(root, scratch, claim, name, sha, remote, store);
+        return land_gather(root, scratch, claim, name, sha, remote, push, store);
     }
 
     // ── what the commit says about itself, which is what decides ──────────────
@@ -174,7 +181,7 @@ pub(super) fn land_in(
     let mut attempts = 0;
     let landed = loop {
         attempts += 1;
-        let tip = remote_tip(root, &target)?;
+        let tip = remote_tip(root, &target, push)?;
         let wanted_parent = tip.clone().unwrap_or_else(|| claim.input.clone());
         let candidate_parent = git(root, None, &["rev-parse", &format!("{candidate}^")], None)?;
         if candidate_parent != wanted_parent {
@@ -187,7 +194,8 @@ pub(super) fn land_in(
             }
             reparented = true;
         }
-        let out = Git::new(root)
+        let out = push
+            .git(root)
             .args(["push", "-q", "origin"])
             .arg(format!("{candidate}:refs/heads/{target}"))
             .arg(format!(
@@ -211,7 +219,7 @@ pub(super) fn land_in(
         );
     };
 
-    let next = next_pin(root, branch, store, scratch)?;
+    let next = next_pin(root, branch, push, store, scratch)?;
     Ok(Landed {
         format_version: CONTRACT_VERSION,
         step: claim.step.clone(),
@@ -228,8 +236,14 @@ pub(super) fn land_in(
 ///
 /// A proposal leaves the branch where it was, but "where it was" is where the remote says it
 /// is, not where this clone was taken; refresh before pinning.
-fn next_pin(root: &Path, branch: &str, store: &dyn Store, scratch: &Path) -> Result<super::Pinned> {
-    Git::new(root)
+fn next_pin(
+    root: &Path,
+    branch: &str,
+    push: &PushAuth,
+    store: &dyn Store,
+    scratch: &Path,
+) -> Result<super::Pinned> {
+    push.git(root)
         .args(["fetch", "-q", "origin"])
         .arg(format!("+refs/heads/{branch}:refs/remotes/origin/{branch}"))
         .run()?;
@@ -258,6 +272,7 @@ fn next_pin(root: &Path, branch: &str, store: &dyn Store, scratch: &Path) -> Res
 ///   only when absent — an empty lease — and a branch already holding exactly this tree is
 ///   an unchanged repeat, which lands nothing. One holding something else is refused, for the
 ///   reason `yidam gather` refuses it without `--force`: it may be a review in progress.
+#[allow(clippy::too_many_arguments)]
 fn land_gather(
     root: &Path,
     scratch: &Path,
@@ -265,6 +280,7 @@ fn land_gather(
     name: &str,
     sha: &str,
     remote: &RemoteArgs,
+    push: &PushAuth,
     store: &dyn Store,
 ) -> Result<Landed> {
     if !crate::cmd::gather::valid_name(name) {
@@ -352,7 +368,7 @@ fn land_gather(
     let mut attempts = 0;
     let landed = loop {
         attempts += 1;
-        if let Some(tip) = remote_tip(root, &target)? {
+        if let Some(tip) = remote_tip(root, &target, push)? {
             if tree(&tip)? == tree(sha)? {
                 break None;
             }
@@ -362,7 +378,8 @@ fn land_gather(
                 remote.remote
             );
         }
-        let out = Git::new(root)
+        let out = push
+            .git(root)
             .args(["push", "-q", "origin"])
             .arg(format!("{sha}:refs/heads/{target}"))
             .arg(format!("--force-with-lease=refs/heads/{target}:"))
@@ -379,7 +396,7 @@ fn land_gather(
             remote.remote
         );
     };
-    let next = next_pin(root, &remote.branch, store, scratch)?;
+    let next = next_pin(root, &remote.branch, push, store, scratch)?;
     Ok(Landed {
         format_version: CONTRACT_VERSION,
         step: claim.step.clone(),
@@ -393,8 +410,9 @@ fn land_gather(
 }
 
 /// The remote's tip of `refs/heads/<name>`, fetched so its objects are here, or `None`.
-fn remote_tip(root: &Path, name: &str) -> Result<Option<String>> {
-    let out = Git::new(root)
+fn remote_tip(root: &Path, name: &str, push: &PushAuth) -> Result<Option<String>> {
+    let out = push
+        .git(root)
         .args(["ls-remote", "--exit-code", "origin"])
         .arg(format!("refs/heads/{name}"))
         .output()?;
@@ -412,7 +430,7 @@ fn remote_tip(root: &Path, name: &str) -> Result<Option<String>> {
     let Some(sha) = stdout.split_whitespace().next() else {
         return Ok(None);
     };
-    Git::new(root)
+    push.git(root)
         .args(["fetch", "-q", "origin"])
         .arg(format!("+refs/heads/{name}:refs/remotes/origin/{name}"))
         .run()?;

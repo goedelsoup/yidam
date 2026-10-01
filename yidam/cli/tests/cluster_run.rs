@@ -33,6 +33,8 @@ use serde_json::Value;
 struct Cluster {
     e: Example,
     work: tempfile::TempDir,
+    /// Set by [`Cluster::with_github_app`]: the lander pushes as a GitHub App (#1233).
+    app: Option<MockGithub>,
 }
 
 impl Cluster {
@@ -69,7 +71,7 @@ impl Cluster {
             &["remote", "add", "origin", remote.to_str().unwrap()],
         );
         git(&e.path(), &["push", "-q", "origin", "HEAD:refs/heads/main"]);
-        Self { e, work }
+        Self { e, work, app: None }
     }
 
     /// Remove every capability whose `run` is a table (the typed arm), commit, and push.
@@ -151,6 +153,14 @@ impl Cluster {
             .env_remove("GIT_AUTHOR_EMAIL")
             .env_remove("GIT_COMMITTER_NAME")
             .env_remove("GIT_COMMITTER_EMAIL")
+            // The App-mode lander talks to a mock API on 127.0.0.1, which a developer's
+            // proxy must not be asked to reach.
+            .env_remove("HTTPS_PROXY")
+            .env_remove("https_proxy")
+            .env_remove("HTTP_PROXY")
+            .env_remove("http_proxy")
+            .env_remove("ALL_PROXY")
+            .env_remove("all_proxy")
             .output()
             .unwrap();
         (
@@ -227,7 +237,10 @@ impl Cluster {
             "--step-output".to_string(),
             format!("@{}", file.display()),
         ];
-        args.extend(self.remote_args());
+        match &self.app {
+            None => args.extend(self.remote_args()),
+            Some(app) => args.extend(app.land_args()),
+        }
         args.extend(self.vault_args());
         args.extend(["--format".to_string(), "json".to_string()]);
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -561,6 +574,270 @@ fn refused_without_the_write_credential(c: &Cluster, step: &Value) {
     let landed = c.land(step);
     assert_eq!(s(&landed["landed"]), s(&step["sha"]));
     assert_eq!(c.main_tip(), s(&step["sha"]));
+}
+
+// ── the boundary, under a GitHub App ──────────────────────────────────────────
+
+/// The token the mock API hands out. Distinctive enough that finding it anywhere is a leak.
+const APP_TOKEN: &str = "ghs_SENTINELx1233tokenNeverWrittenAnywhere0";
+
+/// The remote a GitHub-hosted corpus would declare. The lander turns it into
+/// `https://github.com/acme/corpus.git`, and the global config the binary reads rewrites that
+/// to the bare remote, so the push it makes over "HTTPS" lands on a directory this test can
+/// make read-only — the same credential-shaped refusal as the deploy-key run.
+const APP_REMOTE: &str = "git@github.com:acme/corpus.git";
+
+/// One request the mock GitHub API was sent.
+#[derive(Debug, Clone)]
+struct Seen {
+    method: String,
+    path: String,
+    headers: Vec<(String, String)>,
+    body: String,
+}
+
+impl Seen {
+    fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
+    }
+}
+
+/// GitHub's two App endpoints, served from a thread on 127.0.0.1 — the one non-HTTPS API the
+/// lander agrees to send a JWT to.
+struct MockGithub {
+    api: String,
+    key: PathBuf,
+    seen: std::sync::Arc<std::sync::Mutex<Vec<Seen>>>,
+}
+
+#[cfg_attr(not(feature = "github-app"), allow(dead_code))]
+impl MockGithub {
+    fn start() -> Self {
+        use std::io::{BufRead, BufReader, Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = seen.clone();
+        // Detached: it serves until the test process exits.
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() {
+                    continue;
+                }
+                let mut parts = line.split_whitespace();
+                let method = parts.next().unwrap_or_default().to_string();
+                let path = parts.next().unwrap_or_default().to_string();
+                let mut headers = Vec::new();
+                loop {
+                    let mut h = String::new();
+                    if reader.read_line(&mut h).unwrap_or(0) == 0 || h == "\r\n" {
+                        break;
+                    }
+                    if let Some((k, v)) = h.trim_end().split_once(':') {
+                        headers.push((k.trim().to_string(), v.trim().to_string()));
+                    }
+                }
+                let len: usize = headers
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case("content-length"))
+                    .and_then(|(_, v)| v.parse().ok())
+                    .unwrap_or(0);
+                let mut body = vec![0; len];
+                let _ = reader.read_exact(&mut body);
+                let (status, reply) = match (method.as_str(), path.as_str()) {
+                    ("GET", "/repos/acme/corpus/installation") => {
+                        ("200 OK", r#"{"id":42}"#.to_string())
+                    }
+                    ("POST", "/app/installations/42/access_tokens") => (
+                        "201 Created",
+                        format!(r#"{{"token":"{APP_TOKEN}","expires_at":"2099-01-01T00:00:00Z"}}"#),
+                    ),
+                    _ => ("404 Not Found", r#"{"message":"Not Found"}"#.to_string()),
+                };
+                log.lock().unwrap().push(Seen {
+                    method,
+                    path,
+                    headers,
+                    body: String::from_utf8_lossy(&body).to_string(),
+                });
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                );
+            }
+        });
+        Self {
+            api,
+            key: Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/github-app/private-key.pem"),
+            seen,
+        }
+    }
+
+    fn land_args(&self) -> Vec<String> {
+        [
+            "--remote",
+            APP_REMOTE,
+            "--git-auth",
+            "github-app",
+            "--github-app-id",
+            "1233",
+            "--github-app-key",
+            self.key.to_str().unwrap(),
+            "--github-api",
+            &self.api,
+        ]
+        .map(String::from)
+        .to_vec()
+    }
+
+    fn seen(&self) -> Vec<Seen> {
+        self.seen.lock().unwrap().clone()
+    }
+}
+
+#[cfg_attr(not(feature = "github-app"), allow(dead_code))]
+impl Cluster {
+    /// The lander pushes as a GitHub App, to the bare remote under GitHub's HTTPS URL.
+    fn with_github_app(mut self) -> Self {
+        let config = self.work.path().join("gitconfig");
+        use std::fmt::Write as _;
+        let mut text = std::fs::read_to_string(&config).unwrap();
+        let _ = write!(
+            text,
+            "[url \"{}\"]\n\tinsteadOf = https://github.com/acme/corpus.git\n",
+            self.remote().display()
+        );
+        std::fs::write(&config, text).unwrap();
+        self.app = Some(MockGithub::start());
+        self
+    }
+}
+
+/// Standard or URL-safe-unpadded base64, for what the lander sends and what must not leak.
+#[cfg_attr(not(feature = "github-app"), allow(dead_code))]
+fn base64(bytes: &[u8], url_safe: bool) -> String {
+    let table: &[u8; 64] = if url_safe {
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    } else {
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    };
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, b)| n | (u32::from(*b) << (16 - 8 * i)));
+        for i in 0..=chunk.len() {
+            out.push(table[(n >> (18 - 6 * i) & 63) as usize] as char);
+        }
+        if !url_safe {
+            for _ in chunk.len()..3 {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+/// [`a_valid_sha_without_the_write_credential_does_not_land`] with the lander pushing as a
+/// GitHub App: a token in hand is not the remote's permission, and the refusal is still the
+/// remote's.
+#[cfg(feature = "github-app")]
+#[test]
+fn a_valid_sha_without_the_write_credential_does_not_land_under_a_github_app() {
+    let c = Cluster::new().with_github_app();
+    let pin = c.pin();
+    let step = c.step("travel-tier", s(&pin["bundle"]));
+    assert_eq!(step["outcome"], "ran", "{step}");
+    refused_without_the_write_credential(&c, &step);
+    assert!(
+        !c.app.as_ref().unwrap().seen().is_empty(),
+        "the lander landed without asking the App for a token"
+    );
+}
+
+/// The definition of done for #1233: the lander mints a token for one repository with
+/// `contents: write`, pushes with it, and writes it nowhere — not to stdout, stderr or its
+/// record, not to the receipt or any object on the remote, and not to any file it leaves.
+#[cfg(feature = "github-app")]
+#[test]
+fn a_minted_token_is_never_written_to_a_record_a_receipt_or_stdout() {
+    let c = Cluster::new().with_github_app();
+    let pin = c.pin();
+    let step = c.step("travel-tier", s(&pin["bundle"]));
+    assert_eq!(step["outcome"], "ran", "{step}");
+    let (stdout, stderr, code) = c.land_raw(&step);
+    assert_eq!(code, 0, "cluster land failed:\n{stdout}{stderr}");
+    let record: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(s(&record["record"]["landed"]), s(&step["sha"]));
+    assert_eq!(c.main_tip(), s(&step["sha"]));
+
+    // What GitHub was asked: the installation of this repository, then a token for it alone.
+    let seen = c.app.as_ref().unwrap().seen();
+    let paths: Vec<(&str, &str)> = seen
+        .iter()
+        .map(|r| (r.method.as_str(), r.path.as_str()))
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            ("GET", "/repos/acme/corpus/installation"),
+            ("POST", "/app/installations/42/access_tokens")
+        ]
+    );
+    for r in &seen {
+        let jwt = r
+            .header("authorization")
+            .and_then(|a| a.strip_prefix("Bearer "))
+            .unwrap_or_else(|| panic!("{} {} carried no JWT: {r:?}", r.method, r.path));
+        let parts: Vec<&str> = jwt.split('.').collect();
+        assert_eq!(parts.len(), 3, "{jwt}");
+        assert_eq!(parts[0], base64(br#"{"alg":"RS256","typ":"JWT"}"#, true));
+        assert_eq!(r.header("x-github-api-version"), Some("2022-11-28"));
+    }
+    let asked: Value = serde_json::from_str(&seen[1].body).unwrap();
+    assert_eq!(
+        asked,
+        serde_json::json!({"repositories": ["corpus"], "permissions": {"contents": "write"}})
+    );
+
+    // Where it must not be: the token, and the header git was handed it in.
+    let basic = base64(format!("x-access-token:{APP_TOKEN}").as_bytes(), false);
+    let leaked = |what: &str, bytes: &[u8]| {
+        let text = String::from_utf8_lossy(bytes);
+        assert!(!text.contains(APP_TOKEN), "the token is in {what}");
+        assert!(!text.contains(&basic), "the token's header is in {what}");
+    };
+    leaked("stdout", stdout.as_bytes());
+    leaked("stderr", stderr.as_bytes());
+    let receipt = committed_receipt(&c, "travel-tier");
+    leaked(
+        "the receipt",
+        serde_yaml::to_string(&receipt).unwrap().as_bytes(),
+    );
+    let objects = common::git::raw(&c.remote(), &["cat-file", "--batch-all-objects", "--batch"]);
+    assert!(objects.status.success());
+    assert!(!objects.stdout.is_empty(), "the scan read no objects");
+    leaked("an object on the remote", &objects.stdout);
+    let mut files = 0;
+    for entry in walkdir::WalkDir::new(c.work.path()) {
+        let entry = entry.unwrap();
+        if entry.file_type().is_file() {
+            files += 1;
+            let bytes = std::fs::read(entry.path()).unwrap();
+            leaked(&entry.path().display().to_string(), &bytes);
+        }
+    }
+    assert!(files > 0, "the scan read no files");
 }
 
 /// The step has no flag that names a remote or a ref: it could not land even if it wanted to,
