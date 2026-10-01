@@ -29,7 +29,7 @@
 use std::cell::RefCell;
 use std::convert::Infallible;
 use std::io::Write;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use anyhow::{Context, Result};
 use http_body_util::{BodyExt, Full};
@@ -296,6 +296,34 @@ pub(crate) struct Policy {
     pub(crate) token: Option<TokenDigest>,
 }
 
+/// The address `--bind` names, or a refusal saying which to write instead (#1259).
+///
+/// An IP address and nothing else, and the two halves of that are separate reasons.
+///
+/// **IPv6 is parsed, not formatted.** Gluing `{bind}:{port}` into one string and parsing a
+/// `SocketAddr` from it cannot work for a bare IPv6 address, which needs brackets to carry a
+/// port — so `::1` and `::` both failed. The port is joined with [`SocketAddr::new`] instead,
+/// and a bracketed `[::1]` is accepted too, since that is how a URL spells it.
+///
+/// **A name is refused, not resolved.** [`super::is_loopback`] decides what a bind may serve:
+/// `act` only on loopback, and the warning off it. It can only judge what it is shown, and a
+/// name resolves to whatever the resolver says at start-up — `localhost` included, which is an
+/// `/etc/hosts` line and not a guarantee. Refusing names keeps the address the gate judged and
+/// the address the socket bound the same address.
+pub(crate) fn bind_address(bind: &str) -> Result<IpAddr> {
+    let bare = bind
+        .strip_prefix('[')
+        .and_then(|b| b.strip_suffix(']'))
+        .unwrap_or(bind);
+    bare.parse::<IpAddr>().map_err(|_| {
+        anyhow::anyhow!(
+            "`--bind {bind}` is not an IP address. `--bind` takes an address, not a name, so \
+             the loopback rule judges the address that is bound: 127.0.0.1 or ::1 for this \
+             machine, 0.0.0.0 or :: for every interface."
+        )
+    })
+}
+
 /// The transport's decision about one request, before the body is parsed.
 pub(crate) fn vet(
     method: &Method,
@@ -494,12 +522,10 @@ async fn serve_one(
 /// alternative to a `LocalSet` is a lock on the embedder, which buys parallelism this server
 /// has no use for: the work is JSON dispatch over an in-memory corpus, and connections
 /// interleave on one thread perfectly well.
-pub(crate) fn serve(state: ServerState, bind: &str, port: u16, policy: Policy) -> Result<()> {
+pub(crate) fn serve(state: ServerState, ip: IpAddr, port: u16, policy: Policy) -> Result<()> {
     use std::rc::Rc;
 
-    let addr: SocketAddr = format!("{bind}:{port}")
-        .parse()
-        .with_context(|| format!("`{bind}:{port}` is not an address to bind"))?;
+    let addr = SocketAddr::new(ip, port);
 
     // The crate's one runtime (#930), not a private one. The `LocalSet` runs on this thread
     // inside its `block_on`, which is where the `Rc`s above need it to; a `retrieve` over
@@ -1000,6 +1026,36 @@ mod tests {
         let err =
             token_source(env_with(None), Some(std::path::Path::new("/nonexistent/t"))).unwrap_err();
         assert!(err.to_string().contains("cannot read"), "{err}");
+    }
+
+    // ── the bind address ──────────────────────────────────────────────────────
+
+    /// Every IPv6 spelling binds, which `"{bind}:{port}".parse()` refused (#1259).
+    #[test]
+    fn an_ipv6_bind_is_an_address_and_takes_a_port() {
+        for (bind, want) in [
+            ("127.0.0.1", "127.0.0.1:8787"),
+            ("0.0.0.0", "0.0.0.0:8787"),
+            ("::1", "[::1]:8787"),
+            ("::", "[::]:8787"),
+            ("[::1]", "[::1]:8787"),
+            ("fe80::1", "[fe80::1]:8787"),
+        ] {
+            let ip = bind_address(bind).unwrap_or_else(|e| panic!("{bind}: {e}"));
+            assert_eq!(SocketAddr::new(ip, 8787).to_string(), want, "{bind}");
+        }
+    }
+
+    /// A name is refused, and the refusal names the addresses to write instead.
+    #[test]
+    fn a_name_is_refused_and_told_the_address_to_use() {
+        for bind in ["localhost", "yidam.example", "", "127.0.0.1:8787", "[::1"] {
+            let err = bind_address(bind).unwrap_err().to_string();
+            assert!(
+                err.contains("127.0.0.1") && err.contains("::1"),
+                "{bind}: {err}"
+            );
+        }
     }
 
     // ── the seam ──────────────────────────────────────────────────────────────
