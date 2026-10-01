@@ -190,7 +190,7 @@ jobs:
 
       # The light `reports` build. `export --format bundle` is in it: the bundle
       # carries an index only when one is already built and committed, so
-      # publishing never needs protoc or an ONNX runtime.
+      # publishing never needs an ONNX runtime.
       - name: Install the yidam CLI (light build)
         if: steps.yidam-cache.outputs.cache-hit != 'true'
         run: |

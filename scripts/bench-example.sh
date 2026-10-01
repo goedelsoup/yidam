@@ -36,7 +36,7 @@ git commit -qm "chore: genesis — bench"
 # The anchored query, against a real index (#263).
 #
 # This is the only place the vector anchor is exercised at all. PR CI never compiles
-# `--features index`, and every test and golden fixture in the repository runs on the keyword
+# `--features vector-read`, and every test and golden fixture in the repository runs on the keyword
 # fallback — so an anchor that resolved to nothing, or resolved through a path the corpus
 # loader spells differently from the one `embed` records, would ship green through all of
 # them. The two checks below are the two ways that can be wrong: it degraded, or it landed

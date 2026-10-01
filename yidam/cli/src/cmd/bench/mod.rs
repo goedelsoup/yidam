@@ -643,7 +643,7 @@ pub fn run(root: &std::path::Path, budget: usize) -> Result<BenchReport> {
         bail!(
             "the flat arm would be keyword search ({reason}), and beating keyword search \
              proves nothing about retrieval. Build the index and run a binary that can read \
-             it: `yidam embed && yidam index-build`, with `--features index`."
+             it: `yidam embed && yidam index-build`, with `--features vector-read`."
         );
     }
 

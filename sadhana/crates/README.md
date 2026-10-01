@@ -14,8 +14,8 @@ Describe the initial shape of the domain computer for this domain:
 - Is a semantic index planned from genesis or added as the corpus grows?
 
 Example: "Primary connectors target USGS streamflow (NWIS) and EPA permit inventory
-(ECHO). Core calculators implement low-flow frequency analysis and water-balance. A
-LanceDB embedding index over corpus/ will be maintained from genesis to keep retrieval
+(ECHO). Core calculators implement low-flow frequency analysis and water-balance. An
+embedding index over corpus/ will be maintained from genesis to keep retrieval
 costs low as the corpus grows."
 
 If the domain computer will be built incrementally, name the first crate needed and

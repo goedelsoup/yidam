@@ -2,8 +2,9 @@
 //!
 //! # What this is for
 //!
-//! `.yidam/index/` is built only by a binary compiled `--features index` — protoc 31 plus an
-//! ONNX runtime — so the index exists on whichever machine could build it. RFC-0023 gave it a
+//! `.yidam/index/` is built only by a binary compiled `--features vector-read` — an ONNX
+//! runtime the released binary does not carry — so the index exists on whichever machine could
+//! build it. RFC-0023 gave it a
 //! way to travel as a tarball a reader fetches whole. This is the other answer: the vectors
 //! live in a vector bucket, and a reader queries them.
 //!

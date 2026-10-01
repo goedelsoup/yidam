@@ -9,6 +9,9 @@
 //! > ONNX runtime. The release workflow builds the light default, and nothing keeps the index
 //! > in git.
 //!
+//! (Since #1287 that build is `vector-read` and needs no protoc. It still carries an ONNX
+//! runtime the release does not, so the gap is narrower and still there.)
+//!
 //! So the index exists on whichever machine could build it and nowhere else. That is the gap
 //! this closes: the vault carries it, and a lock file says which bytes and which store.
 //!

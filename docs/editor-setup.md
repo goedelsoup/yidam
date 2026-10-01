@@ -26,7 +26,7 @@ reachable there is nothing to render. See [Installation](installation.md).
 ## Set up the language server
 
 `serve --lsp` is in the **light default build** — the binary from any install channel already
-has it. `--features index` adds nothing to the LSP.
+has it. `--features vector-read` adds nothing to the LSP.
 
 ### What it serves
 

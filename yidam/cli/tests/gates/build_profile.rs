@@ -5,7 +5,7 @@
 //! tree — it is codegen and link of the ~100 integration test binaries under `tests/`, done
 //! twice by `ci-cli-full` and again by `coverage-full`. rust-cache prunes workspace artifacts
 //! before saving, so those links happen on every run, and each binary statically absorbs the
-//! DWARF of whatever it reaches: lance, datafusion, arrow, ort.
+//! DWARF of whatever it reaches: arrow and ort (and lance and datafusion, until #1287).
 //!
 //! [`profiles`] is the setting that removes that DWARF, and the argument for it is in
 //! `yidam/cli/Cargo.toml` next to the table. What is gated here is the part a comment cannot

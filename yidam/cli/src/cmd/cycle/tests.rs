@@ -192,7 +192,7 @@ fn an_owed_act_is_dues_remedy_verbatim() {
 /// `cargo install`: a change to the reader's machine, offered as the next thing to do to
 /// their corpus.
 #[test]
-#[cfg_attr(feature = "index", ignore = "this build can build an index")]
+#[cfg_attr(feature = "vector-read", ignore = "this build can build an index")]
 fn a_clock_this_build_cannot_discharge_proposes_no_act() {
     let tmp = repo();
     let root = tmp.path();

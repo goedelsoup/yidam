@@ -2446,7 +2446,7 @@ const UNREACHED: &[(&str, &str)] = &[
     ),
     (
         "index",
-        "`index-verify` only, which needs a built index and the `index` feature to build one \
+        "`index-verify` only, which needs a built index and the `vector-read` feature to build one \
          (see NO_REPORT)",
     ),
     ("max_drift", "`index-verify` only — see `index`"),

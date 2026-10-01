@@ -3,7 +3,8 @@
 //! `.github/dependabot.yml` carried four `ignore` entries. #668 gave the fourth
 //! (`dtolnay/rust-toolchain`) a gate in `toolchain_pins.rs`; #904 is the other three —
 //! `fastembed`, the three `arrow-*`, and `@types/vscode` — each held by nothing but the
-//! comment above it. The fastembed block says why that is not enough, about its own earlier
+//! comment above it. (#1287 removed lancedb, which was the only reason arrow was held, and
+//! with it the arrow gate and its `ignore`.) The fastembed block says why that is not enough, about its own earlier
 //! self: *"That argument was written in a comment one line above the dependency, and a bump
 //! took the dependency to 6 anyway — comments are not a mechanism."* Moving the comment from
 //! above the dependency to above the `ignore` is a better place for it and the same mechanism.
@@ -78,13 +79,12 @@ fn major_minor(spec: &str) -> (u64, u64) {
 /// One `[[package]]` stanza of a `Cargo.lock`.
 struct Locked {
     version: String,
-    dependencies: Vec<String>,
 }
 
 /// Every package in `yidam/cli/Cargo.lock`, by name, to the versions resolved for it.
 ///
 /// A name with more than one entry is a duplicated crate: two majors of the same library
-/// compiled into one binary, which for arrow is the failure this file is about.
+/// compiled into one binary.
 fn locked_packages() -> BTreeMap<String, Vec<Locked>> {
     let lock: toml::Value =
         toml::from_str(&read("yidam/cli/Cargo.lock")).expect("yidam/cli/Cargo.lock is not TOML");
@@ -95,114 +95,11 @@ fn locked_packages() -> BTreeMap<String, Vec<Locked>> {
     {
         let name = pkg["name"].as_str().expect("a package with no name");
         let version = pkg["version"].as_str().expect("a package with no version");
-        let dependencies = pkg
-            .get("dependencies")
-            .and_then(|d| d.as_array())
-            .map(|d| {
-                d.iter()
-                    .filter_map(|v| v.as_str())
-                    // `"name"` when one version is in the graph, `"name version"` when
-                    // several are. Either way the first field is the name.
-                    .map(|s| s.split_whitespace().next().unwrap_or(s).to_string())
-                    .collect()
-            })
-            .unwrap_or_default();
         out.entry(name.to_string()).or_default().push(Locked {
             version: version.to_string(),
-            dependencies,
         });
     }
     out
-}
-
-/// The version `yidam/cli/Cargo.toml` declares for an optional dependency, if it declares one.
-fn declared(dep: &str) -> Option<String> {
-    let manifest: toml::Value =
-        toml::from_str(&read("yidam/cli/Cargo.toml")).expect("yidam/cli/Cargo.toml is not TOML");
-    let entry = manifest.get("dependencies")?.get(dep)?;
-    match entry {
-        toml::Value::String(s) => Some(s.clone()),
-        other => other.get("version")?.as_str().map(str::to_string),
-    }
-}
-
-// ── arrow must be lancedb's arrow ─────────────────────────────────────────────
-
-/// One arrow, not two.
-///
-/// `Cargo.toml` states the rule one line above the declarations — *"Versions must match
-/// lancedb's transitive dependency — update together if bumping either"* — and nothing
-/// compared them. A bump moved arrow 53 → 54 and left lancedb at 0.15, which pins 53, so
-/// `index_build` handed a lancedb builder a `RecordBatchIterator` of the wrong arrow and
-/// `IntoArrow` went unsatisfied.
-///
-/// The lockfile is where the two sides meet, and it says so in its own notation: cargo writes
-/// a bare `"arrow-array"` in a dependency list while one version is in the graph and
-/// `"arrow-array 54.0.0"` once there are two. So the assertion is that each arrow crate this
-/// workspace declares resolves to exactly one package, and that lancedb is a dependent of it.
-/// Under that, the majors cannot disagree — there is only one major to have.
-///
-/// Discovered from the manifest, so it covers the fourth arrow crate somebody adds.
-#[test]
-fn every_arrow_this_workspace_declares_is_the_one_lancedb_resolves() {
-    let manifest: toml::Value =
-        toml::from_str(&read("yidam/cli/Cargo.toml")).expect("yidam/cli/Cargo.toml is not TOML");
-    let deps = manifest["dependencies"]
-        .as_table()
-        .expect("yidam/cli/Cargo.toml declares no dependencies");
-    let arrow_crates: Vec<String> = deps
-        .keys()
-        .filter(|k| k.starts_with("arrow"))
-        .cloned()
-        .collect();
-    assert!(
-        !arrow_crates.is_empty(),
-        "yidam/cli/Cargo.toml declares no arrow crate. If the vector index stopped decoding \
-         arrow this test is obsolete; while it decodes arrow, this is reading the wrong manifest."
-    );
-
-    let packages = locked_packages();
-    let lancedb = packages
-        .get("lancedb")
-        .and_then(|v| v.first())
-        .expect("Cargo.lock resolves no lancedb, and the arrow versions exist to match it");
-
-    for krate in &arrow_crates {
-        let resolved = packages.get(krate).unwrap_or_else(|| {
-            panic!("yidam/cli/Cargo.toml declares `{krate}` and Cargo.lock resolves no such crate")
-        });
-        let versions: Vec<&str> = resolved.iter().map(|l| l.version.as_str()).collect();
-        assert_eq!(
-            versions.len(),
-            1,
-            "Cargo.lock resolves {} versions of `{krate}`: {versions:?}. Two arrow majors are \
-             compiled into one binary, so a `RecordBatchIterator` built from one does not \
-             satisfy the other's `IntoArrow` — which is how `index_build` stopped compiling \
-             when arrow went to 54 against lancedb 0.15. A major arrow bump is only ever \
-             correct alongside a lancedb release that took the same one.",
-            versions.len(),
-        );
-        assert!(
-            lancedb.dependencies.iter().any(|d| d == krate),
-            "lancedb {} does not depend on `{krate}`, so nothing here constrains its version \
-             any more and this test has stopped checking what it claims to. Either the \
-             declaration is now free to move — say so where it is declared — or lancedb \
-             renamed the crate and this needs to follow.",
-            lancedb.version,
-        );
-        // Stated separately, because the uniqueness above only holds while both sides are
-        // *in* one graph; this is the comparison the manifest comment asks a person to make.
-        let declared = declared(krate)
-            .unwrap_or_else(|| panic!("`{krate}` is declared with no version requirement"));
-        assert_eq!(
-            major(&declared),
-            major(&resolved[0].version),
-            "yidam/cli/Cargo.toml asks for `{krate}` {declared} and the graph resolves \
-             {}, which lancedb {} also uses.",
-            resolved[0].version,
-            lancedb.version,
-        );
-    }
 }
 
 // ── the embedding reference is the runtime that recorded it ───────────────────
@@ -515,10 +412,11 @@ fn every_dependabot_ignore_names_something_that_exists() {
     }
 
     assert!(
-        checked >= 8,
-        "only {checked} ignore rules found in dependabot.yml. There are four holds — one covers \
-         three arrow crates and one is repeated in three npm entries — so a count this low \
-         means the file was read wrong or a hold was dropped without its reason going with it."
+        checked >= 5,
+        "only {checked} ignore rules found in dependabot.yml. There are three holds — one is \
+         repeated in three npm entries — so a count this low means the file was read wrong or a \
+         hold was dropped without its reason going with it. (#1287 removed the fourth, the \
+         arrow major lancedb pinned.)"
     );
     assert!(
         dangling.is_empty(),

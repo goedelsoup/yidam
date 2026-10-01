@@ -5,8 +5,8 @@
 #
 # ── Why this job exists ──────────────────────────────────────────────────────
 #
-# `.yidam/index/` is built only by a binary compiled `--features index` — protoc
-# plus an ONNX runtime — and nothing keeps it in git. The released `yidam` is the
+# `.yidam/index/` is built only by a binary compiled `--features index` — an
+# ONNX runtime the release does not carry — and nothing keeps it in git. The released `yidam` is the
 # light default, so the machine that can *use* an index is almost never the
 # machine that can *build* one. Without a channel between them, `retrieve`
 # degrades to keyword search everywhere and is correct to.
@@ -21,7 +21,7 @@
 # which is the right thing for a graph gate: pure Rust reading Markdown, no
 # toolchain. It cannot work here. The release IS the light build, and asking it
 # to build an index is the whole problem this workflow exists to solve. So this
-# one compiles, and pays for protoc to do it.
+# one compiles.
 #
 # ── This workflow has never been run against a real store ────────────────────
 #
@@ -86,10 +86,28 @@ jobs:
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "origin=${origin:-https://github.com/goedelsoup/yidam}" >> "$GITHUB_OUTPUT"
 
-      # protoc is lancedb's requirement, and lancedb is only needed to *build* an
-      # index — reading one needs neither it nor protoc. That asymmetry is why
-      # this job is heavy and `vault pull --index` is not.
+      - name: Fetch the pinned yidam source
+        run: |
+          set -eu
+          git clone --filter=blob:none "${{ steps.pin.outputs.origin }}" /tmp/yidam
+          git -C /tmp/yidam checkout --detach "${{ steps.pin.outputs.commit }}"
+
+      # Asked of the pinned lockfile, not assumed. Building an index wrote a
+      # LanceDB table until #1287, and lancedb's `prost-build` ran protoc 31; the
+      # table had no reader and went, and with it protoc. A repository pinned
+      # before that still compiles lancedb, so the answer is whatever the commit
+      # it pins resolves — `--features index` names the build on both sides.
+      - name: Does the pinned build need protoc
+        id: protoc
+        run: |
+          set -eu
+          if grep -q '^name = "prost-build"$' /tmp/yidam/yidam/cli/Cargo.lock; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: arduino/setup-protoc@v3
+        if: steps.protoc.outputs.needed == 'true'
         with:
           version: "31.x"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -99,8 +117,6 @@ jobs:
       - name: Build yidam with the index feature
         run: |
           set -eu
-          git clone --filter=blob:none "${{ steps.pin.outputs.origin }}" /tmp/yidam
-          git -C /tmp/yidam checkout --detach "${{ steps.pin.outputs.commit }}"
           cargo build --release --manifest-path /tmp/yidam/yidam/cli/Cargo.toml --features index
           echo "/tmp/yidam/yidam/cli/target/release" >> "$GITHUB_PATH"
 

@@ -70,7 +70,7 @@ fn a_corpus_that_declared_nothing_is_owed_nothing() {
         // The row set does not vary by build. `Unbuildable` was added instead of dropping the
         // clock precisely so that a reader comparing two `due` runs is comparing five rows to
         // five rows — see [`State::Unbuildable`].
-        let expected = match (c.id, cfg!(feature = "index")) {
+        let expected = match (c.id, cfg!(feature = "vector-read")) {
             ("index", false) => State::Unbuildable,
             _ => State::Undeclared,
         };
@@ -164,14 +164,14 @@ fn the_unbuildable_row_names_the_binary_and_the_install() {
         index.detail
     );
     let remedy = index.remedy.as_deref().unwrap_or_default();
-    assert!(remedy.contains("--features index"), "{remedy}");
-    // The other route, because it is the cheaper one and needs no protoc: a light build can
-    // read an index it did not make.
+    assert!(remedy.contains("--features vector-read"), "{remedy}");
+    // The other route, because it needs no install at all: an index built elsewhere can be
+    // pulled into this corpus.
     assert!(remedy.contains("vault pull"), "{remedy}");
     // And the row prints it. `render` shows a remedy on three states, and a state added to the
     // enum without being added there is a row that names a problem and withholds the fix.
     let out = render(&DueReport::new(vec![index], false), tmp.path());
-    assert!(out.contains("--features index"), "{out}");
+    assert!(out.contains("--features vector-read"), "{out}");
 }
 
 /// A corpus that never declared the interval is told about the build **before** it is told to

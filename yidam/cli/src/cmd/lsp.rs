@@ -25,7 +25,7 @@
 //!
 //! An LSP that required the ML stack would be one nobody could install, so this one never
 //! did. `serve --mcp` has since joined it in the light default — only the *semantic*
-//! retrieval path inside it still needs fastembed, lancedb and protoc. Neither transport is
+//! retrieval path inside it still needs fastembed and an ONNX runtime. Neither transport is
 //! gated any more; see `cmd::serve::vector`.
 
 use anyhow::Result;

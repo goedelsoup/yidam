@@ -14,10 +14,9 @@
 //!
 //! # What it needs, and what it does not
 //!
-//! `vector-read`, because it decodes `index/corpus.arrow`. **Not `index`**: building an index
-//! wants lancedb and protoc 31, and reading one it has already built wants neither. The
-//! machine that can push is therefore not necessarily the machine that built — which is the
-//! same split `vector-read` exists for on the query side.
+//! `vector-read`, because it decodes `index/corpus.arrow`. That is also the build that makes
+//! one (#1287), but the machine that pushes is still not necessarily the machine that built:
+//! an index pulled from a vault can be pushed as it stands.
 //!
 //! It does not embed anything, so it never loads a model. See
 //! [`crate::s3vectors::request::witness`] for what that costs and why it is the right trade.

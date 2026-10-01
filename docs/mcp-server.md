@@ -13,7 +13,7 @@ tool to reach for, and how to tell what you are connected to.
 ## 1. Check which binary carries `serve`
 
 **Any of them.** `serve --mcp` is in the light default build. That is the one the install script,
-the Homebrew tap, mise and `cargo binstall` all give you. No protoc, no ONNX runtime, no C
+the Homebrew tap, mise and `cargo binstall` all give you. No ONNX runtime, no C
 toolchain. Through mise, that is:
 
 ```sh
@@ -24,7 +24,7 @@ mise use -g "github:goedelsoup/yidam[version_prefix=cli/v]@latest"
 `@latest` resolves the editor release, which ships only a `.vsix` — so it fails rather than
 installing something stale. See [installation](installation.md#mise).
 
-What the `index` feature adds is not the server but the *quality of one tool*. With it,
+What the `vector-read` feature adds is not the server but the *quality of one tool*. With it,
 `retrieve` is semantic search over a vector index. Without it, `retrieve` falls back to
 keyword search and says so on every call. `get_node`, `neighbors`, `list_nodes`,
 `open_questions` and every resource are identical in both builds.
@@ -32,14 +32,14 @@ keyword search and says so on every call. `get_node`, `neighbors`, `list_nodes`,
 ```sh
 yidam --version
 # 0.2.1 (a1b2c3d) [reports tonpa]          ← serves; retrieve is keyword
-# 0.2.1 (a1b2c3d) [reports index tonpa]    ← serves; retrieve is semantic
+# 0.2.1 (a1b2c3d) [reports vector-read index tonpa]    ← serves; retrieve is semantic
 ```
 
-If you want the semantic build, it needs protoc 31, a C toolchain and an ONNX runtime:
+If you want the semantic build, it needs a C toolchain and an ONNX runtime:
 
 ```sh
 cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.17.0 --locked \
-  --features index yidam
+  --features vector-read yidam
 ```
 
 Inside a yidam checkout, `mise install && mise run yidam-build` provisions the toolchain and
@@ -735,7 +735,7 @@ The reason says which repair you need, and they are not the same repair:
 | `degraded_reason` | What it means | What to do |
 |---|---|---|
 | `no_index` | This corpus has no vector index | `yidam embed && yidam index-build` |
-| `no_vector_support` | An index exists; this binary cannot read it | Reinstall with `--features index` |
+| `no_vector_support` | An index exists; this binary cannot read it | Reinstall with `--features vector-read` |
 | `stale_contract` | An index exists and was built with different embedding settings than this server uses, so answering from it would be answering in another vector space | `yidam embed && yidam index-build` with this binary |
 | `remote_unavailable` | This corpus is served out of a remote vector index and the service did not answer — a permission, a throttle, an outage, no network | Check `[index.remote]` and its credentials; `yidam doctor` |
 

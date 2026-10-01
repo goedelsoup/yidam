@@ -118,10 +118,10 @@ use_self = "deny"
 # restores that tree. It is codegen and LINK of the ~100 integration test binaries under
 # `tests/`, and `ci-cli-full` does it twice, once per feature set. None of those binaries is
 # ever in the cache — rust-cache prunes workspace artifacts before saving, so every run
-# relinks all of them, and each statically contains whatever of lance, datafusion, arrow and
-# ort it reaches.
+# relinks all of them, and each statically contains whatever of arrow and ort it reaches (and,
+# until #1287 removed lancedb, lance and datafusion).
 #
-# Measured here: `cargo build --all-features` produces the same 606 dependency rlibs either
+# Measured here, before #1287: `cargo build --all-features` produces the same 606 dependency rlibs either
 # way, totalling 2,708MB under the default `debug = 2` and 1,402MB under this — 1.3GB of DWARF
 # the linker no longer reads and copies, once per binary that reaches it. lance goes 175MB to
 # 50MB, lance_index 87MB to 26MB, aws_sdk_dynamodb 81MB to 40MB. Those rlibs *are* the link
@@ -142,7 +142,7 @@ debug = 0
 
 [dependencies]
 # ── base: the light `reports` build — the four reports + all pure-Rust
-#    commands. No protoc, no native libraries, no ML runtime. ───────────────
+#    commands. No native libraries, no ML runtime. ────────────────────────────
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 flate2 = "1"
@@ -210,10 +210,10 @@ regorus = { version = "0.12", default-features = false, features = ["arc", "ast"
 # must not re-implement the parity surface (see prelude/sdks/parity/README.md).
 yidam-core = { path = "../prelude/sdks/rust", version = "0.11.0" }
 
-# ── optional: `index` — semantic index build, and the vector arm of the MCP
-#    server's `retrieve`. Not `serve` itself: that is in the light default, and
-#    answers every tool without these. Pulls the ML/native stack; lancedb's
-#    prost-build needs protoc 31 at build time. ─────────────────────────────
+# ── optional: `vector-read` — semantic index build, and the vector arm of the
+#    MCP server's `retrieve`. Not `serve` itself: that is in the light default,
+#    and answers every tool without these. Pulls an ONNX runtime; no protoc
+#    since #1287 removed lancedb. ─────────────────────────────────────────────
 # **The major is a vector space — see #536.** fastembed 4 → 6 embedded the same sentence to a
 # different vector: every element of the `embed_config` parity witness moved by 1e-4 to 6e-4
 # against a 1e-5 tolerance. Bisecting puts it on ONE bump, `ort` 2.0.0-rc.12 to rc.13, which
@@ -238,16 +238,11 @@ yidam-core = { path = "../prelude/sdks/rust", version = "0.11.0" }
 # pull request. A major bump on either side is red there until `mise run embed-parity` has
 # been run under it.
 fastembed = { version = "7", optional = true }
-lancedb = { version = "0.15", optional = true }
-futures = { version = "0.3", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
-# Arrow decodes the vector index (model::index_rows); shared by `index` and
-# `export-sqlite`. Versions must match lancedb's transitive dependency — update
-# together if bumping either. That sentence asked a person to remember and a bump
-# moved arrow to 54 against lancedb 0.15 anyway, which pins 53: two arrow majors in
-# one binary, and `IntoArrow` unsatisfied where `index_build` hands lancedb a
-# `RecordBatchIterator`. `every_arrow_this_workspace_declares_is_the_one_lancedb_resolves`
-# in tests/gates/dependency_holds.rs now compares them in the lockfile (#904).
+# Arrow encodes the vector index (`index_build`) and decodes it (`model::index_rows`);
+# shared by `vector-read` and `export-sqlite`. **Free to move.** These were held at
+# lancedb's transitive arrow (#904), and #1287 removed lancedb: nothing else in the graph
+# takes arrow, so a major bump is three declarations moving together and nothing more.
 arrow-array = { version = "53", optional = true }
 arrow-schema = { version = "53", optional = true }
 arrow-ipc = { version = "53", optional = true }
@@ -377,8 +372,8 @@ default = ["reports", "tonpa", "vault-s3", "s3-vectors", "export-graph", "serve-
 # why `report.rs` lists it unconditionally rather than behind a `cfg!`.
 #
 # What it names is the four reports (graph-check, lint, corpus-index,
-# open-questions) plus every pure-Rust command: no protoc, no system C library,
-# no ML runtime. That description is why a reader reaches for
+# open-questions) plus every pure-Rust command: no system C library, no ML
+# runtime. That description is why a reader reaches for
 # `--no-default-features --features reports` — and that build is a mistake. It
 # drops `tonpa` and `vault-s3` and fails seven of its own tests (#482). The
 # first of them is `help.rs`'s coverage test, failing on purpose: an entry on
@@ -396,36 +391,30 @@ default = ["reports", "tonpa", "vault-s3", "s3-vectors", "export-graph", "serve-
 # on every pull request: three features below exist only so that it links less, and a build
 # nothing compiles stops compiling (#1257). Its tests are the failures #482 records above.
 reports = []
-# Semantic index build, and upgrades `serve --mcp`'s `retrieve` from keyword to
-# vector search. `serve` itself is in the light default — gating the whole
-# command on this put the one surface that makes a corpus reachable by an agent
-# in the build almost nobody installs. fastembed (ONNX) + lancedb (requires
-# protoc 31) + arrow.
-# Reading an index and answering a query over it. **No protoc, no lancedb.**
+# Building a vector index, reading one, and answering a query over it — `index-build`,
+# `index-push`, and the vector arm of `serve --mcp`'s `retrieve`. **No protoc.**
 #
-# The split exists because those two costs belong to *building* an index and not
-# to using one: `lancedb` is named in exactly one file, `cmd/index_build.rs`, and
-# it is what requires protoc 31. Everything the read path needs — decoding
-# `corpus.arrow` and embedding the query — is fastembed and arrow.
-#
-# That matters because the released binary is the light default, so the machine
-# that can use an index is almost never the machine that can build one. RFC-0023
-# gave the index a way to travel; this is the build that can receive it.
+# This was two features. Building an index wrote a LanceDB table, and lancedb's
+# prost-build is what required protoc 31; reading needed only fastembed and arrow,
+# so #442 split reading out to here. #1287 found that nothing ever opened the table
+# — every reader decodes `corpus.arrow`, which `index-build` exported from the batch
+# it already held — and removed it. So the build that can read an index can build
+# one, with the model and the encoder and nothing else.
 #
 # Still not the light default: fastembed carries an ONNX runtime, which is a
-# native dependency the `reports` build deliberately has none of.
+# native dependency the default build deliberately has none of. RFC-0023 gave an
+# index a way to travel to a machine without this.
 vector-read = [
   "dep:fastembed",
   "dep:arrow-array",
   "dep:arrow-schema",
   "dep:arrow-ipc",
 ]
-index = [
-  "vector-read",
-  "dep:lancedb",
-  "dep:futures",
-  "dep:tokio",
-]
+# An alias for `vector-read`, kept so every `--features index` already written —
+# in docs, in derived repositories' workflows, in `full` — still builds. It enables
+# nothing of its own, and no code is gated on it: `tests/gates/feature_split.rs`
+# asserts both.
+index = ["vector-read"]
 # `export --format sqlite` — bundled (from-source) SQLite + sqlite-vec; reads
 # the arrow vector index via model::index_rows.
 export-sqlite = [
@@ -574,7 +563,7 @@ full = [
   "pdf-text",
   "github-app",
 ]
-# `index` implies `vector-read`, so `full` carries it without naming it.
+# `index` is `vector-read`, so `full` carries it without naming it.
 
 # `build.rs` reads `_ds_manifest.json` to concatenate the design tokens the web exporter
 # embeds — the manifest is the one declaration of what the system is and in what order, and

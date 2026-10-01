@@ -957,7 +957,7 @@ fn the_build_job_cap_covers_every_full_feature_job() {
             at_job_level,
             "`CARGO_BUILD_JOBS` is not set at `{name}`'s own `env:` (six-space key under a \
              four-space `env:`). Every heavy step in these jobs links test binaries against \
-             lancedb, arrow and ort; a cap on one step is a cap on the step that failed last \
+             arrow and ort; a cap on one step is a cap on the step that failed last \
              time.\n{block}"
         );
     }

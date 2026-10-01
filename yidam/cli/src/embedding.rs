@@ -1,8 +1,9 @@
 //! Naming an embedding model, in a build that may not be able to create an index.
 //!
-//! `resolve_model` lived in `cmd/index_build.rs`, which is gated on `index` because it needs
+//! `resolve_model` lived in `cmd/index_build.rs`, which was gated on `index` because it needed
 //! `lancedb` and therefore protoc. The read path needs the same function — embedding a query
-//! means loading the same model the index was built with — and needs none of that.
+//! means loading the same model the index was built with — and needed none of that. (#1287
+//! later removed lancedb, and `index_build` is now in `vector-read` too.)
 //!
 //! So it moves, and the move is the one `deps.rs` already made:
 //!

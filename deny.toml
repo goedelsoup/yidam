@@ -1,7 +1,7 @@
 # cargo-deny — what this repository is willing to ship.
 #
 # Nothing checked a single advisory before #463. The light binary carries rustls (and so
-# `ring`), reqwest and an S3 client; the full build adds an ONNX runtime and LanceDB. Six
+# `ring`), reqwest and an S3 client; the full build adds an ONNX runtime and SQLite. Six
 # install channels deliver it, `install-channels.yml` verifies that they *work*, and nothing
 # asked whether what they deliver has a known vulnerability or a license this repository can
 # ship.

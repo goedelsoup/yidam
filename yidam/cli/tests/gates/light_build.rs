@@ -1,7 +1,7 @@
 //! What "the light build" is, said once.
 //!
 //! `reports` is a feature name with a description that reads like a build instruction — the
-//! four reports plus every pure-Rust command, no protoc, no C library, no ML runtime — and
+//! four reports plus every pure-Rust command, no C library, no ML runtime — and
 //! the build it invites, `--no-default-features --features reports`, fails seven of its own
 //! tests. The light build is the **default set**, and the difference had no home: it was
 //! recorded in a comment on an unrelated mise task, which is where #482 eventually found it.

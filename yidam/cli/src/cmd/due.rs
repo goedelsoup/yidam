@@ -333,10 +333,10 @@ impl DueReport {
 ///
 /// # Whether this binary can build one is an argument, not something read here
 ///
-/// `can_build` is `cfg!(feature = "index")` at the one call site, and it is passed in for two
-/// reasons. The first is that both arms are then unit-testable from the light `reports` build
-/// every PR compiles — `ci (cli · full features)` runs on `main` and a Monday cron only, so a
-/// behaviour reachable only under `--features index` is verified by intention. That is
+/// `can_build` is `cfg!(feature = "vector-read")` at the one call site, and it is passed in for
+/// two reasons. The first is that both arms are then unit-testable from the light `reports`
+/// build every PR compiles — `ci (cli · full features)` runs on `main` and a Monday cron only,
+/// so a behaviour reachable only under `--features vector-read` is verified by intention. That is
 /// `retrieve`'s arrangement (#354) applied to the clock.
 ///
 /// The second is the defect itself (#1061). Everything below used to name
@@ -363,7 +363,7 @@ fn clock_index(root: &Path, after: Option<usize>, can_build: bool) -> Clock {
     // reader to work out whether they had it.
     let remedy = match can_build {
         true => "yidam index-build",
-        false => "cargo install yidam --features index  (this build cannot build one;                   `yidam vault pull --index` fetches one built elsewhere)",
+        false => "cargo install yidam --locked --features vector-read  (this build cannot build one;                   `yidam vault pull --index` fetches one built elsewhere)",
     };
 
     let measured = match (data.index_present, data.meta_present) {
@@ -787,7 +787,7 @@ pub(crate) fn read_clocks(root: &Path, cfg: &crate::config::DueConfig, today: i6
     vec![
         // The one place the build fact is read. See [`clock_index`] for why it is an argument
         // and not a `cfg!` inside the function.
-        clock_index(root, cfg.index_after, cfg!(feature = "index")),
+        clock_index(root, cfg.index_after, cfg!(feature = "vector-read")),
         clock_catalog(root, today),
         clock_questions(root, cfg.questions_after),
         clock_phases(root, cfg.phases_after, today),

@@ -113,8 +113,8 @@ fact about a third party they may not be able to change at all.
 
 ## Share the vector index through a vault
 
-`.yidam/index/` is built only by a binary compiled `--features index` — protoc plus an ONNX
-runtime — and nothing keeps it in git. So the index exists on whichever machine could build it
+`.yidam/index/` is built only by a binary compiled `--features vector-read`. The release does
+not carry its ONNX runtime, and nothing keeps the index in git. So the index exists on whichever machine could build it
 and nowhere else. The vault is the channel between them:
 
 ```sh
@@ -138,8 +138,7 @@ inexpressible is better than checking for it.
 > sufficient.
 >
 > `--features vector-read` is the build that completes it. It reads an index and answers over
-> it, and it needs **no protoc** — that is `lancedb`'s requirement, and `lancedb` is only ever
-> used to *write* an index. See [Installation](installation.md#check-which-build-you-have).
+> it, and it is the same build that makes one. See [Installation](installation.md#check-which-build-you-have).
 
 ## Finish a push that stopped part-way
 

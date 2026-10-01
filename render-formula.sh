@@ -95,7 +95,7 @@ cat <<FORMULA
 # A binary formula, not a source one. The whole point of the tap is to skip a
 # compile: the light \`reports\` build is what ships, and \`--features full\`
 # (index-build, serve --mcp, the sqlite/rdf exports) remains a source build
-# because it needs protoc and an ONNX runtime.
+# because it needs an ONNX runtime.
 class Yidam < Formula
   desc "Corpus analysis and index CLI for yidam-derived repositories"
   homepage "https://github.com/$repo"

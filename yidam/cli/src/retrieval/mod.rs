@@ -379,7 +379,7 @@ impl Corpora {
 /// binary cannot read the index this corpus has" are different diagnoses with different
 /// repairs, and a lone `degraded: true` collapses them into one. The first is fixed by
 /// `yidam embed && yidam index-build`; the second by reinstalling with `--features vector-read`,
-/// which reads an index and needs no protoc — building one is a separate, heavier feature.
+/// which reads an index and can build one.
 /// A client told only that retrieval was degraded cannot tell which it is looking at.
 pub(crate) enum Retrieval {
     /// Semantic search, over a loaded index.
@@ -940,13 +940,12 @@ mod tests {
         assert_eq!(blank.score("hydropeaking at the dam"), None);
     }
 
-    /// **What `vector-read` exists to make true.** A build with no `lancedb` and no protoc
-    /// decodes a real index and reports itself *not* degraded.
+    /// **What `vector-read` exists to make true.** A build with no protoc decodes a real index
+    /// and reports itself *not* degraded.
     ///
-    /// The arrow buffer is written here rather than fetched from a fixture, against the same
-    /// schema `cmd/index_build.rs` writes — which is the point, since that module does not
-    /// compile in this build. If the two schemas ever diverge this test decodes something the
-    /// real writer would not have produced, so it is pinned field-for-field.
+    /// The arrow buffer is written here rather than by `cmd/index_build.rs`, in the schema an
+    /// index had before #1029 added `properties` — so this is also the test that an older index
+    /// still decodes. What the current writer produces is read back in that module's own tests.
     ///
     /// It stops at decoding. Embedding a *query* loads ONNX weights over the network, so the
     /// last step of the round trip is not something a hermetic suite can run; `yidam vault

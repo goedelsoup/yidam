@@ -217,7 +217,7 @@ fn the_version_list_is_filtered_rather_than_asked_for() {
 /// The docs job's Node and the toolchain's Node are the same Node.
 ///
 /// docs.yml is the one workflow here that does not start with `jdx/mise-action`, because
-/// provisioning a Rust toolchain, protoc, Python and uv to run `astro build` is four
+/// provisioning a Rust toolchain, Python and uv to run `astro build` is three
 /// toolchains of waste. The cost of that choice is a second declaration of the Node version,
 /// and this is the check that keeps the two from drifting into a site built against a
 /// runtime nobody develops on.

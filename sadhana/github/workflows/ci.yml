@@ -348,7 +348,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         if: steps.download.outputs.ok != 'true' && steps.yidam-cache.outputs.cache-hit != 'true'
 
-      # The light `reports` build — no protoc, no fastembed, no lancedb. The
+      # The light `reports` build — no fastembed, no ONNX runtime. The
       # graph gate needs none of them, and the heavy feature set turns a
       # 40-second job into a five-minute one.
       - name: Compile the yidam CLI (light build)

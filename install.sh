@@ -5,7 +5,7 @@
 #
 # Downloads the light default build for this platform from
 # the latest `cli/v*` release, verifies its checksum, and installs it. No Rust
-# toolchain, no protoc, no ML runtime — those belong to `--features full`, which
+# toolchain, no ML runtime — that belongs to `--features full`, which
 # is a source build.
 #
 # POSIX sh, not bash: this is piped to whatever /bin/sh is, on machines whose
