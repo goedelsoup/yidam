@@ -34,7 +34,8 @@ RUN apt-get update \
 COPY --from=build /src/yidam/cli/target/release/yidam /usr/local/bin/yidam
 # The records pods write for each other, and the scratch every pod clones into.
 RUN mkdir -p /tmp/yidam && chmod 1777 /tmp/yidam
-# Not root: the pod needs to write scratch and read two mounts, and nothing else.
+# Not root: the pod needs to write scratch and read two mounts, and nothing else. The generated
+# workflow asks the cluster to hold the pod to this uid, with a read-only root (#1230).
 RUN useradd --create-home --uid 1000 yidam
 USER yidam
 ENTRYPOINT ["yidam"]

@@ -215,6 +215,28 @@ kubectl create -f yidam.workflow.yml -n <namespace>
 
 A corpus with no schedule lists `objects` alone in its top `kustomization.yaml`.
 
+### A restricted namespace
+
+Every generated pod meets the `restricted` Pod Security Standard. A namespace may enforce it:
+
+```sh
+kubectl label namespace <namespace> pod-security.kubernetes.io/enforce=restricted
+```
+
+Each pod runs as uid 1000. Its root filesystem is read-only, and it holds no capabilities.
+It writes to three places only:
+
+- `/tmp/yidam`, an `emptyDir` and the pod's `TMPDIR`. The clone and the pod's record go there.
+- `/home/yidam`, an `emptyDir` and the pod's `HOME`. Git, ssh and the vault cache write there.
+- A `file://` vault's claim. The pod's `fsGroup` makes it writable.
+
+A test checks each template against the profile's fields. No pod has yet run in an enforcing
+namespace, so a missing writable path would show only on a cluster.
+
+Argo adds its own `init` and `wait` containers to each pod. Their container settings come from
+the controller's `executor` config, not from this manifest. They must also drop all
+capabilities and forbid privilege escalation.
+
 ### Names you set yourself
 
 To keep names you already have, set them under `[cluster.names]`. See
