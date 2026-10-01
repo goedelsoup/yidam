@@ -946,6 +946,78 @@ fn doctor_says_when_two_vaults_are_running_on_one_account() {
     );
 }
 
+/// `doctor` says where each vault's credentials come from (#1234). With a role, keys and an
+/// ambient fallback all possible, "has credentials" no longer says which ones a vault signs
+/// with, and that is the first thing to know when a pod's push gets a 403. No STS call is made:
+/// the token file is checked and not exchanged, and `doctor` stays offline.
+#[cfg(feature = "vault-s3")]
+#[test]
+fn doctor_names_each_vaults_credential_source_and_compares_roles() {
+    let config = "[vault.default]\nurl = \"s3://public/yidam\"\naudience = \"anyone\"\n\
+                  holds = [\"index\"]\n\
+                  [vault.sources]\nurl = \"s3://licensed/yidam\"\naudience = \"the sangha\"\n\
+                  holds = [\"catalog\"]\n";
+    let tmp = repo(Some(config));
+    let cache = tmp.path().join("cache");
+    let token = tmp.path().join("token");
+    write(&token, b"eyJ.token");
+    let token = token.to_string_lossy().to_string();
+
+    let doctor = |pairs: &[(&str, &str)]| -> String {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_yidam"));
+        c.current_dir(tmp.path())
+            .env("YIDAM_VAULT_CACHE", &cache)
+            // An STS that answers nothing: reaching it would fail the run, not pass it.
+            .env("AWS_ENDPOINT_URL_STS", "http://127.0.0.1:9")
+            .arg("doctor");
+        for k in [
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_SESSION_TOKEN",
+        ] {
+            c.env_remove(k);
+        }
+        for (k, v) in pairs {
+            c.env(k, v);
+        }
+        let out = c.output().expect("running yidam doctor");
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    };
+
+    let said = doctor(&[
+        ("AWS_ROLE_ARN", "arn:aws:iam::1:role/pod"),
+        ("AWS_WEB_IDENTITY_TOKEN_FILE", &token),
+        ("YIDAM_VAULT_SOURCES_ACCESS_KEY_ID", "AKIA_TWO"),
+        ("YIDAM_VAULT_SOURCES_SECRET_ACCESS_KEY", "s"),
+    ]);
+    assert!(
+        said.contains("`default` web identity via AWS_ROLE_ARN"),
+        "{said}"
+    );
+    assert!(
+        said.contains("`sources` YIDAM_VAULT_SOURCES_ACCESS_KEY_ID"),
+        "{said}"
+    );
+    assert!(!said.contains("same credentials"), "{said}");
+
+    // Two vaults assuming one role are one principal, though each lease's key id differs.
+    let shared = doctor(&[
+        ("AWS_ROLE_ARN", "arn:aws:iam::1:role/pod"),
+        ("AWS_WEB_IDENTITY_TOKEN_FILE", &token),
+        ("YIDAM_VAULT_SOURCES_ROLE_ARN", "arn:aws:iam::1:role/pod"),
+        ("YIDAM_VAULT_SOURCES_WEB_IDENTITY_TOKEN_FILE", &token),
+    ]);
+    assert!(shared.contains("same credentials"), "{shared}");
+    assert!(
+        !shared.contains("role/pod"),
+        "the role is compared, not printed: {shared}"
+    );
+}
+
 // ── the artifacts this repository computes (#417) ────────────────────────────
 
 /// A built index in a working tree, as `yidam index-build` would leave it.

@@ -331,6 +331,8 @@ objects, so a one-shot run uses them too.
   `s3://` vault without it. On AWS, use an S3 interface endpoint's subnet CIDRs, or the S3
   prefixes for your region from `ip-ranges.json`. A gateway endpoint does not help, since it
   gives S3 no address of its own. A `file://` vault is a mount, so it needs none.
+- **`sts`** is for pods that assume a role by web identity. Every kind reaches it with the
+  vault. Use the regional STS interface endpoint's subnet CIDRs. Pods on keys need none.
 
 Only a CNI that enforces NetworkPolicy enforces them, such as Calico or Cilium. kind's default
 one does not. A cluster without one applies the policies and enforces nothing.
@@ -380,6 +382,23 @@ YIDAM_VAULT_DEFAULT_SECRET_ACCESS_KEY=...
 ```
 
 The secret is optional in the manifest, so a `file://` deployment creates none.
+
+**On EKS, a role instead of keys.** With IRSA, annotate the workflow's service account,
+`yidam-<corpus>-run`, with the role, as a patch in `objects/`:
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: run
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/yidam-corpus
+```
+
+EKS then projects a token into every pod and sets `AWS_ROLE_ARN`. The `default` vault
+assumes that role, and no secret holds a key. A second vault never inherits it. Give it
+`YIDAM_VAULT_<NAME>_ROLE_ARN` and `…_WEB_IDENTITY_TOKEN_FILE`, or keys, in the secret. Every
+pod calls STS before the vault, so a fenced cluster also needs `[cluster.egress] sts`.
 
 ## Pod logs are not provenance
 

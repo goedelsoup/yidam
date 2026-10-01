@@ -1802,6 +1802,7 @@ mod tests {
                 executor: vec!["192.0.2.1/32".into()],
                 remote: vec!["198.51.100.0/24".into()],
                 vault: vec![],
+                sts: vec![],
             },
         )
         .unwrap();

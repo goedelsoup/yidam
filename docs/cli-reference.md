@@ -1252,9 +1252,20 @@ never carry one:
 | `YIDAM_VAULT_<NAME>_ACCESS_KEY_ID` | that vault, always |
 | `YIDAM_VAULT_<NAME>_SECRET_ACCESS_KEY` | that vault, always |
 | `YIDAM_VAULT_<NAME>_SESSION_TOKEN` | temporary credentials |
+| `YIDAM_VAULT_<NAME>_ROLE_ARN` / `YIDAM_VAULT_<NAME>_WEB_IDENTITY_TOKEN_FILE` | that vault, assuming a role by web identity |
+| `YIDAM_VAULT_<NAME>_ROLE_SESSION_NAME` | optional, with a role |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | **the vault named `default`, and no other** |
+| `AWS_ROLE_ARN` / `AWS_WEB_IDENTITY_TOKEN_FILE` | **the vault named `default`, and no other** |
 
-That last asymmetry is deliberate. An ordinary AWS environment is plausibly already configured for
+A vault's own variables are tried first: its role, then its keys. Setting both is refused.
+Then, for `default` only, the `AWS_*` keys, then `AWS_ROLE_ARN`.
+
+A role is exchanged with STS's `AssumeRoleWithWebIdentity`, as IRSA on EKS sets it up. The
+token file is read on each exchange, and credentials are renewed before they expire. STS is
+`AWS_ENDPOINT_URL_STS` when set, else the regional endpoint for `AWS_REGION`. The file is a
+path the platform projects, never a key, so it counts as the environment.
+
+The `AWS_*` asymmetry is deliberate. An ordinary AWS environment is plausibly already configured for
 the store a repository publishes its own output to. A *second* vault exists because its readership
 differs. That is the only reason to declare one. Letting it inherit whatever happens to be
 exported is the failure the boundary was drawn to prevent.

@@ -45,8 +45,9 @@ use anyhow::{bail, Context, Result};
 
 use super::cas::ContentHash;
 use super::config::VaultConfig;
+use super::creds::Provider;
 use super::retry::{self, Attempt, Failed, Fault};
-use super::sigv4::{self, Credentials, Signable, EMPTY_PAYLOAD_SHA256};
+use super::sigv4::{self, Signable, EMPTY_PAYLOAD_SHA256};
 use super::store::Store;
 
 /// The largest body a single `PUT` may carry. S3's limit, not ours.
@@ -86,7 +87,8 @@ pub struct S3Store {
     /// the region when the store is AWS itself.
     endpoint: String,
     path_style: bool,
-    creds: Credentials,
+    /// Asked per request, because a web identity's lease ends during a long push.
+    creds: Provider,
     /// A clock, injected so the signing path is exercisable at a fixed time.
     now: fn() -> u64,
 }
@@ -154,6 +156,7 @@ impl S3Store {
     ) -> Result<SignedRequest> {
         let key = self.key(hash);
         let (url, host, path) = self.target(&key)?;
+        let creds = self.creds.credentials()?;
         let timestamp = crate::dates::amz_datetime((self.now)());
         let signable = Signable {
             method,
@@ -166,8 +169,8 @@ impl S3Store {
             service: sigv4::S3_SERVICE,
         };
         Ok(SignedRequest {
-            canonical_request: signable.canonical_request(&self.creds),
-            headers: signable.headers_to_send(&self.creds),
+            canonical_request: signable.canonical_request(&creds),
+            headers: signable.headers_to_send(&creds),
             method: method.to_string(),
             url,
         })
@@ -424,11 +427,12 @@ mod tests {
                 .clone()
                 .unwrap_or_else(|| "https://s3.us-east-1.amazonaws.com".into()),
             path_style: c.path_style.unwrap_or(c.endpoint.is_some()),
-            creds: Credentials {
+            creds: sigv4::Credentials {
                 access_key_id: "AKIDEXAMPLE".into(),
                 secret_access_key: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".into(),
                 session_token: None,
-            },
+            }
+            .into(),
             // A fixed clock, so a signature is a function of its inputs and a golden can pin
             // the canonical request. 2015-08-30T12:36:00Z.
             now: || 1440938160,

@@ -255,8 +255,10 @@
 # is optional: unset, the pods holding a git key reach anywhere, and catalog-fetch and ask can
 # reach the remote. Under `git_auth = "github-app"` the lander also calls the GitHub API, so
 # `remote` must cover its addresses too. `vault` is for an s3:// vault's endpoint and refused for a file:// one.
+# `sts` is the regional STS endpoint, needed only when pods assume a role by web identity (IRSA).
 #
 # [cluster.egress]
 # executor = ["172.18.0.2/32"]
 # remote   = ["140.82.112.0/20"]
 # vault    = ["10.20.0.0/16"]
+# sts      = ["10.20.8.0/24"]

@@ -70,6 +70,7 @@ pub(super) struct Overrides {
     pub executor: Vec<String>,
     pub remote: Vec<String>,
     pub vault: Vec<String>,
+    pub sts: Vec<String>,
 }
 
 pub(super) fn run(o: &Overrides) -> Result<()> {
@@ -87,6 +88,8 @@ pub(super) struct Settings {
     pub vault: Option<Vec<String>>,
     pub executor: Vec<String>,
     pub remote: Vec<String>,
+    /// STS, beside the vault, for pods that assume a role. Empty unless the vault is `s3://`.
+    pub sts: Vec<String>,
 }
 
 fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
@@ -100,6 +103,7 @@ fn resolve(root: &Path, o: &Overrides) -> Result<Settings> {
         executor: pick(&o.executor, &e.executor),
         remote: pick(&o.remote, &e.remote),
         vault: pick(&o.vault, &e.vault),
+        sts: pick(&o.sts, &e.sts),
     };
     egress.check()?;
     let vault_name = &cfg.cluster.vault;
@@ -150,7 +154,14 @@ impl Settings {
                  leave the internet pods nothing. Leave `remote` unset to mean \"not declared\""
             );
         }
-        let vault = match vault_url.trim().starts_with("file://") {
+        let file = vault_url.trim().starts_with("file://");
+        if file && !e.sts.is_empty() {
+            bail!(
+                "[cluster.egress] sts is set, and the vault is {vault_url}, a volume that needs \
+                 no credentials. Remove it, so no pod is let reach an address nothing uses"
+            );
+        }
+        let vault = match file {
             true if !e.vault.is_empty() => bail!(
                 "[cluster.egress] vault is set, and the vault is {vault_url}, a volume that \
                  reaches no network. Remove it, so no pod is let reach an address nothing uses"
@@ -173,6 +184,7 @@ impl Settings {
             vault,
             executor: e.executor,
             remote: e.remote,
+            sts: e.sts,
         })
     }
 
@@ -259,6 +271,13 @@ pub(super) fn policies(s: &Settings) -> String {
         if let Some(vault) = &s.vault {
             rules.push_str("    # The vault. [cluster.egress] vault.\n");
             to(&mut rules, vault);
+            if !s.sts.is_empty() {
+                rules.push_str(
+                    "    # STS, where a pod exchanges its web identity token for the vault's \
+                     credentials.\n    # [cluster.egress] sts.\n",
+                );
+                to(&mut rules, &s.sts);
+            }
         }
         if rules.is_empty() {
             y.push_str(
@@ -320,6 +339,7 @@ mod tests {
             executor: v(executor),
             remote: v(remote),
             vault: v(vault),
+            sts: vec![],
         }
     }
 
@@ -351,6 +371,35 @@ mod tests {
 
         let err = refusal("file:///v", egress(&["192.0.2.1/32"], &["0.0.0.0/0"], &[]));
         assert!(err.contains("whole address space"), "{err}");
+
+        let mut e = egress(&["192.0.2.1/32"], &[], &[]);
+        e.sts = vec!["10.30.0.0/24".into()];
+        let err = refusal("file:///v", e);
+        assert!(
+            err.contains("sts is set") && err.contains("no credentials"),
+            "{err}"
+        );
+    }
+
+    /// Under a web identity every pod that reads the vault first asks STS for credentials, so
+    /// STS rides with the vault into every kind's policy (#1234). Unset, nothing changes: a
+    /// corpus on keys gets the policies it had.
+    #[test]
+    fn sts_is_reached_wherever_the_vault_is() {
+        let mut e = egress(&["192.0.2.1/32"], &[], &["10.20.0.0/16"]);
+        let without = policies(&Settings::new("c".into(), None, "s3://b/p", e.clone()).unwrap());
+        assert!(!without.contains("STS"), "{without}");
+
+        e.sts = vec!["10.30.0.0/24".into()];
+        let text = policies(&Settings::new("c".into(), None, "s3://b/p", e).unwrap());
+        let docs: Vec<&str> = text.split("\n---\n").collect();
+        for doc in &docs[1..] {
+            assert!(doc.contains("cidr: \"10.30.0.0/24\""), "{doc}");
+        }
+        assert!(
+            !docs[0].contains("10.30.0.0/24"),
+            "the corpus-wide policy widened"
+        );
     }
 
     /// An `s3://` vault's CIDRs reach every kind, since every pod but `admit` reads the vault.

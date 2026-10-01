@@ -23,7 +23,8 @@ use serde_json::Value;
 use super::request::Request;
 use super::response::{self, Failure};
 use super::{Api, RemoteIndex};
-use crate::vault::sigv4::{Credentials, Signable, S3VECTORS_SERVICE};
+use crate::vault::creds::Provider;
+use crate::vault::sigv4::{Signable, S3VECTORS_SERVICE};
 
 /// A signed request, and the string that was signed.
 ///
@@ -39,14 +40,16 @@ pub struct SignedRequest {
 
 pub struct Client {
     index: RemoteIndex,
-    creds: Credentials,
+    /// Asked per request: `serve` holds this client for as long as it runs, and a web
+    /// identity's lease ends after an hour.
+    creds: Provider,
     http: reqwest::Client,
     /// A clock, injected so the signing path is exercisable at a fixed time.
     now: fn() -> u64,
 }
 
 impl Client {
-    pub fn new(index: RemoteIndex, creds: Credentials) -> Result<Self> {
+    pub fn new(index: RemoteIndex, creds: Provider) -> Result<Self> {
         let http = reqwest::Client::builder()
             .user_agent(concat!("yidam-s3vectors/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -67,6 +70,7 @@ impl Client {
     pub fn sign(&self, req: &Request) -> Result<SignedRequest> {
         let body = req.bytes()?;
         let payload_sha256 = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&body));
+        let creds = self.creds.credentials()?;
         let timestamp = crate::dates::amz_datetime((self.now)());
         let signable = Signable {
             method: "POST",
@@ -79,8 +83,8 @@ impl Client {
             service: S3VECTORS_SERVICE,
         };
         Ok(SignedRequest {
-            canonical_request: signable.canonical_request(&self.creds),
-            headers: signable.headers_to_send(&self.creds),
+            canonical_request: signable.canonical_request(&creds),
+            headers: signable.headers_to_send(&creds),
             url: self.index.url(req.op),
             body,
         })
@@ -164,11 +168,12 @@ mod tests {
         .unwrap();
         let mut c = Client::new(
             index,
-            Credentials {
+            crate::vault::sigv4::Credentials {
                 access_key_id: "AKIDEXAMPLE".to_string(),
                 secret_access_key: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_string(),
                 session_token: None,
-            },
+            }
+            .into(),
         )
         .unwrap();
         // A fixed clock, so the signature below is a constant rather than a shape.
