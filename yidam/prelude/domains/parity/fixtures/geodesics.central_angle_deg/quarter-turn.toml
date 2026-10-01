@@ -8,4 +8,8 @@ lat2 = 0.0
 lon2 = 90.0
 
 [expected]
-degrees = 90.0
+# The Rust reference's value, not the 90.0 the geometry promises: the radian round trip
+# lands one ULP short, in all three runtimes alike. The domain's tolerance absorbs the
+# ULP. Writing the ideal 90.0 is what hid #1280, where this file held a value that only
+# the TypeScript implementation produced.
+degrees = 89.99999999999999

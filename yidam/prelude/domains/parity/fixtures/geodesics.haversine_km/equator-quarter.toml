@@ -8,4 +8,6 @@ lat2 = 0.0
 lon2 = 90.0
 
 [expected]
-km = 10007.543398010286
+# The Rust reference's value at full precision. This file held 10007.543398010286, which
+# only the TypeScript implementation produced, until #1280.
+km = 10007.543398010284
