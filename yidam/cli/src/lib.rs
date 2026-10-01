@@ -110,6 +110,7 @@ mod walk;
     feature = "s3-vectors",
     feature = "catalog-fetch",
     feature = "serve-http",
+    feature = "github-app",
 ))]
 pub mod runtime;
 

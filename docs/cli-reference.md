@@ -958,7 +958,8 @@ no `--branch`. That is the point of it, and a test holds it.
 off the record. Then it pushes the commit to `main` or to `propose/<input>`, with
 `--force-with-lease`. If the branch moved, it rebuilds the commit on the new tip. That holds
 only when nothing the step reads moved. Otherwise it refuses. Its last act is a fresh pin,
-which the next step reads.
+which the next step reads. With `--git-auth github-app` it mints an installation token from
+`--github-app-key` and pushes over HTTPS. The token goes to git's environment and nowhere else.
 
 **`survey`**, **`ask`** and **`gather`** run a gather, one pod per peer. None takes `--remote`.
 `survey` plans at the pin and translates each peer's query there. Its `asks` list feeds the fan-out.

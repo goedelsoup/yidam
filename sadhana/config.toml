@@ -205,6 +205,18 @@
 # vault  = "default"
 # namespace = "yidam"
 # max_open_proposals = 1
+# git_auth = "deploy-key"
+#
+# What the lander pushes with (#1233). `deploy-key`, the default, is an SSH key in the
+# `git_write` secret. `github-app` is a GitHub App's private key there instead, under the key
+# `private-key.pem`: the lander mints an installation token from it for this one repository,
+# with `contents: write`, and pushes over HTTPS. The token lasts an hour and is never a
+# workflow parameter. `remote` must then name a GitHub repository, and the table below is
+# required; `api_url` is for GitHub Enterprise Server and defaults to api.github.com.
+#
+# [cluster.github_app]
+# app_id  = 123456
+# api_url = "https://github.example.com/api/v3"
 #
 # The secrets, service account and vault claim the manifest names default to
 # `yidam-<corpus>-<role>`, so two corpora in one namespace share no write key. Set one here
@@ -241,7 +253,8 @@
 # cannot name a host. `executor` is the API server's endpoint addresses, which Argo's executor
 # sidecar reports through from inside every pod; the generator refuses without it. `remote`
 # is optional: unset, the pods holding a git key reach anywhere, and catalog-fetch and ask can
-# reach the remote. `vault` is for an s3:// vault's endpoint and refused for a file:// one.
+# reach the remote. Under `git_auth = "github-app"` the lander also calls the GitHub API, so
+# `remote` must cover its addresses too. `vault` is for an s3:// vault's endpoint and refused for a file:// one.
 #
 # [cluster.egress]
 # executor = ["172.18.0.2/32"]

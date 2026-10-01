@@ -327,6 +327,13 @@ reqwest = { version = "0.12", default-features = false, features = [
   "stream",
 ], optional = true }
 
+# ── `github-app` — the App's JWT (#1233). ─────────────────────────────────────
+#
+# Both already in the build through reqwest: `ring` is rustls's crypto provider and signs the
+# RS256 JWT, and `base64` 0.22 encodes it. Named so the lander can call them, not to add them.
+ring = { version = "0.17", optional = true }
+base64 = { version = "0.22", optional = true }
+
 # ── `vault-s3` — SigV4 signing for the S3 transport. ──────────────────────────
 #
 # One crate, and that is the whole marginal cost of S3 support in the light build. #412
@@ -371,7 +378,7 @@ tokio-util = { version = "0.7", default-features = false, features = ["io"], opt
 # `unrecognized subcommand`, which is not "this feature is unavailable" but "a
 # documented workflow is impossible". Every other gated feature degrades to a
 # missing capability; this one degraded to a broken instruction.
-default = ["reports", "tonpa", "vault-s3", "s3-vectors", "export-graph", "serve-http", "catalog-fetch", "pdf-text"]
+default = ["reports", "tonpa", "vault-s3", "s3-vectors", "export-graph", "serve-http", "catalog-fetch", "pdf-text", "github-app"]
 # The name of the base build — and **not a supported feature set on its own.**
 #
 # It gates nothing. `reports = []` enables no dependency, and there is no
@@ -545,6 +552,19 @@ catalog-fetch = ["dep:reqwest", "dep:tokio"]
 # everyone who has a PDF to quote. Without it, `catalog-extract` reports each
 # PDF skipped and records nothing.
 pdf-text = ["dep:pdf-extract"]
+# `cluster land --git-auth github-app` (#1233): sign a GitHub App's JWT and mint an hour-long
+# installation token, so the lander pushes with a credential that expires.
+#
+# In the default set, for the reason `vault-s3`, `serve-http` and `catalog-fetch` each give:
+# anything outside `default` ships code no pull request has compiled.
+#
+# **It resolves zero new packages.** `reqwest` and `tokio` are here through `tonpa` and
+# `vault-s3`. `ring` is rustls's crypto provider and `base64` 0.22 is reqwest's, so naming them
+# links nothing new. It is a feature only so that `--no-default-features --features reports`
+# links no signer and makes no request. What decides *what* is asked for (the repository read
+# off the remote, the one permission, the api url's scheme) is ungated in
+# `cmd/cluster/github_app.rs`.
+github-app = ["dep:reqwest", "dep:tokio", "dep:ring", "dep:base64"]
 # Everything — reproduces the pre-partition monolith (`cargo install --features full`).
 full = [
   "reports",
@@ -558,6 +578,7 @@ full = [
   "serve-http",
   "catalog-fetch",
   "pdf-text",
+  "github-app",
 ]
 # `index` implies `vector-read`, so `full` carries it without naming it.
 

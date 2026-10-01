@@ -135,7 +135,7 @@ jobs:
           # is what keeps this list and `[features] default` in step — it reads this line
           # and the manifest and requires them equal. (It used to say `light_build.rs`,
           # which never read this file.)
-          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text' || '' }}
+          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text,github-app' || '' }}
           # No `list-features`: both rows ran their suite under the default set, and that is
           # what an unqualified listing resolves. The `cli` row's run is the instrumented one
           # (`ci-cli-cov`), so its listing is taken against `llvm-cov-target` rather than

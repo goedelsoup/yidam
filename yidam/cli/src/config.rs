@@ -98,6 +98,49 @@ pub struct ClusterConfig {
     /// NetworkPolicy matches addresses, not hostnames, so each is a list of CIDRs.
     #[serde(default)]
     pub egress: ClusterEgressConfig,
+    /// How `land` authenticates its push (#1233). `deploy-key`, the default, is an SSH key in
+    /// the `git_write` secret. `github-app` is a GitHub App's private key there instead, from
+    /// which the lander mints an installation token that expires in an hour.
+    #[serde(default)]
+    pub git_auth: GitAuth,
+    /// The App `git_auth = "github-app"` mints from. Refused under any other `git_auth`.
+    #[serde(default)]
+    pub github_app: Option<ClusterGithubAppConfig>,
+}
+
+/// The lander's push credential (#1233).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum GitAuth {
+    /// An SSH deploy key, which has no expiry.
+    #[default]
+    DeployKey,
+    /// A GitHub App installation token, minted in the lander pod, which expires in an hour.
+    GithubApp,
+}
+
+impl GitAuth {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::DeployKey => "deploy-key",
+            Self::GithubApp => "github-app",
+        }
+    }
+}
+
+/// `[cluster.github_app]`: the GitHub App whose private key is in the `git_write` secret.
+///
+/// No installation id: the lander asks GitHub for the installation on the remote's
+/// repository, so this table holds nothing that changes when the App is reinstalled.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClusterGithubAppConfig {
+    /// The App's id, from its settings page. Not a secret: it is in every JWT the App signs.
+    pub app_id: u64,
+    /// GitHub's REST API. Unset is github.com's; GitHub Enterprise Server's is
+    /// `https://<host>/api/v3`.
+    #[serde(default)]
+    pub api_url: Option<String>,
 }
 
 /// `[cluster.names]`: an override for each object a generated workflow refers to by name.
@@ -319,6 +362,8 @@ impl Default for ClusterConfig {
             pod: ClusterPodConfig::default(),
             cleanup: ClusterCleanupConfig::default(),
             egress: ClusterEgressConfig::default(),
+            git_auth: GitAuth::default(),
+            github_app: None,
         }
     }
 }

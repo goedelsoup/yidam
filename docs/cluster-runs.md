@@ -187,6 +187,32 @@ Put three files in `objects/secrets/`:
 Only the lander mounts the write key. That mount is the invariant. A test tries to break it. It
 hands a valid commit to a process that cannot write, and checks that the remote refuses.
 
+### Push as a GitHub App
+
+A deploy key never expires. On GitHub, the lander can push with a token that lasts an hour
+instead. Deploy keys stay the default until this has run on a real cluster (#1237).
+
+Create a GitHub App with one permission, **Contents: read and write**. Install it on the
+corpus's repository, and generate a private key. Then set in `.yidam/config.toml`:
+
+```toml
+[cluster]
+git_auth = "github-app"
+
+[cluster.github_app]
+app_id = 123456
+```
+
+Put the App's key in `objects/secrets/` as `private-key.pem`, in place of `git-write.key`. The
+write secret then holds `private-key.pem` and `known_hosts`. Regenerate the workflow.
+
+The lander reads the key and signs a JWT. It asks GitHub for a token scoped to this one
+repository. Then it pushes over HTTPS. The token is never a workflow parameter, so Argo never
+records it. Git gets it through its environment, never its argv or the clone's config. A test
+lands a commit this way and finds the token in no output, record, receipt or file.
+
+The read pods still clone over SSH with `git-read.key`. Only `land` changes.
+
 ### Apply it
 
 ```sh
@@ -299,7 +325,8 @@ objects, so a one-shot run uses them too.
   Policies match after the service is resolved. The generator refuses without them.
 - **`remote`** is optional. Unset, the `remote` pods reach anywhere, and `catalog-fetch` and
   `ask` can reach the remote. They hold no key, so that is a weaker fence, not a hole. The
-  generated file says which you chose.
+  generated file says which you chose. A lander pushing as a GitHub App also calls the API.
+  Include its addresses too.
 - **`vault`** is for an `s3://` vault. Every kind reaches it. The generator refuses an
   `s3://` vault without it. On AWS, use an S3 interface endpoint's subnet CIDRs, or the S3
   prefixes for your region from `ip-ranges.json`. A gateway endpoint does not help, since it
