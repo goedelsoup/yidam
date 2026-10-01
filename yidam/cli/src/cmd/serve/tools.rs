@@ -242,6 +242,7 @@ fn dispatch(state: &mut ServerState, name: &str, args: &Value) -> Result<Value, 
         "claim_tags" => Ok(claim_tags()),
         "licensed_edges" => licensed_edges(state, args),
         "query" => query(state, args),
+        "paths" => paths(state, args),
         "pack" => pack(state, args),
         "estimate" => estimate(state, args),
         other => Err(format!("unknown tool: {other}")),
@@ -935,6 +936,50 @@ fn query(state: &ServerState, args: &Value) -> Result<Value, String> {
             .iter()
             .map(|d| (d.level, d.code))
             .collect::<Vec<_>>()
+    );
+    serde_json::to_value(&report).map_err(|e| e.to_string())
+}
+
+/// The typed paths between two nodes (#1225): `yidam query --paths`, as a tool.
+///
+/// The CLI's own function, serialised verbatim, for the reason `query` gives above. Every
+/// path in the answer has already been run through `query`'s checker and executor on this same
+/// graph, so a caller that sends one back gets the target in the answer.
+///
+/// **Local only, and no `across`.** A hop never crosses corpora, so a chain between two nodes
+/// never leaves the corpus it started in, and a foreign id answers `unknown-node`.
+fn paths(state: &ServerState, args: &Value) -> Result<Value, String> {
+    use crate::cmd::query::{check::code, paths};
+
+    let from = args["from"]
+        .as_str()
+        .ok_or("missing required argument: from")?;
+    let to = args["to"].as_str().ok_or("missing required argument: to")?;
+    let max_hops = args["max_hops"]
+        .as_u64()
+        .unwrap_or(paths::DEFAULT_MAX_HOPS as u64)
+        .max(1) as usize;
+    let limit = args["limit"]
+        .as_u64()
+        .unwrap_or(paths::DEFAULT_LIMIT as u64)
+        .max(1) as usize;
+    let report = paths::run_on(&state.graph, from, to, max_hops, limit);
+    // The same guard `query` keeps on its way out, over the two code fields this report has.
+    debug_assert!(
+        report
+            .rejected
+            .as_ref()
+            .is_none_or(|r| code::PATHS_SURFACED.contains(&r.code)),
+        "`paths` answered `{:?}`, which the contract does not freeze",
+        report.rejected.as_ref().map(|r| r.code)
+    );
+    debug_assert!(
+        report
+            .withheld
+            .iter()
+            .filter_map(|w| w.code)
+            .all(|c| code::SURFACED.contains(&c)),
+        "`paths` withheld a path for a code `query`'s contract does not freeze"
     );
     serde_json::to_value(&report).map_err(|e| e.to_string())
 }
@@ -2299,7 +2344,7 @@ mod tests {
         let unfrozen: Vec<&String> = emitted.difference(frozen).collect();
         assert!(
             unfrozen.is_empty(),
-            "`query` answers with {unfrozen:?} and the contract freezes no such {what} — a \
+            "the server answers with {unfrozen:?} and the contract freezes no such {what} — a \
              client branching on it reaches its `else` arm on something this server considers \
              routine"
         );
@@ -2333,6 +2378,64 @@ mod tests {
             "rejection code",
             &frozen_set(&contract(), "query", FROZEN_CODES),
             &wire(code::SURFACED.iter().copied()),
+        );
+    }
+
+    /// The same, for the tool that answers the one code `query` cannot (#1225).
+    ///
+    /// Read out of `paths`' own notes, with the clause `query`'s uses, so the two tools freeze
+    /// two sets and neither carries the other's names.
+    #[test]
+    fn the_contract_freezes_the_rejection_codes_paths_answers_with() {
+        use crate::cmd::query::check::code;
+
+        assert_agrees(
+            "rejection code",
+            &frozen_set(&contract(), "paths", FROZEN_CODES),
+            &wire(code::PATHS_SURFACED.iter().copied()),
+        );
+    }
+
+    /// No code is frozen for both tools.
+    ///
+    /// The repair for a failing comparison is to add the missing name to the other side, and
+    /// the obvious other side for `unknown-node` is `query`'s roster, which is the one #1225's
+    /// issue text named. `query` takes no node id, so the name would be a branch every client
+    /// writes and no `query` call reaches.
+    #[test]
+    fn a_code_is_frozen_only_for_the_tool_that_answers_it() {
+        use crate::cmd::query::check::code;
+
+        let both: Vec<_> = code::PATHS_SURFACED
+            .iter()
+            .filter(|c| code::SURFACED.contains(c))
+            .collect();
+        assert!(
+            both.is_empty(),
+            "{both:?} is frozen for `query` and for `paths`, and only one of them can answer it"
+        );
+    }
+
+    /// A node that does not resolve is an answer, not a tool error.
+    ///
+    /// The fixture's graph is empty, so every id is unknown; what this holds is the envelope.
+    /// What `paths` finds on a real corpus is in the contract's `cases/paths/`.
+    #[test]
+    fn an_unknown_node_is_rejected_in_the_payload() {
+        let mut state = test_state();
+        let result = call_ok(
+            &mut state,
+            "paths",
+            json!({"from": "concept/knowledge-graph", "to": "concept/traversal"}),
+        );
+        assert_eq!(result["kind"], "paths");
+        assert_eq!(result["rejected"]["code"], "unknown-node");
+        assert_eq!(result["max_hops"], 4, "the CLI's default bound");
+
+        let missing = call(&mut state, "paths", &json!({"from": "concept/traversal"}));
+        assert_eq!(
+            missing["isError"], true,
+            "a call missing `to` could not run at all, which is what `isError` is for"
         );
     }
 
@@ -2379,8 +2482,7 @@ mod tests {
     /// `anchor-at-revision` and `history-unreadable` answer `--at` and `--between`, and the
     /// MCP surface supplies neither — the contract's `at` is null for a server answering
     /// about its loaded corpus. Freezing them would put two more never-taken branches in a
-    /// client's `match`, which is the half of this that is hardest to notice. `unknown-node`
-    /// answers `--paths`, which #1202 keeps off MCP until the CLI surface has been used.
+    /// client's `match`, which is the half of this that is hardest to notice.
     ///
     /// **Not implied by the test above.** That one asserts the two lists agree, and would
     /// stay green if a revision-only code were added to `SURFACED` and to the contract
@@ -2392,16 +2494,12 @@ mod tests {
         use crate::cmd::query::check::{code, diagnostic_code};
 
         let rejections = frozen_set(&contract(), "query", FROZEN_CODES);
-        for cli_only in [
-            code::ANCHOR_AT_REVISION,
-            code::HISTORY_UNREADABLE,
-            code::UNKNOWN_NODE,
-        ] {
+        for cli_only in [code::ANCHOR_AT_REVISION, code::HISTORY_UNREADABLE] {
             assert!(
                 !rejections.contains(&cli_only.to_string()),
-                "the contract freezes `{cli_only}`, which is reachable only through `--at`, \
-                 `--between` or `--paths` — no MCP call can supply any of them, so the code \
-                 is a branch no client will ever take"
+                "the contract freezes `{cli_only}`, which is reachable only through `--at` or \
+                 `--between` — no MCP call can supply either, so the code is a branch no \
+                 client will ever take"
             );
         }
         // `ontology-moved` says the vocabulary moved *between the revision asked about and

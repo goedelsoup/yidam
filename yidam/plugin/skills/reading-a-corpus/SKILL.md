@@ -56,6 +56,7 @@ answers the same before and after.
 | I want what is *not* known | `open_questions` |
 | I want what the corpus **holds**, with the standing of each | `claims` |
 | I know the *shape* of the answer — `reach -measured-by-> gage` | `query` |
+| I hold two nodes and do not know how they are related | `paths` |
 | I am about to write from the corpus and have a token budget | `pack` |
 | I want to know what that would cost before paying for it | `estimate` |
 
@@ -82,9 +83,9 @@ mixing two corpora would put a dependency's prose under this repository's class 
 
 ## What this server can and cannot do
 
-The capability block at connect time declares the holes. `query`, `pack`, `estimate` and
-`licensed_edges` all need class declarations, and a projected mirror can hold nodes and edges
-and no `.ont.yml`; such a server declares `"ontology": false` and refuses those four with
+The capability block at connect time declares the holes. `query`, `paths`, `pack`, `estimate`
+and `licensed_edges` all need class declarations, and a projected mirror can hold nodes and
+edges and no `.ont.yml`; such a server declares `"ontology": false` and refuses those five with
 `capability-not-supported`. That is a fact you can read rather than a hole you discover.
 
 ## Where the reasoning is

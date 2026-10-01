@@ -40,7 +40,7 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.26.0",
+    "contract": "0.27.0",
     "corpus": {
       "domain": "streamflow",
       "commit": "a1b2c3d",
@@ -238,6 +238,33 @@ Four consequences for a conforming server:
 - **`predicate-unsatisfied` joins the absence codes.** The predicate parsed, typechecked and
   refused every one of `instances` candidates. It is evidence about the values, and it is
   reported only when at least one candidate was evaluated.
+
+## The paths between two nodes (contract 0.27.0)
+
+`paths` is `yidam query --paths` as a tool (#1225). An agent holding two node ids could call
+`neighbors` and guess, or call `query` with a path it already had to know. It now asks for the
+paths, and each one comes back as `query` text with the target in its answer.
+
+It is a tool of its own rather than a `paths` argument on `query`. The CLI chose a flag because
+the command already owned the language. On this surface the flag would forbid four of `query`'s
+other inputs (`query`, `select`, `anchor_k`, `across`), and a schema whose arguments exclude each
+other in pairs is a schema a client gets wrong.
+
+Four consequences for a conforming server:
+
+- **Every path returned has been run.** A candidate `query` refuses goes to `withheld[]` with
+  `query`'s own code. One that runs and misses the target goes there with a null `code`, and is
+  the server's defect. `cases/paths/` holds a path in each direction, because a search that
+  follows only outbound links finds nothing from the far end of the fixture's chain.
+- **`unknown-node` is frozen here and not on `query`.** It is the only code `rejected` carries
+  on this tool, and `query` takes no node id, so freezing it there would add a branch no call
+  reaches. `serve::tools` reads each tool's set out of its own notes and compares both.
+- **Ids are taken in the forms `neighbors` takes.** With or without `.yml`, with or without the
+  corpus directory in front. Answers carry the `query` form, `class/name.yml`. The smaller
+  contract was considered: an agent paraphrases ids, and one rejected for a `.yml` it was handed
+  by `query` itself has learned nothing about the corpus.
+- **No `across`.** A hop never crosses corpora, so neither does a path, and an installed
+  dependency's node is `unknown-node`. `only_query_spans_the_dependency_set` already holds that.
 
 ## The other closed set (contract 0.18.0)
 

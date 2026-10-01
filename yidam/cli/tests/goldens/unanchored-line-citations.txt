@@ -44,7 +44,7 @@ docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/model.rs#L17
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/serve/tools.rs#L176
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/serve/tools.rs#L177
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/serve/tools.rs#L213
-docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/serve/tools.rs#L248-L251
+docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/serve/tools.rs#L249-L252
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/corpus/class.rs#L14
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/main.rs#L604-L617
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/report.rs#L32
@@ -77,7 +77,7 @@ docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/lsp.rs#L250
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/lsp.rs#L418
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/propose/write.rs#L110
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/serve/http.rs#L9
-docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/serve/tools.rs#L286
+docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/serve/tools.rs#L287
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/paths.rs#L5-L9
 docs/rfcs/0030-standalone-editor.md → ../../yidam/editors/web/astro.config.mjs#L39
 docs/rfcs/0030-standalone-editor.md → ../../yidam/editors/web/src/lib/act.ts#L136

@@ -642,7 +642,7 @@ takes the `*` rules above.
   wrong here. The report lists the resolved entry nodes with their scores, so what it anchored
   on is always visible, and `bench` can vary k as part of the budget.
 - **The anchor is local.** `keyword_retrieve` chains `state.dep_nodes` after `state.nodes`
-  ([`tools.rs:248-251`](../../yidam/cli/src/cmd/serve/tools.rs#L248-L251)) — correct for
+  ([`tools.rs:249-252`](../../yidam/cli/src/cmd/serve/tools.rs#L249-L252)) — correct for
   retrieval, where an agent should be told the answer lives in a corpus this repository cites.
   A query labelled `"scope": "local"` must not silently enter through a dependency's node, so
   the query's anchor restricts to local nodes on both paths.
