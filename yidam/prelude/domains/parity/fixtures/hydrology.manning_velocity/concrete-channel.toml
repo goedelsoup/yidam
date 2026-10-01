@@ -1,0 +1,14 @@
+function = "hydrology.manning_velocity"
+description = "finished concrete (n=0.013), R=0.5 m, S=0.001: ≈ 1.53 m/s"
+
+# The first fixture with a non-unit hydraulic radius, so the first through which
+# `powf(2/3)` is not exact. All three runtimes agree bit for bit on macOS; the
+# tolerance is for a libm that does not.
+
+[input]
+n = 0.013
+r = 0.5
+s = 0.001
+
+[expected]
+velocity = 1.532392380637864

@@ -1,7 +1,13 @@
 use yidam_domain_finance::{future_value, present_value, sharpe_ratio, simple_interest};
 
-// Absolute, in the input's currency. Why this domain is not exact: finance/README.md#parity-tolerance
-const EPSILON: f64 = 1e-9;
+// Relative, with an absolute floor in the input's currency, as Python's math.isclose computes it.
+// Why this domain is not exact: finance/README.md#parity-tolerance
+const REL_TOL: f64 = 1e-12;
+const ABS_TOL: f64 = 1e-9;
+
+fn is_close(a: f64, b: f64) -> bool {
+    (a - b).abs() <= (REL_TOL * a.abs().max(b.abs())).max(ABS_TOL)
+}
 
 use yidam_domain_testkit::load_fixtures;
 
@@ -17,7 +23,7 @@ fn parity_present_value() {
         );
         let expected = fx["expected"]["pv"].as_float().unwrap();
         assert!(
-            (result - expected).abs() < EPSILON,
+            is_close(result, expected),
             "present_value: got {result}, expected {expected}"
         );
     }
@@ -35,7 +41,7 @@ fn parity_future_value() {
         );
         let expected = fx["expected"]["fv"].as_float().unwrap();
         assert!(
-            (result - expected).abs() < EPSILON,
+            is_close(result, expected),
             "future_value: got {result}, expected {expected}"
         );
     }
@@ -53,7 +59,7 @@ fn parity_simple_interest() {
         );
         let expected = fx["expected"]["interest"].as_float().unwrap();
         assert!(
-            (result - expected).abs() < EPSILON,
+            is_close(result, expected),
             "simple_interest: got {result}, expected {expected}"
         );
     }
@@ -71,7 +77,7 @@ fn parity_sharpe_ratio() {
         );
         let expected = fx["expected"]["ratio"].as_float().unwrap();
         assert!(
-            (result - expected).abs() < EPSILON,
+            is_close(result, expected),
             "sharpe_ratio: got {result}, expected {expected}"
         );
     }

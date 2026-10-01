@@ -24,14 +24,15 @@ Use this domain for dependency-free time-value calculations or cross-language pa
 
 ## Parity tolerance
 
-The parity tests compare with an absolute `EPSILON = 1e-9`, in the currency unit of the
-input.
+The parity tests compare relatively, with an absolute floor:
+`|a − b| ≤ max(1e-12 · max(|a|, |b|), 1e-9)`, the floor in the currency unit of the input.
 
 A tolerance is needed because Rust computes `(1 + rate)^periods` with `powi`, which multiplies
-repeatedly, while Python and TypeScript call `pow`. The two differ in the last digits:
-`1.07^30` is `7.612255042662031` in Rust and `…042` in the other two. The error scales with
-the result, so an absolute tolerance holds only up to a magnitude. At 7% over 30 periods it
-passes for a principal of 10,000 and fails for 1,000,000, by 1.1e-8. No current fixture
-reaches that far: all twelve use dyadic rates and are bit-identical in all three runtimes.
-The move to a relative tolerance is #1281. The rule this follows is in
+repeatedly, while Python and TypeScript call `pow`. The two differ in the last digits, and the
+difference scales with the result, which is why the comparison is relative.
+`future_value/million-at-seven-percent` lands 1.1e-8 apart, ten times the absolute `1e-9`
+this domain used until #1281, and `future_value/thirty-years-monthly` 9.8e-8 apart, which is
+1.6e-14 relative. That is the largest divergence measured here, and `1e-12` leaves it about
+sixty times the room. The floor is for the two fixtures that expect `0.0`, where a relative
+tolerance alone admits nothing. The rule this follows is in
 [Comparing floats](../parity/README.md#comparing-floats).

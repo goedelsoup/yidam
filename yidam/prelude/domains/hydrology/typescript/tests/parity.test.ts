@@ -8,8 +8,14 @@ import { rationalProduct, manningVelocity, returnPeriod } from '../src/index.ts'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const FIXTURES_DIR = join(__dirname, '../../../parity/fixtures')
-// Absolute, in each function's output unit. Why this domain is not exact: hydrology/README.md#parity-tolerance
-const EPSILON = 1e-9
+// Relative, with an absolute floor in each function's output unit, as Python's math.isclose computes it.
+// Why this domain is not exact: hydrology/README.md#parity-tolerance
+const REL_TOL = 1e-12
+const ABS_TOL = 1e-9
+
+function isClose(a: number, b: number): boolean {
+  return Math.abs(a - b) <= Math.max(REL_TOL * Math.max(Math.abs(a), Math.abs(b)), ABS_TOL)
+}
 
 function loadFixtures(fn: string): Record<string, unknown>[] {
   const dir = join(FIXTURES_DIR, fn)
@@ -27,7 +33,7 @@ describe('parity: hydrology.rational_product', () => {
     const inp = fx['input'] as Record<string, number>
     const exp = fx['expected'] as Record<string, number>
     it(fx['description'] as string, () => {
-      expect(Math.abs(rationalProduct(inp['c'], inp['i'], inp['a']) - exp['result'])).toBeLessThan(EPSILON)
+      expect(isClose(rationalProduct(inp['c'], inp['i'], inp['a']), exp['result'])).toBe(true)
     })
   }
 })
@@ -39,7 +45,7 @@ describe('parity: hydrology.manning_velocity', () => {
     const inp = fx['input'] as Record<string, number>
     const exp = fx['expected'] as Record<string, number>
     it(fx['description'] as string, () => {
-      expect(Math.abs(manningVelocity(inp['n'], inp['r'], inp['s']) - exp['velocity'])).toBeLessThan(EPSILON)
+      expect(isClose(manningVelocity(inp['n'], inp['r'], inp['s']), exp['velocity'])).toBe(true)
     })
   }
 })
@@ -51,7 +57,7 @@ describe('parity: hydrology.return_period', () => {
     const inp = fx['input'] as Record<string, number>
     const exp = fx['expected'] as Record<string, number>
     it(fx['description'] as string, () => {
-      expect(Math.abs(returnPeriod(inp['record_years'], inp['rank']) - exp['years'])).toBeLessThan(EPSILON)
+      expect(isClose(returnPeriod(inp['record_years'], inp['rank']), exp['years'])).toBe(true)
     })
   }
 })
