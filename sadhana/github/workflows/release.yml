@@ -100,25 +100,70 @@ jobs:
           origin=$(echo "$origin" | sed 's|^git@github.com:|https://github.com/|')
           { echo "source=$origin"; echo "commit=$commit"; } >> "$GITHUB_OUTPUT"
 
-      - uses: dtolnay/rust-toolchain@stable
+      # Download, then cache, then compile: the corpus job's sequence in ci.yml,
+      # where each step's reasoning is written out. A pin with a release never
+      # provisions a toolchain here (#1308). The scripts are the corpus job's byte
+      # for byte, and `derived_ci_binary.rs` holds every job that installs yidam to them.
+      - name: Resolve the pin to a release tag
+        id: release
         if: steps.declared.outputs.any == 'true'
+        run: |
+          set -eu
+          resolve_tag='
+            { ref = $2; sub(/^refs\/tags\//, "", ref)
+              if (ref ~ /\^\{\}$/) { sub(/\^\{\}$/, "", ref); sha[ref] = $1 }
+              else if (!(ref in sha)) sha[ref] = $1 }
+            END { for (t in sha) if (sha[t] == c) { print t; exit } }'
+          tag=$(git ls-remote --tags "${{ steps.pin.outputs.source }}" 'cli/v*' 2>/dev/null \
+                | awk -v c='${{ steps.pin.outputs.commit }}' "$resolve_tag" || true)
+          if [ -n "$tag" ]; then
+            echo "the pinned commit was released as $tag"
+          else
+            echo "no release is tagged at this pin; the source build will run"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      # Same key the bundle job uses, so the two share one cached binary and the
-      # install below runs at most once per pinned commit.
-      - name: Cache the pinned yidam binary
+      - name: Download the released binary
+        id: download
+        if: steps.declared.outputs.any == 'true' && steps.release.outputs.tag != ''
+        continue-on-error: true
+        run: |
+          set -eu
+          tag='${{ steps.release.outputs.tag }}'
+          repo=$(echo '${{ steps.pin.outputs.source }}' | sed -e 's|\.git$||')
+          name="yidam-${tag#cli/v}-x86_64-unknown-linux-gnu"
+          url="$repo/releases/download/$tag/$name.tar.gz"
+          dl=$(mktemp -d)
+          curl -fsSL "$url"        -o "$dl/$name.tar.gz"
+          curl -fsSL "$url.sha256" -o "$dl/$name.tar.gz.sha256"
+          ( cd "$dl" && sha256sum -c "$name.tar.gz.sha256" )
+          tar -xzf "$dl/$name.tar.gz" -C "$dl"
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 "$dl/$name/yidam" "$HOME/.local/bin/yidam"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the compiled binary
         id: yidam-cache
-        if: steps.declared.outputs.any == 'true'
+        if: steps.declared.outputs.any == 'true' && steps.download.outputs.ok != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cargo/bin/yidam
           key: yidam-cli-${{ runner.os }}-${{ steps.pin.outputs.commit }}
 
-      - name: Install the yidam CLI (light build)
-        if: steps.declared.outputs.any == 'true' && steps.yidam-cache.outputs.cache-hit != 'true'
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.declared.outputs.any == 'true' && steps.download.outputs.ok != 'true' && steps.yidam-cache.outputs.cache-hit != 'true'
+
+      - name: Compile the yidam CLI (light build)
+        if: steps.declared.outputs.any == 'true' && steps.download.outputs.ok != 'true' && steps.yidam-cache.outputs.cache-hit != 'true'
         run: |
           git clone --filter=blob:none --no-checkout "${{ steps.pin.outputs.source }}" /tmp/yidam
           git -C /tmp/yidam checkout --quiet "${{ steps.pin.outputs.commit }}"
           cargo install --path /tmp/yidam/yidam/cli --locked
+
+      - name: Say which yidam is answering
+        if: steps.declared.outputs.any == 'true'
+        run: yidam --version
 
       # The stricter half, and the reason this job exists rather than reusing
       # ci.yml's. A bundle carries corpus/, catalog/, skills/ and decisions/ —
@@ -179,20 +224,64 @@ jobs:
           origin=$(echo "$origin" | sed 's|^git@github.com:|https://github.com/|')
           { echo "source=$origin"; echo "commit=$commit"; } >> "$GITHUB_OUTPUT"
 
-      - uses: dtolnay/rust-toolchain@stable
+      # Download, then cache, then compile: the corpus job's sequence in ci.yml,
+      # where each step's reasoning is written out. A pin with a release never
+      # provisions a toolchain here (#1308). The scripts are the corpus job's byte
+      # for byte, and `derived_ci_binary.rs` holds every job that installs yidam to them.
+      - name: Resolve the pin to a release tag
+        id: release
+        run: |
+          set -eu
+          resolve_tag='
+            { ref = $2; sub(/^refs\/tags\//, "", ref)
+              if (ref ~ /\^\{\}$/) { sub(/\^\{\}$/, "", ref); sha[ref] = $1 }
+              else if (!(ref in sha)) sha[ref] = $1 }
+            END { for (t in sha) if (sha[t] == c) { print t; exit } }'
+          tag=$(git ls-remote --tags "${{ steps.pin.outputs.source }}" 'cli/v*' 2>/dev/null \
+                | awk -v c='${{ steps.pin.outputs.commit }}' "$resolve_tag" || true)
+          if [ -n "$tag" ]; then
+            echo "the pinned commit was released as $tag"
+          else
+            echo "no release is tagged at this pin; the source build will run"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Cache the pinned yidam binary
+      - name: Download the released binary
+        id: download
+        if: steps.release.outputs.tag != ''
+        continue-on-error: true
+        run: |
+          set -eu
+          tag='${{ steps.release.outputs.tag }}'
+          repo=$(echo '${{ steps.pin.outputs.source }}' | sed -e 's|\.git$||')
+          name="yidam-${tag#cli/v}-x86_64-unknown-linux-gnu"
+          url="$repo/releases/download/$tag/$name.tar.gz"
+          dl=$(mktemp -d)
+          curl -fsSL "$url"        -o "$dl/$name.tar.gz"
+          curl -fsSL "$url.sha256" -o "$dl/$name.tar.gz.sha256"
+          ( cd "$dl" && sha256sum -c "$name.tar.gz.sha256" )
+          tar -xzf "$dl/$name.tar.gz" -C "$dl"
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 "$dl/$name/yidam" "$HOME/.local/bin/yidam"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the compiled binary
         id: yidam-cache
+        if: steps.download.outputs.ok != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cargo/bin/yidam
           key: yidam-cli-${{ runner.os }}-${{ steps.pin.outputs.commit }}
 
-      # The light `reports` build. `export --format bundle` is in it: the bundle
-      # carries an index only when one is already built and committed, so
-      # publishing never needs an ONNX runtime.
-      - name: Install the yidam CLI (light build)
-        if: steps.yidam-cache.outputs.cache-hit != 'true'
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.download.outputs.ok != 'true' && steps.yidam-cache.outputs.cache-hit != 'true'
+
+      # The light `reports` build, and the released binary is a superset of it.
+      # `export --format bundle` is in both: the bundle carries an index only when
+      # one is already built and committed, so publishing never needs an ONNX runtime.
+      - name: Compile the yidam CLI (light build)
+        if: steps.download.outputs.ok != 'true' && steps.yidam-cache.outputs.cache-hit != 'true'
         run: |
           git clone --filter=blob:none --no-checkout "${{ steps.pin.outputs.source }}" /tmp/yidam
           git -C /tmp/yidam checkout --quiet "${{ steps.pin.outputs.commit }}"
