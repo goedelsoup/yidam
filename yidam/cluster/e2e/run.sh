@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cluster-e2e: run the streamflow example on a real cluster, and check the remote (#1237).
+# cluster-e2e: run the streamflow example on a real cluster, and check the remote (#1237, #1235).
 #
 #   mise run cluster-e2e
 #
@@ -16,6 +16,8 @@
 #   - a git server in its own namespace, holding streamflow, with a read key and a write key
 #   - the streamflow overlay, as `yidam/cluster/overlays/streamflow` ships it, with a freshly
 #     generated CronWorkflow and NetworkPolicy, in a namespace that enforces `restricted`
+#   - Argo Events at a pinned version, a JetStream EventBus, the `streamflow-on-push` overlay
+#     with a freshly generated `--on-push webhook`, and a hook on the remote that posts each push
 #
 # streamflow is changed in one place before it is pushed: `disclosure-envelope` establishes
 # rather than computes, so the run has an epistemic step to propose (as cluster_run.rs does).
@@ -38,6 +40,9 @@ HERE="$ROOT/yidam/cluster/e2e"
 # Pinned. Argo 3.6 is the floor the generated `synchronization.mutexes` needs.
 ARGO_VERSION=v4.1.4
 CALICO_VERSION=v3.32.2
+ARGO_EVENTS_VERSION=v1.9.11
+# A JetStream version that Argo Events release lists in its controller config.
+NATS_VERSION=2.10.29
 
 CLUSTER=yidam-e2e
 NS=yidam-e2e
@@ -71,7 +76,7 @@ case "$BREAK" in
   *) die "YIDAM_E2E_BREAK=$BREAK is not a break this script knows" ;;
 esac
 
-for tool in docker kind kubectl jq git ssh-keygen tar; do
+for tool in docker kind kubectl jq git ssh-keygen tar openssl; do
   command -v "$tool" >/dev/null || die "$tool is not on PATH"
 done
 
@@ -533,6 +538,161 @@ if [ "$code" = 20 ] && ! pushed pin-with-read-key; then
 else
   fail "a pin pod holding the read key exited '$code' (want 20, a refused push); pushed: $(pushed pin-with-read-key && echo yes || echo no)"
 fi
+
+# ── on push ───────────────────────────────────────────────────────────────────
+#
+# The runs above were submitted by hand. Here the remote submits them (#1235): its hook posts
+# each pushed ref to the EventSource `--on-push webhook` generates, and the Sensor creates a run
+# for a push to main. A person's push owes a run. The lander's pushes to main owe nothing, and
+# each submits a run that `admit` turns away; its push to `propose/*` submits none.
+
+log "installing Argo Events $ARGO_EVENTS_VERSION"
+kubectl create namespace argo-events
+kubectl apply -n argo-events --server-side \
+  -f "https://github.com/argoproj/argo-events/releases/download/$ARGO_EVENTS_VERSION/install.yaml" >/dev/null
+kubectl -n argo-events rollout status deployment/controller-manager --timeout=5m
+
+# The bus the EventSource publishes to and the Sensor reads, in the corpus's namespace and so
+# under `restricted`. One server: the stream's replicas follow it.
+kubectl -n "$NS" apply -f - <<EOF
+apiVersion: argoproj.io/v1alpha1
+kind: EventBus
+metadata:
+  name: default
+spec:
+  jetstream:
+    version: "$NATS_VERSION"
+    replicas: 1
+    streamConfig: |
+      replicas: 1
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+      seccompProfile:
+        type: RuntimeDefault
+$(for t in containerTemplate reloaderContainerTemplate metricsContainerTemplate; do
+  printf '    %s:\n      securityContext:\n        allowPrivilegeEscalation: false\n        capabilities:\n          drop: ["ALL"]\n' "$t"
+done)
+EOF
+kubectl -n "$NS" wait --for=condition=Deployed eventbus/default --timeout=5m
+# What Argo Events' controller makes from an object, once it has made it.
+rolled_out() {
+  local kind=$1 selector=$2 deadline=$((SECONDS + 120))
+  until [ -n "$(kubectl -n "$NS" get "$kind" -l "$selector" -o name)" ]; do
+    [ "$SECONDS" -lt "$deadline" ] || die "no $kind labelled $selector was created"
+    sleep 2
+  done
+  kubectl -n "$NS" rollout status "$kind" -l "$selector" --timeout=5m
+}
+rolled_out statefulset eventbus-name=default
+
+on_push="$WORK/cluster/overlays/$CORPUS-on-push"
+yidam cluster workflow --on-push webhook --image "$IMAGE" --remote "$REMOTE" --vault-url "$VAULT_URL" \
+  >"$on_push/$CORPUS.onpush.yml"
+cp "$on_push/$CORPUS.onpush.yml" "$ARTIFACTS/"
+mkdir -p "$on_push/objects/secrets"
+TOKEN=$(openssl rand -hex 32)
+printf '%s' "$TOKEN" >"$on_push/objects/secrets/webhook.secret"
+kubectl apply -k "$on_push" -n "$NS"
+rolled_out deployment eventsource-name="yidam-$CORPUS"
+rolled_out deployment sensor-name="yidam-$CORPUS"
+# A Ready Sensor is not yet a listening one: it subscribes to the bus once it is leader, and a
+# new subscription gets only what is published after it. A push before then is published to no
+# one (#1235's first CI run lost it by a third of a second). Argo Events reports the
+# subscription only in the Sensor's log, so this waits on that line. It is a wait, not a check.
+deadline=$((SECONDS + 120))
+# A count, not `grep -q`: under pipefail, kubectl killed by a grep that stopped reading fails it.
+until [ "$(kubectl -n "$NS" logs -l sensor-name="yidam-$CORPUS" --tail=-1 | grep -c 'Subscribing to subject')" -gt 0 ]; do
+  [ "$SECONDS" -lt "$deadline" ] || die "the Sensor never subscribed to the event bus"
+  sleep 2
+done
+
+# The remote's half: a post-receive hook posting each updated ref, as a git host's webhook does.
+# It logs every post and its outcome, so a red run can tell an unsent push from an unrun one.
+HOOK_URL="http://yidam-$CORPUS-eventsource-svc.$NS.svc.cluster.local:12000/push"
+kubectl -n git-server exec -i "$GIT_POD" -- sh -c "
+  cat >/srv/git/$CORPUS.git/hooks/post-receive &&
+  chmod 755 /srv/git/$CORPUS.git/hooks/post-receive &&
+  : >/tmp/hook.log && chown git:git /tmp/hook.log" <<EOF
+#!/bin/sh
+while read -r old new ref; do
+  if wget -q -O /dev/null -T 10 --header 'Authorization: Bearer $TOKEN' \\
+    --header 'Content-Type: application/json' --post-data "{\"ref\":\"\$ref\"}" '$HOOK_URL'; then
+    echo "sent \$ref" >>/tmp/hook.log
+  else
+    echo "failed \$ref" >>/tmp/hook.log
+  fi
+done
+EOF
+
+# A person's push to main: one corpus file changed, which every corpus-reading step reads.
+log "on push: a person pushes to main"
+existing=$(kubectl -n "$NS" get workflows -l "yidam.dev/corpus=$CORPUS" -o name | sort)
+kubectl -n git-server exec "$GIT_POD" -- su git -c "
+  set -e
+  rm -rf /tmp/human && git clone -q -b main /srv/git/$CORPUS.git /tmp/human && cd /tmp/human
+  printf '\n# Edited by a person, to make a run owed.\n' >>.yidam/corpus/concept.ont.yml
+  git -c user.name=Person -c user.email=person@yidam.test commit -qam 'chore: a person edits the corpus'
+  git push -q origin HEAD:main"
+HUMAN=$(rgit rev-parse refs/heads/main)
+
+# The runs that push brought, and those the lander's pushes brought after it.
+pushed_runs() {
+  comm -13 <(echo "$existing") <(kubectl -n "$NS" get workflows -l "yidam.dev/corpus=$CORPUS" -o name | sort) \
+    | sed 's|^workflow[^/]*/||' | grep . || true
+}
+deadline=$((SECONDS + 120))
+while [ -z "$(pushed_runs)" ] && [ "$SECONDS" -lt "$deadline" ]; do sleep 2; done
+first=$(pushed_runs | head -1)
+if [ -z "$first" ]; then
+  fail "no run was created for the push to main"
+else
+  # Every run on push, in the order the mutex lets them through, until none is left running.
+  # Then a wait as long as the controller takes to start one, in case a push's run is late.
+  for settle in 1 2; do
+    for wf in $(pushed_runs); do await "$wf" >/dev/null; done
+    [ "$settle" = 2 ] || sleep 60
+  done
+  lands=$(rgit rev-list --count "$HUMAN..refs/heads/main")
+  admitted=0
+  turned_away=0
+  for wf in $(pushed_runs); do
+    phase=$(kubectl -n "$NS" get workflow "$wf" -o jsonpath='{.status.phase}')
+    [ "$phase" = Succeeded ] || {
+      fail "$wf ended $phase"
+      failed_nodes "$wf"
+    }
+    case "$(node_phase "$wf" pin)" in
+      Succeeded) admitted=$((admitted + 1)) ;;
+      *) turned_away=$((turned_away + 1)) ;;
+    esac
+  done
+  if [ "$admitted" = 1 ]; then
+    pass "the person's push brought one admitted run"
+  else
+    fail "the push to main brought $admitted admitted runs, not 1"
+  fi
+  if [ "$lands" -ge 1 ]; then
+    pass "the admitted run landed $lands commit(s) on main"
+  else
+    fail "the admitted run landed nothing on main, so no push of the lander's was tested"
+  fi
+  if [ "$turned_away" = "$lands" ]; then
+    pass "each of the lander's $lands push(es) to main brought one run, and admit turned it away"
+  else
+    fail "the lander pushed to main $lands time(s) and $turned_away run(s) were turned away"
+  fi
+  # The hook posted the proposal as well, and the Sensor's filter, not a missing post, is why
+  # no run came of it.
+  if kubectl -n git-server exec "$GIT_POD" -- grep -q '^sent refs/heads/propose/' /tmp/hook.log; then
+    pass "the lander's push to propose/* was posted and brought no run"
+  else
+    fail "the hook posted no push to propose/*"
+  fi
+fi
+kubectl -n git-server exec "$GIT_POD" -- cat /tmp/hook.log >"$ARTIFACTS/hook.log" || true
 
 # ── verdict ───────────────────────────────────────────────────────────────────
 

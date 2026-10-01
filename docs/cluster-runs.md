@@ -303,8 +303,8 @@ find nothing owed.
 #### The lander's own push
 
 The lander pushes to the branch, so the lander's push is a push too. It submits a run. That run
-asks `admit`, finds every receipt matching the tip, and stops. A test drives this through.
-A person's push is admitted, the chain lands, and the lander's last push is not.
+asks `admit`, finds every receipt matching the tip, and stops. `mise run cluster-e2e` drives this
+through on a cluster. A person's push is admitted, the chain lands, and no push of the lander's is.
 
 The Sensor does not filter on the committer. The committer is a name a deployment sets. A
 filter on it breaks silently when the name changes. Admission reads what is owed, which is
@@ -517,17 +517,20 @@ A receipt is on the ref.
 
 ## Checked on a real cluster
 
-`mise run cluster-e2e` runs streamflow on a kind cluster, under Calico and Argo Workflows 4.1.
+`mise run cluster-e2e` runs streamflow on kind, under Calico, Argo Workflows 4.1 and Argo Events 1.9.
 It needs Docker, and builds the image from the checkout. The script is
 [run.sh](../yidam/cluster/e2e/run.sh).
 
-It applies the overlay in a namespace that enforces `restricted`. Then it reads the remote, never
-a log:
+It applies the overlay in a namespace that enforces `restricted`. The git server's hook posts
+each push to the `EventSource`. Then it reads the remote and the runs, never a log:
 
 - Each `compute:` commit is on the branch, with its receipt.
 - The epistemic step is on `propose/*`, and the branch did not move for it.
 - A second submission is not admitted, and moves no ref.
 - A step pod holding the write key cannot reach the remote. A lander pod can push with it.
+- With Argo Events and the `webhook` source, a person's push brings one admitted run.
+- Each of the lander's pushes to the branch brings one run, which is not admitted.
+- The lander's push to `propose/*` is posted and brings no run.
 
 It runs nightly, on a pull request labelled `cluster`, and on any change to the generator or
 `yidam/cluster/`. `YIDAM_E2E_KEEP=1` keeps the cluster after the run.
