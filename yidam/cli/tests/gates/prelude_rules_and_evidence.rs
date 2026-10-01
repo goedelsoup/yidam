@@ -567,11 +567,17 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// `interval-gap` row and paragraph that [`BOOTSTRAP_CEILING`] moved by, and 171 in the evidence
 /// half, the allen-county-ohio measurement against its succession calculator. 10,585 + 245 is
 /// this figure exactly.
+///
+/// **`bootstrap.md` lowered to 11,159 for #934**, the one floor here that has moved down. The
+/// domain libraries moved out of the prelude, so step 8 stopped pruning them: the two `rm`
+/// recipes and the evidence section arguing for the prune were retired, not moved, and the
+/// opt-in copy and the history folded into `only-named-domains-are-vendored` replace them two
+/// words short.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_686),
     ("yidam/prelude/GRAPH.md", 10_830),
     ("yidam/prelude/guidelines/directories.md", 12_820),
-    ("yidam/prelude/skills/bootstrap.md", 11_161),
+    ("yidam/prelude/skills/bootstrap.md", 11_159),
 ];
 
 /// The `##` sections of the seven step-1 files that no read reaches, as `file#slug` under

@@ -964,11 +964,11 @@ The update replaces `.yidam/.vendor/prelude/` wholesale, rewrites `.yidam.toml`,
 `crates/`, and every other top-level file are domain-owned and are never overwritten by an
 update.
 
-**`prelude/domains/` is the one part of that replacement that is not wholesale**, because its
-contents are a decision rather than a copy. The update reads `prelude_domains` from
-`.yidam/decisions/proposals.yml` and prunes to it, and where no such declaration exists it keeps
-exactly what this repository already vendored. Adding a name to that field and re-running the
-update is how a domain is vendored later; it is also the only thing that survives the next one.
+**`.yidam/.vendor/domains/` is replaced by a decision rather than a copy.** The domain
+libraries are not part of the prelude; the update reads `prelude_domains` from
+`.yidam/decisions/proposals.yml` and copies exactly those, and where no such declaration exists
+it keeps exactly what this repository already vendored. Adding a name to that field and
+re-running the update is how a domain is vendored later.
 [why](directories.evidence.md#prelude-domains-not-wholesale)
 
 `mise.yidam.toml` is on that list because it is inherited, not domain-owned: it is the task

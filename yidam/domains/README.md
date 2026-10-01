@@ -1,4 +1,4 @@
-# Prelude Domains
+# Domains
 
 Pure function libraries for domain-specific calculations, shared across yidam-derived
 repositories that work in the same domain. An extension of the `prelude/sdks/` layer —
@@ -12,7 +12,7 @@ same three languages, same parity discipline, Rust as reference.
 nodes, classifying commits, finding markers, and so on. These are universal — every repo
 needs them regardless of domain.
 
-`prelude/domains/` adds the domain-specific math. A repository working on causal inference
+`yidam/domains/` adds the domain-specific math. A repository working on causal inference
 needs tools for estimating treatment effects. One working on graph-theoretic linguistics
 needs centrality and clustering measures. These are not universal, but they are *reusable*
 across repos in the same domain — and they are pure functions, the same in Rust, TypeScript,
@@ -32,12 +32,16 @@ One-off calculations specific to a single repo live in `crates/` or `packages/`,
 
 ## Relationship to samudaya
 
-When a derived repo is bootstrapped with a domain-specific `samudaya/` configuration, the
-bootstrap agent activates the relevant domain from `prelude/domains/` by wiring it into the
-repo's language workspaces (`crates/Cargo.toml`, `packages/`, etc.). The domain functions
-become available to the corpus agents, calculators, and index pipeline from that point.
+This layer sits beside the prelude, not inside it, so a derived repository does not receive
+it by default. A repository opts into a domain by naming it in `prelude_domains` in
+`.yidam/decisions/proposals.yml` (bootstrap step 5); step 8 of the bootstrap, and every
+`mise run yidam-vendor-update` after it, copies exactly the named domains — with this index
+and `parity/` — into `.yidam/.vendor/domains/`. A repository that names none has no
+`domains/` directory at all. The agent then wires a vendored domain into the repo's language
+workspaces (`crates/Cargo.toml`, `packages/`, etc.), and its functions become available to
+the corpus agents, calculators, and index pipeline from that point.
 
-`prelude/domains/` does not itself depend on any domain. It is the template; derived repos
+`yidam/domains/` does not itself depend on any domain. It is the template; derived repos
 consume it.
 
 ---
@@ -45,7 +49,7 @@ consume it.
 ## Directory structure
 
 ```
-prelude/domains/
+yidam/domains/
   README.md               ← this document
   parity/                 ← cross-language fixture suite (same format as sdks/parity/)
     VERSION               ← version of the domain parity surface
@@ -79,7 +83,7 @@ See [`parity/README.md`](parity/README.md) for fixture format and the MUST rule.
 
 ## Adding a domain
 
-1. Create `prelude/domains/<domain>/` with `rust/`, `typescript/`, `python/`, and `README.md`
+1. Create `yidam/domains/<domain>/` with `rust/`, `typescript/`, `python/`, and `README.md`
 2. Implement the domain's functions in all three languages
 3. Add at least one fixture per function to `parity/fixtures/<domain>.<function>/`
 4. Add a `spec/` directory with Dafny invariants for any non-obvious properties

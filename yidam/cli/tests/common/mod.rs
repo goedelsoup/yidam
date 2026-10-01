@@ -176,19 +176,18 @@ pub struct Install {
 /// installs no sangha at all.
 pub const COLLECTIVE: &str = "governance: collective";
 
-/// A step 5 calculator named a `prelude/domains/` library. The default is that none does,
+/// A step 5 calculator named a `yidam/domains/` library. The default is that none does,
 /// and step 8 then vendors no `domains/` directory at all.
 pub const DOMAIN_SELECTED: &str = "prelude_domains: non-empty";
 
 pub const MAPPING: &[Install] = &[
-    // The domain libraries, before the prelude row so the prefix match reaches them first.
-    // Fifteen libraries in three languages each — about 320 of the ~540 files the vendor
-    // step moves — and step 8 keeps only what a step 5 calculator named. A derived
-    // repository has no task that builds them, no workspace that includes them, and no CI
-    // job that runs them; `domain-parity` is yidam's gate and does not travel.
+    // The domain libraries, beside the prelude rather than inside it (#934). Fifteen
+    // libraries in three languages each, and step 8 copies only what a step 5 calculator
+    // named. A derived repository has no task that builds them, no workspace that includes
+    // them, and no CI job that runs them; `domain-parity` is yidam's gate and does not travel.
     Install {
-        src: "yidam/prelude/domains",
-        dst: Some(".yidam/.vendor/prelude/domains"),
+        src: "yidam/domains",
+        dst: Some(".yidam/.vendor/domains"),
         when: Some(DOMAIN_SELECTED),
     },
     // The vendored prelude. One directory, deliberately: everything else under `yidam/`

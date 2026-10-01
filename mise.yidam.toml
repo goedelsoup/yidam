@@ -425,32 +425,26 @@ fi
 # repo, so there is nothing local to preserve. Anything that WAS edited locally
 # shows up in the diff below, which is the point.
 #
-# `prelude/domains/` is the exception, and it is not a local edit — it is a choice
-# bootstrap made and recorded. Read what this repository vendors now, before the
-# replacement erases it; the prune below needs it as a fallback.
+# The domain libraries are not part of the prelude and are not in that copy; the
+# block below adds the ones this repository chose. Read what it vendors now first —
+# under `.yidam/.vendor/domains/`, or under `prelude/domains/` for a repository
+# vendored before the layer moved out (#934) — since the line below erases the latter.
 vendored=""
-if [ -d .yidam/.vendor/prelude/domains ]; then
-  vendored=$(ls .yidam/.vendor/prelude/domains)
-fi
+for dir in .yidam/.vendor/domains .yidam/.vendor/prelude/domains; do
+  if [ -d "$dir" ]; then
+    vendored="$vendored $(ls "$dir" | grep -vxE 'README.md|parity' || true)"
+  fi
+done
 rm -rf .yidam/.vendor/prelude
 mkdir -p .yidam/.vendor
 cp -R "$tmp/yidam/yidam/prelude" .yidam/.vendor/prelude
 # ── the domain libraries, and the choice this repository already made ─
 #
-# `prelude/domains/` is fifteen libraries in three languages each — around 320 of
-# the ~540 files the line above just wrote, and the majority of the bytes. Step 8
-# of bootstrap keeps only what a step 5 calculator named, and the common case
-# names none: a derived repository has no task that builds them, no workspace that
-# includes them, and no CI job that runs them. `domain-parity` is yidam's gate and
-# does not travel.
-#
-# The copy is wholesale, so it puts every one of them back. For as long as this
-# task read no declaration that is exactly what it did — every re-vendor silently
-# reinstating a decision genesis had made, and the affordance the bootstrap skill
-# describes ("add it to prelude_domains and re-run") naming a mechanism that was
-# never written. A repository a few hours old declined to run this task at all
-# rather than take the 320 files back, which also froze the inherited task layer
-# this task is the only update path for (#808).
+# `yidam/domains/` is fifteen libraries in three languages each, and a derived
+# repository has no task that builds them, no workspace that includes them, and no
+# CI job that runs them unless it wires one in. They sit beside the prelude rather
+# than inside it so that the copy above never brings them: this block copies only
+# what the repository opted into, and the common case opts into none.
 #
 # Two sources, in order, and neither is a guess:
 #
@@ -458,12 +452,17 @@ cp -R "$tmp/yidam/yidam/prelude" .yidam/.vendor/prelude
 #      writes and step 8 reads. The repository's own declaration, the same
 #      standing as `[build] features` above.
 #   2. Failing that, what this repository already had. A re-vendor may not decide
-#      something nobody declared: a repository predating the drop keeps its
-#      fifteen, one bootstrapped after it keeps none, and neither is surprised.
+#      something nobody declared: a repository that vendored domains before the
+#      record existed keeps them, and one that vendored none gets none.
 #
-# PRUNE-DOMAINS BEGIN
-domains=.yidam/.vendor/prelude/domains
+# VENDOR-DOMAINS BEGIN
+domains=.yidam/.vendor/domains
 proposals=.yidam/decisions/proposals.yml
+# A ref from before #934 carries the libraries inside its prelude; take them from
+# there, and never leave them in the prelude copy.
+upstream="$tmp/yidam/yidam/domains"
+[ -d "$upstream" ] || upstream="$tmp/yidam/yidam/prelude/domains"
+rm -rf .yidam/.vendor/prelude/domains
 if [ -f "$proposals" ] && grep -q '^prelude_domains:' "$proposals"; then
   keep=$(awk '
     /^prelude_domains:/ {
@@ -491,24 +490,26 @@ else
 fi
 # One line, whatever form the declaration took: a flow list, a block list, or an ls.
 keep=$(echo $keep)
-if [ -d "$domains" ]; then
-  if [ -z "$keep" ]; then
-    rm -rf "$domains"
-    echo "prelude/domains/: nothing kept (per $source) — directory removed"
-  else
-    # README.md is the index that says what the layer is and how a domain is wired
-    # into crates/Cargo.toml; `parity` is how a kept domain is checked across its
-    # three languages. Both are kept whenever anything is.
-    for d in $(ls "$domains"); do
-      case " $keep README.md parity " in
-        *" $d "*) ;;
-        *) rm -rf "$domains/$d" ;;
-      esac
-    done
-    echo "prelude/domains/: kept $keep (per $source)"
-  fi
+rm -rf "$domains"
+if [ -z "$keep" ]; then
+  echo "domains/: none vendored (per $source)"
+else
+  mkdir -p "$domains"
+  # README.md is the index that says what the layer is and how a domain is wired
+  # into crates/Cargo.toml; `parity` is how a kept domain is checked across its
+  # three languages. Both come with anything that does.
+  for d in $keep README.md parity; do
+    if [ -e "$domains/$d" ]; then
+      continue
+    elif [ -e "$upstream/$d" ]; then
+      cp -R "$upstream/$d" "$domains/$d"
+    else
+      echo "WARNING: domains/$d: named (per $source) but not in $upstream" >&2
+    fi
+  done
+  echo "domains/: vendored $keep (per $source)"
 fi
-# PRUNE-DOMAINS END
+# VENDOR-DOMAINS END
 # This file too. It is the inherited TASK layer — as read-only as the prelude and
 # as much yidam's to correct, but it does not live under .yidam/.vendor/ because
 # mise has to find it at the repo root. For a long time that meant it had no
@@ -839,7 +840,7 @@ fi
 # writes nothing to stdout, and must not stop the re-vendor. One line, so a test can run it.
 contract=$(yidam doctor --only contract --strict 2>/dev/null) || [ -z "$contract" ] || printf '\\n%s\\n\\n' "$contract"
 echo "review the diff, then commit it as its own event:"
-echo "  git add .yidam/.vendor/prelude .yidam.toml mise.yidam.toml mise.toml .yidam/lint-baseline.yml .github/workflows/ci.yml .claude/CLAUDE.md"
+echo "  git add .yidam/.vendor .yidam.toml mise.yidam.toml mise.toml .yidam/lint-baseline.yml .github/workflows/ci.yml .claude/CLAUDE.md"
 echo "  git commit -m 'vendor: re-vendor prelude at $commit — <what changed>'"
 """
 

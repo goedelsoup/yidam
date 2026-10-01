@@ -244,7 +244,7 @@ becomes a test failure instead of a mystery.
 
 ```sh
 mise run parity          # cross-language parity for the SDK functions
-mise run domain-parity   # same discipline for the domain calculators in prelude/domains/
+mise run domain-parity   # same discipline for the domain calculators in yidam/domains/
 mise run embed-parity    # embedding reproducibility across fastembed / transformers.js / sentence-transformers
 mise run verify          # Dafny specs and Lean 4 proofs (dafny + lake installed separately)
 ```

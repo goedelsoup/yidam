@@ -591,40 +591,38 @@ fn the_tag_refspec_globs_so_peeled_refs_are_returned() {
     );
 }
 
-/// A re-vendor must not restore the domain libraries genesis dropped.
+/// A re-vendor vendors exactly the domain libraries this repository declared.
 ///
-/// `prelude/domains/` is fifteen libraries, ~320 of the ~540 files the prelude copy writes.
-/// Step 8 of bootstrap keeps only what a step 5 calculator named, and the common case names
-/// none. The copy in `yidam-vendor-update` is wholesale, so without a prune it puts all
-/// fifteen back on every update — reversing a genesis decision as a side effect of taking a
-/// prelude correction, and re-arming #590 (`cargo fmt --all` reaching them). The skill's
-/// affordance pointed at the same gap from the other side: "add it to `prelude_domains` and
-/// re-run" named a mechanism the task did not contain, so adding a name did nothing while
-/// re-running restored everything (#808).
+/// `yidam/domains/` is fifteen libraries in three languages, and the common derived
+/// repository can build none of them. They sit beside the prelude rather than inside it
+/// (#934), so the wholesale prelude copy never brings them; this block copies the ones a
+/// step 5 calculator named into `.yidam/.vendor/domains/`. Before the move, the copy put
+/// all fifteen back and a prune took them out again — the mechanism #808 added after a
+/// re-vendor silently reversed a genesis decision.
 ///
 /// The fragment is read out of `mise.yidam.toml` and run by `sh`, for the reason the tag
 /// resolver above gives: a copy here would pass while the file rotted. Nothing in this
 /// repository runs this task — `mise.yidam.toml` has no consumer here at all — so a
 /// mistake in it is invisible until a derived repository takes the update.
 #[test]
-fn a_re_vendor_keeps_only_the_domains_this_repository_declared() {
+fn a_re_vendor_copies_only_the_domains_this_repository_declared() {
     let run = parse("mise.yidam.toml")["yidam-vendor-update"]["run"]
         .as_str()
         .expect("yidam-vendor-update.run")
         .to_string();
 
-    let begin = "# PRUNE-DOMAINS BEGIN\n";
-    let start = run.find(begin).expect("the prune is marked") + begin.len();
+    let begin = "# VENDOR-DOMAINS BEGIN\n";
+    let start = run.find(begin).expect("the domain copy is marked") + begin.len();
     let end = run[start..]
-        .find("# PRUNE-DOMAINS END")
-        .expect("unterminated prune");
+        .find("# VENDOR-DOMAINS END")
+        .expect("unterminated domain copy");
     let fragment = &run[start..start + end];
 
-    // It has to run after the copy, or it prunes the previous prelude and the new one
-    // arrives whole.
+    // It has to run after the prelude copy, or an old ref's `prelude/domains/` arrives
+    // after the block that removes it.
     assert!(
         run.find("cp -R").expect("the prelude is copied") < start,
-        "the prune runs before the copy it is pruning"
+        "the domain copy runs before the prelude copy"
     );
 
     const LIBRARIES: &[&str] = &[
@@ -645,48 +643,77 @@ fn a_re_vendor_keeps_only_the_domains_this_repository_declared() {
         "trade",
     ];
 
-    /// Run the fragment over a freshly copied `domains/` — all fifteen, as the `cp -R`
-    /// leaves it — and report what survives.
+    /// Run the fragment against an upstream checkout holding all fifteen and report what
+    /// `.yidam/.vendor/domains/` holds afterwards.
     ///
     /// `proposals` is the decision record's content, or `None` for a repository that has
-    /// none. `vendored` is what the task captured before the replacement.
-    fn prune(
+    /// none. `vendored` is what the task captured before the replacement. `legacy` lays the
+    /// upstream out as a ref from before #934 did — inside the prelude, which the task has
+    /// just copied — and asserts that nothing is left there.
+    fn vendor(
         fragment: &str,
         proposals: Option<&str>,
         vendored: &str,
+        legacy: bool,
     ) -> (String, Option<Vec<String>>) {
         let dir = tempfile::tempdir().unwrap();
-        let domains = dir.path().join(".yidam/.vendor/prelude/domains");
-        std::fs::create_dir_all(&domains).unwrap();
-        for lib in LIBRARIES {
-            std::fs::create_dir(domains.join(lib)).unwrap();
+        let tmp = dir.path().join("tmp");
+        let repo = dir.path().join("repo");
+        let upstream = if legacy {
+            tmp.join("yidam/yidam/prelude/domains")
+        } else {
+            tmp.join("yidam/yidam/domains")
+        };
+        let copied = repo.join(".yidam/.vendor/prelude/domains");
+        for root in std::iter::once(&upstream).chain(legacy.then_some(&copied)) {
+            std::fs::create_dir_all(root).unwrap();
+            for lib in LIBRARIES {
+                std::fs::create_dir(root.join(lib)).unwrap();
+                std::fs::write(root.join(lib).join("README.md"), lib).unwrap();
+            }
+            std::fs::write(root.join("README.md"), "the index").unwrap();
         }
-        std::fs::write(domains.join("README.md"), "the index").unwrap();
+        std::fs::create_dir_all(&repo).unwrap();
         if let Some(body) = proposals {
-            let decisions = dir.path().join(".yidam/decisions");
+            let decisions = repo.join(".yidam/decisions");
             std::fs::create_dir_all(&decisions).unwrap();
             std::fs::write(decisions.join("proposals.yml"), body).unwrap();
         }
 
-        let script = format!("set -eu\nvendored='{vendored}'\n{fragment}");
+        let script = format!(
+            "set -eu\ntmp='{}'\nvendored='{vendored}'\n{fragment}",
+            tmp.display()
+        );
         let out = std::process::Command::new("sh")
             .arg("-c")
             .arg(&script)
-            .current_dir(dir.path())
+            .current_dir(&repo)
             .output()
             .expect("sh");
         assert!(
             out.status.success(),
-            "the prune failed: {}",
+            "the domain copy failed: {}",
             String::from_utf8_lossy(&out.stderr)
         );
+        assert!(
+            !copied.exists(),
+            "the libraries were left inside the vendored prelude"
+        );
 
+        let domains = repo.join(".yidam/.vendor/domains");
         let kept = domains.is_dir().then(|| {
             let mut names: Vec<String> = std::fs::read_dir(&domains)
                 .unwrap()
                 .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
                 .collect();
             names.sort();
+            // A library is copied whole, and not nested inside itself.
+            for name in names.iter().filter(|n| *n != "README.md") {
+                assert_eq!(
+                    std::fs::read_to_string(domains.join(name).join("README.md")).unwrap(),
+                    *name
+                );
+            }
             names
         });
         (
@@ -696,18 +723,24 @@ fn a_re_vendor_keeps_only_the_domains_this_repository_declared() {
     }
 
     // The common case, and the form the bootstrap skill writes — trailing comment included.
-    let (say, kept) = prune(
+    let (say, kept) = vendor(
         fragment,
         Some("id: proposals\nprelude_domains: []          # domains selected in step 8; [] is the common case\n"),
         "",
+        false,
     );
     assert_eq!(
         kept, None,
-        "an empty declaration must remove the directory, not keep fifteen libraries: {say}"
+        "an empty declaration must vendor no directory, not fifteen libraries: {say}"
     );
 
     // A flow list, which is what the skill's template becomes when a domain is added to it.
-    let (_, kept) = prune(fragment, Some("prelude_domains: [causal, finance]\n"), "");
+    let (_, kept) = vendor(
+        fragment,
+        Some("prelude_domains: [causal, finance]\n"),
+        "",
+        false,
+    );
     assert_eq!(
         kept.as_deref(),
         Some(
@@ -718,14 +751,15 @@ fn a_re_vendor_keeps_only_the_domains_this_repository_declared() {
                 "parity".into()
             ][..]
         ),
-        "a flow list must keep exactly what it names, plus the index and the parity harness"
+        "a flow list must vendor exactly what it names, plus the index and the parity harness"
     );
 
     // A block list, because YAML has two spellings and a reader will use either.
-    let (_, kept) = prune(
+    let (_, kept) = vendor(
         fragment,
         Some("prelude_domains:\n  - causal\n  - trade  # the one the calculator calls\nrationale: |\n  prose\n"),
         "",
+        false,
     );
     assert_eq!(
         kept.as_deref(),
@@ -740,23 +774,34 @@ fn a_re_vendor_keeps_only_the_domains_this_repository_declared() {
         "a block list must be read the same as a flow list"
     );
 
-    // **The reported case.** No declaration to read — a repository bootstrapped before the
-    // record existed, or one whose proposals.yml never got the key. The re-vendor may not
-    // decide it: what was here stays here, and what was not does not come back.
-    let (say, kept) = prune(fragment, None, "");
+    // No declaration to read — a repository bootstrapped before the record existed, or one
+    // whose proposals.yml never got the key. The re-vendor may not decide it: what was
+    // here stays here, and what was not does not arrive.
+    let (say, kept) = vendor(fragment, None, "", false);
     assert_eq!(
         kept, None,
-        "with nothing vendored and nothing declared, the re-vendor restored the libraries \
-         this repository had dropped: {say}"
+        "with nothing vendored and nothing declared, the re-vendor vendored libraries \
+         this repository never had: {say}"
     );
 
-    let (_, kept) = prune(fragment, None, "causal parity README.md");
+    let (_, kept) = vendor(fragment, None, " causal", false);
     assert_eq!(
         kept.as_deref(),
         Some(&["README.md".into(), "causal".into(), "parity".into()][..]),
         "a repository that vendors one domain and declares nothing must keep that one — \
          and only that one"
     );
+
+    // A ref from before the move carries the libraries inside its prelude. Pinning one
+    // must still honour the declaration, and must not leave fifteen behind in the copy.
+    let (_, kept) = vendor(fragment, Some("prelude_domains: [trade]\n"), "", true);
+    assert_eq!(
+        kept.as_deref(),
+        Some(&["README.md".into(), "parity".into(), "trade".into()][..]),
+        "an older ref's domains must be taken from its prelude"
+    );
+    let (_, kept) = vendor(fragment, Some("prelude_domains: []\n"), "", true);
+    assert_eq!(kept, None, "an older ref must not reinstate any domain");
 }
 
 /// The `[tools]` entry is derived from the pin, and touches nothing else in the file.

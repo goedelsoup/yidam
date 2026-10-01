@@ -140,7 +140,7 @@ TypeScript, and Python — held to the same TOML fixtures.
 
 ```sh
 mise run parity          # cross-language parity for the SDK functions
-mise run domain-parity   # the domain calculators in prelude/domains/
+mise run domain-parity   # the domain calculators in yidam/domains/
 mise run embed-parity    # embedding reproducibility across runtimes
 mise run verify          # Dafny specs and Lean 4 proofs (dafny + lake installed separately)
 ```

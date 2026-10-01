@@ -28,7 +28,7 @@ the glossary scaffolded a `rigpa/`-aware repository having never been told what 
 
 The ban on enumeration is on wandering — on listing a directory to see what turns up and
 reading whatever does — and a step that names the path and the field before it reads is not
-wandering. Step 5 had directed its listing of `yidam/prelude/domains/` for as long as the same
+wandering. Step 5 had directed its listing of the domain libraries for as long as the same
 paragraph forbade any listing at all, and the unqualified ban was the half that was wrong. The
 same reasoning admits this file: a `[why]` link names a section, and a section is a field.
 
@@ -143,6 +143,12 @@ indistinguishable from an abandoned one. Naming a domain is cheap and reversible
 fifteen is neither. The bar is whether a calculator in the table would call a function in it,
 because "sounds adjacent" is how all fifteen get named.
 
+The libraries once lived inside the prelude and step 8 pruned them after the move — 364 files
+copied so that a later command could delete them, and a re-vendor that had to repeat the prune
+or reinstate all fifteen. A derived repository has no task that builds them, no workspace that
+includes them, and no CI job that runs them, so they now sit beside the prelude and arrive only
+when named (#934).
+
 ## a-link-is-not-an-edge
 
 A link to a README, to a directory, or to the class definition alone is a citation rather than a
@@ -233,15 +239,6 @@ Everything under `yidam/` except `prelude/` is yidam's own machinery — the CLI
 bootstrap test harness, the design notes, the docs site — and none of it is readable, runnable,
 or updatable from inside a derived repo. Carrying it produces a stale fork of the CLI that will
 never be rebuilt and a `HARNESS.md` whose links point at scenarios the repo does not have.
-
-## prune-the-domains
-
-The same argument as vendoring one directory, applied one level down. A derived repository has
-no task that builds these libraries, no workspace that includes them, and no CI job that runs
-them; the `domain-parity` gate that keeps them honest is yidam's and does not travel. Fifteen
-unbuildable libraries is the stale-fork outcome arriving through the one directory the vendor
-step allows. `prelude/domains/` is around 320 of the roughly 540 files the vendor step moves, and
-the majority of the bytes.
 
 ## template-root-is-enforced
 

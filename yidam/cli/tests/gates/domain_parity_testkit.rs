@@ -37,7 +37,7 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-const DOMAINS: &str = "yidam/prelude/domains";
+const DOMAINS: &str = "yidam/domains";
 
 /// The crate every domain suite must load its fixtures through.
 const TESTKIT: &str = "yidam-domain-testkit";

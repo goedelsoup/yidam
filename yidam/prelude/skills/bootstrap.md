@@ -129,10 +129,10 @@ only** means that section and nothing else in the file.
 `GLOSSARY.md` is first and is deliberately the shortest: the six files below use its words
 without defining them. [why](bootstrap.evidence.md#glossary-first)
 
-Three kinds of read reach a named path under `yidam/prelude/` for a stated purpose, and they
-are the only exceptions: **step 2** lists `yidam/prelude/kuten/` and reads two fields out of
-the profile the user confirms; **step 5** lists `yidam/prelude/domains/` to see what a
-calculator could call into; and a `[why]` link in this skill names one section of
+Three kinds of read reach a named path under `yidam/` for a stated purpose, and they are the
+only exceptions: **step 2** lists `yidam/prelude/kuten/` and reads two fields out of the
+profile the user confirms; **step 5** lists `yidam/domains/` to see what a calculator could
+call into; and a `[why]` link in this skill names one section of
 `bootstrap.evidence.md`, which you may follow when an instruction seems wrong for the
 repository in front of you and need never follow otherwise. Each names the path it reads and
 the field it takes from it. Nothing else under `yidam/prelude/` is opened at any point.
@@ -553,7 +553,7 @@ user for confirmation:
 |------|----------|-------|---------|----------------|
 | `name` | what it derives | which classes/edges | what it produces | `<domain>`, or — |
 
-Before proposing a calculator, list `yidam/prelude/domains/` and see whether one of them
+Before proposing a calculator, list `yidam/domains/` and see whether one of them
 already computes what it needs. That layer holds small pure functions — means and variances,
 centrality, entropy, geodesic distance — implemented identically in Rust, TypeScript and
 Python and pinned to each other by shared fixtures. The last column names the domain a
@@ -844,7 +844,8 @@ into the `.yidam/` infrastructure namespace and delete the rest of the template.
 bootstrapping from the yidam template).
 
 **Vendor exactly one directory.** `yidam/prelude/` is what a derived repo inherits; nothing
-else under `yidam/` is. [why](bootstrap.evidence.md#vendor-exactly-one-directory)
+else under `yidam/` is, except the domain libraries step 5 named.
+[why](bootstrap.evidence.md#vendor-exactly-one-directory)
 
 Because `yidam/` was not staged in the genesis commit (it is untracked), use filesystem
 operations and stage the result directly:
@@ -852,37 +853,32 @@ operations and stage the result directly:
 ```
 mkdir -p .yidam/.vendor
 mv yidam/prelude .yidam/.vendor/prelude
+```
+
+`prelude/sdks/` is part of the prelude and moves with it — the prelude's own README and
+`agent-conduct.md` link into it, so it is read from inside a derived repository even though it
+is not built there.
+
+**Then vendor the domain libraries this corpus asked for, and none other.** `yidam/domains/`
+is fifteen domain libraries in three languages each, beside the prelude rather than inside it.
+[why](bootstrap.evidence.md#only-named-domains-are-vendored) Read `prelude_domains` out of
+`.yidam/decisions/proposals.yml` (step 5). If it is empty — the common case — skip this. If it
+names any, move them, with the index and the parity harness:
+
+```
+mkdir -p .yidam/.vendor/domains
+for d in <selected> README.md parity; do mv "yidam/domains/$d" .yidam/.vendor/domains/; done
+```
+
+`prelude_domains` is also what `mise run yidam-vendor-update` reads: it copies exactly the
+named domains into `.yidam/.vendor/domains/` on every update. Write the field even when it is
+empty, because the empty list is a decision and the task reads it as one (#808).
+
+**Then delete the rest of the template directory**, the unnamed domains with it:
+
+```
 rm -rf yidam/
 ```
-
-**Then drop the domain libraries this corpus did not ask for.** `prelude/domains/` is fifteen
-domain libraries in three languages each, and a derived repository can build none of them.
-[why](bootstrap.evidence.md#prune-the-domains) Read `prelude_domains` out of
-`.yidam/decisions/proposals.yml` (step 5) and keep only what it names:
-
-```
-cd .yidam/.vendor/prelude/domains
-ls -d */ | grep -vE '^(README.md|parity|<selected>)/' | xargs rm -rf
-cd -
-```
-
-If `prelude_domains` is empty — the common case — remove the whole directory:
-
-```
-rm -rf .yidam/.vendor/prelude/domains
-```
-
-`prelude/sdks/` stays whole — the prelude's own README and `agent-conduct.md` link into it, so
-it is read from inside a derived repository even though it is not built there.
-
-`prelude_domains` is why this deletion survives. `mise run yidam-vendor-update` replaces the
-vendored prelude wholesale, so it copies all fifteen back every time; it then reads the field
-out of the decision record and prunes to what this repository declared. That is the whole
-mechanism — write the field even when it is empty, because the empty list is a decision and
-the task reads it as one (#808).
-
-Keep `domains/README.md` when any domain is kept: it is the index that says what the layer is
-and how a domain is wired into `crates/Cargo.toml` when the domain computer exists.
 
 **Then delete the two template files bootstrap itself used.** `README.md`, `AGENTS.md`,
 `.claude/CLAUDE.md`, `mise.toml`, `.gitattributes`, and `.gitignore` were already
@@ -1046,7 +1042,7 @@ finding an empty directory and guessing:
 - `.yidam/sangha/` — collective resolution. State the governance mode chosen in step 2. In
   single-elector mode, say that phases run on `phase/<name>` branches and that the sangha
   can be adopted later if a second elector appears.
-- `prelude/domains/` — shared pure-function libraries. Name the domains vendored in step 8,
+- `.yidam/.vendor/domains/` — shared pure-function libraries. Name the domains vendored in step 8,
   or say that none were and that the layer exists: the fifteen are listed in the yidam
   repository, and one can be vendored later by adding its name to `prelude_domains` in
   `.yidam/decisions/proposals.yml` and re-running `mise run yidam-vendor-update`. A reader

@@ -69,10 +69,10 @@ updates:
       cargo-harness:
         patterns: ["*"]
   # The parity testkit, which every domain crate reaches by path. Its `toml` is the only direct
-  # registry dependency behind any of the fifteen `Cargo.lock`s under `prelude/domains`, so
+  # registry dependency behind any of the fifteen `Cargo.lock`s under `yidam/domains`, so
   # this entry is what moves them all and the fourteen crates need no entry of their own.
   - package-ecosystem: cargo
-    directory: /yidam/prelude/domains/parity/testkit
+    directory: /yidam/domains/parity/testkit
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 1
     groups:
@@ -145,7 +145,7 @@ updates:
   - package-ecosystem: npm
     directories:
       - /yidam/prelude/sdks/typescript
-      - /yidam/prelude/domains/*/typescript
+      - /yidam/domains/*/typescript
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 3
     groups:

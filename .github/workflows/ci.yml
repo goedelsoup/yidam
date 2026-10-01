@@ -149,7 +149,7 @@ jobs:
     # the fix: format them here, on what gets vendored, so a derived repo's gate never
     # depends on whether the pin it is on happens to be clean.
     #
-    # `mise run ci-domains` glob-discovers `yidam/prelude/domains/*/rust/Cargo.toml` rather
+    # `mise run ci-domains` glob-discovers `yidam/domains/*/rust/Cargo.toml` rather
     # than naming the 14 crates, so a fifteenth domain is covered the day it lands.
     #
     # Its own job, not a leg of the `ci` matrix above: these are 14 standalone crates with no
