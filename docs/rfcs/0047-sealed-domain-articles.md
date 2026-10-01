@@ -30,7 +30,7 @@ for a derived repository's own.
 **The article did not survive a re-vendor.** The bootstrap skill said to "append it to the repo's
 copy of the constitution". That copy is `.yidam/.vendor/prelude/CONSTITUTION.md`.
 `yidam-vendor-update` deletes that directory first
-([mise.yidam.toml](../../mise.yidam.toml#L438): *"rm -rf .yidam/.vendor/prelude"*). So the first upgrade erased every article the
+([mise.yidam.toml](../../mise.yidam.toml#L531): *"rm -rf .yidam/.vendor/prelude"*). So the first upgrade erased every article the
 genesis commit had appended. "Permanent" meant "until the next upgrade".
 
 **The obvious home is editable.** A rule in `.yidam/policy/` is authoritative under RFC-0024: a

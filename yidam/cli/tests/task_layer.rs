@@ -1285,3 +1285,255 @@ fn a_re_vendor_names_the_cited_issues_its_pin_fixes() {
     git(dir.path(), &["add", "mise.toml"]);
     assert_eq!(run_fragment(&fragment, dir.path(), tmp.path()), "");
 }
+
+/// Stdout of git in `dir`, through the one spawning helper tests may use (#929).
+fn git(dir: &std::path::Path, args: &[&str]) -> String {
+    common::git::out(dir, args)
+}
+
+/// A fresh repository whose own config pins identity and turns signing off, so a global
+/// `tag.gpgSign` or `commit.gpgSign` cannot make `git tag -a` prompt for a key.
+fn init_fixture_repo(dir: &std::path::Path) {
+    git(dir, &["init", "--quiet", "--initial-branch=main"]);
+    for (key, value) in [
+        ("user.name", "t"),
+        ("user.email", "t@example.com"),
+        ("commit.gpgSign", "false"),
+        ("tag.gpgSign", "false"),
+    ] {
+        git(dir, &["config", key, value]);
+    }
+}
+
+/// An origin with three commits, tagged across layers the way yidam tags itself.
+///
+/// `cli/v0.9.0` is lightweight on the first commit; `cli/v0.10.0` is annotated on the
+/// second, so its ref names a tag object and only the peeled line names the commit. The
+/// third commit is untagged main. `v1.0.0`, `editor/v2.0.0` and `cli/v0.11.0-rc.1` are all
+/// numerically "newer" and none of them is a cli release. Returns the three commit shas.
+fn tagged_origin(dir: &std::path::Path) -> [String; 3] {
+    init_fixture_repo(dir);
+    let mut shas = Vec::new();
+    for n in 1..=3 {
+        git(
+            dir,
+            &["commit", "--quiet", "--allow-empty", "-m", &format!("c{n}")],
+        );
+        shas.push(git(dir, &["rev-parse", "HEAD"]));
+    }
+    git(dir, &["tag", "cli/v0.9.0", &shas[0]]);
+    git(dir, &["tag", "-a", "-m", "r", "cli/v0.10.0", &shas[1]]);
+    git(dir, &["tag", "v1.0.0", &shas[2]]);
+    git(dir, &["tag", "editor/v2.0.0", &shas[2]]);
+    git(dir, &["tag", "cli/v0.11.0-rc.1", &shas[2]]);
+    shas.try_into().unwrap()
+}
+
+/// The `NEWEST-RELEASE` fragment as `<task>` ships it.
+fn newest_release_fragment(task: &str) -> String {
+    let run = parse("mise.yidam.toml")[task]["run"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{task}.run"))
+        .to_string();
+    let begin = "# NEWEST-RELEASE BEGIN\n";
+    let start = run
+        .find(begin)
+        .unwrap_or_else(|| panic!("{task} carries no NEWEST-RELEASE fragment"))
+        + begin.len();
+    let end = run[start..]
+        .find("# NEWEST-RELEASE END")
+        .expect("unterminated NEWEST-RELEASE fragment");
+    run[start..start + end].to_string()
+}
+
+/// A re-vendor adopts the newest `cli/v*` release by default, not the origin's HEAD (#1308).
+///
+/// A pin is only downloadable when a `cli/v*` tag points at it, and main is rarely tagged —
+/// so a HEAD default sent nearly every re-vendor down `yidam-build-source`: a clone and a
+/// cold ~560-crate compile, per repository, queued on cargo's package-cache lock. "Newest"
+/// is by version over this layer's tags only: the numerically larger template, editor and
+/// pre-release tags must not answer, `0.10` must beat `0.9`, and an annotated tag must
+/// resolve to its commit, never its tag object.
+#[test]
+fn a_re_vendor_defaults_to_the_newest_cli_release() {
+    let dir = tempfile::tempdir().unwrap();
+    let origin = dir.path().join("origin");
+    std::fs::create_dir(&origin).unwrap();
+    let [_, released, head] = tagged_origin(&origin);
+
+    let resolve = |yidam_ref: Option<&str>, origin: &std::path::Path| -> String {
+        let script = format!(
+            "{}{}\necho \"$ref\"",
+            newest_release_fragment("yidam-vendor-update"),
+            vendor_fragment("RESOLVE-REF")
+        );
+        let mut cmd = std::process::Command::new("sh");
+        cmd.arg("-c")
+            .arg(format!("set -eu\norigin='{}'\n{script}", origin.display()))
+            .current_dir(dir.path())
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env_remove("YIDAM_REF");
+        if let Some(r) = yidam_ref {
+            cmd.env("YIDAM_REF", r);
+        }
+        let out = cmd.output().expect("sh");
+        assert!(
+            out.status.success(),
+            "the ref resolution failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+
+    assert_eq!(
+        resolve(None, &origin),
+        "cli/v0.10.0",
+        "with no YIDAM_REF the re-vendor must take the newest cli release by version"
+    );
+    assert_eq!(
+        resolve(Some("HEAD"), &origin),
+        "HEAD",
+        "YIDAM_REF=HEAD must still pin unreleased main — a repository is entitled to it"
+    );
+
+    let release = format!(
+        "set -eu\n{}newest_release '{}'",
+        newest_release_fragment("yidam-vendor-update"),
+        origin.display()
+    );
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(&release)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .expect("sh");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        format!("cli/v0.10.0 {released}"),
+        "an annotated release must resolve to its peeled commit, not its tag object"
+    );
+    assert_ne!(released, head);
+
+    let bare = dir.path().join("unreleased");
+    std::fs::create_dir(&bare).unwrap();
+    init_fixture_repo(&bare);
+    git(&bare, &["commit", "--quiet", "--allow-empty", "-m", "c"]);
+    assert_eq!(
+        resolve(None, &bare),
+        "HEAD",
+        "an origin with no cli release must fall back to HEAD rather than fail"
+    );
+}
+
+/// The status task and the update task ask "which release?" with the same words.
+///
+/// Two resolvers would be two answers: status could call a repository current while the
+/// update moved it, or the reverse. One fragment, carried byte-for-byte by both tasks
+/// (a task file has no shared functions), is the only form that cannot disagree.
+#[test]
+fn status_and_update_resolve_the_release_identically() {
+    assert_eq!(
+        newest_release_fragment("yidam-vendor-status"),
+        newest_release_fragment("yidam-vendor-update"),
+        "yidam-vendor-status and yidam-vendor-update carry different NEWEST-RELEASE fragments"
+    );
+}
+
+/// The release default never rolls a repository back without being asked (#1308).
+///
+/// A repository pinned with `YIDAM_REF=HEAD` sits ahead of the newest release, and taking the
+/// default would quietly hand it an older prelude and binary. The guard refuses that, and
+/// only that: moving forward, re-vendoring the same pin, naming a ref, and a previous pin the
+/// clone cannot order all proceed.
+#[test]
+fn a_re_vendor_refuses_to_roll_back_by_default() {
+    let dir = tempfile::tempdir().unwrap();
+    let tmp = dir.path().join("tmp");
+    let clone = tmp.join("yidam");
+    std::fs::create_dir_all(&clone).unwrap();
+    let [first, released, head] = tagged_origin(&clone);
+    let fragment = vendor_fragment("NO-ROLLBACK");
+
+    let guard = |previous: &str, yidam_ref: Option<&str>| -> bool {
+        let script = format!(
+            "set -eu\ntmp='{}'\nprevious='{previous}'\ncommit='{released}'\nref='cli/v0.10.0'\n{fragment}",
+            tmp.display()
+        );
+        let mut cmd = std::process::Command::new("sh");
+        cmd.arg("-c")
+            .arg(&script)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env_remove("YIDAM_REF");
+        if let Some(r) = yidam_ref {
+            cmd.env("YIDAM_REF", r);
+        }
+        cmd.output().expect("sh").status.success()
+    };
+
+    assert!(
+        !guard(&head, None),
+        "a pin ahead of the release must not be rolled back by default"
+    );
+    assert!(
+        guard(&head, Some("cli/v0.10.0")),
+        "a rollback named by YIDAM_REF must proceed"
+    );
+    assert!(
+        guard(&first, None),
+        "moving forward to the release must proceed"
+    );
+    assert!(
+        guard(&released, None),
+        "re-vendoring the same pin must proceed"
+    );
+    assert!(
+        guard("unknown", None),
+        "a previous pin the clone cannot order must not block"
+    );
+    assert!(
+        guard("", None),
+        "a repository with no previous pin must not block"
+    );
+}
+
+/// The scaffolded CI staleness report measures against the same release the re-vendor adopts.
+///
+/// It measured against origin/HEAD, so once the re-vendor defaulted to the newest release
+/// (#1308) every repository at that release would have been reported behind and told to run
+/// an update that changes nothing. The resolver is carried in the workflow verbatim.
+#[test]
+fn the_ci_staleness_report_resolves_the_release_as_the_task_does() {
+    let ci = std::fs::read_to_string(repo_root().join("sadhana/github/workflows/ci.yml"))
+        .expect("read the scaffold ci.yml");
+    let begin = ci
+        .find("# NEWEST-RELEASE BEGIN\n")
+        .expect("ci.yml carries no NEWEST-RELEASE fragment");
+    let line_start = ci[..begin].rfind('\n').map_or(0, |i| i + 1);
+    let indent = &ci[line_start..begin];
+    let end = ci[begin..]
+        .find("# NEWEST-RELEASE END")
+        .expect("unterminated NEWEST-RELEASE fragment in ci.yml")
+        + begin;
+    // Back to the start of the END marker's line, so its indent is not read as a line.
+    let end = ci[..end].rfind('\n').map_or(end, |i| i + 1);
+    let carried: String = ci[line_start..end]
+        .lines()
+        .map(|l| l.strip_prefix(indent).unwrap_or(l.trim_start()))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let carried = carried
+        .strip_prefix("# NEWEST-RELEASE BEGIN\n")
+        .expect("fragment opens with its marker")
+        .to_string();
+    assert_eq!(
+        carried,
+        newest_release_fragment("yidam-vendor-update"),
+        "the ci.yml staleness report and yidam-vendor-update resolve the release differently"
+    );
+    assert!(
+        !ci.lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .any(|l| l.contains("origin/HEAD")),
+        "ci.yml still measures something against origin/HEAD"
+    );
+}

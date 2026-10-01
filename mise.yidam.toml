@@ -292,7 +292,7 @@ echo "yidam from somewhere else will answer for this repository."
 # correction made upstream reaches this repository.
 
 [yidam-vendor-status]
-description = "Show the pinned yidam commit and whether the origin has moved past it."
+description = "Show the pinned yidam commit and whether a newer cli/v* release exists (or YIDAM_REF, if set)."
 run = """
 set -eu
 if [ ! -f .yidam.toml ]; then
@@ -303,26 +303,55 @@ origin=$(sed -n 's/^ *origin *= *"\\(.*\\)"/\\1/p' .yidam.toml)
 commit=$(sed -n 's/^ *commit *= *"\\(.*\\)"/\\1/p' .yidam.toml)
 template=$(sed -n 's/^ *template *= *"\\(.*\\)"/\\1/p' .yidam.toml)
 committed=$(sed -n 's/^ *committed *= *"\\(.*\\)"/\\1/p' .yidam.toml)
-ref="${YIDAM_REF:-HEAD}"
 echo "origin    $origin"
 echo "pinned    $commit ($template, committed $committed)"
-# `head -n1`: `git ls-remote <url> HEAD` can match more than one ref — HEAD itself and
-# a refs/remotes/origin/HEAD the origin happens to carry — and every extra line went
-# into $remote, so the equality test below could never be true. This task reported
-# "origin has moved" unconditionally, including when the pin was exactly current.
-remote=$(git ls-remote "$origin" "$ref" 2>/dev/null | cut -f1 | head -n1)
+# What a re-vendor would adopt, asked the way yidam-vendor-update asks it: the newest
+# `cli/v*` release unless YIDAM_REF names something else (#1308). Measured against the
+# origin's HEAD, this reported "origin has moved" on almost every run — main is rarely
+# tagged — and told the operator to run an update that, by default, now changes nothing.
+# NEWEST-RELEASE BEGIN
+# The newest `cli/vX.Y.Z` tag at an origin, as `<tag> <commit>`; nothing if it has none.
+# By version, not by date: `releases/latest` and tag dates span four layers. The peeled
+# `^{}` line is the commit of an annotated (signed) tag, so it wins over the bare line,
+# and the refspec globs because ls-remote emits peeled lines only for a glob.
+# No backslashes, for the reason the tools block gives.
+newest_release() {
+  git ls-remote --tags "$1" 'refs/tags/cli/v*' 2>/dev/null | awk '
+    { ref = substr($2, 11); peeled = 0
+      if (substr(ref, length(ref) - 2) == "^{}") { ref = substr(ref, 1, length(ref) - 3); peeled = 1 }
+      if (ref !~ "^cli/v[0-9]+[.][0-9]+[.][0-9]+$") next
+      if (peeled || !(ref in sha)) sha[ref] = $1 }
+    END { for (t in sha) print substr(t, 6), t, sha[t] }
+  ' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n1 | cut -d' ' -f2,3
+}
+# NEWEST-RELEASE END
+if [ -n "${YIDAM_REF:-}" ]; then
+  ref="$YIDAM_REF"
+  # `head -n1`: `git ls-remote <url> HEAD` can match more than one ref — HEAD itself and
+  # a refs/remotes/origin/HEAD the origin happens to carry — and every extra line went
+  # into $remote, so the equality test below could never be true. This task reported
+  # "origin has moved" unconditionally, including when the pin was exactly current.
+  remote=$(git ls-remote "$origin" "$ref" 2>/dev/null | cut -f1 | head -n1)
+else
+  release=$(newest_release "$origin")
+  ref="${release%% *}"
+  remote="${release#* }"
+  if [ -z "$release" ]; then
+    # An origin with no release at all — a fork, say — has only HEAD to offer.
+    ref=HEAD
+    remote=$(git ls-remote "$origin" HEAD 2>/dev/null | cut -f1 | head -n1)
+  fi
+fi
 if [ -z "$remote" ]; then
   echo "remote    unreachable — cannot compare"
   exit 0
 fi
-echo "origin/$ref  $remote"
+echo "$ref  $remote"
 if [ "$remote" = "$commit" ]; then
   echo
   echo "up to date"
   exit 0
 fi
-echo
-echo "origin has moved — run 'mise run yidam-vendor-update' to adopt it"
 # "Has moved" is a boolean, and a boolean is not enough to act on. How far, how old,
 # and — the part that actually costs something — whether the CLOSED COMMIT VOCABULARY
 # changed, because that is what this repository has already written history against
@@ -333,17 +362,29 @@ echo "origin has moved — run 'mise run yidam-vendor-update' to adopt it"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 if ! git clone --quiet --filter=blob:none --no-checkout "$origin" "$tmp/y" 2>/dev/null; then
+  echo
+  echo "$ref is not the pin — run 'mise run yidam-vendor-update' to adopt it"
   echo "(could not fetch $origin for detail)"
   exit 0
 fi
-behind=$(git -C "$tmp/y" rev-list --count "$commit..origin/HEAD" 2>/dev/null || echo 0)
+# A pin taken with YIDAM_REF=HEAD is usually AHEAD of the newest release. That is not
+# staleness, and telling the operator to "adopt" a release would be telling them to roll
+# back — which yidam-vendor-update refuses to do without being asked.
+if git -C "$tmp/y" merge-base --is-ancestor "$remote" "$commit" 2>/dev/null; then
+  echo
+  echo "pinned ahead of $ref — nothing to adopt until a newer release"
+  exit 0
+fi
+echo
+echo "$ref is newer than the pin — run 'mise run yidam-vendor-update' to adopt it"
+behind=$(git -C "$tmp/y" rev-list --count "$commit..$remote" 2>/dev/null || echo 0)
 pinned_at=$(git -C "$tmp/y" log -1 --format=%at "$commit" 2>/dev/null || echo "")
 if [ -n "$pinned_at" ]; then
   days=$(( ( $(date +%s) - pinned_at ) / 86400 ))
   echo
   echo "behind    $behind commit(s), pinned $days day(s) ago"
 fi
-moved=$(git -C "$tmp/y" diff --name-only "$commit" origin/HEAD -- yidam/prelude/ 2>/dev/null | wc -l | tr -d ' ')
+moved=$(git -C "$tmp/y" diff --name-only "$commit" "$remote" -- yidam/prelude/ 2>/dev/null | wc -l | tr -d ' ')
 echo "prelude   $moved file(s) changed since the pin"
 # The verbs, and only the verbs. A row is a verb because its table's header is
 # `| Verb | When |`, not because its first cell is a backticked lowercase word.
@@ -369,11 +410,11 @@ verbs_from_graph() {
     { t = 0 }
   ' | sort -u
 }
-if git -C "$tmp/y" diff --name-only "$commit" origin/HEAD -- yidam/prelude/GRAPH.md 2>/dev/null | grep -q .; then
+if git -C "$tmp/y" diff --name-only "$commit" "$remote" -- yidam/prelude/GRAPH.md 2>/dev/null | grep -q .; then
   before="$tmp/vb"; after="$tmp/va"
   git -C "$tmp/y" show "$commit:yidam/prelude/GRAPH.md" 2>/dev/null \\
     | verbs_from_graph > "$before" || true
-  git -C "$tmp/y" show "origin/HEAD:yidam/prelude/GRAPH.md" 2>/dev/null \\
+  git -C "$tmp/y" show "$remote:yidam/prelude/GRAPH.md" 2>/dev/null \\
     | verbs_from_graph > "$after" || true
   added=$(comm -13 "$before" "$after" || true)
   removed=$(comm -23 "$before" "$after" || true)
@@ -387,7 +428,7 @@ fi
 """
 
 [yidam-vendor-update]
-description = "Re-vendor .yidam/.vendor/prelude/ from the origin and re-pin .yidam.toml. Set YIDAM_REF to target a tag or branch."
+description = "Re-vendor .yidam/.vendor/prelude/ at the newest cli/v* release and re-pin .yidam.toml. Set YIDAM_REF to target another tag, branch or HEAD."
 run = """
 set -eu
 origin="git@github.com:goedelsoup/yidam.git"
@@ -395,7 +436,44 @@ if [ -f .yidam.toml ]; then
   found=$(sed -n 's/^ *origin *= *"\\(.*\\)"/\\1/p' .yidam.toml)
   [ -n "$found" ] && origin="$found"
 fi
-ref="${YIDAM_REF:-HEAD}"
+# NEWEST-RELEASE BEGIN
+# The newest `cli/vX.Y.Z` tag at an origin, as `<tag> <commit>`; nothing if it has none.
+# By version, not by date: `releases/latest` and tag dates span four layers. The peeled
+# `^{}` line is the commit of an annotated (signed) tag, so it wins over the bare line,
+# and the refspec globs because ls-remote emits peeled lines only for a glob.
+# No backslashes, for the reason the tools block gives.
+newest_release() {
+  git ls-remote --tags "$1" 'refs/tags/cli/v*' 2>/dev/null | awk '
+    { ref = substr($2, 11); peeled = 0
+      if (substr(ref, length(ref) - 2) == "^{}") { ref = substr(ref, 1, length(ref) - 3); peeled = 1 }
+      if (ref !~ "^cli/v[0-9]+[.][0-9]+[.][0-9]+$") next
+      if (peeled || !(ref in sha)) sha[ref] = $1 }
+    END { for (t in sha) print substr(t, 6), t, sha[t] }
+  ' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n1 | cut -d' ' -f2,3
+}
+# NEWEST-RELEASE END
+# The ref to adopt: the newest `cli/v*` release, unless YIDAM_REF names one (#1308).
+#
+# A release, because a release is the pin `yidam-build` can DOWNLOAD. A pin on an
+# untagged commit compiles the CLI from a clone on every machine, in every repository
+# that takes it — ~560 crates, cold, under cargo's machine-wide package-cache lock, so
+# three repositories building at once queue behind each other. Main is rarely tagged,
+# so pinning HEAD made that the common path rather than the exception.
+#
+# An unreleased commit is still a pin a repository is entitled to: YIDAM_REF=HEAD (or a
+# sha, branch or tag) asks for it, and yidam-build compiles it as before.
+# RESOLVE-REF BEGIN
+if [ -n "${YIDAM_REF:-}" ]; then
+  ref="$YIDAM_REF"
+else
+  release=$(newest_release "$origin")
+  ref="${release%% *}"
+  if [ -z "$release" ]; then
+    echo "no cli/v* release at $origin — pinning its HEAD, which 'mise run yidam-build' compiles" >&2
+    ref=HEAD
+  fi
+fi
+# RESOLVE-REF END
 # The pin being replaced, captured before .yidam.toml is overwritten below. It is what
 # makes the vocabulary report at the end possible.
 previous=""
@@ -415,6 +493,21 @@ if [ "$ref" != "HEAD" ]; then
   git -C "$tmp/yidam" checkout --quiet "$ref"
 fi
 commit=$(git -C "$tmp/yidam" rev-parse HEAD)
+# NO-ROLLBACK BEGIN
+# Never a silent step backwards. A repository pinned with YIDAM_REF=HEAD sits ahead of
+# the newest release, and the default above would quietly re-vendor it to an older prelude
+# and binary. Moving back is allowed, but only when asked for by name. A previous pin the
+# clone does not hold (another origin, or "unknown") cannot be ordered, so it is not judged.
+if [ -z "${YIDAM_REF:-}" ] && [ -n "$previous" ] && [ "$previous" != "$commit" ] \
+   && git -C "$tmp/yidam" cat-file -e "$previous^{commit}" 2>/dev/null \
+   && ! git -C "$tmp/yidam" merge-base --is-ancestor "$previous" "$commit"; then
+  echo "ERROR: this repository is pinned at $previous, which $ref ($commit) does not contain." >&2
+  echo "       Re-vendoring to the newest release would move it backwards. Either:" >&2
+  echo "         YIDAM_REF=HEAD mise run yidam-vendor-update    # stay on unreleased main (compiles)" >&2
+  echo "         YIDAM_REF=$ref mise run yidam-vendor-update    # take the release, deliberately" >&2
+  exit 1
+fi
+# NO-ROLLBACK END
 template=$(git -C "$tmp/yidam" describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null || echo untagged)
 committed=$(git -C "$tmp/yidam" log -1 --format=%as HEAD)
 if [ ! -d "$tmp/yidam/yidam/prelude" ]; then

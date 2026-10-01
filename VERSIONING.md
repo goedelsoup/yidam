@@ -50,9 +50,10 @@ wrote it and nothing read it. The protocol version a repo's snapshots are valid 
 recorded by the harness, not by this file — see Layer 3.
 
 `mise run yidam-vendor-status` reads `.yidam.toml` and reports drift against the origin.
-`mise run yidam-vendor-update` re-vendors `.yidam/.vendor/prelude/` at the origin's current
-commit and re-pins the file, leaving domain-owned content (`corpus/`, `agents/`, `crates/`)
-untouched; `YIDAM_REF=v0.2.0` targets a specific tag or branch.
+`mise run yidam-vendor-update` re-vendors `.yidam/.vendor/prelude/` at the newest `cli/v*`
+release — a pin `yidam-build` can download rather than compile (#1308) — and re-pins the
+file, leaving domain-owned content (`corpus/`, `agents/`, `crates/`) untouched;
+`YIDAM_REF=v0.2.0` targets a specific tag or branch, and `YIDAM_REF=HEAD` unreleased main.
 
 **Semver meaning for this layer:**
 
