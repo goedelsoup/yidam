@@ -1,6 +1,6 @@
 //! A dependency that must not move, and the thing that stops it.
 //!
-//! `.github/dependabot.yml` carries four `ignore` entries. #668 gave the fourth
+//! `.github/dependabot.yml` carried four `ignore` entries. #668 gave the fourth
 //! (`dtolnay/rust-toolchain`) a gate in `toolchain_pins.rs`; #904 is the other three —
 //! `fastembed`, the three `arrow-*`, and `@types/vscode` — each held by nothing but the
 //! comment above it. The fastembed block says why that is not enough, about its own earlier
@@ -15,9 +15,16 @@
 //! from a person, or from a merge. The `ignore` then stops being load-bearing and becomes what
 //! it is good at — not opening the pull request every Monday.
 //!
-//! The one thing gated about the configuration itself is that it is not stale: see
-//! [`every_dependabot_ignore_names_something_that_exists`]. An `ignore` for a dependency
-//! nobody declares any more reads as a hold and holds nothing.
+//! #945 added a fifth, on the typescript major, and the same rule applies: the ignore stops a
+//! weekly proposal, and [`every_editor_type_checks_with_one_typescript_major`] is the hold.
+//!
+//! Two things are gated about the configuration itself. That it is not stale: see
+//! [`every_dependabot_ignore_names_something_that_exists`] — an `ignore` for a dependency
+//! nobody declares any more reads as a hold and holds nothing. And that it is not
+//! incomplete: see [`every_lockfile_is_one_dependabot_resolves_or_has_no_registry_dependency`]
+//! — a lockfile no entry names is one nobody maintains, and it looks exactly like one that is.
+
+mod common;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -321,7 +328,61 @@ fn the_extension_types_name_the_floor_the_extension_declares() {
     );
 }
 
-// ── the configuration is not stale ───────────────────────────────────────────
+/// The extension, the web editor and the docs site compile with the same TypeScript major.
+///
+/// The docs site and the web editor type-check with `@astrojs/check`, whose peer range stops
+/// at `^6`. The extension has no astro, so a grouped dependabot bump took it to 7 on its own,
+/// and the repository had two TypeScript majors in two editors that share a reader, a lint
+/// config and a review (#945). Nothing broke, which is the point: the next person to move a
+/// shared pattern between them finds out which compiler they were on from the error.
+///
+/// Two halves per project — the lockfile resolves the major the range declares, so a stale
+/// lock is not read as agreement — and then one major across all three. Moving to 7 is a
+/// change to all three in one pull request, once `@astrojs/check` allows it.
+#[test]
+fn every_editor_type_checks_with_one_typescript_major() {
+    const PROJECTS: [&str; 3] = [
+        "yidam/editors/vscode",
+        "yidam/editors/web",
+        "yidam/web/docs",
+    ];
+
+    let mut majors = BTreeMap::new();
+    for dir in PROJECTS {
+        let pkg: serde_json::Value = serde_json::from_str(&read(&format!("{dir}/package.json")))
+            .unwrap_or_else(|e| panic!("{dir}/package.json is not JSON: {e}"));
+        let declared = pkg["devDependencies"]["typescript"]
+            .as_str()
+            .or_else(|| pkg["dependencies"]["typescript"].as_str())
+            .unwrap_or_else(|| panic!("{dir} declares no typescript"));
+
+        let lock: serde_json::Value =
+            serde_json::from_str(&read(&format!("{dir}/package-lock.json")))
+                .unwrap_or_else(|e| panic!("{dir}/package-lock.json is not JSON: {e}"));
+        let locked = lock["packages"]["node_modules/typescript"]["version"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{dir}/package-lock.json resolves no typescript"));
+
+        assert_eq!(
+            major(locked),
+            major(declared),
+            "{dir} declares typescript {declared} and its lockfile resolves {locked}. Run \
+             `npm install` there; until then the declared range is not what compiles."
+        );
+        majors.insert(dir, major(declared));
+    }
+
+    let distinct: std::collections::BTreeSet<_> = majors.values().collect();
+    assert!(
+        distinct.len() == 1,
+        "the editors compile with different TypeScript majors: {majors:?}. The docs site and \
+         the web editor are held at `@astrojs/check`'s peer range; the extension follows them, \
+         so a major moves in all three package.json files in one change, not in one \
+         dependabot group at a time."
+    );
+}
+
+// ── the configuration is neither stale nor incomplete ─────────────────────────
 
 /// Every `ignore` in `.github/dependabot.yml` names something this repository still has.
 ///
@@ -382,10 +443,10 @@ fn every_dependabot_ignore_names_something_that_exists() {
     }
 
     assert!(
-        checked >= 4,
-        "only {checked} ignore rules found in dependabot.yml. There are four holds and one of \
-         them covers three arrow crates, so a count this low means the file was read wrong or \
-         a hold was dropped without its reason going with it."
+        checked >= 9,
+        "only {checked} ignore rules found in dependabot.yml. There are five holds — one covers \
+         three arrow crates and one is repeated in three npm entries — so a count this low \
+         means the file was read wrong or a hold was dropped without its reason going with it."
     );
     assert!(
         dangling.is_empty(),
@@ -393,6 +454,115 @@ fn every_dependabot_ignore_names_something_that_exists() {
          ecosystem declares them:\n{}\nA stale hold reads exactly like a live one.",
         dangling.join("\n")
     );
+}
+
+/// Every tracked lockfile is in a directory some dependabot entry names, or its manifest has
+/// no registry dependency for dependabot to propose.
+///
+/// The configuration's other direction from the test above. An ecosystem entry resolves the
+/// directories it names and nothing else, so a lockfile outside them drifts with nothing
+/// reporting it — and the file gives no sign of it, because the entries it does have look
+/// complete. #945 counted six entries over nineteen JS projects.
+///
+/// The exemption is cargo-only and checked rather than listed: a crate whose every dependency
+/// is a `path` has nothing on a registry, so the entry for whatever it points at moves its
+/// lock. That is the fourteen domain crates, which reach the parity testkit and nothing else.
+/// The moment one takes a registry dependency, it needs an entry and this is red. npm gets no
+/// such exemption — a `package.json` with no dependencies has no lockfile to track.
+#[test]
+fn every_lockfile_is_one_dependabot_resolves_or_has_no_registry_dependency() {
+    let config: serde_yaml::Value =
+        serde_yaml::from_str(&read(".github/dependabot.yml")).expect("dependabot.yml is not YAML");
+    let updates = config["updates"]
+        .as_sequence()
+        .expect("dependabot.yml declares no `updates`");
+
+    // (lockfile name, directory patterns) for each entry that keeps a lockfile.
+    let mut covered: Vec<(&str, Vec<String>)> = Vec::new();
+    for entry in updates {
+        let lockfile = match entry["package-ecosystem"].as_str().unwrap_or("") {
+            "cargo" => "Cargo.lock",
+            "npm" => "package-lock.json",
+            _ => continue,
+        };
+        let mut dirs: Vec<String> = entry["directory"]
+            .as_str()
+            .map(String::from)
+            .into_iter()
+            .collect();
+        for d in entry["directories"].as_sequence().into_iter().flatten() {
+            dirs.extend(d.as_str().map(String::from));
+        }
+        covered.push((lockfile, dirs));
+    }
+
+    let tracked: Vec<String> = ["*Cargo.lock", "*package-lock.json"]
+        .iter()
+        .flat_map(|spec| common::tracked_under(&repo_root(), spec))
+        .collect();
+
+    let mut seen = 0;
+    let mut exempt = 0;
+    let mut orphaned = Vec::new();
+    for path in &tracked {
+        seen += 1;
+        let (dir, file) = path.rsplit_once('/').unwrap_or(("", path));
+        let dir = format!("/{dir}");
+        let is_covered = covered.iter().any(|(lockfile, patterns)| {
+            *lockfile == file && patterns.iter().any(|p| directory_matches(p, &dir))
+        });
+        if is_covered {
+            continue;
+        }
+        if file == "Cargo.lock" && only_path_dependencies(&format!("{}/Cargo.toml", &dir[1..])) {
+            exempt += 1;
+            continue;
+        }
+        orphaned.push(format!("  {path}"));
+    }
+
+    assert!(
+        seen >= 30,
+        "git ls-files found only {seen} lockfiles. There are over thirty — four cargo \
+         workspaces, fourteen domain crates and their fifteen TypeScript siblings, three \
+         editors and the docs — so the listing went wrong, and a coverage check over nothing \
+         passes."
+    );
+    assert!(
+        exempt > 0,
+        "no lockfile used the path-only exemption, and the fourteen domain crates are what it \
+         exists for. Either they gained entries — then drop the exemption and its comment in \
+         dependabot.yml — or the manifest check stopped reading them."
+    );
+    assert!(
+        orphaned.is_empty(),
+        "these lockfiles are in no directory a dependabot entry names, and declare registry \
+         dependencies, so nothing proposes their updates:\n{}\nName the directory in \
+         `.github/dependabot.yml` — a `directories` glob with `group-by: dependency-name` if it \
+         is one of a family — or remove the registry dependency.",
+        orphaned.join("\n")
+    );
+}
+
+/// Whether a dependabot directory pattern names `dir`. `*` is one path segment, which is all
+/// the configuration uses; a pattern this does not understand matches nothing and shows up as
+/// an orphaned lockfile, not as a silent pass.
+fn directory_matches(pattern: &str, dir: &str) -> bool {
+    let p: Vec<&str> = pattern.trim_end_matches('/').split('/').collect();
+    let d: Vec<&str> = dir.trim_end_matches('/').split('/').collect();
+    p.len() == d.len() && p.iter().zip(&d).all(|(p, d)| *p == "*" || p == d)
+}
+
+/// Whether every dependency in a `Cargo.toml` — normal, dev and build — is a `path`.
+fn only_path_dependencies(manifest: &str) -> bool {
+    let table: toml::Table = read(manifest)
+        .parse()
+        .unwrap_or_else(|e| panic!("{manifest} is not TOML: {e}"));
+    ["dependencies", "dev-dependencies", "build-dependencies"]
+        .iter()
+        .filter_map(|k| table.get(*k).and_then(toml::Value::as_table))
+        .flat_map(|deps| deps.values())
+        .all(|spec| spec.get("path").is_some())
 }
 
 /// Every `.yml` under `.github/`, workflows and all.
