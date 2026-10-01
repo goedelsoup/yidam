@@ -560,10 +560,11 @@ jobs:
     # link work, only its setup (~15s of mise, 40–60s of cache restore). #1010's objection
     # to `--partition` is about shards of ONE build, and does not reach this.
     #
-    # The benchmark stays here rather than taking a third runner: its `--features index`
-    # build is 45s warm against this job's tree, and a runner of its own would restore
-    # that tree to save those 45 seconds. This job is ~6 minutes; the coverage job, ~7, is
-    # the critical path either way.
+    # The benchmark stays here rather than taking a third runner: it builds `--all-features`
+    # (#1015), which `ci-cli-full` has already compiled, so the only new work is the binary
+    # crate and its link. A runner of its own would restore this job's whole tree to build
+    # the same thing cold. This job is ~6 minutes; the coverage job, ~7, is the critical
+    # path either way.
     name: ci (cli · full features)
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -640,9 +641,11 @@ jobs:
       # runs — main push and the weekly schedule — and not on pull requests. That is one
       # commit later than the "every PR" the issue imagined, and it is the latest it can be
       # without the number being about keyword matching.
-      # `--features index` is a third feature set, so this is a third codegen-and-link of the
-      # binary, not a cache hit on the two above. It had no sampler at all, which is the same
-      # hole one step over: a kill here would leave the log d596634 left.
+      # It builds `--all-features` rather than the `--features index` it needs, so it reuses
+      # the tree the step above left instead of unifying a third feature set (#1015; the
+      # task's note in mise.toml records that the superset measures the same thing). It
+      # still links a binary, and it had no sampler at all once, which is the same hole one
+      # step over: a kill here would leave the log d596634 left.
       - name: Benchmark against examples/streamflow, with a resource sampler
         run: .github/scripts/with-sampler.sh mise run bench-example
       # The `vector-read` leg's own results. Before #1016 this job's one summary rendered
