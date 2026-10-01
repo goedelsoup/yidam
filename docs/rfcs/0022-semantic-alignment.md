@@ -234,6 +234,69 @@ fifth character. `shared: "stat"` tells a reader at a glance that the lead is we
 fabricated 0.83 would have concealed; and lifting the floor would take `vote` and `case` with
 it. Recorded as evidence for the open question below rather than acted on.
 
+### Contact with twelve corpora that did not produce it
+
+Measured 2026-10-01 (#390), read-only, on two machines. The rule ran as shipped over each
+corpus's whole history, from its genesis commit to HEAD, through one current build of
+`check-diff`. D–O are twelve corpora with Rust under `crates/` that played no part in fitting
+the constants. A and C were re-run as the control. B could not be found on either machine.
+Every candidate was read by hand and marked right, arguable or wrong.
+
+| | A | C | D–G | H–O | D–O |
+|---|---|---|---|---|---|
+| unmatched type names | 293 | 268 | 418 | 677 | **1,095** |
+| offered a candidate, four characters | 57 | 97 | 63 | 209 | **272** |
+| of those, wrong | — | — | 30 | 121 | **151 (56%)** |
+
+The share ranged from 0% to 44% per corpus and did not track quality. One corpus sat
+mid-range at 27% while 49 of its 58 candidates were wrong. **Precision is the number that
+varies, and it was poor everywhere.** The section above said that every root of five
+characters or more is right. In this data that claim is false.
+
+The 151 wrong candidates have four causes:
+
+| cause | D–O | examples |
+|---|---|---|
+| a truncated root, not a whole word | 64 | `statement` → `status` on `stat`; `instance` → `first-instrument` on `inst` |
+| a whole word that the two names share, but generic | 59 | nine `*Error` types → `margin-of-error`; `layer-kind` → `agent-kind`; `extraction-report` → `reporting-source` |
+| a shared root whose meaning differs | 24 | `tile-renderer` → `renders`; `ruled-line` → `line-item` |
+| a shared word that only modifies the type's head | 4 | `county-records` → `county` |
+
+**The floor rises to five.** Truncation was the largest cause, and a constant can reach it.
+Rebuilt at every pair of values, five characters removes **106 wrong candidates across the
+fourteen corpora, along with 26 arguable ones and 8 right ones**:
+
+- A loses `vote`, `vote-row` and `bill-votes` → `adopting-vote`.
+- E loses `peer` → `peer-of`.
+- F loses `flag` → `world-flag`.
+- H–O lose `legislature-bill` and `bill-ref` → `bill`, and `veto-item-row` → `line-item`.
+
+The section above argued against a fifth character because it would lose `vote`. That was
+right about the cost and wrong about the trade, which only twelve more corpora could show.
+Six characters removes further right candidates for little more. `TRAILING` stays at three:
+moving it to two or four changes D–O by about one candidate in a hundred.
+
+| `PREFIX` (`TRAILING` = 3) | A | C | D–G | H–O |
+|---|---|---|---|---|
+| 3 | 113 | 137 | 105 | 302 |
+| 4, as first shipped | 57 | 97 | 63 | 209 |
+| **5** | **33** | **72** | **46** | **135** |
+| 6 | 29 | 62 | 24 | 111 |
+
+**What five characters leaves is not a constant's to fix.** After the change, 76 of D–O's 181
+candidates are still wrong, and almost all are generic words or meanings that differ. `error`
+has five characters, and so does `serves`. #1298 holds that question. The two rules it named
+were tried on H–O. Matching only on a compound's final word works backwards, because Rust
+puts the domain noun first and the role suffix last (`precinct-id`, `fetch-error`): it keeps
+99 of 121 wrong candidates and drops 20 of 34 right ones. Dropping a declared name that is
+offered for three or more types removes 71 wrong candidates and 14 right ones, 12 of them a
+single correct `precinct`. That was the closer of the two, and neither separates right from
+wrong cleanly.
+
+**Configurable: no**, for the reason the issue gave. A setting on a string comparison would
+be read as a confidence dial, and this measurement shows what the dial would move: it trades
+`vote` against `stat`, and never touches `error`.
+
 ## Proposal
 
 ### One field, not one pass
@@ -302,7 +365,10 @@ The harness stays what it is — the bootstrap judge, deliberately outside any g
 - **The unmeasured arm.** Embedding a type with its code context, so that both sides are
   documents. Bounded by the numbers above, and worth revisiting only if a repository produces
   near-misses that share no root — which is a thing that can be *observed* from the reports
-  this ships, rather than guessed at now.
+  this ships, rather than guessed at now. #390's reading of H–O found candidates for this:
+  `biennium` and `fiscal-period`, `artist` and `person`, `residuals` and `variance`,
+  `settlement` and `city`. They were read from names alone and not checked against the code,
+  so they are leads for this question, not evidence that answers it.
 - **Where a semantic finding would live if one were ever justified.** Probably not here. Its
   subject would be a claim rather than a diff, which puts it beside E1's class-contract checks
   and RFC-0019's citation survey rather than in a command that reads `git diff`.
@@ -317,6 +383,9 @@ The harness stays what it is — the bootstrap judge, deliberately outside any g
   check would be a report four fifths of every ontology could never empty. The check instead
   reads a class's own `implemented_by:`, which turns the finding from an omission into a
   contradiction — and contradiction is what this area's other checks gate on.
-- **Whether the prefix rule's constants survive contact.** Four characters and three trailing
-  is what fits A, B and C. It is a string rule with two magic numbers and no corpus has argued
-  with it yet.
+- ~~**Whether the prefix rule's constants survive contact.**~~ **Settled** (#390). The prefix
+  did not survive and the trailing tolerance did. Twelve corpora that did not produce the
+  constants found more than half of the four-character candidates wrong, and the floor is
+  now five. See *Contact with twelve corpora that did not produce it*. A whole word that is
+  shared and generic, such as `FetchError` against `margin-of-error`, is out of any
+  constant's reach, and the rule for it is #1298.

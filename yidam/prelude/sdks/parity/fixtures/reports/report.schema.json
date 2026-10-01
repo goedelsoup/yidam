@@ -1032,7 +1032,7 @@
           },
           "nearest": {
             "type": "object",
-            "description": "A declared name this one shares a root with, when the vocabulary holds one. A LEAD AND NEVER A VERDICT: two names sharing a four-character prefix is a fact about two strings, arrived at without a model, and the finding exists whether or not a candidate was found \u2014 so a consumer must not render this as a confidence, a score, or a proposed fix. Absent when nothing shares a root.",
+            "description": "A declared name this one shares a root with, when the vocabulary holds one. A LEAD AND NEVER A VERDICT: two names sharing a five-character prefix is a fact about two strings, arrived at without a model, and the finding exists whether or not a candidate was found \u2014 so a consumer must not render this as a confidence, a score, or a proposed fix. Absent when nothing shares a root.",
             "required": [
               "name",
               "shared"
