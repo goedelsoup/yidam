@@ -86,6 +86,10 @@ jobs:
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "origin=${origin:-https://github.com/goedelsoup/yidam}" >> "$GITHUB_OUTPUT"
 
+      # The one scaffolded job that always compiles (#1308). Every other job that
+      # installs yidam downloads a release first; this one needs `--features index`,
+      # and no release carries it — the decision, and what would reverse it, is the
+      # comment on `--features vector-read` in yidam's own release workflow (#442).
       - name: Fetch the pinned yidam source
         run: |
           set -eu

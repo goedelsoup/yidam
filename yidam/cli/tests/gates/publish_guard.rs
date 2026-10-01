@@ -98,17 +98,20 @@ fn the_guard_installs_nothing_when_no_path_is_declared_private() {
             let name = s["name"].as_str().unwrap_or_default();
             let uses = s["uses"].as_str().unwrap_or_default();
             let run = s["run"].as_str().unwrap_or_default();
-            // Everything that costs real time: the toolchain, the cache, the install, and the
-            // gates themselves.
+            // Everything that costs real time: resolving and downloading a release, the
+            // toolchain, the cache, the compile, and the gates themselves (#1308).
             uses.contains("rust-toolchain")
                 || uses.contains("actions/cache")
-                || name.contains("Install the yidam CLI")
+                || name.contains("Resolve the pin")
+                || name.contains("Download the released binary")
+                || name.contains("Compile the yidam CLI")
+                || name.contains("Say which yidam is answering")
                 || run.contains("yidam policy gate")
                 || name.contains("Read the pinned yidam commit")
         })
         .collect();
     assert!(
-        gate.len() >= 5,
+        gate.len() >= 9,
         "expected the expensive steps to be discoverable, found {}",
         gate.len()
     );
