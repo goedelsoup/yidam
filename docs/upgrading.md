@@ -30,6 +30,325 @@ is to run the filing task and commit.
 
 <!-- file-upgrade-notes: new release sections go below this line -->
 
+## cli/v0.18.0
+
+### `index-build` moves into `vector-read` and needs no protoc
+
+**`index-build` no longer writes a LanceDB table, so building an index needs no protoc (#1287).**
+Nothing ever read that table. Every reader decodes `corpus.arrow`, which `index-build` now writes directly.
+
+`index-build` is now in the `vector-read` build. `index` is kept as an alias for it.
+An install with `--features index` or `--features full` still builds, without protoc.
+
+A `vector-read` build now lists `index` in `yidam --version` and the report's `features`.
+A client that read `index` as "this build needs protoc" should read it as "this build can make an index".
+
+An index built before this upgrade is still read. Its `corpus.lance/` directory is no longer used.
+The next `index-build` removes it.
+
+### `yidam run` plans every epistemic step last
+
+**A run that both lands and proposes now proposes at the head it leaves (#1237).**
+Before, a proposal planned between two landings named a head the branch had already passed.
+The next run found no `propose/<head>` for the new tip, and proposed again.
+
+**What changes for you: nothing to do.** Dependencies still run first. A step's report may list in a new order.
+
+### The cluster base creates the executor's token secret
+
+**`yidam/cluster/base` now creates `yidam-<corpus>-run.service-account-token` (#1237).**
+Without it, every pod of a generated workflow waited in `Init` on a mount that never arrived.
+
+**What changes for you: move your base reference to this release's tag.** An overlay that copies the base needs the secret too.
+See [cluster-runs.md](cluster-runs.md#apply-it).
+
+### Regenerate a cluster workflow
+
+**A workflow from `yidam cluster workflow` stopped after its first landing (#1237).**
+Its expressions named hyphenated tasks with a dot, which Argo could not resolve. Nothing failed, and the run waited.
+They now name each task in brackets, as `tasks['land-x']`.
+
+**A run not admitted now ends Succeeded, not in Error.** Each task waits for the one before to succeed.
+A skipped `pin` used to let the first step start and read an output nothing wrote.
+
+**A `CronWorkflow` now lists its time under `spec.schedules`.** Argo Workflows 4 refuses the old `spec.schedule`.
+Argo 3.6, the oldest version the run supports, reads either form.
+
+**What changes for you: regenerate every committed workflow.** Run `yidam cluster workflow` again with the flags you used.
+
+### `cluster status` reports what a run did, from records
+
+**`yidam cluster status` lists a corpus's recent cluster runs (#1236).** For each run it gives the admission and its reason.
+Each step is landed, proposed, refused with the lander's reason, or not reached. Each gather peer has its outcome.
+It reads the records Argo keeps on each `Workflow`, through `kubectl`, and never a log.
+See [cluster-runs.md](cluster-runs.md#when-something-looks-wrong).
+
+**A refused landing now writes a record to `--out`.** The record holds `refused` and the lander's reason, and the pod still fails.
+
+**What changes for you: nothing, until you upgrade the image.** A lander from an older image writes no refusal record.
+`status` shows its refusals as `failed`, pointing at the pod's message.
+
+### A push can submit a cluster run, and every run holds a per-corpus mutex
+
+**`yidam cluster workflow --on-push github` writes an Argo Events `EventSource` and `Sensor` (#1235).**
+A push to the branch submits the same run the cron does, and the run asks `admit` first.
+The lander's own push submits a run too, and that run finds nothing owed.
+See [cluster-runs.md](cluster-runs.md#run-on-push).
+
+**Every generated workflow now holds a mutex, `yidam-<corpus>`.** Two runs of one corpus queue instead of racing.
+The field is `synchronization.mutexes`, which needs Argo Workflows 3.6 or later.
+
+**What changes for you: regenerate your workflow, on Argo Workflows 3.6 or later.** A manifest written before this upgrade still runs, without the mutex.
+Running on push is opt-in. It needs Argo Events and the `streamflow-on-push` overlay's two extra objects.
+
+### An S3 vault can assume a role by web identity
+
+**A vault can use a role from IRSA instead of a stored key (#1234).** The `default` vault
+assumes `AWS_ROLE_ARN` with the token in `AWS_WEB_IDENTITY_TOKEN_FILE`. Another vault names its
+own with `YIDAM_VAULT_<NAME>_ROLE_ARN` and `…_WEB_IDENTITY_TOKEN_FILE`. It never inherits
+`AWS_ROLE_ARN`. The remote index reads `YIDAM_INDEX_ROLE_ARN` the same way. See
+[cli-reference.md](cli-reference.md#s3-compatible-stores) and
+[cluster-runs.md](cluster-runs.md#two-vault-backends).
+
+**What changes for you: nothing, unless you opt in.** Keys you export for a vault still win over
+an injected role. A vault given both its own role and its own keys is now refused. `doctor` now
+says where each vault's credentials come from.
+
+**Fenced clusters need STS.** Pods that assume a role call STS first. Add its interface
+endpoint's addresses to `[cluster.egress] sts`, then regenerate the policies.
+
+**Update the image first.** An older binary refuses `.yidam/config.toml` once it holds
+`[cluster.egress] sts`.
+
+### The lander can push as a GitHub App
+
+**`yidam cluster land` can push with a short-lived GitHub App token instead of a deploy key
+(#1233).** Set `[cluster] git_auth = "github-app"` and `[cluster.github_app] app_id`. Put the
+App's key in the write secret as `private-key.pem`. The lander mints a token for the one
+repository, with `contents: write`, and pushes over HTTPS. See
+[cluster-runs.md](cluster-runs.md#push-as-a-github-app).
+
+**What changes for you: nothing, unless you opt in.** Deploy keys stay the default. To switch,
+regenerate your workflow. If you set `[cluster.egress] remote`, include the GitHub API's
+addresses too.
+
+**Update the image first.** An older binary refuses `.yidam/config.toml` once it holds
+`git_auth` or `[cluster.github_app]`.
+
+### Cluster pods are labelled by what they may reach, and a new command fences them
+
+**`yidam cluster workflow` labels every pod, and `yidam cluster network-policy` writes the
+policies that select them (#1232).** Each pod carries `yidam.dev/corpus` and `yidam.dev/egress`:
+`remote`, `vault` or `internet`. A step pod, where a calculator runs, reaches the vault and
+nothing else. `catalog-fetch` now runs from its own template, `step-catalog-fetch`.
+
+**What changes for you: regenerate your workflow.** Then set the API server's addresses in
+`[cluster.egress] executor` and write the policies into your overlay. An `s3://` vault also
+needs `vault`. See [cluster-runs.md](cluster-runs.md#limit-what-each-pod-reaches). Without a
+CNI that enforces NetworkPolicy, the policies apply and enforce nothing.
+
+**Update the image first.** An older binary refuses `.yidam/config.toml` once it holds
+`[cluster.egress]`.
+
+### Every generated cluster pod is bounded, and every run is cleaned up
+
+**`yidam cluster workflow` now writes resources, a deadline, retries and cleanup (#1231).**
+Each pod requests 250m CPU and 512Mi memory, is limited at 2 CPU and 2Gi, and fails after an hour.
+`pin`, `survey` and `step` retry twice. `land` never does. Argo deletes a pod that succeeded,
+and a workflow a day after it succeeds or a week after it fails.
+
+**What changes for you: regenerate your workflow.** Set other sizes in `[cluster.pod]` and
+`[cluster.cleanup]`. A calculator can set its own under `[capability.<name>.cluster]`.
+See [cluster-runs.md](cluster-runs.md#resources-deadlines-and-cleanup).
+
+**Update the image first.** The pods read `.yidam/config.toml` and `.yidam/capabilities.toml`.
+An older binary refuses either file once it holds one of these tables.
+
+### Every generated cluster pod meets the `restricted` Pod Security Standard
+
+**`yidam cluster workflow` now writes a security context on every template (#1230).**
+Each pod runs as uid 1000, with a read-only root filesystem and no capabilities.
+It writes only to two `emptyDir` volumes, `/tmp/yidam` and `/home/yidam`, and a `file://` vault.
+
+**What changes for you: regenerate your workflow.** A manifest written before this upgrade still runs.
+It is refused by a namespace that enforces `restricted`. See [cluster-runs.md](cluster-runs.md#a-restricted-namespace).
+
+### A cluster corpus deploys with one `kubectl apply -k`
+
+**The objects around a generated workflow are now a Kustomize base and overlay (#1229).**
+The service account, both git secrets and the vault claim come from `yidam/cluster/`.
+
+**What changes for you: `docs/cluster/argo-rbac.yml` is gone.**
+Its objects live in the base, which your overlay names by URL at your `cli/v*` tag.
+Copy the streamflow overlay, set its prefix to your corpus, and add your key files.
+Then run `kubectl apply -k`. See [cluster-runs.md](cluster-runs.md#deploy-a-corpus).
+Objects you already created keep working, since the names are unchanged.
+
+### Each corpus on a cluster names its own secrets and service account
+
+**`yidam cluster workflow` now names every object for its corpus, as `yidam-<corpus>-<role>` (#1228).**
+Two corpora in one namespace used to share `yidam-git-write`, so either lander could move the other's refs.
+
+**What changes for you: a regenerated workflow refers to new names.**
+Your cluster still holds `yidam-run`, `yidam-git-read`, `yidam-git-write` and `yidam-vault`.
+Recreate each under its new name, and apply the Kustomize overlay in [cluster-runs.md](cluster-runs.md#deploy-a-corpus).
+Or keep the old names by setting them in `[cluster.names]`. See [configuration.md](configuration.md#cluster).
+Keep old names only when one corpus runs in the namespace.
+
+### A gather runs on a cluster, and each peer's answer has a receipt
+
+**`yidam cluster workflow` now adds a gather's tasks for each file in `.yidam/gathers/` (#1217).**
+Each peer is asked in its own pod, and nothing but the lander holds a git credential.
+
+**What changes for you: a local `yidam gather` now commits receipts too.**
+They land at `.yidam/runs/gather/<name>/<peer>.yml`, one per peer that answered or came back empty.
+A gather branch you already proposed holds none, so a repeat run builds a different tree.
+Pass `--force` to replace it, or delete the branch first.
+A corpus without `.yidam/gathers/` gets the same workflow as before.
+
+### `regen` and `vault push` author their own commits
+
+**`yidam regen --commit` and `yidam vault push --commit` write the `regen:`, `index:` and `bundle:` commits (#1215).**
+Each commits only the tracked files it changed, under its own author, and commits nothing when nothing changed.
+It refuses a file that already has uncommitted edits.
+
+The index workflow now runs `yidam vault push --index --commit` and pushes. Its `Commit the lock` step is now `Push the lock commit`.
+Take the new `.github/workflows/index.yml` on upgrade. `index-build` and `bundle` still commit nothing, because their output is gitignored.
+
+### An interval's target may mark its line of holders finished
+
+**`interval:` accepts `complete:`, naming a property on the `exclusive_over` target (#1213).**
+Write `complete: line_complete` on a tenure class, and `line_complete: true` on each finished office.
+
+The new `interval-gap` check then warns on a span inside that line held by fewer than it seats.
+Spans before the first holder and after the last are not gaps. Targets without the mark are unchecked.
+
+### A calculator the corpus cannot run yet is declared, not stubbed as a skill
+
+**A capability in `.yidam/capabilities.toml` may omit `run` (#1184).** It parses as declared and not built.
+Every `yidam run` plan holding it is refused by name, and nothing lands.
+
+The bootstrap now declares an unrun calculator there instead of writing a skill stub in `.yidam/skills/`.
+An existing calculator stub can move the same way. Declare its `reads`, `writes` and `verb`, then delete the skill.
+Until it gains a `run`, a bare `yidam run` refuses the whole manifest.
+
+### `lint` reports a skill that does not say whether it is built
+
+**`yidam lint` now reports `skill-status-unstated` at `Info` (#1182).** It names each skill in `.yidam/skills/` whose `status:` is missing.
+It also names a skill whose value is neither `built` nor `stub`.
+
+Every skill written before #1063 is reported after this upgrade. Nothing gates on it.
+Add `status: built` or `status: stub` to each one, then run `yidam skills-index`.
+
+### The consumption record names the nodes `retrieve` returned
+
+**A `retrieve` line in `.yidam/record/calls.jsonl` now carries `node_ids` (#1020).**
+It lists the ids `retrieve` returned, in rank order. Every other tool records `null`.
+
+`yidam record` uses them to name the corpus nodes no recorded `retrieve` returned.
+Its JSON report gains `consumption.reach`, which is `null` over a record written before this change.
+A line without the key is still read. Nothing needs to change in a corpus.
+
+### `yidam record --fold` commits the consumption record
+
+**The record `[serve] record` keeps can now reach the history (#1018).**
+`yidam record --fold` counts the new lines of `.yidam/record/calls.jsonl` into `.yidam/consumption.json`.
+It commits that file alone, as one `refresh:` commit on the current branch.
+The commit is operational, so no proposal branch and no author are involved.
+
+The file is never truncated. The fold remembers how many bytes it counted, and takes only complete lines.
+A line a server writes during the fold is counted by the next one.
+With nothing new to count, the fold writes no commit, so it can run on a clock.
+
+`yidam record` now reads the committed counts and the file together.
+Its JSON report gains `consumption.folded`, which is `0` in a corpus that has never folded.
+Nothing needs to change in a corpus until you choose to fold.
+
+### `serve --mcp --http` can require a bearer token
+
+**Set `YIDAM_SERVE_TOKEN` or pass `--token-file`, and every request needs the token (#939).**
+A request without it gets `401` on every path. Nothing changes until one is set.
+
+**What changes for you: check the environment you serve from.** An empty `YIDAM_SERVE_TOKEN` now refuses to start.
+So does setting the variable and `--token-file` together.
+
+A token does not lift the loopback rule for `[serve] act`. See [mcp-server.md](mcp-server.md#a-bearer-token).
+
+### A bind off loopback warns at startup
+
+**`serve --mcp --http --bind` with a non-loopback address now prints a warning (#939).**
+The transport authenticates nobody. Anyone who reaches the port can call every read tool.
+The warning names each served tool, and the two repairs.
+
+**What changes for you: nothing, unless you watch stderr.** The server still starts and answers.
+Bind `127.0.0.1`, or require a bearer token. A token silences the warning.
+
+### Domain libraries are vendored beside the prelude, not inside it
+
+**The domain libraries moved from `yidam/prelude/domains/` to `yidam/domains/` (#934).** The prelude copy no longer carries them.
+`yidam-vendor-update` copies only the domains named in `prelude_domains` into `.yidam/.vendor/domains/`.
+Without that key, it keeps the domains this repository already vendored.
+
+**What changes for you: a vendored domain changes path.** The next re-vendor moves it from `.yidam/.vendor/prelude/domains/<domain>/` to `.yidam/.vendor/domains/<domain>/`.
+Re-point any `crates/Cargo.toml` path or `packages/` dependency that names the old path.
+A repository that vendors no domain sees no change.
+
+### Every vector index needs rebuilding
+
+**The embedding runtime moved to fastembed 7, and it embeds into a different vector space (#536).**
+Its ONNX Runtime is newer, and the quantized kernels answer about 3e-4 differently per dimension.
+The TypeScript SDK moved with it, because transformers.js 4.3 answers the same way.
+
+**What changes for you: re-run `yidam index-build`.** Re-run `yidam index-push` too if you push one.
+Until then, semantic `retrieve` reports `stale_contract` and answers with keyword search instead.
+It does not rank against vectors from the old space. An index built before the witness existed is not checked.
+`yidam index-verify` reports `mismatch` on an old index, and `match` once it is rebuilt.
+
+### `yidam dispatch` runs an agent seat as a run
+
+**`yidam dispatch <question> --seat <name>` runs the elector a seat declares in `.yidam/sangha/dispatch/<name>.toml` (#477).**
+The position lands on a `propose/*` branch with a receipt of what ran. The seat's registry row must already record that model, version and config hash.
+
+**What changes for you: nothing, unless you dispatch a seat.** `.yidam/sangha/dispatch/` is new and absent by default.
+`yidam lint` gains `elector-receipt-disagrees`, a warning that is silent until a dispatch receipt exists.
+See [cli-reference.md](cli-reference.md) for the declaration's shape.
+
+### `yidam gather` asks pinned peers a question
+
+**`yidam gather <name>` runs the question in `.yidam/gathers/<name>.toml` against each `tonpa` peer (#476).**
+Each peer's answers land as `cites:` on one `?` question node, on a `propose/*` branch.
+
+**What changes for you: nothing, unless you write a gather.** `.yidam/gathers/` is new and absent by default.
+No existing command changed. See [cli-reference.md](cli-reference.md) for the file's shape.
+
+### `yidam cluster` runs the manifest on Argo Workflows
+
+**`yidam cluster workflow`, `admit`, `pin`, `step`, `land` (#475, RFC-0026 §7).** The same
+run as `yidam run`, one pod per act. `workflow` generates the Argo manifest from
+`.yidam/capabilities.toml` and `[cluster]` in `.yidam/config.toml`. The step pod holds no
+credential that can move a ref; only the lander does. [cluster-runs.md](cluster-runs.md) is the
+deployment guide, for a `file://` vault that needs no credentials and for `s3://`.
+
+**What changes for you: nothing, unless you deploy it.** `[cluster]` is a new config table and
+is absent by default. No existing command changed its behaviour.
+
+**Every workflow also runs the catalog.** `catalog-fetch`, `catalog-extract` and `catalog-reconcile`
+run ahead of your manifest's steps. A manifest that declares one of those names has no workflow.
+Rename the capability.
+
+**Receipts are now `format_version: 2`.** A receipt can record `version`, and `image_digest` on a
+cluster. The digest is recorded only for an image pinned by `@sha256:`. Version 0.17.0 reads these
+receipts unchanged.
+
+### `check-diff` offers fewer nearest names
+
+**A `nearest` candidate now needs a shared root of five characters, up from four (#390).**
+Across fourteen derived corpora, more than half of the four-character candidates were wrong.
+Most shared a truncation such as `stat`, offering `status` for `statement`.
+
+**What changes for you: fewer candidates, and no findings.** Every `unmodelled-concept` row is
+still reported. A few right candidates on four-letter words are gone, such as `vote`.
+
 ## cli/v0.17.0
 
 ### An interval's target may seat more than one
