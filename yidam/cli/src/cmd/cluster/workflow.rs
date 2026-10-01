@@ -45,6 +45,15 @@ pub(super) struct Overrides {
 
 /// Where every pod writes its record, and where Argo reads the output parameter from.
 const OUT: &str = "/tmp/yidam/out.json";
+/// The scratch every pod clones into: an `emptyDir`, and the pod's `TMPDIR`, since the root
+/// filesystem is read-only (#1230). [`OUT`] is inside it.
+const SCRATCH: &str = "/tmp/yidam";
+/// The image's `yidam` user's home, also an `emptyDir`: git and ssh read config from it, and
+/// the vault cache a catalog step fetches into is `$HOME/.cache`.
+const HOME: &str = "/home/yidam";
+/// The image's `yidam` user. The pod asks the cluster to hold it to this rather than trusting
+/// the image's `USER`, which a namespace enforcing `restricted` cannot see.
+const UID: u32 = 1000;
 /// Where a git credential secret is mounted: `key` and `known_hosts` inside it.
 const GIT_DIR: &str = "/etc/yidam/git";
 const GIT_SSH: &str =
@@ -379,6 +388,10 @@ fn spec(s: &Settings) -> String {
          defaultMode: 256",
         quote(&n.git_write)
     );
+    y.push_str(
+        "  # Every root filesystem is read-only, so these are the only places a pod writes.\n  \
+         - name: scratch\n    emptyDir: {}\n  - name: home\n    emptyDir: {}\n",
+    );
     if let Some(mount) = file_vault_mount(&s.vault_url) {
         let _ = writeln!(
             y,
@@ -614,6 +627,13 @@ fn template(
         y,
         "    outputs:\n      parameters:\n        - name: output\n          valueFrom:\n            path: {OUT}"
     );
+    // The `restricted` Pod Security Standard, so a namespace enforcing it admits the pod
+    // (#1230). `fsGroup` is what makes a `file://` vault's claim writable by the user.
+    let _ = writeln!(
+        y,
+        "    securityContext:\n      runAsNonRoot: true\n      runAsUser: {UID}\n      \
+         runAsGroup: {UID}\n      fsGroup: {UID}\n      seccompProfile:\n        type: RuntimeDefault"
+    );
     y.push_str("    container:\n      image: \"{{workflow.parameters.image}}\"\n");
     let _ = writeln!(
         y,
@@ -648,10 +668,22 @@ fn template(
     for a in &all {
         let _ = writeln!(y, "        - {}", quote(a));
     }
+    let _ = writeln!(
+        y,
+        "      securityContext:\n        allowPrivilegeEscalation: false\n        \
+         readOnlyRootFilesystem: true\n        capabilities:\n          drop: [\"ALL\"]"
+    );
+    let _ = writeln!(
+        y,
+        "      env:\n        - name: TMPDIR\n          value: {}\n        - name: HOME\n          \
+         value: {}",
+        quote(SCRATCH),
+        quote(HOME)
+    );
     if cred != Credential::None {
         let _ = writeln!(
             y,
-            "      env:\n        - name: GIT_SSH_COMMAND\n          value: {}",
+            "        - name: GIT_SSH_COMMAND\n          value: {}",
             quote(GIT_SSH)
         );
     }
@@ -663,7 +695,10 @@ fn template(
             quote(&s.names.vault_secret)
         );
     }
-    let mut mounts: Vec<String> = Vec::new();
+    let mut mounts: Vec<String> = vec![
+        format!("        - name: scratch\n          mountPath: {SCRATCH}"),
+        format!("        - name: home\n          mountPath: {HOME}"),
+    ];
     match cred {
         Credential::Read => mounts.push(format!(
             "        - name: git-read\n          mountPath: {GIT_DIR}\n          readOnly: true"
@@ -681,11 +716,9 @@ fn template(
             ));
         }
     }
-    if !mounts.is_empty() {
-        y.push_str("      volumeMounts:\n");
-        for m in mounts {
-            let _ = writeln!(y, "{m}");
-        }
+    y.push_str("      volumeMounts:\n");
+    for m in mounts {
+        let _ = writeln!(y, "{m}");
     }
     y
 }
@@ -990,6 +1023,136 @@ mod tests {
             assert!(templates.contains(&t), "{t} missing from {templates:?}");
         }
         assert!(header(&s).contains("# gathers: units"));
+    }
+
+    /// Every pod the workflow starts is one a namespace enforcing the `restricted` Pod Security
+    /// Standard admits, and every path it writes is a volume, since its root is read-only
+    /// (#1230). The templates are walked, not named, so one added later is held to this without
+    /// joining a list; and the fixture must write as many as the generator has call sites, so a
+    /// template behind a condition this fixture does not meet cannot pass unread.
+    #[test]
+    fn every_pod_satisfies_the_restricted_profile() {
+        let s = Settings {
+            slug: "corpus".into(),
+            image: "img".into(),
+            remote: "r".into(),
+            branch: "main".into(),
+            vault_name: "default".into(),
+            vault_url: "file:///vault".into(),
+            vault_region: None,
+            vault_endpoint: None,
+            vault_path_style: false,
+            namespace: None,
+            cron: Some("0 6 * * *".into()),
+            steps: vec!["a".into()],
+            gathers: vec!["units".into()],
+            names: Names::derived("corpus"),
+        };
+        let doc: serde_yaml::Value = serde_yaml::from_str(&spec(&s)).expect("the spec parses");
+        // The volume types `restricted` allows; a hostPath, say, fails admission.
+        const ALLOWED: &[&str] = &[
+            "configMap",
+            "csi",
+            "downwardAPI",
+            "emptyDir",
+            "ephemeral",
+            "persistentVolumeClaim",
+            "projected",
+            "secret",
+        ];
+        let mut volumes = std::collections::BTreeMap::new();
+        for v in doc["volumes"].as_sequence().expect("volumes") {
+            let name = v["name"].as_str().unwrap();
+            let kind = v
+                .as_mapping()
+                .unwrap()
+                .keys()
+                .filter_map(|k| k.as_str())
+                .find(|k| *k != "name")
+                .unwrap();
+            assert!(ALLOWED.contains(&kind), "{name} is a {kind} volume");
+            volumes.insert(name, kind);
+        }
+        assert_eq!(volumes.get("scratch"), Some(&"emptyDir"));
+        assert_eq!(volumes.get("home"), Some(&"emptyDir"));
+        assert!(
+            OUT.starts_with(&format!("{SCRATCH}/")),
+            "{OUT} is not in scratch"
+        );
+
+        let mut checked = vec![];
+        for t in doc["templates"].as_sequence().expect("templates") {
+            let name = t["name"].as_str().unwrap();
+            if t.get("dag").is_some() {
+                continue;
+            }
+            let c = &t["container"];
+            assert!(
+                c.is_mapping(),
+                "{name} is neither a dag nor a container template, so this cannot check it"
+            );
+
+            let pod = &t["securityContext"];
+            assert_eq!(pod["runAsNonRoot"].as_bool(), Some(true), "{name}");
+            assert_eq!(pod["runAsUser"].as_u64(), Some(UID.into()), "{name}");
+            assert_eq!(pod["runAsGroup"].as_u64(), Some(UID.into()), "{name}");
+            assert_eq!(pod["fsGroup"].as_u64(), Some(UID.into()), "{name}");
+            assert_eq!(
+                pod["seccompProfile"]["type"].as_str(),
+                Some("RuntimeDefault"),
+                "{name}"
+            );
+            assert_ne!(UID, 0);
+
+            let sc = &c["securityContext"];
+            assert_eq!(
+                sc["allowPrivilegeEscalation"].as_bool(),
+                Some(false),
+                "{name}"
+            );
+            assert_eq!(sc["readOnlyRootFilesystem"].as_bool(), Some(true), "{name}");
+            let drop: Vec<&str> = sc["capabilities"]["drop"]
+                .as_sequence()
+                .map(|d| d.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+            assert_eq!(drop, ["ALL"], "{name}");
+            assert!(sc["capabilities"].get("add").is_none(), "{name}");
+            assert!(sc.get("privileged").is_none(), "{name}");
+
+            let env = |k: &str| {
+                c["env"]
+                    .as_sequence()
+                    .and_then(|e| e.iter().find(|v| v["name"] == k))
+                    .and_then(|v| v["value"].as_str())
+            };
+            assert_eq!(env("TMPDIR"), Some(SCRATCH), "{name}");
+            assert_eq!(env("HOME"), Some(HOME), "{name}");
+            let mounts: Vec<(&str, &str)> = c["volumeMounts"]
+                .as_sequence()
+                .expect("volumeMounts")
+                .iter()
+                .map(|m| {
+                    (
+                        m["name"].as_str().unwrap(),
+                        m["mountPath"].as_str().unwrap(),
+                    )
+                })
+                .collect();
+            for (vol, _) in &mounts {
+                assert!(volumes.contains_key(vol), "{name} mounts undeclared {vol}");
+            }
+            assert!(mounts.contains(&("scratch", SCRATCH)), "{name}: {mounts:?}");
+            assert!(mounts.contains(&("home", HOME)), "{name}: {mounts:?}");
+            checked.push(name);
+        }
+        let call_sites = include_str!("workflow.rs")
+            .matches(concat!("y.push_str(&", "template("))
+            .count();
+        assert_eq!(
+            checked.len(),
+            call_sites,
+            "the fixture wrote {checked:?}, and the generator has {call_sites} templates"
+        );
     }
 
     /// A corpus with no gather gets none of the gather templates, so its workflow is unchanged.

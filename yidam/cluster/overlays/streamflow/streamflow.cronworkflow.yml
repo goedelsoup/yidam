@@ -53,6 +53,11 @@ spec:
         secret:
           secretName: "yidam-streamflow-git-write"
           defaultMode: 256
+      # Every root filesystem is read-only, so these are the only places a pod writes.
+      - name: scratch
+        emptyDir: {}
+      - name: home
+        emptyDir: {}
       # A file:// vault: a content-addressed store of immutable bundles, mounted at
       # /var/yidam/vault on every pod. This is not a corpus checkout on a shared volume — nothing
       # in it is a working tree, and no pod writes anything but a new digest into it.
@@ -173,6 +178,13 @@ spec:
             - name: output
               valueFrom:
                 path: /tmp/yidam/out.json
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
         container:
           image: "{{workflow.parameters.image}}"
           command: ["yidam", "cluster", "pin"]
@@ -185,7 +197,16 @@ spec:
             - "{{workflow.parameters.vault-url}}"
             - "--out"
             - "/tmp/yidam/out.json"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           env:
+            - name: TMPDIR
+              value: "/tmp/yidam"
+            - name: HOME
+              value: "/home/yidam"
             - name: GIT_SSH_COMMAND
               value: "ssh -i /etc/yidam/git/key -o UserKnownHostsFile=/etc/yidam/git/known_hosts -o IdentitiesOnly=yes"
           # Vault credentials, for an s3:// vault; absent for file://, which needs none.
@@ -194,6 +215,10 @@ spec:
                 name: "yidam-streamflow-vault"
                 optional: true
           volumeMounts:
+            - name: scratch
+              mountPath: /tmp/yidam
+            - name: home
+              mountPath: /home/yidam
             - name: git-read
               mountPath: /etc/yidam/git
               readOnly: true
@@ -210,6 +235,13 @@ spec:
             - name: output
               valueFrom:
                 path: /tmp/yidam/out.json
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
         container:
           image: "{{workflow.parameters.image}}"
           command: ["yidam", "cluster", "step", "{{inputs.parameters.step}}"]
@@ -222,12 +254,26 @@ spec:
             - "{{workflow.parameters.vault-url}}"
             - "--out"
             - "/tmp/yidam/out.json"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: TMPDIR
+              value: "/tmp/yidam"
+            - name: HOME
+              value: "/home/yidam"
           # Vault credentials, for an s3:// vault; absent for file://, which needs none.
           envFrom:
             - secretRef:
                 name: "yidam-streamflow-vault"
                 optional: true
           volumeMounts:
+            - name: scratch
+              mountPath: /tmp/yidam
+            - name: home
+              mountPath: /home/yidam
             - name: vault
               mountPath: "/var/yidam/vault"
       - name: land
@@ -241,6 +287,13 @@ spec:
             - name: output
               valueFrom:
                 path: /tmp/yidam/out.json
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
         container:
           image: "{{workflow.parameters.image}}"
           command: ["yidam", "cluster", "land"]
@@ -255,7 +308,16 @@ spec:
             - "{{workflow.parameters.vault-url}}"
             - "--out"
             - "/tmp/yidam/out.json"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           env:
+            - name: TMPDIR
+              value: "/tmp/yidam"
+            - name: HOME
+              value: "/home/yidam"
             - name: GIT_SSH_COMMAND
               value: "ssh -i /etc/yidam/git/key -o UserKnownHostsFile=/etc/yidam/git/known_hosts -o IdentitiesOnly=yes"
           # Vault credentials, for an s3:// vault; absent for file://, which needs none.
@@ -264,6 +326,10 @@ spec:
                 name: "yidam-streamflow-vault"
                 optional: true
           volumeMounts:
+            - name: scratch
+              mountPath: /tmp/yidam
+            - name: home
+              mountPath: /home/yidam
             - name: git-write
               mountPath: /etc/yidam/git
               readOnly: true
@@ -275,6 +341,13 @@ spec:
             - name: output
               valueFrom:
                 path: /tmp/yidam/out.json
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
         container:
           image: "{{workflow.parameters.image}}"
           command: ["yidam", "cluster", "admit"]
@@ -285,10 +358,23 @@ spec:
             - "{{workflow.parameters.branch}}"
             - "--out"
             - "/tmp/yidam/out.json"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           env:
+            - name: TMPDIR
+              value: "/tmp/yidam"
+            - name: HOME
+              value: "/home/yidam"
             - name: GIT_SSH_COMMAND
               value: "ssh -i /etc/yidam/git/key -o UserKnownHostsFile=/etc/yidam/git/known_hosts -o IdentitiesOnly=yes"
           volumeMounts:
+            - name: scratch
+              mountPath: /tmp/yidam
+            - name: home
+              mountPath: /home/yidam
             - name: git-read
               mountPath: /etc/yidam/git
               readOnly: true
