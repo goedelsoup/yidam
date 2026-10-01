@@ -5,7 +5,9 @@
 # streamflow to a git server inside the cluster, applies the shipped overlay in a namespace
 # that enforces `restricted`, and submits the run. Then it reads the remote: the compute
 # commits and their receipts on the branch, the epistemic step on `propose/*`, a second
-# submission that moves nothing, and a write key that cannot push from a step pod. The script
+# submission that moves nothing, and a write key that cannot push from a step pod. Last, with
+# Argo Events installed, a push to the remote submits the run itself (#1235): one admitted run
+# for a person's push, one turned away for each of the lander's pushes to main. The script
 # is `yidam/cluster/e2e/run.sh`, and `mise run cluster-e2e` runs it locally.
 #
 # ── not in the per-PR gate ───────────────────────────────────────────────────
