@@ -6,4 +6,4 @@ description = "Yidam domain parity testkit — loads the shared fixtures, and re
 publish = false
 
 [dependencies]
-toml = "0.8"
+toml = "1.1"
