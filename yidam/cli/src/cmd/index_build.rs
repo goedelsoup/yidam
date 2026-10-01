@@ -5,7 +5,7 @@ use arrow_array::{
 };
 use arrow_ipc::writer::FileWriter;
 use arrow_schema::{DataType, Field, Schema};
-use fastembed::{InitOptions, TextEmbedding};
+use fastembed::{TextEmbedding, TextInitOptions};
 use futures::TryStreamExt;
 use lancedb::connect;
 use lancedb::query::{ExecutableQuery, QueryBase as _};
@@ -124,7 +124,7 @@ pub async fn index_build(model_arg: Option<String>) -> Result<()> {
     println!("Initializing model ({model_name})…");
     println!("  (first run downloads model weights)");
 
-    let model = TextEmbedding::try_new(InitOptions::new(embedding_model.clone()))?;
+    let mut model = TextEmbedding::try_new(TextInitOptions::new(embedding_model.clone()))?;
 
     let texts: Vec<String> = records.iter().map(|r| r.text.clone()).collect();
     println!("Embedding {} texts…", texts.len());

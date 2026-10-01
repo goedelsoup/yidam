@@ -13,7 +13,7 @@
 #![cfg_attr(not(feature = "vector-read"), allow(unused_imports))]
 
 #[cfg(feature = "vector-read")]
-use fastembed::{InitOptions, TextEmbedding};
+use fastembed::{TextEmbedding, TextInitOptions};
 use std::path::PathBuf;
 
 fn fixture_dir() -> PathBuf {
@@ -60,8 +60,8 @@ fn embed_config_parity() {
             .find(|m| m.model_code == model_id)
             .unwrap_or_else(|| panic!("model {model_id} not supported by fastembed"))
             .model;
-        let model = TextEmbedding::try_new(
-            InitOptions::new(model_enum)
+        let mut model = TextEmbedding::try_new(
+            TextInitOptions::new(model_enum)
                 .with_cache_dir(std::env::temp_dir().join("yidam-fastembed-cache")),
         )
         .unwrap();
