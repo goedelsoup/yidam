@@ -155,11 +155,15 @@ pub fn introduced(diff: &str) -> Vec<Decl> {
 /// type in `UpperCamel`, an ontology spells a class in `kebab-case` and a property in either
 /// `kebab` or `snake`. Acronyms break before the last capital — `HTTPServer` is
 /// `http-server` and not `h-t-t-p-server` — because the alternative matches nothing.
+///
+/// Whitespace is a separator like `_` and `-`. Ontologies write some relationships as
+/// phrases — `conflicts with` — and a name that kept its space could never equal the
+/// `conflicts-with` a type named `ConflictsWith` becomes (#1299).
 pub fn kebab(name: &str) -> String {
     let chars: Vec<char> = name.chars().collect();
     let mut out = String::with_capacity(name.len() + 4);
     for (i, c) in chars.iter().enumerate() {
-        if *c == '_' || *c == '-' {
+        if *c == '_' || *c == '-' || c.is_whitespace() {
             if !out.is_empty() && !out.ends_with('-') {
                 out.push('-');
             }
@@ -369,6 +373,15 @@ pub(crate) struct Canvass {
     fn a_digit_is_a_word_boundary_before_a_capital_and_not_after_one() {
         assert_eq!(kebab("Zip5"), "zip5");
         assert_eq!(kebab("Zip5Reading"), "zip5-reading");
+    }
+
+    /// #1299: a relationship written as a phrase must kebab to what its type would.
+    #[test]
+    fn whitespace_is_a_separator() {
+        assert_eq!(kebab("conflicts with"), "conflicts-with");
+        assert_eq!(kebab("shared a split with"), "shared-a-split-with");
+        assert_eq!(kebab("based  in"), "based-in");
+        assert_eq!(kebab(" Located In"), "located-in");
     }
 
     #[test]
