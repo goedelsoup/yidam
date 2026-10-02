@@ -1,7 +1,7 @@
 # RFC-0048 — A source is named by what it is, and fetched by something the corpus did not write (source packs)
 
 - **Status:** Implemented
-- **Commands:** `source`
+- **Commands:** `source check`, `source list`, `source search`, `source add`
 - **Track:** I35
 - **Relates to:**
   - RFC-0023 (the `artifacts:` record and `catalog-fetch`, which this extends rather than replaces, and whose `redistributable` default every pack inherits)

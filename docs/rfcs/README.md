@@ -106,8 +106,9 @@ its header, machine-readably, one line:
 - **Commands:** `run`, `phase`
 ```
 
-Top-level command names as `yidam --help-all` spells them, comma-separated, and nothing else on
-the line — `rfc_status.rs` reads it and asks the built binary whether each one exists. Once every
+Top-level command names as `yidam --help-all` spells them, or `group sub` pairs, comma-separated,
+and nothing else on the line — `rfc_status.rs` reads it and asks the built binary whether each
+one exists. Once every
 command an RFC names is in the binary, the RFC may not read `Draft` or `Accepted`: a design still
 under review does not have a shipped command. #941 reported that combination three times; writing
 the lines out found it in RFC-0033 as well, which nobody had noticed.
@@ -117,6 +118,12 @@ The line is for commands this RFC **specifies**, not ones it mentions. Every RFC
 An RFC whose commands are unbuilt carries the line too — RFC-0004's three are the example — and
 that is the half of the check with a future: the day one of them ships, the status has to move
 with it.
+
+A group can be named one subcommand at a time, as `group sub`, and the check then asks the
+group's own `--help` for each one. RFC-0048 names `source check`, `source list`, `source search`
+and `source add`. Had its line said only `source`, the RFC would have had to read `Implemented`
+on the day `check` shipped alone (#1329). An RFC that lands across several PRs keeps its true
+status this way until the last subcommand is built.
 
 ## RFC template
 
