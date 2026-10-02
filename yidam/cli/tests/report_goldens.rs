@@ -2467,6 +2467,12 @@ const UNREACHED: &[(&str, &str)] = &[
          `readings: null` here, and tests/catalog_extract.rs writes a reading end to end",
     ),
     (
+        "extracted[].read[].member",
+        "a member is read only from a zip whose location names it under `members:`, and the \
+         fixture every other golden reads has no zip — tests/catalog_extract_members.rs reads \
+         one end to end",
+    ),
+    (
         "extracted[].skipped",
         "a PDF is skipped only when a run reads the cache, and a dry run does not, so the golden \
          does not depend on what the machine running it has fetched — tests/catalog_extract.rs \

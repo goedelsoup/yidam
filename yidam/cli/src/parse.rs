@@ -137,6 +137,7 @@ impl CatalogArtifact {
         let legacy = self.text.as_ref().map(|t| ArtifactReading {
             sha256: t.sha256.clone(),
             media_type: Some(TEXT_READING.to_string()),
+            member: None,
             by: t.extractor.clone(),
         });
         legacy
@@ -146,11 +147,12 @@ impl CatalogArtifact {
     }
 
     /// The reading a quotation of these bytes is compared with: the first `text/plain` one,
-    /// whichever key recorded it.
+    /// whichever key recorded it. A member read out of an archive is not one: it is a
+    /// file the archive holds, not a reading of the archive (#1351).
     pub fn text_reading(&self) -> Option<ArtifactReading> {
         self.all_readings()
             .into_iter()
-            .find(ArtifactReading::is_text)
+            .find(|r| r.member.is_none() && r.is_text())
     }
 }
 
@@ -163,9 +165,13 @@ pub struct ArtifactReading {
     /// The reading's own content address, in the same cache as the artifact's.
     pub sha256: Option<String>,
     pub media_type: Option<String>,
+    /// The path inside the archive this reading is the file at, when the artifact is a zip
+    /// and the reading is one of its members (#1351). Absent on every other reading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member: Option<String>,
     /// What produced it, so a person can reproduce it. A PDF's extractor is `<crate>
-    /// <version>`; a pack's transform is `<pack>@<version>/<transform>@sha256:<hash>`. Never
-    /// re-run to check it: lint compares against the stored bytes.
+    /// <version>`; a pack's transform is `<pack>@<version>/<transform>@sha256:<hash>`; a
+    /// member's is `unzip`. Never re-run to check it: lint compares against the stored bytes.
     pub by: Option<String>,
 }
 
@@ -217,6 +223,11 @@ pub struct CatalogLocation {
     /// Distinguishes several locations on one entry. Optional when there is only one.
     #[serde(default)]
     pub description: Option<String>,
+    /// Files inside the archive this location fetches, each read out as a reading of it by
+    /// `catalog-extract` (#1351). Beside `value` and never in it: a location names the bytes
+    /// a fetch reads, and a member is not fetched (RFC-0048 decision 9).
+    #[serde(default)]
+    pub members: Option<Vec<String>>,
 }
 
 /// The location kinds a catalog entry may declare.

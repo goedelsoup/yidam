@@ -303,6 +303,10 @@ enum Command {
     /// feature, which is outside the default build; without it the artifact is reported as
     /// skipped. A reading already taken is kept. PDF extraction needs the `pdf-text`
     /// feature, which is in the default build.
+    ///
+    /// A file inside a zip is read when the location the zip was fetched from lists it under
+    /// `members:`. It is unpacked into the cache under its own digest and recorded with
+    /// `member:` and `by: unzip`.
     #[command(name = "catalog-extract")]
     CatalogExtract {
         /// One entry, by file stem or `name:`. Absent means every entry recording an artifact.

@@ -352,6 +352,10 @@ artifacts:
 `by` names the transform by content hash. So a reading is reproducible from the artifact, and a
 changed transform is a changed reading, not a silent one.
 
+A file inside a zip is a reading too (#1351). The location that names the zip lists the file
+under `members:`, beside its value and never in it (decision 9). `catalog-extract` records the
+member's own digest and media type, its path as `member:`, and `by: unzip`.
+
 **Why gluon and not code a pack runs.** #460 decision 9 refused connectors that `run` a corpus's
 own program, and this RFC leaves that standing. A transform is not a connector. It has no
 effects, so the reasons decision 9 gave do not reach it. And it is what lets a corpus write a
@@ -483,6 +487,11 @@ Settled in review on 2026-10-01. These were this RFC's open questions.
    reads. A file inside `oh2010.sf1.zip` is read from the zip, so the location names the zip.
    `source check` refuses a template or listing that carries a `#`, and a pin may not carry
    one. Settled in #1342 (§3).
+10. **A member is named beside the location, and read as a reading.** A location may list
+    `members:`, paths inside the zip it names. `catalog-extract` unpacks each into the cache.
+    It records each as a reading of the zip with its own `sha256` and `media_type`, a `member:`
+    path, and `by: unzip`. A path with `..` or an absolute prefix is refused. So are a member
+    over 1 GiB, more than 10,000 entries, zip64, and encryption. Settled in #1351 (§6).
 
 ## Open questions
 

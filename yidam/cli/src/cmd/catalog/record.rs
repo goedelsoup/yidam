@@ -177,6 +177,9 @@ fn render_reading(r: &ArtifactReading, indent: &str) -> Vec<String> {
     if let Some(m) = &r.media_type {
         fields.push(format!("media_type: {}", quote_if_needed(m)));
     }
+    if let Some(m) = &r.member {
+        fields.push(format!("member: {}", quote_if_needed(m)));
+    }
     if let Some(b) = &r.by {
         fields.push(format!("by: {}", quote_if_needed(b)));
     }
@@ -383,9 +386,9 @@ pub fn add_reading(text: &str, of: &str, reading: &ArtifactReading) -> Result<Op
             .find(|a| a.sha256.as_deref() == Some(of))
     };
     let already = record_of(text).is_some_and(|a| {
-        a.all_readings()
-            .iter()
-            .any(|r| r.by == reading.by && r.media_type == reading.media_type)
+        a.all_readings().iter().any(|r| {
+            r.by == reading.by && r.media_type == reading.media_type && r.member == reading.member
+        })
     });
     if already {
         return Ok(None);
@@ -555,6 +558,7 @@ The system of record. **Parameter 00060** is discharge.
 
     fn wayback(ts: &str) -> CatalogLocation {
         CatalogLocation {
+            members: None,
             kind: Some("identifier".into()),
             value: Some(format!("wayback:{ts}/https://x/?sites=09380000")),
             description: Some(format!(
@@ -811,6 +815,7 @@ The system of record. **Parameter 00060** is discharge.
         ArtifactReading {
             sha256: Some("tt".into()),
             media_type: Some("text/plain".into()),
+            member: None,
             by: Some(crate::reading::EXTRACTOR.into()),
         }
     }
@@ -867,6 +872,7 @@ The system of record. **Parameter 00060** is discharge.
         let body = ArtifactReading {
             sha256: Some("uu".into()),
             media_type: Some("text/plain".into()),
+            member: None,
             by: Some("scholarly@0.1.0/transforms/epmc-body.glu@sha256:77e2".into()),
         };
         let twice = add_reading(&once, "aa", &body).unwrap().unwrap();
@@ -879,6 +885,34 @@ The system of record. **Parameter 00060** is discharge.
         );
         let parsed = crate::parse::parse_frontmatter(&twice).artifacts.unwrap();
         assert_eq!(parsed[0].readings, Some(vec![reading(), body]));
+    }
+
+    /// Two members of one zip, unpacked by one step to one media type, are two readings, and
+    /// neither is the text a quotation of the zip is compared with (#1351).
+    #[test]
+    fn each_member_of_an_archive_is_its_own_reading() {
+        let held = append_artifacts(ENTRY, &[artifact("aa")]).unwrap();
+        let member = |path: &str, sha: &str| ArtifactReading {
+            sha256: Some(sha.into()),
+            media_type: Some("text/plain".into()),
+            member: Some(path.into()),
+            by: Some(super::super::member::UNPACKER.into()),
+        };
+        let list = member("oh2010.sf1.prd.packinglist.txt", "p1");
+        let once = add_reading(&held, "aa", &list).unwrap().unwrap();
+        assert!(
+            once.contains(
+                "      - sha256: p1\n        media_type: text/plain\n        \
+                 member: oh2010.sf1.prd.packinglist.txt\n        by: unzip\n"
+            ),
+            "{once}"
+        );
+        let other = member("readme.txt", "p2");
+        let twice = add_reading(&once, "aa", &other).unwrap().unwrap();
+        assert_eq!(add_reading(&twice, "aa", &other).unwrap(), None);
+        let parsed = crate::parse::parse_frontmatter(&twice).artifacts.unwrap();
+        assert_eq!(parsed[0].readings, Some(vec![list, other]));
+        assert_eq!(parsed[0].text_reading(), None);
     }
 
     /// A reading already taken is not replaced: it would change what a quotation was checked
