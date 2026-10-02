@@ -173,7 +173,7 @@ fn build(
 ) -> CheckDiffReport {
     let mut introduced = 0usize;
     let mut aligned = 0usize;
-    let mut findings = Vec::new();
+    let mut unmatched = Vec::new();
 
     for d in extract::introduced(diff) {
         let region = authorship.covering(&d.file);
@@ -188,7 +188,15 @@ fn build(
             aligned += 1;
             continue;
         }
-        let nearest = near::nearest(&name, vocabulary);
+        unmatched.push((d, region, name));
+    }
+
+    // Which words are suffixes is a fact about the whole report, so it is read before any
+    // row is offered a candidate.
+    let suffixes = near::suffixes(unmatched.iter().map(|(_, _, n)| n.as_str()));
+    let mut findings = Vec::new();
+    for (d, region, name) in unmatched {
+        let nearest = near::nearest(&name, vocabulary, &suffixes);
         findings.push(Finding {
             check: CHECK,
             // `generated` and `imported` are still reported, and reported to somebody: the
