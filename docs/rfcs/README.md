@@ -78,6 +78,7 @@ re-deriving it.
 | [0045](0045-derivation-check.md) | I33 | A refusal is declared, and a derivation is checked against it (`refuses:` and `yidam derive check`) | Implemented |
 | [0046](0046-quotation-property-type.md) | G13 | A quotation property type | Implemented |
 | [0047](0047-sealed-domain-articles.md) | I34 | A domain article is sealed by the genesis commit | Implemented |
+| [0048](0048-source-packs.md) | I35 | A source is named by what it is, and fetched by something the corpus did not write (source packs) | Draft |
 
 ## Reading order
 
