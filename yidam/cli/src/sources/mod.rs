@@ -488,14 +488,12 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
             );
             continue;
         };
-        let inside = !file.is_empty()
-            && !file.starts_with('/')
-            && !file.split('/').any(|c| c == ".." || c.is_empty());
-        if !inside {
+        if !inside_fixtures(file) {
             out.error(
                 "pack.toml",
                 format!("[fixtures] `{id}` names `{file}`, which is not a path inside fixtures/"),
             );
+            claimed.insert(without_dot_segments(file));
         } else {
             claimed.insert(file.clone());
             if !abs.join("fixtures").join(file).is_file() {
@@ -556,6 +554,26 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
     }
 }
 
+/// Whether `file` names a path inside `fixtures/` in the one form the walk of that
+/// directory yields: relative, and with no empty, `.` or `..` segment. A `./` path
+/// resolves, but would be claimed under a name the walk never produces (#1332).
+fn inside_fixtures(file: &str) -> bool {
+    !file.is_empty()
+        && !file.starts_with('/')
+        && !file
+            .split('/')
+            .any(|c| c == ".." || c == "." || c.is_empty())
+}
+
+/// `file` as the walk of `fixtures/` would name it, were it inside: a refused `./x.json`
+/// still names `x.json`, and claiming that keeps one mistake to one finding.
+fn without_dot_segments(file: &str) -> String {
+    file.split('/')
+        .filter(|c| *c != "." && !c.is_empty())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// The slots a `[search]` template may carry.
 pub const SEARCH_SLOTS: &[&str] = &["query", "limit"];
 
@@ -601,16 +619,12 @@ fn check_search(
         }
     }
     for (query, file) in &search.fixtures {
-        let inside = !file.is_empty()
-            && !file.starts_with('/')
-            && !file
-                .split('/')
-                .any(|c| c == ".." || c == "." || c.is_empty());
-        if !inside {
+        if !inside_fixtures(file) {
             out.error(
                 "pack.toml",
                 format!("[search] fixture `{query}` names `{file}`, which is not a path inside fixtures/"),
             );
+            claimed.insert(without_dot_segments(file));
             continue;
         }
         claimed.insert(file.clone());
