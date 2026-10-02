@@ -35,7 +35,6 @@ const GOLDEN = path.join(
   pkg,
   '..',
   '..',
-  'prelude',
   'sdks',
   'parity',
   'fixtures',
