@@ -293,6 +293,26 @@ offered for three or more types removes 71 wrong candidates and 14 right ones, 1
 single correct `precinct`. That was the closer of the two, and neither separates right from
 wrong cleanly.
 
+### A suffix is read from the code that repeats it
+
+Measured 2026-10-02 (#1298) over the ten derived corpora on this machine, which include A, C
+and E, with H–O and the rest of D–G not among them. The code says which of its words are
+role suffixes. It puts them last in a name and never anywhere else. A word that ends three
+or more of a report's compound type names, and opens or sits inside none, is not compared.
+
+Over the ten corpora, that rule finds one word, `error`. It ends 8 names in E, 5 in A and 14
+in C. It removes E's nine `margin-of-error` candidates, which are all wrong, and changes
+nothing else: 150 candidates become 141, and no row is added or lost. A word that also
+opens a name stays a subject. `district` ends five of C's names and opens seven, and those
+leads are right. A threshold of two was tried and was too loose. It caught `district`,
+`status` and `report` in E, each of which ends two names, and two related types often share
+a final word.
+
+The rule does not reach the other generic words #390 counted, such as `report`, `source` and
+`summary`, in the corpora on hand, because none of them ends three names there. It does not
+reach a root with a different meaning either. H–O, where most of those were found, were not
+re-measured.
+
 **Configurable: no**, for the reason the issue gave. A setting on a string comparison would
 be read as a confidence dial, and this measurement shows what the dial would move: it trades
 `vote` against `stat`, and never touches `error`.
@@ -388,4 +408,5 @@ The harness stays what it is — the bootstrap judge, deliberately outside any g
   constants found more than half of the four-character candidates wrong, and the floor is
   now five. See *Contact with twelve corpora that did not produce it*. A whole word that is
   shared and generic, such as `FetchError` against `margin-of-error`, is out of any
-  constant's reach, and the rule for it is #1298.
+  constant's reach. #1298 reads it from the code instead. See *A suffix is read from the
+  code that repeats it*.

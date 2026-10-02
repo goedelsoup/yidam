@@ -54,9 +54,17 @@ pub struct Nearest {
 /// moving it either way changes the count by about one candidate in a hundred.
 ///
 /// What a constant cannot reach is a whole word that is shared and generic — `FetchError`
-/// is still nearly `margin-of-error` — and #1298 is that rule question.
+/// is nearly `margin-of-error` at any prefix — and [`suffixes`] is the rule for it.
 const PREFIX: usize = 5;
 const TRAILING: usize = 3;
+
+/// How many of a report's compound names a word must end, and nothing else, before it is
+/// the code's suffix rather than its subject.
+///
+/// Three is the smallest count a coincidence does not reach. Two was tried over A, C and E
+/// (#1298) and caught `district`, `status` and `report` in E, each ending two names and
+/// opening none — two names in common is what any pair of related types has.
+const SUFFIX: usize = 3;
 
 /// The characters two words share from the start — `sponsorship` and `sponsored` give
 /// `sponsor`.
@@ -100,8 +108,18 @@ fn same_word(a: &str, b: &str) -> Option<String> {
 /// **Ranking is by agreement, then by root length, then by name.** More words in common
 /// beats a longer root, and the vocabulary is a `BTreeSet`, so a tie is broken
 /// lexicographically and the same corpus always reports the same candidate.
-pub fn nearest(name: &str, vocabulary: &BTreeSet<String>) -> Option<Nearest> {
-    let mine: Vec<&str> = name.split('-').filter(|w| !w.is_empty()).collect();
+///
+/// A word in `suffixes` is not one of `name`'s words, so a type that shares nothing else
+/// with the vocabulary has no candidate.
+pub fn nearest(
+    name: &str,
+    vocabulary: &BTreeSet<String>,
+    suffixes: &BTreeSet<String>,
+) -> Option<Nearest> {
+    let mine: Vec<&str> = name
+        .split('-')
+        .filter(|w| !w.is_empty() && !suffixes.contains(*w))
+        .collect();
     let mut best: Option<(usize, Nearest)> = None;
 
     for cand in vocabulary {
@@ -140,6 +158,42 @@ pub fn nearest(name: &str, vocabulary: &BTreeSet<String>) -> Option<Nearest> {
     best.map(|(_, n)| n)
 }
 
+/// The words a report's own type names use only as a suffix: `error` in `FetchError`,
+/// `ParseError` and `ManifestError`, and in no name's first or middle word.
+///
+/// Rust names its infrastructure with a role suffix, and a corpus about census data declares
+/// `margin-of-error`, so before this rule every error type in E's code was nearly it — nine
+/// of E's 37 candidates, all wrong (#1298). A word is generic *in this code*, which is what
+/// the report already holds, so there is no list to maintain: the code says which of its
+/// words are suffixes by putting them last and nowhere else.
+///
+/// **A word that also opens or sits inside a name is a subject.** `district` ends five of C's
+/// names (`house-district`, `model-district`) and opens seven more (`district-outcome`), and
+/// every one of those candidates is right. Over the ten corpora on hand, the only word this
+/// rule finds is `error`, in each of the three corpora that use it: 8 names in E, 5 in A and
+/// 14 in C.
+///
+/// It does not reach the other generic words #390 counted — `report`, `source`, `summary` —
+/// because no corpus on hand ends three names with one of them and nothing else; nor a root
+/// whose meaning differs (`tile-renderer` and `renders`), which no rule on words can.
+pub fn suffixes<'a>(names: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> {
+    let mut last: std::collections::BTreeMap<&str, usize> = Default::default();
+    let mut elsewhere = BTreeSet::new();
+    for name in names.into_iter().collect::<BTreeSet<_>>() {
+        let words: Vec<&str> = name.split('-').filter(|w| !w.is_empty()).collect();
+        if let [init @ .., tail] = words.as_slice() {
+            if !init.is_empty() {
+                *last.entry(tail).or_default() += 1;
+                elsewhere.extend(init.iter().copied());
+            }
+        }
+    }
+    last.into_iter()
+        .filter(|(w, n)| *n >= SUFFIX && !elsewhere.contains(w))
+        .map(|(w, _)| w.to_string())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,7 +203,7 @@ mod tests {
     }
 
     fn near(name: &str, names: &[&str]) -> Option<(String, String)> {
-        nearest(name, &vocabulary(names)).map(|n| (n.name, n.shared))
+        nearest(name, &vocabulary(names), &BTreeSet::new()).map(|n| (n.name, n.shared))
     }
 
     /// RFC-0022's worked example, and the one the issue is written about.
@@ -273,5 +327,54 @@ mod tests {
             near("sponsor", &["sponsors", "sponsored"]),
             Some(("sponsored".into(), "sponsor".into()))
         );
+    }
+
+    /// E's case, and the one #1298 is written about.
+    #[test]
+    fn a_word_that_only_ends_names_is_not_evidence() {
+        let types = [
+            "fetch-error",
+            "parse-error",
+            "manifest-error",
+            "duration-error",
+        ];
+        let generic = suffixes(types);
+        assert_eq!(generic, vocabulary(&["error"]));
+        let declared = vocabulary(&["margin-of-error", "duration"]);
+        assert_eq!(nearest("fetch-error", &declared, &generic), None);
+        assert_eq!(
+            nearest("error", &declared, &generic),
+            None,
+            "the bare word is the same suffix"
+        );
+        assert_eq!(
+            nearest("duration-error", &declared, &generic).map(|n| n.name),
+            Some("duration".into()),
+            "the type's other words still match"
+        );
+    }
+
+    /// C's `district`, which ends five names and is right every time.
+    #[test]
+    fn a_word_that_also_opens_a_name_is_a_subject() {
+        let types = [
+            "house-district",
+            "model-district",
+            "profile-district",
+            "district-outcome",
+        ];
+        assert!(suffixes(types).is_empty());
+    }
+
+    #[test]
+    fn two_names_ending_in_a_word_are_a_coincidence() {
+        assert!(suffixes(["floor-status", "question-status"]).is_empty());
+    }
+
+    /// A single-word name has no suffix, and repeats of one name are one name.
+    #[test]
+    fn only_distinct_compound_names_count() {
+        assert!(suffixes(["error", "error", "error"]).is_empty());
+        assert!(suffixes(["fetch-error", "fetch-error", "fetch-error"]).is_empty());
     }
 }

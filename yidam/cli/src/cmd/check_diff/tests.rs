@@ -140,6 +140,31 @@ fn a_near_miss_adds_no_row_and_does_not_count_as_alignment() {
     assert_eq!((r.introduced, r.aligned, r.findings.len()), (1, 0, 1));
 }
 
+/// #1298: which words are suffixes is read from the whole report, so the third error type
+/// takes the candidate away from all three — and the finding stays.
+#[test]
+fn a_suffix_the_report_repeats_offers_no_candidate_and_keeps_the_row() {
+    let vocabulary = extract::declared(&[class("estimate", &["margin_of_error"], &[])]);
+    let run = |lines: &str| {
+        build(
+            "main..HEAD",
+            &diff(lines),
+            &vocabulary,
+            &Authorship::default(),
+        )
+    };
+    let two = run("+pub struct FetchError;\n+pub struct ParseError;\n");
+    assert!(two.findings.iter().all(|f| f.nearest.is_some()));
+
+    let three = run("+pub struct FetchError;\n+pub struct ParseError;\n+pub enum NodeError {}\n");
+    assert_eq!(three.findings.len(), 3);
+    assert!(
+        three.findings.iter().all(|f| f.nearest.is_none()),
+        "{:?}",
+        three.findings
+    );
+}
+
 /// Most unmatched types have no near-miss, and those findings must read exactly as they did
 /// before Phase B.
 #[test]
