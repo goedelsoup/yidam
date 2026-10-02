@@ -615,6 +615,18 @@ while IFS= read -r pin; do
     echo "ERROR: prelude_sources: '$pin' names no range; write $1@^<major>.<minor>" >&2
     refused=1; continue
   fi
+  # The pack-name rule `yidam source check` holds a pin to, checked before the name is a
+  # path: `a/b` or `../x` would otherwise reach `cp`. Letters are spelled out, since a
+  # locale may collate `[a-z]` to take capitals too.
+  case "$pack" in
+    [abcdefghijklmnopqrstuvwxyz]*)
+      case "$pack" in *[!abcdefghijklmnopqrstuvwxyz0123456789-]*) bad=1 ;; *) bad=0 ;; esac ;;
+    *) bad=1 ;;
+  esac
+  if [ "$bad" -ne 0 ]; then
+    echo "ERROR: prelude_sources: '$pin': '$pack' is not a pack name: lowercase letters, digits and -, starting with a letter" >&2
+    refused=1; continue
+  fi
   if [ -e "$staged/$pack" ]; then
     echo "ERROR: prelude_sources: $pack is pinned twice" >&2
     refused=1; continue
