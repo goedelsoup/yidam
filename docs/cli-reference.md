@@ -186,7 +186,7 @@ meets it at session start.
 - add or alter a claim standing;
 - contradict Articles I–VI;
 - change the graph encoding;
-- loosen a gate, except as a visible policy override.
+- loosen a gate. It proposes no severity, and a profile that tries is refused.
 
 **A repository holding no kuten is a supported state.** It reports as one.
 

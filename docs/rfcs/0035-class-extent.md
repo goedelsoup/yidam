@@ -68,7 +68,7 @@ has no place to record one that is about a class rather than about an act.
 
 RFC-0028 §5 reserved `kind: coverage` as a named, unimplemented value rather than leaving a
 blank to be invented twice, and the reservation is a live short-circuit
-([`kuten.rs:769-777`](../../yidam/cli/src/kuten.rs#L769-L777)): a corpus that declares the
+([`kuten.rs:800-808`](../../yidam/cli/src/kuten.rs#L800-L808)): a corpus that declares the
 coverage pressure gets `unmeasurable` naming #578, and the band answers nothing. That is the
 right behaviour for an unimplemented rule and it is a standing cost — the question-pressure slot
 ships with half its vocabulary inert.

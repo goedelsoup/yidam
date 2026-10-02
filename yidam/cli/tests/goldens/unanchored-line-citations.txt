@@ -94,4 +94,4 @@ docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/serve/resources.
 docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/serve/resources.rs#L56
 docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/serve/resources.rs#L56
 docs/rfcs/0035-class-extent.md → ../../yidam/cli/src/cmd/corpus.rs#L131
-docs/rfcs/0035-class-extent.md → ../../yidam/cli/src/kuten.rs#L769-L777
+docs/rfcs/0035-class-extent.md → ../../yidam/cli/src/kuten.rs#L800-L808

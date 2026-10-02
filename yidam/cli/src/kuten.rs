@@ -374,6 +374,24 @@ pub struct QuestionPressure {
     pub kind: PressureKind,
 }
 
+/// The `policy` slot, read only so that a populated one can be refused — RFC-0028 §7, as
+/// amended 2026-10-02 (#1305).
+///
+/// **A kuten proposes no severities.** The slot was specified as a channel into RFC-0024's
+/// policy layer, but that layer decides disclosure and nothing else: no override anywhere
+/// changes a lint check's severity, so a proposal here had nowhere to arrive. Ignored, it would
+/// be a gate loosened by a file that says it loosened one, which is worse than either.
+///
+/// Empty parses, because every vendored revision carries `proposes_overrides: []`. An unknown
+/// key under the slot is refused, not ignored as an unknown slot is: anything written here
+/// claims a severity, and a binary that cannot apply one has to say so.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PolicySlot {
+    #[serde(default)]
+    proposes_overrides: Vec<serde_yaml::Value>,
+}
+
 /// A kuten profile, as the vendored `kuten.yml` declares it.
 ///
 /// Unknown keys are accepted here on purpose. The closed slot set is enforced by a guard over
@@ -401,6 +419,8 @@ pub struct Profile {
     pub question_pressure: Option<QuestionPressure>,
     #[serde(default)]
     pub rubric: Option<Rubric>,
+    #[serde(default)]
+    policy: Option<PolicySlot>,
 }
 
 impl Profile {
@@ -419,8 +439,19 @@ impl Profile {
 }
 
 impl Profile {
+    /// Refuses a populated `policy` slot, and an unknown key under it. See [`PolicySlot`].
     pub fn parse(text: &str) -> anyhow::Result<Self> {
-        Ok(serde_yaml::from_str(text)?)
+        let profile: Self = serde_yaml::from_str(text)?;
+        let proposed = profile
+            .policy
+            .as_ref()
+            .map_or(0, |p| p.proposes_overrides.len());
+        anyhow::ensure!(
+            proposed == 0,
+            "the `policy` slot proposes {proposed} severity override(s), and a kuten proposes \
+             none (RFC-0028 §7, amended 2026-10-02): nothing would apply them"
+        );
+        Ok(profile)
     }
 }
 
@@ -1616,6 +1647,28 @@ mod tests {
     fn an_unpopulated_slot_is_not_reported() {
         let p = Profile::parse("kuten: minimal\nrevision: 1\n").unwrap();
         assert!(compare(&p, &conformant(), &current()).is_empty());
+    }
+
+    /// The empty slot every vendored revision carries parses; a populated one is refused
+    /// rather than read by nothing (#1305).
+    #[test]
+    fn a_populated_policy_slot_is_refused_and_an_empty_one_parses() {
+        for empty in [
+            "policy:\n  proposes_overrides: []\n",
+            "policy:\n",
+            "policy: {}\n",
+        ] {
+            Profile::parse(&format!("kuten: x\nrevision: 1\n{empty}"))
+                .unwrap_or_else(|e| panic!("{empty:?} is refused ({e})"));
+        }
+        let populated = "kuten: x\nrevision: 1\npolicy:\n  proposes_overrides:\n    \
+                         - check: unrecognized-verb\n      severity: warn\n";
+        let err = Profile::parse(populated).unwrap_err().to_string();
+        assert!(err.contains("proposes 1 severity override"), "{err}");
+        assert!(
+            Profile::parse("kuten: x\nrevision: 1\npolicy:\n  severities: {x: off}\n").is_err(),
+            "an unknown key under `policy` claims a severity and must not be dropped"
+        );
     }
 
     #[test]

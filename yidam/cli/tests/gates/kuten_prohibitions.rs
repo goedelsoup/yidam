@@ -2,7 +2,7 @@
 //!
 //! Five prohibitions, transcribed from the epic that settled them: a kuten may not add a
 //! commit verb, add or alter a claim standing, contradict Articles I–VI, change the graph
-//! encoding, or loosen a gate quietly. Each has its own check below, and each check reads a
+//! encoding, or loosen a gate. Each has its own check below, and each check reads a
 //! **parsed profile** rather than a file.
 //!
 //! # Why parsed and never grepped
@@ -408,30 +408,28 @@ fn the_encoding_guard_catches_one_and_spares_a_band() {
     assert!(encoding_declarations(&fine).is_empty());
 }
 
-// ── prohibition 5: loosen a gate quietly ──────────────────────────────────────
+// ── prohibition 5: loosen a gate ──────────────────────────────────────────────
 
 /// The severities a finding can carry, plus the two words that switch one off.
 const SEVERITIES: &[&str] = &["error", "warn", "warning", "info", "off", "allow", "deny"];
 
-/// Severities declared anywhere but the `policy` slot.
+/// Severities declared anywhere in a profile, the `policy` slot included.
 ///
-/// A local rule may be more permissive and may not be *silent*. The policy slot is where a
-/// proposed severity is visible three ways — `policy check`, an `Info` lint finding, and
-/// `doctor` — so a severity anywhere else in a profile is a gate loosened where nothing
-/// surfaces it.
-fn severities_outside_policy(doc: &Value) -> Vec<String> {
-    let outside = |path: &str| !path.starts_with("policy");
+/// A kuten proposes no severities (RFC-0028 §7, amended 2026-10-02, #1305). The `policy` slot
+/// was once exempt here, as the place a proposed severity would surface as an override. Nothing
+/// read it: RFC-0024's layer decides disclosure, and no override changes a check's severity.
+/// So the exemption let the guard and the parser agree to say nothing about a value both
+/// dropped. A severity anywhere is now a gate loosened where nothing surfaces it.
+fn severities(doc: &Value) -> Vec<String> {
     let mut out: Vec<String> = keys(doc)
         .into_iter()
-        .filter(|(path, key)| (key == "severity" || key == "severities") && outside(path))
+        .filter(|(_, key)| key == "severity" || key == "severities")
         .map(|(path, _)| path)
         .collect();
     out.extend(
         scalars(doc)
             .into_iter()
-            .filter(|(path, text)| {
-                outside(path) && SEVERITIES.contains(&text.trim().to_ascii_lowercase().as_str())
-            })
+            .filter(|(_, text)| SEVERITIES.contains(&text.trim().to_ascii_lowercase().as_str()))
             .map(|(path, _)| path),
     );
     // `severity: off` trips both halves — the key and the value — and reporting one place
@@ -442,25 +440,38 @@ fn severities_outside_policy(doc: &Value) -> Vec<String> {
 }
 
 #[test]
-fn no_profile_loosens_a_gate_outside_the_policy_slot() {
+fn no_profile_sets_a_severity() {
     for (name, doc) in profiles() {
         assert!(
-            severities_outside_policy(&doc).is_empty(),
-            "`{name}` sets a severity at {:?}, outside the policy slot. A rule that is more \
-             permissive is allowed; a rule that is silently more permissive is not.",
-            severities_outside_policy(&doc)
+            severities(&doc).is_empty(),
+            "`{name}` sets a severity at {:?}. A kuten proposes none, and nothing would apply \
+             one: a rule loosened by a file nothing reads is loosened silently.",
+            severities(&doc)
         );
     }
 }
 
+/// The slot that used to be exempt is caught by both halves: this guard, and the binary's
+/// own parse. Either one alone would let the other's blind spot ship.
 #[test]
-fn the_severity_guard_catches_one_and_spares_the_policy_slot() {
+fn the_severity_guard_catches_one_including_in_the_policy_slot() {
     let bad = parse("kuten: x\nrevision: 1\nvocabulary:\n  severity: off\n");
-    assert_eq!(severities_outside_policy(&bad), vec!["vocabulary.severity"]);
-    let declared = parse(
-        "kuten: x\nrevision: 1\npolicy:\n  proposes_overrides:\n    - check: unrecognized-verb\n      severity: warn\n",
+    assert_eq!(severities(&bad), vec!["vocabulary.severity"]);
+
+    let proposed = "kuten: x\nrevision: 1\npolicy:\n  proposes_overrides:\n    \
+                    - check: unrecognized-verb\n      severity: warn\n";
+    assert_eq!(
+        severities(&parse(proposed)),
+        vec!["policy.proposes_overrides.severity"]
     );
-    assert!(severities_outside_policy(&declared).is_empty());
+    assert!(
+        yidam::kuten::Profile::parse(proposed).is_err(),
+        "the binary accepted a populated `policy` slot, which nothing reads"
+    );
+
+    let empty = "kuten: x\nrevision: 1\npolicy:\n  proposes_overrides: []\n";
+    assert!(severities(&parse(empty)).is_empty());
+    yidam::kuten::Profile::parse(empty).expect("the empty slot every revision carries parses");
 }
 
 // ── the property every guard above depends on ────────────────────────────────
@@ -484,7 +495,7 @@ fn a_comment_can_neither_trip_nor_satisfy_a_guard() {
     );
     assert!(standing_declarations(&commented).is_empty());
     assert!(encoding_declarations(&commented).is_empty());
-    assert!(severities_outside_policy(&commented).is_empty());
+    assert!(severities(&commented).is_empty());
 
     let excused = parse(
         "kuten: x\nrevision: 1\n\

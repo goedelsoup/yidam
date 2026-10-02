@@ -16,8 +16,8 @@
 //! # `check` authors nothing and refuses nothing
 //!
 //! It writes no file, drafts no commit, and exits zero however far a corpus has drifted.
-//! Divergence is a question for a person. Anything that refuses arrives through the policy
-//! layer, where it is visible as an override.
+//! Divergence is a question for a person. A kuten proposes no severity either, so nothing it
+//! declares can make a gate refuse (RFC-0028 §7, amended 2026-10-02).
 
 use anyhow::Result;
 use clap::Subcommand;
