@@ -46,8 +46,9 @@
 //! A span is compared with the bytes as stored, markup included, after the whitespace
 //! normalization [`super::citations::flatten`] gives every span check here. A PDF has no such
 //! reading of its own, so it is compared with the text reading its record names (#1172):
-//! `text: {sha256, extractor}`, which `yidam catalog-extract` takes once and files in the
-//! vault like any artifact. Lint loads that reading by its digest and hashes it as it would
+//! the first `text/plain` entry of its `readings:` (#1318), or the `text: {sha256, extractor}`
+//! entries wrote before that. `yidam catalog-extract` takes it once and files it in the vault
+//! like any artifact. Lint loads that reading by its digest and hashes it as it would
 //! the PDF, and never runs an extractor, so the answer does not depend on which one this
 //! binary linked. The comparison is [`crate::reading::Reading::holds`], which also accepts a
 //! word the reading has broken with a line-end hyphen. A PDF with no reading recorded, and any
@@ -259,7 +260,8 @@ fn load(cache: Option<&Cache>, artifact: &CatalogArtifact, hash: &ContentHash) -
         return Bytes::Unreadable(format!("is `{media}`, which lint cannot read as text"));
     }
     if let Some(media) = media {
-        let Some(reading) = artifact.text.as_ref().and_then(|t| t.sha256.as_deref()) else {
+        let text = artifact.text_reading();
+        let Some(reading) = text.as_ref().and_then(|t| t.sha256.as_deref()) else {
             return Bytes::Unreadable(format!(
                 "is `{media}` and records no text reading — `yidam catalog-extract` takes one"
             ));

@@ -55,7 +55,8 @@
           "from": null,
           "vault": "none",
           "redistributable": null,
-          "text": null
+          "text": null,
+          "readings": null
         }
       ]
     }

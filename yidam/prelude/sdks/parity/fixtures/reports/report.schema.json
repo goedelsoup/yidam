@@ -914,6 +914,39 @@
                       "description": "The extractor and version that took the reading, so a person can reproduce it. Never re-run to check one."
                     }
                   }
+                },
+                "readings": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "description": "Derived readings of these bytes (RFC-0048 \u00a76, #1318): `text` generalised. A PDF's text reading is one, a source pack's `extract` transform writes others. Null where none was recorded under this key; an entry written before #1318 records its reading under `text` instead.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "sha256": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "description": "Content address of the reading, 64 lowercase hex."
+                      },
+                      "media_type": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "description": "What the reading is: `text/plain` for a text reading, which a quotation is compared with."
+                      },
+                      "by": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "description": "What took the reading: `<crate> <version>` for an extractor, `<pack>@<version>/<transform>@sha256:<hash>` for a source pack's transform. Never re-run to check one."
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -2428,7 +2461,7 @@
     },
     "extracted": {
       "type": "array",
-      "description": "`catalog-extract` only. One row per catalog entry recording a PDF that has no text reading yet; an entry with none is absent. NOT `entries`, which this contract already gives to `log`'s commits. `read` is what was read and recorded, `skipped` is a PDF that was not, with the reason.",
+      "description": "`catalog-extract` only. One row per catalog entry recording an artifact with a reading still to take — a PDF with no text reading, or an artifact whose source pack declares an `extract` transform it has not been read by (#1318); an entry with none is absent. NOT `entries`, which this contract already gives to `log`'s commits. `read` is what was read and recorded, `skipped` is an artifact that was not, with the reason.",
       "items": {
         "type": "object",
         "required": [
@@ -2467,7 +2500,7 @@
                 },
                 "extractor": {
                   "type": "string",
-                  "description": "The extractor and version that took the reading, as recorded."
+                  "description": "What took the reading, as its record's `by` says it: the extractor and version, or a source pack's transform as `<pack>@<version>/<transform>@sha256:<hash>`."
                 },
                 "bytes": {
                   "type": [
@@ -2481,7 +2514,7 @@
           },
           "skipped": {
             "type": "array",
-            "description": "PDFs this run did not read: not in this machine's cache, corrupt there, unreadable by the extractor, or read as no text at all, which is what a scanned page gives.",
+            "description": "Artifacts this run did not read: not in this machine's cache, corrupt there, unreadable by the extractor or transform, read as no text at all (which is what a scanned page gives), or asking for a transform this build does not run.",
             "items": {
               "type": "object",
               "required": [

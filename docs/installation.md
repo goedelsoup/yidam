@@ -162,6 +162,7 @@ artifacts — the script, the tap, binstall — carry the **default** set.
 | `pdf-text` *(default)* | `catalog-extract` taking a text reading of a PDF artifact. Lint compares a quotation with a recorded reading in every build | **+35 packages, +1.4 MB**, all pure Rust |
 | `github-app` *(default)* | `cluster land --git-auth github-app` — the lander mints a short-lived GitHub App installation token instead of pushing with a deploy key. Every check on the remote, the API URL and the flags is ungated | **+0 packages**; `ring` and `base64` are already here through reqwest's rustls |
 | `calculators-gluon` | The typed calculator arm (RFC-0042) — a calculator whose entry point is typechecked `Corpus -> Computed`, so the executor can decline it before it runs. Declared as `run = { gluon = "…" }`; a build without it parses the declaration and declines the step by name | **+71 packages, +6.8 MB.** The largest cost in this table, and the reason this one is not in the default set |
+| `source-transforms` | A source pack's `describe` and `extract` transforms (RFC-0048), run in the calculator arm's closed prelude over a JSON, XML or CSV response the host parses. Implies `calculators-gluon`. A build without it checks the rest of a pack, drafts an entry from the pack's templates and names the fields it could not fill | **+3 packages, +0.12 MB** over `calculators-gluon` |
 | `full` | All of the above | |
 
 Two things follow from that table that are easy to get backwards.

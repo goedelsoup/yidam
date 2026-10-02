@@ -284,20 +284,23 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
-    /// Take a text reading of each PDF artifact the catalog records, for quotations of it.
+    /// Take the readings each catalog artifact still lacks: a PDF's text, or a pack's extract.
     ///
-    /// Reads the PDF from the local vault cache, files the extracted text there under its
-    /// own content address, records that digest and the extractor under the PDF's record as
-    /// `text:`, and commits it as `extract:`. Lint compares a quotation of the PDF with that
-    /// reading and never runs an extractor itself.
+    /// Reads the artifact from the local vault cache, files the reading there under its own
+    /// content address, records that digest, its media type and what took it under the
+    /// artifact's record in `readings:`, and commits it as `extract:`. Lint compares a
+    /// quotation of a PDF with its text reading and never runs an extractor itself.
     ///
-    /// A record that already has a reading keeps it. Extraction needs the `pdf-text`
+    /// An artifact fetched from an identifier whose source pack declares an `extract`
+    /// transform is read by that transform. Running one needs the `source-transforms`
+    /// feature, which is outside the default build; without it the artifact is reported as
+    /// skipped. A reading already taken is kept. PDF extraction needs the `pdf-text`
     /// feature, which is in the default build.
     #[command(name = "catalog-extract")]
     CatalogExtract {
-        /// One entry, by file stem or `name:`. Absent means every entry recording a PDF.
+        /// One entry, by file stem or `name:`. Absent means every entry recording an artifact.
         entry: Option<String>,
-        /// Report which PDFs would be read. Reads and writes nothing.
+        /// Report which artifacts would be read. Reads and writes nothing.
         #[arg(long)]
         dry_run: bool,
         #[command(flatten)]

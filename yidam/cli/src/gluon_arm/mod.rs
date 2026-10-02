@@ -81,6 +81,8 @@ pub mod budget;
 pub mod ice;
 #[cfg(feature = "calculators-gluon")]
 pub mod marshal;
+#[cfg(feature = "source-transforms")]
+pub mod transform;
 
 use anyhow::Result;
 #[cfg(feature = "calculators-gluon")]
@@ -198,20 +200,46 @@ pub fn evaluate(name: &str, script: &str, corpus: Corpus, calls: usize) -> Resul
     // The admission is [`entry::admit`]'s and not this function's, because `lint` performs the
     // same one without running anything (#1099). Two implementations of "is this a calculator"
     // is the divergence RFC-0042 names as worse than no gate at all.
-    let entry::Admitted { vm, source } = entry::admit(name, script)?;
+    let admitted = entry::admit(name, script)?;
+    let (computed, calls) = run::<Corpus, Computed>(admitted, name, corpus, calls)?;
+    Ok(Outcome { computed, calls })
+}
 
+/// Apply an admitted script to `arg` under a budget of `calls`, and say what it cost.
+///
+/// Every entry point the prelude runs goes through here — a calculator through [`evaluate`], a
+/// source pack's transforms through [`transform`] — so the budget and the containment are one
+/// implementation, and a transform that loops is refused exactly as a calculator that loops is.
+#[cfg(feature = "calculators-gluon")]
+pub(crate) fn run<A, R>(
+    admitted: entry::Admitted,
+    name: &str,
+    arg: A,
+    calls: usize,
+) -> Result<(R, usize)>
+where
+    A: for<'vm> gluon::vm::api::Pushable<'vm> + gluon::vm::api::VmType,
+    A::Type: Sized,
+    R: gluon::vm::api::VmType
+        + for<'vm, 'value> gluon::vm::api::Getable<'vm, 'value>
+        + Send
+        + Sync
+        + 'static,
+    R::Type: Sized,
+{
+    let entry::Admitted { vm, source } = admitted;
     let budget = budget::Budget::install(&vm, calls);
 
     // Both paths ask the budget, because both can exhaust it. `run_expr` does not only compile:
     // it evaluates the module's top level, so `rec let go n = go (n + 1) in let x = go 0 in …`
-    // never reaches the call. Reporting that as `compiling {name}` would tell a calculator
-    // author the wrong thing about their own script, and would hide the only refusal in this
-    // arm that a corpus can do something about.
+    // never reaches the call. Reporting that as `compiling {name}` would tell a script's author
+    // the wrong thing about their own script, and would hide the only refusal in this arm that a
+    // corpus can do something about.
     let refuse = |stage: &str, e: &dyn std::fmt::Display| {
         if budget.exhausted() {
             anyhow::anyhow!(
                 "{name} was stopped after {} calls, which is its budget.\n  \
-                 A calculator that does not finish is a run that hangs rather than one that \
+                 A script that does not finish is a run that hangs rather than one that \
                  fails, so the budget is a refusal and not a warning.",
                 budget.limit()
             )
@@ -221,14 +249,11 @@ pub fn evaluate(name: &str, script: &str, corpus: Corpus, calls: usize) -> Resul
     };
 
     let (mut f, _) = ice::contain(name, "while being loaded", || {
-        vm.run_expr::<OwnedFunction<fn(Corpus) -> Computed>>(name, &source)
+        vm.run_expr::<OwnedFunction<fn(A) -> R>>(name, &source)
             .map_err(|e| refuse("while being loaded", &e))
     })?;
-    let computed = ice::contain(name, "while running", || {
-        f.call(corpus).map_err(|e| refuse("while running", &e))
+    let out = ice::contain(name, "while running", || {
+        f.call(arg).map_err(|e| refuse("while running", &e))
     })?;
-    Ok(Outcome {
-        computed,
-        calls: budget.spent(),
-    })
+    Ok((out, budget.spent()))
 }

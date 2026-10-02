@@ -78,6 +78,11 @@ impl YidamBlock {
         if cfg!(feature = "calculators-gluon") {
             features.push("calculators-gluon".to_string());
         }
+        // Implies the line above, and says one thing more: whether `source add` and
+        // `catalog-extract` run a pack's transforms, or write a draft from its templates.
+        if cfg!(feature = "source-transforms") {
+            features.push("source-transforms".to_string());
+        }
         if cfg!(feature = "tonpa") {
             features.push("tonpa".to_string());
         }

@@ -170,9 +170,9 @@ claim about composition, not an audit of the host's registrations.
 So the guarantee lives in two mechanisms, and the scope is the primary one:
 
 - **A closed prelude.** The script is evaluated with a fixed prefix binding fifteen named pure
-  modules — [`PRELUDE_MODULES`](../../yidam/cli/src/gluon_arm/mod.rs#L106-L109) — and any macro
+  modules — [`PRELUDE_MODULES`](../../yidam/cli/src/gluon_arm/mod.rs#L108-L111) — and any macro
   invocation *in the script* is refused lexically by
-  [`refuse_macros`](../../yidam/cli/src/gluon_arm/entry.rs#L189-L191). Since gluon reaches a native
+  [`refuse_macros`](../../yidam/cli/src/gluon_arm/entry.rs#L213-L215). Since gluon reaches a native
   module only through `import!`, a script that cannot invoke a macro can only use the names the
   prelude bound. **Closed by default:** a module nobody listed is an undefined variable, so a
   module a future gluon registers is out of reach on the day it is added rather than on the day
@@ -183,7 +183,7 @@ So the guarantee lives in two mechanisms, and the scope is the primary one:
   signature and reports the type it found beside the type it wanted.
 
 A gluon calculator that so much as names `std.fs` still does not compile — but for the first
-reason, not the second. [`EXCLUDED`](../../yidam/cli/src/gluon_arm/mod.rs#L93-L97) records each
+reason, not the second. [`EXCLUDED`](../../yidam/cli/src/gluon_arm/mod.rs#L119-L123) records each
 module that is deliberately unreachable beside the reason, `debug` among them, and the reason
 given there is this subsection in one line. The claim that survives review is therefore weaker
 than the earlier draft's and *stronger* than a denylist's, and it is the one the module doc now
@@ -443,7 +443,7 @@ subsection above for the measurement that settled which is which.
 
    The constraint this question turned on is satisfied by construction rather than by agreement.
    `lint` does not build a prelude, inject a type or decide what a calculator is: it calls
-   `entry::admit`, the one function [`evaluate`](../../yidam/cli/src/gluon_arm/mod.rs#L197)
+   `entry::admit`, the one function [`evaluate`](../../yidam/cli/src/gluon_arm/mod.rs#L199)
    opens with, and `tests/gates/gluon_arm.rs::one_admission_answers_both_callers` asserts those are the
    only two callers. There is no second opinion to diverge, so the paragraph below — a gate that
    either passes something `run` refuses or refuses something `run` would have accepted — names a

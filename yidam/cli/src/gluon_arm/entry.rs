@@ -105,6 +105,30 @@ impl Refused {
     }
 }
 
+/// What a script is admitted *as*: the name a refusal calls it, its signature, and where a
+/// person goes instead.
+///
+/// One admission serves every entry point the closed prelude runs (#1318). A calculator is
+/// `Corpus -> Computed`; a source pack's transforms are `Parsed -> EntryDraft` and
+/// `Parsed -> Reading`. The refusals are the same three for all of them, so they are decided by
+/// one function, and only the words a refusal uses differ.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Role {
+    /// `a calculator`, `a describe transform`.
+    pub noun: &'static str,
+    /// The entry point's type, as a script author reads it.
+    pub signature: &'static str,
+    /// What a script that needs more than the prelude does instead.
+    pub otherwise: &'static str,
+}
+
+/// A calculator in `.yidam/capabilities.toml` (RFC-0042).
+pub const CALCULATOR: Role = Role {
+    noun: "a calculator",
+    signature: "Corpus -> Computed",
+    otherwise: "A step that needs anything else declares the shell arm.",
+};
+
 /// A script that is not a calculator: which way, and the sentence that says so.
 ///
 /// The sentence is built where the refusal is decided and carried rather than re-derived,
@@ -187,6 +211,11 @@ impl From<Rejected> for anyhow::Error {
 /// strictly better than the alternative on offer: the same gate answering differently depending
 /// on which binary the reader is holding.
 pub fn refuse_macros(src: &str) -> std::result::Result<(), Refusal> {
+    refuse_macros_as(src, &CALCULATOR)
+}
+
+/// [`refuse_macros`], in the words of the entry point `role` names.
+pub fn refuse_macros_as(src: &str, role: &Role) -> std::result::Result<(), Refusal> {
     for (i, c) in src.char_indices() {
         if c != '!' || i == 0 {
             continue;
@@ -211,14 +240,16 @@ pub fn refuse_macros(src: &str) -> std::result::Result<(), Refusal> {
         return Err(Refusal::new(
             Refused::Macro,
             format!(
-                "line {line}: `{name}!` is a macro invocation, and a calculator script may not \
+                "line {line}: `{name}!` is a macro invocation, and {} script may not \
                  invoke a macro.\n  \
                  Gluon reaches a native module only through `import!`, so a script that imports \
-                 nothing can only use the names the calculator prelude binds — which is what \
+                 nothing can only use the names the closed prelude binds — which is what \
                  makes this arm's purity a property of the build rather than a norm. The prelude \
                  binds: {}.\n  \
-                 A step that needs anything else declares the shell arm.",
-                super::PRELUDE_MODULES.join(", ")
+                 {}",
+                role.noun,
+                super::PRELUDE_MODULES.join(", "),
+                role.otherwise
             ),
         ));
     }
@@ -287,22 +318,38 @@ fn unbound(e: &gluon::Error) -> Vec<String> {
 /// of their script that is fine.
 #[cfg(feature = "calculators-gluon")]
 pub fn typecheck(vm: &gluon::Thread, name: &str, source: &str) -> std::result::Result<(), Refusal> {
-    let expected = expected_type(vm);
-    let e = match vm.typecheck_str(name, source, Some(&expected)) {
+    typecheck_as(vm, name, source, &expected_type(vm), &CALCULATOR)
+}
+
+/// [`typecheck`] against `expected`, in the words of `role`.
+#[cfg(feature = "calculators-gluon")]
+fn typecheck_as(
+    vm: &gluon::Thread,
+    name: &str,
+    source: &str,
+    expected: &gluon::base::types::ArcType,
+    role: &Role,
+) -> std::result::Result<(), Refusal> {
+    let e = match vm.typecheck_str(name, source, Some(expected)) {
         Ok(_) => return Ok(()),
         Err(e) => e,
     };
+    let Role {
+        noun,
+        signature,
+        otherwise,
+    } = role;
 
     let unbound = unbound(&e);
     if unbound.is_empty() {
         return Err(Refusal::new(
             Refused::Shape,
             format!(
-                "{name} is not a calculator.\n  \
-                 A calculator script is a function from the corpus to a signal table, and this \
-                 one does not have that type. An effect is the common cause: `io.println x` has \
-                 type `IO ()`, and there is no position in `Corpus -> Computed` that a value of \
-                 that type fits.\n\n{e}"
+                "{name} is not {noun}.\n  \
+                 {lead} script is a function `{signature}`, and this one does not have that \
+                 type. An effect is the common cause: `io.println x` has type `IO ()`, and there \
+                 is no position in `{signature}` that a value of that type fits.\n\n{e}",
+                lead = capitalised(noun),
             ),
         ));
     }
@@ -311,15 +358,24 @@ pub fn typecheck(vm: &gluon::Thread, name: &str, source: &str) -> std::result::R
     Err(Refusal::new(
         Refused::Scope,
         format!(
-            "{name} names {named}, which the calculator prelude does not bind.\n  \
+            "{name} names {named}, which the closed prelude does not bind.\n  \
              This is a scope failure and not a type failure — the script did not get its shape \
-             wrong, it reached for something that is not in scope. A calculator script may invoke \
-             no macro, so `import!` is not available to it and the names it has are exactly the \
+             wrong, it reached for something that is not in scope. {lead} script may invoke no \
+             macro, so `import!` is not available to it and the names it has are exactly the \
              ones the prelude injects: {}.\n  \
-             A step that needs anything else declares the shell arm.\n\n{e}",
-            super::PRELUDE_MODULES.join(", ")
+             {otherwise}\n\n{e}",
+            super::PRELUDE_MODULES.join(", "),
+            lead = capitalised(noun),
         ),
     ))
+}
+
+#[cfg(feature = "calculators-gluon")]
+fn capitalised(s: &str) -> String {
+    let mut c = s.chars();
+    c.next()
+        .map(|f| f.to_uppercase().chain(c).collect())
+        .unwrap_or_default()
 }
 
 /// A script admitted: the VM it was typechecked against, and the source that was.
@@ -352,14 +408,29 @@ pub struct Admitted {
 /// would be a gate that a calculator can switch off.
 #[cfg(feature = "calculators-gluon")]
 pub fn admit(name: &str, script: &str) -> std::result::Result<Admitted, Rejected> {
-    refuse_macros(script).map_err(Rejected::Refused)?;
+    admit_as::<fn(Corpus) -> Computed>(name, script, &CALCULATOR)
+}
+
+/// [`admit`], for an entry point of type `F`: the same scan, prelude and typecheck, so a
+/// transform and a calculator are refused for the same reasons in the same words (#1318).
+#[cfg(feature = "calculators-gluon")]
+pub fn admit_as<F: VmType>(
+    name: &str,
+    script: &str,
+    role: &Role,
+) -> std::result::Result<Admitted, Rejected>
+where
+    F::Type: Sized,
+{
+    refuse_macros_as(script, role).map_err(Rejected::Refused)?;
     let source = format!("{}{}", super::prelude(), script);
     let vm = gluon::new_vm();
+    let expected = <F as VmType>::make_type(&vm);
     // Nested deliberately: the outer `Result` is gluon's failure to decide and the inner one is
     // the script's verdict. `ice::contain` speaks anyhow, so the verdict rides through it as a
     // value rather than being flattened into the same channel as the panic.
     match super::ice::contain(name, "while being typechecked", || {
-        Ok(typecheck(&vm, name, &source))
+        Ok(typecheck_as(&vm, name, &source, &expected, role))
     }) {
         Err(e) => Err(Rejected::Ice(e)),
         Ok(Err(r)) => Err(Rejected::Refused(r)),

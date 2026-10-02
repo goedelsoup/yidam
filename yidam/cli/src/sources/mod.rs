@@ -28,11 +28,17 @@
 //! - templates bind
 //! - fixtures are claimed by a scheme
 //! - every vendored pack is the one its pin asked for
+//! - every transform is admitted by the closed prelude, runs over each of its scheme's
+//!   fixtures, and yields every identifier a `then.from` reads from it (#1318)
 //!
-//! It does not run a transform. That needs the gluon engine and arrives with #1318.
+//! The last needs the gluon engine, which is behind `source-transforms`. A build without it
+//! says so once per pack that declares a transform, as an info finding, and checks the rest.
 
 pub mod manifest;
+#[cfg(feature = "source-transforms")]
+pub mod parsed;
 pub mod pin;
+pub mod transform;
 pub mod version;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -178,6 +184,7 @@ pub fn check(root: &Path) -> Result<Report> {
             }
         };
         check_pack(root, pack, manifest, &mut out);
+        check_transforms(root, pack, manifest, &mut out);
         if shadowed {
             out.info(
                 "pack.toml",
@@ -542,6 +549,102 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
                 &format!("fixtures/{file}"),
                 "no [fixtures] identifier names this file, so no scheme claims it".into(),
             );
+        }
+    }
+}
+
+/// Admit each transform, run it over its scheme's fixtures, and check that every `then.from`
+/// a scheme declares is an identifier its describe yields for at least one of them.
+///
+/// At least one and not every one: a DOI's metadata names a PMCID only when there is one, so
+/// a fixture without it is a fact about that paper. A key no fixture yields is a misspelling or
+/// a transform that never sets it, and either way the `then` resolves nothing.
+fn check_transforms(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
+    use transform::{Kind, Transform};
+
+    let declared = m
+        .scheme
+        .values()
+        .any(|s| s.describe.is_some() || s.extract.is_some());
+    if !declared {
+        return;
+    }
+    if !transform::AVAILABLE {
+        out.info(
+            "pack.toml",
+            format!("transforms not checked: {}", transform::UNAVAILABLE),
+        );
+        return;
+    }
+    for (name, s) in &m.scheme {
+        let fixtures: Vec<(&String, &String)> = m
+            .fixtures
+            .iter()
+            .filter(|(id, _)| id.split_once(':').is_some_and(|(sc, _)| sc == name))
+            .collect();
+        let mut yielded: BTreeSet<String> = BTreeSet::new();
+        let mut described = false;
+        for (path, kind) in [(&s.describe, Kind::Describe), (&s.extract, Kind::Extract)] {
+            let Some(path) = path else { continue };
+            // A path `check_pack` refused, or a file it found missing, is already reported.
+            let Ok(t) = Transform::read(root, pack, m, path) else {
+                continue;
+            };
+            if let Err(why) = transform::admit(&t, kind) {
+                out.error(path, why);
+                continue;
+            }
+            if fixtures.is_empty() {
+                continue;
+            }
+            let Some(media) = &s.resolve.media else {
+                out.error(
+                    "pack.toml",
+                    format!(
+                        "[scheme.{name}] resolve declares no media, so its fixtures cannot be parsed for {path}"
+                    ),
+                );
+                continue;
+            };
+            for (id, file) in &fixtures {
+                let Ok(bytes) = std::fs::read(root.join(&pack.dir).join("fixtures").join(file))
+                else {
+                    continue;
+                };
+                let at = format!("fixtures/{file}");
+                match kind {
+                    Kind::Describe => match transform::describe(root, pack, m, s, media, &bytes) {
+                        Ok(d) if d.by.is_some() => {
+                            described = true;
+                            yielded.extend(d.identifiers.into_iter().map(|(k, _)| k));
+                        }
+                        Ok(d) => out.error(&at, format!("`{id}`: {}", d.why.unwrap_or_default())),
+                        Err(e) => out.error(&at, format!("`{id}`: {e:#}")),
+                    },
+                    Kind::Extract => {
+                        if let Err(why) = transform::extract(&t, media, &bytes) {
+                            out.error(&at, format!("`{id}`: {why}"));
+                        }
+                    }
+                }
+            }
+        }
+        if !described {
+            continue;
+        }
+        for then in &s.then {
+            let Some(key) = then.from.strip_prefix("describe.") else {
+                continue;
+            };
+            if !yielded.contains(key) {
+                out.error(
+                    "pack.toml",
+                    format!(
+                        "[scheme.{name}] then takes `{}`, and its describe yields no identifier `{key}` for any fixture",
+                        then.from
+                    ),
+                );
+            }
         }
     }
 }

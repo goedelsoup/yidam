@@ -283,8 +283,9 @@ fn artifact_for(o: &Obtained, prior: Option<&CatalogArtifact>) -> CatalogArtifac
         from: Some(ArtifactOrigin::Location(o.location)),
         vault: prior.and_then(|p| p.vault.clone()),
         redistributable: prior.and_then(|p| p.redistributable),
-        // A reading is of these bytes, and a prior record's was of others.
+        // A reading is of these bytes, and a prior record's were of others.
         text: None,
+        readings: None,
     }
 }
 
@@ -733,6 +734,7 @@ mod tests {
             vault: vault.map(str::to_string),
             redistributable: r,
             text: None,
+            readings: None,
         }
     }
 

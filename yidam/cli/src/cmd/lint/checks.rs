@@ -3262,6 +3262,22 @@ pub fn catalog_artifact_malformed(sources: &[Source]) -> Check {
                     problems.push("`text` names no `extractor`".to_string());
                 }
             }
+            // `readings:` is `text:` generalised (#1318), held to the same two things and to a
+            // third: a reading of unknown media type is bytes nothing says how to read.
+            for (k, r) in a.readings.iter().flatten().enumerate() {
+                problems.extend(digest_problem(
+                    &format!("readings[{k}].sha256"),
+                    r.sha256.as_deref(),
+                ));
+                if r.media_type.as_deref().is_none_or(|m| m.trim().is_empty()) {
+                    problems.push(format!("`readings[{k}]` names no `media_type`"));
+                }
+                if r.by.as_deref().is_none_or(|b| b.trim().is_empty()) {
+                    problems.push(format!(
+                        "`readings[{k}]` names no `by`, so nothing says what took it"
+                    ));
+                }
+            }
             // A `from:` index naming no location is the one cross-field error worth having:
             // it means the record cites a provenance the entry does not carry.
             if let Some(crate::parse::ArtifactOrigin::Location(n)) = &a.from {
@@ -5914,6 +5930,33 @@ mod tests {
             v[0].detail
         );
         assert!(v[1].detail.contains("no `extractor`"), "{:?}", v[1].detail);
+    }
+
+    /// `readings:` is held to what `text:` is, and names its media type (#1318).
+    #[test]
+    fn a_reading_is_held_to_a_digest_a_media_type_and_what_took_it() {
+        let ok = with_artifacts(
+            "ok",
+            &format!(
+                "- sha256: {GOOD}\n  readings:\n    - sha256: {GOOD}\n      media_type: text/plain\n      by: x 1\n"
+            ),
+        );
+        assert!(catalog_artifact_malformed(&[ok]).violations.is_empty());
+        let bad = with_artifacts(
+            "bad",
+            &format!(
+                "- sha256: {GOOD}\n  readings:\n    - sha256: {GOOD}\n      media_type: text/plain\n      by: x 1\n    - sha256: abc\n"
+            ),
+        );
+        let v = &catalog_artifact_malformed(&[bad]).violations;
+        assert_eq!(v.len(), 1, "{v:?}");
+        for want in [
+            "`readings[1].sha256` is 3",
+            "`readings[1]` names no `media_type`",
+            "`readings[1]` names no `by`",
+        ] {
+            assert!(v[0].detail.contains(want), "{want}: {:?}", v[0].detail);
+        }
     }
 
     /// A `from:` index naming no location means the record cites a provenance the entry does

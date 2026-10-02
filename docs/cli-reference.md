@@ -1056,9 +1056,9 @@ knowledge claim, only the time to re-fetch.
 | `vault materialize` | Hardlink cached artifacts into `.yidam/vault/<slug>/` under names a person can open; `--entry` narrows |
 | `vault-status` * | Writes the `<!-- REGEN: yidam vault-status -->` block in README.md. Committed files only — never the cache, never the network. `yidam vault status`, a hyphen apart, is the read-only report; `yidam regen` runs this one with the rest |
 | `catalog-fetch [entry]` * | Follow a catalog entry's declared address, cache the bytes under their digest, record them in `artifacts:`, and commit it as `refresh:`. `--location` narrows to one address; `--bind name=value` fills a `url_template` slot; `--dry-run` resolves and writes nothing |
-| `catalog-extract [entry]` * | Take a text reading of each PDF artifact that has none, file it in the cache, record it under the PDF as `text:`, and commit it as `extract:`. `--dry-run` reports and reads nothing |
+| `catalog-extract [entry]` * | Take each reading an artifact lacks — a PDF's text, or a [source pack](#source-packs)'s `extract` — file it in the cache, record it under the artifact in `readings:`, and commit it as `extract:`. `--dry-run` reports and reads nothing |
 | `catalog-reconcile [entry]` * | Rewrite a drifted `used-by` list to the citations, which are authoritative, and commit it as `reconcile:`. `--dry-run` reports and writes nothing |
-| `source check` | Hold every [source pack](#source-packs) and every `prelude_sources` pin to the pack format, offline. Exits nonzero on an error |
+| `source check` | Hold every [source pack](#source-packs) and every `prelude_sources` pin to the pack format, offline, and run each transform over its fixtures. Exits nonzero on an error |
 
 ### Following an address
 
@@ -1213,6 +1213,17 @@ pack of the same name.
 
 `source check` is the CI gate for an authored pack. It reads no network.
 
+A scheme may name two transforms, `describe` and `extract`, as `.glu` files under
+`transforms/`. They run in the calculator arm's closed prelude, over the response the scheme
+resolves to. The binary parses that response as JSON, XML or CSV, by the scheme's `media`. A
+`describe` returns a draft entry. An `extract` returns a reading of the artifact, which
+`catalog-extract` records. `source check` admits each transform and runs it over the scheme's
+fixtures. A `then` that reads `describe.<key>` must be answered by at least one fixture.
+
+Transforms need the `source-transforms` feature. A build without it checks the rest of the
+pack and says it did not check the transforms. `catalog-extract` reports each reading it could
+not take as skipped.
+
 ### Reading a PDF
 
 A quotation of a PDF is compared with a text reading of the PDF. Lint never extracts text
@@ -1222,8 +1233,10 @@ itself. Run `catalog-extract` once, on the machine that holds the PDF:
 2. Run `yidam catalog-extract <entry>`.
 3. Run `yidam vault push` to share the reading with the other machines.
 
-The command records the reading's digest and its extractor under the PDF's record. A record
-that has a reading keeps it. To take a new reading, delete the `text:` lines and run it again.
+The command records the reading's digest, media type and extractor under the PDF's record, in
+`readings:`. A record that has a reading keeps it. To take a new reading, delete that reading
+and run it again. An entry written before `readings:` holds its reading under `text:`, which is
+still read.
 
 A scanned page has no text layer. The command refuses a reading with no letters or digits. It
 reports that PDF as skipped.

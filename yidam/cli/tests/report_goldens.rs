@@ -2431,6 +2431,12 @@ const UNREACHED: &[(&str, &str)] = &[
         "the golden is a `--dry-run`, which commits nothing — see `extracted[].commit.sha`",
     ),
     (
+        "sources[].artifacts[].readings[]",
+        "the fixture's PDF is the one `catalog-extract`'s dry-run golden lists as still to read, \
+         and recording a reading of it would empty that golden. `catalog-audit` emits \
+         `readings: null` here, and tests/catalog_extract.rs writes a reading end to end",
+    ),
+    (
         "extracted[].skipped",
         "a PDF is skipped only when a run reads the cache, and a dry run does not, so the golden \
          does not depend on what the machine running it has fetched — tests/catalog_extract.rs \

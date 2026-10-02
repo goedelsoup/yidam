@@ -288,15 +288,19 @@ pub fn named_artifacts(root: &Path) -> Vec<Named> {
                 bytes: a.bytes,
                 media_type: a.media_type.clone(),
             });
-            // A text reading (#1172) is bytes this entry names, and they go where the bytes
+            // A reading (#1172, #1318) is bytes this entry names, and they go where the bytes
             // they were read from go: the same vault, and pushed only if those may be, since
             // the text of a document is licensed as the document is.
-            if let Some(reading) = a
-                .text
-                .as_ref()
-                .and_then(|t| t.sha256.as_deref())
-                .and_then(|h| ContentHash::parse(h).ok())
-            {
+            for r in a.all_readings() {
+                let Some(reading) = r.sha256.as_deref().and_then(|h| ContentHash::parse(h).ok())
+                else {
+                    continue;
+                };
+                let media_type = if r.is_text() {
+                    "text/plain; charset=utf-8".to_string()
+                } else {
+                    r.media_type.clone().unwrap_or_default()
+                };
                 out.push(Named {
                     hash: reading,
                     kind: super::config::CATALOG_KIND.to_string(),
@@ -304,7 +308,7 @@ pub fn named_artifacts(root: &Path) -> Vec<Named> {
                     vault: a.vault.clone(),
                     redistributable: a.redistributable,
                     bytes: None,
-                    media_type: Some("text/plain; charset=utf-8".to_string()),
+                    media_type: Some(media_type).filter(|m| !m.is_empty()),
                 });
             }
         }

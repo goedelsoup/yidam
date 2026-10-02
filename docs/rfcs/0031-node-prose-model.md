@@ -313,7 +313,7 @@ node model that products would, for the first time, actually run.
    > The catalog schema describes frontmatter inside markdown, which yaml-language-server cannot
    > apply to a .md file
    >
-   > — [`schema.rs:740-741`](../../yidam/cli/src/cmd/schema.rs#L740-L741)
+   > — [`schema.rs:773-774`](../../yidam/cli/src/cmd/schema.rs#L773-L774)
 
    Every compiled per-class schema is delivered through `yaml.schemas`. Under Markdown nodes,
    none of them reaches a node in a third-party editor. This is the strongest argument against,

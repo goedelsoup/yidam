@@ -116,10 +116,70 @@ pub struct CatalogArtifact {
     /// pins the PDF, and the reading follows. It goes where the PDF goes — `vault push` routes
     /// and licenses it by this record's `vault:` and `redistributable:`, because a reading
     /// carries the same words the licence is about.
+    ///
+    /// Written by entries before #1318, and read still. `catalog-extract` now records a PDF's
+    /// reading under [`Self::readings`], which is this generalised.
     pub text: Option<TextReading>,
+    /// Derived readings of these bytes (RFC-0048 §6, #1318): `text:` generalised.
+    ///
+    /// A PDF's text reading is one of these, and a source pack's `extract` transform writes
+    /// another — the body of a Europe PMC article, the rows of a table. Each names what produced
+    /// it in `by`, so a changed extractor or transform is a changed reading and not a silent one.
+    /// It goes where the artifact goes, for the reason `text:` gives.
+    #[serde(default)]
+    pub readings: Option<Vec<ArtifactReading>>,
 }
 
-/// A text reading recorded on an artifact. See `reading.rs`.
+impl CatalogArtifact {
+    /// Every reading this record carries: a `text:` first, as the `text/plain` reading its
+    /// extractor took, then `readings:` in the order written.
+    pub fn all_readings(&self) -> Vec<ArtifactReading> {
+        let legacy = self.text.as_ref().map(|t| ArtifactReading {
+            sha256: t.sha256.clone(),
+            media_type: Some(TEXT_READING.to_string()),
+            by: t.extractor.clone(),
+        });
+        legacy
+            .into_iter()
+            .chain(self.readings.iter().flatten().cloned())
+            .collect()
+    }
+
+    /// The reading a quotation of these bytes is compared with: the first `text/plain` one,
+    /// whichever key recorded it.
+    pub fn text_reading(&self) -> Option<ArtifactReading> {
+        self.all_readings()
+            .into_iter()
+            .find(ArtifactReading::is_text)
+    }
+}
+
+/// The media type of a text reading.
+pub const TEXT_READING: &str = "text/plain";
+
+/// One derived reading of an artifact's bytes. See [`CatalogArtifact::readings`].
+#[derive(serde::Deserialize, serde::Serialize, Default, Clone, Debug, PartialEq, Eq)]
+pub struct ArtifactReading {
+    /// The reading's own content address, in the same cache as the artifact's.
+    pub sha256: Option<String>,
+    pub media_type: Option<String>,
+    /// What produced it, so a person can reproduce it. A PDF's extractor is `<crate>
+    /// <version>`; a pack's transform is `<pack>@<version>/<transform>@sha256:<hash>`. Never
+    /// re-run to check it: lint compares against the stored bytes.
+    pub by: Option<String>,
+}
+
+impl ArtifactReading {
+    /// Whether this is a text reading, parameters such as `charset` aside.
+    pub fn is_text(&self) -> bool {
+        self.media_type
+            .as_deref()
+            .and_then(|m| m.split(';').next())
+            .is_some_and(|m| m.trim().eq_ignore_ascii_case(TEXT_READING))
+    }
+}
+
+/// A text reading as entries before #1318 recorded it. See `reading.rs`.
 #[derive(serde::Deserialize, serde::Serialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct TextReading {
     /// The reading's own content address, in the same cache as the artifact's.
