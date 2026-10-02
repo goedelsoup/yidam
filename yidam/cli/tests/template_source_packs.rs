@@ -108,10 +108,12 @@ fn every_shipped_pack_checks_once_vendored_and_pinned() {
 // ── the acceptance run ─────────────────────────────────────────────────────────────────
 
 /// What a request for `path` is answered with: the first route whose key it contains.
+#[cfg(feature = "source-transforms")]
 type Route = (&'static str, &'static str, &'static str);
 
 /// Which recorded fixture answers which publisher's address. Each key is a piece of the
 /// shipped template, so a template that changed shape would be answered with a 404.
+#[cfg(feature = "source-transforms")]
 const ROUTES: &[Route] = &[
     (
         "/api.crossref.org/works/10.1167/tvst.8.5.14",
@@ -132,6 +134,7 @@ const ROUTES: &[Route] = &[
 
 /// Serve `ROUTES` from `fixtures` on a loopback port until the process exits, one request per
 /// connection, and keep every request line it was asked.
+#[cfg(feature = "source-transforms")]
 fn serve(fixtures: std::path::PathBuf) -> (u16, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -173,6 +176,7 @@ fn serve(fixtures: std::path::PathBuf) -> (u16, std::sync::Arc<std::sync::Mutex<
     (port, seen)
 }
 
+#[cfg(feature = "source-transforms")]
 fn git(dir: &Path, args: &[&str]) -> String {
     common::git::out_at(dir, args, "@1700000000 +0000")
 }
