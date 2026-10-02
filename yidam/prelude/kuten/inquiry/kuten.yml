@@ -234,9 +234,11 @@ clocks:
     due.index_after: 25
     catalog.ttl_days: 180
 
-# Severities this profile proposes. Every one enters through the policy layer and is visible
-# as an override; a severity anywhere else in this file is a gate loosened quietly, and the
-# guard reports it as one. Empty is a value: not one of the eighteen carried an override.
+# Empty, and it has to be: a kuten proposes no severities (RFC-0028 §7, amended 2026-10-02,
+# #1305). The policy layer decides disclosure, and nothing in it changes a check's severity,
+# so a proposal here would reach nothing. The binary refuses a populated list rather than
+# drop it, and the guard reports a severity anywhere in this file. The slot stays so that
+# every vendored revision, all of which carry it, still parses.
 policy:
   proposes_overrides: []
 

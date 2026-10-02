@@ -6,7 +6,8 @@
 - **Relates to:**
   - RFC-0020 (the carriage lineage this extends a third step — from findings to executions to conduct)
   - RFC-0026 (the permission layer this composes with, and the two seams on `cmd/phases.rs` and `classify_commit` decided here)
-  - RFC-0024 (the policy layer every severity a kuten proposes must enter through, visibly)
+  - RFC-0024 (~~the policy layer every severity a kuten proposes must enter through, visibly~~ —
+    it decides disclosure and no check's severity, so a kuten proposes none; Erratum 8 in §7)
   - RFC-0019 (~~the citation contract the object slot's coupling checks reuse rather than
     re-invent~~ — they do not reuse it; no derived corpus writes `cites:`, and Erratum 6 in §6
     records the form they read instead)
@@ -31,6 +32,9 @@
   command of its own. Erratum 6 in §6 records why both read markdown links and not `cites:`.
 - **Amended 2026-10-01 (#643):** the mixed-register conduct finding is withdrawn, not exempted.
   Erratum 7 in §4 records why, and Open Question 3 is struck.
+- **Amended 2026-10-02 (#1305):** a kuten proposes no severities. The `policy` slot had no
+  channel to arrive through, so a populated one was parsed and dropped; the binary now refuses
+  it. Erratum 8 in §7 records why the channel was struck rather than built.
 - **Downstream reference case:** A0's population — eighteen derived corpora on disk, 6,900
   commits, read-only. Six of them define `inquiry`; two are object-coupled; one is a projected
   mirror of 1,656 commits (#582).
@@ -387,7 +391,7 @@ The slot inventory, with A0's verdicts as #572 records them:
 | **rubric** — the criteria a contribution is scored by | real | **A5, co-designed with #286** (scope decision 3): a rubric built alone would be `escalate_after`'s argument violated at rubric scale — *"a value compiled into the binary would be one corpus's answer imposed on every other"* ([`config.rs:416-417`](../../yidam/cli/src/config.rs#L416-L417)) |
 | **clocks** — proposed `[due]` and `[catalog]` values | premature, but not unmeasured (A0 correction, above): the `[due]` keys had a denominator of 2 when A0 ran and 1 corpus held two of them; `catalog.ttl_days` is declared 165 times inside the cluster, pooled median 365 against the proposed 180. Ships as a **proposal with values**, not a permission with blanks — now with the distribution beside it and a rule that retires it | A2, §9 |
 | **thresholds** — proposed `[lint]`/`[propose]` values: `escalate_after`, `withdraw_uncited_after` ([`configuration.md`](../configuration.md)) | premature on `clocks`' evidence, and — unlike `clocks` — not a kuten's to propose either: escalating a finding to a build failure is a gate change that enters through RFC-0024's layer (§7, row 5), and drafting a withdrawal is authorship §8 declines. Ships **named and unpopulated** | A2 |
-| **policy** — proposed severities and overrides | premature: no corpus carries an override in `.yidam/policy/` — re-verified 2026-09-06 under #633, and it stands on its own terms, though on the same corrected denominator as `clocks` (the Rego layer shipped four days before A0) — ships as a **proposal with values**, through RFC-0024's layer, visible as an override | A2, §7 row 5 |
+| **policy** — proposed severities and overrides | premature: no corpus carries an override in `.yidam/policy/` — re-verified 2026-09-06 under #633, and it stands on its own terms, though on the same corrected denominator as `clocks` (the Rego layer shipped four days before A0) — ~~ships as a **proposal with values**, through RFC-0024's layer, visible as an override~~ **struck 2026-10-02 (#1305): ships empty, and a populated slot is refused** — Erratum 8 | A2, §7 row 5 |
 | **question-pressure** — what kind of question this corpus should open | not measurable (nothing existing creates it); settled in #572's negotiation | A3, §5 |
 
 The verdict sentences are #572's verbatim: six varied and are real (phases, rubric, classes,
@@ -917,7 +921,23 @@ by that file's own comments.
 | Add or alter a claim standing | Article V reads the standings as a total order when it licenses lowering a claim at resolution ([`CONSTITUTION.md:72-76`](../../yidam/prelude/CONSTITUTION.md#L72-L76)) | Nothing. This is constitutional |
 | Contradict Articles I–VI | Article I — the prelude is not subject to resolution, and a kuten is vendored prelude | A domain extension appended at genesis, which the constitution already provides for |
 | Change the graph encoding | Files are nodes, links are edges, commits are events. This is the premise, not a policy | Nothing |
-| Loosen a gate quietly | RFC-0024 settled that a local rule may be more permissive and may not be *silent* | Surface it three ways as an override already is: `policy check`, an `Info` lint finding, and `doctor` |
+| Loosen a gate quietly | RFC-0024 settled that a local rule may be more permissive and may not be *silent* | ~~Surface it three ways as an override already is: `policy check`, an `Info` lint finding, and `doctor`~~ Nothing. A kuten proposes no severity, and a populated `policy` slot is refused at parse (Erratum 8) |
+
+> **Erratum 8 — struck 2026-10-02 (#1305); the row is struck, not built.** Row 5 assumed an
+> override already surfaces three ways, and one does, for **disclosure**: RFC-0024's layer
+> decides `disclose/at_rest`, `disclose/record` and `disclose/derived`
+> ([`DECISIONS`](../../yidam/cli/src/policy/mod.rs#L90)), and nothing else. No override
+> anywhere, in policy or config, changes a lint check's severity. So the `policy` slot was a
+> channel into a layer with no door for it. `Profile` did not read the slot, and the guard
+> exempted it, so a populated one would have parsed, passed, and been dropped. *"May be more
+> permissive, may not be silent"* held only because the list was empty.
+>
+> Building the channel would have meant a new severity mechanism in RFC-0024's layer, a new
+> rule surface with one would-be consumer. That consumer was A6, which shipped
+> `broken-object-link` at a fixed Warn. #643 withdrew the only other rule waiting on a
+> kuten-proposed severity, and no corpus carries a `.yidam/policy/` override (§1). So a kuten
+> proposes no severity. `Profile::parse` refuses a populated slot, an empty one still parses
+> because every vendored revision carries it, and the guard no longer exempts the slot.
 
 ### 8 — Article V and the kuten
 
@@ -950,10 +970,10 @@ constitutional finding with a stated ground, not a scoping convenience.
 none of them, and the five prohibitions in §7 are that fact made mechanical: no verb, no
 standing, no encoding change, no contradiction of I–VI, no quiet loosening. Its one generative
 element — question pressure — is licensed on RFC-0020's exact ground and authors nothing (§5).
-Its clock values are proposals a corpus's own config holds or declines (§9). Its severities
-enter only through RFC-0024's layer, visible as overrides. So the kuten operates entirely below
-Article V's objects: it parameterizes *which acts the loop invites*, never *what the corpus
-holds*.
+Its clock values are proposals a corpus's own config holds or declines (§9). ~~Its severities
+enter only through RFC-0024's layer, visible as overrides.~~ It proposes none (Erratum 8). So
+the kuten operates entirely below Article V's objects: it parameterizes *which acts the loop
+invites*, never *what the corpus holds*.
 
 **In whose name.** Upstream authors the profile; **the corpus declares it**. The genesis
 selection is recorded in `.yidam/decisions/kuten.yml`, and a post-genesis change is a `decide:`
@@ -966,8 +986,9 @@ revision it can name.
 
 **And it binds nobody.** Divergence from the kuten is a question for a person, never a defect:
 `kuten check` exits zero, on `due`'s argued precedent that *a corpus with three expired sources
-is not unhealthy, it is owed*. Anything that refuses — a gate, a severity — enters through the
-policy layer and is visible three ways (§7, row 5). The advisory character is constitutional,
+is not unhealthy, it is owed*. ~~Anything that refuses — a gate, a severity — enters through the
+policy layer and is visible three ways (§7, row 5).~~ Nothing it declares refuses: it proposes
+no severity (Erratum 8). The advisory character is constitutional,
 not provisional: a future slot that would author or refuse must arrive through the doors already
 licensed for those acts (`propose` for authorship; a policy override for refusal), not through
 the kuten growing teeth.
@@ -978,8 +999,8 @@ argument stays here — A2 vendors this paragraph at the head of the kuten profi
 
 > A kuten declares what this corpus's practice is aimed at. It narrows and parameterizes the
 > loop; it may not widen the model: it may not add a commit verb, add or alter a claim
-> standing, contradict Articles I–VI, change the graph encoding, or loosen a gate except as a
-> visible policy override. It asserts nothing the corpus holds — no node, no edge, no claim,
+> standing, contradict Articles I–VI, change the graph encoding, or loosen a gate ~~except as a
+> visible policy override~~. It asserts nothing the corpus holds — no node, no edge, no claim,
 > no standing — and it binds nobody: divergence from it is a question for a person, not a
 > defect. It speaks in this corpus's name from the decision record that adopted it, and it
 > changes only by a superseding decision.
@@ -1034,8 +1055,8 @@ an interval, and this RFC adds no second one — the same sentence RFC-0026 wrot
 - **Not E4 / #252.** A kuten proposes no commits. It declares what a good one would have been.
 - **Not a scheduler.** `mise` and CI sequence; `due` says it is time; `cycle` (A4, blocked on
   #474's contract question, which this RFC does not touch) says what is next.
-- **No new rule on corpus content.** Every severity a kuten sets is a policy override, visible
-  as one.
+- **No new rule on corpus content.** ~~Every severity a kuten sets is a policy override, visible
+  as one.~~ A kuten sets no severity (Erratum 8).
 - **Does not build the object.** yidam governs the corpus; the corpus governs the build.
 - **Not #578.** Coverage is a class-contract change with the ontology lineage; this RFC
   reserves the slot value and schedules nothing (§5).

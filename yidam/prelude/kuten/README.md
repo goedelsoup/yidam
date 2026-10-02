@@ -23,11 +23,10 @@ read an RFC.
 
 > A kuten declares what this corpus's practice is aimed at. It narrows and parameterizes the
 > loop; it may not widen the model: it may not add a commit verb, add or alter a claim
-> standing, contradict Articles I–VI, change the graph encoding, or loosen a gate except as a
-> visible policy override. It asserts nothing the corpus holds — no node, no edge, no claim,
-> no standing — and it binds nobody: divergence from it is a question for a person, not a
-> defect. It speaks in this corpus's name from the decision record that adopted it, and it
-> changes only by a superseding decision.
+> standing, contradict Articles I–VI, change the graph encoding, or loosen a gate. It asserts
+> nothing the corpus holds — no node, no edge, no claim, no standing — and it binds nobody:
+> divergence from it is a question for a person, not a defect. It speaks in this corpus's name
+> from the decision record that adopted it, and it changes only by a superseding decision.
 
 ## The five prohibitions
 
@@ -40,7 +39,7 @@ directory. A profile that trips a guard does not ship.
 | Add or alter a claim standing | Article V reads the standings as a total order when it licenses lowering a claim at resolution | Nothing. This is constitutional |
 | Contradict Articles I–VI | Article I — the prelude is not subject to resolution, and a kuten is vendored prelude | A domain article sealed at genesis, which can add a refusal and not remove one |
 | Change the graph encoding | Files are nodes, links are edges, commits are events. This is the premise, not a policy | Nothing |
-| Loosen a gate quietly | A local rule may be more permissive and may not be silent | Declare it under `policy:`, where `policy check`, `lint` and `doctor` all surface it |
+| Loosen a gate | A local rule may be more permissive and may not be silent, and nothing would surface a kuten's: the policy layer decides disclosure, not a check's severity | Nothing. A kuten proposes no severity, and `policy:` holds an empty list or is refused |
 
 ## What a profile is made of
 
@@ -63,7 +62,7 @@ mechanical form of the failure this layer keeps finding in itself — a surface 
 | `skills` | What the practice routes through | `none` |
 | `clocks` | Proposed `[due]` intervals — a proposal the corpus's own config holds or declines | `none` |
 | `thresholds` | The `[lint]`/`[propose]` values — `escalate_after`, `withdraw_uncited_after`. Named, and proposed by no kuten: one decides when a finding fails the build, the other licenses a drafted deletion, and a kuten reaches neither act | `none` |
-| `policy` | Proposed severity overrides, which enter through the policy layer and are visible as overrides | `none` |
+| `policy` | ~~Proposed severity overrides~~ — **refused when populated (#1305)**: nothing would apply one. Named, and empty, so that every vendored revision still parses | `none` |
 | `object` | The artifact outside the corpus, and the direction of the arrow between them | `block` |
 | `rubric` | The criteria a contribution is scored by | `block` |
 | `question_pressure` | What kind of question this corpus should be opening | `check`, `block` |
@@ -72,8 +71,9 @@ One of these — `thresholds` — is named here and populated by no profile, and
 rather than counted so the list cannot lose it by being reordered. A slot with no values says
 which state a repository is in; a slot invented ahead of its evidence says nothing and is
 believed anyway. `thresholds` is the one that stays empty on principle rather than on
-evidence: a value under it would be a gate decided outside `policy:` and a deletion drafted
-with no licence.
+evidence: a value under it would be a gate decided by a kuten and a deletion drafted with no
+licence. `policy` has been held empty on the same principle since #1305, and the binary refuses
+it populated.
 
 `rubric` is the one slot that names **criteria and no bands**, and the asymmetry is the point.
 Every band in a profile was measured over eighteen corpora before it was written down. What a

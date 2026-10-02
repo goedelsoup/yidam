@@ -2,11 +2,10 @@
 
 > A kuten declares what this corpus's practice is aimed at. It narrows and parameterizes the
 > loop; it may not widen the model: it may not add a commit verb, add or alter a claim
-> standing, contradict Articles I–VI, change the graph encoding, or loosen a gate except as a
-> visible policy override. It asserts nothing the corpus holds — no node, no edge, no claim,
-> no standing — and it binds nobody: divergence from it is a question for a person, not a
-> defect. It speaks in this corpus's name from the decision record that adopted it, and it
-> changes only by a superseding decision.
+> standing, contradict Articles I–VI, change the graph encoding, or loosen a gate. It asserts
+> nothing the corpus holds — no node, no edge, no claim, no standing — and it binds nobody:
+> divergence from it is a question for a person, not a defect. It speaks in this corpus's name
+> from the decision record that adopted it, and it changes only by a superseding decision.
 
 **Revision 1.** The declaration a tool reads is [kuten.yml](kuten.yml); this document is the
 one a person reads. See [the layer](../README.md) for what a kuten is and what it may not do.
@@ -170,9 +169,13 @@ the first is a gate change and arrives as a visible policy override, the second 
 arrives through `propose`'s own licence. The slot is named so that emptiness is a state a reader
 can see, rather than a family the layer forgot.
 
-`clocks` and `policy` are populated but are **proposals with values, not permissions with
-blanks**. The proposed values are the ones yidam's own configuration documentation puts in a
-reader's hands; a corpus holds them by writing them into its config, or declines them by not.
+**`policy`** — severity overrides — which holds an empty list and is refused if populated. The
+policy layer decides disclosure, not a check's severity, so nothing would apply a kuten's
+proposal, and one accepted and ignored would loosen a gate silently (#1305).
+
+`clocks` is populated but is a **proposal with values, not a permission with blanks**. The
+proposed values are the ones yidam's own configuration documentation puts in a reader's hands;
+a corpus holds them by writing them into its config, or declines them by not.
 
 They were chosen rather than measured, and the reason first given — that there was no measured
 interval to extract — was wrong. Re-reading the same eighteen corpora on 2026-09-06 found
