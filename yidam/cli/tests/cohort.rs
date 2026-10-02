@@ -259,3 +259,43 @@ fn the_json_report_carries_the_contract_envelope() {
     assert!(v["yidam"]["version"].is_string());
     assert!(v["norms"].as_array().is_some_and(|n| !n.is_empty()));
 }
+
+/// #1303's candidates for `inquiry`'s retired `classes` slot, carried by the report.
+///
+/// The reading itself is unit-tested in `cohort::accretion`. What this holds is that the
+/// report carries it at all, with every candidate RFC-0028 names present whether it survived
+/// or not. A negative result that only a scratch script can regenerate is the failure this
+/// section of the report exists to prevent.
+#[test]
+fn the_report_carries_every_accretion_candidate_and_its_verdict() {
+    let e = Example::materialize("streamflow");
+    let (out, err, code) = e.run(&[
+        "cohort",
+        &e.path().display().to_string(),
+        "--format",
+        "json",
+    ]);
+    assert_eq!(code, 0, "{out}{err}");
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let ids: Vec<&str> = v["accretion"]["candidates"]
+        .as_array()
+        .expect("accretion.candidates")
+        .iter()
+        .map(|c| c["id"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            "trailing-window-25",
+            "trailing-window-50",
+            "trailing-window-100",
+            "decay-curve"
+        ]
+    );
+    for c in v["accretion"]["candidates"].as_array().unwrap() {
+        assert!(
+            c.get("survives").is_some() && c.get("replay").is_some(),
+            "a candidate without a verdict or a replay: {c}"
+        );
+    }
+}

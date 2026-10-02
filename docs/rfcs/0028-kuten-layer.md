@@ -255,6 +255,42 @@ of a box — and choosing between those needs the eighteen-corpus re-measurement
 instrument for. **The profile is at revision 2**, so a repository holding revision 1 is told its
 declaration and its vendored profile disagree, which is the revision model doing its job.
 
+#### Both replacements, measured and rejected (2026-10-01, #1303)
+
+The paragraph above named two candidates and deferred the choice between them. Neither survives,
+so there is no choice to make. `yidam cohort` computes both and replays each against every
+member's history, so this result is regenerable from the command rather than from a script.
+
+Each candidate is fitted the way the retired bands were: the observed range at every member's
+head, rounded outward to two decimals. The band is then read at every authored commit between the
+youngest member's head and the oldest's. A candidate any member leaves as it ages is rejected —
+#1303's own test. Read at today's heads:
+
+| Candidate | The six (A0's cluster) | The nine (vintage-matched) |
+|---|---|---|
+| Nodes per authored commit over the trailing 25 | 4 of 6 exit | 5 of 9 exit |
+| … over the trailing 50 | 4 of 6 exit | 5 of 9 exit |
+| … over the trailing 100 | 3 of 4 exit; the two youngest have no 100-commit window at their head | 3 of 7 exit |
+| Distance from a fitted `a·k^b` | 2 of 6 exit, one for 216 of its 462 points | 1 of 9 exits, for 429 of 462 |
+
+**The windows fail in both directions.** Most members decelerate, so a member's window rate falls
+with age (Spearman ρ down to −0.95). One accelerates (ρ +0.53 to +0.96). No fixed band covers a
+population moving both ways, and lengthening the window only stops measuring the young members.
+
+**The curve fails because members differ in level more than they share a slope.** Pooled across
+heads, the fit absorbs the level spread, and the distance from it still tracks age within a member
+(ρ −0.85 to −1.00 for three of the nine). At nine members its band is 1.58 natural-log units wide —
+a factor of 4.9 in rate — so the one rejection there is not a reprieve: a band that admits a
+fivefold range says nothing about practice.
+
+Neither verdict rests on the snapshot. A replay at the profile's own fit points, with row 6 at
+`abd6ecd`, reached the same verdict on all four candidates before the port.
+
+**The slot stays empty and the profile stays at revision 2.** The falsifier was to gain an age
+axis for a survivor, and there is none, so it is unchanged. What was not tried is a member read
+against its own history. That is a different instrument from a cross-corpus band, not a third
+candidate for this one.
+
 The general lesson is the one worth carrying past this row: **measuring before writing a number
 down is not sufficient.** Both bands were fitted correctly, from real measurements, over a real
 cluster. What was never asked is whether the quantity they measure is a property of the practice

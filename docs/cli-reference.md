@@ -705,6 +705,10 @@ too: a negative result about coverage is the only durable record that coverage w
 Members are lettered rather than named. Most derived repositories are private, and this report
 is written to be pasted somewhere. `--paths` opts back in.
 
+One section is a measurement with no verdict per member: **accretion**. It fits the two
+candidates RFC-0028 named for `inquiry`'s retired `classes` bands. Each is replayed over every
+member's history. A candidate any member leaves as it ages is printed as rejected.
+
 ### `run` is a plan, and only an operational commit advances your branch
 
 `.yidam/capabilities.toml` declares what may run. Per entry: a `kind`, the argv to invoke, the

@@ -169,9 +169,10 @@ vocabulary:
 # **The quantities are still measured and still reported** — `kuten check`'s `measurement`
 # carries `nodes` and `median_node_lines`, and `instances` and `median_lines` stay in the rows
 # below. What is withdrawn is the claim that a number outside a range says anything about
-# practice. What would replace them is an age-invariant statistic — accretion over a trailing
-# window, or a curve with distance from it reported instead of a box — and choosing between
-# those needs a measurement across all eighteen corpora that #288's instrument is for.
+# practice. The two age-invariant replacements RFC-0028 named — accretion over a trailing
+# window, and distance from a fitted decay curve — were both measured (#1303) and both are
+# left by members as they age, so nothing replaces them and the slot stays empty.
+# `yidam cohort` regenerates that result from the members' histories.
 
 # Which way the arrow between corpus and object runs. `authored` is the default and the only
 # value this profile proposes: the corpus is written in git, GRAPH.md's premise holds, and
