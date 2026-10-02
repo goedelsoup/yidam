@@ -528,6 +528,11 @@ const ROSTER: &[Entry] = &[
         run: |i| checks::catalog_location_malformed(i.sources()),
     },
     Entry {
+        id: "catalog-type-unknown",
+        asked: Asked::Always,
+        run: |i| checks::catalog_type_unknown(i.sources()),
+    },
+    Entry {
         id: "catalog-artifact-malformed",
         asked: Asked::Always,
         run: |i| checks::catalog_artifact_malformed(i.sources()),

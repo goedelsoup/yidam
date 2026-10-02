@@ -585,6 +585,7 @@ mod tests {
             rel: format!(".yidam/catalog/{slug}.md"),
             path: PathBuf::from(format!("/repo/.yidam/catalog/{slug}.md")),
             obtained: true,
+            r#type: None,
             used_by: None,
             locations: locations
                 .iter()

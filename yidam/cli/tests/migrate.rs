@@ -1085,3 +1085,64 @@ fn migrate_scaffold_refuses_an_owner_section_inside_the_template_s() {
     assert!(out.contains("Nothing was written"), "{out}");
     assert!(!c.dirty(), "a refused migration wrote to the tree");
 }
+
+// ── identifier locations ──────────────────────────────────────────────────────
+
+const ENTRY: &str = ".yidam/catalog/usgs-nwis.md";
+
+/// The streamflow entry with a `doi` and a `pmc` location added, as the measured corpora wrote
+/// them before `identifier` existed (RFC-0048 §2).
+fn with_retired_locations(c: &Corpus) {
+    let text = c.read(ENTRY).replace(
+        "used-by:",
+        "  - kind: doi\n    value: 10.1167/tvst.8.5.14\n    description: publisher\n  \
+         - kind: pmc\n    value: PMC6753881\n    description: full text\nused-by:",
+    );
+    std::fs::write(c.path().join(ENTRY), text).unwrap();
+    c.git(&["commit", "-q", "-am", "catalog: a doi and a pmc"]);
+    assert!(!c.gate_is_clean(), "the retired kinds should be reported");
+}
+
+#[test]
+fn a_dry_run_of_migrate_locations_names_each_location_and_changes_nothing() {
+    let c = Corpus::new();
+    with_retired_locations(&c);
+    let (ok, out) = c.run(&["migrate", "--dry-run", "locations"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("2 location(s) across 1 entr(ies)"), "{out}");
+    assert!(
+        out.contains("10.1167/tvst.8.5.14 → doi:10.1167/tvst.8.5.14"),
+        "{out}"
+    );
+    assert!(!c.dirty(), "a dry run wrote to the tree");
+}
+
+#[test]
+fn migrate_locations_leaves_the_corpus_passing_its_own_gate() {
+    let c = Corpus::new();
+    with_retired_locations(&c);
+    let (ok, out) = c.run(&["migrate", "locations"]);
+    assert!(ok, "{out}");
+    let text = c.read(ENTRY);
+    assert!(
+        text.contains("  - kind: identifier\n    value: doi:10.1167/tvst.8.5.14\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("  - kind: identifier\n    value: pmc:PMC6753881\n"),
+        "{text}"
+    );
+    assert!(c.gate_is_clean(), "the migrated corpus does not gate clean");
+    assert!(
+        out.contains("commit: migrate: doi and pmc catalog locations into identifiers (2 location(s) across 1 file(s))"),
+        "{out}"
+    );
+
+    // Idempotent, and a second run is not an event: no second record.
+    c.git(&["add", "-A"]);
+    c.git(&["commit", "-q", "-m", "migrate: locations"]);
+    let (ok, out) = c.run(&["migrate", "locations"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Nothing to migrate"), "{out}");
+    assert!(!c.dirty(), "a no-op run wrote to the tree");
+}

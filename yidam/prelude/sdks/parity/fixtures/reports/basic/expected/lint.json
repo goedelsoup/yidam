@@ -417,7 +417,15 @@
       "id": "catalog-location-malformed",
       "title": "Catalog location missing or mistyped",
       "severity": "warn",
-      "rationale": "A `location` is a list of typed places. The type decides whether a reader is offered a link, so a value whose shape contradicts its type renders wrongly; and where an entry has several locations, the description is the only thing distinguishing them.",
+      "rationale": "A `location` is a list of typed places. The type decides whether a reader is offered a link, so a value whose shape contradicts its type renders wrongly; and where an entry has several locations, the description is the only thing distinguishing them. An `identifier` names a source by what it is rather than where it is, as `scheme:local-id` — `doi:10.1167/tvst.8.5.14` — and one kind serves every scheme so that the set of kinds stays closed.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "catalog-type-unknown",
+      "title": "Catalog type outside the closed set",
+      "severity": "warn",
+      "rationale": "A catalog `type` says what form a source takes, and the set is closed so that a reader and the schema agree on what each word means. A word outside it is reported rather than mapped: `primary` says what standing a source has, and a primary source can be a statute, a dataset or a report, so only someone who read it can choose.",
       "escalation_eligible": false,
       "violations": []
     },

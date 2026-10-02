@@ -539,7 +539,7 @@ pub fn catalog_entry_schema() -> Value {
         "properties": {
             "name": non_empty_string(),
             "description": non_empty_string(),
-            "type": { "type": "string", "enum": ["paper", "dataset", "api", "database", "other"] },
+            "type": { "type": "string", "enum": crate::parse::CATALOG_TYPES },
             "obtained": {
                 "type": "boolean",
                 "description": "Absent means yes. `false` declares a source registered ahead of \
@@ -1263,6 +1263,15 @@ mod tests {
             .clone();
         let kinds: Vec<String> = serde_json::from_value(kinds).unwrap();
         assert_eq!(kinds, crate::parse::CATALOG_LOCATION_KINDS);
+    }
+
+    /// The editor and `catalog-type-unknown` read one list, so neither can offer a word the
+    /// other refuses.
+    #[test]
+    fn catalog_types_come_from_the_same_constant_the_lint_uses() {
+        let types = catalog_entry_schema()["properties"]["type"]["enum"].clone();
+        let types: Vec<String> = serde_json::from_value(types).unwrap();
+        assert_eq!(types, crate::parse::CATALOG_TYPES);
     }
 
     #[test]

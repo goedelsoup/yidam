@@ -125,6 +125,11 @@ pub enum Operation {
     /// Migrates the scaffold, as [`Self::Routes`] does, and for the same reason. See
     /// [`crate::cmd::migrate_scaffold`].
     Scaffold,
+    /// Every catalog location of kind `doi` or `pmc` becomes `kind: identifier` (RFC-0048 §2).
+    ///
+    /// Migrates data, as [`Self::References`] does, and for the same reason. See
+    /// [`crate::cmd::migrate_locations`].
+    Locations,
 }
 
 impl Operation {
@@ -140,6 +145,7 @@ impl Operation {
             Self::Findings => "findings",
             Self::Routes => "routes",
             Self::Scaffold => "scaffold",
+            Self::Locations => "locations",
         }
     }
 
@@ -178,6 +184,8 @@ impl Operation {
             Self::Routes => "AGENTS.md reading list into a generated block".to_string(),
             // A stable form that does not begin with the operation's own name, as above.
             Self::Scaffold => "ci.yml and CLAUDE.md regions a re-vendor updates".to_string(),
+            // A stable form that does not begin with the operation's own name, as above.
+            Self::Locations => "doi and pmc catalog locations into identifiers".to_string(),
         }
     }
 }
@@ -302,7 +310,7 @@ fn ont_path(corpus: &Path, name: &str) -> PathBuf {
 /// [`scalar_on`] is this same reading with the quotes stripped off, which is what every
 /// rename here wants and the exact opposite of what a requote wants: the value *inside* the
 /// quotes of `"24"` is `24` already, so rewriting that span would write the same bytes back.
-fn raw_scalar_on(line: &str, key: &str) -> Option<(usize, usize, String)> {
+pub(super) fn raw_scalar_on(line: &str, key: &str) -> Option<(usize, usize, String)> {
     let trimmed = line.trim_start();
     let indent = line.len() - trimmed.len();
     let body = trimmed
@@ -335,7 +343,7 @@ fn scalar_on(line: &str, key: &str) -> Option<(usize, usize, String)> {
 /// The inside of a quoted scalar, or `None` when it carries no quotes.
 ///
 /// The length test is not redundant: a lone `"` both starts and ends with one.
-fn unquoted(value: &str) -> Option<&str> {
+pub(super) fn unquoted(value: &str) -> Option<&str> {
     let quote = value.chars().next()?;
     if !matches!(quote, '"' | '\'') || value.len() < 2 || !value.ends_with(quote) {
         return None;
@@ -457,7 +465,7 @@ fn push_edit(edits: &mut Vec<Edit>, file: &str, line: usize, from: &str, to: &st
     });
 }
 
-fn rel(root: &Path, path: &Path) -> String {
+pub(super) fn rel(root: &Path, path: &Path) -> String {
     slash(path.strip_prefix(root).unwrap_or(path))
 }
 
@@ -504,6 +512,7 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
             super::migrate_scaffold::plan(root, &mut report);
             report.summary = super::migrate_scaffold::summary(&report);
         }
+        Operation::Locations => super::migrate_locations::plan(root, &mut report),
     }
     if report.blocked.is_empty() {
         // A reference lift's unit of work is a reference and not an edit: only the tags it
@@ -539,6 +548,19 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
                 routes.replaced.len(),
                 "bullet",
                 usize::from(!routes.already),
+            )
+        } else if matches!(op, Operation::Locations) {
+            // Two edits per location, one when its value already carried the scheme: counting
+            // edits would report a number that means neither.
+            (
+                super::migrate_locations::rewritten(&report),
+                "location",
+                report
+                    .edits
+                    .iter()
+                    .map(|e| e.file.as_str())
+                    .collect::<BTreeSet<_>>()
+                    .len(),
             )
         } else if let Some(scaffold) = &report.scaffold {
             // Nor a scaffold migration: its unit is a file given a region.
@@ -1434,6 +1456,10 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
         let written = super::migrate_scaffold::apply(root, report)?;
         return write_record(root, op, report, written);
     }
+    // Nothing to rewrite writes no record: run twice, the second run is a no-op, not an event.
+    if matches!(op, Operation::Locations) && report.edits.is_empty() {
+        return Ok(());
+    }
     let mut by_file: BTreeMap<&str, Vec<&Edit>> = Default::default();
     for e in &report.edits {
         by_file.entry(&e.file).or_default().push(e);
@@ -1476,6 +1502,18 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
                         .map(|(s, t, _)| (s, t))
                         .or_else(|| values_item_on(line, &e.from))
                         .or_else(|| list_item_on(line, &e.from))
+                })
+                .or_else(|| {
+                    // A location's edits are its `kind:` and its `value:`, as written — quotes
+                    // included, so a quoted value keeps its quotes around the new one.
+                    if !matches!(op, Operation::Locations) {
+                        return None;
+                    }
+                    ["kind", "value"].iter().find_map(|key| {
+                        raw_scalar_on(line, key)
+                            .filter(|(_, _, v)| *v == e.from)
+                            .map(|(s, t, _)| (s, t))
+                    })
                 })
                 .or_else(|| mapping_key_on(line, &e.from));
             let Some((start, end)) = span else { continue };
@@ -1582,6 +1620,9 @@ pub(crate) fn render_migrate(r: &MigrateReport) -> String {
     if matches!(r.operation, "findings") {
         return render_findings(r);
     }
+    if matches!(r.operation, "locations") {
+        return render_locations(r);
+    }
     let mut out = format!(
         "{} {}\n{} edit(s) across {} file(s)\n",
         if r.applied {
@@ -1637,6 +1678,54 @@ pub(crate) fn render_migrate(r: &MigrateReport) -> String {
         for u in &r.unhandled {
             let _ = writeln!(out, "  {}:{}  {}", u.file, u.line, u.text);
         }
+    }
+    if !r.record.is_empty() {
+        let _ = write!(out, "\nrecord: {}", r.record);
+    }
+    let _ = write!(out, "\ncommit: {}", r.commit_subject);
+    out.trim_end().to_string()
+}
+
+/// A locations migration, one line per location rather than one per edit.
+fn render_locations(r: &MigrateReport) -> String {
+    let n = super::migrate_locations::rewritten(r);
+    let mut out = if n == 0 {
+        // Not "would migrate 0": this ran, and found nothing to move.
+        "Nothing to migrate — no catalog location of kind `doi` or `pmc` is written in a form \
+         this rewrites.\n"
+            .to_string()
+    } else {
+        format!(
+            "{} {}\n{n} location(s) across {} entr(ies)\n",
+            if r.applied {
+                "Migrated"
+            } else {
+                "Would migrate"
+            },
+            r.summary,
+            r.edits
+                .iter()
+                .map(|e| e.file.as_str())
+                .collect::<BTreeSet<_>>()
+                .len()
+        )
+    };
+    for e in &r.edits {
+        let _ = writeln!(out, "  {}:{}  {} → {}", e.file, e.line, e.from, e.to);
+    }
+    if !r.unhandled.is_empty() {
+        let _ = write!(
+            out,
+            "\n{} location(s) NOT rewritten — `catalog-location-malformed` still reports \
+             these:\n",
+            r.unhandled.len()
+        );
+        for u in &r.unhandled {
+            let _ = writeln!(out, "  {}:{}  {}", u.file, u.line, u.text);
+        }
+    }
+    if n == 0 {
+        return out.trim_end().to_string();
     }
     if !r.record.is_empty() {
         let _ = write!(out, "\nrecord: {}", r.record);

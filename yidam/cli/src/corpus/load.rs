@@ -38,6 +38,7 @@ pub fn load_sources(root: &Path, paths: &[PathBuf], overlay: &Overlay) -> Vec<So
                 path: p.clone(),
                 // Absent means obtained. Only an explicit `false` claims otherwise.
                 obtained: fm.obtained.unwrap_or(true),
+                r#type: fm.r#type,
                 // Carried as an `Option`. `unwrap_or_default()` here made `used-by: []`
                 // indistinguishable from an absent key by the time the check saw it.
                 used_by: fm.used_by,

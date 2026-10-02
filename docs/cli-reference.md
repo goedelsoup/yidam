@@ -565,6 +565,7 @@ record of what they touched.
 | `findings` | Lift every paragraph an earlier `propose` spliced into prose into a `yidam:` record |
 | `routes` | Put the `yidam routes` block into `AGENTS.md`, in place of its whole-file reading list |
 | `scaffold` | Mark the part of `ci.yml` and `CLAUDE.md` that a re-vendor updates |
+| `locations` | Rewrite every catalog location of kind `doi` or `pmc` as `kind: identifier` |
 
 `retype` converts an instance value where the two types differ only in how the value is
 written. A `number` is an unquoted YAML number. So retyping to `number` unquotes `"24"`, and
@@ -578,7 +579,7 @@ rewrites the item on the declaration and the value on every instance holding it,
 The quoting follows what was written. A value outside the set is refused. So is a rename onto a
 value the set already holds, which would merge two.
 
-`references` and `findings` are the two that migrate data rather than the ontology over it.
+`references`, `findings` and `locations` migrate data rather than the ontology over it.
 
 A detail reading `[verified — #362]` names an issue no consumer can follow. The migration writes
 `issue/362` to the node. Where the detail was the reference and nothing else, the tag then

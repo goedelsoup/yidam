@@ -1,7 +1,7 @@
 ---
 name: vantry-county-recorder
 description: The Vantry County Recorder of Deeds — the grantor–grantee index and the deed book series it points into.
-type: archive
+type: document
 obtained: true
 location:
   - kind: address

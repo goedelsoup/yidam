@@ -221,12 +221,12 @@ rule somebody has to remember per file is a rule that gets forgotten.
 ---
 name: Pearl 2009
 description: Causality — models, reasoning, inference.
-type: paper                  # paper | dataset | api | database | other
+type: paper                  # paper | dataset | api | database | statute | report | standard | document | other
 obtained: true               # absent means true; see below
 retrieved: 2026-08-22        # optional; when it was last actually fetched
 ttl_days: 3650               # optional; how long this record may stand
 location:
-  - kind: url                # url | url_template | address | file
+  - kind: url                # url | url_template | address | file | identifier
     value: https://example.org/pearl-2009
     description: publisher's copy   # required only when there are several locations
 used-by:

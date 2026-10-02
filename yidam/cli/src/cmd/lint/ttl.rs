@@ -176,6 +176,7 @@ mod tests {
             rel: rel.to_string(),
             path: std::path::PathBuf::from(rel),
             obtained: true,
+            r#type: None,
             used_by: None,
             locations: vec![],
             retrieved: retrieved.map(str::to_string),
