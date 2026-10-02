@@ -183,8 +183,12 @@ One table per scheme. A scheme name is lowercase letters, digits and `-`, starti
 |---|---|---|
 | `pattern` | yes | A regular expression the local id must match, anchored `^…$`. Its named groups are template slots. |
 | `type` | yes | The catalog `type` an entry from this scheme takes. One of the catalog types below. |
-| `resolve.template` | yes | An `http(s)` address. Slots are `{id}` and each named group of `pattern`. At least one slot. |
-| `resolve.media` | no | The media type the publisher answers in. Required when the scheme has a transform and fixtures. |
+| `resolve.template` | one of three | An `http(s)` address. Slots are `{id}` and each named group of `pattern`. At least one slot. |
+| `resolve.listing` | one of three | An `http(s)` page whose links name the files. Slots as for `template`. Needs `match`. |
+| `resolve.dcat` | one of three | A bare host. Its catalog is `https://<host>/data.json`. |
+| `resolve.match` | with `listing` | A regular expression, anchored `^…$`, that a listed name must match. Slots are bound escaped. |
+| `resolve.pick` | no | `only`, the default, or `latest`. `latest` compares runs of digits as numbers. |
+| `resolve.media` | no | The media type the publisher answers in. Required when the scheme has a transform and fixtures. With `dcat`, a distribution must declare it. |
 | `describe` | no | `transforms/<name>.glu`: publisher metadata to a draft entry. |
 | `extract` | no | `transforms/<name>.glu`: a fetched artifact to a reading. |
 | `then` | no | A list of `{ scheme, from }`. Each names a scheme in this pack, and `from = "describe.<key>"`. |
@@ -232,6 +236,41 @@ Fetch it by hand, and record the export as a `kind: file` location.
 
 `source add` writes `ttl_days` into the draft entry it commits.
 
+### When no template reaches the file
+
+Some publishers move their files. NOAA dates each file by its release, and CMS writes a new path each time.
+For these, set `listing` or `dcat` in place of `template`:
+
+```toml
+[scheme.climdiv]
+pattern = '^[a-z]+$'
+type    = "dataset"
+resolve = { listing = "https://www.ncei.noaa.gov/pub/data/cirs/climdiv/", match = '^climdiv-{id}-v1\.0\.0-\d{8}$', pick = "latest" }
+
+[scheme.cms]
+pattern = '^[0-9a-f-]{36}$'
+type    = "dataset"
+resolve = { dcat = "data.cms.gov", media = "text/csv" }
+```
+
+A listing's candidates are its links on the page's own host.
+A catalog's are the `downloadURL`s of the one dataset whose `identifier` names the local id.
+`match` and `pick` then choose one name.
+
+`source add` reads the page and writes the name into the identifier, after an `@`:
+
+```yaml
+  - kind: identifier
+    value: climdiv:pcpndv@climdiv-pcpndv-v1.0.0-20261001
+```
+
+This name is the pin. It is relative to the page's directory, or an absolute path on its host.
+`catalog-fetch` follows only the pin, and never reads the page.
+So an entry stays the file that was read. An identifier with no pin is skipped, with a message.
+Add the source again to read the page anew. `source add` finds the entry already written.
+
+A lookup scheme has no `describe`. Its `extract` reads the pinned file.
+
 A pack cannot set `redistributable`, and a pack that tries fails to load.
 Whether bytes may leave this machine is a licence for one source.
 Write `redistributable: true` on that artifact's record, in the entry.
@@ -248,6 +287,10 @@ Map each identifier to a recorded response under `fixtures/`:
 The identifier's scheme must be one this pack declares. Its local id must match that scheme's pattern.
 Every file under `fixtures/` must be named here. An unnamed file belongs to no scheme and is an error.
 Write each path relative to `fixtures/`, as `crossref.json` and not `./crossref.json`.
+
+For a `listing` or `dcat` scheme, record the page under the identifier without a pin.
+`source check` reads it, and the name it picks must resolve.
+Record the file itself under the pinned identifier. Only that fixture is extracted.
 
 ### `[vendored]`
 
@@ -383,12 +426,14 @@ It verifies that:
 - the name matches its directory, and the version is `MAJOR.MINOR.PATCH`
 - `entry.md` exists
 - each pattern is anchored and compiles
-- each template is `http(s)` and every slot is bound
+- each `resolve` is one form, `http(s)`, and every slot is bound
+- each `match` is anchored and compiles, and no address carries a `#`
 - each `type` is a catalog type
 - each transform path is `transforms/<name>.glu` and exists
 - each `then` names a declared scheme and reads `describe.<key>`
 - `min_interval` and every `auth` entry are well formed
 - every fixture is claimed by a scheme, matches its pattern, and exists
+- every recorded listing or catalog picks a name that resolves
 - no two enabled packs declare one scheme
 - every vendored pack has its pin, and every pin has its satisfying copy
 
@@ -434,6 +479,9 @@ artifacts:
 
 A changed transform script is a new `by`, so `catalog-extract` takes a new reading beside the old.
 A reading already taken is never replaced.
+
+A location names the bytes fetched, never a member inside them.
+So the location for a file inside a zip names the zip, and no pin or template carries a `#`.
 
 An entry written before `readings:` holds its PDF reading under `text:`. It is still read.
 

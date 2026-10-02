@@ -103,14 +103,129 @@ pub struct Scheme {
     pub then: Vec<Then>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+/// How a scheme's identifier becomes an address. Exactly one of `template`, `listing` and
+/// `dcat` (#1342):
+///
+/// ```toml
+/// resolve = { template = "https://api.crossref.org/works/{id}" }
+/// resolve = { listing = "https://www.ncei.noaa.gov/pub/data/cirs/climdiv/",
+///             match = '^climdiv-{id}-v1\.0\.0-\d{8}$', pick = "latest" }
+/// resolve = { dcat = "data.cms.gov", media = "text/csv" }
+/// ```
+///
+/// A template is bound offline. A listing or a catalog is a page the publisher keeps current,
+/// read once by `source add`, which writes the name it picked into the identifier as a pin:
+/// `climdiv:pcpndv@climdiv-pcpndv-v1.0.0-20261001`. A fetch follows only the pin, so an entry
+/// stays the file that was read. See [`super::lookup`].
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Resolve {
     /// An `http(s)` address with `{id}` and named-group slots.
-    pub template: String,
-    /// The media type the publisher answers in.
+    #[serde(default)]
+    pub template: Option<String>,
+    /// An `http(s)` page whose links name the publisher's files, with the same slots.
+    #[serde(default)]
+    pub listing: Option<String>,
+    /// A host whose DCAT-US catalog, `https://<host>/data.json`, names each dataset's files.
+    #[serde(default)]
+    pub dcat: Option<String>,
+    /// A regular expression, anchored `^…$`, a listed name must match to be picked. Its
+    /// `{id}` and named-group slots are bound with the values escaped.
+    #[serde(default, rename = "match")]
+    pub matches: Option<String>,
+    /// Which matching name is picked. `only` when unsaid.
+    #[serde(default)]
+    pub pick: Option<Pick>,
+    /// The media type the publisher answers in. For `dcat`, also the `mediaType` a
+    /// distribution must declare to be picked.
     #[serde(default)]
     pub media: Option<String>,
+}
+
+/// Which of several matching names a listing or catalog resolves to.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Pick {
+    /// The greatest, comparing runs of digits as numbers: the newest release date.
+    Latest,
+    /// The one name that matches. Several is a refusal that names them.
+    #[default]
+    Only,
+}
+
+/// A [`Resolve`] once [`Resolve::form`] has accepted it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Form<'a> {
+    Template(&'a str),
+    Listing {
+        listing: &'a str,
+        matches: &'a str,
+        pick: Pick,
+    },
+    Dcat {
+        host: &'a str,
+        matches: Option<&'a str>,
+        pick: Pick,
+        media: Option<&'a str>,
+    },
+}
+
+impl Form<'_> {
+    /// Whether the address is read off a page rather than bound, so an identifier needs a pin.
+    pub fn looks_up(&self) -> bool {
+        !matches!(self, Self::Template(_))
+    }
+}
+
+impl Resolve {
+    /// Which form this is, or why the keys written do not make one.
+    pub fn form(&self) -> Result<Form<'_>, String> {
+        let given: Vec<&str> = [
+            ("template", self.template.is_some()),
+            ("listing", self.listing.is_some()),
+            ("dcat", self.dcat.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(k, set)| set.then_some(k))
+        .collect();
+        let pick = self.pick.unwrap_or_default();
+        match (given.as_slice(), &self.template, &self.listing, &self.dcat) {
+            (["template"], Some(t), _, _) => {
+                if self.matches.is_some() || self.pick.is_some() {
+                    return Err(
+                        "a template is bound, not picked; `match` and `pick` belong to a `listing` or `dcat`"
+                            .into(),
+                    );
+                }
+                Ok(Form::Template(t))
+            }
+            (["listing"], _, Some(listing), _) => match &self.matches {
+                Some(m) => Ok(Form::Listing {
+                    listing,
+                    matches: m,
+                    pick,
+                }),
+                None => Err(
+                    "a `listing` needs `match`, or every link on the page would be a candidate"
+                        .into(),
+                ),
+            },
+            (["dcat"], _, _, Some(host)) => Ok(Form::Dcat {
+                host,
+                matches: self.matches.as_deref(),
+                pick,
+                media: self.media.as_deref(),
+            }),
+            ([], ..) => Err("names no `template`, `listing` or `dcat`".into()),
+            (many, ..) => Err(format!(
+                "names {}; a scheme resolves one way",
+                many.iter()
+                    .map(|k| format!("`{k}`"))
+                    .collect::<Vec<_>>()
+                    .join(" and ")
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -401,6 +516,62 @@ ttl_days = 365
         assert_eq!((s.items.as_str(), s.title), ("items/*", None));
         let err = toml::from_str::<Manifest>(&format!("{head}titel = \"t\"\n")).unwrap_err();
         assert!(err.to_string().contains("titel"), "{err}");
+    }
+
+    fn resolve(src: &str) -> Resolve {
+        #[derive(Deserialize)]
+        struct T {
+            resolve: Resolve,
+        }
+        toml::from_str::<T>(src).unwrap().resolve
+    }
+
+    #[test]
+    fn each_resolve_form_parses_to_its_form() {
+        assert_eq!(
+            resolve(r#"resolve = { template = "https://e.org/{id}" }"#).form(),
+            Ok(Form::Template("https://e.org/{id}"))
+        );
+        assert_eq!(
+            resolve(r#"resolve = { listing = "https://e.org/d/", match = '^{id}-\d{8}$', pick = "latest" }"#)
+                .form(),
+            Ok(Form::Listing {
+                listing: "https://e.org/d/",
+                matches: r"^{id}-\d{8}$",
+                pick: Pick::Latest
+            })
+        );
+        assert_eq!(
+            resolve(r#"resolve = { dcat = "data.cms.gov", media = "text/csv" }"#).form(),
+            Ok(Form::Dcat {
+                host: "data.cms.gov",
+                matches: None,
+                pick: Pick::Only,
+                media: Some("text/csv")
+            })
+        );
+    }
+
+    #[test]
+    fn a_resolve_that_is_not_one_form_says_why() {
+        for (src, says) in [
+            (r#"resolve = { media = "text/csv" }"#, "names no"),
+            (
+                r#"resolve = { template = "https://e.org/{id}", dcat = "e.org" }"#,
+                "`template` and `dcat`",
+            ),
+            (
+                r#"resolve = { template = "https://e.org/{id}", pick = "latest" }"#,
+                "bound, not picked",
+            ),
+            (
+                r#"resolve = { listing = "https://e.org/" }"#,
+                "needs `match`",
+            ),
+        ] {
+            let err = resolve(src).form().unwrap_err();
+            assert!(err.contains(says), "{src}: {err}");
+        }
     }
 
     #[test]

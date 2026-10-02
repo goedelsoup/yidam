@@ -17,7 +17,8 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use super::manifest::{Archive, Manifest, Scheme, Transport};
+use super::lookup::{self, Base, Lookup, Page};
+use super::manifest::{Archive, Form, Manifest, Scheme, Transport};
 use super::{Origin, Pack};
 
 /// One scheme an enabled pack declares, with what resolving it needs.
@@ -44,7 +45,7 @@ pub struct Resolved {
     /// `<pack>@<version>`.
     pub pack: String,
     pub scheme: String,
-    /// The bound resolve template.
+    /// The bound resolve template, or the pin joined to the page it was read off.
     pub url: String,
     /// The pack's transport, which the caller turns into a request policy.
     pub transport: Transport,
@@ -74,6 +75,17 @@ pub enum Refusal {
     NotHttp { pack: String, url: String },
     /// The pack says its publisher cannot be fetched from.
     Blocked { pack: String, why: String },
+    /// The scheme reads its address off a page, and the identifier names no `@<pin>` saying
+    /// which file was read. A fetch never reads the page itself (#1342).
+    Unpinned { pack: String, page: String },
+    /// The pin names something other than one matching file on the page's host.
+    Pin {
+        pack: String,
+        pin: String,
+        why: String,
+    },
+    /// The scheme's resolve cannot be used as written. `source check` reports the pack.
+    Unusable { pack: String, why: String },
 }
 
 impl Refusal {
@@ -115,6 +127,17 @@ impl Refusal {
                 "`{identifier}`: {pack} declares its publisher blocked — {why}. Nothing works \
                  around a block; record a manual export as a `kind: file` location"
             ),
+            Self::Unpinned { pack, page } => format!(
+                "`{identifier}`: {pack} reads its address off `{page}`, and the identifier \
+                 pins no `@<name>` it read there. A fetch follows only a pinned identifier; \
+                 `yidam source add --dry-run {identifier}` reads the page and prints one"
+            ),
+            Self::Unusable { pack, why } => format!(
+                "`{identifier}`: {pack}'s resolve {why}. `yidam source check` reports the pack"
+            ),
+            Self::Pin { pack, pin, why } => {
+                format!("`{identifier}`: the pin `{pin}` {why}, so {pack} resolves it to nothing")
+            }
         }
     }
 
@@ -160,6 +183,15 @@ impl Enabled {
         out
     }
 
+    /// One pack's schemes, as if it were the only pack enabled: what `source check` resolves
+    /// the pack's own fixtures through.
+    pub fn from_manifest(m: &Manifest) -> Self {
+        Self {
+            schemes: declared(m).into_iter().collect(),
+            ambiguous: BTreeMap::new(),
+        }
+    }
+
     /// Whether no enabled pack declares any scheme: the corpus lists no packs, or none it
     /// lists parses.
     pub fn is_empty(&self) -> bool {
@@ -182,6 +214,11 @@ impl Enabled {
             return Err(Refusal::NoPack {
                 scheme: scheme.to_string(),
             });
+        };
+        // A lookup scheme's pin is not part of the local id its pattern reads.
+        let local = match local.split_once('@') {
+            Some((l, _)) if d.scheme.resolve.form().is_ok_and(|f| f.looks_up()) => l,
+            _ => local,
         };
         if d.pattern.is_match(local) {
             Ok(())
@@ -206,8 +243,8 @@ impl Enabled {
             .map(|d| (d.pack.as_str(), &d.transport))
     }
 
-    /// Resolve `scheme:local-id` to the address a fetch follows.
-    pub fn resolve(&self, identifier: &str) -> Result<Resolved, Refusal> {
+    /// The pack that declares `identifier`'s scheme, and the identifier as its pattern reads it.
+    fn split<'a>(&'a self, identifier: &'a str) -> Result<Split<'a>, Refusal> {
         let Some((scheme, local)) = identifier.split_once(':') else {
             return Err(Refusal::NoScheme);
         };
@@ -228,6 +265,16 @@ impl Enabled {
                 why: why.clone(),
             });
         }
+        // `declared` holds only schemes whose resolve is one form.
+        let form = d.scheme.resolve.form().map_err(|why| Refusal::Unusable {
+            pack: d.pack.clone(),
+            why,
+        })?;
+        // Only a lookup scheme's identifier carries a pin: a DOI may contain an `@`.
+        let (local, pin) = match local.split_once('@') {
+            Some((l, p)) if form.looks_up() => (l, Some(p)),
+            _ => (local, None),
+        };
         let Some(caps) = d.pattern.captures(local) else {
             return Err(Refusal::Malformed {
                 scheme: scheme.to_string(),
@@ -242,11 +289,53 @@ impl Enabled {
                 bindings.push((group.to_string(), v.as_str().to_string()));
             }
         }
-        let url = crate::cmd::catalog::location::bind(&d.scheme.resolve.template, &bindings)
-            .map_err(|slots| Refusal::Unbound {
-                pack: d.pack.clone(),
-                slots,
-            })?;
+        Ok(Split {
+            d,
+            form,
+            scheme,
+            local,
+            pin,
+            bindings,
+        })
+    }
+
+    /// Resolve `scheme:local-id` to the address a fetch follows.
+    ///
+    /// Offline for every form. A lookup scheme's identifier resolves through its pin alone:
+    /// the page it was read off is not asked again.
+    pub fn resolve(&self, identifier: &str) -> Result<Resolved, Refusal> {
+        let sp = self.split(identifier)?;
+        let d = sp.d;
+        let url = match sp.form {
+            Form::Template(template) => crate::cmd::catalog::location::bind(template, &sp.bindings)
+                .map_err(|slots| Refusal::Unbound {
+                    pack: d.pack.clone(),
+                    slots,
+                })?,
+            _ => {
+                let l = self.lookup_of(&sp)?;
+                let Some(pin) = sp.pin else {
+                    return Err(Refusal::Unpinned {
+                        pack: d.pack.clone(),
+                        page: l.url,
+                    });
+                };
+                let refuse = |why: String| Refusal::Pin {
+                    pack: d.pack.clone(),
+                    pin: pin.to_string(),
+                    why,
+                };
+                if let Some(why) = lookup::unsafe_pin(pin) {
+                    return Err(refuse(why.to_string()));
+                }
+                if let Some(re) = &l.matches {
+                    if !re.is_match(pin) {
+                        return Err(refuse(format!("does not match `{re}`")));
+                    }
+                }
+                l.base.join(pin)
+            }
+        };
         if !(url.starts_with("https://") || url.starts_with("http://")) {
             return Err(Refusal::NotHttp {
                 pack: d.pack.clone(),
@@ -255,11 +344,101 @@ impl Enabled {
         }
         Ok(Resolved {
             pack: d.pack.clone(),
-            scheme: scheme.to_string(),
+            scheme: sp.scheme.to_string(),
             url,
             transport: d.transport.clone(),
         })
     }
+
+    /// The page a lookup scheme reads for `identifier`, and how it picks; `None` for a scheme
+    /// a template resolves. A pin the identifier carries is set aside: the page is read anew.
+    pub fn lookup(&self, identifier: &str) -> Result<Option<Lookup>, Refusal> {
+        let sp = self.split(identifier)?;
+        if !sp.form.looks_up() {
+            return Ok(None);
+        }
+        self.lookup_of(&sp).map(Some)
+    }
+
+    fn lookup_of(&self, sp: &Split<'_>) -> Result<Lookup, Refusal> {
+        let d = sp.d;
+        let unusable = |why: String| Refusal::Unusable {
+            pack: d.pack.clone(),
+            why,
+        };
+        let (page, url, matches, pick, media) = match sp.form {
+            Form::Listing {
+                listing,
+                matches,
+                pick,
+            } => {
+                let url = crate::cmd::catalog::location::bind(listing, &sp.bindings).map_err(
+                    |slots| Refusal::Unbound {
+                        pack: d.pack.clone(),
+                        slots,
+                    },
+                )?;
+                (Page::Listing, url, Some(matches), pick, None)
+            }
+            Form::Dcat {
+                host,
+                matches,
+                pick,
+                media,
+            } => (
+                Page::Dcat {
+                    local: sp.local.to_string(),
+                },
+                format!("https://{host}/data.json"),
+                matches,
+                pick,
+                media.map(str::to_string),
+            ),
+            Form::Template(_) => return Err(unusable("is a template, not a lookup".into())),
+        };
+        let Some(base) = Base::of(&url) else {
+            return Err(Refusal::NotHttp {
+                pack: d.pack.clone(),
+                url,
+            });
+        };
+        let matches = matches
+            .map(|m| regex::Regex::new(&lookup::bind_match(m, &sp.bindings)))
+            .transpose()
+            .map_err(|e| unusable(format!("leaves its scheme's `match` uncompilable: {e}")))?;
+        Ok(Lookup {
+            pack: d.pack.clone(),
+            scheme: sp.scheme.to_string(),
+            identifier: format!("{}:{}", sp.scheme, sp.local),
+            url,
+            transport: d.transport.clone(),
+            page,
+            base,
+            matches,
+            pick,
+            media,
+        })
+    }
+
+    /// What two identifiers share when they name one source: `scheme:local-id`, less the pin a
+    /// lookup scheme's carries. A re-read listing pins a newer file of the same source.
+    pub fn source_of<'a>(&self, identifier: &'a str) -> &'a str {
+        match self.split(identifier) {
+            // A scheme name has no `@`, so the first is the one `split` cut at.
+            Ok(sp) if sp.pin.is_some() => identifier.split_once('@').map_or(identifier, |(s, _)| s),
+            _ => identifier,
+        }
+    }
+}
+
+/// An identifier, split against the pack that declares its scheme.
+struct Split<'a> {
+    d: &'a Declared,
+    form: Form<'a>,
+    scheme: &'a str,
+    local: &'a str,
+    pin: Option<&'a str>,
+    bindings: Vec<(String, String)>,
 }
 
 /// Each scheme a pack the template ships in `yidam/sources/` declares, and that pack.
@@ -301,6 +480,7 @@ fn declared(m: &Manifest) -> Vec<(String, Declared)> {
         .iter()
         .filter_map(|(name, s)| {
             let pattern = regex::Regex::new(&s.pattern).ok()?;
+            s.resolve.form().ok()?;
             Some((
                 name.clone(),
                 Declared {
@@ -467,6 +647,146 @@ resolve = { template = "https://web.archive.org/web/{ts}id_/{url}" }
         assert!(msg.contains("403 to every automated client"), "{msg}");
         assert!(msg.contains("kind: file"), "{msg}");
         assert!(!err.is_benign());
+    }
+
+    const CLIMDIV: &str = r#"
+[pack]
+name = "noaa"
+version = "0.1.0"
+
+[scheme.climdiv]
+pattern = '^[a-z]+$'
+type = "dataset"
+resolve = { listing = "https://www.ncei.noaa.gov/pub/data/cirs/climdiv/", match = '^climdiv-{id}-v1\.0\.0-\d{8}$', pick = "latest" }
+
+[scheme.cms]
+pattern = '^[0-9a-f-]{36}$'
+type = "dataset"
+resolve = { dcat = "data.cms.gov", media = "text/csv" }
+"#;
+
+    const LISTING: &str = r#"<html><body><a href="../">Parent</a>
+<a href="climdiv-pcpndv-v1.0.0-20260901">climdiv-pcpndv-v1.0.0-20260901</a>
+<a href="climdiv-pcpndv-v1.0.0-20261001">climdiv-pcpndv-v1.0.0-20261001</a>
+<a href="climdiv-tmpcdv-v1.0.0-20261001">climdiv-tmpcdv-v1.0.0-20261001</a>
+<a href="https://elsewhere.org/climdiv-pcpndv-v1.0.0-20991231">mirror</a>
+</body></html>"#;
+
+    fn noaa() -> Enabled {
+        Enabled::from_packs(&[pack("noaa", Origin::Authored, CLIMDIV)])
+    }
+
+    #[test]
+    fn a_listing_picks_the_latest_match_on_its_own_host() {
+        let e = noaa();
+        let l = e.lookup("climdiv:pcpndv").unwrap().unwrap();
+        assert_eq!(l.url, "https://www.ncei.noaa.gov/pub/data/cirs/climdiv/");
+        let pin = l.pick(LISTING.as_bytes()).unwrap();
+        assert_eq!(pin, "climdiv-pcpndv-v1.0.0-20261001");
+        let pinned = l.pinned(&pin);
+        assert_eq!(pinned, "climdiv:pcpndv@climdiv-pcpndv-v1.0.0-20261001");
+        assert_eq!(
+            e.resolve(&pinned).unwrap().url,
+            "https://www.ncei.noaa.gov/pub/data/cirs/climdiv/climdiv-pcpndv-v1.0.0-20261001"
+        );
+        assert_eq!(e.source_of(&pinned), "climdiv:pcpndv");
+        assert!(e.lookup("doi:10.1/a").is_err());
+    }
+
+    /// A fetch reads what the entry pins. Reading the listing again would make the entry
+    /// whichever file was released last.
+    #[test]
+    fn an_unpinned_lookup_identifier_is_refused_and_says_how_to_pin_it() {
+        let err = noaa().resolve("climdiv:pcpndv").unwrap_err();
+        assert!(matches!(err, Refusal::Unpinned { .. }), "{err:?}");
+        assert!(!err.is_benign());
+        let msg = err.message("climdiv:pcpndv");
+        assert!(msg.contains("source add --dry-run climdiv:pcpndv"), "{msg}");
+    }
+
+    /// `catalog-location-malformed` reads the local id before the pin, as `resolve` does.
+    #[test]
+    fn admits_reads_a_lookup_identifier_without_its_pin() {
+        let e = noaa();
+        assert_eq!(
+            e.admits("climdiv:pcpndv@climdiv-pcpndv-v1.0.0-20261001"),
+            Ok(())
+        );
+        assert_eq!(e.admits("climdiv:pcpndv"), Ok(()));
+        assert!(matches!(
+            e.admits("climdiv:PCP@climdiv-pcpndv-v1.0.0-20261001"),
+            Err(Refusal::Malformed { local, .. }) if local == "PCP"
+        ));
+    }
+
+    #[test]
+    fn a_pin_the_match_refuses_or_that_leaves_the_host_is_refused() {
+        let e = noaa();
+        for id in [
+            "climdiv:pcpndv@climdiv-tmpcdv-v1.0.0-20261001",
+            "climdiv:pcpndv@../../secret",
+            "climdiv:pcpndv@//evil.org/climdiv-pcpndv-v1.0.0-20261001",
+            "cms:00000000-0000-0000-0000-000000000000@https://evil.org/a.csv",
+            "cms:00000000-0000-0000-0000-000000000000@/a.zip#packinglist.txt",
+        ] {
+            let err = e.resolve(id).unwrap_err();
+            assert!(matches!(err, Refusal::Pin { .. }), "{id}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn a_dcat_catalog_picks_the_distribution_of_the_named_dataset() {
+        let id = "cms:6a3aa708-3c9f-4c1a-8b8d-9d0c1d1e6b1a";
+        let catalog = format!(
+            r#"{{"dataset": [
+              {{"identifier": "https://data.cms.gov/data-api/v1/dataset/{}/data-viewer",
+                "distribution": [
+                  {{"mediaType": "text/csv", "downloadURL": "https://data.cms.gov/sites/default/files/2026-09-30/abc/data.csv"}},
+                  {{"mediaType": "application/json", "downloadURL": "https://data.cms.gov/data-api/v1/dataset/x/data"}},
+                  {{"mediaType": "text/csv", "downloadURL": "https://mirror.example/data.csv"}}
+                ]}},
+              {{"identifier": "other", "distribution": []}}
+            ]}}"#,
+            &id[4..]
+        );
+        let e = noaa();
+        let l = e.lookup(id).unwrap().unwrap();
+        assert_eq!(l.url, "https://data.cms.gov/data.json");
+        let pin = l.pick(catalog.as_bytes()).unwrap();
+        assert_eq!(pin, "sites/default/files/2026-09-30/abc/data.csv");
+        assert_eq!(
+            e.resolve(&l.pinned(&pin)).unwrap().url,
+            "https://data.cms.gov/sites/default/files/2026-09-30/abc/data.csv"
+        );
+    }
+
+    #[test]
+    fn several_matches_under_only_are_refused_by_name() {
+        let only = CLIMDIV.replace(", pick = \"latest\"", "");
+        let e = Enabled::from_packs(&[pack("noaa", Origin::Authored, &only)]);
+        let l = e.lookup("climdiv:pcpndv").unwrap().unwrap();
+        let err = l.pick(LISTING.as_bytes()).unwrap_err();
+        let msg = err.message(&l);
+        assert!(
+            msg.contains("20260901") && msg.contains("20261001"),
+            "{msg}"
+        );
+        let none = l.pick(b"<a href=\"x\">x</a>").unwrap_err();
+        assert!(
+            none.message(&l).contains("none matches"),
+            "{}",
+            none.message(&l)
+        );
+    }
+
+    /// An `@` is a DOI's to carry: only a lookup scheme reads one as a pin.
+    #[test]
+    fn a_template_scheme_keeps_its_at_signs() {
+        let e = Enabled::from_packs(&[pack("scholarly", Origin::Authored, SCHOLARLY)]);
+        let r = e.resolve("doi:10.1167/a@b").unwrap();
+        assert_eq!(r.url, "https://api.crossref.org/works/10.1167/a@b");
+        assert_eq!(e.source_of("doi:10.1167/a@b"), "doi:10.1167/a@b");
+        assert!(e.lookup("doi:10.1167/a").unwrap().is_none());
     }
 
     #[test]

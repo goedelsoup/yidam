@@ -549,3 +549,114 @@ fn an_extract_transform_runs_over_its_fixtures() {
     .unwrap();
     assert_refused(dir.path(), "returned an empty reading");
 }
+
+// ── a listing or a catalog, read for a pin (#1342) ─────────────────────────────
+
+const LOOKUP: &str = r#"[pack]
+name    = "federal"
+version = "0.1.0"
+
+[scheme.climdiv]
+pattern = '^[a-z]+$'
+type    = "dataset"
+resolve = { listing = "https://www.ncei.noaa.gov/pub/data/cirs/climdiv/", match = '^climdiv-{id}-v1\.0\.0-\d{8}$', pick = "latest" }
+
+[scheme.cms]
+pattern = '^[0-9a-f-]{36}$'
+type    = "dataset"
+resolve = { dcat = "data.cms.gov", media = "text/csv" }
+
+[fixtures]
+"climdiv:pcpndv" = "climdiv-listing.html"
+"climdiv:pcpndv@climdiv-pcpndv-v1.0.0-20261001" = "climdiv-pcpndv.txt"
+"cms:6a3aa708-3c9f-4c1a-8b8d-9d0c1d1e6b1a" = "cms-data.json"
+"#;
+
+const CLIMDIV_LISTING: &str = r#"<a href="../">up</a>
+<a href="climdiv-pcpndv-v1.0.0-20260901">a</a> <a href="climdiv-pcpndv-v1.0.0-20261001">b</a>"#;
+
+const CMS_CATALOG: &str = r#"{"dataset": [{
+  "identifier": "https://data.cms.gov/data-api/v1/dataset/6a3aa708-3c9f-4c1a-8b8d-9d0c1d1e6b1a/data-viewer",
+  "distribution": [{"mediaType": "text/csv", "downloadURL": "https://data.cms.gov/files/2026-09/a.csv"}]
+}]}"#;
+
+/// Write the `federal` pack: `manifest`, an entry, and the three fixtures LOOKUP names.
+fn lookup_pack(root: &Path, manifest: &str) {
+    let dir = root.join(".yidam/sources/federal");
+    std::fs::create_dir_all(dir.join("fixtures")).unwrap();
+    std::fs::write(dir.join("pack.toml"), manifest).unwrap();
+    std::fs::write(dir.join("entry.md"), "# federal\n").unwrap();
+    std::fs::write(dir.join("fixtures/climdiv-listing.html"), CLIMDIV_LISTING).unwrap();
+    std::fs::write(dir.join("fixtures/climdiv-pcpndv.txt"), "0101 1.0\n").unwrap();
+    std::fs::write(dir.join("fixtures/cms-data.json"), CMS_CATALOG).unwrap();
+}
+
+#[test]
+fn a_listing_and_a_catalog_pack_checks() {
+    let dir = corpus();
+    lookup_pack(dir.path(), LOOKUP);
+    let (code, said, report) = check(dir.path());
+    assert_eq!(code, 0, "{said}");
+    assert_eq!(report["passed"], true, "{said}");
+}
+
+#[test]
+fn each_lookup_rule_is_held() {
+    let listing = r#"resolve = { listing = "https://www.ncei.noaa.gov/pub/data/cirs/climdiv/", match = '^climdiv-{id}-v1\.0\.0-\d{8}$', pick = "latest" }"#;
+    let dcat = r#"resolve = { dcat = "data.cms.gov", media = "text/csv" }"#;
+    for (from, to, needle) in [
+        (
+            listing,
+            r#"resolve = { listing = "https://www.ncei.noaa.gov/pub/data/cirs/climdiv/" }"#,
+            "needs `match`",
+        ),
+        (
+            dcat,
+            r#"resolve = { dcat = "data.cms.gov", template = "https://data.cms.gov/{id}" }"#,
+            "a scheme resolves one way",
+        ),
+        (
+            dcat,
+            r#"resolve = { dcat = "https://data.cms.gov" }"#,
+            "not a bare host",
+        ),
+        (listing, &listing.replace("{id}", "pcpndv"), "binds no slot"),
+        (
+            listing,
+            &listing.replace("^climdiv-", "climdiv-"),
+            "not anchored",
+        ),
+        (
+            listing,
+            &listing.replace("climdiv/\"", "climdiv/#x\""),
+            "carries a `#`",
+        ),
+        (
+            listing,
+            &format!("{listing}\ndescribe = \"transforms/x.glu\""),
+            "read off a page",
+        ),
+        // A pinned fixture whose pin the `match` refuses.
+        (
+            "@climdiv-pcpndv-v1.0.0-20261001\"",
+            "@climdiv-tmpcdv-v1.0.0-20261001\"",
+            "does not match",
+        ),
+        // A pin naming a member inside the file it fetches.
+        (
+            "@climdiv-pcpndv-v1.0.0-20261001\"",
+            "@climdiv-pcpndv-v1.0.0-20261001#member\"",
+            "never a member",
+        ),
+        // A recorded listing that lists nothing the scheme would pick.
+        ("climdiv:pcpndv\" =", "climdiv:tmpcdv\" =", "none matches"),
+        // A recorded catalog with no dataset named by the identifier.
+        ("cms:6a3aa708", "cms:0a3aa708", "no dataset"),
+    ] {
+        let manifest = LOOKUP.replace(from, to);
+        assert_ne!(manifest, LOOKUP, "{from} is not in LOOKUP");
+        let dir = corpus();
+        lookup_pack(dir.path(), &manifest);
+        assert_refused(dir.path(), needle);
+    }
+}

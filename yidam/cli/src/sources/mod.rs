@@ -37,6 +37,7 @@
 //! says so once per pack that declares a transform, as an info finding, and checks the rest.
 
 pub mod draft;
+pub mod lookup;
 pub mod manifest;
 #[cfg(feature = "source-transforms")]
 pub mod parsed;
@@ -381,35 +382,7 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
                 Vec::new()
             }
         };
-        let template = &s.resolve.template;
-        if !(template.starts_with("https://") || template.starts_with("http://")) {
-            out.error(
-                "pack.toml",
-                format!(
-                    "{} `{template}` is not an http(s) address",
-                    at("resolve.template")
-                ),
-            );
-        }
-        let slots = crate::cmd::catalog::location::slots(template);
-        if slots.is_empty() {
-            out.error(
-                "pack.toml",
-                format!(
-                    "{} has no slot, so every identifier would resolve to the same address",
-                    at("resolve.template")
-                ),
-            );
-        }
-        for slot in slots.iter().filter(|s| *s != "id" && !names.contains(s)) {
-            out.error(
-                "pack.toml",
-                format!(
-                    "{} slot `{{{slot}}}` is bound by nothing: it is not `{{id}}` and the pattern has no group `(?P<{slot}>…)`",
-                    at("resolve.template")
-                ),
-            );
-        }
+        check_resolve(name, s, &names, out);
         for (field, path) in [("describe", &s.describe), ("extract", &s.extract)] {
             let Some(path) = path else { continue };
             let inside = path.starts_with("transforms/")
@@ -480,6 +453,7 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
 
     // Fixtures: every identifier claimed by a scheme and resolvable, every file claimed.
     let mut claimed: BTreeSet<String> = BTreeSet::new();
+    let own = resolve::Enabled::from_manifest(m);
     for (id, file) in &m.fixtures {
         let Some((scheme, local)) = id.split_once(':') else {
             out.error(
@@ -510,6 +484,10 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
             );
             continue;
         };
+        if s.resolve.form().is_ok_and(|f| f.looks_up()) {
+            check_lookup_fixture(&abs, &own, m, id, file, out);
+            continue;
+        }
         let Some(re) = compiled.get(scheme) else {
             continue;
         };
@@ -526,7 +504,8 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
                 bindings.push((group.to_string(), v.as_str().to_string()));
             }
         }
-        if let Err(unbound) = crate::cmd::catalog::location::bind(&s.resolve.template, &bindings) {
+        let template = s.resolve.template.as_deref().unwrap_or_default();
+        if let Err(unbound) = crate::cmd::catalog::location::bind(template, &bindings) {
             out.error(
                 "pack.toml",
                 format!(
@@ -551,6 +530,189 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
                 "no [fixtures] identifier names this file, so no scheme claims it".into(),
             );
         }
+    }
+}
+
+/// A lookup scheme's fixture. A pinned identifier names the file it read, and resolves. An
+/// unpinned one names the page it was read off, and the page picks a pin that resolves.
+fn check_lookup_fixture(
+    abs: &Path,
+    own: &resolve::Enabled,
+    m: &Manifest,
+    id: &str,
+    file: &str,
+    out: &mut Findings<'_>,
+) {
+    // A blocked publisher resolves nothing, and its fixtures record what it once answered.
+    if m.transport.blocked.is_some() {
+        return;
+    }
+    let refused = |r: resolve::Refusal, out: &mut Findings<'_>| {
+        out.error("pack.toml", format!("[fixtures] {}", r.message(id)));
+    };
+    if own.source_of(id) != id {
+        if let Err(r) = own.resolve(id) {
+            refused(r, out);
+        }
+        return;
+    }
+    let l = match own.lookup(id) {
+        Ok(Some(l)) => l,
+        Ok(None) => return,
+        Err(r) => return refused(r, out),
+    };
+    // A file `inside_fixtures` refused, or found missing, is already reported.
+    let Ok(bytes) = std::fs::read(abs.join("fixtures").join(file)) else {
+        return;
+    };
+    let at = format!("fixtures/{file}");
+    match l.pick(&bytes) {
+        Err(u) => out.error(&at, format!("`{id}`: {}", u.message(&l))),
+        Ok(pin) => {
+            let pinned = l.pinned(&pin);
+            if let Err(r) = own.resolve(&pinned) {
+                out.error(&at, format!("`{id}` picks `{pin}`: {}", r.message(&pinned)));
+            }
+        }
+    }
+}
+
+/// A scheme's `resolve`: one form, bound by what the pattern captures, and naming one file.
+///
+/// A lookup form (#1342) reads a page for a name. Its scheme has no describe, because what it
+/// resolves to is a file somebody chose off the page, and the file is read by `extract`.
+fn check_resolve(name: &str, s: &manifest::Scheme, names: &[String], out: &mut Findings<'_>) {
+    use manifest::Form;
+    let at = |what: &str| format!("[scheme.{name}] {what}");
+    let http = |url: &str, key: &str, out: &mut Findings<'_>| {
+        if !(url.starts_with("https://") || url.starts_with("http://")) {
+            out.error(
+                "pack.toml",
+                format!("{} `{url}` is not an http(s) address", at(key)),
+            );
+        }
+        // A location names the bytes fetched; a member inside them is a reading's (RFC-0048
+        // decision 9).
+        if url.contains('#') {
+            out.error(
+                "pack.toml",
+                format!(
+                    "{} carries a `#`, and a location names the bytes fetched, never a member inside them",
+                    at(key)
+                ),
+            );
+        }
+    };
+    let unbound = |url: &str, key: &str, out: &mut Findings<'_>| {
+        let slots = crate::cmd::catalog::location::slots(url);
+        for slot in slots.iter().filter(|s| *s != "id" && !names.contains(s)) {
+            out.error(
+                "pack.toml",
+                format!(
+                    "{} slot `{{{slot}}}` is bound by nothing: it is not `{{id}}` and the pattern has no group `(?P<{slot}>…)`",
+                    at(key)
+                ),
+            );
+        }
+        slots
+    };
+    // `{id}` and each named group, bound to a stand-in, so what remains is the regex's own.
+    let identifier_slots: Vec<String> = std::iter::once("id".to_string())
+        .chain(names.iter().cloned())
+        .collect();
+    let matches = |m: &str, out: &mut Findings<'_>| -> bool {
+        if !(m.starts_with('^') && m.ends_with('$')) {
+            out.error(
+                "pack.toml",
+                format!(
+                    "{} is not anchored with `^…$`, so it would pick a name that only contains a match",
+                    at("resolve.match")
+                ),
+            );
+        }
+        let stand_in: Vec<(String, String)> = identifier_slots
+            .iter()
+            .map(|n| (n.clone(), "x".to_string()))
+            .collect();
+        if let Err(e) = regex::Regex::new(&lookup::bind_match(m, &stand_in)) {
+            out.error(
+                "pack.toml",
+                format!(
+                    "{} does not compile once `{{id}}` and the pattern's groups are bound: {e}",
+                    at("resolve.match")
+                ),
+            );
+        }
+        identifier_slots
+            .iter()
+            .any(|n| m.contains(&format!("{{{n}}}")))
+    };
+    let looks_up = match s.resolve.form() {
+        Err(why) => {
+            out.error("pack.toml", format!("{} {why}", at("resolve")));
+            return;
+        }
+        Ok(Form::Template(template)) => {
+            http(template, "resolve.template", out);
+            if unbound(template, "resolve.template", out).is_empty() {
+                out.error(
+                    "pack.toml",
+                    format!(
+                        "{} has no slot, so every identifier would resolve to the same address",
+                        at("resolve.template")
+                    ),
+                );
+            }
+            false
+        }
+        Ok(Form::Listing {
+            listing,
+            matches: m,
+            ..
+        }) => {
+            http(listing, "resolve.listing", out);
+            let slotted = !unbound(listing, "resolve.listing", out).is_empty();
+            if !matches(m, out) && !slotted {
+                out.error(
+                    "pack.toml",
+                    format!(
+                        "{} binds no slot in `listing` or `match`, so every identifier would pick the same file",
+                        at("resolve")
+                    ),
+                );
+            }
+            true
+        }
+        Ok(Form::Dcat {
+            host, matches: m, ..
+        }) => {
+            let bare = !host.is_empty()
+                && host
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+            if !bare {
+                out.error(
+                    "pack.toml",
+                    format!(
+                        "{} `{host}` is not a bare host; the catalog read is `https://<host>/data.json`",
+                        at("resolve.dcat")
+                    ),
+                );
+            }
+            if let Some(m) = m {
+                matches(m, out);
+            }
+            true
+        }
+    };
+    if looks_up && s.describe.is_some() {
+        out.error(
+            "pack.toml",
+            format!(
+                "{} is read off a page, and a describe has nothing to read until a file is picked; `extract` reads the file",
+                at("describe")
+            ),
+        );
     }
 }
 
@@ -698,10 +860,14 @@ fn check_transforms(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'
         return;
     }
     for (name, s) in &m.scheme {
+        // A lookup scheme's unpinned fixture is the page it was read off, not the file.
+        let own = resolve::Enabled::from_manifest(m);
+        let looks_up = s.resolve.form().is_ok_and(|f| f.looks_up());
         let fixtures: Vec<(&String, &String)> = m
             .fixtures
             .iter()
             .filter(|(id, _)| id.split_once(':').is_some_and(|(sc, _)| sc == name))
+            .filter(|(id, _)| !looks_up || own.source_of(id) != id.as_str())
             .collect();
         let mut yielded: BTreeSet<String> = BTreeSet::new();
         let mut described = false;

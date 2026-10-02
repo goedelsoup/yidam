@@ -5,7 +5,9 @@
 //! 1. **Match.** [`super::resolve::Enabled`] binds the identifier to an address, exactly as
 //!    `catalog fetch` does for a `kind: identifier` location: one pack declares the scheme, the
 //!    local id matches its pattern, the template binds, and the publisher is not blocked. An
-//!    identifier it refuses is refused here in its words.
+//!    identifier it refuses is refused here in its words. A scheme that reads its address off
+//!    a listing or a catalog (#1342) has the page asked here, and the identifier is written
+//!    with the name it picked as a pin, `scheme:local-id@<pin>`, which binds offline after.
 //! 2. **Describe.** Where the scheme declares a `describe` and the build runs transforms, the
 //!    address is asked and the answer handed to the transform. How it is asked is the caller's
 //!    [`Asker`]: the network, or the pack's own recorded fixtures.
@@ -28,7 +30,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::manifest::{Contact, Manifest, Scheme};
-use super::resolve::Enabled;
+use super::resolve::{Enabled, Refusal};
 use super::transform::{self, Draft};
 use super::Pack;
 use crate::cmd::catalog::transport::CONTACT_VAR as CONTACT;
@@ -160,15 +162,22 @@ pub struct Located {
     /// How it was reached: `None` for the identifier asked for, otherwise the identifier
     /// whose describe named it and the key it was named under.
     pub via: Option<String>,
+    /// The page the pin was read off, for a scheme that resolves through one.
+    #[serde(skip)]
+    pub read_off: Option<String>,
 }
 
 impl Located {
     /// The location's `description:`. Every location says how it got there, because the lint
     /// asks that an entry's several locations be told apart and the reason is the difference.
     pub fn description(&self) -> String {
-        match &self.via {
+        let how = match &self.via {
             None => "the identifier this entry was added by".to_string(),
             Some(via) => format!("named by {via}"),
+        };
+        match &self.read_off {
+            None => how,
+            Some(page) => format!("{how}, pinned to the file {page} listed"),
         }
     }
 }
@@ -196,7 +205,8 @@ pub struct Resolved {
     pub draft: Draft,
     /// `[defaults] ttl_days`, which the entry is written with.
     pub ttl_days: Option<u32>,
-    /// Where each describe's answer came from. `None` when no describe was asked.
+    /// Where each answer came from: a describe's, or a page read for a pin. `None` when
+    /// nothing was asked.
     pub answered: Option<Answered>,
     /// Why a `then` was not followed, one line each.
     pub unfollowed: Vec<String>,
@@ -257,32 +267,27 @@ pub fn resolve(
     identifier: &str,
     asker: &mut dyn Asker,
 ) -> Result<Resolved, String> {
-    let identifier = identifier.trim();
+    let asked = identifier.trim();
     let enabled = Enabled::from_packs(packs);
-    let asked = enabled
-        .resolve(identifier)
-        .map_err(|refusal| refusal.message(identifier))?;
-    let (pack, manifest, _) = transform::scheme(packs, &asked.scheme)?;
-    let url = asked.url;
-    let scheme_name = asked.scheme;
+    let first = locate(packs, &enabled, asked, None, asker)?;
+    let (pack, manifest, _) = transform::scheme(packs, &first.scheme)?;
+    let url = first.located.url.clone();
+    let scheme_name = first.scheme;
+    let identifier = first.located.identifier.as_str();
 
     let mut out = Resolved {
-        identifier: identifier.to_string(),
+        identifier: asked.to_string(),
         pack: pack.name.clone(),
-        locations: vec![Located {
-            identifier: identifier.to_string(),
-            url: url.clone(),
-            via: None,
-        }],
+        locations: vec![first.located.clone()],
         draft: Draft::default(),
         ttl_days: manifest.defaults.ttl_days,
-        answered: None,
+        answered: first.answered,
         unfollowed: Vec::new(),
         body: body(root, pack),
     };
 
     // Breadth first, so the locations read in the order a person would follow them.
-    let mut seen: BTreeSet<String> = BTreeSet::from([identifier.to_string()]);
+    let mut seen: BTreeSet<String> = BTreeSet::from([asked.to_string(), identifier.to_string()]);
     let mut queue: Vec<(String, String, String)> = vec![(scheme_name, identifier.to_string(), url)];
     let mut first = true;
     while !queue.is_empty() {
@@ -315,20 +320,17 @@ pub fn resolve(
                 if !manifest.scheme.contains_key(&then.scheme) {
                     continue;
                 }
-                match enabled.resolve(&chained) {
-                    Ok(r) => {
-                        let u = r.url;
-                        out.locations.push(Located {
-                            identifier: chained.clone(),
-                            url: u.clone(),
-                            via: Some(format!("{id}'s {}", then.from)),
-                        });
+                let via = format!("{id}'s {}", then.from);
+                match locate(packs, &enabled, &chained, Some(via), asker) {
+                    Ok(l) => {
+                        out.answered = out.answered.or(l.answered);
+                        let (chained, u) = (l.located.identifier.clone(), l.located.url.clone());
+                        out.locations.push(l.located);
                         next.push((then.scheme.clone(), chained, u));
                     }
-                    Err(refusal) => out.unfollowed.push(format!(
-                        "`{id}` names `{chained}`, and {}",
-                        refusal.message(&chained)
-                    )),
+                    Err(why) => out
+                        .unfollowed
+                        .push(format!("`{id}` names `{chained}`, and {why}")),
                 }
             }
             if first {
@@ -356,6 +358,8 @@ pub fn describe_only(
     let asked = Enabled::from_packs(packs)
         .resolve(identifier)
         .map_err(|refusal| refusal.message(identifier))?;
+    // A lookup scheme declares no describe (`source check`), so an unpinned candidate is
+    // refused above rather than having its page read for a summary nobody chose.
     let (pack, manifest, s) = transform::scheme(packs, &asked.scheme)?;
     let mut answered = None;
     let draft = describe(
@@ -369,6 +373,58 @@ pub fn describe_only(
         &mut answered,
     );
     Ok((draft, answered))
+}
+
+/// An identifier, located: its scheme, and where it resolves.
+struct Locating {
+    scheme: String,
+    located: Located,
+    /// Where the page read for its pin came from, when one was read.
+    answered: Option<Answered>,
+}
+
+/// Resolve `identifier`, asking a lookup scheme's page for the pin it lacks.
+///
+/// A pinned identifier, or one a template binds, is resolved offline. An unpinned one in a
+/// lookup scheme has its page asked through `asker`, and comes back pinned to what it picked.
+fn locate(
+    packs: &[Pack],
+    enabled: &Enabled,
+    identifier: &str,
+    via: Option<String>,
+    asker: &mut dyn Asker,
+) -> Result<Locating, String> {
+    let mut answered = None;
+    let (identifier, read_off) = match enabled.resolve(identifier) {
+        Err(Refusal::Unpinned { .. }) => {
+            let lookup = match enabled.lookup(identifier) {
+                Ok(Some(l)) => l,
+                Ok(None) => return Err(format!("`{identifier}` names no page to read")),
+                Err(refusal) => return Err(refusal.message(identifier)),
+            };
+            let (pack, manifest, _) = transform::scheme(packs, &lookup.scheme)?;
+            let page = asker.ask(pack, manifest, &lookup.identifier, &lookup.url)?;
+            answered = Some(asker.answered());
+            let pin = lookup
+                .pick(&page)
+                .map_err(|u| format!("`{identifier}`: {}", u.message(&lookup)))?;
+            (lookup.pinned(&pin), Some(lookup.url))
+        }
+        _ => (identifier.to_string(), None),
+    };
+    let r = enabled
+        .resolve(&identifier)
+        .map_err(|refusal| refusal.message(&identifier))?;
+    Ok(Locating {
+        scheme: r.scheme,
+        located: Located {
+            identifier,
+            url: r.url,
+            via,
+            read_off,
+        },
+        answered,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]

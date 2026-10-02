@@ -800,3 +800,105 @@ fn archive_without_a_wayback_pack_is_refused_before_anything_is_asked() {
     assert!(!run.ok);
     assert!(run.stderr.contains("`wayback` scheme"), "{}", run.stderr);
 }
+
+// ── a listing, read once and pinned (#1342) ───────────────────────────────────
+
+/// Stage an authored pack whose `lb:` scheme reads its file names off a listing at `port`,
+/// and an entry citing `value`.
+fn stage_listing(port: u16, value: &str) -> Staged {
+    let s = stage();
+    let pack = s.root().join(".yidam/sources/loopback");
+    std::fs::create_dir_all(&pack).unwrap();
+    std::fs::write(pack.join("entry.md"), "").unwrap();
+    std::fs::write(
+        pack.join("pack.toml"),
+        format!(
+            "[pack]\nname = \"loopback\"\nversion = \"0.1.0\"\n\n\
+             [scheme.lb]\npattern = '^[a-z]+$'\ntype = \"dataset\"\n\
+             resolve = {{ listing = \"http://127.0.0.1:{port}/files/\", \
+             match = '^{{id}}-\\d{{8}}\\.csv$', pick = \"latest\" }}\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        s.root().join(".yidam/catalog/loopback-paper.md"),
+        PAPER.replace("lb:rec-1", value),
+    )
+    .unwrap();
+    git(s.root(), &["add", "-A"]);
+    git(
+        s.root(),
+        &["commit", "-q", "-m", "scaffold: a listing pack"],
+    );
+    s
+}
+
+/// A fetch follows the pin to the file it names, and never asks the listing: the server answers
+/// once, so a request for the listing first would take the answer meant for the file.
+#[test]
+fn a_pinned_identifier_is_fetched_from_the_file_it_pins() {
+    let (port, server) = serve(vec![ok("id,n\n1,2\n")]);
+    let s = stage_listing(port, "lb:rec@rec-20260901.csv");
+    let out = s
+        .run(&["catalog-fetch", "loopback-paper", "--format", "json"])
+        .ok();
+    let seen = server.join().unwrap().remove(0).to_ascii_lowercase();
+    assert!(seen.starts_with("get /files/rec-20260901.csv "), "{seen}");
+    let report: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(
+        report["fetched"][0]["obtained"][0]["declared"], "lb:rec@rec-20260901.csv",
+        "{out}"
+    );
+}
+
+/// An unpinned identifier names whichever file the listing shows today, so a fetch skips it,
+/// as it skips every refused identifier, and says how to pin it. No listener is started: a
+/// request would fail the run as a connection error.
+#[test]
+fn an_unpinned_identifier_is_skipped_with_how_to_pin_it() {
+    let s = stage_listing(9, "lb:rec");
+    let before = s.commit_count();
+    let out = s.run(&["catalog-fetch", "loopback-paper"]).ok();
+    assert!(out.contains("location 0 skipped"), "{out}");
+    assert!(out.contains("source add --dry-run lb:rec"), "{out}");
+    assert_eq!(s.commit_count(), before, "nothing was recorded");
+}
+
+/// `source add` reads the listing over the network and writes the newest matching name as
+/// the pin. The listing's link to another host is never a candidate, however new it is.
+#[test]
+fn source_add_reads_the_listing_and_writes_the_pin() {
+    let listing = "<a href=\"../\">up</a>\n\
+                   <a href=\"rec-20260901.csv\">x</a> <a href=\"rec-20261001.csv\">y</a>\n\
+                   <a href=\"other-20261101.csv\">z</a>\n\
+                   <a href=\"https://mirror.example/files/rec-20991231.csv\">m</a>\n";
+    let (port, server) = serve(vec![format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\n\
+         connection: close\r\n\r\n{listing}",
+        listing.len()
+    )]);
+    let s = stage_listing(port, "lb:other@other-20261101.csv");
+    let out = s.run(&["source", "add", "lb:rec", "--format", "json"]).ok();
+    let seen = server.join().unwrap().remove(0).to_ascii_lowercase();
+    assert!(seen.starts_with("get /files/ "), "{seen}");
+    let report: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let located = &report["drafts"][0]["locations"][0];
+    assert_eq!(located["identifier"], "lb:rec@rec-20261001.csv", "{out}");
+    assert_eq!(
+        located["url"],
+        format!("http://127.0.0.1:{port}/files/rec-20261001.csv")
+    );
+    let path = report["drafts"][0]["path"].as_str().unwrap();
+    let entry = std::fs::read_to_string(s.root().join(path)).unwrap();
+    assert!(entry.contains("value: lb:rec@rec-20261001.csv"), "{entry}");
+    assert!(entry.contains("pinned to the file"), "{entry}");
+
+    // The same source, re-read, is the entry already written, whatever file it pins.
+    let again = s.run(&["source", "add", "lb:rec@rec-20260901.csv"]);
+    assert!(!again.ok);
+    assert!(
+        again.stderr.contains("already catalogued"),
+        "{}",
+        again.stderr
+    );
+}
