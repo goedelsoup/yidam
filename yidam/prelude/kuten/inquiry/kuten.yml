@@ -52,35 +52,43 @@ measured:
   # A0 reported no config anywhere and was wrong about where to look; re-measured
   # 2026-09-06 under #633. See the comment above `clocks`.
   config_reread: 2026-09-06
-  # When the four bands below were last fitted, and by what rule. Both are here because
+  # When the bands below were last fitted, and by what rule. Both are here because
   # neither was recorded the first time, and their absence is what let A0's quoting error
   # survive a re-measurement two days after it shipped.
-  fitted: 2026-09-06
+  #
+  # Re-fitted 2026-10-01 (#704): the six re-read by `yidam kuten check` 0.17.0, a binary
+  # carrying #691's phase predicate and bd2de98c's merge predicate. The trees read are the
+  # ones the 2026-09-06 fit read; five members had not moved since and one is read at the
+  # first-parent commit whose corpus reproduces its recorded row. Five rows came back
+  # unchanged. The 1,312 row gained one commit and one off-vocabulary commit: a hand-written
+  # `Merge origin/main — …` that the old merge predicate dropped and the narrowed one reads as
+  # authored. The estimator returns the same two bands.
+  fitted: 2026-10-01
   estimator: the observed range over the six, quoted to two decimal places, rounded outward
   members:
-    - {authored: 73, phase: 11, off_vocabulary: 0, instances: 81, median_lines: 35, open_questions: 14}
-    - {authored: 82, phase: 13, off_vocabulary: 0, instances: 51, median_lines: 62, open_questions: 26}
-    - {authored: 122, phase: 32, off_vocabulary: 2, instances: 71, median_lines: 57, open_questions: 13}
-    - {authored: 157, phase: 24, off_vocabulary: 0, instances: 97, median_lines: 44, open_questions: 51}
-    - {authored: 247, phase: 54, off_vocabulary: 0, instances: 125, median_lines: 59, open_questions: 115}
-    - {authored: 1312, phase: 164, off_vocabulary: 2, instances: 673, median_lines: 62, open_questions: 440}
+    - {authored: 73, phase: 11, off_vocabulary: 0, suffixed: 0, instances: 81, median_lines: 35, open_questions: 14}
+    - {authored: 82, phase: 13, off_vocabulary: 0, suffixed: 0, instances: 51, median_lines: 62, open_questions: 26}
+    - {authored: 122, phase: 32, off_vocabulary: 2, suffixed: 2, instances: 71, median_lines: 57, open_questions: 13}
+    - {authored: 157, phase: 24, off_vocabulary: 0, suffixed: 0, instances: 97, median_lines: 44, open_questions: 51}
+    - {authored: 247, phase: 54, off_vocabulary: 0, suffixed: 0, instances: 125, median_lines: 59, open_questions: 115}
+    - {authored: 1313, phase: 164, off_vocabulary: 3, suffixed: 0, instances: 673, median_lines: 62, open_questions: 440}
 
 # The four phase types PHASES.md has always carried, and the share of commits that settle
 # one. Measured across the nine repositories whose vendored prelude has the `phase` verb;
 # six of the nine use it, and those six are this cluster.
 #
-# Observed 0.1250 to 0.2623 on 2026-09-06. A0 published the same range as "13–26%" and the
+# Observed 0.1249 to 0.2623 (2026-10-01; 0.1250 on 2026-09-06, before the merge predicate
+# narrowed). A0 published the same range as "13–26%" and the
 # profile quoted it verbatim, which rounded **inward at both ends** and put the two members
 # that set the endpoints outside the band their own numbers defined. That is the rounding
 # rule under `measured.estimator`, and it is why it is written down.
 #
-# **The `phase` counts under `measured.members` predate #691 and were taken with the strict
-# reading**, which counted `phase:` and not `phase(x):`. The band is unmoved and the rows are
-# left exactly as they were measured — editing a recorded measurement to match a later
-# predicate is the one thing this table exists to prevent — but the next re-fit is counting a
-# slightly wider thing, and two of the six carry a scoped verb apiece (see `vocabulary`
-# below). If either of those is a `phase(x):`, that member's share rises and the ceiling is
-# the endpoint at risk. Re-measure before re-quoting; do not reconcile on paper.
+# **The `phase` counts were first taken with the strict reading**, which counted `phase:`
+# and not `phase(x):`, and #691 widened the predicate. The risk was the ceiling: if a scoped
+# verb in the 0.2623 member was a `phase(x):`, its share would have risen past 0.27. Checked
+# by re-measurement on 2026-10-01 (#704), not reconciled on paper: no member has ever written
+# a `phase(x):` commit. The two scoped verbs are `vendor(…)` and `consume(…)`, both in the
+# ceiling member, and every `phase` count came back unchanged.
 phases:
   types: [Investigation, Extraction, Synthesis, Assessment]
   commit_share: {low: 0.12, high: 0.27}
@@ -119,18 +127,20 @@ vocabulary:
     - fix
     - vendor
     - consume
-  # Observed 0.0 to 0.0164 on 2026-09-06 — not the zero A0 published, and the correction is
-  # about four commits in two of the six.
+  # Observed 0.0 to 0.0164 — not the zero A0 published, and the correction is about five
+  # commits in two of the six.
   #
-  # Two carry a valid verb with a `(scope)` suffix, written at genesis under a prelude that
-  # had not yet closed the list; GRAPH.md forbids the suffix, so they are off-vocabulary and
-  # the reading is right. A0's script almost certainly stripped the suffix before matching,
-  # which is the one way to get exactly zero out of this population. The other two are
-  # coinages against a closed list — #292's case, and the reason narrowing is not the answer
-  # to it.
+  # Two, both in one member, carry a valid verb with a `(scope)` suffix, written at genesis
+  # under a prelude that had not yet closed the list; GRAPH.md forbids the suffix, so they
+  # are off-vocabulary and the reading is right. A0's script almost certainly stripped the
+  # suffix before matching, which is the one way to get exactly zero out of this population.
+  # Two more are coinages against a closed list — #292's case, and the reason narrowing is
+  # not the answer to it. The fifth is a hand-written merge subject, read as authored since
+  # the merge predicate narrowed (#704).
   #
-  # The ceiling is four commits and not a practice, and it is quoted anyway, because a band
-  # that excludes its own evidence is a wrong extraction whatever the evidence is made of.
+  # The ceiling is two commits in one repository and not a practice, and it is quoted anyway,
+  # because a band that excludes its own evidence is a wrong extraction whatever the evidence
+  # is made of.
   # The object-coupled pair remains outside at 25% and 4%, which is what the band still
   # separates. Separately: the vintage control is read per repository, so a commit authored
   # before its own repository closed its vocabulary is invisible to it. That gap is real, and
