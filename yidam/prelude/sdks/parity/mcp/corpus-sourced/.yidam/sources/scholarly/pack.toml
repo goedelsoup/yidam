@@ -1,0 +1,40 @@
+# A pack of papers, by DOI and PMCID, the shape of the one `tests/source_add.rs` uses.
+#
+# No `auth`: a case reading `needs` must not depend on whether the machine running it has a
+# token exported. `contact` is still required, so `needs` has something to name.
+[pack]
+name        = "scholarly"
+version     = "0.1.0"
+description = "Papers, by DOI and PMCID."
+
+[scheme.doi]
+pattern  = '^10\.(?P<registrant>\d{4,9})/\S+$'
+type     = "paper"
+resolve  = { template = "https://api.crossref.org/works/{id}", media = "application/json" }
+describe = "transforms/crossref.glu"
+then     = [{ scheme = "pmc", from = "describe.pmcid" }]
+
+[scheme.pmc]
+pattern = '^PMC\d+$'
+type    = "paper"
+resolve = { template = "https://www.ebi.ac.uk/europepmc/webservices/rest/{id}/fullTextXML" }
+
+[transport]
+contact      = "required"
+min_interval = "100ms"
+
+[defaults]
+ttl_days = 365
+
+[search]
+scheme   = "doi"
+template = "https://api.crossref.org/works?query={query}&rows={limit}"
+media    = "application/json"
+items    = "message/items/*"
+id       = "DOI"
+title    = "title/0"
+fixtures = { "retinal imaging" = "crossref-search.json" }
+
+[fixtures]
+"doi:10.1167/tvst.8.5.14" = "crossref-tvst.json"
+"doi:10.1000/xyz"         = "crossref-xyz.json"

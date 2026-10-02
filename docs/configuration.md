@@ -116,6 +116,7 @@ paths = ["dossier/**"]
 
 [serve]
 act = true
+offline_sources = true
 record = true
 ```
 
@@ -488,6 +489,24 @@ You review the branch as commits and reject it by deleting it. The CLI's `--forc
 over MCP: replacing a proposal branch discards commits nobody has read.
 
 Absent means read-only, which is what every server did before this key existed.
+
+### `[serve] offline_sources`
+
+Whether a server answers `search_sources` and `resolve_source` from the packs' recorded fixtures.
+
+Absent, those two tools ask the publisher, as `yidam source search` does. With it, they read
+each pack's `fixtures/` and make no request. It is `--offline` for the server, which takes no
+per-call flag.
+
+Every answer says which route it took. `answered` is `network`, `fixture`, or null when nothing
+was asked. A list read from a fixture is not the publisher's answer today, and the field says
+so. ([RFC-0048](rfcs/0048-source-packs.md) asked whether it should. This is the answer.)
+
+**It is declared, not detected.** A server that guessed it was offline would read fixtures
+during a network blip. A client could not tell that from a deliberate choice.
+
+It reaches only the source tools. A remote vector index is still asked, and `retrieve` still
+reports `remote_unavailable` when it does not answer.
 
 ### `[serve] record`
 

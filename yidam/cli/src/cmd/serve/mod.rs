@@ -25,6 +25,7 @@ mod bundle;
 pub(crate) mod http;
 pub(crate) mod record;
 mod resources;
+mod sources;
 pub(crate) mod tools;
 
 use anyhow::Result;
@@ -183,6 +184,15 @@ pub(crate) struct ServerState {
     /// resolved. Not by slug, either: that read failed an error-severity gate on a node
     /// containing no citation, because connector crates are named after what they fetch.
     pub citations: std::collections::HashMap<String, Vec<String>>,
+    /// The source packs this corpus resolves identifiers through (RFC-0048), for
+    /// `search_sources` and `resolve_source` (#1319).
+    ///
+    /// Read at startup with the rest of the snapshot, so a pack vendored mid-session is a
+    /// restart away, as a node is. **Empty is a capability**: a corpus that enables no pack
+    /// declares `sources: false`, on `dependencies`' reasoning above.
+    pub packs: Vec<crate::sources::Pack>,
+    /// `[serve] offline_sources`: answer the source tools from the packs' fixtures.
+    pub offline_sources: bool,
 }
 
 impl ServerState {
@@ -346,6 +356,10 @@ impl ServerState {
             }),
         };
         let dependencies = dependencies(root, &dep_nodes);
+        let packs = crate::sources::load(root)?;
+        let offline_sources = crate::config::load_yidam_config(root)?
+            .serve
+            .offline_sources;
         Ok(Self {
             root: root.to_path_buf(),
             act,
@@ -365,6 +379,8 @@ impl ServerState {
             corpus_aliases,
             graph,
             graph_across,
+            packs,
+            offline_sources,
         })
     }
 }
@@ -1032,6 +1048,10 @@ mod tests {
             // No dependencies, which is the state a `across: true` call must be told about
             // rather than left to read as "nothing matched".
             graph_across: None,
+            // No packs, so `sources` is unbacked here. The source tools run against a pack on
+            // disk in `tests/mcp_serve.rs`, where its fixtures can be read.
+            packs: Vec::new(),
+            offline_sources: false,
         }
     }
 

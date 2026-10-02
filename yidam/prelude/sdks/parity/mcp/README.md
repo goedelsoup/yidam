@@ -40,7 +40,7 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.27.0",
+    "contract": "0.28.0",
     "corpus": {
       "domain": "streamflow",
       "commit": "a1b2c3d",
@@ -49,7 +49,8 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
     },
     "retrieve": { "vector": false, "reason": "no_index" },
     "graph": true, "ontology": true, "dependencies": true,
-    "phases": false, "sangha": false, "act": false, "resources": true
+    "phases": false, "sangha": false, "act": false, "sources": false,
+    "resources": true
   }
 }
 ```
@@ -238,6 +239,31 @@ Four consequences for a conforming server:
 - **`predicate-unsatisfied` joins the absence codes.** The predicate parsed, typechecked and
   refused every one of `instances` candidates. It is evidence about the values, and it is
   reported only when at least one candidate was evaluated.
+
+## Asking a source pack, without adding (contract 0.28.0)
+
+`search_sources` and `resolve_source` are the read half of `yidam source` (RFC-0048 §8, #1319).
+The first is `source search`: the identifiers a pack's search endpoint answers for a name. The
+second is `source add --dry-run`: the frontmatter and body the command would write, the path it
+would write them to, and the catalog entry that already holds the identifier, if one does.
+Adding stays a CLI commit. There is no write tool.
+
+They sit at the **`sources` tier**, backed exactly when the corpus enables a pack. That is a
+fact about the corpus, like `dependencies`, and not a permission, like `act`.
+
+Three consequences for a conforming server:
+
+- **`answered` is the offline marker.** A corpus declaring `[serve] offline_sources = true`
+  answers from its packs' recorded fixtures and asks no publisher. Every answer says which it
+  gave: `network`, `fixture`, or null where nothing was asked. This settles RFC-0048's open
+  question 1. A list that came from a fixture and does not say so is a list an agent treats as
+  current.
+- **`needs` and `unmet` describe the server's environment.** A contact address or a token the
+  pack requires has to be set where the server runs. The caller cannot supply it, and the
+  answer names the variable and never its value.
+- **What a describe fills varies with the build.** A summary, a location after `then`, and the
+  draft's name need `source-transforms`. A build without it says so once, in `undescribed`, and
+  the cases assert only what holds in both builds.
 
 ## The paths between two nodes (contract 0.27.0)
 
@@ -892,6 +918,14 @@ finally checkable against a server that really does declare false.
 this surface, and no case asserts the `true` arm because none can: the only corpus that would
 produce it is one where `query` is not served. The field is reachable from a CLI, which has no
 capability gate, and unreachable from a conforming server.
+
+### A corpus that enables a source pack (contract 0.28.0)
+
+`corpus-sourced/` is the only corpus that enables a pack, so it is the only one on which the
+`sources` tier is reachable. It declares `[serve] offline_sources = true`, so every case reads
+recorded fixtures and none depends on what Crossref answers today. Its search fixture lists four
+results, and one has no DOI. A server answering four has offered an identifier `source add`
+cannot take. The catalog already holds `doi:10.1000/xyz`, so `catalogued` has a path to report.
 
 ### `corpora.json`
 

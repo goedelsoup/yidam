@@ -1591,3 +1591,143 @@ fn a_committable_record_refuses_the_server() {
         "the directory was created by a server that then refused to use it"
     );
 }
+
+// ── source packs over MCP (#1319) ────────────────────────────────────────────────────────
+
+impl McpClient {
+    /// A call the server must refuse, returning the refusal's text.
+    fn tool_refusal(&mut self, name: &str, arguments: Value) -> String {
+        let result = self.request("tools/call", json!({"name": name, "arguments": arguments}));
+        assert_eq!(
+            result["isError"], true,
+            "{name} {arguments} answered: {result}"
+        );
+        result["content"][0]["text"].as_str().unwrap().to_string()
+    }
+}
+
+/// `resolve_source` returns the entry `source add` writes, byte for byte, and writes nothing.
+///
+/// The two share their functions, and this holds them to it through both binaries' doors: an
+/// MCP answer an agent read and the file the command then wrote must not disagree about one
+/// line. Held in whichever build runs it, because the draft differs between builds and the
+/// agreement must not.
+#[test]
+fn resolve_source_is_the_entry_source_add_writes() {
+    let repo = stage_corpus("corpus-sourced");
+    let root = repo.path();
+    let doi = "doi:10.1167/tvst.8.5.14";
+    let answer = {
+        let mut client = McpClient::spawn(root);
+        client.initialize();
+        client.tool_json("resolve_source", json!({"identifier": doi}))
+    };
+    let status = common::git::out(root, &["status", "--porcelain"]);
+    assert_eq!(
+        status, "",
+        "resolve_source wrote into the corpus:\n{status}"
+    );
+
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .args(["source", "--root"])
+        .arg(root)
+        .args(["add", doi, "--offline"])
+        .output()
+        .expect("running yidam source add");
+    assert!(out.status.success(), "source add failed: {out:?}");
+    let written = std::fs::read_to_string(root.join(answer["path"].as_str().unwrap()))
+        .unwrap_or_else(|e| panic!("source add wrote no {}: {e}", answer["path"]));
+    let promised = format!(
+        "---\n{}---\n\n{}",
+        answer["frontmatter"].as_str().unwrap(),
+        answer["body"].as_str().unwrap()
+    );
+    assert_eq!(written, promised);
+}
+
+/// What the command refuses, the tool refuses, as a tool error naming the repair.
+#[test]
+fn the_source_tools_refuse_what_the_command_refuses() {
+    let repo = stage_corpus("corpus-sourced");
+    let mut client = McpClient::spawn(repo.path());
+    client.initialize();
+
+    let no_pack = client.tool_refusal(
+        "search_sources",
+        json!({"pack": "nonesuch", "query": "retinal imaging"}),
+    );
+    assert!(no_pack.contains("scholarly"), "{no_pack}");
+    // Offline, a query the pack recorded no answer for is refused and names the ones it did.
+    let unrecorded = client.tool_refusal(
+        "search_sources",
+        json!({"pack": "scholarly", "query": "glaucoma"}),
+    );
+    assert!(unrecorded.contains("`retinal imaging`"), "{unrecorded}");
+    let no_query = client.tool_refusal("search_sources", json!({"pack": "scholarly"}));
+    assert!(no_query.contains("query is required"), "{no_query}");
+
+    let no_scheme = client.tool_refusal("resolve_source", json!({"identifier": "isbn:123"}));
+    assert!(!no_scheme.is_empty(), "{no_scheme}");
+    let no_id = client.tool_refusal("resolve_source", json!({}));
+    assert!(no_id.contains("identifier is required"), "{no_id}");
+}
+
+/// Without transforms nothing reads an answer, so no candidate has a summary and the
+/// response says why once rather than as a null on each.
+#[cfg(not(feature = "source-transforms"))]
+#[test]
+fn without_transforms_search_sources_says_why_there_are_no_summaries() {
+    let repo = stage_corpus("corpus-sourced");
+    let mut client = McpClient::spawn(repo.path());
+    client.initialize();
+    let found = client.tool_json(
+        "search_sources",
+        json!({"pack": "scholarly", "query": "retinal imaging"}),
+    );
+    assert!(found["undescribed"].is_string(), "{found}");
+    for c in found["candidates"].as_array().unwrap() {
+        assert!(c["summary"].is_null(), "{c}");
+    }
+    let resolved = client.tool_json(
+        "resolve_source",
+        json!({"identifier": "doi:10.1167/tvst.8.5.14"}),
+    );
+    assert!(resolved["answered"].is_null(), "{resolved}");
+    assert!(
+        resolved["unfollowed"].to_string().contains("pmc"),
+        "{resolved}"
+    );
+}
+
+/// With transforms, each candidate carries what its describe filled, read from the same
+/// fixtures, and a resolve follows `then` to the PMCID.
+#[cfg(feature = "source-transforms")]
+#[test]
+fn with_transforms_the_source_tools_carry_the_describe() {
+    let repo = stage_corpus("corpus-sourced");
+    let mut client = McpClient::spawn(repo.path());
+    client.initialize();
+    let found = client.tool_json(
+        "search_sources",
+        json!({"pack": "scholarly", "query": "retinal imaging"}),
+    );
+    assert!(found["undescribed"].is_null(), "{found}");
+    assert_eq!(found["candidates"][0]["summary"]["name"], "Retinal Imaging");
+    // `doi:10.1000/abc` has no recorded answer, so it has no summary and is still a candidate.
+    assert!(found["candidates"][2]["summary"].is_null(), "{found}");
+
+    let resolved = client.tool_json(
+        "resolve_source",
+        json!({"identifier": "doi:10.1167/tvst.8.5.14"}),
+    );
+    assert_eq!(resolved["answered"], "fixture");
+    assert_eq!(resolved["entry"], "retinal-imaging");
+    assert_eq!(resolved["draft"]["name"], "Retinal Imaging");
+    let ids: Vec<&str> = resolved["locations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["identifier"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["doi:10.1167/tvst.8.5.14", "pmc:PMC6762077"]);
+}

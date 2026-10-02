@@ -698,6 +698,22 @@ pub struct ServeConfig {
     /// ```
     #[serde(default)]
     pub record: bool,
+    /// Whether a server started against this corpus answers `search_sources` and
+    /// `resolve_source` from its source packs' recorded fixtures, and asks no publisher (#1319).
+    ///
+    /// **For a server whose environment has no network**, which RFC-0048 §8 says returns the
+    /// fixtures rather than an error. Declared and not inferred, on `act`'s precedent: a server
+    /// that guessed it was offline from one failed request would answer the next caller from a
+    /// file while the publisher was up. Every answer says which it gave, in `answered`.
+    ///
+    /// Scoped to the source tools by its name. It does not stop a remote index from being read.
+    ///
+    /// ```toml
+    /// [serve]
+    /// offline_sources = true
+    /// ```
+    #[serde(default)]
+    pub offline_sources: bool,
 }
 
 pub fn load_yidam_config(root: &Path) -> Result<YidamConfig> {

@@ -401,6 +401,11 @@ All three servers implement the two tools under RFC-0005's parity rule. A server
 environment has no network returns the pack's fixtures marked as such, not an error, so the
 tools are testable offline like `source check`.
 
+Landed in #1319 at contract 0.28.0, under a `sources` capability that is true when the corpus
+enables a pack. "No network" is declared, not detected: `[serve] offline_sources = true`. The
+marker is `answered`, which the CLI already reports (decision 8). `corpus-sourced/` holds the
+parity cases each server answers.
+
 ## What this does not touch
 
 - **Nodes.** No pack, transform or subcommand writes one. RFC-0026's invariant is the reason the
@@ -459,9 +464,11 @@ Settled in review on 2026-10-01. These were this RFC's open questions.
    satisfying commit. Settled in #1315 (§3).
 7. **TLS:** no pack may declare a known-bad certificate chain trusted. Such a publisher is a
    manual `file` location. Settled in #1317 (§5).
+8. **An offline answer is marked.** Every `search_sources` and `resolve_source` response carries
+   `answered`: `network`, `fixture`, or null where nothing was asked. An identifier being a
+   fixture's own does not tell a caller that the list was not the publisher's answer today.
+   Settled in #1319 (§8).
 
 ## Open questions
 
-1. **Fixtures in an offline MCP server.** §8 returns fixtures when there is no network. Should
-   that response carry a marker in the contract, or is it enough that the identifiers are the
-   fixtures' own?
+None. The last, whether an offline MCP answer carries a marker, is decision 8.

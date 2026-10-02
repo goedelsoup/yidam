@@ -633,16 +633,16 @@ gage would take a different branch of the ladder — decided after retrieval, in
 headline promise is that queries are checked before they run. Requiring the class makes the
 check static, makes property predicates on the anchor well-defined, and maps onto the
 `class_filter` argument `retrieve` already threads through both its vector and keyword paths
-([`tools.rs:177`](../../yidam/cli/src/cmd/serve/tools.rs#L177)). `*~"…"` remains available and
+([`tools.rs:182`](../../yidam/cli/src/cmd/serve/tools.rs#L182)). `*~"…"` remains available and
 takes the `*` rules above.
 
 - `--anchor-k` defaults to **1**. An anchor is a starting point, not an answer; a five-wide
   anchor followed by a two-hop walk is a flood wearing a type. `retrieve`'s own default of 5
-  ([`tools.rs:176`](../../yidam/cli/src/cmd/serve/tools.rs#L176)) is right for retrieval and
+  ([`tools.rs:181`](../../yidam/cli/src/cmd/serve/tools.rs#L181)) is right for retrieval and
   wrong here. The report lists the resolved entry nodes with their scores, so what it anchored
   on is always visible, and `bench` can vary k as part of the budget.
 - **The anchor is local.** `keyword_retrieve` chains `state.dep_nodes` after `state.nodes`
-  ([`tools.rs:249-252`](../../yidam/cli/src/cmd/serve/tools.rs#L249-L252)) — correct for
+  ([`tools.rs:256-259`](../../yidam/cli/src/cmd/serve/tools.rs#L256-L259)) — correct for
   retrieval, where an agent should be told the answer lives in a corpus this repository cites.
   A query labelled `"scope": "local"` must not silently enter through a dependency's node, so
   the query's anchor restricts to local nodes on both paths.
@@ -676,7 +676,7 @@ so `query` and `serve` cannot come to disagree about why retrieval is degraded.
 > [`retrieval/vector.rs`](../../yidam/cli/src/retrieval/vector.rs); `vector::retrieve` became
 > `vector::search` and returns *scores* rather than a response, so both branches of the
 > `degraded` shape are now built in one ungated place
-> ([`tools.rs:213`](../../yidam/cli/src/cmd/serve/tools.rs#L213)) — which is the half of the
+> ([`tools.rs:218`](../../yidam/cli/src/cmd/serve/tools.rs#L218)) — which is the half of the
 > problem this section identified and did not propose fixing.
 
 ### `--at` is not free, and #262 should know it

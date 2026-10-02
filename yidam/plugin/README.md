@@ -10,7 +10,7 @@
 ## What it installs
 
 **The server.** [`.mcp.json`](.mcp.json) registers `yidam serve --mcp` over stdio, which is
-the surface RFC-0005 froze: fourteen read tools over the corpus, two more at the `act` tier
+the surface RFC-0005 froze: sixteen read tools over the corpus, two more at the `act` tier
 that a corpus has to ask for, a capability block that declares its holes at connect time, and
 an `absence` field on every empty answer saying which kind of nothing it is.
 
