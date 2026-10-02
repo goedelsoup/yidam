@@ -130,11 +130,28 @@ impl Builtin {
                     location: None,
                     bind: Vec::new(),
                     dry_run: false,
+                    archive: false,
                     format,
                 },
                 writer,
             )
-            .map(drop),
+            .and_then(|out| {
+                // A publisher's refusal is what `catalog-fetch` exits nonzero on, and a step
+                // that reported success over one would hide it from `cluster status`.
+                let refused: Vec<&str> = out
+                    .iter()
+                    .filter(|e| e.was_refused())
+                    .map(|e| e.entry.as_str())
+                    .collect();
+                if refused.is_empty() {
+                    Ok(())
+                } else {
+                    anyhow::bail!(
+                        "a publisher refused a location of {}; the rest was recorded",
+                        refused.join(", ")
+                    )
+                }
+            }),
             Op::Extract => catalog::extract_in(
                 root,
                 &catalog::ExtractOptions {

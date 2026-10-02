@@ -58,9 +58,18 @@ impl Staged {
     }
 
     fn run(&self, args: &[&str]) -> Run {
+        self.run_env(args, &[])
+    }
+
+    /// `YIDAM_CONTACT` is always cleared first, so a developer's own does not reach a test
+    /// that asserts its absence.
+    fn run_env(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
         let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
             .current_dir(self.root())
             .args(args)
+            .env_remove("YIDAM_CONTACT")
+            .envs(env.iter().copied())
+            .env("NO_PROXY", "127.0.0.1")
             .env("YIDAM_VAULT_CACHE", self.cache())
             .env("GIT_AUTHOR_DATE", "@1700000000 +0000")
             .env("GIT_COMMITTER_DATE", "@1700000000 +0000")
@@ -632,4 +641,162 @@ fn a_reconcile_dry_run_writes_nothing() {
     assert!(out.contains("+ hydrant-count.yml"), "{out}");
     assert_eq!(s.entry_text(), before);
     assert_eq!(s.commit_count(), 1);
+}
+
+// ── identifiers, through a source pack (RFC-0048 §5) ──────────────────────────
+
+/// Answer each of `answers` on a loopback port in turn, and hand back what each request said.
+///
+/// The listener closes once it has answered them all, so a client that retried would get a
+/// refused connection and fail, which the test sees.
+fn serve(answers: Vec<String>) -> (u16, std::thread::JoinHandle<Vec<String>>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let handle = std::thread::spawn(move || {
+        let mut seen = Vec::new();
+        for answer in answers {
+            let (mut sock, _) = listener.accept().unwrap();
+            let mut got = Vec::new();
+            let mut buf = [0u8; 4096];
+            while !String::from_utf8_lossy(&got).contains("\r\n\r\n") {
+                let n = sock.read(&mut buf).unwrap();
+                if n == 0 {
+                    break;
+                }
+                got.extend_from_slice(&buf[..n]);
+            }
+            sock.write_all(answer.as_bytes()).unwrap();
+            seen.push(String::from_utf8_lossy(&got).to_string());
+        }
+        seen
+    });
+    (port, handle)
+}
+
+const PAPER: &str = "\
+---
+name: loopback-paper
+description: A record a source pack resolves, served from loopback.
+type: dataset
+location:
+  - kind: identifier
+    value: lb:rec-1
+    description: The record, by its identifier.
+---
+
+# A record resolved through a pack
+";
+
+/// Stage the fixture plus an authored pack declaring `lb:` against `port`, and an entry that
+/// cites `lb:rec-1`.
+fn stage_pack(port: u16, transport: &str) -> Staged {
+    let s = stage();
+    let pack = s.root().join(".yidam/sources/loopback");
+    std::fs::create_dir_all(&pack).unwrap();
+    std::fs::write(
+        pack.join("pack.toml"),
+        format!(
+            "[pack]\nname = \"loopback\"\nversion = \"0.1.0\"\n\n\
+             [scheme.lb]\npattern = '^rec-\\d+$'\ntype = \"dataset\"\n\
+             resolve = {{ template = \"http://127.0.0.1:{port}/records/{{id}}.csv\" }}\n\n\
+             [transport]\n{transport}\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(s.root().join(".yidam/catalog/loopback-paper.md"), PAPER).unwrap();
+    git(s.root(), &["add", "-A"]);
+    git(
+        s.root(),
+        &["commit", "-q", "-m", "scaffold: a loopback pack"],
+    );
+    s
+}
+
+fn ok(body: &str) -> String {
+    format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: text/csv\r\ncontent-length: {}\r\n\
+         connection: close\r\n\r\n{body}",
+        body.len()
+    )
+}
+
+/// The identifier resolves through the authored pack, the request names the contact and sends
+/// the pack's credential, and the record and the `refresh:` commit follow as for any location.
+#[test]
+fn an_identifier_is_fetched_through_its_pack_as_its_transport_says() {
+    let (port, server) = serve(vec![ok("id,n\n1,2\n")]);
+    let s = stage_pack(
+        port,
+        "contact = \"required\"\nauth = [{ env = \"LB_TOKEN\", header = \"X-Api-Key\" }]",
+    );
+    let before = s.commit_count();
+    let out = s
+        .run_env(
+            &["catalog-fetch", "loopback-paper", "--format", "json"],
+            &[("YIDAM_CONTACT", "ops@example.org"), ("LB_TOKEN", "s3cret")],
+        )
+        .ok();
+
+    let seen = server.join().unwrap().remove(0).to_ascii_lowercase();
+    assert!(seen.starts_with("get /records/rec-1.csv "), "{seen}");
+    assert!(seen.contains("(+ops@example.org)"), "{seen}");
+    assert!(seen.contains("x-api-key: s3cret"), "{seen}");
+
+    let report: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let row = &report["fetched"][0]["obtained"][0];
+    assert_eq!(row["pack"], "loopback@0.1.0", "{out}");
+    assert_eq!(row["declared"], "lb:rec-1");
+    assert!(
+        !out.contains("s3cret"),
+        "the credential is never reported:\n{out}"
+    );
+
+    assert_eq!(s.commit_count(), before + 1);
+    assert!(s.head_subject().starts_with("refresh: loopback-paper"));
+    assert!(!s.head_body().contains("s3cret"));
+    let entry = std::fs::read_to_string(s.root().join(".yidam/catalog/loopback-paper.md")).unwrap();
+    assert!(entry.contains("from: 0"), "{entry}");
+}
+
+/// A 403 is recorded on the entry and not retried: the listener answers once and closes, so a
+/// second request would fail the run with a connection error rather than a refusal.
+#[test]
+fn a_refusal_is_a_finding_on_the_entry_and_not_retried() {
+    let (port, server) = serve(vec![
+        "HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".into(),
+    ]);
+    let s = stage_pack(port, "");
+    let before = s.commit_count();
+    let run = s.run_env(
+        &["catalog-fetch", "loopback-paper", "--format", "json"],
+        &[],
+    );
+    assert!(!run.ok, "a refusal fails the run:\n{}", run.stdout);
+    assert_eq!(server.join().unwrap().len(), 1);
+
+    let report: serde_json::Value = serde_json::from_str(&run.stdout).unwrap();
+    let refused = &report["fetched"][0]["refused"][0];
+    assert_eq!(refused["status"], 403, "{}", run.stdout);
+    assert_eq!(refused["location"], 0);
+    assert_eq!(s.commit_count(), before, "nothing was recorded");
+}
+
+/// `contact = "required"` and no `YIDAM_CONTACT`: refused before any request. No listener is
+/// started, so a request would fail with a connection error rather than this message.
+#[test]
+fn a_pack_requiring_a_contact_is_refused_without_one() {
+    let s = stage_pack(9, "contact = \"required\"");
+    let out = s.run(&["catalog-fetch", "loopback-paper"]).ok();
+    assert!(out.contains("requires a contact"), "{out}");
+    assert!(out.contains("YIDAM_CONTACT"), "{out}");
+}
+
+/// `--archive` writes `wayback:` locations, so it needs a pack that declares the scheme.
+#[test]
+fn archive_without_a_wayback_pack_is_refused_before_anything_is_asked() {
+    let s = stage_pack(9, "");
+    let run = s.run(&["catalog-fetch", "loopback-paper", "--archive"]);
+    assert!(!run.ok);
+    assert!(run.stderr.contains("`wayback` scheme"), "{}", run.stderr);
 }

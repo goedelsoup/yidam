@@ -64,7 +64,7 @@ resolve = { template = "https://www.ebi.ac.uk/europepmc/webservices/rest/{id}/fu
 [transport]
 contact      = "required"
 min_interval = "100ms"
-auth         = ["CROSSREF_TOKEN"]
+auth         = [{ env = "CROSSREF_TOKEN", header = "Crossref-Plus-API-Token", prefix = "Bearer " }]
 
 [fixtures]
 "doi:10.1167/tvst.8.5.14" = "crossref-tvst.json"
@@ -178,7 +178,12 @@ fn each_scheme_rule_is_held() {
             "arxiv",
         ),
         ("\"100ms\"", "\"1m\"", "1m"),
-        ("[\"CROSSREF_TOKEN\"]", "[\"sk-live-123\"]", "sk-live-123"),
+        ("env = \"CROSSREF_TOKEN\"", "env = \"sk-live-123\"", "sk-live-123"),
+        (
+            "[{ env = \"CROSSREF_TOKEN\", header = \"Crossref-Plus-API-Token\", prefix = \"Bearer \" }]",
+            "[\"CROSSREF_TOKEN\"]",
+            "names a variable and not how it is sent",
+        ),
         ("version = \"0.1.2\"", "version = \"0.1\"", "0.1"),
         ("name    = \"scholarly\"", "name    = \"other\"", "other"),
     ] {

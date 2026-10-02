@@ -27,17 +27,18 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::Path;
-use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
 use clap::Subcommand;
 use serde::Serialize;
 
+use crate::cmd::catalog::location::{self, Context as Asking};
 use crate::cmd::catalog::{self, transport};
 use crate::cmd::operational::{Commit, Writer};
 use crate::report::Format;
+use crate::sources::draft::{self, Answered, Asker, Needs, Resolved};
 use crate::sources::manifest::{self, Manifest};
-use crate::sources::resolve::{self, Answered, Asker, Needs, Resolved};
+use crate::sources::resolve::{self, Enabled};
 use crate::sources::search::{self, Candidate};
 use crate::sources::transform;
 use crate::sources::{self, Origin, Pack, Severity};
@@ -324,9 +325,9 @@ fn render_list(r: &ListReport) {
             "  contact        {}{}",
             n.contact,
             if n.contact_set {
-                format!(" — {} is set", resolve::CONTACT)
+                format!(" — {} is set", transport::CONTACT_VAR)
             } else if n.contact == "required" {
-                format!(" — {} is not set", resolve::CONTACT)
+                format!(" — {} is not set", transport::CONTACT_VAR)
             } else {
                 String::new()
             }
@@ -433,7 +434,24 @@ fn search_cmd(
                 p.name
             );
         }
-        transport::read(&url, env(resolve::CONTACT).as_deref())?
+        let contact = transport::contact(&env).map_err(anyhow::Error::msg)?;
+        let enabled = Enabled::from_packs(&packs);
+        let ctx = Asking {
+            root,
+            bindings: &[],
+            packs: &enabled,
+            contact: contact.as_deref(),
+            env: &env,
+        };
+        let asked = resolve::Resolved {
+            pack: format!("{}@{}", m.pack.name, m.pack.version),
+            scheme: s.scheme.clone(),
+            url: url.clone(),
+            transport: m.transport.clone(),
+        };
+        let label = format!("{} [search]", p.name);
+        ask_publisher(&mut transport::Session::new(), &label, &asked, &ctx)
+            .map_err(anyhow::Error::msg)?
     };
     let mut candidates = search::candidates(s, &bytes).map_err(anyhow::Error::msg)?;
     candidates.truncate(limit);
@@ -457,21 +475,8 @@ fn search_cmd(
 /// The search template with the query and the limit bound, the query percent-encoded.
 fn search_url(s: &manifest::Search, query: &str, limit: usize) -> String {
     s.template
-        .replace("{query}", &percent_encode(query))
+        .replace("{query}", &transport::encode_component(query))
         .replace("{limit}", &limit.to_string())
-}
-
-/// Every byte but RFC 3986's unreserved set, as `%XX`.
-fn percent_encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
-            out.push(b as char);
-        } else {
-            let _ = write!(out, "%{b:02X}");
-        }
-    }
-    out
 }
 
 fn render_search(r: &SearchReport) {
@@ -515,33 +520,50 @@ struct Drafted {
     resolved: Resolved,
 }
 
-/// Answers each describe by asking the publisher, a pack's `min_interval` apart.
-struct Network {
-    last: HashMap<String, Instant>,
+/// Ask `r`'s publisher for `r.url` through the policy a fetch would use, and return the body.
+///
+/// `label` is what the request is for, in the words a refusal names it by.
+fn ask_publisher(
+    session: &mut transport::Session,
+    label: &str,
+    r: &resolve::Resolved,
+    ctx: &Asking,
+) -> Result<Vec<u8>, String> {
+    let policy = location::policy_for(label, r, ctx).map_err(|u| u.message())?;
+    match session.read(&r.url, &policy) {
+        Ok(Ok(body)) => Ok(body),
+        Ok(Err(refused)) => Err(format!(
+            "{} answered HTTP {} {}",
+            r.pack, refused.status, refused.reason
+        )),
+        Err(e) => Err(format!("{e:#}")),
+    }
 }
 
-impl Asker for Network {
+/// Answers each describe by asking the publisher, as `catalog fetch` would ask it: one session,
+/// spaced by each pack's `min_interval`, sending the credentials its transport declares.
+struct Network<'a> {
+    session: transport::Session,
+    ctx: Asking<'a>,
+}
+
+impl Asker for Network<'_> {
     fn answered(&self) -> Answered {
         Answered::Network
     }
-    fn ask(&mut self, pack: &Pack, m: &Manifest, _: &str, url: &str) -> Result<Vec<u8>, String> {
-        if let Some(why) = Needs::of(m, &env).unmet() {
-            return Err(format!("{} was not asked: {why}", pack.name));
-        }
-        let gap = m
-            .transport
-            .min_interval
-            .as_deref()
-            .and_then(manifest::parse_interval);
-        if let (Some(gap), Some(at)) = (gap, self.last.get(&pack.name)) {
-            if let Some(wait) = gap.checked_sub(at.elapsed()) {
-                std::thread::sleep(wait);
-            }
-        }
-        let got =
-            transport::read(url, env(resolve::CONTACT).as_deref()).map_err(|e| format!("{e:#}"));
-        self.last.insert(pack.name.clone(), Instant::now());
-        got
+    fn ask(
+        &mut self,
+        _: &Pack,
+        _: &Manifest,
+        identifier: &str,
+        _: &str,
+    ) -> Result<Vec<u8>, String> {
+        let r = self
+            .ctx
+            .packs
+            .resolve(identifier)
+            .map_err(|refusal| refusal.message(identifier))?;
+        ask_publisher(&mut self.session, identifier, &r, &self.ctx)
     }
 }
 
@@ -557,9 +579,18 @@ fn add(
     let catalog_dir = crate::paths::yidam_catalog_dir(root);
     let held = catalogued(&catalog_dir);
 
-    let mut fixtures = resolve::Fixtures { root };
+    let contact = transport::contact(&env).map_err(anyhow::Error::msg)?;
+    let enabled = Enabled::from_packs(&packs);
+    let mut fixtures = draft::Fixtures { root };
     let mut network = Network {
-        last: HashMap::new(),
+        session: transport::Session::new(),
+        ctx: Asking {
+            root,
+            bindings: &[],
+            packs: &enabled,
+            contact: contact.as_deref(),
+            env: &env,
+        },
     };
     let asker: &mut dyn Asker = if offline { &mut fixtures } else { &mut network };
 
@@ -569,7 +600,7 @@ fn add(
     let mut refused = Vec::new();
     let mut taken: Vec<String> = Vec::new();
     for raw in identifiers {
-        match resolve::resolve(root, &packs, raw, asker) {
+        match draft::resolve(root, &packs, raw, asker) {
             Err(why) => refused.push(why),
             Ok(r) => {
                 if let Some((id, at)) = r
@@ -633,6 +664,7 @@ fn add(
                 location: None,
                 bind: Vec::new(),
                 dry_run: false,
+                archive: false,
                 format,
             };
             fetched.extend(catalog::fetch_in(root, &opts, &mut writer)?);

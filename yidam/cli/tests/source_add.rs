@@ -91,7 +91,7 @@ resolve = { template = "https://www.ebi.ac.uk/europepmc/webservices/rest/{id}/fu
 [transport]
 contact      = "required"
 min_interval = "100ms"
-auth         = ["CROSSREF_TOKEN"]
+auth         = [{ env = "CROSSREF_TOKEN", header = "Crossref-Plus-API-Token", prefix = "Bearer " }]
 
 [defaults]
 ttl_days = 365
@@ -347,6 +347,25 @@ fn add_writes_nothing_when_any_identifier_is_refused() {
     }
 }
 
+/// `catalog-fetch` refuses a blocked pack's identifiers, so an entry `add` wrote for one would
+/// carry a location nothing can follow. `--offline` changes nothing: the block is the pack's.
+#[test]
+fn add_refuses_an_identifier_its_pack_declares_blocked() {
+    let dir = corpus(&GOOD.replace(
+        "[transport]\n",
+        "[transport]\nblocked      = \"terms forbid automated access\"\n",
+    ));
+    let head = git(dir.path(), &["rev-parse", "HEAD"]);
+    let r = yidam(dir.path(), &["add", DOI, "--offline"], &[]);
+    assert_ne!(r.code, 0, "{}", r.said);
+    assert!(
+        r.said.contains("terms forbid automated access"),
+        "{}",
+        r.said
+    );
+    assert_eq!(git(dir.path(), &["rev-parse", "HEAD"]), head);
+}
+
 #[test]
 fn add_dry_run_reports_the_draft_and_writes_nothing() {
     let dir = corpus(GOOD);
@@ -425,12 +444,15 @@ fn every_emitted_field_is_declared_in_the_schema() {
         .unwrap(),
     )
     .unwrap();
-    let dir = corpus(&GOOD.replace(
-        "auth         = [\"CROSSREF_TOKEN\"]",
-        "auth         = [\"CROSSREF_TOKEN\"]\nblocked      = \"terms forbid automated access\"",
+    // `blocked` reaches `needs.blocked` in the list. `add` refuses a blocked pack's
+    // identifiers, so it runs over the same pack unblocked.
+    let blocked = corpus(&GOOD.replace(
+        "[transport]\n",
+        "[transport]\nblocked      = \"terms forbid automated access\"\n",
     ));
+    let dir = corpus(GOOD);
     let reports = [
-        ("source list", json(dir.path(), &["list"], &[])),
+        ("source list", json(blocked.path(), &["list"], &[])),
         (
             "source search",
             json(

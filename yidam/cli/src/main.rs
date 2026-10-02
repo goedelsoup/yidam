@@ -281,6 +281,13 @@ enum Command {
         /// Resolve every address and report what would be fetched. Writes nothing.
         #[arg(long)]
         dry_run: bool,
+        /// Look each identifier up in the Wayback Machine, where its source pack says
+        /// `archive = "wayback"`, and add the nearest capture as a `wayback:` location.
+        ///
+        /// A read of the availability API: it never asks the archive to capture anything.
+        /// Needs an enabled pack declaring the `wayback` scheme.
+        #[arg(long)]
+        archive: bool,
         #[command(flatten)]
         format: FormatArg,
     },
@@ -1589,6 +1596,7 @@ fn run() -> Result<()> {
             location,
             bind,
             dry_run,
+            archive,
             format,
         } => {
             let bind = bind
@@ -1600,6 +1608,7 @@ fn run() -> Result<()> {
                 location,
                 bind,
                 dry_run,
+                archive,
                 format: format.value,
             })
         }

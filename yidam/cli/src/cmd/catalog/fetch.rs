@@ -33,10 +33,11 @@ use anyhow::{Context, Result};
 use super::location::{self, Plan};
 use super::record;
 use super::superseded;
-use super::transport;
+use super::transport::{self, Policy, Session};
 use crate::cmd::operational::{Commit, Writer};
 use crate::parse::{parse_frontmatter, ArtifactOrigin, CatalogArtifact, CatalogLocation};
 use crate::paths::{repo_root, yidam_catalog_dir};
+use crate::sources::resolve::{Enabled, WAYBACK};
 use crate::vault::{Cache, ContentHash, Route};
 use crate::walk::walk_md_files;
 
@@ -53,6 +54,11 @@ pub struct FetchOptions {
     pub bind: Vec<(String, String)>,
     /// Resolve and report; fetch nothing, write nothing, commit nothing.
     pub dry_run: bool,
+    /// Look each identifier whose pack says `archive = "wayback"` up in the Wayback Machine,
+    /// and add the nearest capture to the entry as a `wayback:` location.
+    ///
+    /// A read of the availability API. It never asks the archive to capture anything.
+    pub archive: bool,
     pub format: crate::report::Format,
 }
 
@@ -69,6 +75,35 @@ pub(crate) struct Obtained {
     cached: bool,
     /// Where `vault push` would send it, as prose. Never a credential.
     route: String,
+    /// `<pack>@<version>` that resolved an identifier location. Absent for every other kind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pack: Option<String>,
+}
+
+/// A location whose publisher answered with something other than success (RFC-0048 §5).
+///
+/// A finding on the entry, and not retried. A 403 is the publisher's answer, and nothing here
+/// steps around it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct Declined {
+    location: usize,
+    declared: String,
+    /// The URL asked, with no credential in it.
+    followed: String,
+    status: u16,
+    why: String,
+}
+
+/// A Wayback capture `--archive` looked up for one location.
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct Archived {
+    location: usize,
+    /// The address looked up.
+    followed: String,
+    /// The capture's date, `YYYY-MM-DD`. Absent when the archive holds no successful capture.
+    captured: Option<String>,
+    /// The `wayback:` location added to the entry. Absent with no capture, and on a dry run.
+    added: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -83,6 +118,10 @@ pub(crate) struct EntryOutcome {
     pub(crate) entry: String,
     obtained: Vec<Obtained>,
     skipped: Vec<Skipped>,
+    /// Locations the publisher refused. Any one fails the run.
+    refused: Vec<Declined>,
+    /// What `--archive` found. Empty without it.
+    archived: Vec<Archived>,
     /// Absent when nothing changed, which is the ordinary result of a re-run.
     pub(crate) commit: Option<Commit>,
     /// Nodes citing this entry that were read against an earlier version of it, when this run
@@ -100,6 +139,25 @@ pub(crate) struct EntryOutcome {
 /// `hash`/`verb`/`subject` shape — and a second meaning under one key is how a consumer comes
 /// to decode one report as another. `report.schema.json` refused this before it shipped,
 /// which is the gate doing exactly what it is for.
+impl EntryOutcome {
+    /// Whether a publisher refused any location of this entry.
+    pub(crate) fn was_refused(&self) -> bool {
+        !self.refused.is_empty()
+    }
+
+    fn of(entry: String, skipped: Vec<Skipped>) -> Self {
+        Self {
+            entry,
+            obtained: vec![],
+            skipped,
+            refused: vec![],
+            archived: vec![],
+            commit: None,
+            superseded: vec![],
+        }
+    }
+}
+
 #[derive(serde::Serialize)]
 struct FetchReport {
     fetched: Vec<EntryOutcome>,
@@ -156,19 +214,44 @@ pub(super) fn staging(cache: &Cache, n: usize) -> PathBuf {
         .join(format!("{}-{n}", std::process::id()))
 }
 
-/// Follow one location and file the bytes under their digest.
+/// Where one run's requests go and what they carry.
+struct Network<'a> {
+    session: Session,
+    /// What a plain `url` or `url_template` sends: the contact, and nothing a pack declares.
+    plain: Policy,
+    vaults: &'a crate::vault::Vaults,
+}
+
+/// Follow one location and file the bytes under their digest, or the publisher's refusal.
 fn obtain(
     plan: &Plan,
     index: usize,
     cache: &Cache,
     n: usize,
-    vaults: &crate::vault::Vaults,
-) -> Result<Obtained> {
+    net: &mut Network,
+) -> Result<std::result::Result<Obtained, Declined>> {
     let staged = staging(cache, n);
-    let fetched = match plan {
-        Plan::File { path, .. } => transport::read_local(path, &staged),
-        Plan::Url { url, .. } => transport::get(url, &staged),
-    }?;
+    let answer = match plan {
+        Plan::File { path, .. } => Ok(transport::read_local(path, &staged)?),
+        Plan::Url { url, .. } => net.session.get(url, &net.plain, &staged)?,
+        Plan::Identifier { url, policy, .. } => net.session.get(url, policy, &staged)?,
+    };
+    let fetched = match answer {
+        Ok(f) => f,
+        Err(r) => {
+            return Ok(Err(Declined {
+                location: index,
+                declared: plan.declared().to_string(),
+                followed: plan.followed(),
+                status: r.status,
+                why: if r.reason.is_empty() {
+                    format!("HTTP {}", r.status)
+                } else {
+                    format!("HTTP {} {}", r.status, r.reason)
+                },
+            }))
+        }
+    };
 
     let hash =
         ContentHash::of_file(&staged).with_context(|| format!("hashing {}", staged.display()))?;
@@ -181,28 +264,52 @@ fn obtain(
     // over it would discard bytes already safely filed under their digest.
     let _ = std::fs::remove_file(&staged);
 
-    let (declared, followed) = match plan {
-        Plan::File { path, declared } => (declared.clone(), path.display().to_string()),
-        Plan::Url { url, declared } => (declared.clone(), url.clone()),
-    };
     // Routed but not recorded — see `artifact_for`. Reported so a person can see where
     // `vault push` would send it before they run it.
-    let route = match vaults.route(crate::vault::CATALOG_KIND, None) {
+    let route = match net.vaults.route(crate::vault::CATALOG_KIND, None) {
         Route::To(name, cfg) => format!("{name} ({})", cfg.url),
         Route::Local => "the local cache only".to_string(),
         Route::Unroutable(why) => format!("nowhere yet — {why}"),
     };
 
-    Ok(Obtained {
+    Ok(Ok(Obtained {
         location: index,
-        declared,
-        followed,
+        declared: plan.declared().to_string(),
+        followed: plan.followed(),
         sha256: hash.as_str().to_string(),
         bytes,
         media_type: fetched.media_type,
         cached,
         route,
-    })
+        pack: pack_of(plan),
+    }))
+}
+
+fn pack_of(plan: &Plan) -> Option<String> {
+    match plan {
+        Plan::Identifier { pack, .. } => Some(pack.clone()),
+        _ => None,
+    }
+}
+
+/// `20240102030405` as `2024-01-02`.
+fn capture_date(ts: &str) -> String {
+    match (ts.get(..4), ts.get(4..6), ts.get(6..8)) {
+        (Some(y), Some(m), Some(d)) => format!("{y}-{m}-{d}"),
+        _ => ts.to_string(),
+    }
+}
+
+/// The location `--archive` adds for a capture of location `index`.
+fn archived_location(index: usize, url: &str, ts: &str) -> CatalogLocation {
+    CatalogLocation {
+        kind: Some("identifier".into()),
+        value: Some(format!("{WAYBACK}:{ts}/{url}")),
+        description: Some(format!(
+            "Location {index} as the Wayback Machine captured it on {}.",
+            capture_date(ts)
+        )),
+    }
 }
 
 /// The record an entry already holds for this same location, if any — the one whose
@@ -292,7 +399,7 @@ fn artifact_for(o: &Obtained, prior: Option<&CatalogArtifact>) -> CatalogArtifac
 /// Which locations to follow, and why the others were passed over.
 fn plan_locations(
     locations: &[CatalogLocation],
-    root: &Path,
+    ctx: &location::Context,
     opts: &FetchOptions,
 ) -> (Vec<(usize, Plan)>, Vec<Skipped>) {
     let mut plans = Vec::new();
@@ -301,7 +408,7 @@ fn plan_locations(
         if opts.location.is_some_and(|want| want != i) {
             continue;
         }
-        match location::resolve(loc, root, &opts.bind) {
+        match location::resolve(loc, ctx) {
             Ok(plan) => plans.push((i, plan)),
             Err(u) => {
                 // A benign outcome is reported only when it was asked for by index. An entry
@@ -342,12 +449,25 @@ fn message(
     obtained: &[Obtained],
     held: &[CatalogArtifact],
     records: &[CatalogArtifact],
+    archived: &[Archived],
 ) -> (String, String) {
+    let added = archived.iter().filter(|a| a.added.is_some()).count();
     let subject = match obtained.len() {
+        0 => format!("refresh: {entry} with {added} archived capture(s)"),
         1 => format!("refresh: {entry} from {}", obtained[0].declared),
         n => format!("refresh: {entry} from {n} of its locations"),
     };
     let mut body = String::new();
+    for a in archived {
+        use std::fmt::Write;
+        if let (Some(v), Some(d)) = (&a.added, &a.captured) {
+            let _ = writeln!(
+                body,
+                "location {} as the Wayback Machine captured it on {d} — {v}",
+                a.location
+            );
+        }
+    }
     for o in obtained {
         use std::fmt::Write;
         let _ = writeln!(
@@ -398,9 +518,15 @@ fn message(
 pub fn fetch(opts: &FetchOptions) -> Result<()> {
     let root = repo_root()?;
     let out = fetch_in(&root, opts, &mut Writer::WorkingTree)?;
-    crate::report::finish(&root, opts.format, FetchReport { fetched: out }, |r| {
-        print!("{}", render(&r.fetched, opts.dry_run))
-    })
+    // A refusal is a finding: recorded, not retried, and the run says so in its exit code.
+    let passed = !out.iter().any(EntryOutcome::was_refused);
+    crate::report::gate(
+        &root,
+        opts.format,
+        FetchReport { fetched: out },
+        passed,
+        |r| print!("{}", render(&r.fetched, opts.dry_run)),
+    )
 }
 
 /// [`fetch`] against `root`, committing through `writer` — the working tree on a laptop, a
@@ -415,6 +541,45 @@ pub(crate) fn fetch_in(
     let entries = select(&catalog, opts.entry.as_deref())?;
     let vaults = crate::vault::resolve(&crate::config::load_yidam_config(&root)?.vault)?;
     let cache = Cache::resolve(|k| std::env::var(k).ok())?;
+    let env = |k: &str| std::env::var(k).ok();
+    let contact = transport::contact(&env).map_err(anyhow::Error::msg)?;
+    let packs = Enabled::load(&root)?;
+    // The archive's own spacing and contact come from the pack that declares `wayback:`, so a
+    // run with `--archive` and no such pack is refused before it asks anything.
+    let archive_policy = if opts.archive {
+        let Some((_, t)) = packs.transport_of(WAYBACK) else {
+            anyhow::bail!(
+                "--archive adds `{WAYBACK}:` locations, and no enabled source pack declares the \
+                 `{WAYBACK}` scheme. Pin one in prelude_sources, or write one in {}",
+                crate::sources::AUTHORED
+            );
+        };
+        Some(Policy {
+            contact: contact.clone(),
+            credentials: vec![],
+            min_interval: t
+                .min_interval
+                .as_deref()
+                .and_then(crate::sources::manifest::parse_interval),
+        })
+    } else {
+        None
+    };
+    let ctx = location::Context {
+        root: &root,
+        bindings: &opts.bind,
+        packs: &packs,
+        contact: contact.as_deref(),
+        env: &env,
+    };
+    let mut net = Network {
+        session: Session::new(),
+        plain: Policy {
+            contact: contact.clone(),
+            ..Policy::default()
+        },
+        vaults: &vaults,
+    };
 
     let mut out: Vec<EntryOutcome> = Vec::new();
     let mut n = 0usize;
@@ -439,16 +604,10 @@ pub(crate) fn fetch_in(
             continue;
         }
 
-        let (plans, skipped) = plan_locations(&locations, &root, opts);
+        let (plans, skipped) = plan_locations(&locations, &ctx, opts);
         if plans.is_empty() {
             if !skipped.is_empty() {
-                out.push(EntryOutcome {
-                    entry: name,
-                    obtained: vec![],
-                    skipped,
-                    commit: None,
-                    superseded: vec![],
-                });
+                out.push(EntryOutcome::of(name, skipped));
             }
             continue;
         }
@@ -460,26 +619,66 @@ pub(crate) fn fetch_in(
         }
 
         let mut obtained = Vec::new();
+        let mut refused = Vec::new();
+        let mut archived = Vec::new();
+        let mut captures: Vec<CatalogLocation> = Vec::new();
         for (i, plan) in &plans {
             if opts.dry_run {
-                let (declared, followed) = match plan {
-                    Plan::File { path, declared } => (declared.clone(), path.display().to_string()),
-                    Plan::Url { url, declared } => (declared.clone(), url.clone()),
-                };
                 obtained.push(Obtained {
                     location: *i,
-                    declared,
-                    followed,
+                    declared: plan.declared().to_string(),
+                    followed: plan.followed(),
                     sha256: String::new(),
                     bytes: 0,
                     media_type: None,
                     cached: false,
                     route: String::new(),
+                    pack: pack_of(plan),
                 });
                 continue;
             }
             n += 1;
-            obtained.push(obtain(plan, *i, &cache, n, &vaults)?);
+            match obtain(plan, *i, &cache, n, &mut net)? {
+                Ok(o) => obtained.push(o),
+                Err(d) => refused.push(d),
+            }
+            // Looked up whatever the publisher answered: a capture is most use where the
+            // source now refuses.
+            if let (
+                Some(policy),
+                Plan::Identifier {
+                    url, archive: true, ..
+                },
+            ) = (&archive_policy, plan)
+            {
+                n += 1;
+                let scratch = staging(&cache, n);
+                match net
+                    .session
+                    .closest_capture(transport::AVAILABILITY, url, policy, &scratch)?
+                {
+                    Ok(capture) => {
+                        let added = capture.as_deref().map(|ts| archived_location(*i, url, ts));
+                        archived.push(Archived {
+                            location: *i,
+                            followed: url.clone(),
+                            captured: capture.as_deref().map(capture_date),
+                            added: added.as_ref().and_then(|l| l.value.clone()),
+                        });
+                        captures.extend(added);
+                    }
+                    Err(r) => refused.push(Declined {
+                        location: *i,
+                        declared: plan.declared().to_string(),
+                        followed: transport::availability_url(transport::AVAILABILITY, url),
+                        status: r.status,
+                        why: format!(
+                            "the Wayback availability API answered HTTP {} {}",
+                            r.status, r.reason
+                        ),
+                    }),
+                }
+            }
         }
 
         let mut written = None;
@@ -494,6 +693,8 @@ pub(crate) fn fetch_in(
                 .collect();
             let updated = record::append_artifacts(&text, &records)
                 .with_context(|| format!("recording what {rel} obtained"))?;
+            let updated = record::append_locations(&updated, &captures)
+                .with_context(|| format!("adding archived captures to {rel}"))?;
             if updated != text {
                 if records.iter().any(|r| superseded::supersedes(&held, r)) {
                     owed = citing
@@ -503,7 +704,7 @@ pub(crate) fn fetch_in(
                         .unwrap_or_default();
                     owed.sort();
                 }
-                let (subject, mut body) = message(&name, &obtained, &held, &records);
+                let (subject, mut body) = message(&name, &obtained, &held, &records, &archived);
                 body.push_str(&owed_lines(&owed));
                 written = writer.commit(
                     &root,
@@ -519,6 +720,8 @@ pub(crate) fn fetch_in(
             entry: name,
             obtained,
             skipped,
+            refused,
+            archived,
             commit: written,
             superseded: owed,
         });
@@ -603,6 +806,25 @@ pub(crate) fn render(entries: &[EntryOutcome], dry_run: bool) -> String {
                 hang(&k.why, "    ")
             );
         }
+        for r in &e.refused {
+            let _ = writeln!(
+                s,
+                "  location {} refused — {}: {}\n    recorded and not retried",
+                r.location, r.followed, r.why
+            );
+        }
+        for a in &e.archived {
+            let _ = match (&a.captured, &a.added) {
+                (Some(d), Some(v)) => {
+                    writeln!(s, "  location {} captured {d} — added {v}", a.location)
+                }
+                _ => writeln!(
+                    s,
+                    "  location {} — the Wayback Machine holds no successful capture of {}",
+                    a.location, a.followed
+                ),
+            };
+        }
         match &e.commit {
             Some(c) => {
                 let _ = writeln!(s, "  {} {}", c.sha, c.subject);
@@ -645,8 +867,21 @@ mod tests {
             location: None,
             bind: vec![],
             dry_run: false,
+            archive: false,
             format: crate::report::Format::Text,
         }
+    }
+
+    /// Plan against `/repo` with no packs and an empty environment.
+    fn plan(locs: &[CatalogLocation], o: &FetchOptions) -> (Vec<(usize, Plan)>, Vec<Skipped>) {
+        let ctx = location::Context {
+            root: Path::new("/repo"),
+            bindings: &o.bind,
+            packs: &Enabled::default(),
+            contact: None,
+            env: &|_| None,
+        };
+        plan_locations(locs, &ctx, o)
     }
 
     /// The streamflow entry's shape: a human-facing page and a machine endpoint. Without a
@@ -657,7 +892,7 @@ mod tests {
             loc("url", "https://waterdata.usgs.gov/nwis"),
             loc("url_template", "https://x/?sites={site}"),
         ];
-        let (plans, skipped) = plan_locations(&locs, Path::new("/repo"), &opts());
+        let (plans, skipped) = plan(&locs, &opts());
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].0, 0);
         assert_eq!(skipped.len(), 1);
@@ -671,7 +906,7 @@ mod tests {
             loc("address", "County Recorder, 14 Court St"),
             loc("url", "https://x/y"),
         ];
-        let (plans, skipped) = plan_locations(&locs, Path::new("/repo"), &opts());
+        let (plans, skipped) = plan(&locs, &opts());
         assert_eq!(plans.len(), 1);
         assert!(skipped.is_empty(), "{skipped:?}");
     }
@@ -681,7 +916,7 @@ mod tests {
     #[test]
     fn an_entry_with_only_an_address_plans_nothing() {
         let locs = vec![loc("address", "County Recorder, 14 Court St")];
-        let (plans, skipped) = plan_locations(&locs, Path::new("/repo"), &opts());
+        let (plans, skipped) = plan(&locs, &opts());
         assert!(plans.is_empty());
         assert!(skipped.is_empty());
     }
@@ -694,7 +929,7 @@ mod tests {
         let locs = vec![loc("address", "County Recorder")];
         let mut o = opts();
         o.location = Some(0);
-        let (plans, skipped) = plan_locations(&locs, Path::new("/repo"), &o);
+        let (plans, skipped) = plan(&locs, &o);
         assert!(plans.is_empty());
         assert_eq!(skipped.len(), 1);
         assert!(skipped[0].why.contains("place rather than an endpoint"));
@@ -705,7 +940,7 @@ mod tests {
         let locs = vec![loc("url", "https://a/"), loc("url", "https://b/")];
         let mut o = opts();
         o.location = Some(1);
-        let (plans, _) = plan_locations(&locs, Path::new("/repo"), &o);
+        let (plans, _) = plan(&locs, &o);
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].0, 1);
     }
@@ -720,6 +955,7 @@ mod tests {
             media_type: Some("application/json".into()),
             cached: false,
             route: "sources (s3://x)".into(),
+            pack: None,
         }
     }
 
@@ -864,17 +1100,18 @@ mod tests {
             media_type: None,
             cached: false,
             route: String::new(),
+            pack: None,
         }
     }
 
     #[test]
     fn the_subject_names_the_entry_and_the_body_names_every_digest() {
         let o = at_location;
-        let (subject, body) = message("usgs-nwis", &[o("aa", 0)], &[], &[]);
+        let (subject, body) = message("usgs-nwis", &[o("aa", 0)], &[], &[], &[]);
         assert_eq!(subject, "refresh: usgs-nwis from https://x/0");
         assert!(body.contains("sha256:aa (3 bytes) from location 0"));
 
-        let (subject, body) = message("usgs-nwis", &[o("aa", 0), o("bb", 1)], &[], &[]);
+        let (subject, body) = message("usgs-nwis", &[o("aa", 0), o("bb", 1)], &[], &[], &[]);
         assert_eq!(subject, "refresh: usgs-nwis from 2 of its locations");
         assert!(body.contains("sha256:aa") && body.contains("sha256:bb"));
     }
@@ -889,7 +1126,7 @@ mod tests {
             &o,
             prior_for(&held, &ArtifactOrigin::Location(0)),
         )];
-        let (_, body) = message("usgs-nwis", &[o], &held, &records);
+        let (_, body) = message("usgs-nwis", &[o], &held, &records, &[]);
         assert!(
             body.contains("carried forward from sha256:aa: vault: none, redistributable: true"),
             "{body}"
@@ -902,7 +1139,7 @@ mod tests {
     fn a_first_capture_adds_no_carry_line() {
         let o = at_location("bb", 0);
         let records = vec![artifact_for(&o, None)];
-        let (_, body) = message("usgs-nwis", &[o], &[], &records);
+        let (_, body) = message("usgs-nwis", &[o], &[], &records, &[]);
         assert!(!body.contains("carried forward"), "{body}");
     }
 
@@ -916,7 +1153,7 @@ mod tests {
             &o,
             prior_for(&held, &ArtifactOrigin::Location(0)),
         )];
-        let (_, body) = message("usgs-nwis", &[o], &held, &records);
+        let (_, body) = message("usgs-nwis", &[o], &held, &records, &[]);
         assert!(!body.contains("carried forward"), "{body}");
     }
 
@@ -936,7 +1173,7 @@ mod tests {
             &fresh,
             prior_for(&held, &ArtifactOrigin::Location(1)),
         )];
-        let (_, body) = message("usgs-nwis", &[unchanged, fresh], &held, &records);
+        let (_, body) = message("usgs-nwis", &[unchanged, fresh], &held, &records, &[]);
         assert!(
             body.contains("carried forward from sha256:cc: redistributable: false"),
             "{body}"
@@ -957,9 +1194,10 @@ mod tests {
             media_type: None,
             cached: false,
             route: String::new(),
+            pack: None,
         };
         for obtained in [vec![o.clone()], vec![o.clone(), o.clone()]] {
-            let (subject, _) = message("e", &obtained, &[], &[]);
+            let (subject, _) = message("e", &obtained, &[], &[], &[]);
             assert_eq!(
                 yidam_core::git::classify_commit("", &subject).kind,
                 yidam_core::git::CommitKind::Operational,

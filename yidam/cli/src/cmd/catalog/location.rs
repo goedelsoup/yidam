@@ -23,7 +23,24 @@
 
 use std::path::{Component, Path, PathBuf};
 
+use super::transport::{Credential, Policy};
 use crate::parse::CatalogLocation;
+use crate::sources::manifest::{parse_interval, Contact};
+use crate::sources::resolve::{archives, Enabled, Resolved, WAYBACK};
+
+/// What resolving a location reads besides the location.
+///
+/// The environment is a closure rather than `std::env`, so a test states the variables it
+/// means and the planner stays pure.
+pub struct Context<'a> {
+    pub root: &'a Path,
+    /// `--bind name=value`.
+    pub bindings: &'a [(String, String)],
+    pub packs: &'a Enabled,
+    /// `YIDAM_CONTACT`, already read and checked by [`super::transport::contact`].
+    pub contact: Option<&'a str>,
+    pub env: &'a dyn Fn(&str) -> Option<String>,
+}
 
 /// What following one location would actually do.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +56,39 @@ pub enum Plan {
     /// and keeping them distinct past this point would mean the transport had to know about
     /// templating, which is exactly the knowledge that belongs on the ungated side.
     Url { url: String, declared: String },
+    /// `GET` the URL a source pack resolved a `kind: identifier` to, as its transport says.
+    ///
+    /// Kept apart from [`Plan::Url`] because what is sent differs: the pack's credentials, its
+    /// spacing, and a contact it may require. `url` is the address as reported, and carries no
+    /// credential even when one is sent in the query.
+    Identifier {
+        url: String,
+        declared: String,
+        /// `<pack>@<version>`.
+        pack: String,
+        policy: Policy,
+        /// Whether `--archive` looks this address up in the Wayback Machine.
+        archive: bool,
+    },
+}
+
+impl Plan {
+    /// The location's value as the entry wrote it.
+    pub fn declared(&self) -> &str {
+        match self {
+            Self::File { declared, .. }
+            | Self::Url { declared, .. }
+            | Self::Identifier { declared, .. } => declared,
+        }
+    }
+
+    /// The path or URL followed, as a report shows it.
+    pub fn followed(&self) -> String {
+        match self {
+            Self::File { path, .. } => path.display().to_string(),
+            Self::Url { url, .. } | Self::Identifier { url, .. } => url.clone(),
+        }
+    }
 }
 
 /// Why an address cannot be followed.
@@ -55,12 +105,21 @@ pub enum Unfollowable {
     /// one. An entry whose only address is a physical one is fully valid and is simply not
     /// something a fetch has anything to do; the caller skips it rather than failing.
     NotAnEndpoint { declared: String },
-    /// `kind: identifier` — `doi:10.1167/tvst.8.5.14`, a name for a source in some scheme.
+    /// `kind: identifier` in a scheme no enabled source pack declares.
     ///
-    /// **Not an error**, for the same reason an address is not. Nothing in this repository
-    /// turns a scheme into a URL yet: that is a source pack's job (RFC-0048, #1315). Until one
-    /// does, an entry whose only location is an identifier has nothing to fetch.
-    Unresolved { declared: String },
+    /// **Not an error**, for the same reason an address is not. A corpus that pins no pack
+    /// wrote `doi:` locations before packs existed (RFC-0048), and a fetch passes over them as
+    /// it always did.
+    Unresolved { declared: String, why: String },
+    /// An identifier a pack declares and will not resolve: malformed, ambiguous, or blocked.
+    ///
+    /// The pack's or the entry's repair, and the message says which.
+    Refused { why: String },
+    /// A pack resolved the identifier, and its transport needs something this environment does
+    /// not hold: `YIDAM_CONTACT`, or a credential's variable.
+    ///
+    /// Refused before any request, so a publisher never sees the request it would turn away.
+    Unprovided { why: String },
     /// A `url_template` whose slots nothing bound.
     ///
     /// The slots are named so the message can say `--bind site=…` rather than "some
@@ -102,10 +161,9 @@ impl Unfollowable {
                 "`{declared}` is a place rather than an endpoint — `kind: address` records \
                  where a source is held, and nothing fetches one"
             ),
-            Self::Unresolved { declared } => format!(
-                "`{declared}` is an identifier rather than an endpoint — nothing resolves its \
-                 scheme to a URL yet"
-            ),
+            Self::Unresolved { why, .. } | Self::Refused { why } | Self::Unprovided { why } => {
+                why.clone()
+            }
             Self::Unbound { slots, declared } => format!(
                 "`{declared}` has {} nothing bound: {}. Supply {} — for example \
                  `--bind {}=…`",
@@ -202,11 +260,8 @@ fn under_root(root: &Path, declared: &str) -> Option<PathBuf> {
 }
 
 /// What following this location would do, or why nothing can.
-pub fn resolve(
-    location: &CatalogLocation,
-    root: &Path,
-    bindings: &[(String, String)],
-) -> Result<Plan, Unfollowable> {
+pub fn resolve(location: &CatalogLocation, ctx: &Context) -> Result<Plan, Unfollowable> {
+    let (root, bindings) = (ctx.root, ctx.bindings);
     let kind = location.kind.as_deref().unwrap_or("").trim();
     let value = location.value.as_deref().unwrap_or("").trim();
     if value.is_empty() {
@@ -217,7 +272,27 @@ pub fn resolve(
     let declared = value.to_string();
     match kind {
         "address" => Err(Unfollowable::NotAnEndpoint { declared }),
-        "identifier" => Err(Unfollowable::Unresolved { declared }),
+        "identifier" => {
+            let r = ctx.packs.resolve(value).map_err(|refusal| {
+                let why = refusal.message(value);
+                if refusal.is_benign() {
+                    Unfollowable::Unresolved {
+                        declared: declared.clone(),
+                        why,
+                    }
+                } else {
+                    Unfollowable::Refused { why }
+                }
+            })?;
+            let policy = policy_for(value, &r, ctx)?;
+            Ok(Plan::Identifier {
+                archive: archives(&r.transport) && r.scheme != WAYBACK,
+                url: r.url,
+                declared,
+                pack: r.pack,
+                policy,
+            })
+        }
         "url" => Ok(Plan::Url {
             url: declared.clone(),
             declared,
@@ -237,6 +312,69 @@ pub fn resolve(
             ),
         }),
     }
+}
+
+/// What a request to `r`'s publisher sends, or what this environment lacks to send it.
+///
+/// `source search` and `source add` ask through the same policy (#1316), so a credential a
+/// pack declares is sent, or refused for, by one function.
+pub(crate) fn policy_for(
+    identifier: &str,
+    r: &Resolved,
+    ctx: &Context,
+) -> Result<Policy, Unfollowable> {
+    let t = &r.transport;
+    let pack = &r.pack;
+    if t.contact == Contact::Required && ctx.contact.is_none() {
+        return Err(Unfollowable::Unprovided {
+            why: format!(
+                "`{identifier}` resolves through {pack}, which requires a contact. Set \
+                 {} to an email address or URL its publisher can reach",
+                super::transport::CONTACT_VAR
+            ),
+        });
+    }
+    let min_interval = match &t.min_interval {
+        None => None,
+        Some(raw) => Some(parse_interval(raw).ok_or_else(|| Unfollowable::Refused {
+            why: format!(
+                "`{identifier}`: {pack} declares min_interval `{raw}`, which is not `<n>ms` or \
+                 `<n>s`. `yidam source check` reports the pack"
+            ),
+        })?),
+    };
+    let mut credentials = Vec::new();
+    for a in &t.auth {
+        let (var, place) = a.spec().map_err(|why| Unfollowable::Refused {
+            why: format!(
+                "`{identifier}`: {pack} [transport] auth {why}. `yidam source check` reports \
+                 the pack"
+            ),
+        })?;
+        let value = (ctx.env)(var)
+            .filter(|v| !v.trim().is_empty())
+            .ok_or_else(|| Unfollowable::Unprovided {
+                why: format!(
+                    "`{identifier}` resolves through {pack}, which sends a credential from \
+                     {var}, and {var} is not set"
+                ),
+            })?;
+        if value.chars().any(char::is_control) {
+            return Err(Unfollowable::Unprovided {
+                why: format!("{var} holds a control character, which no request can carry"),
+            });
+        }
+        credentials.push(Credential {
+            var: var.to_string(),
+            value,
+            place,
+        });
+    }
+    Ok(Policy {
+        contact: ctx.contact.map(str::to_string),
+        credentials,
+        min_interval,
+    })
 }
 
 /// Parse a `--bind name=value` argument.
@@ -265,6 +403,25 @@ mod tests {
             value: Some(value.to_string()),
             description: None,
         }
+    }
+
+    /// [`super::resolve`] with no packs and an empty environment, which is every kind but
+    /// `identifier`'s whole input.
+    fn resolve(
+        location: &CatalogLocation,
+        root: &Path,
+        bindings: &[(String, String)],
+    ) -> Result<Plan, Unfollowable> {
+        super::resolve(
+            location,
+            &Context {
+                root,
+                bindings,
+                packs: &Enabled::default(),
+                contact: None,
+                env: &|_| None,
+            },
+        )
     }
 
     fn binds(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
@@ -426,19 +583,156 @@ mod tests {
         );
     }
 
-    /// An identifier is a kind, so it is not reported as one outside the set; and until a pack
-    /// resolves its scheme it is skipped the way an address is, not failed.
+    /// An identifier is a kind, so it is not reported as one outside the set; and where no pack
+    /// declares its scheme it is skipped the way an address is, not failed.
     #[test]
-    fn an_identifier_is_skipped_until_something_resolves_it() {
+    fn an_identifier_no_pack_declares_is_skipped() {
         let err = resolve(&loc("identifier", "doi:10.1/a"), Path::new("/repo"), &[]).unwrap_err();
-        assert_eq!(
-            err,
-            Unfollowable::Unresolved {
-                declared: "doi:10.1/a".into()
-            }
+        assert!(
+            matches!(&err, Unfollowable::Unresolved { declared, .. } if declared == "doi:10.1/a"),
+            "{err:?}"
         );
         assert!(err.is_benign());
-        assert!(!err.message().contains("not a location kind"));
+        assert!(err
+            .message()
+            .contains("no enabled source pack declares `doi`"));
+    }
+
+    mod identifier {
+        use super::*;
+        use crate::sources::manifest::Place;
+        use crate::sources::{Origin, Pack};
+
+        fn enabled(transport: &str) -> Enabled {
+            let src = format!(
+                r#"
+[pack]
+name = "scholarly"
+version = "0.1.0"
+
+[scheme.doi]
+pattern = '^10\.\d{{4,9}}/\S+$'
+type = "paper"
+resolve = {{ template = "https://api.crossref.org/works/{{id}}" }}
+
+[transport]
+{transport}
+"#
+            );
+            Enabled::from_packs(&[Pack {
+                name: "scholarly".into(),
+                dir: PathBuf::from(".yidam/sources/scholarly"),
+                origin: Origin::Authored,
+                manifest: toml::from_str(&src).map_err(|e| e.to_string()),
+            }])
+        }
+
+        fn plan(
+            packs: &Enabled,
+            contact: Option<&str>,
+            env: &dyn Fn(&str) -> Option<String>,
+        ) -> Result<Plan, Unfollowable> {
+            super::super::resolve(
+                &loc("identifier", "doi:10.1167/tvst.8.5.14"),
+                &Context {
+                    root: Path::new("/repo"),
+                    bindings: &[],
+                    packs,
+                    contact,
+                    env,
+                },
+            )
+        }
+
+        #[test]
+        fn a_declared_scheme_resolves_through_its_pack_with_its_transport() {
+            let packs = enabled(
+                "contact = \"required\"\nmin_interval = \"250ms\"\narchive = \"wayback\"\n\
+                 auth = [{ env = \"CR_TOKEN\", header = \"Crossref-Plus-API-Token\", prefix = \"Bearer \" }]",
+            );
+            let env = |k: &str| (k == "CR_TOKEN").then(|| "t0k".to_string());
+            let got = plan(&packs, Some("ops@example.org"), &env).unwrap();
+            assert_eq!(
+                got,
+                Plan::Identifier {
+                    url: "https://api.crossref.org/works/10.1167/tvst.8.5.14".into(),
+                    declared: "doi:10.1167/tvst.8.5.14".into(),
+                    pack: "scholarly@0.1.0".into(),
+                    policy: Policy {
+                        contact: Some("ops@example.org".into()),
+                        credentials: vec![Credential {
+                            var: "CR_TOKEN".into(),
+                            value: "t0k".into(),
+                            place: Place::Header {
+                                name: "Crossref-Plus-API-Token".into(),
+                                prefix: "Bearer ".into(),
+                            },
+                        }],
+                        min_interval: Some(std::time::Duration::from_millis(250)),
+                    },
+                    archive: true,
+                }
+            );
+        }
+
+        /// Refused before a request, so the publisher never sees an anonymous one.
+        #[test]
+        fn a_required_contact_that_is_not_set_is_refused_and_named() {
+            let err = plan(&enabled("contact = \"required\""), None, &|_| None).unwrap_err();
+            assert!(matches!(err, Unfollowable::Unprovided { .. }), "{err:?}");
+            assert!(err.message().contains("YIDAM_CONTACT"), "{}", err.message());
+            assert!(!err.is_benign());
+        }
+
+        #[test]
+        fn a_credential_whose_variable_is_unset_is_refused_by_its_name() {
+            let packs = enabled("auth = [{ env = \"BLS_KEY\", query = \"registrationkey\" }]");
+            for env in [
+                &(|_: &str| None) as &dyn Fn(&str) -> Option<String>,
+                &|_: &str| Some("  ".into()),
+            ] {
+                let err = plan(&packs, None, env).unwrap_err();
+                assert!(matches!(err, Unfollowable::Unprovided { .. }), "{err:?}");
+                assert!(
+                    err.message().contains("BLS_KEY is not set"),
+                    "{}",
+                    err.message()
+                );
+            }
+        }
+
+        /// `auth = ["X"]` names a variable and not where it goes. Sending it anywhere would be
+        /// a guess about a secret.
+        #[test]
+        fn a_bare_credential_name_is_refused_rather_than_sent_somewhere() {
+            let packs = enabled("auth = [\"BLS_KEY\"]");
+            let env = |_: &str| Some("k".to_string());
+            let err = plan(&packs, None, &env).unwrap_err();
+            assert!(matches!(err, Unfollowable::Refused { .. }), "{err:?}");
+        }
+
+        #[test]
+        fn a_blocked_publisher_is_refused_with_the_packs_reason() {
+            let packs = enabled("blocked = \"Akamai answers 403 to any non-browser client\"");
+            let err = plan(&packs, Some("ops@example.org"), &|_| None).unwrap_err();
+            assert!(matches!(err, Unfollowable::Refused { .. }), "{err:?}");
+            assert!(err.message().contains("Akamai"), "{}", err.message());
+            assert!(err.message().contains("kind: file"), "{}", err.message());
+        }
+
+        /// The contact goes on every request when it is set, required or not.
+        #[test]
+        fn an_optional_contact_is_still_sent_when_set() {
+            let got = plan(&enabled(""), Some("ops@example.org"), &|_| None).unwrap();
+            let Plan::Identifier {
+                policy, archive, ..
+            } = got
+            else {
+                panic!("{got:?}")
+            };
+            assert_eq!(policy.contact.as_deref(), Some("ops@example.org"));
+            assert!(!archive, "the pack declares no archive");
+        }
     }
 
     #[test]

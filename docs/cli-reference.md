@@ -1055,7 +1055,7 @@ knowledge claim, only the time to re-fetch.
 | `vault gc` | Report cached artifacts no committed file names; `--yes` deletes them |
 | `vault materialize` | Hardlink cached artifacts into `.yidam/vault/<slug>/` under names a person can open; `--entry` narrows |
 | `vault-status` * | Writes the `<!-- REGEN: yidam vault-status -->` block in README.md. Committed files only — never the cache, never the network. `yidam vault status`, a hyphen apart, is the read-only report; `yidam regen` runs this one with the rest |
-| `catalog-fetch [entry]` * | Follow a catalog entry's declared address, cache the bytes under their digest, record them in `artifacts:`, and commit it as `refresh:`. `--location` narrows to one address; `--bind name=value` fills a `url_template` slot; `--dry-run` resolves and writes nothing |
+| `catalog-fetch [entry]` * | Follow a catalog entry's declared address, cache the bytes under their digest, record them in `artifacts:`, and commit it as `refresh:`. `--location` narrows to one address; `--bind name=value` fills a `url_template` slot; `--archive` adds the nearest Wayback capture of each identifier whose pack allows it; `--dry-run` resolves and writes nothing. Exits nonzero if a publisher refused a location |
 | `catalog-extract [entry]` * | Take each reading an artifact lacks — a PDF's text, or a [source pack](#source-packs)'s `extract` — file it in the cache, record it under the artifact in `readings:`, and commit it as `extract:`. `--dry-run` reports and reads nothing |
 | `catalog-reconcile [entry]` * | Rewrite a drifted `used-by` list to the citations, which are authoritative, and commit it as `reconcile:`. `--dry-run` reports and writes nothing |
 | `source check` | Hold every [source pack](#source-packs) and every `prelude_sources` pin to the pack format, offline, and run each transform over its fixtures. Exits nonzero on an error |
@@ -1252,9 +1252,52 @@ template of eight prompts. `source add` never writes a node and never writes
 `obtained: true`. It refuses an identifier the catalog already holds. If one identifier fails,
 it writes nothing.
 
-A request to a publisher carries `YIDAM_CONTACT` in its user agent. A pack whose transport is
-`contact = "required"` is not asked without it. Neither is a pack whose auth variables are
-unset. `--offline` answers from the pack's recorded fixtures and asks nothing.
+`source search` and `source add` ask a publisher the way `catalog-fetch` does, under the
+pack's `[transport]`, described below. A pack missing its contact or a credential is not
+asked. `--offline` answers from the pack's recorded fixtures and asks nothing.
+
+### Fetching an identifier
+
+`catalog-fetch` resolves a `kind: identifier` location through the enabled pack that declares
+its scheme. It then fetches the address as that pack's `[transport]` says:
+
+```toml
+[transport]
+contact      = "required"
+min_interval = "250ms"
+auth = [
+  { env = "COURTLISTENER_TOKEN", header = "Authorization", prefix = "Token " },
+  { env = "BLS_KEY", query = "registrationkey" },
+]
+archive = "wayback"
+```
+
+- **Contact.** Every request sends `User-Agent: yidam-catalog/<version>`, plus `(+$YIDAM_CONTACT)`
+  when that variable is set. A pack with `contact = "required"` is skipped without it, before any
+  request.
+- **Auth.** Each credential is read from the named variable and sent in the header or query
+  parameter the pack names. A bare name is refused, since it says nothing of where to send it.
+  No credential reaches the report, the entry or the commit. A credentialed request follows
+  redirects only on its own host.
+- **Spacing.** `min_interval` holds between two requests to one host, across one run.
+- **Atomic write.** The body streams into a `.partial` file and is renamed once complete.
+- **Refusals.** A non-success status is recorded under `refused` on the entry, and the run exits
+  nonzero. It is not retried. The entry's other locations are still fetched and recorded.
+
+An identifier in a scheme no enabled pack declares is passed over, as before packs existed.
+
+**What the host will not do.** It sends no browser User-Agent and takes no step around a 403. A
+pack for a publisher that refuses automated clients says `blocked = "<why>"`. Its identifiers are
+refused with that reason. Record a manual export as a `kind: file` location instead. The same
+holds for a publisher whose TLS chain does not verify: no pack can turn verification off.
+
+**Archive.** `wayback:<timestamp>/<url>` resolves to the capture's `id_` form, the original bytes.
+`catalog-fetch --archive` looks up the nearest successful capture of each identifier whose pack
+says `archive = "wayback"`. It appends that capture to the entry's `location:` list as a
+`wayback:` identifier. Its description carries the capture date, and it lands in the same
+`refresh:` commit. It reads the
+Wayback availability API and never asks the archive to capture anything. It needs an enabled
+pack declaring the `wayback` scheme.
 
 ### Reading a PDF
 

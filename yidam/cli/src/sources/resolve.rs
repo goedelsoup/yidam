@@ -1,492 +1,394 @@
-//! An identifier, resolved through its pack to the draft entry `source add` writes (#1316).
+//! An identifier, resolved through the enabled packs to the address a fetch follows (RFC-0048 §5).
 //!
-//! Resolving is three steps, and only the second can touch a network:
+//! Pure and offline. It reads the packs once and answers from them, so a test builds
+//! [`Enabled`] from manifests and never touches a directory or the network. What the transport
+//! needs from the environment (a contact, a credential) is not read here: that is
+//! [`crate::cmd::catalog::location`]'s, which takes the environment as an argument.
 //!
-//! 1. **Match.** `doi:10.1167/tvst.8.5.14` names the scheme `doi`. The one enabled pack that
-//!    declares it is found, the local id is held to the scheme's pattern, and the resolve
-//!    template is bound into an address. A scheme two packs declare is refused, not chosen.
-//! 2. **Describe.** Where the scheme declares a `describe` and the build runs transforms, the
-//!    address is asked and the answer handed to the transform. How it is asked is the caller's
-//!    [`Asker`]: the network, or the pack's own recorded fixtures.
-//! 3. **Chain.** Each `then` whose `describe.<key>` the answer named becomes a further
-//!    identifier in the same pack, and is resolved the same way. A chain is followed until it
-//!    names nothing new, so a cycle ends where it repeats.
+//! # Which packs are enabled
 //!
-//! A describe that cannot run is not a failure to resolve. Its draft is filled from the pack's
-//! templates and says why, and the entry is still a source somebody is adding. What *is* a
-//! failure is an identifier no enabled pack can resolve, because the entry would then carry a
-//! location `catalog-fetch` can never follow.
-//!
-//! Nothing here writes. The command writes the entry; the MCP `resolve_source` (#1319) returns
-//! the same [`Resolved`] without writing it.
+//! The ones [`super::load`] reads, less two kinds. A vendored pack that an authored pack of the
+//! same name shadows is not enabled. A pack whose manifest does not parse resolves nothing, and
+//! `source check` reports why. A scheme declared by two enabled packs is held as ambiguous, and
+//! an identifier in it is refused rather than resolved by whichever pack sorts first.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use serde::Serialize;
+use anyhow::Result;
 
-use super::manifest::{Contact, Manifest, Scheme};
-use super::transform::{self, Draft};
-use super::Pack;
+use super::manifest::{Archive, Manifest, Scheme, Transport};
+use super::{Origin, Pack};
 
-/// The environment variable a pack's `contact = "required"` reads.
-pub const CONTACT: &str = "YIDAM_CONTACT";
-
-/// The body a draft starts from when its pack's `entry.md` is blank.
-///
-/// The headings corpora converged on (RFC-0048 §4). Each is a prompt, in a comment so it does
-/// not render, and none is answered: an entry nobody has read says nothing about what it holds.
-pub const ENTRY_TEMPLATE: &str = "\
-## What it is
-
-<!-- Who published it, in what form, and when. -->
-
-## What was read
-
-<!-- Which parts, of which version. Nothing is read until someone reads it. -->
-
-## What it establishes
-
-<!-- The claims it is the authority on, in the publisher's own terms. -->
-
-## What it does not establish
-
-<!-- What a reader might take it to say, and it does not. -->
-
-## What else it holds, unread
-
-<!-- Sections, tables or appendices nobody has read yet. -->
-
-## Defects
-
-<!-- Errata, retractions, known errors, gaps in coverage. -->
-
-## Access constraints
-
-<!-- Licence, paywall, rate limits, anything that stops a re-fetch. -->
-
-## Currency
-
-<!-- How often it changes, and what would make this entry stale. -->
-";
-
-/// What a pack's transport asks of the environment, and whether the environment has it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Needs {
-    /// `required` or `optional`.
-    pub contact: &'static str,
-    /// Whether `YIDAM_CONTACT` is set and not blank.
-    pub contact_set: bool,
-    /// Each `[transport] auth` variable, and whether it is set. Never its value.
-    pub auth: Vec<AuthVar>,
-    /// Why the publisher cannot be fetched from at all, as the pack says.
-    pub blocked: Option<String>,
+/// One scheme an enabled pack declares, with what resolving it needs.
+#[derive(Debug, Clone)]
+struct Declared {
+    /// `<pack>@<version>`, the form a record's `by` takes (§6).
+    pack: String,
+    scheme: Scheme,
+    transport: Transport,
+    pattern: regex::Regex,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct AuthVar {
-    pub var: String,
-    pub set: bool,
-}
-
-impl Needs {
-    /// Read the environment through `env`, so a test can hand it one.
-    pub fn of(m: &Manifest, env: &dyn Fn(&str) -> Option<String>) -> Self {
-        let set = |k: &str| env(k).is_some_and(|v| !v.trim().is_empty());
-        Self {
-            contact: match m.transport.contact {
-                Contact::Required => "required",
-                Contact::Optional => "optional",
-            },
-            contact_set: set(CONTACT),
-            auth: m
-                .transport
-                .auth
-                .iter()
-                .map(|v| AuthVar {
-                    var: v.clone(),
-                    set: set(v),
-                })
-                .collect(),
-            blocked: m.transport.blocked.clone(),
-        }
-    }
-
-    /// Whether every need is met.
-    pub fn satisfied(&self) -> bool {
-        self.unmet().is_none()
-    }
-
-    /// Why a request to this pack's publisher would not be made, if it would not.
-    pub fn unmet(&self) -> Option<String> {
-        if let Some(why) = &self.blocked {
-            return Some(format!("the pack says its publisher is blocked: {why}"));
-        }
-        if self.contact == "required" && !self.contact_set {
-            return Some(format!(
-                "the pack requires a contact, and `{CONTACT}` is not set; set it to an address \
-                 the publisher can reach you at"
-            ));
-        }
-        let missing: Vec<&str> = self
-            .auth
-            .iter()
-            .filter(|a| !a.set)
-            .map(|a| a.var.as_str())
-            .collect();
-        if !missing.is_empty() {
-            return Some(format!(
-                "the pack authenticates with {}, which {} not set",
-                missing
-                    .iter()
-                    .map(|v| format!("`{v}`"))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                if missing.len() == 1 { "is" } else { "are" }
-            ));
-        }
-        None
-    }
-}
-
-/// One identifier this resolution reached.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Located {
-    /// `scheme:local-id`, as the entry's `kind: identifier` location records it.
-    pub identifier: String,
-    /// The address the scheme's template binds it to.
-    pub url: String,
-    /// How it was reached: `None` for the identifier asked for, otherwise the identifier
-    /// whose describe named it and the key it was named under.
-    pub via: Option<String>,
-}
-
-impl Located {
-    /// The location's `description:`. Every location says how it got there, because the lint
-    /// asks that an entry's several locations be told apart and the reason is the difference.
-    pub fn description(&self) -> String {
-        match &self.via {
-            None => "the identifier this entry was added by".to_string(),
-            Some(via) => format!("named by {via}"),
-        }
-    }
-}
-
-/// Where the answers a describe ran over came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Answered {
-    /// The publisher, over the network.
-    Network,
-    /// The pack's recorded `[fixtures]`. Nothing was asked.
-    Fixture,
+/// The schemes the enabled packs declare.
+#[derive(Debug, Clone, Default)]
+pub struct Enabled {
+    schemes: BTreeMap<String, Declared>,
+    /// A scheme two enabled packs declare, and the packs.
+    ambiguous: BTreeMap<String, Vec<String>>,
 }
 
 /// An identifier, resolved.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resolved {
-    /// The identifier asked for, normalised: surrounding space trimmed.
-    pub identifier: String,
-    /// The pack that resolved it.
+    /// `<pack>@<version>`.
     pub pack: String,
-    /// The identifier first, then each one `then` reached, in the order reached.
-    pub locations: Vec<Located>,
-    /// What the identifier's describe made of its answer, or the template draft and why.
-    pub draft: Draft,
-    /// `[defaults] ttl_days`, which the entry is written with.
-    pub ttl_days: Option<u32>,
-    /// Where each describe's answer came from. `None` when no describe was asked.
-    pub answered: Option<Answered>,
-    /// Why a `then` was not followed, one line each.
-    pub unfollowed: Vec<String>,
-    /// The pack's `entry.md`, or [`ENTRY_TEMPLATE`] when it is blank.
-    #[serde(skip)]
-    pub body: String,
+    pub scheme: String,
+    /// The bound resolve template.
+    pub url: String,
+    /// The pack's transport, which the caller turns into a request policy.
+    pub transport: Transport,
 }
 
-/// How a describe's answer is obtained.
-pub trait Asker {
-    /// Which of [`Answered`] this asker gives.
-    fn answered(&self) -> Answered;
-    /// The bytes `url` answers with for `identifier` in `pack`, or why there are none.
-    fn ask(
-        &mut self,
-        pack: &Pack,
-        manifest: &Manifest,
-        identifier: &str,
-        url: &str,
-    ) -> Result<Vec<u8>, String>;
+/// Why an identifier resolves to nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refusal {
+    /// No `:`, so there is no scheme to look up.
+    NoScheme,
+    /// No enabled pack declares the scheme. The one benign refusal: a corpus that pins no
+    /// pack wrote `doi:` locations before packs existed, and a fetch passes over them as it
+    /// did before.
+    NoPack { scheme: String },
+    /// Two enabled packs declare it.
+    Ambiguous { scheme: String, packs: Vec<String> },
+    /// The local id does not match the scheme's pattern.
+    Malformed {
+        scheme: String,
+        local: String,
+        pattern: String,
+    },
+    /// The template keeps a slot nothing bound. `source check` refuses such a pack, so this is
+    /// a pack that was not checked.
+    Unbound { pack: String, slots: Vec<String> },
+    /// The bound template is not an `http(s)` address.
+    NotHttp { pack: String, url: String },
+    /// The pack says its publisher cannot be fetched from.
+    Blocked { pack: String, why: String },
 }
 
-/// Answers from the pack's `[fixtures]`, and asks nothing.
-pub struct Fixtures<'a> {
-    pub root: &'a Path,
-}
-
-impl Asker for Fixtures<'_> {
-    fn answered(&self) -> Answered {
-        Answered::Fixture
+impl Refusal {
+    pub fn message(&self, identifier: &str) -> String {
+        match self {
+            Self::NoScheme => {
+                format!("`{identifier}` is not `scheme:local-id`, so no pack can resolve it")
+            }
+            Self::NoPack { scheme } => format!(
+                "`{identifier}` is an identifier rather than an endpoint, and no enabled source \
+                 pack declares `{scheme}`. Pin one in prelude_sources, or write one in {}",
+                super::AUTHORED
+            ),
+            Self::Ambiguous { scheme, packs } => format!(
+                "`{identifier}`: scheme `{scheme}` is declared by {}, so nothing says which \
+                 resolves it. `yidam source check` reports the same",
+                packs.join(" and ")
+            ),
+            Self::Malformed {
+                scheme,
+                local,
+                pattern,
+            } => format!(
+                "`{identifier}`: `{local}` does not match [scheme.{scheme}] pattern `{pattern}`"
+            ),
+            Self::Unbound { pack, slots } => format!(
+                "`{identifier}`: {pack} leaves {} unbound in its resolve template. \
+                 `yidam source check` reports the pack",
+                slots
+                    .iter()
+                    .map(|s| format!("`{{{s}}}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Self::NotHttp { pack, url } => format!(
+                "`{identifier}` resolves through {pack} to `{url}`, which is not an http(s) address"
+            ),
+            Self::Blocked { pack, why } => format!(
+                "`{identifier}`: {pack} declares its publisher blocked — {why}. Nothing works \
+                 around a block; record a manual export as a `kind: file` location"
+            ),
+        }
     }
-    fn ask(
-        &mut self,
-        pack: &Pack,
-        m: &Manifest,
-        identifier: &str,
-        _: &str,
-    ) -> Result<Vec<u8>, String> {
-        let Some(file) = m.fixtures.get(identifier) else {
-            return Err(format!(
-                "offline, and {} records no fixture for `{identifier}`",
-                pack.name
-            ));
+
+    /// Only [`Self::NoPack`]: see its note.
+    pub fn is_benign(&self) -> bool {
+        matches!(self, Self::NoPack { .. })
+    }
+}
+
+impl Enabled {
+    /// The enabled packs in the repository at `root`.
+    pub fn load(root: &Path) -> Result<Self> {
+        Ok(Self::from_packs(&super::load(root)?))
+    }
+
+    pub fn from_packs(packs: &[Pack]) -> Self {
+        let authored: BTreeSet<&str> = packs
+            .iter()
+            .filter(|p| p.origin == Origin::Authored)
+            .map(|p| p.name.as_str())
+            .collect();
+        let mut by_scheme: BTreeMap<String, Vec<Declared>> = BTreeMap::new();
+        for pack in packs {
+            if pack.origin == Origin::Vendored && authored.contains(pack.name.as_str()) {
+                continue;
+            }
+            let Ok(m) = &pack.manifest else { continue };
+            for (name, d) in declared(m) {
+                by_scheme.entry(name).or_default().push(d);
+            }
+        }
+        let mut out = Self::default();
+        for (scheme, mut ds) in by_scheme {
+            if ds.len() == 1 {
+                if let Some(d) = ds.pop() {
+                    out.schemes.insert(scheme, d);
+                }
+            } else {
+                out.ambiguous
+                    .insert(scheme, ds.into_iter().map(|d| d.pack).collect());
+            }
+        }
+        out
+    }
+
+    /// Whether an enabled pack declares `scheme`, unambiguously.
+    pub fn declares(&self, scheme: &str) -> bool {
+        self.schemes.contains_key(scheme)
+    }
+
+    /// The transport of the pack that declares `scheme`.
+    pub fn transport_of(&self, scheme: &str) -> Option<(&str, &Transport)> {
+        self.schemes
+            .get(scheme)
+            .map(|d| (d.pack.as_str(), &d.transport))
+    }
+
+    /// Resolve `scheme:local-id` to the address a fetch follows.
+    pub fn resolve(&self, identifier: &str) -> Result<Resolved, Refusal> {
+        let Some((scheme, local)) = identifier.split_once(':') else {
+            return Err(Refusal::NoScheme);
         };
-        let path = self.root.join(&pack.dir).join("fixtures").join(file);
-        std::fs::read(&path).map_err(|e| format!("reading {}: {e}", path.display()))
-    }
-}
-
-/// Split `scheme:local-id`, or say why it is not one.
-pub fn split(identifier: &str) -> Result<(&str, &str), String> {
-    match identifier.split_once(':') {
-        Some((s, l)) if !s.is_empty() && !l.trim().is_empty() => Ok((s, l)),
-        _ => Err(format!(
-            "`{identifier}` is not an identifier: write `scheme:local-id`, such as `doi:10.1167/tvst.8.5.14`"
-        )),
-    }
-}
-
-/// The address `local` binds `scheme`'s template to, or why it binds none.
-pub fn address(scheme_name: &str, scheme: &Scheme, local: &str) -> Result<String, String> {
-    let re = regex::Regex::new(&scheme.pattern)
-        .map_err(|e| format!("[scheme.{scheme_name}] pattern does not compile: {e}"))?;
-    let Some(caps) = re.captures(local) else {
-        return Err(format!(
-            "`{local}` is not a `{scheme_name}` identifier: the pack's pattern is `{}`",
-            scheme.pattern
-        ));
-    };
-    let mut bindings = vec![("id".to_string(), local.to_string())];
-    for group in re.capture_names().flatten() {
-        if let Some(v) = caps.name(group) {
-            bindings.push((group.to_string(), v.as_str().to_string()));
+        if let Some(packs) = self.ambiguous.get(scheme) {
+            return Err(Refusal::Ambiguous {
+                scheme: scheme.to_string(),
+                packs: packs.clone(),
+            });
         }
-    }
-    crate::cmd::catalog::location::bind(&scheme.resolve.template, &bindings).map_err(|slots| {
-        format!(
-            "`{scheme_name}:{local}` leaves {} unbound in [scheme.{scheme_name}] resolve.template",
-            slots
-                .iter()
-                .map(|s| format!("`{{{s}}}`"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
-    })
-}
-
-/// Resolve `identifier` through the enabled packs in `packs`.
-///
-/// `Err` when no pack can resolve it — a scheme nothing declares, a local id the pattern
-/// refuses, a template that does not bind — or the pack cannot be read. Every other shortfall
-/// is in the [`Resolved`].
-pub fn resolve(
-    root: &Path,
-    packs: &[Pack],
-    identifier: &str,
-    asker: &mut dyn Asker,
-) -> Result<Resolved, String> {
-    let identifier = identifier.trim();
-    let (scheme_name, local) = split(identifier)?;
-    let (pack, manifest, scheme) = transform::scheme(packs, scheme_name)?;
-    let url = address(scheme_name, scheme, local)?;
-
-    let mut out = Resolved {
-        identifier: identifier.to_string(),
-        pack: pack.name.clone(),
-        locations: vec![Located {
-            identifier: identifier.to_string(),
-            url: url.clone(),
-            via: None,
-        }],
-        draft: Draft::default(),
-        ttl_days: manifest.defaults.ttl_days,
-        answered: None,
-        unfollowed: Vec::new(),
-        body: body(root, pack),
-    };
-
-    // Breadth first, so the locations read in the order a person would follow them.
-    let mut seen: BTreeSet<String> = BTreeSet::from([identifier.to_string()]);
-    let mut queue: Vec<(String, String, String)> =
-        vec![(scheme_name.to_string(), identifier.to_string(), url)];
-    let mut first = true;
-    while !queue.is_empty() {
-        let mut next = Vec::new();
-        for (name, id, url) in queue {
-            let s = &manifest.scheme[&name];
-            let draft = describe(root, pack, manifest, s, &id, &url, asker, &mut out.answered);
-            for then in &s.then {
-                let Some(key) = then.from.strip_prefix("describe.") else {
-                    continue;
-                };
-                let Some(value) = draft.identifier(key) else {
-                    if draft.by.is_some() {
-                        // The describe ran and named nothing under the key: a fact about this
-                        // source (a paper with no PMCID), not a shortfall to report.
-                        continue;
-                    }
-                    out.unfollowed.push(format!(
-                        "`{id}` then `{}` from `{}`: {}",
-                        then.scheme,
-                        then.from,
-                        draft.why.as_deref().unwrap_or("its describe did not run")
-                    ));
-                    continue;
-                };
-                let chained = format!("{}:{}", then.scheme, value.trim());
-                if !seen.insert(chained.clone()) {
-                    continue;
-                }
-                let Some(ts) = manifest.scheme.get(&then.scheme) else {
-                    continue;
-                };
-                match address(&then.scheme, ts, value.trim()) {
-                    Ok(u) => {
-                        out.locations.push(Located {
-                            identifier: chained.clone(),
-                            url: u.clone(),
-                            via: Some(format!("{id}'s {}", then.from)),
-                        });
-                        next.push((then.scheme.clone(), chained, u));
-                    }
-                    Err(why) => out
-                        .unfollowed
-                        .push(format!("`{id}` names `{chained}`, and {why}")),
-                }
-            }
-            if first {
-                out.draft = draft;
-                first = false;
+        let Some(d) = self.schemes.get(scheme) else {
+            return Err(Refusal::NoPack {
+                scheme: scheme.to_string(),
+            });
+        };
+        if let Some(why) = &d.transport.blocked {
+            return Err(Refusal::Blocked {
+                pack: d.pack.clone(),
+                why: why.clone(),
+            });
+        }
+        let Some(caps) = d.pattern.captures(local) else {
+            return Err(Refusal::Malformed {
+                scheme: scheme.to_string(),
+                local: local.to_string(),
+                pattern: d.scheme.pattern.clone(),
+            });
+        };
+        // The same bindings `source check` binds a fixture with: `{id}`, then each named group.
+        let mut bindings = vec![("id".to_string(), local.to_string())];
+        for group in d.pattern.capture_names().flatten() {
+            if let Some(v) = caps.name(group) {
+                bindings.push((group.to_string(), v.as_str().to_string()));
             }
         }
-        queue = next;
-    }
-    Ok(out)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn describe(
-    root: &Path,
-    pack: &Pack,
-    manifest: &Manifest,
-    s: &Scheme,
-    identifier: &str,
-    url: &str,
-    asker: &mut dyn Asker,
-    answered: &mut Option<Answered>,
-) -> Draft {
-    if s.describe.is_none() {
-        return Draft::from_templates(s, "the scheme declares no describe transform");
-    }
-    // Checked before asking, so a build that cannot run the answer does not ask for it.
-    if !transform::AVAILABLE {
-        return Draft::from_templates(s, transform::UNAVAILABLE);
-    }
-    let Some(media) = &s.resolve.media else {
-        return Draft::from_templates(
-            s,
-            "the scheme's resolve declares no media, so its answer cannot be parsed",
-        );
-    };
-    let bytes = match asker.ask(pack, manifest, identifier, url) {
-        Ok(b) => b,
-        Err(why) => return Draft::from_templates(s, why),
-    };
-    *answered = Some(asker.answered());
-    match transform::describe(root, pack, manifest, s, media, &bytes) {
-        Ok(d) => d,
-        Err(e) => Draft::from_templates(s, format!("{e:#}")),
+        let url = crate::cmd::catalog::location::bind(&d.scheme.resolve.template, &bindings)
+            .map_err(|slots| Refusal::Unbound {
+                pack: d.pack.clone(),
+                slots,
+            })?;
+        if !(url.starts_with("https://") || url.starts_with("http://")) {
+            return Err(Refusal::NotHttp {
+                pack: d.pack.clone(),
+                url,
+            });
+        }
+        Ok(Resolved {
+            pack: d.pack.clone(),
+            scheme: scheme.to_string(),
+            url,
+            transport: d.transport.clone(),
+        })
     }
 }
 
-/// The pack's `entry.md`, or the template when it is blank or unreadable.
-fn body(root: &Path, pack: &Pack) -> String {
-    std::fs::read_to_string(root.join(&pack.dir).join("entry.md"))
-        .ok()
-        .filter(|b| !b.trim().is_empty())
-        .unwrap_or_else(|| ENTRY_TEMPLATE.to_string())
+/// Whether a pack with this transport offers `--archive`.
+pub fn archives(t: &Transport) -> bool {
+    t.archive == Some(Archive::Wayback)
+}
+
+/// The scheme `--archive` writes, which some enabled pack has to declare.
+pub const WAYBACK: &str = "wayback";
+
+/// A manifest's schemes whose patterns compile. One that does not is `source check`'s finding,
+/// and resolves nothing.
+fn declared(m: &Manifest) -> Vec<(String, Declared)> {
+    let pack = format!("{}@{}", m.pack.name, m.pack.version);
+    m.scheme
+        .iter()
+        .filter_map(|(name, s)| {
+            let pattern = regex::Regex::new(&s.pattern).ok()?;
+            Some((
+                name.clone(),
+                Declared {
+                    pack: pack.clone(),
+                    scheme: s.clone(),
+                    transport: m.transport.clone(),
+                    pattern,
+                },
+            ))
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
-    fn manifest(transport: &str) -> Manifest {
-        toml::from_str(&format!(
-            "[pack]\nname = \"p\"\nversion = \"0.1.0\"\n[transport]\n{transport}\n"
-        ))
-        .unwrap()
-    }
-
-    fn env(vars: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
-        move |k| {
-            vars.iter()
-                .find(|(n, _)| *n == k)
-                .map(|(_, v)| v.to_string())
+    fn pack(name: &str, origin: Origin, toml_src: &str) -> Pack {
+        Pack {
+            name: name.into(),
+            dir: PathBuf::from(format!(".yidam/sources/{name}")),
+            origin,
+            manifest: toml::from_str(toml_src).map_err(|e| e.to_string()),
         }
     }
 
-    #[test]
-    fn a_required_contact_is_unmet_until_it_is_set() {
-        let m = manifest("contact = \"required\"");
-        let none = Needs::of(&m, &env(&[]));
-        assert!(none.unmet().unwrap().contains(CONTACT));
-        let blank = Needs::of(&m, &env(&[(CONTACT, "  ")]));
-        assert!(!blank.satisfied(), "a blank contact reaches nobody");
-        assert!(Needs::of(&m, &env(&[(CONTACT, "a@b.org")])).satisfied());
-    }
+    const SCHOLARLY: &str = r#"
+[pack]
+name = "scholarly"
+version = "0.1.0"
+
+[scheme.doi]
+pattern = '^10\.\d{4,9}/\S+$'
+type = "paper"
+resolve = { template = "https://api.crossref.org/works/{id}" }
+
+[transport]
+contact = "required"
+archive = "wayback"
+"#;
+
+    const ARCHIVE: &str = r#"
+[pack]
+name = "archive"
+version = "0.1.0"
+
+[scheme.wayback]
+pattern = '^(?P<ts>\d{14})/(?P<url>https?://\S+)$'
+type = "document"
+resolve = { template = "https://web.archive.org/web/{ts}id_/{url}" }
+"#;
 
     #[test]
-    fn auth_names_each_missing_variable_and_never_a_value() {
-        let m = manifest("auth = [\"A_TOKEN\", \"B_TOKEN\"]");
-        let n = Needs::of(&m, &env(&[("A_TOKEN", "secret-value")]));
-        let why = n.unmet().unwrap();
-        assert!(
-            why.contains("`B_TOKEN`") && !why.contains("A_TOKEN"),
-            "{why}"
-        );
-        assert!(!format!("{n:?}").contains("secret-value"));
+    fn a_doi_resolves_through_its_template() {
+        let e = Enabled::from_packs(&[pack("scholarly", Origin::Authored, SCHOLARLY)]);
+        let r = e.resolve("doi:10.1167/tvst.8.5.14").unwrap();
+        assert_eq!(r.url, "https://api.crossref.org/works/10.1167/tvst.8.5.14");
+        assert_eq!(r.pack, "scholarly@0.1.0");
+        assert!(archives(&r.transport));
     }
 
+    /// The Wayback location 165 measured entries already use is the `id_` form: the publisher's
+    /// bytes, without the archive's toolbar spliced into them.
     #[test]
-    fn a_blocked_publisher_is_unmet_whatever_else_is_set() {
-        let m = manifest("blocked = \"refuses automated clients\"");
-        let why = Needs::of(&m, &env(&[(CONTACT, "a@b.org")]))
-            .unmet()
+    fn a_wayback_identifier_resolves_to_the_id_form() {
+        let e = Enabled::from_packs(&[pack("archive", Origin::Vendored, ARCHIVE)]);
+        let r = e
+            .resolve("wayback:20240102030405/https://www.bls.gov/cpi/data.htm?x=1")
             .unwrap();
-        assert!(why.contains("refuses automated clients"), "{why}");
-    }
-
-    #[test]
-    fn an_identifier_is_scheme_colon_local_id() {
-        assert_eq!(split("doi:10.1/a"), Ok(("doi", "10.1/a")));
-        assert_eq!(split("doi:a:b"), Ok(("doi", "a:b")));
-        for bad in ["10.1/a", ":x", "doi:", "doi: "] {
-            assert!(split(bad).is_err(), "{bad}");
-        }
-    }
-
-    #[test]
-    fn an_address_binds_the_id_and_the_patterns_groups() {
-        let s: Scheme = toml::from_str(
-            "pattern = '^10\\.(?P<reg>\\d+)/\\S+$'\ntype = \"paper\"\n\
-             resolve = { template = \"https://e.org/{reg}/{id}\" }\n",
-        )
-        .unwrap();
         assert_eq!(
-            address("doi", &s, "10.1167/x").unwrap(),
-            "https://e.org/1167/10.1167/x"
+            r.url,
+            "https://web.archive.org/web/20240102030405id_/https://www.bls.gov/cpi/data.htm?x=1"
         );
-        let why = address("doi", &s, "11.1/x").unwrap_err();
-        assert!(why.contains("pattern"), "{why}");
+    }
+
+    #[test]
+    fn a_local_id_the_pattern_refuses_is_malformed() {
+        let e = Enabled::from_packs(&[pack("scholarly", Origin::Authored, SCHOLARLY)]);
+        let err = e.resolve("doi:not-a-doi").unwrap_err();
+        assert!(matches!(err, Refusal::Malformed { .. }), "{err:?}");
+        assert!(!err.is_benign());
+    }
+
+    /// A corpus pinning no pack keeps today's behaviour: its identifiers are passed over.
+    #[test]
+    fn an_undeclared_scheme_is_the_one_benign_refusal() {
+        let e = Enabled::default();
+        let err = e.resolve("doi:10.1/a").unwrap_err();
+        assert_eq!(
+            err,
+            Refusal::NoPack {
+                scheme: "doi".into()
+            }
+        );
+        assert!(err.is_benign());
+        assert!(err.message("doi:10.1/a").contains("prelude_sources"));
+        assert!(!Enabled::default()
+            .resolve("nocolon")
+            .unwrap_err()
+            .is_benign());
+    }
+
+    #[test]
+    fn an_authored_pack_shadows_the_vendored_one_it_names() {
+        let authored = SCHOLARLY.replace("api.crossref.org", "mirror.example");
+        let e = Enabled::from_packs(&[
+            pack("scholarly", Origin::Authored, &authored),
+            pack("scholarly", Origin::Vendored, SCHOLARLY),
+        ]);
+        assert_eq!(
+            e.resolve("doi:10.1167/a").unwrap().url,
+            "https://mirror.example/works/10.1167/a"
+        );
+    }
+
+    #[test]
+    fn a_scheme_two_packs_declare_resolves_through_neither() {
+        let other = SCHOLARLY.replace("name = \"scholarly\"", "name = \"other\"");
+        let e = Enabled::from_packs(&[
+            pack("other", Origin::Authored, &other),
+            pack("scholarly", Origin::Authored, SCHOLARLY),
+        ]);
+        let err = e.resolve("doi:10.1/a").unwrap_err();
+        assert!(matches!(err, Refusal::Ambiguous { .. }), "{err:?}");
+        assert!(!e.declares("doi"));
+    }
+
+    #[test]
+    fn a_blocked_publisher_is_refused_with_the_packs_reason() {
+        let blocked = SCHOLARLY.replace(
+            "[transport]",
+            "[transport]\nblocked = \"403 to every automated client\"",
+        );
+        let e = Enabled::from_packs(&[pack("scholarly", Origin::Authored, &blocked)]);
+        let err = e.resolve("doi:10.1/a").unwrap_err();
+        let msg = err.message("doi:10.1/a");
+        assert!(msg.contains("403 to every automated client"), "{msg}");
+        assert!(msg.contains("kind: file"), "{msg}");
+        assert!(!err.is_benign());
+    }
+
+    #[test]
+    fn a_pack_that_does_not_parse_resolves_nothing() {
+        let e = Enabled::from_packs(&[pack("broken", Origin::Authored, "[pack]\nname = 1")]);
+        assert!(!e.declares("doi"));
     }
 }
