@@ -9,7 +9,7 @@
 //     Every contributing elector's tip hash is recorded in the evolution.
 //     Every unresolved tension becomes an open question.
 //
-// Run: dafny verify prelude/sdks/spec/sangha.dfy
+// Run: dafny verify yidam/sdks/spec/sangha.dfy
 
 module YidamSangha {
 

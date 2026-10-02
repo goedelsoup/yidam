@@ -541,7 +541,7 @@ mod tests {
     /// own private corpus is a harness that agrees with nobody. This one holds four
     /// instances across two classes, and one deliberately broken edge.
     fn fixture_repo() -> PathBuf {
-        repo_root().join("yidam/prelude/sdks/parity/fixtures/reports/basic/repo")
+        repo_root().join("yidam/sdks/parity/fixtures/reports/basic/repo")
     }
 
     fn result_of<'a>(check: &'a CheckReport, id: &str) -> &'a CheckResult {

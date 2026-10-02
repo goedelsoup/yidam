@@ -234,7 +234,7 @@ mod tests {
     }
 
     fn fixture_result() -> PathBuf {
-        repo_root().join("yidam/prelude/sdks/parity/fixtures/reports/basic/repo")
+        repo_root().join("yidam/sdks/parity/fixtures/reports/basic/repo")
     }
 
     fn the_rubric() -> Rubric {

@@ -55,7 +55,7 @@ const levels = (r: { findings: { level: Level }[] }) => r.findings.map((f) => f.
 const HERE = path.dirname(new URL(import.meta.url).pathname)
 const SEVERITY_FIXTURES = path.resolve(
   HERE,
-  '../../../prelude/sdks/parity/fixtures/diagnostic_severity',
+  '../../../sdks/parity/fixtures/diagnostic_severity',
 )
 
 interface SeverityCase {

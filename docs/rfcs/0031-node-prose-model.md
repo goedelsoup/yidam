@@ -67,7 +67,7 @@ declaration rather than a format.
 
 An instance is a YAML document. `class`, `label`, a `description` block scalar carrying every
 paragraph the node asserts, a `properties` bag typed by the class, and `links`. The parser is
-[`CorpusInstance`](../../yidam/prelude/sdks/rust/src/corpus.rs#L112), and `description` is the only prose field
+[`CorpusInstance`](../../yidam/sdks/rust/src/corpus.rs#L112), and `description` is the only prose field
 it declares.
 
 Corpora did not stay inside it. The node schema is permissive at the top level, and the comment
@@ -172,7 +172,7 @@ prose. Upstream gives three different answers to those two keys:
 
 | Component | Answer |
 |---|---|
-| [`CorpusLink`](../../yidam/prelude/sdks/rust/src/corpus.rs#L67) | ~~dropped~~ — **kept since #714**: the struct declares `claim_tag` and `source` beside `target` and `relationship` |
+| [`CorpusLink`](../../yidam/sdks/rust/src/corpus.rs#L67) | ~~dropped~~ — **kept since #714**: the struct declares `claim_tag` and `source` beside `target` and `relationship` |
 | the published schema, [`schema.rs`](../../yidam/cli/src/cmd/schema.rs#L100) | ~~rejected~~ — **both keys named since #587**; the link item stays closed and now names what a corpus writes |
 | `yidam lint` | ~~nothing~~ — **`edge-untagged`, `edge-verified-unsourced`, `edge-standing-unheld` and `edge-source-unresolved`**, in [`lint/edge_claims.rs`](../../yidam/cli/src/cmd/lint/edge_claims.rs) |
 | the reporting surfaces | ~~nothing~~ — **`open-questions`, `status`, `corpus-index` and the MCP `claims` and `open_questions`** read a tagged edge since #857, through [`claims::edge_claims`](../../yidam/cli/src/claims.rs) |
@@ -534,7 +534,7 @@ properties:
 
 `prose: true`, absent meaning false, inheriting `required`'s argument verbatim — *"every corpus
 written before this field existed was written under a schema where the question could not be
-asked"* — [`ontology.rs:92-101`](../../yidam/prelude/sdks/rust/src/ontology.rs#L92-L101).
+asked"* — [`ontology.rs:92-101`](../../yidam/sdks/rust/src/ontology.rs#L92-L101).
 `ProseFields` gains a second axis, `prose::of` walks `properties` for the names a class flagged,
 and every consumer above gets the same answer without learning a new shape.
 

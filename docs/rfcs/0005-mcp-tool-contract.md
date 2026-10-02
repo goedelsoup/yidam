@@ -8,7 +8,7 @@
 
 > **Pointer, 2026-09-04.** The prose below describes the contract at freeze time — four core
 > tools, a capability example at contract 0.4.0 — and is left as written. The canonical list is
-> `yidam/prelude/sdks/parity/mcp/tools.json`, which says of itself that it is the only place the
+> `yidam/sdks/parity/mcp/tools.json`, which says of itself that it is the only place the
 > list lives; the contract has since grown to thirteen tools at 0.13.0, **on the record, through
 > later RFCs rather than edits here**: RFC-0017 (0.4.0 → 0.5.0; `pack`, `absence`, `estimate` at
 > 0.7.0–0.9.0), RFC-0018 (0.5.0 → 0.6.0), RFC-0019 (`check_citation` at 0.12.0), with the
@@ -157,7 +157,7 @@ reconciles the embedding space, else it degrades and says so.
 
 ## Conformance
 
-A fixture spec on the parity layer — `prelude/sdks/parity/mcp/` — analogous to RFC-0001's report
+A fixture spec on the parity layer — `yidam/sdks/parity/mcp/` — analogous to RFC-0001's report
 fixtures:
 
 - **`tools.json`** — the canonical tool list with input/output JSON Schemas and each tool's
@@ -201,7 +201,7 @@ MUST match the declared capabilities.
   adds the `degraded` flag; declares `phases:false, sangha:false, resources:false`. The
   `mcp__yidam__*` namespace is unaffected — it comes from the *server* name, so bare `get_node`
   already yields `mcp__yidam__get_node`, dropping the redundant prefix rather than adding one.
-- **Versioning.** The contract is a joint SDK+parity artifact; bump `prelude/sdks/parity/VERSION`
+- **Versioning.** The contract is a joint SDK+parity artifact; bump `yidam/sdks/parity/VERSION`
   (today `0.3.0`) — a minor for additive capability declarations, a major when a tool renames without
   an alias. The template-layer Rust CLI states the contract version it implements in the `yidam`
   capability block, so drift between binary and spec is visible (RFC-0004).

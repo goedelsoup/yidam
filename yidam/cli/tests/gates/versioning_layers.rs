@@ -453,7 +453,7 @@ fn layer_4_manifests() -> Vec<String> {
 /// one stays here because it is about the parity layer's versioning, not about the server.
 #[test]
 fn the_mcp_contract_states_one_version() {
-    let mcp = repo_root().join("yidam/prelude/sdks/parity/mcp");
+    let mcp = repo_root().join("yidam/sdks/parity/mcp");
     let tools: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(mcp.join("tools.json")).unwrap()).unwrap();
     let declared = tools["contract"]

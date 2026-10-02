@@ -1872,7 +1872,7 @@ response.** Nothing in a repository changes to bring this about. The new value a
 corpus declares `[index.remote]` and the service behind it does not answer.
 
 If you wrote that validation, widen it. The set is frozen in
-`yidam/prelude/sdks/parity/mcp/tools.json`, which is the file to read it from.
+`yidam/sdks/parity/mcp/tools.json`, which is the file to read it from.
 
 There is a second thing to know, and it is the part a cache gets wrong. The three older values
 are properties of a **deployment**: true when the server starts, true for its lifetime. The new
@@ -2129,7 +2129,7 @@ usually *unknown rejection*. So a misspelled property name arrived unclassified 
 the code set exists to serve. Silently, and in the direction that hides it.
 
 **The repair.** Compare your match arms against the list in
-`yidam/prelude/sdks/parity/mcp/tools.json`. Arms for the three removed names are dead code;
+`yidam/sdks/parity/mcp/tools.json`. Arms for the three removed names are dead code;
 add the five. `diagnostics[].code` is enumerated in the same file for the first time. A
 client can branch on that too, rather than matching its prose.
 

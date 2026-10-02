@@ -10,7 +10,7 @@
 # and publishes it as `ghcr.io/goedelsoup/yidam-cluster:<version>` on each `cli/v*` tag.
 #
 # Built from the repository root, because the CLI crate has two path dependencies beside it:
-# `yidam/prelude/sdks/rust` and `yidam/tests/harness/ci-report`. `Dockerfile.dockerignore`
+# `yidam/sdks/rust` and `yidam/tests/harness/ci-report`. `Dockerfile.dockerignore`
 # beside this file keeps every `target/` and `node_modules/` out of the context.
 
 # The exact toolchain `mise.toml` pins, not `1.88`: that tag floats to the newest patch, and a

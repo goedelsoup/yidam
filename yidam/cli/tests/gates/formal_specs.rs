@@ -32,7 +32,7 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-const SPEC_DIR: &str = "yidam/prelude/sdks/spec";
+const SPEC_DIR: &str = "yidam/sdks/spec";
 
 fn read(rel: &str) -> String {
     let p = repo_root().join(rel);
@@ -261,7 +261,7 @@ fn code_only(yaml: &str) -> String {
 /// A workflow runs the task, and runs *the task* rather than a copy of it.
 ///
 /// This is the whole of #461 in one assertion. `verify` was declared, was documented in
-/// `prelude/sdks/README.md`, and no workflow mentioned dafny, lake, or lean — so the
+/// `yidam/sdks/README.md`, and no workflow mentioned dafny, lake, or lean — so the
 /// specification had a checker on paper and none in fact.
 ///
 /// It must be `mise run verify` and not the three commands spelled out again, because a
@@ -313,7 +313,7 @@ fn a_workflow_runs_the_verification_task() {
 
 /// The prose that documents the task documents the task that exists.
 ///
-/// `prelude/sdks/README.md` carries a copy of `[tasks.verify]` as an example. It carried the
+/// `yidam/sdks/README.md` carries a copy of `[tasks.verify]` as an example. It carried the
 /// broken one — same missing `dir`, same three-of-four file list — which is how a reader
 /// checked the documentation against the config and found them in agreement, both wrong.
 ///
@@ -322,12 +322,12 @@ fn a_workflow_runs_the_verification_task() {
 /// written: on a case-insensitive filesystem nothing notices, and on CI's nothing looked.
 #[test]
 fn the_documented_verify_task_names_the_specs_the_real_one_does() {
-    let readme = read("yidam/prelude/sdks/README.md");
+    let readme = read("yidam/sdks/README.md");
     for ext in ["dfy", "lean"] {
         for spec in spec_files(ext) {
             assert!(
                 readme.contains(&spec),
-                "prelude/sdks/README.md never mentions {spec}, which {SPEC_DIR} holds"
+                "yidam/sdks/README.md never mentions {spec}, which {SPEC_DIR} holds"
             );
         }
     }

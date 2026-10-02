@@ -12,7 +12,7 @@ export interface CommitEvent {
  * Verbs marking a commit as pipeline work rather than a change in understanding.
  *
  * Kept in sync with the commit vocabulary in `prelude/GRAPH.md` and with the
- * `OperationalVerbs` set in `prelude/sdks/spec/graph.dfy`.
+ * `OperationalVerbs` set in `yidam/sdks/spec/graph.dfy`.
  */
 export const OPERATIONAL_VERBS = new Set([
   'extract', 'refresh', 'compute', 'index', 'bundle', 'reconcile', 'regen',

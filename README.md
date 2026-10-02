@@ -238,7 +238,7 @@ raising it is a minor bump at least.
 
 ## Prelude SDKs, parity, and specs
 
-The prelude model is not only prose. [`yidam/prelude/sdks/`](yidam/prelude/sdks/) implements
+The prelude model is not only prose. [`yidam/sdks/`](yidam/sdks/) implements
 it three times — Rust (the reference), TypeScript, and Python — and holds all three to the
 same TOML fixtures. The CLI consumes the Rust implementation as `yidam-core` rather than
 re-implementing the parse-and-classify surface, so drift between the tool and the model

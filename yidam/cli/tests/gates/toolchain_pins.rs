@@ -320,11 +320,7 @@ fn every_workspace_commits_its_lockfile() {
             .collect();
 
     // A workspace root is a Cargo.toml with a [workspace] table, or one cargo builds alone.
-    let roots = [
-        "yidam/cli",
-        "yidam/prelude/sdks/rust",
-        "yidam/tests/harness",
-    ];
+    let roots = ["yidam/cli", "yidam/sdks/rust", "yidam/tests/harness"];
     let missing: Vec<&str> = roots
         .iter()
         .filter(|r| !tracked.contains(&format!("{r}/Cargo.lock")))

@@ -50,7 +50,7 @@ error: [root]: no configuration file with a supported extension:
   ././lakefile.lean
   ././lakefile.toml
 
-$ cd yidam/prelude/sdks/spec && lake build Yidam
+$ cd yidam/sdks/spec && lake build Yidam
 error: ././lakefile.lean:5:10: error: type mismatch
   "Yidam" has type String : Type but is expected to have type Name : Type
 ```

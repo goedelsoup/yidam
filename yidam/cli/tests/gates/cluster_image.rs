@@ -84,7 +84,7 @@ fn covers(filter: &str, dir: &str) -> bool {
 fn the_pull_request_build_reaches_every_input_of_the_image() {
     let deps = path_dependencies();
     // The two the issue names, so a manifest reader that finds nothing cannot pass.
-    for known in ["yidam/prelude/sdks/rust", "yidam/tests/harness/ci-report"] {
+    for known in ["yidam/sdks/rust", "yidam/tests/harness/ci-report"] {
         assert!(
             deps.contains(known),
             "the manifest walk did not find `{known}`, which yidam/cli/Cargo.toml depends on \
@@ -191,7 +191,7 @@ fn a_cli_tag_publishes_the_image_through_the_same_workflow() {
 #[test]
 fn covers_reads_a_directory_glob_and_nothing_looser() {
     assert!(covers("yidam/cli/**", "yidam/cli"));
-    assert!(covers("yidam/**", "yidam/prelude/sdks/rust"));
+    assert!(covers("yidam/**", "yidam/sdks/rust"));
     assert!(!covers("yidam/cli/**", "yidam/cli-other"));
     assert!(!covers("yidam/cli/src/**", "yidam/cli"));
     assert!(!covers("yidam/cluster/Dockerfile", "yidam/cluster"));

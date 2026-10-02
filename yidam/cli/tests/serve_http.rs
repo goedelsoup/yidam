@@ -29,7 +29,7 @@ fn repo_root() -> PathBuf {
 }
 
 fn contract_dir() -> PathBuf {
-    repo_root().join("yidam/prelude/sdks/parity/mcp")
+    repo_root().join("yidam/sdks/parity/mcp")
 }
 
 use common::git::git;

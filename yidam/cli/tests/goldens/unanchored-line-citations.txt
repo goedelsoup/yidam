@@ -68,9 +68,9 @@ docs/rfcs/0028-kuten-layer.md → ../../yidam/cli/src/cmd/sangha.rs#L14-L16
 docs/rfcs/0028-kuten-layer.md → ../../yidam/prelude/CONSTITUTION.md#L65-L76
 docs/rfcs/0028-kuten-layer.md → ../../yidam/prelude/CONSTITUTION.md#L72-L76
 docs/rfcs/0028-kuten-layer.md → ../../yidam/prelude/IDENTITY.md#L27-L28
-docs/rfcs/0028-kuten-layer.md → ../../yidam/prelude/sdks/rust/src/git.rs#L75-L76
-docs/rfcs/0028-kuten-layer.md → ../../yidam/prelude/sdks/rust/src/git.rs#L81
-docs/rfcs/0028-kuten-layer.md → ../../yidam/prelude/sdks/spec/graph.dfy#L5
+docs/rfcs/0028-kuten-layer.md → ../../yidam/sdks/rust/src/git.rs#L75-L76
+docs/rfcs/0028-kuten-layer.md → ../../yidam/sdks/rust/src/git.rs#L81
+docs/rfcs/0028-kuten-layer.md → ../../yidam/sdks/spec/graph.dfy#L5
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/export_web.rs#L12-L21
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/lsp.rs#L250
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/lsp.rs#L418

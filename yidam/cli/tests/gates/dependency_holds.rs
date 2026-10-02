@@ -106,7 +106,7 @@ fn locked_packages() -> BTreeMap<String, Vec<Locked>> {
 
 /// Every `embed_config` fixture, by file name, parsed.
 fn embed_fixtures() -> Vec<(String, toml::Value)> {
-    let dir = repo_root().join("yidam/prelude/sdks/parity/fixtures/embed_config");
+    let dir = repo_root().join("yidam/sdks/parity/fixtures/embed_config");
     let mut fixtures: Vec<PathBuf> = std::fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("{} unreadable: {e}", dir.display()))
         .filter_map(Result::ok)
@@ -134,7 +134,7 @@ fn embed_fixtures() -> Vec<(String, toml::Value)> {
 
 /// The runtime that recorded the parity prefix is the one this workspace resolves.
 ///
-/// `prelude/sdks/parity/fixtures/embed_config/` holds eight normalized dimensions that three
+/// `yidam/sdks/parity/fixtures/embed_config/` holds eight normalized dimensions that three
 /// runtimes must agree on to 1e-5. A major bump on the runtime that recorded them can move them:
 /// fastembed 4 → 6 took `ort` rc.12 → rc.13, which skips the bundled ONNX Runtime ahead four
 /// versions, and answered ~3e-4 differently. transformers.js then still agreed with 4.9.1, so
@@ -211,7 +211,7 @@ fn every_conforming_parity_runtime_is_the_major_its_lockfile_resolves() {
     // skips is one nothing holds.
     let lockfiles: BTreeMap<&str, &str> = [(
         "@huggingface/transformers",
-        "yidam/prelude/sdks/typescript/package-lock.json",
+        "yidam/sdks/typescript/package-lock.json",
     )]
     .into();
 

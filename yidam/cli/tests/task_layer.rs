@@ -806,6 +806,52 @@ fn a_re_vendor_copies_only_the_domains_this_repository_declared() {
     assert_eq!(kept, None, "an older ref must not reinstate any domain");
 }
 
+/// A re-vendor never leaves the SDKs in the prelude, whichever side of the move the ref is on.
+///
+/// `yidam/sdks/` sat inside the prelude until #1311, so every derived repository carried
+/// 66–377 of its files and built none of them. It now sits beside the prelude, and the copy
+/// never brings it — except from a ref older than the move, whose prelude still holds it.
+/// Pinning one of those is legitimate, so the fragment has to take it out again.
+///
+/// Run from the shipped task for the reason the domain test gives: nothing here runs it.
+#[test]
+fn a_re_vendor_leaves_no_sdks_in_the_prelude() {
+    let fragment = vendor_fragment("VENDOR-PRELUDE");
+
+    for legacy in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let tmp = dir.path().join("tmp");
+        let repo = dir.path().join("repo");
+        let upstream = tmp.join("yidam/yidam/prelude");
+        std::fs::create_dir_all(upstream.join("guidelines")).unwrap();
+        std::fs::write(upstream.join("GRAPH.md"), "graph").unwrap();
+        std::fs::write(upstream.join("guidelines/agent-conduct.md"), "conduct").unwrap();
+        if legacy {
+            std::fs::create_dir_all(upstream.join("sdks/rust")).unwrap();
+            std::fs::write(upstream.join("sdks/rust/Cargo.toml"), "[package]").unwrap();
+        }
+        // What the previous vendor left: a repository on a pre-move pin has the SDKs already.
+        let stale = repo.join(".yidam/.vendor/prelude/sdks/parity");
+        std::fs::create_dir_all(&stale).unwrap();
+        std::fs::write(stale.join("VERSION"), "0.1.0").unwrap();
+
+        run_fragment(&fragment, &repo, &tmp);
+
+        let prelude = repo.join(".yidam/.vendor/prelude");
+        assert!(
+            !prelude.join("sdks").exists(),
+            "the SDKs survived a re-vendor (ref from {} the move)",
+            if legacy { "before" } else { "after" }
+        );
+        // A fragment that deleted the prelude would pass the line above.
+        assert_eq!(
+            std::fs::read_to_string(prelude.join("guidelines/agent-conduct.md")).unwrap(),
+            "conduct",
+            "the rest of the prelude must still be copied"
+        );
+    }
+}
+
 /// The `[tools]` entry is derived from the pin, and touches nothing else in the file.
 ///
 /// `.yidam.toml` pins a **commit**; a mise `[tools]` entry names a **version**. VERSIONING.md

@@ -293,7 +293,7 @@ makes a cited node an edge target, and `graph-check` is untouched.
 **The MCP `check_citation` tool.** It requires `package`, so it never constructs a
 package-less citation and `citations::findings` keeps the shape the frozen contract describes.
 A local equivalent is worth having and is deliberately not in this RFC: the contract in
-`prelude/sdks/parity/mcp/tools.json` has a version, a bump is not a local decision, and this
+`yidam/sdks/parity/mcp/tools.json` has a version, a bump is not a local decision, and this
 change does not need one.
 
 **`references:`.** RFC-0032's field is for a thing that is not a node. `cites:` keeps its

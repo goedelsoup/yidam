@@ -80,7 +80,7 @@ readers and agents can assess the node's reliability without reading sources:
   decide nothing. The present tense is not narration — *"this node now carries `[open]`"*
   applies a tag — and neither is a copula: *"why the appointment was made is `[open]`"* is a
   live claim. The rule is frozen alongside the `open_questions` arms in
-  [`sdks/parity/mcp/tools.json`](../sdks/parity/mcp/tools.json).
+  `yidam/sdks/parity/mcp/tools.json`.
   [why](agent-conduct.evidence.md#naming-a-tag)
 
 ### An edge is a claim

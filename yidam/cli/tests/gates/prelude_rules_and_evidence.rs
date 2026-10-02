@@ -604,11 +604,17 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// **`bootstrap.md` raised to 11,466 for #1321.** 307 words arrived: 173 in the rules half (the
 /// figure `BOOTSTRAP_CEILING` moved by) and 134 in `a-pack-before-a-crate`. Main measured
 /// exactly 11,159, so there was no slack to close.
+///
+/// **`bootstrap.md` lowered to 11,456 for #1311**, the second downward move and for #934's
+/// reason. The SDKs moved out of the prelude, so the paragraph saying they move with it — and
+/// that the prelude's own links read into them — stopped being true. It was retired, not moved:
+/// its 10-word-shorter replacement says they are not vendored. Nothing changed in the evidence
+/// half.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_686),
     ("yidam/prelude/GRAPH.md", 10_830),
     ("yidam/prelude/guidelines/directories.md", 13_113),
-    ("yidam/prelude/skills/bootstrap.md", 11_466),
+    ("yidam/prelude/skills/bootstrap.md", 11_456),
 ];
 
 /// The `##` sections of the seven step-1 files that no read reaches, as `file#slug` under

@@ -530,8 +530,7 @@ fn add_offline_reads_a_recorded_pin_and_writes_the_pinned_identifier() {
 fn every_emitted_field_is_declared_in_the_schema() {
     let schema: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(
-            common::repo_root()
-                .join("yidam/prelude/sdks/parity/fixtures/reports/report.schema.json"),
+            common::repo_root().join("yidam/sdks/parity/fixtures/reports/report.schema.json"),
         )
         .unwrap(),
     )

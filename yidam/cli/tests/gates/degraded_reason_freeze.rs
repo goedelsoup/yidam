@@ -2,7 +2,7 @@
 //!
 //! `retrieval/mod.rs` has always pinned the spellings — against constants in the same file.
 //! That holds a rename to a deliberate act and proves nothing about the document a client
-//! actually reads: `prelude/sdks/parity/mcp/tools.json` is the freeze, and it says so itself —
+//! actually reads: `yidam/sdks/parity/mcp/tools.json` is the freeze, and it says so itself —
 //! *"a value outside this set is a divergence; a server needing one should add it here first."*
 //!
 //! Adding `remote_unavailable` is the first time that instruction has been followed, and the
@@ -40,7 +40,7 @@ fn repo_root() -> PathBuf {
 }
 
 fn tools_json() -> String {
-    let p = repo_root().join("yidam/prelude/sdks/parity/mcp/tools.json");
+    let p = repo_root().join("yidam/sdks/parity/mcp/tools.json");
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{} unreadable: {e}", p.display()))
 }
 
@@ -95,7 +95,7 @@ fn every_reason_this_server_produces_is_in_the_freeze() {
         missing.is_empty(),
         "these degraded reasons are produced and not frozen: {missing:?}.\n\
          The contract says a value outside its set is a divergence and that a server needing \
-         one should add it to `prelude/sdks/parity/mcp/tools.json` FIRST. Add it there, and \
+         one should add it to `yidam/sdks/parity/mcp/tools.json` FIRST. Add it there, and \
          bump the contract version in all three places that carry it."
     );
 }
@@ -135,7 +135,7 @@ fn every_frozen_reason_is_produced_by_something() {
 /// and this file is where it gets changed.
 #[test]
 fn the_three_copies_of_the_contract_version_agree() {
-    let root = repo_root().join("yidam/prelude/sdks/parity/mcp");
+    let root = repo_root().join("yidam/sdks/parity/mcp");
     let declared: serde_json::Value =
         serde_json::from_str(&tools_json()).expect("tools.json is JSON");
     let in_json = declared["contract"]

@@ -860,9 +860,8 @@ mkdir -p .yidam/.vendor
 mv yidam/prelude .yidam/.vendor/prelude
 ```
 
-`prelude/sdks/` is part of the prelude and moves with it — the prelude's own README and
-`agent-conduct.md` link into it, so it is read from inside a derived repository even though it
-is not built there.
+`yidam/sdks/` is not part of the prelude and is not vendored. A derived repository builds none
+of it, so it goes with the rest of `yidam/`.
 
 **Then vendor the domain libraries this corpus asked for, and none other.** `yidam/domains/`
 is fifteen domain libraries in three languages each, beside the prelude rather than inside it.

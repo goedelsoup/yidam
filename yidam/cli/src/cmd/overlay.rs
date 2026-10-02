@@ -280,7 +280,7 @@ mod tests {
             "yidam/editors/vscode/out/extension.js",
             "yidam/editors/web/.astro/types.d.ts",
             "yidam/editors/web/junit.xml",
-            "yidam/prelude/sdks/python/.pytest_cache/v/cache/lastfailed",
+            "yidam/sdks/python/.pytest_cache/v/cache/lastfailed",
             "yidam/web/docs/.astro/settings.json",
             "sadhana/target/debris",
         ] {
@@ -504,7 +504,7 @@ mod tests {
             "yidam/editors/vscode/out",
             "yidam/editors/web/.astro",
             "yidam/editors/web/junit.xml",
-            "yidam/prelude/sdks/python/.pytest_cache",
+            "yidam/sdks/python/.pytest_cache",
             "yidam/web/docs/.astro",
             "sadhana/target",
         ] {

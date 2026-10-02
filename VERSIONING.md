@@ -73,13 +73,13 @@ a correction made upstream reaches it on the next template bump it adopts.
 
 ## Layer 2 — SDKs
 
-Three independently-versioned packages living under `yidam/prelude/sdks/`:
+Three independently-versioned packages living under `yidam/sdks/`:
 
 | Package | Manifest | Registry |
 |---|---|---|
-| `yidam-core` | `yidam/prelude/sdks/rust/Cargo.toml` | crates.io |
-| `@yidam/core` | `yidam/prelude/sdks/typescript/package.json` | not published |
-| `yidam-core` | `yidam/prelude/sdks/python/pyproject.toml` | not published |
+| `yidam-core` | `yidam/sdks/rust/Cargo.toml` | crates.io |
+| `@yidam/core` | `yidam/sdks/typescript/package.json` | not published |
+| `yidam-core` | `yidam/sdks/python/pyproject.toml` | not published |
 
 Only the Rust package is released, and it is tagged `sdk/rust/v{major}.{minor}.{patch}`.
 The other two are versioned in their manifests and move with the parity surface; they have
@@ -102,15 +102,15 @@ written down because a deferral with no condition attached is how a promise surv
 decision not to keep it — which is what the previous version of this table was.
 
 **Parity surface version.** The parity functions are versioned jointly in
-`yidam/prelude/sdks/parity/VERSION`. The authoritative list is the `functions` loop in the
+`yidam/sdks/parity/VERSION`. The authoritative list is the `functions` loop in the
 `parity-check` task in `mise.toml`, which fails if any of them has no fixture — this
 document deliberately does **not** restate it. It used to, and said "the nine" while the
 loop walked ten: a document naming an authoritative source and then copying it is the drift
 the loop exists to prevent, one file over. A change to any parity function's contract requires:
 
-1. Bump `yidam/prelude/sdks/parity/VERSION`
+1. Bump `yidam/sdks/parity/VERSION`
 2. Update all three SDK implementations in the same PR
-3. Update parity fixtures in `yidam/prelude/sdks/parity/fixtures/`
+3. Update parity fixtures in `yidam/sdks/parity/fixtures/`
 4. All three SDK packages release with a matching major bump (if breaking)
 
 SDK packages may diverge from each other on non-parity additions. They must never
@@ -277,7 +277,7 @@ the version lives, it goes stale on the first release nobody remembers to follow
 staleness is invisible from here — it shows up as a stranger installing an old binary.
 
 **Three artifacts, one layer — the same shape as Layer 2.** The SDKs are three packages held
-together by one jointly-versioned contract (`yidam/prelude/sdks/parity/VERSION`), of which
+together by one jointly-versioned contract (`yidam/sdks/parity/VERSION`), of which
 one is released. This layer is the same arrangement with three artifacts and
 a different contract: `format_version`.
 
@@ -364,7 +364,7 @@ or `yidam/editors/`. Not the parity SDKs, which the CLI depends on and does not 
 1. **Decide which layers are affected** by the changeset. Four now, not three — the
    tooling layer is the one an RFC header means when it writes "tooling (`yidam` CLI)".
 2. **Update the relevant manifests** (`Cargo.toml` version, `package.json`, `pyproject.toml`,
-   `PROTOCOL_VERSION` const, or `yidam/prelude/sdks/parity/VERSION`).
+   `PROTOCOL_VERSION` const, or `yidam/sdks/parity/VERSION`).
 3. **Run `mise run ci`** — all tests must pass.
 4. **For SDK changes**, run `mise run parity` — all three SDK parity suites must pass.
    The `ci (parity)` job runs it on every push and pull request.

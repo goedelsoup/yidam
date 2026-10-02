@@ -50,9 +50,10 @@ The present tense and the copula were both cut from the rule by measurement, at 
 positives between them: *"this node now carries `[open]`"* applies a tag rather than narrating
 one, and *"why the appointment was made is `[open]`"* is a live claim.
 
-The rule is frozen alongside the `open_questions` arms in `sdks/parity/mcp/tools.json` because a
-contract that says which arms exist and leaves *what counts as a claim* unsaid lets two
-conforming implementations disagree fivefold — which is exactly what happened.
+The rule is frozen alongside the `open_questions` arms in yidam's MCP contract
+(`yidam/sdks/parity/mcp/tools.json`, upstream) because a contract that says which arms exist and
+leaves *what counts as a claim* unsaid lets two conforming implementations disagree fivefold —
+which is exactly what happened.
 
 ## edge-is-a-claim
 

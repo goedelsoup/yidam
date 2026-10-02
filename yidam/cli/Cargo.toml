@@ -165,7 +165,7 @@ serde = { version = "1", features = ["derive"] }
 # `value/index.rs`. Same five dependencies, MSRV 1.64 against this crate's 1.88.
 #
 # That identity is the reason for the choice and not a convenience.
-# `prelude/sdks/parity/README.md` pins this parser's YAML 1.1 scalar resolution as the Rust
+# `yidam/sdks/parity/README.md` pins this parser's YAML 1.1 scalar resolution as the Rust
 # side of a three-language contract — given `010` it answers `"010"` where PyYAML answers
 # `8` — and 110 fixtures are written against it. A parser resolving scalars differently
 # would be a new contract rather than a maintenance bump, which is what rules out
@@ -207,8 +207,8 @@ toml = "1.1"
 # source, which a comment mentioning `http.send` would answer just as well.
 regorus = { version = "0.12", default-features = false, features = ["arc", "ast", "regex"] }
 # Parity SDK — reference implementations of classify_commit etc.; the CLI
-# must not re-implement the parity surface (see prelude/sdks/parity/README.md).
-yidam-core = { path = "../prelude/sdks/rust", version = "0.11.0" }
+# must not re-implement the parity surface (see yidam/sdks/parity/README.md).
+yidam-core = { path = "../sdks/rust", version = "0.11.0" }
 
 # ── optional: `vector-read` — semantic index build, and the vector arm of the
 #    MCP server's `retrieve`. Not `serve` itself: that is in the light default,

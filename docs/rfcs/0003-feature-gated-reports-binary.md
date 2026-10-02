@@ -146,7 +146,7 @@ Ship the reports-capable binary two ways, so no consumer needs a Rust build:
 
 1. **crates.io** — publish `yidam` so `cargo install yidam` installs the default (`reports`)
    tool. This requires publishing the `yidam-core` path dependency first: `Cargo.toml:43`
-   pins it as `{ path = "../prelude/sdks/rust" }`, and a crates.io release cannot carry a
+   pins it as `{ path = "../sdks/rust" }`, and a crates.io release cannot carry a
    `path` dep — it must become a `version` dep against the published `yidam-core`
    (already slated for crates.io in `VERSIONING.md:58`). Add a `full` convenience feature
    (`full = ["reports", "index", "export-sqlite", "export-graph"]`) so

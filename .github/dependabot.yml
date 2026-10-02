@@ -34,7 +34,7 @@ updates:
       cargo-cli:
         patterns: ["*"]
   - package-ecosystem: cargo
-    directory: /yidam/prelude/sdks/rust
+    directory: /yidam/sdks/rust
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 2
     groups:
@@ -123,7 +123,7 @@ updates:
   # once instead of leaving fourteen behind the one that went first.
   - package-ecosystem: npm
     directories:
-      - /yidam/prelude/sdks/typescript
+      - /yidam/sdks/typescript
       - /yidam/domains/*/typescript
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 3

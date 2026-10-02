@@ -526,7 +526,7 @@ fn is_epistemic(subject: &str) -> bool {
 /// gives: a roster written here would stop covering a verb the vocabulary gained without ever
 /// going red.
 fn operational_verbs() -> Vec<String> {
-    let src = std::fs::read_to_string(repo_root().join("yidam/prelude/sdks/rust/src/git.rs"))
+    let src = std::fs::read_to_string(repo_root().join("yidam/sdks/rust/src/git.rs"))
         .expect("the shipped Rust SDK");
     let (_, rest) = src
         .split_once("pub const OPERATIONAL_VERBS: &[&str] = &[")

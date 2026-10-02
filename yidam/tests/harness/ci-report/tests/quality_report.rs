@@ -11,7 +11,7 @@
 //!
 //! # Where the golden lives
 //!
-//! Beside this crate, not in `yidam/prelude/sdks/parity/fixtures/reports/`. #467 said "beside
+//! Beside this crate, not in `yidam/sdks/parity/fixtures/reports/`. #467 said "beside
 //! `tests/goldens/`, as every other report is goldened", and the report goldens are not
 //! there: they are parity fixtures, and every one of them is a document three language SDKs
 //! must reproduce byte for byte. Nothing reimplements a CI report, and putting this in that

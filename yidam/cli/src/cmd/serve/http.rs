@@ -10,7 +10,7 @@
 //! takes a method and params and returns a result, and knows nothing about framing. `run_loop`
 //! frames it as newline-delimited JSON on stdio; this frames it as HTTP. The payloads are
 //! identical by construction, which is what makes the parity cases in
-//! `prelude/sdks/parity/mcp/` answer for both transports without being run twice.
+//! `yidam/sdks/parity/mcp/` answer for both transports without being run twice.
 //!
 //! # Why hyper directly and not a framework
 //!
@@ -194,7 +194,7 @@ pub(crate) fn origin_allowed(origin: Option<&str>, allowed: &[String]) -> bool {
 ///
 /// Shape only, and the reason is worth stating because a stricter check reads as the safer
 /// one. This server's payloads do not vary by protocol version — they are frozen in
-/// `prelude/sdks/parity/mcp/tools.json`, and `initialize` echoes whatever version it was asked
+/// `yidam/sdks/parity/mcp/tools.json`, and `initialize` echoes whatever version it was asked
 /// for rather than negotiating one. So there is no well-formed version it *cannot* serve, and
 /// a hardcoded list of the three that exist today would refuse the fourth on the day it ships,
 /// asserting an incompatibility that does not exist.
@@ -1295,7 +1295,7 @@ mod tests {
     /// Both transports answer from the same `handle`, so a tool answers identically over each.
     ///
     /// This is the property RFC-0005 froze payloads rather than framing for. If it ever fails,
-    /// the parity cases in `prelude/sdks/parity/mcp/` stop answering for the HTTP surface and
+    /// the parity cases in `yidam/sdks/parity/mcp/` stop answering for the HTTP surface and
     /// would have to be run twice.
     #[test]
     fn the_http_answer_is_the_stdio_answer() {

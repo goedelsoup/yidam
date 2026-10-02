@@ -135,7 +135,7 @@ that never agreed to it. Where a threshold is genuinely a corpus's own business,
 
 ## The SDKs and parity
 
-`yidam/prelude/sdks/` implements the prelude model three times — Rust (the reference),
+`yidam/sdks/` implements the prelude model three times — Rust (the reference),
 TypeScript, and Python — held to the same TOML fixtures.
 
 ```sh

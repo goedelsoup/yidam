@@ -53,3 +53,10 @@ toml = "1.1"
 # than against a parser change.
 serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 serde_json = "1"
+
+# Dependencies carry no debug info, for the link-count reason `yidam/cli/Cargo.toml` gives.
+# The `build_profile` gate exempted this manifest while it sat in the vendored prelude; it
+# reached it when the SDKs moved out (#1311). A profile in a published crate is read only
+# when this is the root being built, so a crates.io consumer's build is untouched.
+[profile.dev.package."*"]
+debug = 0

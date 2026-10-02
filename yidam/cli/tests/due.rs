@@ -21,7 +21,7 @@ use std::process::Command;
 mod common;
 
 fn fixture_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/sdks/parity/fixtures/reports/basic")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../sdks/parity/fixtures/reports/basic")
 }
 
 /// The reports fixture, committed, with every clock declared and every one of them due.

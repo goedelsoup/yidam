@@ -4,7 +4,7 @@
 - **Track:** I1
 - **Relates to:** RFC-0002 (node model the reports run on), RFC-0003 (a light binary to
   generate goldens from), RFC-0005 (the MCP `open_questions` tool shares this predicate)
-- **Versioning layers touched:** SDK + parity (`prelude/sdks/parity/VERSION`)
+- **Versioning layers touched:** SDK + parity (`yidam/sdks/parity/VERSION`)
 - **Downstream reference case:** Project BOSC (`watermark-directory`)
 
 ## Summary
@@ -71,16 +71,16 @@ visible" (RFC-0004) is meaningless without a way to test conformance.
 
 ## Proposal
 
-Add a **`reports/` fixture family** under `prelude/sdks/parity/fixtures/reports/`, a sibling of the
+Add a **`reports/` fixture family** under `yidam/sdks/parity/fixtures/reports/`, a sibling of the
 per-function fixtures, and make `mise run parity` diff every re-implementer's report output against
-it — exactly as the eight function fixtures are diffed today (`prelude/sdks/parity/README.md:44-62`;
-Rust runner `prelude/sdks/rust/tests/parity.rs:11-76`, Python `.../python/tests/parity/test_parity.py:9-42`).
+it — exactly as the eight function fixtures are diffed today (`yidam/sdks/parity/README.md:44-62`;
+Rust runner `yidam/sdks/rust/tests/parity.rs:11-76`, Python `.../python/tests/parity/test_parity.py:9-42`).
 
 Because a report takes a *corpus tree* rather than one string, each fixture is a **directory**, not
 a single TOML:
 
 ```
-prelude/sdks/parity/fixtures/reports/<case-name>/
+yidam/sdks/parity/fixtures/reports/<case-name>/
   case.toml                       # description; which reports/lint-variants to run
   input/                          # the corpus the reports run against — repo root of the case
     .yidam/corpus/
@@ -141,7 +141,7 @@ diff against `expected/` — the same load-and-assert loop already in `parity.rs
 `test_parity.py:9-17`, extended to read a directory instead of a `.toml`.
 
 **Make the reports a first-class part of the versioning contract.** Govern the `reports/` family by
-the same joint `prelude/sdks/parity/VERSION` (`0.3.0` today) that already versions the eight
+the same joint `yidam/sdks/parity/VERSION` (`0.3.0` today) that already versions the eight
 functions (`VERSIONING.md:65-76`). Adding the family bumps it once; thereafter the rule mirrors the
 existing fixture discipline — **additions are safe, mutations are breaking.** Changing a report's
 output shape (a new `kind`, a reordered column, a different open predicate) requires a fixture

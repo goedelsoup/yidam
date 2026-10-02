@@ -711,9 +711,15 @@ for dir in .yidam/.vendor/domains .yidam/.vendor/prelude/domains; do
     vendored="$vendored $(ls "$dir" | grep -vxE 'README.md|parity' || true)"
   fi
 done
+# VENDOR-PRELUDE BEGIN
 rm -rf .yidam/.vendor/prelude
 mkdir -p .yidam/.vendor
 cp -R "$tmp/yidam/yidam/prelude" .yidam/.vendor/prelude
+# The SDKs are yidam's to build and test, and no derived repository builds them, so
+# they sit beside the prelude (#1311). A ref from before the move carries them
+# inside it; never leave them in the copy.
+rm -rf .yidam/.vendor/prelude/sdks
+# VENDOR-PRELUDE END
 # ── the domain libraries, and the choice this repository already made ─
 #
 # `yidam/domains/` is fifteen libraries in three languages each, and a derived

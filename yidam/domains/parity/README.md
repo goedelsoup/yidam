@@ -1,7 +1,7 @@
 # Domain Parity
 
 Cross-language fixture suite for domain calculator functions. Same discipline as
-[`prelude/sdks/parity/`](../../prelude/sdks/parity/README.md) — same TOML format, same MUST
+[`yidam/sdks/parity/`](https://github.com/goedelsoup/yidam/blob/main/yidam/sdks/parity/README.md) — same TOML format, same MUST
 rule, Rust is always the reference implementation.
 
 ## What belongs here
@@ -10,12 +10,12 @@ Domain functions: pure mathematical or analytical operations that are specific t
 domain and shared across derived repos using that domain. Examples: causal effect
 estimation, confounding scoring, information-theoretic metrics, graph centrality measures.
 
-Core prelude functions (`parse_node`, `classify_commit`, etc.) stay in `prelude/sdks/parity/`.
+Core prelude functions (`parse_node`, `classify_commit`, etc.) stay in `yidam/sdks/parity/`.
 Anything domain-specific goes here.
 
 ## Fixture format
 
-Identical to `prelude/sdks/parity/` fixtures:
+Identical to `yidam/sdks/parity/` fixtures:
 
 ```toml
 function = "<domain>.<function_name>"

@@ -31,7 +31,7 @@ everything else is language-native in idiom, dependency, and audience.
 ## Directory structure
 
 ```
-prelude/sdks/
+yidam/sdks/
   README.md               ← this document
   spec/                   ← formal specifications (Dafny, LEAN 4)
     graph.dfy             ← corpus graph invariants, marker update correctness
@@ -197,7 +197,7 @@ have:
 
 - **No `kind`.** A phase's *type* — Investigation, Extraction, Synthesis, Assessment — is
   declared by the vendored kuten (`kuten/inquiry/kuten.yml`, `phases.types`) and described in
-  [PHASES.md](../PHASES.md). Nothing in any repository records a type against a phase: across
+  [PHASES.md](../prelude/PHASES.md). Nothing in any repository records a type against a phase: across
   the eighteen corpora the layer was measured over there are 60 `phase/*` refs and 301
   `phase:` subjects, and not one of either encodes a type. The validator that would read one
   is filed and unbuilt.
@@ -794,9 +794,9 @@ to all three SDKs simultaneously.
 [tasks.parity]
 description = "Run cross-language parity tests across all three SDKs."
 run = [
-  "cargo test --manifest-path prelude/sdks/rust/Cargo.toml -- parity",
-  "npx vitest run prelude/sdks/typescript/",
-  "python -m pytest prelude/sdks/python/tests/parity/",
+  "cargo test --manifest-path yidam/sdks/rust/Cargo.toml -- parity",
+  "npx vitest run yidam/sdks/typescript/",
+  "python -m pytest yidam/sdks/python/tests/parity/",
 ]
 
 [tasks.verify]
@@ -805,7 +805,7 @@ description = "Formal verification: Dafny specs and LEAN 4 proofs (needs lake on
 # directory, so without this it looks for one at the repository root and there is none.
 # The task stood here and in mise.toml for months with repo-relative paths and no `dir`,
 # which is why it had never run once (#461).
-dir = "prelude/sdks/spec"
+dir = "yidam/sdks/spec"
 tools = { "github:dafny-lang/dafny" = { version = "4.11.0", extract_all = true, bin_path = "dafny" } }
 run = [
   "dafny verify graph.dfy",

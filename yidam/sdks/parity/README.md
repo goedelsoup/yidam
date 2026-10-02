@@ -231,7 +231,7 @@ what the first line of this file promises was missing with every gate green (#53
 now is `yidam/cli/tests/gates/parity_implementations.rs`, in two tests: every SDK *defines* every
 function, and every SDK's runner *loads* every fixture directory. Both sides are discovered —
 the functions out of `parity-check`'s own `functions` loop, the SDKs by walking
-`prelude/sdks/*/tests/` — so neither can rot into naming one SDK and forgetting the others.
+`yidam/sdks/*/tests/` — so neither can rot into naming one SDK and forgetting the others.
 It reads the runners with their comments stripped, because a check that greps a whole file is
 answered by the paragraph explaining what it looks for.
 
