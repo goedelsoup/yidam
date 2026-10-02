@@ -151,8 +151,7 @@ auth         = [{ env = "CROSSREF_TOKEN", header = "Crossref-Plus-API-Token", pr
 archive      = "wayback"
 
 [defaults]
-ttl_days        = 365
-redistributable = false
+ttl_days = 365
 
 [fixtures]
 "doi:10.1167/tvst.8.5.14" = "crossref-tvst.json"
@@ -225,10 +224,12 @@ Fetch it by hand, and record the export as a `kind: file` location.
 | Key | Value |
 |---|---|
 | `ttl_days` | The `ttl_days` a new entry from this pack starts with. |
-| `redistributable` | Whether a new entry's artifacts may leave this machine. |
 
 `source add` writes `ttl_days` into the draft entry it commits.
-`redistributable` is parsed and type-checked, and nothing reads it yet.
+
+A pack cannot set `redistributable`, and a pack that tries fails to load.
+Whether bytes may leave this machine is a licence for one source.
+Write `redistributable: true` on that artifact's record, in the entry.
 
 ### `[fixtures]`
 

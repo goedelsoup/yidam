@@ -184,8 +184,7 @@ auth          = []           # e.g. [{ env = "COURTLISTENER_TOKEN", header = "Au
 archive       = "wayback"    # may add a pinned `id_` snapshot location (§5)
 
 [defaults]
-ttl_days        = 365
-redistributable = false
+ttl_days = 365
 ```
 
 Resolution is a template wherever a template suffices. The 86 measured `url_template` values
