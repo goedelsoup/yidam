@@ -445,6 +445,12 @@ fn verdict_of(held: bool) -> Verdict {
     }
 }
 
+/// Member order for two labels from [`letter`]: shorter first, so `Z` precedes `AA`, which a
+/// plain string comparison would put before `B`.
+fn letter_order(a: &str, b: &str) -> std::cmp::Ordering {
+    (a.len(), a).cmp(&(b.len(), b))
+}
+
 /// `A`, `B`, … `Z`, `AA`, `AB`. Bijective base-26, so no member is ever unlabelled.
 fn letter(mut i: usize) -> String {
     let mut out = Vec::new();
@@ -599,7 +605,9 @@ pub fn collect(roots: &[PathBuf], show_paths: bool) -> CohortReport {
 
     let mut accretion = accretion::assess(&trajectories);
     accretion.excluded.extend(out_of_vintage);
-    accretion.excluded.sort_by(|a, b| a.letter.cmp(&b.letter));
+    accretion
+        .excluded
+        .sort_by(|a, b| letter_order(&a.letter, &b.letter));
 
     CohortReport {
         read: members.len(),
@@ -819,6 +827,18 @@ pub(crate) fn render(r: &CohortReport) -> String {
 /// legible from this report alone.
 fn render_accretion(out: &mut String, a: &accretion::Accretion) {
     let Some((young, old)) = a.ages else {
+        // Nothing could be fitted. Still say so, and why, when there were members to fit:
+        // the JSON carries the exclusions, and the text must not read as if accretion was
+        // never asked about.
+        if !a.excluded.is_empty() {
+            out.push_str(
+                "\nAccretion — the candidates RFC-0028 names for `inquiry`'s retired `classes` \
+                 bands (#1303).\n  No member could be fitted, so no candidate has a band.\n\n",
+            );
+            for e in &a.excluded {
+                let _ = writeln!(out, "  {} not fitted — {}", e.letter, e.reason);
+            }
+        }
         return;
     };
     let _ = write!(
@@ -885,6 +905,28 @@ mod tests {
         // Every index gets a distinct label, which is the whole requirement.
         let all: std::collections::BTreeSet<String> = (0..1000).map(letter).collect();
         assert_eq!(all.len(), 1000);
+    }
+
+    #[test]
+    fn letters_sort_in_member_order_past_z() {
+        let mut labels: Vec<String> = (0..60).rev().map(letter).collect();
+        labels.sort_by(|a, b| letter_order(a, b));
+        assert_eq!(labels, (0..60).map(letter).collect::<Vec<_>>());
+    }
+
+    /// Every member out of vintage leaves no band to fit, and the text still names them, as
+    /// the JSON does.
+    #[test]
+    fn a_cohort_with_nothing_fitted_still_lists_its_exclusions() {
+        let mut r = report(vec![]);
+        r.accretion.excluded.push(accretion::Excluded {
+            letter: "A".into(),
+            reason: "vintage: too old".into(),
+        });
+        let text = render(&r);
+        assert!(text.contains("No member could be fitted"), "{text}");
+        assert!(text.contains("A not fitted — vintage: too old"), "{text}");
+        assert!(!render(&report(vec![])).contains("Accretion"));
     }
 
     fn standing(held: usize, lost: usize, vintage: usize, unmeasurable: usize) -> Standing {
