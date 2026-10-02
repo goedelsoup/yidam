@@ -85,7 +85,7 @@ yidam/tests/results/**/transcript.jsonl
 # `lake build` writes .olean/.ilean/.c into `.lake/` beside the sources it compiles. The
 # manifest is committed — it is the dependency pin, and this package has zero dependencies,
 # which is a fact worth being able to see change.
-yidam/prelude/sdks/spec/.lake/
+yidam/sdks/spec/.lake/
 
 # Lockfiles are NOT ignored, for the same reason `.config/` below is not: a `Cargo.lock`
 # entry in a *global* gitignore hid two of this repository's three from `git status`, so

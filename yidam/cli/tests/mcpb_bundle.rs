@@ -320,7 +320,7 @@ fn substitute(raw: &str, dirname: &Path, corpus: &Path) -> String {
 }
 
 fn stage_corpus(into: &Path) {
-    let from = repo_root().join("yidam/prelude/sdks/parity/mcp/corpus");
+    let from = repo_root().join("yidam/sdks/parity/mcp/corpus");
     assert!(from.is_dir(), "no fixture corpus at {}", from.display());
     for entry in walkdir::WalkDir::new(&from)
         .into_iter()

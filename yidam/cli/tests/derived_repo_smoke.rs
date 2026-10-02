@@ -61,8 +61,9 @@ impl Derived {
         let target = dir.path();
 
         let files = materialize(&root, target, &BTreeSet::new());
+        // 50 when the SDKs left the prelude (#1311); before, they were most of the count.
         assert!(
-            files > 100,
+            files >= 45,
             "only {files} files materialized — the mapping or the ls-files walk is broken"
         );
 
@@ -416,6 +417,43 @@ fn the_default_bootstrap_installs_no_sangha() {
     assert!(
         !graph.contains("](../../sangha/README.md)"),
         "GRAPH.md links a directory this repository does not have"
+    );
+}
+
+/// No bootstrap answer vendors the SDKs (#1311).
+///
+/// `yidam/sdks/` moved out of the prelude because no derived repository builds it. This
+/// tree is built by *adding* what the mapping names, so a leftover is invisible to it unless
+/// something asks: the vendor step that strips it is a `mv` and an `rm` in prose, not a row.
+/// So the question is put directly, with every condition answered yes, since a conditional
+/// row is the likeliest way for the SDKs to come back.
+#[test]
+fn no_bootstrap_vendors_the_sdks() {
+    let root = repo_root();
+    let sdks = tracked_under(&root, "yidam/sdks/");
+    assert!(
+        sdks.len() > 50,
+        "yidam/sdks/ tracks {} file(s) — the walk is broken, or the layer moved again and \
+         this test now guards nothing",
+        sdks.len()
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let every = BTreeSet::from([
+        common::COLLECTIVE,
+        common::DOMAIN_SELECTED,
+        common::SOURCE_SELECTED,
+    ]);
+    materialize(&root, dir.path(), &every);
+    let carried: Vec<String> = walkdir::WalkDir::new(dir.path().join(".yidam/.vendor"))
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name() == "sdks")
+        .map(|e| e.path().display().to_string())
+        .collect();
+    assert!(
+        carried.is_empty(),
+        "a derived repository builds none of the SDKs, and this one was vendored {carried:?}"
     );
 }
 

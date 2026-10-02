@@ -82,7 +82,7 @@ export const DEFAULT_OPTIONS: Options = { showBaselined: true }
  * `severity_of` in `yidam/cli/src/cmd/lsp.rs` is the same four rows in Rust. The duplication
  * is deliberate: the alternative is an editor that cannot render a diagnostic without a
  * subprocess per keystroke. Both are pinned to
- * `prelude/sdks/parity/fixtures/diagnostic_severity/` rather than to their own restatements
+ * `yidam/sdks/parity/fixtures/diagnostic_severity/` rather than to their own restatements
  * of the table, because two transcriptions each pinned only by their own test can be
  * independently right about different tables.
  *

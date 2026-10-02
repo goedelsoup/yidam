@@ -37,7 +37,7 @@ on:
       - 'yidam/cluster/Dockerfile'
       - 'yidam/cluster/Dockerfile.dockerignore'
       - 'yidam/cli/**'
-      - 'yidam/prelude/sdks/rust/**'
+      - 'yidam/sdks/rust/**'
       - 'yidam/tests/harness/ci-report/**'
       - '.github/workflows/cluster-image.yml'
   # Main as well, because a PR's green describes its merge ref at the time it ran, and main is
@@ -48,7 +48,7 @@ on:
       - 'yidam/cluster/Dockerfile'
       - 'yidam/cluster/Dockerfile.dockerignore'
       - 'yidam/cli/**'
-      - 'yidam/prelude/sdks/rust/**'
+      - 'yidam/sdks/rust/**'
       - 'yidam/tests/harness/ci-report/**'
       - '.github/workflows/cluster-image.yml'
   # The publishing entrance. `tag` is the CLI tag being released; the image version is the part

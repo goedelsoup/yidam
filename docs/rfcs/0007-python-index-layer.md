@@ -19,7 +19,7 @@
 >
 > **Ask 2, one canonical text assembly, shipped — in a different shape than the Proposal
 > names.** It is `compose_embed_text`, a parity function in all three SDKs held to twelve
-> fixtures in `prelude/sdks/parity/fixtures/compose_embed_text/`. Two departures from the
+> fixtures in `yidam/sdks/parity/fixtures/compose_embed_text/`. Two departures from the
 > Proposal, both deliberate:
 >
 > - **It is not "mirroring BOSC's proven shape (label · description · class · salient-meta)".**
@@ -242,7 +242,7 @@ turns out not to matter is worth the same sentence as one that does, and "not pu
   convention?** *A parity function.* The argument in the question was the right one — it is the
   exact seam where two implementations already diverged — and a convention is what the seam
   already had. It is `compose_embed_text`, in the table in
-  [`parity/README.md`](../../yidam/prelude/sdks/parity/README.md), implemented in all three
+  [`parity/README.md`](../../yidam/sdks/parity/README.md), implemented in all three
   SDKs and held to twelve fixtures.
 
   The question said "**ninth** parity function", and that count was stale when it was written.

@@ -64,7 +64,7 @@
 //! past-tense reporting verb, or a negation. Two candidate arms were cut *by measurement*
 //! downstream (copulas, and the present tense), and the reasons are recorded there.
 //!
-//! The rule is written into `prelude/sdks/parity/mcp/tools.json` with the three arms it
+//! The rule is written into `yidam/sdks/parity/mcp/tools.json` with the three arms it
 //! serves, because a contract that freezes which arms exist and leaves *what counts as a
 //! claim* unsaid lets two conforming implementations disagree fivefold — which is what
 //! happened.
@@ -1605,7 +1605,7 @@ fn count_bracketed_structural(text: &str, fields: &[String]) -> ClaimCounts {
 ///
 /// # Three arms, and the contract says so
 ///
-/// The arms are frozen in `prelude/sdks/parity/mcp/tools.json` (`open_questions`), because
+/// The arms are frozen in `yidam/sdks/parity/mcp/tools.json` (`open_questions`), because
 /// this function and a conforming MCP server elsewhere must answer identically over the same
 /// corpus. When the structural arm landed here it did not land there: the contract still
 /// said two and forbade a third by name, so `yidam open-questions` and a server that

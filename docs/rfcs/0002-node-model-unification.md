@@ -126,7 +126,7 @@ path-based default for ingested Markdown; prose `[tag]` claims become an ingesti
 
 This is a template-layer and SDK+parity-layer change, with a bootstrap-protocol touch:
 
-- **SDK + parity (`prelude/sdks/parity/VERSION`):** bump `0.3.0 → 0.4.0` to add `parse_instance` (and,
+- **SDK + parity (`yidam/sdks/parity/VERSION`):** bump `0.3.0 → 0.4.0` to add `parse_instance` (and,
   under (A), `project_markdown`) to the parity surface. Ship the fixture directory and real
   Python/TS implementations, not just a directory stub — the `mise run parity` gate currently only
   checks that a fixture *directory* exists per name (see RFC-0006), so a missing impl would pass CI

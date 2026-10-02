@@ -83,7 +83,7 @@ case "$LAYER" in
   template)
     TAG="v$VERSION";               MANIFEST="";                                        WORKFLOWS="" ;;
   sdk/rust)
-    TAG="sdk/rust/v$VERSION";      MANIFEST="yidam/prelude/sdks/rust/Cargo.toml";       WORKFLOWS=".github/workflows/publish-crates.yml" ;;
+    TAG="sdk/rust/v$VERSION";      MANIFEST="yidam/sdks/rust/Cargo.toml";       WORKFLOWS=".github/workflows/publish-crates.yml" ;;
   cli)
     # tap.yml as well as release.yml: release.yml *calls* it by path, and a local
     # `uses:` resolves at the caller's ref — so a tag carrying release.yml without

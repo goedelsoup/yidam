@@ -20,7 +20,7 @@ use std::process::Command;
 mod common;
 
 fn fixture_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/sdks/parity/fixtures/reports/basic")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../sdks/parity/fixtures/reports/basic")
 }
 
 /// Copy the fixture repo into a tempdir and make it the repository `stage.toml` describes.
@@ -605,7 +605,7 @@ const NO_REPORT: &[(&str, &str)] = &[
          in report.schema.json would be a second freeze of one shape, under names \
          (`results`, `scope`, `rejected`, `absence`) that `query`, `pack` and `estimate` also \
          emit and that this contract deliberately does not declare. Where it IS checked: \
-         `prelude/sdks/parity/mcp/cases/retrieve/` pins the fields and their values for every \
+         `yidam/sdks/parity/mcp/cases/retrieve/` pins the fields and their values for every \
          server, and `tests/retrieve_cli.rs` holds this command's own rendering of them",
     ),
     (
@@ -1102,7 +1102,7 @@ fn duplicate_keys(text: &str) -> Vec<String> {
 /// defect — which is the shape #661 was, one criterion behind the document it claimed to check.
 #[test]
 fn no_shipped_contract_declares_a_key_twice() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/sdks/parity");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../sdks/parity");
     let mut checked = 0;
     let mut found: Vec<String> = Vec::new();
 

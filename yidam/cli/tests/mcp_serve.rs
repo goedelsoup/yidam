@@ -534,7 +534,7 @@ fn the_mcp_tool_and_the_cli_answer_the_same_query() {
 }
 
 fn contract_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/sdks/parity/mcp")
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../sdks/parity/mcp")
 }
 
 fn contract() -> Value {
@@ -1393,7 +1393,7 @@ fn a_recorded_session_is_reported_by_yidam_record() {
     // record, so its rows are exempt there (`UNREACHED`) and held here.
     let schema: Value = serde_json::from_str(
         &std::fs::read_to_string(
-            repo_root().join("yidam/prelude/sdks/parity/fixtures/reports/report.schema.json"),
+            repo_root().join("yidam/sdks/parity/fixtures/reports/report.schema.json"),
         )
         .unwrap(),
     )
@@ -1524,7 +1524,7 @@ fn a_fold_commits_the_record_and_loses_no_line() {
     // no commits, so `fold` is exempt there (`UNREACHED`) and held here.
     let schema: Value = serde_json::from_str(
         &std::fs::read_to_string(
-            repo_root().join("yidam/prelude/sdks/parity/fixtures/reports/report.schema.json"),
+            repo_root().join("yidam/sdks/parity/fixtures/reports/report.schema.json"),
         )
         .unwrap(),
     )

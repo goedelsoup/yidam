@@ -169,7 +169,7 @@ pub(crate) fn frame(value: &Value) -> String {
 /// The VS Code extension carries the same table in TypeScript for its own providers, because
 /// the alternative is an editor that cannot render a diagnostic without a subprocess per
 /// keystroke. Two transcriptions of four rows, both pinned to
-/// `prelude/sdks/parity/fixtures/diagnostic_severity/` — each was previously pinned only by
+/// `yidam/sdks/parity/fixtures/diagnostic_severity/` — each was previously pinned only by
 /// its own hand-written expectations, which leaves the two free to be independently right
 /// about different tables.
 pub(crate) fn severity_of(severity: &str, in_baseline: bool) -> u8 {
@@ -846,7 +846,7 @@ mod tests {
     #[test]
     fn the_severity_table_is_the_shared_fixture() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../prelude/sdks/parity/fixtures/diagnostic_severity");
+            .join("../sdks/parity/fixtures/diagnostic_severity");
         let mut cases: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
             .unwrap_or_else(|e| panic!("reading {}: {e}", dir.display()))
             .filter_map(|e| e.ok().map(|e| e.path()))

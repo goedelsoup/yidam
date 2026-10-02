@@ -312,9 +312,9 @@ paths they touch shows narrowing helps one of three populations:
 ### Two registers, one classifier — run, not argued
 
 Every commit-reading surface here classifies from the subject line alone.
-[`git.rs:81`](../../yidam/prelude/sdks/rust/src/git.rs#L81)'s `classify_commit(hash, message)`
+[`git.rs:81`](../../yidam/sdks/rust/src/git.rs#L81)'s `classify_commit(hash, message)`
 takes no paths; its totality — Epistemic is the default — is proved in
-[`graph.dfy:5`](../../yidam/prelude/sdks/spec/graph.dfy#L5); `yidam log` consumes it verbatim at
+[`graph.dfy:5`](../../yidam/sdks/spec/graph.dfy#L5); `yidam log` consumes it verbatim at
 [`log.rs:119`](../../yidam/cli/src/cmd/log.rs#L119); and `lint --commits` reads
 `--format=%H%x00%P%x00%s` — hash, parents, subject, **no paths** —
 ([`commits.rs:52`](../../yidam/cli/src/cmd/lint/commits.rs#L52)).
@@ -322,7 +322,7 @@ takes no paths; its totality — Epistemic is the default — is proved in
 Run the classifier over an artifact-register commit stream (the Python SDK, same fixtures):
 
 ```sh
-cd yidam/prelude/sdks/python && python3 -c "
+cd yidam/sdks/python && python3 -c "
 from yidam_core.git import classify_commit, is_recognized_verb
 for m in ['feat: add dark mode', 'fix: guard the empty query', 'test: cover the pagination edge']:
     v = m.split(':')[0]
@@ -679,7 +679,7 @@ prices at one RFC per contract change. Under this arm, the present RFC records t
 the change ships under its own follow-up RFC. The costs that must be paid there: every consumer
 grows a path read (`log` and `lint` today read subjects only — the format strings above); the
 fixture model changes shape, because
-[`parity/fixtures/classify_commit/`](../../yidam/prelude/sdks/parity/fixtures/classify_commit)
+[`parity/fixtures/classify_commit/`](../../yidam/sdks/parity/fixtures/classify_commit)
 is `(hash, message) → (kind, verb, subject)` with **no repository in it**, and a register filter
 takes paths *and a declaration* as input; and three implementations plus the VS Code extension
 must agree about a file only the CLI consumes — the exact shape RFC-0019 declined (*"would have
@@ -689,7 +689,7 @@ against as precedent (a new surface is a CLI surface, not a fourth parity functi
 **(b) Capabilities never declare writes on object-register paths; `classify_commit` untouched.**
 The register split scopes **recognition** — whether the corpus vocabulary governs a commit — and
 never **classification**. The distinction is already load-bearing in the code:
-[`git.rs:75-76`](../../yidam/prelude/sdks/rust/src/git.rs#L75-L76) keeps `is_recognized_verb`
+[`git.rs:75-76`](../../yidam/sdks/rust/src/git.rs#L75-L76) keeps `is_recognized_verb`
 deliberately separate from `classify_commit` — *"Recognition is the question of whether the log
 is legible; classification is the question of what a commit did"* — and classification **must
 remain total**. Under this arm, `lint --commits` gains the path read and applies the register
@@ -750,7 +750,7 @@ RFC, if the register ever genuinely needs to be a parity-visible fact.
 > the commit exists, and takes no paths — so the hook still reports `feat:` on an artifact
 > while `lint --commits` is silent.~~ **Corrected 2026-09-07 under #693 — see below.** Closing
 > it means changing `check_subject`, which is frozen in
-> [`sdks/parity/mcp/tools.json`](../../yidam/prelude/sdks/parity/mcp/tools.json). Recorded
+> [`sdks/parity/mcp/tools.json`](../../yidam/sdks/parity/mcp/tools.json). Recorded
 > rather than fixed, and filed as its own issue.
 
 #### The asymmetry's consumers, corrected (2026-09-07, #693)
@@ -769,7 +769,7 @@ three consumers:
 |---|---|
 | a contributor at a terminal | `docs/contributing.md` tells them to run `yidam vocabulary --check "fix(cli): …"` by hand |
 | the VS Code commit box | [`vocabulary.ts`](../../yidam/editors/vscode/src/vocabulary.ts) shells to `yidam vocabulary --check <subject> --format json` |
-| the MCP tool `check_subject` | frozen in [`tools.json`](../../yidam/prelude/sdks/parity/mcp/tools.json); its input schema takes `subject` and nothing else |
+| the MCP tool `check_subject` | frozen in [`tools.json`](../../yidam/sdks/parity/mcp/tools.json); its input schema takes `subject` and nothing else |
 
 None of the three has paths to read, because none of them is looking at a commit — all three
 ask about a subject line *before the act*, which is the whole point of the surface. So the

@@ -39,7 +39,7 @@ keyword search, not re-embed with different settings** (`docs/domain-computer.md
 
 The gap: nothing lets a consumer *detect* that it is off-contract. The config pins the
 settings but carries no witness a consumer can reproduce. Cross-runtime agreement is proven
-only at CI time, in a parity fixture (`prelude/sdks/parity/fixtures/embed_config/sentence-a.toml`)
+only at CI time, in a parity fixture (`yidam/sdks/parity/fixtures/embed_config/sentence-a.toml`)
 that embeds the probe `"knowledge graph traversal"` and compares the first eight normalized
 dimensions within `tolerance = 1e-5`, with a looser `[known_delta.sentence-transformers]`
 bound of `1e-2` for the fp32 runtime that cannot load the quantized weights. That fixture
@@ -73,7 +73,7 @@ Add `yidam index-verify --index <dir> [--provider <cmd>]` and an SDK function
 asserts `embedding_dim`, `normalize`, and `pooling` match, and that the provider's embedding
 of `probe` agrees with `prefix` within `tolerance` — or within a declared
 `known_delta.<runtime>` bound, reusing the `YIDAM_EMBED_PARITY`/`[known_delta]` convention
-already documented in `prelude/sdks/parity/README.md:65-78`. A clean match exits 0; a match
+already documented in `yidam/sdks/parity/README.md:65-78`. A clean match exits 0; a match
 only under a `known_delta` bound exits 0 but prints the measured drift and runtime name — what
 BOSC would get, turning its silent fp32 degradation into a labelled, expected one. A hard
 mismatch (wrong dim, wrong normalization, or drift beyond every declared bound) fails loudly
@@ -85,16 +85,16 @@ at index-load time instead of an invisible quality regression.
 ## 2. Unify the evidence-tag vocabulary
 
 **Problem.** The SDK claim extractors read the marker `[inferred]`: Rust
-`prelude/sdks/rust/src/corpus.rs:137`, TypeScript `prelude/sdks/typescript/src/corpus.ts:55-56`,
-Python `prelude/sdks/python/yidam_core/corpus.py:79-80`. All three agree with each other and
+`yidam/sdks/rust/src/corpus.rs:137`, TypeScript `yidam/sdks/typescript/src/corpus.ts:55-56`,
+Python `yidam/sdks/python/yidam_core/corpus.py:79-80`. All three agree with each other and
 all three map that marker to an enum variant already spelled **`Inference`**
 (`corpus.ts:1`, `corpus.py:10`). Meanwhile the CLI's own diff renderer
 (`yidam/cli/src/cmd/diff.rs:208`) and the *entire BOSC corpus* write `[inference]`.
 
 Because the SDKs match one spelling and the type is named after the other, the split is
 invisible to the tooling that should catch it: the parity fixtures also write `[inferred]`
-(`prelude/sdks/parity/fixtures/extract_claims/tagged-and-implicit.toml:7`,
-`prelude/sdks/parity/fixtures/parse_node/multiple-claims.toml:10`), so cross-language parity
+(`yidam/sdks/parity/fixtures/extract_claims/tagged-and-implicit.toml:7`,
+`yidam/sdks/parity/fixtures/parse_node/multiple-claims.toml:10`), so cross-language parity
 passes as a tautology while agreeing on a marker no real corpus uses. The consequence is not
 cosmetic: a corpus line ending ` [inference]` does not match `strip_suffix(" [inferred]")` and
 falls through to `Implicit` — the evidence tag is silently dropped on ingest.
@@ -149,8 +149,8 @@ four surfaces can no longer diverge.
 > preserved as written.
 
 **Problem.** `find_reachable` and `find_citations` are on the eight-function parity surface
-(`prelude/sdks/parity/README.md:9-19`) but exist **only in the Rust SDK**
-(`prelude/sdks/rust/src/graph.rs:11-41`). There is no `graph.py` or `graph.ts`, and neither
+(`yidam/sdks/parity/README.md:9-19`) but exist **only in the Rust SDK**
+(`yidam/sdks/rust/src/graph.rs:11-41`). There is no `graph.py` or `graph.ts`, and neither
 the TypeScript nor the Python SDK exports either function. Yet CI is green, because the gate
 does not check what it appears to.
 
@@ -167,7 +167,7 @@ gate certifies "a fixture file exists," not "all three SDKs implement and pass t
 *exercised by a passing test in all three SDKs*, not merely that a fixture directory exists.
 Concretely: each SDK's parity runner emits the set of surface-function names it actually ran
 (e.g. a JSON manifest of `{function → fixtures-consumed}`), and `parity-check` reconciles those
-three sets against the canonical surface list from `prelude/sdks/parity/VERSION`'s companion
+three sets against the canonical surface list from `yidam/sdks/parity/VERSION`'s companion
 manifest, failing if any (function, SDK) pair is missing. A function on the surface with no
 test in a given SDK is then a hard CI failure.
 
@@ -186,7 +186,7 @@ RFC-0007; this RFC supplies the two functions and the gate that would have flagg
 - **Count drift.** `VERSIONING.md:65-68` states "The six parity functions (`parse_node`,
   `extract_claims`, `extract_links`, `classify_commit`, `parse_markers`, `update_regen`)" —
   omitting `find_reachable` and `find_citations` entirely. The parity README says eight
-  (`prelude/sdks/parity/README.md:2`, table at lines 9-19), and `mise.toml:128` iterates eight.
+  (`yidam/sdks/parity/README.md:2`, table at lines 9-19), and `mise.toml:128` iterates eight.
   A reader following `VERSIONING.md` would not know two surface functions exist — the same two
   that sub-proposal 4 shows are unimplemented.
 - **Link-resolution drift.** graph-check decides a link is broken by a *filesystem-relative*
@@ -217,7 +217,7 @@ implemented the functions; that is the point, and it lands with the implementati
 
 The sensitive one is sub-proposal 2. Renaming the recognized marker from `[inferred]` to
 `[inference]` is a **parity-surface contract change** — a major bump under `VERSIONING.md`
-Layer 2 (`prelude/sdks/parity/VERSION`, all three SDKs in one PR). The transition is staged:
+Layer 2 (`yidam/sdks/parity/VERSION`, all three SDKs in one PR). The transition is staged:
 (a) parsers accept **both** spellings, normalizing to `EvidenceTag::Inference`, and the new
 `[inference]` fixture lands green; (b) once downstream corpora and fixtures are confirmed on
 `[inference]`, a later bump drops `[inferred]` recognition. Repos on `[inferred]` keep parsing

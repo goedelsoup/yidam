@@ -256,7 +256,7 @@ this one is already written.
 ## The worked minimum, kept honest
 
 The corpus above is the shape of
-[`yidam/prelude/sdks/parity/fixtures/reports/basic/repo/.yidam/`](../yidam/prelude/sdks/parity/fixtures/reports/basic/repo/.yidam/),
+[`yidam/sdks/parity/fixtures/reports/basic/repo/.yidam/`](../yidam/sdks/parity/fixtures/reports/basic/repo/.yidam/),
 which every report golden in this repository is generated from. It is two `.ont.yml` files,
 four instances and a catalog, and it is exercised on every commit.
 

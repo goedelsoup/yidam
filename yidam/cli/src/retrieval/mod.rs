@@ -3,7 +3,7 @@
 //! This lived inside `cmd/serve` until #263, which is where it was written and not where it
 //! belongs: `yidam query`'s similarity anchor enters the graph the same way `retrieve` does,
 //! and two copies of "is retrieval degraded, and why" is two answers to one question. The
-//! reason strings are a frozen contract (`prelude/sdks/parity/mcp/tools.json`) that a client
+//! reason strings are a frozen contract (`yidam/sdks/parity/mcp/tools.json`) that a client
 //! branches on, so the copy that drifted would drift silently, in whichever surface was read
 //! less often.
 //!
@@ -20,7 +20,7 @@ pub(crate) mod vector;
 
 /// The `degraded_reason` an index built in another vector space reports.
 ///
-/// **Not a new string.** `prelude/sdks/parity/mcp/tools.json` froze this value alongside
+/// **Not a new string.** `yidam/sdks/parity/mcp/tools.json` froze this value alongside
 /// `no_index` and `no_vector_support` — "an index exists and was built with different
 /// embedding settings than this server would use, so answering from it would be answering in
 /// another vector space" — and says a value outside that set is a divergence. It had no
@@ -52,7 +52,7 @@ pub(crate) const STALE_CONTRACT_REPAIR: &str =
 /// The `degraded_reason` a remote index that did not answer reports.
 ///
 /// **A fourth value in a frozen vocabulary, added the way the freeze says to add one.**
-/// `prelude/sdks/parity/mcp/tools.json` lists the permitted values and says *"a value outside
+/// `yidam/sdks/parity/mcp/tools.json` lists the permitted values and says *"a value outside
 /// this set is a divergence; a server needing one should add it here first"* — so it was added
 /// there, and the contract version was bumped in all three places that carry it.
 ///
@@ -760,7 +760,7 @@ where
 mod tests {
     use super::*;
 
-    /// The strings are a contract (`prelude/sdks/parity/mcp/tools.json`), not a diagnostic —
+    /// The strings are a contract (`yidam/sdks/parity/mcp/tools.json`), not a diagnostic —
     /// a client branches on them. Pinning them here means a rename has to be a deliberate
     /// act that also touches the freeze.
     ///
@@ -770,7 +770,7 @@ mod tests {
     /// here, which is the order the contract itself prescribes for a new value.
     ///
     /// This pins the spellings. `degraded_reason_freeze.rs` is what holds them to
-    /// `prelude/sdks/parity/mcp/tools.json`, because a constant that agrees with a second
+    /// `yidam/sdks/parity/mcp/tools.json`, because a constant that agrees with a second
     /// constant proves nothing about the document a client reads.
     #[test]
     fn the_degraded_reasons_are_distinct_and_stable() {

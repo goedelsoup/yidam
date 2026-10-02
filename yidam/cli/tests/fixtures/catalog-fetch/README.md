@@ -7,7 +7,7 @@ A corpus whose catalog entry can actually be followed, so that `catalog-fetch` a
 
 Because what it asserts is a property of a *corpus*, and a corpus written as string literals
 inside one test file is one nobody can read, review or run a second command against. That is
-the same reasoning `prelude/sdks/parity/mcp/corpus/` records for its own move out of
+the same reasoning `yidam/sdks/parity/mcp/corpus/` records for its own move out of
 `mcp_serve.rs`: the counts a suite asserts are about a corpus, and the only way to learn which
 corpus was to read Rust.
 

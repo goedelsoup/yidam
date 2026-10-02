@@ -143,9 +143,9 @@ fn every_compiled_in_file_is_inside_the_crate_root() {
 ///
 /// A symlink replaced by a real file is invisible in every build and in this test's other
 /// assertion — the bytes are right there, the include resolves, packaging works. What is
-/// lost is the single copy: the file at the crate root and the one under `yidam/prelude/`
-/// become two files free to drift, and the drift shows up as a binary enforcing a rule that
-/// no longer matches the one a reader inspects after bootstrap.
+/// lost is the single copy: the file at the crate root and the one under `yidam/prelude/` or
+/// `yidam/sdks/` become two files free to drift, and the drift shows up as a binary enforcing a
+/// rule that no longer matches the one a reader inspects after bootstrap.
 #[test]
 fn the_crate_root_indirections_are_symlinks() {
     let root = crate_root();
@@ -158,7 +158,7 @@ fn the_crate_root_indirections_are_symlinks() {
         assert!(
             meta.file_type().is_symlink(),
             "yidam/cli/{name} is a real file, not a symlink. It exists so the crate can \
-             package bytes that live under yidam/prelude/ while the repository keeps one \
+             package bytes that live outside it while the repository keeps one \
              copy of them; a copy here is a second copy, and the two are free to drift."
         );
         checked += 1;

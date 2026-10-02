@@ -185,7 +185,7 @@ fn the_site_and_the_cli_agree_about_the_contract_version() {
 #[test]
 fn the_quality_report_carries_the_repositorys_envelope() {
     let schema: serde_json::Value = serde_json::from_str(&read(
-        "yidam/prelude/sdks/parity/fixtures/reports/report.schema.json",
+        "yidam/sdks/parity/fixtures/reports/report.schema.json",
     ))
     .expect("report.schema.json parses");
     let golden: serde_json::Value = serde_json::from_str(&read(

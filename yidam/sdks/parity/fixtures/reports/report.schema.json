@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/goedelsoup/yidam/blob/main/yidam/prelude/sdks/parity/fixtures/reports/report.schema.json",
+  "$id": "https://github.com/goedelsoup/yidam/blob/main/yidam/sdks/parity/fixtures/reports/report.schema.json",
   "title": "yidam report envelope",
   "description": "The machine-readable report contract (RFC-0016 Phase 0). Every `yidam <command> --format json` emits this envelope with the command's own fields flattened alongside. Consumers MUST ignore unknown fields: adding one is not a breaking change, and `format_version` is bumped only when a consumer that understood the previous version would mis-read this one.",
   "type": "object",

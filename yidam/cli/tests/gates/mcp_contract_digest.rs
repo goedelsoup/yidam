@@ -67,10 +67,16 @@ use serde_json::{json, Value};
 use yidam::git::Git;
 
 /// `tools.json`, relative to the repository root — the spelling git wants for `show`.
-const CONTRACT: &str = "yidam/prelude/sdks/parity/mcp/tools.json";
+const CONTRACT: &str = "yidam/sdks/parity/mcp/tools.json";
+
+/// Where `tools.json` lived before, newest first. A commit is read at the path it had then:
+/// `git log -- CONTRACT` alone starts at the move and `show <commit>:CONTRACT` finds nothing
+/// before it. Named rather than `--follow`ed, because `--follow` decides a rename by
+/// similarity and takes only one path.
+const FORMERLY: &[&str] = &["yidam/prelude/sdks/parity/mcp/tools.json"];
 
 /// The ledger, beside it.
-const LEDGER: &str = "yidam/prelude/sdks/parity/mcp/CONTRACT_SHA";
+const LEDGER: &str = "yidam/sdks/parity/mcp/CONTRACT_SHA";
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -257,8 +263,8 @@ fn how_to_bump(current: &str, digest: &str) -> String {
          that dates it:\n\
          \n\
          \x20 1. `{CONTRACT}` — the `contract` field\n\
-         \x20 2. `yidam/prelude/sdks/parity/mcp/VERSION`\n\
-         \x20 3. `yidam/prelude/sdks/parity/mcp/README.md` — the capability-block example\n\
+         \x20 2. `yidam/sdks/parity/mcp/VERSION`\n\
+         \x20 3. `yidam/sdks/parity/mcp/README.md` — the capability-block example\n\
          \x20 4. `docs/mcp-server.md` — the `initialize` handshake example\n\
          \x20 5. `{LEDGER}` — append `<the new version>  sha256:{digest}`\n\
          \n\
@@ -620,7 +626,7 @@ fn the_ledger_is_the_history_the_repository_records() {
 
     let commits = Git::new(&root)
         .args(["log", "--reverse", "--format=%H"])
-        .paths([CONTRACT])
+        .paths(std::iter::once(CONTRACT).chain(FORMERLY.iter().copied()))
         .lines()
         .expect("the log of a tracked file is readable");
     assert!(
@@ -633,11 +639,15 @@ fn the_ledger_is_the_history_the_repository_records() {
 
     let mut derived: Vec<Recorded> = Vec::new();
     for commit in &commits {
-        let text = Git::new(&root)
-            .arg("show")
-            .rev(format!("{commit}:{CONTRACT}"))
-            .run()
-            .unwrap_or_else(|e| panic!("reading {CONTRACT} at {commit}: {e}"));
+        let text = std::iter::once(CONTRACT)
+            .chain(FORMERLY.iter().copied())
+            .find_map(|path| {
+                Git::new(&root)
+                    .arg("show")
+                    .rev(format!("{commit}:{path}"))
+                    .try_run()
+            })
+            .unwrap_or_else(|| panic!("{CONTRACT} is at no path it has had, at {commit}"));
         let doc: Value = serde_json::from_str(&text)
             .unwrap_or_else(|e| panic!("{CONTRACT} at {commit} is not JSON: {e}"));
         let record = Recorded {

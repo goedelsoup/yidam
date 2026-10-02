@@ -89,7 +89,7 @@ The check is describing a traversal that does not exist. This RFC is that traver
 `find_reachable` and `find_citations` are on the parity surface, implemented in all three
 SDKs against shared fixtures. Their edge model is `{ from, to }` — the fixtures carry no
 relationship name at all
-([`fixtures/find_reachable/linear-chain.toml`](../../yidam/prelude/sdks/parity/fixtures/find_reachable/linear-chain.toml)):
+([`fixtures/find_reachable/linear-chain.toml`](../../yidam/sdks/parity/fixtures/find_reachable/linear-chain.toml)):
 
 ```toml
 edges = [

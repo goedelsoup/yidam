@@ -21,6 +21,7 @@ particular field, corpus, or ontology. The domain lives in `corpus/`, `agents/`,
 | Subdirectory | Contents |
 |---|---|
 | `prelude/` | Foundational texts and behavioral norms the agent reads before acting |
+| `sdks/` | Bindings to the prelude model in Rust, TypeScript, and Python; the parity harness; formal specifications |
 | `cli/` | The `yidam` CLI — corpus analysis, linting, indexing, export, MCP and LSP servers |
 | `editors/` | The editor surfaces: `serve --lsp` for any LSP client, and the VS Code extension |
 | `tests/` | Bootstrap test harness and rubric |
@@ -44,7 +45,13 @@ The prelude is structured as a curriculum. An agent reads it in order before any
 - **[PHASES.md](prelude/PHASES.md)** — how post-genesis inquiry is structured into named units of work
 - **[guidelines/](prelude/guidelines/)** — behavioral norms and directory conventions for agents operating in the graph
 - **[skills/](prelude/skills/)** — capabilities provided by yidam: bootstrap, and domain-specific extensions. The judge is not here: it scores yidam's own harness runs and would otherwise be vendored into every derived repo, so it lives beside the rubric at [tests/judge.md](tests/judge.md)
-- **[sdks/](prelude/sdks/)** — programmable bindings to the prelude model in Rust, TypeScript, and Python; cross-language parity harness; formal specifications
+
+### sdks/
+
+Programmable bindings to the prelude model in Rust, TypeScript, and Python, the
+cross-language parity harness that holds them together, and the formal specifications. They
+sit beside the prelude rather than inside it: a derived repository builds none of them, so
+vendoring them only made every copy larger (#1311). See [sdks/README.md](sdks/README.md).
 
 ### cli/
 

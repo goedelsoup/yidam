@@ -272,8 +272,8 @@ jobs:
   parity:
     # The cross-language parity suites, which nothing ran. `ci-cli` builds only the CLI's
     # own test targets — there is no [workspace] table joining yidam/cli to
-    # yidam/prelude/sdks/rust — so a change making the three SDKs disagree about
-    # `classify_commit` passed every job here, which is the one thing prelude/sdks/parity/
+    # yidam/sdks/rust — so a change making the three SDKs disagree about
+    # `classify_commit` passed every job here, which is the one thing yidam/sdks/parity/
     # exists to prevent. Same family as the full-features job below being PR-exempt: a real
     # check that existed and was not reached.
     #
@@ -293,7 +293,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            yidam/prelude/sdks/rust
+            yidam/sdks/rust
             yidam/tests/harness
           key: parity
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -312,8 +312,8 @@ jobs:
           # no job named `ci (parity · rust sdk)` to match and the gate's conclusion stays
           # unknown for ever — which is how the mismatch was found (#516).
           job: ci (parity)
-          junit: yidam/prelude/sdks/rust/target/nextest/ci/junit.xml
-          manifest: yidam/prelude/sdks/rust/Cargo.toml
+          junit: yidam/sdks/rust/target/nextest/ci/junit.xml
+          manifest: yidam/sdks/rust/Cargo.toml
           artifact: test-results-parity
           json: "true"
 
@@ -347,7 +347,7 @@ jobs:
       # convenience — see the note beside [tasks.verify].
       - uses: leanprover/lean-action@v1
         with:
-          lake-package-directory: yidam/prelude/sdks/spec
+          lake-package-directory: yidam/sdks/spec
           auto-config: false
           build: false
           test: false
@@ -400,7 +400,7 @@ jobs:
     # `publish-crates.yml` runs this too, immediately before the upload — but a PR is where
     # the change is still cheap to reconsider, and the tag is where it is already decided.
     #
-    # Runs on every pull request rather than only when `yidam/prelude/sdks/rust/` changes.
+    # Runs on every pull request rather than only when `yidam/sdks/rust/` changes.
     # A per-job path filter needs a filter action or a `paths:` on the workflow, and a
     # required check that reports "skipped" is its own well-known problem. This costs a
     # network fetch and two builds of a small crate.
@@ -421,7 +421,7 @@ jobs:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: yidam/prelude/sdks/rust
+          workspaces: yidam/sdks/rust
           key: semver
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run semver-check

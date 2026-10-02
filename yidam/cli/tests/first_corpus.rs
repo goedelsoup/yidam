@@ -57,7 +57,7 @@ const PAGE: &str = "docs/first-corpus-by-hand.md";
 /// are generated from, and neither would know. The page names this directory, so the two rot
 /// together: a fixture restructured out from under the page fails
 /// [`the_page_cites_a_corpus_this_repository_still_maintains`].
-const FIXTURE: &str = "yidam/prelude/sdks/parity/fixtures/reports/basic/repo/.yidam";
+const FIXTURE: &str = "yidam/sdks/parity/fixtures/reports/basic/repo/.yidam";
 
 fn read(rel: &str) -> String {
     let p = repo_root().join(rel);

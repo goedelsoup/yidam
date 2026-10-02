@@ -26,7 +26,7 @@
 #
 # `tools`. The manifest schema has an optional array of them and the install UI
 # renders it, which is a real gain for exactly the audience this bundle is for.
-# It is still omitted, because `yidam/prelude/sdks/parity/mcp/tools.json` says of
+# It is still omitted, because `yidam/sdks/parity/mcp/tools.json` says of
 # itself: "This file is the only place the list lives; a harness that restates it
 # is a second freeze, which is how three servers ended up sharing one name out of
 # five capabilities." A rendered copy would not be a restatement — but the

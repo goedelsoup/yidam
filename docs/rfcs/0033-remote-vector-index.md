@@ -391,7 +391,7 @@ set — which is how a corpus whose vectors belong to a narrower audience than i
 
 ## The contract change
 
-`prelude/sdks/parity/mcp/tools.json` freezes the `degraded_reason` vocabulary and says what to
+`yidam/sdks/parity/mcp/tools.json` freezes the `degraded_reason` vocabulary and says what to
 do about a new one: *"a value outside this set is a divergence; a server needing one should add
 it here first."*
 

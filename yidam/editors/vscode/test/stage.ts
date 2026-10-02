@@ -28,7 +28,7 @@ const HERE = path.dirname(new URL(import.meta.url).pathname)
 /** The fixture root — `repo/` beside `stage.toml`. */
 export const FIXTURE_DIR = path.resolve(
   HERE,
-  '../../../prelude/sdks/parity/fixtures/reports/basic',
+  '../../../sdks/parity/fixtures/reports/basic',
 )
 
 interface Edit {

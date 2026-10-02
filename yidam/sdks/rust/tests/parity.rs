@@ -1,8 +1,8 @@
 use yidam_core::{corpus, embed, git, graph, markers, ontology, uri};
 
 fn fixture_dir(function: &str) -> std::path::PathBuf {
-    // CARGO_MANIFEST_DIR = prelude/sdks/rust/
-    // ../parity/fixtures/<function>  →  prelude/sdks/parity/fixtures/<function>
+    // CARGO_MANIFEST_DIR = yidam/sdks/rust/
+    // ../parity/fixtures/<function>  →  yidam/sdks/parity/fixtures/<function>
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../parity/fixtures")
         .join(function)

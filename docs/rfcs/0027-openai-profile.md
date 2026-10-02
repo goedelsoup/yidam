@@ -125,7 +125,7 @@ Two reasons, both internal to this repository, plus one the vendor states about 
    spells the name `search` does not make it a second operation; it makes it a second *rendering*.
 2. **The shapes are not compatible, and the incompatibility is load-bearing.** `retrieve` returns
    `degraded`, `degraded_reason`, `rejected`, `absence` and `scope` on every call —
-   `prelude/sdks/parity/mcp/tools.json` freezes all five. The `search` shape has three fields per
+   `yidam/sdks/parity/mcp/tools.json` freezes all five. The `search` shape has three fields per
    result and no envelope. A single tool cannot satisfy both without one of them lying about what
    it carries.
 3. **The vendor argues against a long list on its own account.** The connectors guide:
@@ -140,7 +140,7 @@ The state of the surface. The transport is no longer a question: #423 shipped
 `serve --mcp --http` (`main.rs`, the `Serve` arm's `http` flag, behind the `serve-http` feature),
 so a platform can reach a server today and nothing here waits on a transport.
 
-`prelude/sdks/parity/mcp/tools.json` freezes sixteen tools at contract `0.27.0`: `retrieve`,
+`yidam/sdks/parity/mcp/tools.json` freezes sixteen tools at contract `0.27.0`: `retrieve`,
 `get_node`, `list_nodes`, `open_questions`, `claims`, `check_subject`, `claim_tags` (`core`);
 `check_citation` (`dependencies`); `neighbors` (`graph`); `query`, `paths`, `pack`, `estimate`,
 `licensed_edges` (`ontology`); and `propose`, `cycle` (`act`, RFC-0029). None is named `search`
@@ -423,7 +423,7 @@ node is only *listed* by `search` when its package declares a base.
 
 ### 7 — Conformance
 
-Profile cases live beside the canonical ones, under `prelude/sdks/parity/mcp/profiles/openai/`,
+Profile cases live beside the canonical ones, under `yidam/sdks/parity/mcp/profiles/openai/`,
 running against the same fixture corpora (`corpora.json`). The properties worth freezing:
 
 1. **`tools/list` is exactly `["search", "fetch"]`,** derived from `tools.json`'s `profiles`
@@ -475,7 +475,7 @@ It belongs beside `tests/mcp_act_tier.rs`, which already runs servers over `corp
   2026-10-01, so 0.28.0 if nothing lands first). The bump moves every place the version lives:
   `tools.json`, `mcp/VERSION`, the README and `docs/mcp-server.md` handshake examples, and a new
   record appended to `mcp/CONTRACT_SHA`. New cases under `profiles/openai/`.
-  `prelude/sdks/parity/VERSION` takes a minor.
+  `yidam/sdks/parity/VERSION` takes a minor.
 - **Rust CLI.** `Serve` gains `--profile <name>` and `--public-base <url>`, both requiring `--mcp`;
   `public_base` joins `YidamConfig` as a top-level key (§5). The profile is a rendering layer over
   the existing dispatch; it adds no retrieval or read path. It is meaningful on stdio as well as

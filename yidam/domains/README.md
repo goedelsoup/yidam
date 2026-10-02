@@ -1,14 +1,14 @@
 # Domains
 
 Pure function libraries for domain-specific calculations, shared across yidam-derived
-repositories that work in the same domain. An extension of the `prelude/sdks/` layer —
+repositories that work in the same domain. An extension of the `yidam/sdks/` layer —
 same three languages, same parity discipline, Rust as reference.
 
 ---
 
 ## What this layer is
 
-`prelude/sdks/` gives every derived repo the core prelude operations: parsing corpus
+`yidam/sdks/` implements the core prelude operations every derived repo relies on: parsing corpus
 nodes, classifying commits, finding markers, and so on. These are universal — every repo
 needs them regardless of domain.
 
@@ -69,7 +69,7 @@ yidam/domains/
 
 ## The parity contract
 
-Domain functions follow the same cross-language parity discipline as `prelude/sdks/`:
+Domain functions follow the same cross-language parity discipline as `yidam/sdks/`:
 
 - Rust is always the reference implementation
 - TypeScript and Python must produce identical outputs for every fixture
@@ -99,5 +99,5 @@ Domain names are lowercase, hyphenated: `causal`, `graph-metrics`, `information-
   no pipeline orchestration, no streaming. Those layers are additive and come later.
 - **Not repo-specific logic.** Calculations that belong only to one derived repo go in that
   repo's `crates/` or `packages/`, not here.
-- **Not a dependency of `prelude/sdks/`.** The two layers are peers. A derived repo may use
+- **Not a dependency of `yidam/sdks/`.** The two layers are peers. A derived repo may use
   both, or only the SDK layer, depending on whether its domain is represented here.

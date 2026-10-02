@@ -170,7 +170,7 @@ fn routing_around_a_declared_refusal_fails_in_both_formats() {
 }
 
 fn fixture_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/sdks/parity/fixtures/reports")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../sdks/parity/fixtures/reports")
 }
 
 /// Every path the report emits is declared in the committed schema, and the populated arm is

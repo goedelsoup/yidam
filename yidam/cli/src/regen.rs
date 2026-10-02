@@ -61,7 +61,7 @@ pub struct Unclaimed {
 ///
 /// Measured across the 22 repositories on disk carrying REGEN blocks, 2026-09-27: 235 blocks
 /// open with `<!-- REGEN: yidam ` at the start of a line, of which 20 sit inside a code
-/// fence and 215 are scanned. The 20 are one document — `yidam/prelude/sdks/README.md`,
+/// fence and 215 are scanned. The 20 are one document — `yidam/sdks/README.md`,
 /// which explains the marker format and is vendored into every derived repository — and it
 /// shows `corpus-index`, a real generator, so masking changes no verdict today. It is here
 /// for the day somebody documents the syntax with a name that is not.
@@ -283,7 +283,7 @@ Fields: node count, open questions.\n\
     #[test]
     fn clearing_a_section_matches_the_parity_fixture() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../prelude/sdks/parity/fixtures/update_regen/empty-new-content.toml");
+            .join("../sdks/parity/fixtures/update_regen/empty-new-content.toml");
         let raw = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("{} is unreadable ({e})", path.display()));
         // `toml::from_str`, not `raw.parse()`. toml 1.1 repointed `FromStr for Value` at

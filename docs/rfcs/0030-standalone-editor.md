@@ -235,7 +235,7 @@ cycle while `yidam` did not exist on crates.io.
 **`@goedelsoup/yidam-edit`**, decided by the repository owner on #610.
 
 This RFC's lean was `@yidam/edit`, and it is declined. The argument for it was consistency with
-[`@yidam/core`](../../yidam/prelude/sdks/typescript/package.json), which is in-tree and
+[`@yidam/core`](../../yidam/sdks/typescript/package.json), which is in-tree and
 unpublished — consistency with something unpublished, used as the basis for a *blocking*
 dependency, since the `@yidam` scope would have had to be registered before the row could be
 written truthfully.
@@ -666,7 +666,7 @@ does not propose to move it.
   is preserved in this document's git history at `f3b203e`.
 - **Static assets over `serve --mcp --http`, read-only.** This is #236's shell with a different
   data source. It cannot author, and the MCP contract is read-only by construction
-  ([`tools.json`](../../yidam/prelude/sdks/parity/mcp/tools.json) — thirteen tools, none of them
+  ([`tools.json`](../../yidam/sdks/parity/mcp/tools.json) — thirteen tools, none of them
   a write).
 - **Extend `export --format web` into an editor.** Rejected. An export is opened over `file://`
   with no process behind it; that is the constraint that forced the design system into the

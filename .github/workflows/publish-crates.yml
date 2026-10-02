@@ -60,7 +60,7 @@ jobs:
           set -euo pipefail
           case "${GITHUB_REF_NAME:-}" in
             sdk/rust/v*)
-              echo "manifest=yidam/prelude/sdks/rust/Cargo.toml" >> "$GITHUB_OUTPUT"
+              echo "manifest=yidam/sdks/rust/Cargo.toml" >> "$GITHUB_OUTPUT"
               echo "crate=yidam-core" >> "$GITHUB_OUTPUT"
               echo "version=${GITHUB_REF_NAME#sdk/rust/v}" >> "$GITHUB_OUTPUT"
               ;;

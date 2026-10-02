@@ -114,7 +114,7 @@ CLI" — pin-checking skips that layer rather than erroring.
 |---|---|---|---|
 | Template | `template` | template-owned files (prelude/, BOOTSTRAP.md, mise skeleton, `mise.yidam.toml`) differ from the pinned tag | **breach** if locally edited; **lag** if origin advanced |
 | Bootstrap | `bootstrap` | `PROTOCOL_VERSION` const at origin ≠ pin | lag |
-| SDK/parity | (implicit) | `prelude/sdks/parity/VERSION` at origin ≠ the pin's era | lag; **informational** for a consumer with no SDK |
+| SDK/parity | (implicit) | `yidam/sdks/parity/VERSION` at origin ≠ the pin's era | lag; **informational** for a consumer with no SDK |
 | CLI | `cli_ref` | pinned commit missing/moved at origin, or origin's `cli` tag resolves elsewhere | lag; breach if the ref no longer exists |
 | **Conformance** | `cli_ref` | RFC-0001 fixtures run through the RFC-0003 binary **at `cli_ref`** diverge from the consumer's own output | **breach** — the real guard |
 

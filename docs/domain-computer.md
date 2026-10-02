@@ -94,7 +94,7 @@ drift ~1e-2 per element, far beyond retrieval-safe tolerance. transformers.js co
 it to a `dtype` (`model_quantized.onnx` → `q8`).
 
 The contract is enforced by a cross-runtime parity fixture
-(`prelude/sdks/parity/fixtures/embed_config/`) asserting that fastembed (Rust),
+(`yidam/sdks/parity/fixtures/embed_config/`) asserting that fastembed (Rust),
 transformers.js (TypeScript), and sentence-transformers (Python) embed the same sentence to
 matching vectors. Run it with `mise run embed-parity` (downloads model weights on first
 run; it is not part of the default `parity` task). sentence-transformers cannot load the
@@ -238,7 +238,7 @@ Register it in the consuming project's `.mcp.json`:
 `yidam://skills/<name>`, and `yidam://decisions/<name>`.
 
 **Tools** — the list is frozen in
-[`prelude/sdks/parity/mcp/tools.json`](../yidam/prelude/sdks/parity/mcp/tools.json) and
+[`yidam/sdks/parity/mcp/tools.json`](../yidam/sdks/parity/mcp/tools.json) and
 described in [the MCP server guide](mcp-server.md#3-choose-the-right-tool);
 it is not restated here, because the copy that used to be had already lost `list_nodes`.
 Briefly: retrieval and node reads, the graph walk — undirected, and typed — the corpus's

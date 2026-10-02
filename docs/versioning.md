@@ -119,14 +119,14 @@ repository on the next template bump it adopts.
 
 ## Layer 2 — SDKs
 
-Three packages under `yidam/prelude/sdks/`, held together by one jointly-versioned parity
-contract (`yidam/prelude/sdks/parity/VERSION`).
+Three packages under `yidam/sdks/`, held together by one jointly-versioned parity
+contract (`yidam/sdks/parity/VERSION`).
 
 | Package | Manifest | Registry |
 |---|---|---|
-| `yidam-core` (Rust) | `yidam/prelude/sdks/rust/Cargo.toml` | crates.io |
-| `@yidam/core` | `yidam/prelude/sdks/typescript/package.json` | not published |
-| `yidam-core` (Python) | `yidam/prelude/sdks/python/pyproject.toml` | not published |
+| `yidam-core` (Rust) | `yidam/sdks/rust/Cargo.toml` | crates.io |
+| `@yidam/core` | `yidam/sdks/typescript/package.json` | not published |
+| `yidam-core` (Python) | `yidam/sdks/python/pyproject.toml` | not published |
 
 Only the Rust package is released, tagged `sdk/rust/v{x.y.z}`. The other two are versioned in
 their manifests and move with the parity surface; they carry no release tag, because a tag whose
@@ -196,7 +196,7 @@ rather than guessing at an envelope it cannot read.
 
 1. **Decide which layers the changeset affects.**
 2. **Update the relevant manifests** — `Cargo.toml`, `package.json`, `pyproject.toml`, the
-   protocol-version constant, or `yidam/prelude/sdks/parity/VERSION`.
+   protocol-version constant, or `yidam/sdks/parity/VERSION`.
 3. **`mise run ci`** — everything must pass.
 4. **For SDK changes, `mise run parity`** — all three suites.
 5. **Tag with `./release.sh`**, e.g. `mise run release cli 0.5.1`. It refuses a version the

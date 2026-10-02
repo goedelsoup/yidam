@@ -880,7 +880,7 @@ fn handle(state: &mut ServerState, method: &str, params: &Value) -> Result<Value
                     "resources": {},
                     "tools": {},
                     // What this server backs, declared rather than discovered. See
-                    // `prelude/sdks/parity/mcp/tools.json`.
+                    // `yidam/sdks/parity/mcp/tools.json`.
                     "yidam": tools::capabilities(state),
                 },
                 "serverInfo": {"name": "yidam", "version": env!("CARGO_PKG_VERSION")}

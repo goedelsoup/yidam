@@ -1,10 +1,10 @@
 //! Rust reference runner for the embedding reproducibility contract
-//! (`prelude/sdks/parity/fixtures/embed_config/`).
+//! (`yidam/sdks/parity/fixtures/embed_config/`).
 //!
 //! Downloads model weights on first run, so it only executes when
 //! `YIDAM_EMBED_PARITY=1` is set (see the `embed-parity` mise task).
 //! TypeScript and Python runners for the same fixtures live in
-//! `prelude/sdks/{typescript,python}/tests/`.
+//! `yidam/sdks/{typescript,python}/tests/`.
 
 // The fixture-agreement test below needs no model weights and no vector feature; only the
 // reference runner does — and what it needs is `fastembed`, which is `vector-read`. It was
@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 fn fixture_dir() -> PathBuf {
     // CARGO_MANIFEST_DIR = yidam/cli/
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/sdks/parity/fixtures/embed_config")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../sdks/parity/fixtures/embed_config")
 }
 
 #[cfg(feature = "vector-read")]

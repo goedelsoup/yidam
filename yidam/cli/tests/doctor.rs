@@ -17,7 +17,7 @@ use std::process::Command;
 mod common;
 
 fn fixture_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../prelude/sdks/parity/fixtures/reports/basic")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../sdks/parity/fixtures/reports/basic")
 }
 
 /// A derived repository with a deliberately stale `yidam status` REGEN block — the fixture

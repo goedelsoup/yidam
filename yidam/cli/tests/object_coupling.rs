@@ -305,7 +305,7 @@ fn without_an_object_the_same_tree_has_no_coupling() {
 fn every_emitted_field_is_declared_in_the_schema() {
     let schema: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(
-            repo_root().join("yidam/prelude/sdks/parity/fixtures/reports/report.schema.json"),
+            repo_root().join("yidam/sdks/parity/fixtures/reports/report.schema.json"),
         )
         .expect("the schema"),
     )

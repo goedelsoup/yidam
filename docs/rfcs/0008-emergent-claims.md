@@ -165,7 +165,7 @@ settlements, while spending its whole design budget on the half of the article t
 decided.
 
 **5. The formal spec had already answered the question, by construction.**
-[`sangha.dfy`](../../yidam/prelude/sdks/spec/sangha.dfy) proves that union synthesis satisfies
+[`sangha.dfy`](../../yidam/sdks/spec/sangha.dfy) proves that union synthesis satisfies
 Article V, over `datatype Claim = Claim(text: string)` — so a claim *is* its text there, and
 `ArticleV` is decided by string equality. The theorems are sound; they are about a sequence of
 values with decidable equality, and nothing above disturbs them. But the type is the surface-form

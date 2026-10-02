@@ -168,14 +168,14 @@ run = "cargo fmt --all --manifest-path crates/Cargo.toml"
 
 # ── parity + formal verification ──────────────────────────────────────────
 # `parity` enforces the MUST rule: every parity function must have at least
-# one fixture in prelude/sdks/parity/fixtures/<function>/ before SDK tests run.
+# one fixture in yidam/sdks/parity/fixtures/<function>/ before SDK tests run.
 #
 # `verify` requires dafny (in [tools]) and lake (install via elan separately).
 
 [tasks.parity-check]
 description = "Verify the parity fixtures in both directions: every function has one, and every fixture directory has a runner."
 run = """
-fixtures="yidam/prelude/sdks/parity/fixtures"
+fixtures="yidam/sdks/parity/fixtures"
 functions="parse_instance classify_commit is_recognized_verb parse_markers update_regen find_reachable find_citations compile_class_schema parse_reference render_reference reference_conforms compose_embed_text"
 # Fixture families that are NOT parity functions. Each is read by a runner that is not an
 # SDK suite, and each has a section in parity/README.md naming those runners — which the
@@ -211,7 +211,7 @@ done
 
 # An exception with no section in the README is a list entry excusing itself.
 for name in $exceptions; do
-  if ! grep -q "^## .*$name" yidam/prelude/sdks/parity/README.md; then
+  if ! grep -q "^## .*$name" yidam/sdks/parity/README.md; then
     echo "ERROR: '$name' is excepted from the parity surface but parity/README.md has no"
     echo "       section for it. The exception list says what is not a parity function; the"
     echo "       README is where it says who reads it instead. An incidental mention in"
@@ -236,18 +236,18 @@ description = "Run every SDK test suite: the cross-language parity fixtures, and
 depends = ["parity-check"]
 # The whole suite per SDK, not `-- parity`. The filters used to be narrower, and the effect
 # was that an SDK test outside the parity fixtures ran nowhere: `ci-cli` builds only the
-# CLI's workspace, and this was the only job that touched yidam/prelude/sdks — with a filter
+# CLI's workspace, and this was the only job that touched yidam/sdks — with a filter
 # that excluded anything not named `parity`. A test nothing runs looks exactly like one that
 # is doing work, which is the finding `parity-check`'s own directory loop exists to produce,
 # one level up.
 run = [
-  "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/prelude/sdks/rust/Cargo.toml",
-  "cargo test --doc --manifest-path yidam/prelude/sdks/rust/Cargo.toml",
+  "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/sdks/rust/Cargo.toml",
+  "cargo test --doc --manifest-path yidam/sdks/rust/Cargo.toml",
   # The TypeScript half needed an install nobody had run, and said so as
   # `vitest: command not found` — beside a Python half that provisions itself. See #646.
-  "scripts/npm-ensure.sh yidam/prelude/sdks/typescript",
-  "cd yidam/prelude/sdks/typescript && npm test",
-  "cd yidam/prelude/sdks/python && uv run --extra dev pytest tests/",
+  "scripts/npm-ensure.sh yidam/sdks/typescript",
+  "cd yidam/sdks/typescript && npm test",
+  "cd yidam/sdks/python && uv run --extra dev pytest tests/",
 ]
 
 [tasks.domain-parity-check]
@@ -320,9 +320,9 @@ run = [
   # `index` bought it protoc and lancedb for nothing. #442 split the two features for
   # exactly this and `embed_parity.rs` records it — the task kept the old flag.
   "cargo test --manifest-path yidam/cli/Cargo.toml --features vector-read --test gates embed_parity",
-  "scripts/npm-ensure.sh yidam/prelude/sdks/typescript",
-  "cd yidam/prelude/sdks/typescript && npm test -- embed_parity",
-  "cd yidam/prelude/sdks/python && uv run --extra dev --extra embed pytest tests/parity/test_embed_config.py",
+  "scripts/npm-ensure.sh yidam/sdks/typescript",
+  "cd yidam/sdks/typescript && npm test -- embed_parity",
+  "cd yidam/sdks/python && uv run --extra dev --extra embed pytest tests/parity/test_embed_config.py",
 ]
 
 # This task was declared, was documented, and had never executed once — #461. Three faults,
@@ -351,7 +351,7 @@ run = [
 # asserts the workflow names no version of its own.
 [tasks.verify]
 description = "Formal verification: Dafny specs and LEAN 4 proofs (needs lake on PATH via elan)."
-dir = "yidam/prelude/sdks/spec"
+dir = "yidam/sdks/spec"
 tools = { "github:dafny-lang/dafny" = { version = "4.11.0", extract_all = true, bin_path = "dafny" } }
 run = [
   "dafny verify graph.dfy",
@@ -377,7 +377,7 @@ tools = { "github:EmbarkStudios/cargo-deny" = "0.20.2" }
 # is the one anybody thinks about. The harness is what runs in CI; the SDK is published.
 run = [
   "cargo deny --manifest-path yidam/cli/Cargo.toml check",
-  "cargo deny --manifest-path yidam/prelude/sdks/rust/Cargo.toml check",
+  "cargo deny --manifest-path yidam/sdks/rust/Cargo.toml check",
   "cargo deny --manifest-path yidam/tests/harness/Cargo.toml check",
 ]
 
@@ -420,7 +420,7 @@ tools = { "github:obi1kenobi/cargo-semver-checks" = "v0.50.0" }
 #
 # `publish-crates.yml` runs it before the upload, which is the last moment it is not too
 # late: a published version cannot be replaced, only yanked.
-run = "cargo +stable semver-checks check-release --manifest-path yidam/prelude/sdks/rust/Cargo.toml"
+run = "cargo +stable semver-checks check-release --manifest-path yidam/sdks/rust/Cargo.toml"
 
 [tasks.supply-chain]
 description = "The whole supply-chain gate: advisories, licences, unused deps."

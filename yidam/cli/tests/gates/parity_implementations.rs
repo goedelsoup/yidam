@@ -32,7 +32,7 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-const SDK_DIR: &str = "yidam/prelude/sdks";
+const SDK_DIR: &str = "yidam/sdks";
 
 /// The parity functions, read out of `parity-check`'s `functions=` line.
 ///
@@ -262,9 +262,9 @@ fn the_scan_recognises_all_three_languages() {
 
 // ── and all three SDKs answer each one (#530) ─────────────────────────────────
 
-const PRELUDE_SDKS: &str = "yidam/prelude/sdks";
+const PRELUDE_SDKS: &str = "yidam/sdks";
 
-/// The SDK directories: every subdirectory of `yidam/prelude/sdks` that carries a test suite.
+/// The SDK directories: every subdirectory of `yidam/sdks` that carries a test suite.
 ///
 /// Discovered, not named. `parity/` holds fixtures and `spec/` holds proofs; neither has a
 /// `tests/`, and a fourth SDK is covered the day it grows one. A list here would be a list
@@ -273,7 +273,7 @@ const PRELUDE_SDKS: &str = "yidam/prelude/sdks";
 fn sdk_dirs() -> Vec<String> {
     let root = repo_root();
     let mut dirs: Vec<String> = std::fs::read_dir(root.join(PRELUDE_SDKS))
-        .expect("yidam/prelude/sdks is readable")
+        .expect("yidam/sdks is readable")
         .filter_map(Result::ok)
         .filter(|e| e.path().join("tests").is_dir())
         .map(|e| e.file_name().to_string_lossy().into_owned())

@@ -61,7 +61,7 @@ districts" against a graph holding 44.
 
 That is exactly right, and it is a fact about the marker format rather than about `regen`. A
 REGEN block is line-shaped. Its open tag must begin a line, its close tag must be the whole of
-another, and [`update_regen`](../../yidam/prelude/sdks/rust/src/markers.rs) wrote a body
+another, and [`update_regen`](../../yidam/sdks/rust/src/markers.rs) wrote a body
 bracketed by newlines. A block can therefore hold a table row, a list, a paragraph or a
 whole section — and cannot hold the word *44* between *has* and *districts*.
 
@@ -73,7 +73,7 @@ This is the part that was not known when #1071 was filed. Run at `1dc8063`, agai
 - `scan_markers` returns **no marker at all**. Its open-tag test is anchored to the start of a
   line, and this one does not start one:
 
-  (in [`markers.rs`](../../yidam/prelude/sdks/rust/src/markers.rs), at `1dc8063`):
+  (in [`markers.rs`](../../yidam/sdks/rust/src/markers.rs), at `1dc8063`):
 
   ```rust
         let Some(rest) = trimmed.strip_prefix("<!-- REGEN:") else {
@@ -98,20 +98,20 @@ the one visible symptom, and it would report it about the wrong thing.
 ### Two scanners, two answers
 
 The bug above is not two bugs. `scan_markers` was line-anchored and
-[`update_regen`](../../yidam/prelude/sdks/rust/src/markers.rs) byte-anchored, and nothing held
+[`update_regen`](../../yidam/sdks/rust/src/markers.rs) byte-anchored, and nothing held
 them to each other. Every existing document happens to satisfy both, so the
 disagreement has cost nothing; the first document that does not is the one this RFC wants to
 write.
 
 The published contract already promised the thing that would have caught it. Of
-`parse_markers`, `yidam/prelude/sdks/README.md` said: *"Return them in document order with
+`parse_markers`, `yidam/sdks/README.md` said: *"Return them in document order with
 their spans."* No span was returned. `Marker::Regen` carries a command and a content string and
 nothing that locates them, which is why a second, independent locator had to exist for the
 writer.
 
 The model has that second locator and does not have the first. `RegenSpan` computes a block's
 four offsets by byte search, and
-[`RegenSpanFindsEveryBlock`](../../yidam/prelude/sdks/spec/graph.dfy#L748-L749) proves it finds
+[`RegenSpanFindsEveryBlock`](../../yidam/sdks/spec/graph.dfy#L748-L749) proves it finds
 every block that exists:
 
 ```dafny
@@ -191,7 +191,7 @@ hand-authored empty block looks like. `<!-- REGEN: a -->\n<!-- /REGEN -->` — t
 `update_regen` writes when it clears a section — has the body `"\n"` and keeps the block form,
 so the `empty-new-content` fixture is unchanged and so is `ClearingASectionLeavesNoBlankLine`.
 In the model this is two conditions in
-[`RegenBody`](../../yidam/prelude/sdks/spec/graph.dfy#L774-L778), which takes the block's form
+[`RegenBody`](../../yidam/sdks/spec/graph.dfy#L774-L778), which takes the block's form
 as a second argument and returns the content unwrapped only when the block was inline *and* the
 content will fit there.
 
@@ -208,7 +208,7 @@ written only where the block has its line to itself. An inline block inside a se
 value with a newline, fits neither form and is left as it is. Written in block form anyway, its
 open tag would become prose, or its close tag would not stand alone and the next run would read
 on to a later block's close tag. In the model this is
-[`Holds`](../../yidam/prelude/sdks/spec/graph.dfy#L816-L818).
+[`Holds`](../../yidam/sdks/spec/graph.dfy#L816-L818).
 
 The rule has the property that matters for a document people edit: the author decides, once, by
 writing the block, and no later regeneration second-guesses them.
@@ -244,7 +244,7 @@ prefix search of its own that stopped at the first hit. On a document holding a 
 the model, asked for `a`, answered with that block where `update_regen` answers with nothing.
 #1097 closed that. `RegenSpan` is now `FirstWithCommand` over a modelled `RegenScan`, compared
 by equality. `UpdateRegen` rewrites every block the scan names.
-[`TheLocatorComparesTheWholeCommand`](../../yidam/prelude/sdks/spec/graph.dfy#L2530-L2534)
+[`TheLocatorComparesTheWholeCommand`](../../yidam/sdks/spec/graph.dfy#L2530-L2534)
 is the same document, proved with the code's answer. The cost was `UpdateRegenSpec`'s re-scan
 clause, as predicted. Its induction, `ReadBack`, shows that each rewritten block reads back
 where it was written. The count clause the axiom lost also returned, stated over the scan:
@@ -255,10 +255,10 @@ start its line and the close tag to stand alone on its own line; the model did n
 witness stated the smallest document where the two disagreed. #1137 closed that. `RegenScan`
 now reads a line at a time, following `scan_markers`' block-form branch, and the witness became
 an agreement:
-[`ACloseTagMustStandAlone`](../../yidam/prelude/sdks/spec/graph.dfy#L2713-L2716) is the same
+[`ACloseTagMustStandAlone`](../../yidam/sdks/spec/graph.dfy#L2713-L2716) is the same
 document, and both sides now read no block in it. `markers.rs` pins the code's answer, so a
 change to either side reddens one of them. A second witness,
-[`AnOpenTagMidSentenceIsProse`](../../yidam/prelude/sdks/spec/graph.dfy#L2825-L2828), covers the
+[`AnOpenTagMidSentenceIsProse`](../../yidam/sdks/spec/graph.dfy#L2825-L2828), covers the
 other half of the rule: an open tag mid-sentence with no close tag beside it is prose, and the
 scan reads the block on the next line.
 
@@ -368,7 +368,7 @@ shape, no corpus content moves. Every generator writes exactly what it wrote.
 
 **Prose that shows the marker becomes prose that has one — measured.** Twenty-eight lines across
 the fourteen repositories on disk carry an open tag and a close tag on one line, and every one of
-them is the same vendored document: `yidam/prelude/sdks/README.md` and its thirteen
+them is the same vendored document: `yidam/sdks/README.md` and its thirteen
 `.yidam/.vendor/` copies, describing the marker format inside a code fence. None of them begins
 its line with the open tag, but the inline rule is not line-anchored — the mid-sentence case is
 the point — so under this RFC they parse as blocks named `cmd` and `command`.
