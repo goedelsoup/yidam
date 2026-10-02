@@ -44,8 +44,7 @@ contact      = "required"
 min_interval = "3s"
 
 [defaults]
-ttl_days        = 365
-redistributable = false
+ttl_days = 365
 
 [search]
 scheme   = "doi"

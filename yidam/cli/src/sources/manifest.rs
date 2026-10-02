@@ -19,8 +19,7 @@
 //! archive      = "wayback"
 //!
 //! [defaults]
-//! ttl_days        = 365
-//! redistributable = false
+//! ttl_days = 365
 //!
 //! [fixtures]
 //! "doi:10.1167/tvst.8.5.14" = "crossref-tvst.json"
@@ -293,13 +292,18 @@ pub enum Archive {
     Wayback,
 }
 
+/// What a new entry from this pack starts with.
+///
+/// **No `redistributable`** (#1339). It is a licence, and it belongs on an artifact's record,
+/// where the operator writes it about one source. A pack-wide `true` would assert a licence for
+/// every DOI a scheme resolves. A `false` would change nothing, because `vault push` already
+/// refuses an artifact that does not say. The key is refused rather than ignored, so a pack
+/// that sets it fails to load and does not appear to grant anything.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Defaults {
     #[serde(default)]
     pub ttl_days: Option<u32>,
-    #[serde(default)]
-    pub redistributable: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -377,8 +381,7 @@ auth          = []
 archive       = "wayback"
 
 [defaults]
-ttl_days        = 365
-redistributable = false
+ttl_days = 365
 "#,
         )
         .unwrap();
@@ -407,6 +410,17 @@ redistributable = false
         )
         .unwrap_err();
         assert!(err.to_string().contains("min_intreval"), "{err}");
+    }
+
+    /// A pack cannot set a licence (#1339). A pack written to RFC-0048's first example still
+    /// carries the key, and it fails to load rather than seeming to grant anything.
+    #[test]
+    fn a_pack_cannot_default_redistributable() {
+        let err = toml::from_str::<Manifest>(
+            "[pack]\nname = \"a\"\nversion = \"0.1.0\"\n[defaults]\nredistributable = true\n",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("redistributable"), "{err}");
     }
 
     fn auth(toml_src: &str) -> Auth {

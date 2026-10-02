@@ -36,8 +36,7 @@ contact      = "optional"
 min_interval = "1s"
 
 [defaults]
-ttl_days        = 3650
-redistributable = false
+ttl_days = 3650
 
 [search]
 scheme   = "ia"
