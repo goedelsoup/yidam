@@ -258,6 +258,11 @@ impl Enabled {
             .map(|d| (d.pack.as_str(), &d.transport))
     }
 
+    /// How the scheme's address is read past its first page, when it says (#1341).
+    pub fn paginate_of(&self, scheme: &str) -> Option<&super::manifest::Paginate> {
+        self.schemes.get(scheme)?.scheme.paginate.as_ref()
+    }
+
     /// The pack that declares `identifier`'s scheme, and the identifier as its pattern reads it.
     fn split<'a>(&'a self, identifier: &'a str) -> Result<Split<'a>, Refusal> {
         let Some((scheme, local)) = identifier.split_once(':') else {

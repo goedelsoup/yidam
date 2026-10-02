@@ -19,6 +19,7 @@ mod extract;
 mod fetch;
 pub(crate) mod location;
 pub(crate) mod member;
+pub(crate) mod paging;
 mod reconcile;
 mod record;
 pub(crate) mod superseded;

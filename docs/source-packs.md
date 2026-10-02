@@ -194,6 +194,7 @@ One table per scheme. A scheme name is lowercase letters, digits and `-`, starti
 | `extract` | no | `transforms/<name>.glu`: a fetched artifact to a reading. |
 | `then` | no | A list of `{ scheme, from }`. Each names a scheme in this pack, and `from = "describe.<key>"`. |
 | `pin` | no | A table that pins a mutable identifier to one version. See [When an identifier names a moving target](#when-an-identifier-names-a-moving-target). |
+| `paginate` | no | A table that reads a paged answer to its end. See [When a service answers in pages](#when-a-service-answers-in-pages). |
 
 A `then` names the next identifier a source leads to, such as a DOI's PMCID.
 Its `from` reads an identifier the scheme's `describe` returns.
@@ -315,6 +316,40 @@ The scheme's `pattern` admits only the pinned form. Its group `(?P<pin>…)` is 
 
 `catalog-fetch` refuses the mutable form, and says how to pin it.
 It never asks `read`. Two pins of one source are one source to `source add`.
+
+### When a service answers in pages
+
+Some services answer a query with its first page, and HTTP 200.
+ArcGIS stops at the layer's `maxRecordCount`, and sets `exceededTransferLimit: true`.
+Socrata stops at 1,000 rows, and says nothing.
+A scheme for such a service declares `paginate`:
+
+```toml
+[scheme.arcgis]
+pattern  = '^(?P<host>[a-z0-9.-]+)/(?P<layer>[A-Za-z0-9_/]+/\d+)$'
+type     = "dataset"
+resolve  = { template = "https://{host}/{layer}/query?where=1%3D1&outFields=*&f=json", media = "application/json" }
+paginate = { offset = "resultOffset", items = "features/*", until = "!exceededTransferLimit" }
+```
+
+| Key | Required | Value |
+|---|---|---|
+| `offset` | yes | The query parameter that holds how many records were read so far. |
+| `items` | yes | The path of the record array in a page, ending in `/*`. `*` alone is a page that is an array. |
+| `until` | no | A path in a page. The page is the last when it is true. A leading `!` makes it last when it is not true. |
+| `limit` | with `size` | The query parameter that asks for a page size. |
+| `size` | with `limit` | The page size to ask for. |
+
+A scheme needs `until`, or `limit` and `size`. Without `until`, a page shorter than `size` is the last.
+Socrata's form is `{ offset = "$offset", limit = "$limit", size = 1000, items = "*" }`.
+
+The offset grows by the records each page held, so a host's lower cap loses nothing.
+`catalog-fetch` joins the pages into one JSON document, and records one artifact.
+The last page's `until` key is kept, so the document does not say it was cut short.
+A single page is recorded as it arrived.
+
+Without `paginate`, `catalog-fetch` refuses an answer with `exceededTransferLimit: true`.
+The refusal is a finding on the entry, and nothing is recorded.
 
 ### `[fixtures]`
 
@@ -480,6 +515,7 @@ It verifies that:
 - every recorded listing or catalog picks a name that resolves
 - each `pin` binds from `mutable`, writes `{pin}`, and its scheme's pattern has a `pin` group
 - every recorded pin read answers a value that pins a resolving identifier
+- each `paginate` names query parameters, an array path, and how to know the last page
 - no two enabled packs declare one scheme
 - every vendored pack has its pin, and every pin has its satisfying copy
 
