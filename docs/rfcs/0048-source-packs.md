@@ -305,6 +305,15 @@ a step around a refusal, and it would hold for every corpus that pins the pack. 
 is fetched by hand and recorded as a `file` location, and its pack may say `blocked`. Settled in
 #1317.
 
+**A page is not the artifact.** A paged service answers one GET with its first page and HTTP
+200, so the digest would name a fraction of the data. A scheme declares `paginate` (#1341): the
+query parameter for the offset, the path of the record array, and how to know the last page. The
+last page is known by a path such as `!exceededTransferLimit`, or by a page shorter than the size
+the scheme asked for. The offset advances by the records received rather than by the size asked
+for, so a host that caps lower loses nothing. The pages are joined into one JSON document and
+recorded as one artifact. Without `paginate`, an answer carrying `exceededTransferLimit: true` is
+refused, as a non-200 is.
+
 ### 6. Pure gluon transforms
 
 A pack may carry logic in exactly two places, both pure:

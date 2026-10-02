@@ -902,3 +902,117 @@ fn source_add_reads_the_listing_and_writes_the_pin() {
         again.stderr
     );
 }
+
+// ── a paged service, read to its end (#1341) ──────────────────────────────────
+
+/// Stage an authored pack whose `lb:` scheme is an ArcGIS-style query at `port`, paged as
+/// `paginate` says when it says, and an entry citing `lb:rec-1`.
+fn stage_paged(port: u16, paginate: Option<&str>) -> Staged {
+    let s = stage();
+    let pack = s.root().join(".yidam/sources/loopback");
+    std::fs::create_dir_all(&pack).unwrap();
+    std::fs::write(
+        pack.join("pack.toml"),
+        format!(
+            "[pack]\nname = \"loopback\"\nversion = \"0.1.0\"\n\n\
+             [scheme.lb]\npattern = '^rec-\\d+$'\ntype = \"dataset\"\n\
+             resolve = {{ template = \"http://127.0.0.1:{port}/{{id}}/query?where=1%3D1&f=json\", \
+             media = \"application/json\" }}\n{}",
+            paginate
+                .map(|p| format!("paginate = {p}\n"))
+                .unwrap_or_default()
+        ),
+    )
+    .unwrap();
+    std::fs::write(s.root().join(".yidam/catalog/loopback-paper.md"), PAPER).unwrap();
+    git(s.root(), &["add", "-A"]);
+    git(s.root(), &["commit", "-q", "-m", "scaffold: a paged pack"]);
+    s
+}
+
+fn json_ok(body: &str) -> String {
+    ok(body).replace("content-type: text/csv", "content-type: application/json")
+}
+
+const ARCGIS: &str =
+    r#"{ offset = "resultOffset", items = "features/*", until = "!exceededTransferLimit" }"#;
+
+/// The acceptance case: a service that answers in two pages is asked for both, at the offset
+/// the first page's records reach, and the entry records one artifact holding every record.
+#[test]
+fn a_two_page_answer_is_recorded_as_one_artifact() {
+    let (port, server) = serve(vec![
+        json_ok(r#"{"features":[{"id":1},{"id":2}],"exceededTransferLimit":true}"#),
+        json_ok(r#"{"features":[{"id":3}]}"#),
+    ]);
+    let s = stage_paged(port, Some(ARCGIS));
+    let before = s.commit_count();
+    let out = s
+        .run(&["catalog-fetch", "loopback-paper", "--format", "json"])
+        .ok();
+
+    let seen = server.join().unwrap();
+    assert_eq!(seen.len(), 2);
+    assert!(
+        seen[0].starts_with("GET /rec-1/query?where=1%3D1&f=json&resultOffset=0 "),
+        "{}",
+        seen[0]
+    );
+    assert!(
+        seen[1].starts_with("GET /rec-1/query?where=1%3D1&f=json&resultOffset=2 "),
+        "{}",
+        seen[1]
+    );
+
+    let report: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let row = &report["fetched"][0]["obtained"];
+    assert_eq!(row.as_array().unwrap().len(), 1, "{out}");
+    assert_eq!(row[0]["pages"], 2, "{out}");
+    assert_eq!(
+        row[0]["followed"],
+        format!("http://127.0.0.1:{port}/rec-1/query?where=1%3D1&f=json")
+    );
+
+    let sha = row[0]["sha256"].as_str().unwrap();
+    let held = std::fs::read(s.cache().join("sha256").join(&sha[..2]).join(sha)).unwrap();
+    let doc: serde_json::Value = serde_json::from_slice(&held).unwrap();
+    assert_eq!(
+        doc,
+        serde_json::json!({"features":[{"id":1},{"id":2},{"id":3}]}),
+        "every record, and nothing saying the answer was cut short"
+    );
+
+    assert_eq!(s.commit_count(), before + 1);
+    assert!(s.head_body().contains(", in 2 pages)"), "{}", s.head_body());
+    let entry = std::fs::read_to_string(s.root().join(".yidam/catalog/loopback-paper.md")).unwrap();
+    assert_eq!(entry.matches("sha256:").count(), 1, "{entry}");
+}
+
+/// Without `paginate`, a page that says it was cut short is refused: a finding on the entry,
+/// nothing recorded, and the run fails. The listener answers once, so the fetch did not page.
+#[test]
+fn a_truncated_page_is_refused_without_a_paginate_declaration() {
+    let (port, server) = serve(vec![json_ok(
+        r#"{"features":[{"id":1}],"exceededTransferLimit":true}"#,
+    )]);
+    let s = stage_paged(port, None);
+    let before = s.commit_count();
+    let run = s.run_env(
+        &["catalog-fetch", "loopback-paper", "--format", "json"],
+        &[],
+    );
+    assert!(!run.ok, "a truncated page fails the run:\n{}", run.stdout);
+    assert_eq!(server.join().unwrap().len(), 1);
+
+    let report: serde_json::Value = serde_json::from_str(&run.stdout).unwrap();
+    let refused = &report["fetched"][0]["refused"][0];
+    assert_eq!(refused["status"], 200, "{}", run.stdout);
+    let why = refused["why"].as_str().unwrap();
+    assert!(why.contains("exceededTransferLimit"), "{why}");
+    assert!(why.contains("declares no `paginate`"), "{why}");
+    assert!(report["fetched"][0]["obtained"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert_eq!(s.commit_count(), before, "nothing was recorded");
+}
