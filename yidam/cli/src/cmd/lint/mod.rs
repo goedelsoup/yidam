@@ -525,7 +525,7 @@ const ROSTER: &[Entry] = &[
     Entry {
         id: "catalog-location-malformed",
         asked: Asked::Always,
-        run: |i| checks::catalog_location_malformed(i.sources()),
+        run: |i| checks::catalog_location_malformed(i.sources(), i.packs()),
     },
     Entry {
         id: "catalog-type-unknown",

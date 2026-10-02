@@ -1190,6 +1190,11 @@ a kind outside `url`, `url_template`, `address`, `file` and `identifier`. Severa
 | `url_template` | A value with no `{…}` slot |
 | `identifier` | A value that is not `scheme:local-id`, has no local id, or is a URL |
 
+Once the corpus enables a source pack, an `identifier` is also held to the packs. Its scheme must be
+one an enabled pack declares, and its local id must match that scheme's `pattern`. When a template
+pack declares the scheme, the finding names the pack to pin. A corpus that enables no pack is held
+to the shape alone. See [Source packs](source-packs.md).
+
 `kind: doi` and `kind: pmc` were written before `identifier` existed. The finding for either names
 `yidam migrate locations`, which rewrites it. See [`migrate` subcommands](#migrate-subcommands).
 

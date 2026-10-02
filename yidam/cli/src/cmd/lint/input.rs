@@ -76,6 +76,7 @@ pub(crate) struct Input<'a> {
     types: OnceLock<checks::TypeIndex>,
     tag_prose: OnceLock<Vec<checks::ProseView<'a>>>,
     scripts: OnceLock<Vec<calculators::Script>>,
+    packs: OnceLock<crate::sources::resolve::Enabled>,
 
     // ── whole groups ────────────────────────────────────────────────────────────
     //
@@ -140,6 +141,7 @@ impl<'a> Input<'a> {
             types: OnceLock::new(),
             tag_prose: OnceLock::new(),
             scripts: OnceLock::new(),
+            packs: OnceLock::new(),
             citation_checks: OnceLock::new(),
             local_citation_checks: OnceLock::new(),
             quotation_checks: OnceLock::new(),
@@ -268,6 +270,14 @@ impl<'a> Input<'a> {
     /// would never run where it counts.
     pub(crate) fn deps(&self) -> &std::collections::BTreeMap<String, citations::Installed> {
         self.deps.get_or_init(|| citations::installed(self.root))
+    }
+
+    /// The source packs this repository enables, authored then vendored, a vendored pack an
+    /// authored one shadows left out. A directory that cannot be read enables nothing; `source
+    /// check` is where an unreadable pack is reported.
+    pub(crate) fn packs(&self) -> &crate::sources::resolve::Enabled {
+        self.packs
+            .get_or_init(|| crate::sources::resolve::Enabled::load(self.root).unwrap_or_default())
     }
 
     /// Which nodes cite each catalog source.
