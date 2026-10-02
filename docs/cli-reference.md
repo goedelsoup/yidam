@@ -1262,7 +1262,8 @@ holds for a publisher whose TLS chain does not verify: no pack can turn verifica
 **Archive.** `wayback:<timestamp>/<url>` resolves to the capture's `id_` form, the original bytes.
 `catalog-fetch --archive` looks up the nearest successful capture of each identifier whose pack
 says `archive = "wayback"`. It appends that capture to the entry's `location:` list as a
-`wayback:` identifier, dated in its description, in the same `refresh:` commit. It reads the
+`wayback:` identifier. Its description carries the capture date, and it lands in the same
+`refresh:` commit. It reads the
 Wayback availability API and never asks the archive to capture anything. It needs an enabled
 pack declaring the `wayback` scheme.
 
