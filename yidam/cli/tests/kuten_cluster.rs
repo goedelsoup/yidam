@@ -222,6 +222,7 @@ struct Member {
     authored: usize,
     phase: usize,
     off_vocabulary: usize,
+    suffixed: usize,
     instances: usize,
     median_lines: f64,
     open_questions: usize,
@@ -233,9 +234,9 @@ impl Member {
             commits: self.authored,
             phase_commits: self.phase,
             off_vocabulary_commits: self.off_vocabulary,
-            // The stored members were measured before this field existed; zero is the
-            // honest reading, and it never reaches a band — nothing compares against it.
-            suffixed_commits: 0,
+            // Recorded since the #704 re-measurement. It never reaches a band — it words the
+            // off-vocabulary question — and a row that drops it fails to deserialize.
+            suffixed_commits: self.suffixed,
             nodes: self.instances,
             median_node_lines: Some(self.median_lines),
             open_questions: self.open_questions,

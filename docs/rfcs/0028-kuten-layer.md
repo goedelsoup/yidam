@@ -202,6 +202,15 @@ date, and the six measurements are recorded in the profile under `measured.membe
 them back through `compare` and holds every band to containing its own evidence, which is the half
 of §9's obligation that can run in CI while the corpora themselves cannot.
 
+**Re-measured 2026-10-01 (#704).** Both predicates changed under these rows after the fit: #691
+counts `phase(x):` as settling a phase, and bd2de98c narrowed the merge predicate to the subjects
+git writes. A post-#703 binary re-read the same six trees (row 6 at `abd6ecd`). The hazard #704
+named does not exist: no member has ever written a `phase(x):`. Both scoped verbs are in the
+ceiling member, and they are `vendor(…)` and `consume(…)`. Five rows came back identical. Row 6
+moved from 1,312 to 1,313 authored and from 2 to 3 off-vocabulary, both from one hand-written
+`Merge origin/main — …` subject. The phase floor reads 0.1249 rather than 0.1250, and the
+estimator returns 0.12–0.27 and 0.0–0.02 again.
+
 #### A0's `classes` bands, retired (2026-09-07, #692, profile revision 2)
 
 The correction above is right and was not enough, and the reasoning it recorded is what this
