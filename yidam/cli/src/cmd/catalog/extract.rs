@@ -9,7 +9,7 @@
 //!
 //! # What it takes a reading of
 //!
-//! Two kinds of record, and a record can be both:
+//! Three kinds of record, and a record can be more than one:
 //!
 //! - one whose `media_type` is `application/pdf` and which has no text reading yet — under
 //!   `readings:`, or under the `text:` key entries wrote before #1318. The reading is
@@ -19,6 +19,9 @@
 //!   bytes yet. The reading is the transform's, and its `by` names the pack, its version, the
 //!   script and the script's digest. A build without `source-transforms` reports these as
 //!   skipped, with that reason, rather than as nothing to do.
+//! - one fetched `from:` a location that names `members:`, each a file inside the zip the
+//!   location fetched, and which has no reading of that member yet (#1351). The reading is the
+//!   member's own bytes, unpacked by [`member::unpack`], and records `member:` beside `by: unzip`.
 //!
 //! A reading already taken is never replaced — see [`super::record::add_reading`] — so a
 //! re-run over a read catalog changes nothing and commits nothing. A record that states no
@@ -36,6 +39,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use super::fetch::{select, staging};
+use super::member;
 use super::record;
 use crate::cmd::operational::{Commit, Writer};
 use crate::parse::{
@@ -64,6 +68,9 @@ pub(crate) struct Read {
     /// What took the reading, as its record's `by:` says it.
     extractor: String,
     bytes: Option<u64>,
+    /// The path inside the archive, for a member's reading. Absent on every other.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    member: Option<String>,
     /// The reading's media type. Recorded, and not reported: the report's shape predates it.
     #[serde(skip)]
     media_type: String,
@@ -100,18 +107,30 @@ enum Job {
         /// The artifact's media type, or the one its scheme resolves to.
         media_type: String,
     },
+    /// A file inside a zip, by its path there.
+    Member {
+        artifact: ContentHash,
+        member: String,
+    },
 }
 
 impl Job {
     fn artifact(&self) -> &ContentHash {
         match self {
-            Self::Pdf(h) | Self::Pack { artifact: h, .. } => h,
+            Self::Pdf(h) | Self::Pack { artifact: h, .. } | Self::Member { artifact: h, .. } => h,
         }
     }
     fn by(&self) -> String {
         match self {
             Self::Pdf(_) => EXTRACTOR.to_string(),
             Self::Pack { transform, .. } => transform.by(),
+            Self::Member { .. } => member::UNPACKER.to_string(),
+        }
+    }
+    fn member(&self) -> Option<String> {
+        match self {
+            Self::Member { member, .. } => Some(member.clone()),
+            Self::Pdf(_) | Self::Pack { .. } => None,
         }
     }
 }
@@ -139,8 +158,51 @@ fn unread(
                 why,
             }),
         }
+        for job in member_jobs(&hash, a, locations) {
+            match job {
+                Ok(job) => jobs.push(job),
+                Err(why) => skipped.push(Skipped {
+                    artifact: hash.as_str().to_string(),
+                    why,
+                }),
+            }
+        }
     }
     (jobs, skipped)
+}
+
+/// The members the location a record was fetched from names, each not yet read out of it.
+fn member_jobs(
+    hash: &ContentHash,
+    a: &CatalogArtifact,
+    locations: &[CatalogLocation],
+) -> Vec<std::result::Result<Job, String>> {
+    let Some(ArtifactOrigin::Location(i)) = &a.from else {
+        return Vec::new();
+    };
+    let Some(members) = locations.get(*i).and_then(|l| l.members.as_ref()) else {
+        return Vec::new();
+    };
+    let held = a.all_readings();
+    members
+        .iter()
+        .filter(|m| !held.iter().any(|r| r.member.as_deref() == Some(m.as_str())))
+        .map(|m| {
+            if let Some(why) = member::refusal(m) {
+                return Err(format!("not unpacked: {why}"));
+            }
+            if !member::may_be_zip(a.media_type.as_deref()) {
+                return Err(format!(
+                    "not unpacked: member `{m}` is named, but the record says these bytes are `{}`, not a zip",
+                    a.media_type.as_deref().unwrap_or_default()
+                ));
+            }
+            Ok(Job::Member {
+                artifact: hash.clone(),
+                member: m.clone(),
+            })
+        })
+        .collect()
 }
 
 /// The pack transform a record's identifier asks for, if it asks for one and has no reading
@@ -200,20 +262,14 @@ fn pack_job(
 /// Read one artifact out of the cache, take its reading and file it there, or say why not.
 fn take(cache: &Cache, job: &Job, n: usize) -> Result<std::result::Result<Read, String>> {
     let pdf = job.artifact();
-    let Ok(raw) = std::fs::read(cache.path_of(pdf)) else {
-        return Ok(Err(
-            "is not in this machine's vault cache — `yidam vault pull` fetches it".to_string(),
-        ));
-    };
-    let found = ContentHash::of_bytes(&raw);
-    if &found != pdf {
-        return Ok(Err(format!(
-            "is corrupt in this machine's vault cache: the file hashes to {}",
-            found.as_str()
-        )));
+    let path = cache.path_of(pdf);
+    if let Some(why) = unheld(&path, pdf)? {
+        return Ok(Err(why));
     }
+    let raw = || std::fs::read(&path).with_context(|| format!("reading {}", path.display()));
     let (media_type, text, by) = match job {
-        Job::Pdf(_) => match reading::extract(&raw) {
+        Job::Member { member, .. } => return take_member(cache, pdf, &path, member, n),
+        Job::Pdf(_) => match reading::extract(&raw()?) {
             Ok(text) => (TEXT_READING.to_string(), text, EXTRACTOR.to_string()),
             Err(why) => return Ok(Err(why)),
         },
@@ -221,7 +277,7 @@ fn take(cache: &Cache, job: &Job, n: usize) -> Result<std::result::Result<Read, 
             transform,
             media_type,
             ..
-        } => match sources::transform::extract(transform, media_type, &raw) {
+        } => match sources::transform::extract(transform, media_type, &raw()?) {
             Ok(t) => (t.media_type, t.text, t.by),
             Err(why) => return Ok(Err(why)),
         },
@@ -239,13 +295,71 @@ fn take(cache: &Cache, job: &Job, n: usize) -> Result<std::result::Result<Read, 
         sha256: Some(hash.as_str().to_string()),
         extractor: by,
         bytes: Some(text.len() as u64),
+        member: None,
         media_type,
     }))
+}
+
+/// Why the cache does not hold `hash` at `path` as those bytes, if it does not. Hashed in
+/// chunks, since a zip whose member is wanted can run to hundreds of megabytes.
+fn unheld(path: &Path, hash: &ContentHash) -> Result<Option<String>> {
+    if !path.is_file() {
+        return Ok(Some(
+            "is not in this machine's vault cache — `yidam vault pull` fetches it".to_string(),
+        ));
+    }
+    let found = ContentHash::of_file(path)?;
+    Ok((&found != hash).then(|| {
+        format!(
+            "is corrupt in this machine's vault cache: the file hashes to {}",
+            found.as_str()
+        )
+    }))
+}
+
+/// Unpack one member of a cached zip into the cache, or say why not.
+///
+/// Streamed from the cached file to a staged one and never held whole, for the reason
+/// [`unheld`] gives.
+fn take_member(
+    cache: &Cache,
+    zip: &ContentHash,
+    archive: &Path,
+    path: &str,
+    n: usize,
+) -> Result<std::result::Result<Read, String>> {
+    let staged = staging(cache, n);
+    if let Some(dir) = staged.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    }
+    let unpacked = member::unpack(archive, path, &staged);
+    let read = match unpacked {
+        Ok(bytes) => {
+            let hash = ContentHash::of_file(&staged)?;
+            cache.put_file(&staged, &hash)?;
+            Ok(Read {
+                artifact: zip.as_str().to_string(),
+                sha256: Some(hash.as_str().to_string()),
+                extractor: member::UNPACKER.to_string(),
+                bytes: Some(bytes),
+                member: Some(path.to_string()),
+                media_type: member::media_type(path).to_string(),
+            })
+        }
+        Err(why) => Err(format!("not unpacked: the zip {why}")),
+    };
+    let _ = std::fs::remove_file(&staged);
+    Ok(read)
 }
 
 /// The subject line, and a body naming every digest and the extractor that read it.
 fn message(entry: &str, read: &[Read]) -> (String, String) {
     let subject = match read {
+        [Read {
+            member: Some(m),
+            artifact,
+            ..
+        }] => format!("extract: {entry} {m} out of sha256:{}", &artifact[..12]),
         [one] => format!("extract: {entry} text of sha256:{}", &one.artifact[..12]),
         many => format!("extract: {entry} {} readings", many.len()),
     };
@@ -253,8 +367,12 @@ fn message(entry: &str, read: &[Read]) -> (String, String) {
         .iter()
         .map(|r| {
             format!(
-                "sha256:{} read by {} as sha256:{} ({} bytes)\n",
+                "sha256:{}{} read by {} as sha256:{} ({} bytes)\n",
                 r.artifact,
+                r.member
+                    .as_deref()
+                    .map(|m| format!(" member {m}"))
+                    .unwrap_or_default(),
                 r.extractor,
                 r.sha256.as_deref().unwrap_or_default(),
                 r.bytes.unwrap_or_default()
@@ -319,6 +437,7 @@ pub(crate) fn extract_in(
                         sha256: None,
                         extractor: j.by(),
                         bytes: None,
+                        member: j.member(),
                         media_type: String::new(),
                     })
                     .collect(),
@@ -344,6 +463,7 @@ pub(crate) fn extract_in(
                     let reading = ArtifactReading {
                         sha256: r.sha256.clone(),
                         media_type: Some(r.media_type.clone()),
+                        member: r.member.clone(),
                         by: Some(r.extractor.clone()),
                     };
                     if let Some(next) = record::add_reading(&updated, artifact, &reading)
@@ -391,14 +511,23 @@ fn render(entries: &[EntryOutcome], dry_run: bool) -> String {
     for e in entries {
         let _ = writeln!(s, "{}", e.entry);
         for r in &e.read {
+            let of = r
+                .member
+                .as_deref()
+                .map(|m| format!(" member {m}"))
+                .unwrap_or_default();
             match &r.sha256 {
                 None => {
-                    let _ = writeln!(s, "  would read sha256:{} with {}", r.artifact, r.extractor);
+                    let _ = writeln!(
+                        s,
+                        "  would read sha256:{}{of} with {}",
+                        r.artifact, r.extractor
+                    );
                 }
                 Some(h) => {
                     let _ = writeln!(
                         s,
-                        "  sha256:{}\n    read as sha256:{h} ({} bytes) by {}",
+                        "  sha256:{}{of}\n    read as sha256:{h} ({} bytes) by {}",
                         r.artifact,
                         r.bytes.unwrap_or_default(),
                         r.extractor
@@ -444,7 +573,7 @@ mod tests {
         jobs.iter()
             .filter_map(|j| match j {
                 Job::Pdf(h) => Some(h.clone()),
-                Job::Pack { .. } => None,
+                Job::Pack { .. } | Job::Member { .. } => None,
             })
             .collect()
     }
@@ -466,6 +595,7 @@ mod tests {
         read.readings = Some(vec![ArtifactReading {
             sha256: Some(a.as_str().into()),
             media_type: Some("text/plain; charset=utf-8".into()),
+            member: None,
             by: Some(EXTRACTOR.into()),
         }]);
         let held = [
@@ -509,6 +639,7 @@ extract = "transforms/body.glu"
 
     fn identifier(value: &str) -> CatalogLocation {
         CatalogLocation {
+            members: None,
             kind: Some("identifier".into()),
             value: Some(value.into()),
             description: None,
@@ -529,6 +660,7 @@ extract = "transforms/body.glu"
         };
         let locations = [
             CatalogLocation {
+                members: None,
                 kind: Some("url".into()),
                 value: Some("https://example.org".into()),
                 description: None,
@@ -573,6 +705,7 @@ extract = "transforms/body.glu"
         done.readings = Some(vec![ArtifactReading {
             sha256: Some(h.as_str().into()),
             media_type: Some("text/plain".into()),
+            member: None,
             by: Some(transform.by()),
         }]);
         let (jobs, _) = unread(tmp.path(), &packs, std::slice::from_ref(&done), &locations);
@@ -610,6 +743,98 @@ extract = "transforms/body.glu"
         }
     }
 
+    fn zipped(members: Option<Vec<&str>>) -> CatalogLocation {
+        CatalogLocation {
+            kind: Some("url".into()),
+            value: Some("https://example.org/oh2010.sf1.zip".into()),
+            description: None,
+            members: members.map(|m| m.into_iter().map(String::from).collect()),
+        }
+    }
+
+    /// Each member the fetched-from location names is a job until a reading of it is
+    /// recorded; a path that leaves the archive, or a record that is not a zip, is a skip.
+    #[test]
+    fn each_member_a_location_names_is_read_once() {
+        let h = ContentHash::of_bytes(b"PK");
+        let a = CatalogArtifact {
+            sha256: Some(h.as_str().into()),
+            from: Some(ArtifactOrigin::Location(0)),
+            ..Default::default()
+        };
+        let named = [zipped(Some(vec!["packinglist.txt", "../x", "geo.txt"]))];
+        let (jobs, skipped) = unread(Path::new("/"), &[], std::slice::from_ref(&a), &named);
+        let members: Vec<_> = jobs.iter().filter_map(Job::member).collect();
+        assert_eq!(members, ["packinglist.txt", "geo.txt"]);
+        assert_eq!(skipped.len(), 1);
+        assert!(skipped[0].why.contains("`..`"), "{}", skipped[0].why);
+
+        let mut done = a.clone();
+        done.readings = Some(vec![ArtifactReading {
+            member: Some("packinglist.txt".into()),
+            ..Default::default()
+        }]);
+        let (jobs, _) = unread(Path::new("/"), &[], &[done], &named);
+        assert_eq!(
+            jobs.iter().filter_map(Job::member).collect::<Vec<_>>(),
+            ["geo.txt"]
+        );
+
+        let mut pdf = a.clone();
+        pdf.media_type = Some("application/pdf".into());
+        let (jobs, skipped) = unread(Path::new("/"), &[], &[pdf], &[zipped(Some(vec!["a.txt"]))]);
+        assert!(jobs.iter().all(|j| j.member().is_none()), "{jobs:?}");
+        assert!(skipped[0].why.contains("not a zip"), "{}", skipped[0].why);
+
+        let (jobs, skipped) = unread(Path::new("/"), &[], &[a], &[zipped(None)]);
+        assert!(jobs.is_empty() && skipped.is_empty());
+    }
+
+    /// A member is unpacked out of the cached zip into the cache under its own digest.
+    #[test]
+    fn a_member_is_unpacked_into_the_cache_under_its_own_digest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = Cache::at(tmp.path());
+        let list = b"P1|1|1\n";
+        let zip = member::zip(&[("oh2010.sf1.prd.packinglist.txt", list, true)]);
+        let h = ContentHash::of_bytes(&zip);
+        std::fs::create_dir_all(cache.path_of(&h).parent().unwrap()).unwrap();
+        std::fs::write(cache.path_of(&h), &zip).unwrap();
+
+        let job = Job::Member {
+            artifact: h.clone(),
+            member: "oh2010.sf1.prd.packinglist.txt".into(),
+        };
+        let r = take(&cache, &job, 1).unwrap().unwrap();
+        let read = ContentHash::of_bytes(list);
+        assert_eq!(r.sha256.as_deref(), Some(read.as_str()));
+        assert_eq!(std::fs::read(cache.path_of(&read)).unwrap(), list);
+        assert_eq!(
+            (r.media_type.as_str(), r.extractor.as_str()),
+            ("text/plain", "unzip")
+        );
+        let (subject, body) = message("sf1", std::slice::from_ref(&r));
+        assert_eq!(
+            subject,
+            format!(
+                "extract: sf1 oh2010.sf1.prd.packinglist.txt out of sha256:{}",
+                &h.as_str()[..12]
+            )
+        );
+        assert!(commit::is_operational(&subject));
+        assert!(
+            body.contains("member oh2010.sf1.prd.packinglist.txt"),
+            "{body}"
+        );
+
+        let missing = Job::Member {
+            artifact: h,
+            member: "absent.txt".into(),
+        };
+        let why = take(&cache, &missing, 2).unwrap().unwrap_err();
+        assert!(why.contains("holds no member `absent.txt`"), "{why}");
+    }
+
     #[test]
     fn the_commit_names_every_digest_and_the_extractor() {
         let r = Read {
@@ -617,6 +842,7 @@ extract = "transforms/body.glu"
             sha256: Some("b".repeat(64)),
             extractor: EXTRACTOR.to_string(),
             bytes: Some(9),
+            member: None,
             media_type: TEXT_READING.to_string(),
         };
         let (subject, body) = message("veto", std::slice::from_ref(&r));

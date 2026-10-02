@@ -3431,6 +3431,11 @@ pub fn catalog_location_malformed(
             if loc.value.as_deref().unwrap_or("").trim().is_empty() {
                 problems.push("no `value`".to_string());
             }
+            for m in loc.members.iter().flatten() {
+                if let Some(why) = crate::cmd::catalog::member::refusal(m) {
+                    problems.push(why);
+                }
+            }
             if s.locations.len() > 1 && loc.description.is_none() {
                 problems.push("several locations and no `description` to tell them apart".into());
             }
@@ -3454,7 +3459,9 @@ pub fn catalog_location_malformed(
          scheme so that the set of kinds stays closed. Once the repository enables a source \
          pack, the scheme must be one an enabled pack declares and the local id must match \
          its pattern, since that pack is what resolves it; a repository that enables none \
-         is held to the shape alone.",
+         is held to the shape alone. A file inside a fetched zip is named under `members:` \
+         beside the value, never in it, and each must be a path that stays inside the \
+         archive.",
         violations,
     )
 }
@@ -6003,6 +6010,7 @@ mod tests {
     fn a_from_index_naming_no_location_is_reported() {
         let mut s = with_artifacts("pearl-2009", &format!("- sha256: {GOOD}\n  from: 2\n"));
         s.locations = vec![crate::parse::CatalogLocation {
+            members: None,
             kind: Some("url".into()),
             value: Some("https://example.org".into()),
             description: None,
@@ -6551,6 +6559,7 @@ mod tests {
     fn a_url_location_must_be_a_url() {
         let mut s = source("src", true, None);
         s.locations = vec![crate::parse::CatalogLocation {
+            members: None,
             kind: Some("url".into()),
             value: Some("see the reading room".into()),
             description: None,
@@ -6567,6 +6576,7 @@ mod tests {
     fn a_well_formed_location_passes() {
         let mut s = source("src", true, None);
         s.locations = vec![crate::parse::CatalogLocation {
+            members: None,
             kind: Some("url".into()),
             value: Some("https://example.org/x".into()),
             description: None,
@@ -6574,9 +6584,27 @@ mod tests {
         assert!(catalog_location_malformed(&[s], &no_packs()).passed());
     }
 
+    /// A member is named beside the zip, and one whose path leaves the archive is refused.
+    #[test]
+    fn a_member_path_must_stay_inside_its_archive() {
+        let mut s = located("url", "https://example.org/oh2010.sf1.zip");
+        s.locations[0].members = Some(vec!["oh2010.sf1.prd.packinglist.txt".into()]);
+        let c = catalog_location_malformed(std::slice::from_ref(&s), &no_packs());
+        assert!(c.passed());
+        s.locations[0].members = Some(vec!["../escape.txt".into(), "/abs".into()]);
+        let c = catalog_location_malformed(&[s], &no_packs());
+        assert_eq!(c.violations.len(), 1);
+        let detail = &c.violations[0].detail;
+        assert!(
+            detail.contains("`..`") && detail.contains("absolute"),
+            "{detail}"
+        );
+    }
+
     fn located(kind: &str, value: &str) -> Source {
         let mut s = source("src", true, None);
         s.locations = vec![crate::parse::CatalogLocation {
+            members: None,
             kind: Some(kind.into()),
             value: Some(value.into()),
             description: None,

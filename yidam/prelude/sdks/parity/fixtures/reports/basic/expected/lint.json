@@ -417,7 +417,7 @@
       "id": "catalog-location-malformed",
       "title": "Catalog location missing or mistyped",
       "severity": "warn",
-      "rationale": "A `location` is a list of typed places. The type decides whether a reader is offered a link, so a value whose shape contradicts its type renders wrongly; and where an entry has several locations, the description is the only thing distinguishing them. An `identifier` names a source by what it is rather than where it is, as `scheme:local-id` — `doi:10.1167/tvst.8.5.14` — and one kind serves every scheme so that the set of kinds stays closed. Once the repository enables a source pack, the scheme must be one an enabled pack declares and the local id must match its pattern, since that pack is what resolves it; a repository that enables none is held to the shape alone.",
+      "rationale": "A `location` is a list of typed places. The type decides whether a reader is offered a link, so a value whose shape contradicts its type renders wrongly; and where an entry has several locations, the description is the only thing distinguishing them. An `identifier` names a source by what it is rather than where it is, as `scheme:local-id` — `doi:10.1167/tvst.8.5.14` — and one kind serves every scheme so that the set of kinds stays closed. Once the repository enables a source pack, the scheme must be one an enabled pack declares and the local id must match its pattern, since that pack is what resolves it; a repository that enables none is held to the shape alone. A file inside a fetched zip is named under `members:` beside the value, never in it, and each must be a path that stays inside the archive.",
       "escalation_eligible": false,
       "violations": []
     },

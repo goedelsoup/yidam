@@ -474,14 +474,46 @@ artifacts:
 | Field | Value |
 |---|---|
 | `sha256` | The reading's own digest, in the same vault cache as the artifact. |
-| `media_type` | What the reading is. A quotation is compared with the first `text/plain` reading. |
-| `by` | What took it. A transform is `<pack>@<version>/<path>@sha256:<script hash>`. A PDF's is `<crate> <version>`. |
+| `media_type` | What the reading is. A quotation is compared with the first `text/plain` reading of the whole artifact. |
+| `member` | The file inside a zip this reading is. Absent for a reading of the whole artifact. |
+| `by` | What took it. A transform is `<pack>@<version>/<path>@sha256:<script hash>`. A PDF's is `<crate> <version>`. A zip member's is `unzip`. |
 
 A changed transform script is a new `by`, so `catalog-extract` takes a new reading beside the old.
 A reading already taken is never replaced.
 
 A location names the bytes fetched, never a member inside them.
 So the location for a file inside a zip names the zip, and no pin or template carries a `#`.
+
+### Read a file inside a zip
+
+Name the file under `members:`, beside the location's value:
+
+```yaml
+location:
+  - kind: url
+    value: https://www2.census.gov/census_2010/04-Summary_File_1/Ohio/oh2010.sf1.zip
+    members:
+      - oh2010.sf1.prd.packinglist.txt
+```
+
+Fetch the zip, then run `catalog-extract`.
+It unpacks each named member into the cache and records it as a reading of the zip:
+
+```yaml
+    readings:
+      - sha256: 5e07b2…
+        media_type: text/plain
+        member: oh2010.sf1.prd.packinglist.txt
+        by: unzip
+```
+
+The member's `sha256` is its own, and its `media_type` comes from its extension.
+A member's text is never the zip's text reading.
+
+A member path must stay inside the archive.
+Lint refuses `..`, a leading `/`, a drive letter and a backslash.
+`catalog-extract` refuses a member over 1 GiB, a zip of more than 10,000 entries, zip64, and encryption.
+It reads stored and deflated members, and checks each one's CRC.
 
 An entry written before `readings:` holds its PDF reading under `text:`. It is still read.
 

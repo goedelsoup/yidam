@@ -938,12 +938,19 @@
                         ],
                         "description": "What the reading is: `text/plain` for a text reading, which a quotation is compared with."
                       },
+                      "member": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "description": "The file inside a zip this reading is, by its path there, when the location the zip was fetched from names it under `members:` (#1351). Absent for a reading of the whole artifact."
+                      },
                       "by": {
                         "type": [
                           "string",
                           "null"
                         ],
-                        "description": "What took the reading: `<crate> <version>` for an extractor, `<pack>@<version>/<transform>@sha256:<hash>` for a source pack's transform. Never re-run to check one."
+                        "description": "What took the reading: `<crate> <version>` for an extractor, `<pack>@<version>/<transform>@sha256:<hash>` for a source pack's transform, `unzip` for a member read out of a zip. Never re-run to check one."
                       }
                     }
                   }
@@ -2534,7 +2541,7 @@
     },
     "extracted": {
       "type": "array",
-      "description": "`catalog-extract` only. One row per catalog entry recording an artifact with a reading still to take — a PDF with no text reading, or an artifact whose source pack declares an `extract` transform it has not been read by (#1318); an entry with none is absent. NOT `entries`, which this contract already gives to `log`'s commits. `read` is what was read and recorded, `skipped` is an artifact that was not, with the reason.",
+      "description": "`catalog-extract` only. One row per catalog entry recording an artifact with a reading still to take — a PDF with no text reading, an artifact whose source pack declares an `extract` transform it has not been read by (#1318), or a zip with a member its location names under `members:` and no reading of it (#1351); an entry with none is absent. NOT `entries`, which this contract already gives to `log`'s commits. `read` is what was read and recorded, `skipped` is an artifact that was not, with the reason.",
       "items": {
         "type": "object",
         "required": [
@@ -2550,7 +2557,7 @@
           },
           "read": {
             "type": "array",
-            "description": "One row per PDF read. Under `--dry-run` the rows are present with `sha256` and `bytes` null, because a dry run reads nothing.",
+            "description": "One row per artifact or member read. Under `--dry-run` the rows are present with `sha256` and `bytes` null, because a dry run reads nothing.",
             "items": {
               "type": "object",
               "required": [
@@ -2573,7 +2580,11 @@
                 },
                 "extractor": {
                   "type": "string",
-                  "description": "What took the reading, as its record's `by` says it: the extractor and version, or a source pack's transform as `<pack>@<version>/<transform>@sha256:<hash>`."
+                  "description": "What took the reading, as its record's `by` says it: the extractor and version, a source pack's transform as `<pack>@<version>/<transform>@sha256:<hash>`, or `unzip` for a member read out of a zip."
+                },
+                "member": {
+                  "type": "string",
+                  "description": "The file inside the zip this row reads, by its path there (#1351). Absent for a row that reads the whole artifact."
                 },
                 "bytes": {
                   "type": [

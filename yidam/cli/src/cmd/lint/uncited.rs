@@ -590,6 +590,7 @@ mod tests {
             locations: locations
                 .iter()
                 .map(|(kind, value)| CatalogLocation {
+                    members: None,
                     kind: Some(kind.to_string()),
                     value: Some(value.to_string()),
                     description: None,
