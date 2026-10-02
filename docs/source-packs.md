@@ -512,6 +512,8 @@ A member's text is never the zip's text reading.
 
 A member path must stay inside the archive.
 Lint refuses `..`, a leading `/`, a drive letter and a backslash.
+Lint also reports a member written into the `url` after `#`.
+The fragment is never sent, so the fetch takes the whole zip.
 `catalog-extract` refuses a member over 1 GiB, a zip of more than 10,000 entries, zip64, and encryption.
 It reads stored and deflated members, and checks each one's CRC.
 

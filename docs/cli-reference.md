@@ -1186,7 +1186,7 @@ a kind outside `url`, `url_template`, `address`, `file` and `identifier`. Severa
 
 | Kind | Refused |
 |---|---|
-| `url` | A value that does not start `http://` or `https://` |
+| `url` | A value that does not start `http://` or `https://`, or that carries a `#` fragment |
 | `url_template` | A value with no `{…}` slot |
 | `identifier` | A value that is not `scheme:local-id`, has no local id, or is a URL |
 
@@ -1194,6 +1194,10 @@ Once the corpus enables a source pack, an `identifier` is also held to the packs
 one an enabled pack declares, and its local id must match that scheme's `pattern`. When a template
 pack declares the scheme, the finding names the pack to pin. A corpus that enables no pack is held
 to the shape alone. See [Source packs](source-packs.md).
+
+A fragment is never sent to the server, so `catalog-fetch` downloads the whole file. The finding
+names that file. To read one file inside a zip, list it under `members:`. See
+[Read a file inside a zip](source-packs.md#read-a-file-inside-a-zip).
 
 `kind: doi` and `kind: pmc` were written before `identifier` existed. The finding for either names
 `yidam migrate locations`, which rewrites it. See [`migrate` subcommands](#migrate-subcommands).
