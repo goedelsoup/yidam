@@ -3417,6 +3417,15 @@ pub fn catalog_location_malformed(
                     if k == "url" && !v.starts_with("http://") && !v.starts_with("https://") {
                         problems.push(format!("kind `url` but value is not a URL: {v}"));
                     }
+                    // The fragment never reaches the server, so the entry would read as
+                    // holding what the fragment names while the fetch takes the whole file.
+                    if let (Some((fetched, _)), "url") = (v.split_once('#'), k) {
+                        problems.push(format!(
+                            "kind `url` carries a `#` fragment, which is never sent: \
+                             `catalog-fetch` fetches {fetched} whole; name a file inside a zip \
+                             under `members:`"
+                        ));
+                    }
                     if k == "url_template" && !v.contains('{') {
                         problems
                             .push("kind `url_template` but value has no `{…}` placeholder".into());
@@ -3461,7 +3470,8 @@ pub fn catalog_location_malformed(
          its pattern, since that pack is what resolves it; a repository that enables none \
          is held to the shape alone. A file inside a fetched zip is named under `members:` \
          beside the value, never in it, and each must be a path that stays inside the \
-         archive.",
+         archive. A `url` carrying a `#` fragment is reported: the fragment is never sent, \
+         so the fetch takes the whole file while the entry reads as holding the part.",
         violations,
     )
 }
@@ -6582,6 +6592,33 @@ mod tests {
             description: None,
         }];
         assert!(catalog_location_malformed(&[s], &no_packs()).passed());
+    }
+
+    /// A fragment is never sent, so a `url` naming a member with `#` fetches the whole zip
+    /// (#1352). The finding names the bytes actually fetched and the field that reads one.
+    #[test]
+    fn a_url_with_a_fragment_names_what_is_fetched() {
+        let zip = "https://example.org/oh2010.sf1.zip";
+        let c = catalog_location_malformed(
+            &[located(
+                "url",
+                &format!("{zip}#oh2010.sf1.prd.packinglist.txt"),
+            )],
+            &no_packs(),
+        );
+        assert_eq!(c.violations.len(), 1);
+        let detail = &c.violations[0].detail;
+        assert!(
+            detail.contains("`#` fragment")
+                && detail.contains(&format!("fetches {zip} whole"))
+                && detail.contains("`members:`"),
+            "{detail}"
+        );
+        assert!(catalog_location_malformed(&[located("url", zip)], &no_packs()).passed());
+        // Only a `url`: a `#` elsewhere is another kind's business.
+        assert!(
+            catalog_location_malformed(&[located("address", "Box 4 #12")], &no_packs()).passed()
+        );
     }
 
     /// A member is named beside the zip, and one whose path leaves the archive is refused.
