@@ -30,6 +30,284 @@ is to run the filing task and commit.
 
 <!-- file-upgrade-notes: new release sections go below this line -->
 
+## cli/v0.19.0
+
+### `catalog-location-malformed` reports a `url` with a `#` fragment
+
+**A `url` location that names a member with `#` is now a finding (#1352).**
+A fragment never reaches the server, so `catalog-fetch` downloads the whole file.
+The entry then reads as if it held only the part the fragment names.
+The finding names the file actually fetched.
+
+**What changes for you: a corpus holding such a location gets a new warning.**
+Move the part after `#` under `members:` to read one file inside a zip.
+See [Read a file inside a zip](source-packs.md#read-a-file-inside-a-zip).
+
+### A file inside a zip is read as a reading
+
+**A location can list `members:`, paths inside the zip it names (#1351).**
+`catalog-extract` unpacks each into the cache and records it under the zip's `readings:`.
+Each such reading carries `member:` and `by: unzip`.
+See [Read a file inside a zip](source-packs.md#read-a-file-inside-a-zip).
+
+**Lint refuses a member path that leaves the archive.**
+`catalog-location-malformed` names a path with `..`, a leading `/`, a drive letter or a backslash.
+
+**What changes for you: nothing.**
+An entry without `members:` reads as before.
+
+### Source packs that pin a mutable identifier
+
+**A scheme can pin an identifier that names a moving target (#1343).**
+Declare `[scheme.<name>.pin]` with `mutable`, `read`, `media`, `value` and `pinned`.
+`source add` asks the read once, and writes the version it answered into the identifier.
+See [Source packs](source-packs.md#when-an-identifier-names-a-moving-target).
+
+**`archive` 0.2.0 adds `github` and `wikipedia`.**
+`github:<owner>/<repo>@<ref>/<path>` is pinned to the commit the ref names.
+`wikipedia:<lang>/<title>` is pinned to the article's current revision.
+A bare `wayback:<url>` is pinned to the capture the archive names.
+
+**`catalog-fetch` refuses the mutable form, with how to pin it.**
+It never asks the read.
+
+**The MCP contract is now 0.30.0.**
+`resolve_source` returns the pinned identifier in `locations`, and `answered` counts the read.
+
+**What changes for you: re-pin `archive` to use the new schemes.**
+`archive@^0.1` does not admit 0.2.0. Change it to `archive@^0.2`, then run `mise run yidam-vendor-update`.
+Every `wayback:<timestamp>/<url>` location resolves as before.
+
+### Source packs that read a listing or a catalog
+
+**A scheme can resolve through a page that lists its files (#1342).**
+Write `resolve = { listing = "…", match = '…' }`, or `resolve = { dcat = "<host>" }` for a DCAT-US `data.json`.
+Use one where a release date or a fresh path in the address defeats a template.
+See [Source packs](source-packs.md#when-no-template-reaches-the-file).
+
+**`source add` writes the file it picked into the identifier.**
+The location reads `scheme:local-id@<pin>`, and `catalog-fetch` follows only the pin.
+An identifier in such a scheme without a pin is skipped, with a message saying how to pin it.
+
+**A `resolve` without `template` now parses.**
+A pack with no `template`, `listing` or `dcat` still fails `source check`, now with that message.
+
+**The MCP contract is now 0.29.0.**
+`resolve_source` returns the pinned identifier in `locations`, and `answered` counts a page read.
+
+**What changes for you: nothing.**
+Every template pack resolves as before.
+
+### Source packs that read a paged answer to its end
+
+**A scheme can declare `paginate` (#1341).**
+Name the offset parameter, the record array, and how to know the last page.
+`catalog-fetch` asks for every page, and records one artifact holding every record.
+See [Source packs](source-packs.md#when-a-service-answers-in-pages).
+
+**`catalog-fetch` refuses an answer with `exceededTransferLimit: true` from a scheme without `paginate`.**
+The refusal is a finding on the entry, and the run fails.
+
+**What changes for you: nothing, unless an entry fetched a cut-short answer.**
+Such an entry recorded the first page only. Declare `paginate` on its scheme, and fetch it again.
+
+### `catalog-location-malformed` checks identifiers against your packs
+
+**Once you enable a source pack, identifier locations are held to it (#1328).**
+`yidam lint` reports a scheme that no enabled pack declares.
+It also reports a local id that the scheme's `pattern` refuses.
+
+When a template pack declares the scheme, the finding names that pack.
+For example, `wayback:` names `archive`. Pin it under `prelude_sources` to clear the finding.
+
+**What changes for you: nothing, until you pin a pack.**
+A corpus with no packs is checked for the `scheme:local-id` shape alone, as before.
+
+### `doctor` checks that your binary was built at the pin
+
+**`yidam doctor` has a new `commit` check (#1324).**
+It compares the running binary's build commit with `.yidam.toml`'s `commit`.
+They agree when one hash is a prefix of the other.
+
+**What changes for you: a stale `.yidam/bin/yidam` now fails `doctor`.**
+That is the binary a re-vendor leaves behind when nobody rebuilt it.
+The finding names both commits. Run `mise run yidam-build` to repair it.
+
+A repository with no `.yidam/bin/yidam` gets a warning instead, since another `yidam` answered.
+A binary that records no build commit also warns, because nothing can be compared.
+
+### The `scholarly` and `archive` source packs
+
+**The template ships its first two source packs (#1320).**
+`scholarly` reads papers by `doi:`, `pmc:` and `arxiv:`, through Crossref, Europe PMC and arXiv.
+`archive` reads Wayback Machine snapshots and Internet Archive items.
+See [Source packs](source-packs.md).
+
+**One `source add --fetch doi:…` reaches a paper's open-access full text.**
+The DOI leads to a `europepmc:` location, and that one to `pmc:` when Europe PMC holds the text.
+`catalog-extract` then reads the full text as plain text, without the reference list.
+
+**`scholarly` requires `YIDAM_CONTACT`.**
+Every request it makes names that contact, and it waits three seconds between requests to one host.
+
+**What changes for you: nothing, until you pin a pack.**
+Add `scholarly@^0.1` or `archive@^0.1` under `prelude_sources`, then run `mise run yidam-vendor-update`.
+
+### `search_sources` and `resolve_source` over MCP
+
+**`serve --mcp` answers two source-pack questions, and writes nothing (#1319).**
+`search_sources` is `yidam source search`. `resolve_source` is `yidam source add --dry-run`.
+Both sit at a new `sources` tier, true where the corpus enables a pack.
+The MCP contract is now 0.28.0. See [MCP server](mcp-server.md#asking-a-source-pack-and-writing-nothing).
+
+**`[serve] offline_sources = true` answers both from the packs' recorded fixtures.**
+Each answer says which route it took, in `answered`.
+
+**What changes for you: nothing, until you enable a pack.**
+A client that pins the contract version sees 0.28.0, with `sources` in the capability block.
+
+### Source pack transforms, and `readings:` on a catalog artifact
+
+**A source pack's scheme may name a `describe` and an `extract` transform (#1318).**
+Each is a `.glu` file under the pack's `transforms/`, run in the calculator arm's closed prelude.
+The binary parses the response as JSON, XML or CSV and hands the transform the parsed value.
+`yidam source check` admits each transform and runs it over the scheme's fixtures.
+
+**Transforms need the `source-transforms` feature, which is outside the default build.**
+It implies `calculators-gluon`, and adds 3 packages and 0.12 MB over it.
+A build without it checks the rest of a pack, and says it did not check the transforms.
+
+**`catalog-extract` records a reading under `readings:`, not `text:`.**
+Each reading names its digest, its media type, and what took it in `by:`.
+An artifact fetched from an identifier whose pack declares `extract` is read by that transform.
+A build without `source-transforms` reports that artifact as skipped.
+
+**What changes for you: nothing you must do.**
+An entry that holds its reading under `text:` keeps it, and lint and the vault still read it.
+A PDF that already has a `text:` reading is not read again.
+
+### `catalog-fetch` follows identifiers through source packs
+
+**`catalog-fetch` now fetches a `kind: identifier` location through the pack declaring its scheme (#1317).**
+An identifier no enabled pack declares is skipped, as before.
+See [Fetching an identifier](cli-reference.md#fetching-an-identifier).
+
+**Every request now names the tool in its User-Agent.**
+Set `YIDAM_CONTACT` to an email address or URL to add it there.
+A pack with `contact = "required"` fetches nothing without it.
+
+**A refused request now fails the run.**
+A non-success status is recorded under `refused` and not retried.
+Before, it stopped the whole run with an error.
+
+**`[transport] auth` now names where each credential goes.**
+Write `{ env = "VAR", header = "Name" }` or `{ env = "VAR", query = "param" }`.
+`source check` now reports a bare variable name as an error.
+
+**`--archive` adds the nearest Wayback capture as a pinned location.**
+It needs an enabled pack declaring the `wayback` scheme.
+
+### `yidam source list`, `search` and `add`
+
+**`yidam source add doi:…` writes a draft catalog entry from a pack (#1316).**
+It follows the scheme's `then` chain and records each identifier as a location.
+The entry is `obtained: false`, and its body is the pack's eight prompts, unanswered.
+Each entry is its own `catalog:` commit. `--fetch` then runs `catalog-fetch` on it.
+
+**`yidam source search <pack> <query>` prints the identifiers a pack's search answers with.**
+A pack declares that endpoint in a new `[search]` table. `source check` holds it to the format.
+See [Source packs](cli-reference.md#source-packs).
+
+**Set `YIDAM_CONTACT` before asking a pack that requires a contact.**
+It goes in the user agent. `source list` shows what each pack needs and whether it is set.
+`--offline` answers from a pack's recorded fixtures and asks nothing.
+
+**What changes for you: nothing, until you enable a pack.**
+
+### Source packs, `prelude_sources`, and `yidam source check`
+
+**A source pack names a family of sources by identifier, such as `doi:` or `pmc:` (#1315).**
+It is a directory holding `pack.toml` and `entry.md`, with optional `transforms/` and `fixtures/`.
+See [Source packs](cli-reference.md#source-packs) for the format.
+
+**`yidam source check` holds every pack and every pin to that format, offline.**
+It exits nonzero on an error, so a repository that writes its own pack runs it in CI.
+
+**`prelude_sources` in `.yidam/decisions/proposals.yml` pins the packs a re-vendor copies.**
+Write `<pack>@<range>`, or `<pack>@<range> from <repo>@<commit>` for another corpus's pack.
+`mise run yidam-vendor-update` copies each into `.yidam/.vendor/sources/`.
+It refuses a pin the pack's version does not meet, and then changes nothing.
+
+**What changes for you: nothing, until you pin a pack.**
+A repository with no `prelude_sources` vendors no packs, and `source check` passes.
+
+### Catalog locations gain `identifier`, and the catalog gains four types
+
+**A catalog location can be `kind: identifier`, with a value of `scheme:local-id` (#1314).**
+For example, `doi:10.1167/tvst.8.5.14` or `pmc:PMC6753881`.
+
+`kind: doi` and `kind: pmc` are still reported by `catalog-location-malformed`.
+The finding now names the fix, `yidam migrate locations`. Run it with `--dry-run` first to see each rewrite.
+A value that is a URL is reported and left for you to rewrite.
+
+**The catalog `type` set gains `statute`, `report`, `standard` and `document`.**
+`yidam lint` now reports `catalog-type-unknown` at `Warn` for any other word.
+`primary` is reported too, because it names a standing, not a form.
+Nothing maps it for you: pick the type that fits each source.
+
+### The SDKs are no longer vendored
+
+**The SDKs moved from `yidam/prelude/sdks/` to `yidam/sdks/` (#1311).** The prelude copy no longer carries them.
+The next `yidam-vendor-update` deletes `.yidam/.vendor/prelude/sdks/`, which held 66 to 377 files.
+It does so even when the pinned ref predates the move.
+
+**What changes for you: probably nothing.** No derived repository we know of builds the vendored SDKs.
+If yours depends on one by path, depend on the published `yidam-core` crate instead.
+Its manifest now sits at `yidam/sdks/rust/Cargo.toml` upstream.
+
+### Every scaffolded CI job downloads yidam before compiling it
+
+**The privacy job and both release jobs now download a released binary first (#1308).**
+Before, they cloned yidam and compiled it at every pin, released or not.
+Only the `corpus` job tried the download.
+
+**What changes for you depends on the file.**
+The privacy job sits in `ci.yml`'s `YIDAM:CI` region, so your next re-vendor brings it.
+`release.yml` is yours, so take the new `.github/workflows/release.yml` on upgrade.
+Its `guard` and `bundle` jobs then skip the toolchain whenever your pin has a release.
+
+`index.yml` still compiles, because no release carries `--features index`.
+
+### A re-vendor takes the newest release, not the origin's HEAD
+
+**`yidam-vendor-update` now pins the newest `cli/v*` release by default (#1308).**
+A release is a pin `yidam-build` can download, so no compiler runs.
+An untagged pin compiled the CLI from a clone, in every repository that took it.
+
+**What changes for you: your next re-vendor may land on a release, not on main.**
+To keep pinning unreleased main, run `YIDAM_REF=HEAD mise run yidam-vendor-update`.
+A repository pinned ahead of the newest release is refused rather than rolled back.
+The refusal prints both commands: stay on main, or take the release on purpose.
+
+`yidam-vendor-status` and the CI staleness report now measure against the newest release too.
+
+### A kuten profile with a populated `policy` slot is refused
+
+**A kuten proposes no severities, and a profile that tries is no longer read (#1305).**
+The `policy` slot was parsed and then ignored, so a proposed severity reached nothing.
+The policy layer decides disclosure only. Nothing in it changes a check's severity.
+
+**What changes for you: nothing, unless you author a kuten profile.**
+Every shipped profile carries `proposes_overrides: []`, which still parses.
+A non-empty list now stops `kuten check` with an error, and `doctor` warns. Both name the slot.
+
+### `check-diff` stops offering a candidate on a repeated suffix
+
+**Some words are no longer compared when `check-diff` looks for a near-miss (#1298).**
+Such a word ends three or more of the report's type names and appears nowhere else in them.
+Nine error types are no longer each offered `margin-of-error` because they share `error`.
+The finding rows are unchanged; only the `nearest` lead goes.
+
 ## cli/v0.18.0
 
 ### `index-build` moves into `vector-read` and needs no protoc
