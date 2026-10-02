@@ -100,6 +100,7 @@ It refuses a pin when:
 
 - the pin is neither of the two forms above
 - the pin names no range
+- the pack name is not lowercase letters, digits and `-`, starting with a letter
 - the same pack is pinned twice
 - a `from` pin does not end in a 40-character commit
 - the commit cannot be checked out
