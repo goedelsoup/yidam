@@ -159,6 +159,7 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
     // a client configured to launch it from the wrong place.
     ("serve", &["--mcp"], Tell::Names),
     ("skills-index", &[], Tell::Writes(".yidam/skills/README.md")),
+    ("source", &["check", "--format", "json"], Tell::Envelope),
     ("status", &["--format", "json"], Tell::Envelope),
     ("vault-status", &[], Tell::Writes("README.md")),
     ("vocabulary", &["--format", "json"], Tell::Envelope),

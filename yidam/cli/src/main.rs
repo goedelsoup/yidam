@@ -1258,6 +1258,18 @@ enum Command {
         #[command(subcommand)]
         sub: yidam::PolicyCommand,
     },
+    /// Check the source packs this repository resolves identifiers through (RFC-0048)
+    ///
+    /// A pack names a family of sources by identifier — `doi:…`, `pmc:…` — and says how each
+    /// resolves to an address. A corpus writes its own in `.yidam/sources/` and vendors others
+    /// by pinning them in `prelude_sources`. `check` holds both to the pack format offline, and
+    /// is the CI gate for a pack the corpus wrote.
+    Source {
+        #[command(flatten)]
+        root: RootArg,
+        #[command(subcommand)]
+        sub: yidam::SourceCommand,
+    },
     /// Check the arguments this repository derives from its corpus (RFC-0045)
     ///
     /// A memo, dossier or finding under `[derive] paths` declares a `reach:` and `cites:`
@@ -2021,6 +2033,7 @@ fn run() -> Result<()> {
         // putting one in the signature of the ungated half. See `vault/store.rs`.
         Command::Vault { sub } => yidam::run_vault(sub),
         Command::Policy { root, sub } => yidam::run_policy(root.as_deref(), sub),
+        Command::Source { root, sub } => yidam::run_source(root.as_deref(), sub),
         Command::Derive { root, sub } => yidam::run_derive(root.as_deref(), sub),
         Command::Kuten { root, sub } => yidam::run_kuten(root.as_deref(), sub),
         Command::Practice { root } => yidam::run_practice(root.as_deref()),

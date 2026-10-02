@@ -153,7 +153,7 @@ pub fn slots(template: &str) -> Vec<String> {
 }
 
 /// Substitute every `{slot}` a binding names, and report what is left.
-fn bind(template: &str, bindings: &[(String, String)]) -> Result<String, Vec<String>> {
+pub(crate) fn bind(template: &str, bindings: &[(String, String)]) -> Result<String, Vec<String>> {
     let mut filled = template.to_string();
     for (k, v) in bindings {
         filled = filled.replace(&format!("{{{k}}}"), v);

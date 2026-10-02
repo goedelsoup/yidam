@@ -1054,6 +1054,7 @@ knowledge claim, only the time to re-fetch.
 | `catalog-fetch [entry]` * | Follow a catalog entry's declared address, cache the bytes under their digest, record them in `artifacts:`, and commit it as `refresh:`. `--location` narrows to one address; `--bind name=value` fills a `url_template` slot; `--dry-run` resolves and writes nothing |
 | `catalog-extract [entry]` * | Take a text reading of each PDF artifact that has none, file it in the cache, record it under the PDF as `text:`, and commit it as `extract:`. `--dry-run` reports and reads nothing |
 | `catalog-reconcile [entry]` * | Rewrite a drifted `used-by` list to the citations, which are authoritative, and commit it as `reconcile:`. `--dry-run` reports and writes nothing |
+| `source check` | Hold every [source pack](#source-packs) and every `prelude_sources` pin to the pack format, offline. Exits nonzero on an error |
 
 ### Following an address
 
@@ -1151,6 +1152,62 @@ Re-running is free. A fetch that finds bytes the entry already records writes no
 commits nothing. That is what makes it safe to put on a `ttl_days` clock. A source that
 *changed* appends a second record beside the first rather than replacing it. Overwriting would
 delete the provenance of every claim resting on the older bytes.
+
+### Source packs
+
+A source pack names a family of sources by identifier (RFC-0048). A catalog location
+`kind: identifier, value: doi:10.1167/tvst.8.5.14` names the scheme `doi`, and a pack declares
+how that scheme resolves to an address. A pack is a directory:
+
+```
+<pack>/
+  pack.toml          # schemes, resolution, transport, defaults, fixtures
+  entry.md           # the body a new catalog entry starts from
+  transforms/*.glu   # optional
+  fixtures/          # recorded responses
+```
+
+```toml
+[pack]
+name    = "scholarly"
+version = "0.1.0"
+
+[scheme.doi]
+pattern = '^10\.\d{4,9}/\S+$'
+type    = "paper"
+resolve = { template = "https://api.crossref.org/works/{id}", media = "application/json" }
+
+[transport]
+contact      = "required"
+min_interval = "100ms"
+
+[fixtures]
+"doi:10.1167/tvst.8.5.14" = "crossref-tvst.json"
+```
+
+A template slot is `{id}` or a named group in the pattern. `[fixtures]` maps an identifier to
+a file under `fixtures/`, and every file there must be named. A manifest refuses a key it does
+not know.
+
+A corpus writes its own packs in `.yidam/sources/`. It vendors others by pinning them in
+`.yidam/decisions/proposals.yml`:
+
+```yaml
+prelude_sources:
+  - scholarly@^0.1
+  - us-oh-legislature@^0.3 from github.com/<owner>/<corpus>@<40-hex commit>
+```
+
+`mise run yidam-vendor-update` copies each pinned pack into `.yidam/.vendor/sources/`. A pin
+without `from` names a pack the template ships. One with `from` names a pack another
+corpus wrote, at that commit. The copy records the pin and its origin under `[vendored]`.
+
+A range is `^X.Y`, `~X.Y.Z`, `=X.Y.Z` or a bare `X.Y`, with cargo's bounds. A commit holds one
+version of a pack, so a `from` range is checked, never resolved. The update refuses a pin the
+pack's version does not satisfy and copies nothing. An authored pack is read before a vendored
+pack of the same name.
+
+`source check` is the CI gate for an authored pack. It reads no network.
 
 ### Reading a PDF
 

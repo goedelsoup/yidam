@@ -98,6 +98,10 @@ pub mod universal;
 /// dependencies the light build already has, so every pull request compiles and tests it. Only
 /// the I/O is behind `s3-vectors`, and only embedding a query is behind `vector-read`.
 pub mod s3vectors;
+/// Source packs (RFC-0048): how an identifier resolves, and the pins a corpus vendors packs
+/// by. Public for the reason [`policy`] is: `tests/task_layer.rs` holds the vendor task's
+/// shell range check to the one [`sources::version`] implements.
+pub mod sources;
 pub mod vault;
 mod walk;
 
@@ -157,14 +161,14 @@ pub use cmd::{
     overlay, pack, packages_index, parse_bench_goals, parse_binding, phases, propose, query,
     query_paths, record, record_fold, regen, relocate, rename, replay, retrieve, routes,
     run_capability, run_cluster, run_derive, run_export, run_kuten, run_phase, run_policy,
-    run_practice, run_score, run_vault, samudaya_audit, sangha, schema, serve_lsp, serve_mcp,
-    skills_index, slid_line_citation, status, unverified_line_citation, vault_status, vocabulary,
-    BenchGoal, BenchGoalSet, ClusterCommand, CohortOptions, DeriveCommand, DispatchOptions,
-    EmbedOptions, ExportFormat, ExportOptions, ExtractOptions, FetchOptions, GatherOptions,
-    KutenCommand, LineCitation, LineFragment, LintCheck, LintOptions, LintViolation, LogFilter,
-    MigrateOperation, PhaseCommand, PolicyCommand, PreludeNorm, ProposeOptions, RdfFormat,
-    ReconcileOptions, Relocation, RetrieveOptions, RunOptions, VaultArgs, VaultCommand,
-    COMMIT_KINDS, DEFAULT_CLASSES, LINT_SEVERITIES, PRELUDE_NORMS,
+    run_practice, run_score, run_source, run_vault, samudaya_audit, sangha, schema, serve_lsp,
+    serve_mcp, skills_index, slid_line_citation, status, unverified_line_citation, vault_status,
+    vocabulary, BenchGoal, BenchGoalSet, ClusterCommand, CohortOptions, DeriveCommand,
+    DispatchOptions, EmbedOptions, ExportFormat, ExportOptions, ExtractOptions, FetchOptions,
+    GatherOptions, KutenCommand, LineCitation, LineFragment, LintCheck, LintOptions, LintViolation,
+    LogFilter, MigrateOperation, PhaseCommand, PolicyCommand, PreludeNorm, ProposeOptions,
+    RdfFormat, ReconcileOptions, Relocation, RetrieveOptions, RunOptions, SourceCommand, VaultArgs,
+    VaultCommand, COMMIT_KINDS, DEFAULT_CLASSES, LINT_SEVERITIES, PRELUDE_NORMS,
 };
 
 /// The remote transport (#423). Gated because the feature is what pulls the server, and

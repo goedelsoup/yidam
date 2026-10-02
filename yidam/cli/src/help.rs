@@ -282,6 +282,10 @@ pub const GROUPS: &[Group] = &[
             w("catalog-fetch"),
             w("catalog-extract"),
             w("catalog-reconcile"),
+            // `source` beside the commands that follow an entry's address, because a pack is
+            // how an identifier becomes one (RFC-0048). `r` while `check` is its only
+            // subcommand: `source add` (#1316) writes a catalog entry and makes it `w`.
+            r("source"),
         ],
     },
     Group {

@@ -621,7 +621,9 @@ fn a_re_vendor_copies_only_the_domains_this_repository_declared() {
     // It has to run after the prelude copy, or an old ref's `prelude/domains/` arrives
     // after the block that removes it.
     assert!(
-        run.find("cp -R").expect("the prelude is copied") < start,
+        run.find("cp -R \"$tmp/yidam/yidam/prelude\"")
+            .expect("the prelude is copied")
+            < start,
         "the domain copy runs before the prelude copy"
     );
 
@@ -1536,4 +1538,235 @@ fn the_ci_staleness_report_resolves_the_release_as_the_task_does() {
             .any(|l| l.contains("origin/HEAD")),
         "ci.yml still measures something against origin/HEAD"
     );
+}
+
+/// The shell's `satisfies` admits exactly what `yidam source check` admits (RFC-0048 §3).
+///
+/// The vendor step checks a pin before it copies a pack, and `source check` checks it again
+/// against the copy. If the two read `^0.1` differently, one refuses what the other took.
+#[test]
+fn the_vendor_step_reads_a_range_as_source_check_does() {
+    let satisfies = vendor_fragment("SATISFIES");
+    let dir = tempfile::tempdir().unwrap();
+    // What neither grammar reads, after the shared table: each must be refused.
+    let refused = [
+        ("0.1", "^0.1"),
+        ("0.1.0-pre", "^0.1"),
+        ("0.1.0", ">=0.1"),
+        ("0.1.0", "^0.x"),
+        ("", "^0.1"),
+    ];
+    let script: String = yidam::sources::version::CASES
+        .iter()
+        .map(|(v, r, _)| (*v, *r))
+        .chain(refused)
+        .map(|(v, r)| format!("if satisfies '{v}' '{r}'; then echo y; else echo n; fi\n"))
+        .collect();
+    let out = run_fragment(&format!("{satisfies}{script}"), dir.path(), dir.path());
+    let got: Vec<&str> = out.lines().collect();
+    let cases = yidam::sources::version::CASES;
+    for (i, (v, r, want)) in cases.iter().enumerate() {
+        assert_eq!(
+            got[i] == "y",
+            *want,
+            "the shell reads {v} against {r} differently"
+        );
+    }
+    assert!(
+        got[cases.len()..].iter().all(|l| *l == "n"),
+        "the shell admitted what the grammar refuses: {got:?}"
+    );
+}
+
+/// Write a minimal pack named `name` at `version` into `dir`.
+fn write_pack(dir: &std::path::Path, name: &str, version: &str) {
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(
+        dir.join("pack.toml"),
+        format!(
+            "[pack]\nname = \"{name}\"\nversion = \"{version}\" # the pack's own\n\n\
+             [scheme.{name}]\npattern = '^[0-9]+$'\ntype = \"paper\"\n\
+             resolve = {{ template = \"https://example.org/{{id}}\" }}\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(dir.join("entry.md"), "# entry\n").unwrap();
+}
+
+/// Run the source vendoring against `repo`, with the template checkout under `tmp/yidam`.
+/// Returns whether it succeeded, and stdout plus stderr.
+fn vendor_sources(repo: &std::path::Path, tmp: &std::path::Path) -> (bool, String) {
+    let script = format!(
+        "set -eu\ntmp='{}'\norigin=https://github.com/goedelsoup/yidam\n\
+         commit=1111111111111111111111111111111111111111\n{}",
+        tmp.display(),
+        vendor_fragment("VENDOR-SOURCES")
+    );
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(&script)
+        .current_dir(repo)
+        .output()
+        .expect("sh");
+    (
+        out.status.success(),
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        ),
+    )
+}
+
+fn set_pins(repo: &std::path::Path, body: &str) {
+    let decisions = repo.join(".yidam/decisions");
+    std::fs::create_dir_all(&decisions).unwrap();
+    std::fs::write(decisions.join("proposals.yml"), body).unwrap();
+}
+
+/// A template pin copies the pack wholesale and records what it satisfied; a pin the pack's
+/// version does not meet refuses the update and changes nothing.
+#[test]
+fn a_re_vendor_copies_the_pinned_packs_and_refuses_an_unsatisfied_pin() {
+    let dir = tempfile::tempdir().unwrap();
+    let (repo, tmp) = (dir.path().join("repo"), dir.path().join("tmp"));
+    std::fs::create_dir_all(&repo).unwrap();
+    write_pack(
+        &tmp.join("yidam/yidam/sources/scholarly"),
+        "scholarly",
+        "0.1.4",
+    );
+    write_pack(&tmp.join("yidam/yidam/sources/archive"), "archive", "0.2.0");
+    std::fs::create_dir_all(tmp.join("yidam/yidam/sources/scholarly/fixtures")).unwrap();
+    std::fs::write(
+        tmp.join("yidam/yidam/sources/scholarly/fixtures/a.json"),
+        "{}",
+    )
+    .unwrap();
+
+    // Block list, with a comment, and a pack upstream ships but nothing pins.
+    set_pins(
+        &repo,
+        "id: proposals\nprelude_sources:\n  - scholarly@^0.1  # the papers\nrationale: x\n",
+    );
+    let (ok, out) = vendor_sources(&repo, &tmp);
+    assert!(ok, "{out}");
+    let vendored = repo.join(".yidam/.vendor/sources");
+    let manifest = std::fs::read_to_string(vendored.join("scholarly/pack.toml")).unwrap();
+    assert!(
+        manifest.contains("[vendored]\npin = \"scholarly@^0.1\"\n"),
+        "{manifest}"
+    );
+    assert!(
+        manifest.contains("from = \"https://github.com/goedelsoup/yidam\""),
+        "{manifest}"
+    );
+    assert!(
+        vendored.join("scholarly/fixtures/a.json").is_file(),
+        "copied wholesale"
+    );
+    assert!(
+        !vendored.join("archive").exists(),
+        "an unpinned pack was copied"
+    );
+    let toml: toml::Table = toml::from_str(&manifest).expect("the stamped manifest parses");
+    assert_eq!(
+        toml["vendored"]["commit"].as_str(),
+        Some("1111111111111111111111111111111111111111")
+    );
+
+    // Flow list; one pin unsatisfied. The earlier copy survives untouched.
+    set_pins(&repo, "prelude_sources: [scholarly@^0.1, archive@^0.1]\n");
+    let (ok, out) = vendor_sources(&repo, &tmp);
+    assert!(!ok, "an unsatisfied pin was taken: {out}");
+    assert!(out.contains("0.2.0") && out.contains("^0.1"), "{out}");
+    assert!(!vendored.join("archive").exists());
+    assert_eq!(
+        std::fs::read_to_string(vendored.join("scholarly/pack.toml")).unwrap(),
+        manifest
+    );
+
+    // A pack upstream does not ship is refused as well.
+    set_pins(&repo, "prelude_sources: [nope@^0.1]\n");
+    let (ok, out) = vendor_sources(&repo, &tmp);
+    assert!(!ok && out.contains("no nope pack"), "{out}");
+
+    // An empty list vendors none, and takes the earlier copy away.
+    set_pins(&repo, "prelude_sources: []\n");
+    let (ok, out) = vendor_sources(&repo, &tmp);
+    assert!(ok, "{out}");
+    assert!(!vendored.exists(), "an empty list left packs behind");
+
+    // So does a record with no key at all.
+    set_pins(&repo, "prelude_domains: []\n");
+    assert!(vendor_sources(&repo, &tmp).0);
+    std::fs::remove_dir_all(repo.join(".yidam/decisions")).unwrap();
+    assert!(vendor_sources(&repo, &tmp).0);
+}
+
+/// A `from` pin copies a pack another corpus wrote, at the commit it names, and checks the
+/// range against that one commit rather than looking for another.
+#[test]
+fn a_re_vendor_copies_a_peer_pack_at_its_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    let (repo, tmp, peer) = (
+        dir.path().join("repo"),
+        dir.path().join("tmp"),
+        dir.path().join("peer"),
+    );
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::create_dir_all(&peer).unwrap();
+    init_fixture_repo(&peer);
+    write_pack(&peer.join(".yidam/sources/oh-leg"), "oh-leg", "0.3.1");
+    git(&peer, &["add", "."]);
+    git(&peer, &["commit", "--quiet", "-m", "0.3.1"]);
+    let old = git(&peer, &["rev-parse", "HEAD"]);
+    write_pack(&peer.join(".yidam/sources/oh-leg"), "oh-leg", "0.4.0");
+    git(&peer, &["commit", "--quiet", "-am", "0.4.0"]);
+    let new = git(&peer, &["rev-parse", "HEAD"]);
+    let from = peer.display().to_string();
+
+    set_pins(
+        &repo,
+        &format!("prelude_sources:\n  - oh-leg@^0.3 from {from}@{old}\n"),
+    );
+    let (ok, out) = vendor_sources(&repo, &tmp);
+    assert!(ok, "{out}");
+    let manifest =
+        std::fs::read_to_string(repo.join(".yidam/.vendor/sources/oh-leg/pack.toml")).unwrap();
+    assert!(manifest.contains("version = \"0.3.1\""), "{manifest}");
+    assert!(
+        manifest.contains(&format!("commit = \"{old}\"")),
+        "{manifest}"
+    );
+    assert!(
+        manifest.contains(&format!("from = \"{from}\"")),
+        "{manifest}"
+    );
+
+    // The newer commit holds 0.4.0, which ^0.3 does not admit, though the older one would.
+    set_pins(
+        &repo,
+        &format!("prelude_sources:\n  - oh-leg@^0.3 from {from}@{new}\n"),
+    );
+    let (ok, out) = vendor_sources(&repo, &tmp);
+    assert!(!ok && out.contains("0.4.0"), "{out}");
+    assert!(
+        std::fs::read_to_string(repo.join(".yidam/.vendor/sources/oh-leg/pack.toml"))
+            .unwrap()
+            .contains("0.3.1"),
+        "a refusal replaced the copy"
+    );
+
+    // A short sha is refused before anything is cloned.
+    set_pins(
+        &repo,
+        &format!(
+            "prelude_sources:\n  - oh-leg@^0.3 from {from}@{}\n",
+            &old[..7]
+        ),
+    );
+    let (ok, out) = vendor_sources(&repo, &tmp);
+    assert!(!ok && out.contains("40-hex"), "{out}");
 }

@@ -1,6 +1,6 @@
 # RFC-0048 — A source is named by what it is, and fetched by something the corpus did not write (source packs)
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Commands:** `source`
 - **Track:** I35
 - **Relates to:**
@@ -421,12 +421,13 @@ Settled in review on 2026-10-01. These were this RFC's open questions.
    `prelude_sources` (§3).
 5. **Per-state packs:** written by a corpus, and shared between corpora by a pinned
    repository and commit. The template stays state-neutral (§7).
+6. **A range at a commit is checked, not resolved.** A `from` pin takes a range, as a template
+   pin does. A commit holds one `pack.toml`, so the range is checked against that version and
+   a mismatch refuses the re-vendor. Nothing walks the other repository's history for a
+   satisfying commit. Settled in #1315 (§3).
 
 ## Open questions
 
-1. **Resolving a version range across sources.** A pin like `^0.1` against the template has one
-   candidate. The same range against another corpus's repository has its git history. Should
-   `from` pins accept a range at all, or only an exact version at a commit?
-2. **Fixtures in an offline MCP server.** §8 returns fixtures when there is no network. Should
+1. **Fixtures in an offline MCP server.** §8 returns fixtures when there is no network. Should
    that response carry a marker in the contract, or is it enough that the identifiers are the
    fixtures' own?

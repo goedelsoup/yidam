@@ -1,0 +1,14 @@
+{
+  "format_version": "1",
+  "yidam": {
+    "version": "<VERSION>",
+    "commit": "<COMMIT>",
+    "features": [
+      "<FEATURES>"
+    ]
+  },
+  "root": "<ROOT>",
+  "passed": true,
+  "packs": [],
+  "pack_findings": []
+}

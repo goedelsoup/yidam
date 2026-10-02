@@ -336,7 +336,7 @@
     },
     "passed": {
       "type": "boolean",
-      "description": "`graph-check`, `regen --check`, `index-verify` and `doctor`. The gate verdict. A consumer MUST NOT recompute it. On `due` it is true unless `--strict` was passed and a clock is due \u2014 being owed is not a failure, and this field is here so a consumer does not infer one. On `cycle` it is true unless `--strict` was passed and something is owed OR blocking."
+      "description": "`graph-check`, `regen --check`, `index-verify`, `doctor` and `source check`. The gate verdict. A consumer MUST NOT recompute it. On `due` it is true unless `--strict` was passed and a clock is due \u2014 being owed is not a failure, and this field is here so a consumer does not infer one. On `cycle` it is true unless `--strict` was passed and something is owed OR blocking."
     },
     "failed": {
       "type": "integer",
@@ -3614,6 +3614,91 @@
         "unread": {
           "type": "string",
           "description": "Why the remote could not be read. The runs are reported regardless."
+        }
+      }
+    },
+    "packs": {
+      "type": "array",
+      "description": "`source check` only. Every source pack the repository holds, authored packs first, each sorted by name (RFC-0048). A vendored pack an authored one of the same name replaces is listed, with `shadowed`, and is not enabled.",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "origin",
+          "path",
+          "schemes",
+          "fixtures",
+          "shadowed"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The pack's directory name."
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`[pack].version` as written. Null when the manifest did not parse."
+          },
+          "origin": {
+            "enum": [
+              "authored",
+              "vendored"
+            ],
+            "description": "`authored` is under `.yidam/sources/`; `vendored` is under `.yidam/.vendor/sources/`, copied by `yidam-vendor-update` from a `prelude_sources` pin."
+          },
+          "path": {
+            "type": "string",
+            "description": "The pack directory, relative to the repository root."
+          },
+          "schemes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The schemes the manifest declares, sorted. Empty when it did not parse."
+          },
+          "fixtures": {
+            "type": "integer",
+            "description": "Entries in the manifest's `[fixtures]` table."
+          },
+          "shadowed": {
+            "type": "boolean",
+            "description": "A vendored pack an authored pack of the same name replaces."
+          }
+        }
+      }
+    },
+    "pack_findings": {
+      "type": "array",
+      "description": "`source check` only. What is wrong with a pack or a `prelude_sources` pin. Not `findings`, which is `check-diff`'s shape. Any `error` fails the check; `passed` is the verdict, and a consumer MUST NOT recompute it from this list.",
+      "items": {
+        "type": "object",
+        "required": [
+          "severity",
+          "pack",
+          "path",
+          "message"
+        ],
+        "properties": {
+          "severity": {
+            "$ref": "#/$defs/severity",
+            "description": "`error` fails the check. `info` does not, and is said for a vendored pack an authored one shadows. Never `warn`."
+          },
+          "pack": {
+            "type": "string",
+            "description": "The pack, or the pin, the finding is about."
+          },
+          "path": {
+            "type": "string",
+            "description": "The file to open, relative to the repository root."
+          },
+          "message": {
+            "type": "string"
+          }
         }
       }
     }
