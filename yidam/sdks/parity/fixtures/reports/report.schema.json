@@ -2411,6 +2411,11 @@
                 "pack": {
                   "type": "string",
                   "description": "`<pack>@<version>` of the source pack that resolved an identifier location (RFC-0048 \u00a75). Absent for every other kind."
+                },
+                "pages": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Requests a scheme's `paginate` made to read the whole answer (#1341). `sha256` is the digest of the pages joined into one document. Absent for every location whose scheme does not page."
                 }
               }
             }

@@ -387,6 +387,9 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
         if let Some(pin) = &s.pin {
             check_pin_read(name, s, pin, &names, out);
         }
+        if let Some(p) = &s.paginate {
+            check_paginate(name, s, p, out);
+        }
         for (field, path) in [("describe", &s.describe), ("extract", &s.extract)] {
             let Some(path) = path else { continue };
             let inside = path.starts_with("transforms/")
@@ -616,6 +619,86 @@ fn check_pin_fixture(
                     format!("`{id}` pins `{value}`: {}", r.message(&pinned)),
                 );
             }
+        }
+    }
+}
+
+/// A scheme's `paginate` (#1341): two query parameters a page is asked by, the records a page
+/// holds, and what says a page is the last.
+fn check_paginate(
+    name: &str,
+    s: &manifest::Scheme,
+    p: &manifest::Paginate,
+    out: &mut Findings<'_>,
+) {
+    let at = |what: &str| format!("[scheme.{name}] paginate.{what}");
+    let mut error = |m: String| out.error("pack.toml", m);
+    // Socrata's parameters begin with `$`, which a query carries as it is.
+    let param = |v: &str| {
+        let v = v.strip_prefix('$').unwrap_or(v);
+        !v.is_empty() && v.bytes().all(manifest::is_unreserved)
+    };
+    if !param(&p.offset) {
+        error(format!(
+            "{} `{}` is not a query parameter name",
+            at("offset"),
+            p.offset
+        ));
+    }
+    match (&p.limit, p.size) {
+        (Some(limit), Some(size)) => {
+            if !param(limit) {
+                error(format!(
+                    "{} `{limit}` is not a query parameter name",
+                    at("limit")
+                ));
+            }
+            if size == 0 {
+                error(format!(
+                    "{} is 0, so no page would hold a record",
+                    at("size")
+                ));
+            }
+            if *limit == p.offset {
+                error(format!(
+                    "{} and `offset` name one parameter, `{limit}`",
+                    at("limit")
+                ));
+            }
+        }
+        (None, None) => {
+            if p.until.is_none() {
+                error(format!(
+                    "[scheme.{name}] paginate names neither `until` nor a `limit` and `size`, so nothing says which page is the last"
+                ));
+            }
+        }
+        (Some(_), None) => error(format!(
+            "{} names a parameter and no `size` to send in it",
+            at("limit")
+        )),
+        (None, Some(_)) => error(format!(
+            "{} names a page size and no `limit` parameter to ask for it",
+            at("size")
+        )),
+    }
+    if crate::cmd::catalog::paging::array_path(&p.items).is_none() {
+        error(format!(
+            "{} `{}` does not name an array: write the path to it ending in `/*`, or `*` for a page that is one",
+            at("items"),
+            p.items
+        ));
+    }
+    if let Some(until) = &p.until {
+        if until.trim_start_matches('!').split('/').all(str::is_empty) {
+            error(format!("{} is an empty path", at("until")));
+        }
+    }
+    if let Some(media) = &s.resolve.media {
+        if !search::is_json(media) {
+            error(format!(
+                "[scheme.{name}] answers in `{media}`, and only JSON is paged"
+            ));
         }
     }
 }

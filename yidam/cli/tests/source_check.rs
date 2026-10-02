@@ -197,6 +197,79 @@ fn each_scheme_rule_is_held() {
     }
 }
 
+/// GOOD's `pmc` scheme, paged as `paginate` says (#1341).
+fn paged(paginate: &str) -> String {
+    let at = "/fullTextXML\" }\n";
+    assert!(GOOD.contains(at));
+    GOOD.replace(at, &format!("{at}paginate = {paginate}\n"))
+}
+
+#[test]
+fn a_paged_scheme_checks_in_either_form() {
+    for form in [
+        r#"{ offset = "resultOffset", items = "features/*", until = "!exceededTransferLimit" }"#,
+        r#"{ offset = "$offset", limit = "$limit", size = 1000, items = "*" }"#,
+    ] {
+        let dir = corpus();
+        pack(&dir.path().join(".yidam/sources/scholarly"), &paged(form));
+        let (code, said, _) = check(dir.path());
+        assert_eq!(code, 0, "{form}:\n{said}");
+    }
+}
+
+#[test]
+fn each_paginate_rule_is_held() {
+    for (form, needle) in [
+        (
+            r#"{ offset = "$offset", items = "*" }"#,
+            "nothing says which page is the last",
+        ),
+        (
+            r#"{ offset = "$offset", limit = "$limit", items = "*" }"#,
+            "no `size`",
+        ),
+        (
+            r#"{ offset = "$offset", size = 10, items = "*", until = "done" }"#,
+            "no `limit` parameter",
+        ),
+        (
+            r#"{ offset = "$offset", limit = "$offset", size = 10, items = "*" }"#,
+            "name one parameter",
+        ),
+        (
+            r#"{ offset = "$offset", limit = "$limit", size = 0, items = "*" }"#,
+            "is 0",
+        ),
+        (
+            r#"{ offset = "a&b", items = "*", until = "done" }"#,
+            "not a query parameter name",
+        ),
+        (
+            r#"{ offset = "o", items = "features", until = "done" }"#,
+            "does not name an array",
+        ),
+        (
+            r#"{ offset = "o", items = "*", until = "!" }"#,
+            "empty path",
+        ),
+        (
+            r#"{ offset = "o", items = "*", until = "done", page = 1 }"#,
+            "page",
+        ),
+    ] {
+        let dir = corpus();
+        pack(&dir.path().join(".yidam/sources/scholarly"), &paged(form));
+        assert_refused(dir.path(), needle);
+    }
+    let dir = corpus();
+    let xml = paged(r#"{ offset = "o", items = "*", until = "done" }"#).replace(
+        "/fullTextXML\" }",
+        "/fullTextXML\", media = \"application/xml\" }",
+    );
+    pack(&dir.path().join(".yidam/sources/scholarly"), &xml);
+    assert_refused(dir.path(), "only JSON is paged");
+}
+
 /// The `[search]` table `source search` asks (#1316), and the fixture its `--offline` answers
 /// from.
 const SEARCH: &str = r#"

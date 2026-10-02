@@ -25,7 +25,7 @@ use std::path::{Component, Path, PathBuf};
 
 use super::transport::{Credential, Policy};
 use crate::parse::CatalogLocation;
-use crate::sources::manifest::{parse_interval, Contact};
+use crate::sources::manifest::{parse_interval, Contact, Paginate};
 use crate::sources::resolve::{archives, Enabled, Resolved, WAYBACK};
 
 /// What resolving a location reads besides the location.
@@ -69,6 +69,8 @@ pub enum Plan {
         policy: Policy,
         /// Whether `--archive` looks this address up in the Wayback Machine.
         archive: bool,
+        /// How the address is read past its first page, when its scheme says (#1341).
+        paginate: Option<Paginate>,
     },
 }
 
@@ -287,6 +289,7 @@ pub fn resolve(location: &CatalogLocation, ctx: &Context) -> Result<Plan, Unfoll
             let policy = policy_for(value, &r, ctx)?;
             Ok(Plan::Identifier {
                 archive: archives(&r.transport) && r.scheme != WAYBACK,
+                paginate: ctx.packs.paginate_of(&r.scheme).cloned(),
                 url: r.url,
                 declared,
                 pack: r.pack,
@@ -672,6 +675,7 @@ resolve = {{ template = "https://api.crossref.org/works/{{id}}" }}
                         min_interval: Some(std::time::Duration::from_millis(250)),
                     },
                     archive: true,
+                    paginate: None,
                 }
             );
         }

@@ -31,12 +31,14 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use super::location::{self, Plan};
+use super::paging;
 use super::record;
 use super::superseded;
 use super::transport::{self, Policy, Session};
 use crate::cmd::operational::{Commit, Writer};
 use crate::parse::{parse_frontmatter, ArtifactOrigin, CatalogArtifact, CatalogLocation};
 use crate::paths::{repo_root, yidam_catalog_dir};
+use crate::sources::manifest::Paginate;
 use crate::sources::resolve::{Enabled, WAYBACK};
 use crate::vault::{Cache, ContentHash, Route};
 use crate::walk::walk_md_files;
@@ -78,6 +80,9 @@ pub(crate) struct Obtained {
     /// `<pack>@<version>` that resolved an identifier location. Absent for every other kind.
     #[serde(skip_serializing_if = "Option::is_none")]
     pack: Option<String>,
+    /// How many pages made the bytes, where the scheme declares `paginate` (#1341).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pages: Option<usize>,
 }
 
 /// A location whose publisher answered with something other than success (RFC-0048 §5).
@@ -231,27 +236,70 @@ fn obtain(
     net: &mut Network,
 ) -> Result<std::result::Result<Obtained, Declined>> {
     let staged = staging(cache, n);
+    let declined = |followed: String, status: u16, why: String| Declined {
+        location: index,
+        declared: plan.declared().to_string(),
+        followed,
+        status,
+        why,
+    };
+    let refusal = |r: transport::Refused| {
+        if r.reason.is_empty() {
+            format!("HTTP {}", r.status)
+        } else {
+            format!("HTTP {} {}", r.status, r.reason)
+        }
+    };
+    let mut pages = None;
     let answer = match plan {
         Plan::File { path, .. } => Ok(transport::read_local(path, &staged)?),
         Plan::Url { url, .. } => net.session.get(url, &net.plain, &staged)?,
-        Plan::Identifier { url, policy, .. } => net.session.get(url, policy, &staged)?,
+        Plan::Identifier {
+            url,
+            policy,
+            paginate: None,
+            ..
+        } => net.session.get(url, policy, &staged)?,
+        Plan::Identifier {
+            url,
+            policy,
+            paginate: Some(p),
+            ..
+        } => match obtain_pages(url, p, policy, &staged, net)? {
+            Ok((fetched, n)) => {
+                pages = Some(n);
+                Ok(fetched)
+            }
+            Err((followed, status, why)) => return Ok(Err(declined(followed, status, why))),
+        },
     };
     let fetched = match answer {
         Ok(f) => f,
         Err(r) => {
-            return Ok(Err(Declined {
-                location: index,
-                declared: plan.declared().to_string(),
-                followed: plan.followed(),
-                status: r.status,
-                why: if r.reason.is_empty() {
-                    format!("HTTP {}", r.status)
-                } else {
-                    format!("HTTP {} {}", r.status, r.reason)
-                },
-            }))
+            let why = refusal(r.clone());
+            return Ok(Err(declined(plan.followed(), r.status, why)));
         }
     };
+    // A page that says it was cut short is not the source. Recorded, its digest would stand for
+    // a dataset it holds the first thousand rows of.
+    if pages.is_none()
+        && !matches!(plan, Plan::File { .. })
+        && paging::truncated(&staged).with_context(|| format!("reading {}", staged.display()))?
+    {
+        let _ = std::fs::remove_file(&staged);
+        let how = match plan {
+            Plan::Identifier { .. } => "its scheme declares no `paginate`",
+            _ => "a `url` is fetched in one request; cite it by an identifier whose scheme declares `paginate`",
+        };
+        return Ok(Err(declined(
+            plan.followed(),
+            200,
+            format!(
+                "HTTP 200 with `{}: true`: the publisher sent one page of a longer answer, and {how}",
+                paging::TRUNCATED
+            ),
+        )));
+    }
 
     let hash =
         ContentHash::of_file(&staged).with_context(|| format!("hashing {}", staged.display()))?;
@@ -282,7 +330,64 @@ fn obtain(
         cached,
         route,
         pack: pack_of(plan),
+        pages,
     }))
+}
+
+/// A page's finding: the address asked, the status it answered, and why.
+type PageRefused = (String, u16, String);
+
+/// Ask each page of a paged address in turn, and stage the one document they make (#1341).
+///
+/// A page the publisher refuses, or one that is not the shape `paginate` declares, is the
+/// location's finding: the page's address, its status, and why.
+fn obtain_pages(
+    url: &str,
+    p: &Paginate,
+    policy: &Policy,
+    staged: &Path,
+    net: &mut Network,
+) -> Result<std::result::Result<(transport::Fetched, usize), PageRefused>> {
+    let mut pager = paging::Pager::new(p, url);
+    let mut first = None;
+    loop {
+        let asked = pager.url();
+        let fetched = match net.session.get(&asked, policy, staged)? {
+            Ok(f) => f,
+            Err(r) => {
+                let why = format!(
+                    "{} on page {}",
+                    format!("HTTP {} {}", r.status, r.reason).trim_end(),
+                    pager.pages() + 1
+                );
+                return Ok(Err((asked, r.status, why)));
+            }
+        };
+        let bytes =
+            std::fs::read(staged).with_context(|| format!("reading {}", staged.display()))?;
+        let step = pager.take(bytes);
+        first.get_or_insert(fetched);
+        match step {
+            Ok(paging::Step::More) => continue,
+            Ok(paging::Step::Done) => break,
+            Err(why) => {
+                let _ = std::fs::remove_file(staged);
+                return Ok(Err((asked, 200, why)));
+            }
+        }
+    }
+    let n = pager.pages();
+    let bytes = pager.into_bytes().map_err(anyhow::Error::msg)?;
+    std::fs::write(staged, bytes).with_context(|| format!("writing {}", staged.display()))?;
+    Ok(Ok((first.unwrap_or_default(), n)))
+}
+
+/// `, in 3 pages` for bytes a paged read made, and nothing for one request's.
+fn in_pages(pages: Option<usize>) -> String {
+    match pages {
+        Some(n) if n > 1 => format!(", in {n} pages"),
+        _ => String::new(),
+    }
 }
 
 fn pack_of(plan: &Plan) -> Option<String> {
@@ -473,13 +578,14 @@ fn message(
         use std::fmt::Write;
         let _ = writeln!(
             body,
-            "sha256:{} ({} bytes{}) from location {} — {}",
+            "sha256:{} ({} bytes{}{}) from location {} — {}",
             o.sha256,
             o.bytes,
             o.media_type
                 .as_deref()
                 .map(|m| format!(", {m}"))
                 .unwrap_or_default(),
+            in_pages(o.pages),
             o.location,
             o.followed
         );
@@ -635,6 +741,7 @@ pub(crate) fn fetch_in(
                     cached: false,
                     route: String::new(),
                     pack: pack_of(plan),
+                    pages: None,
                 });
                 continue;
             }
@@ -786,7 +893,7 @@ pub(crate) fn render(entries: &[EntryOutcome], dry_run: bool) -> String {
             }
             let _ = writeln!(
                 s,
-                "  location {} — {}\n    sha256:{} ({} bytes{}){}\n    push route: {}",
+                "  location {} — {}\n    sha256:{} ({} bytes{}{}){}\n    push route: {}",
                 o.location,
                 o.followed,
                 o.sha256,
@@ -795,6 +902,7 @@ pub(crate) fn render(entries: &[EntryOutcome], dry_run: bool) -> String {
                     .as_deref()
                     .map(|m| format!(", {m}"))
                     .unwrap_or_default(),
+                in_pages(o.pages),
                 if o.cached { " — already held" } else { "" },
                 hang(&o.route, "      ")
             );
@@ -958,6 +1066,7 @@ mod tests {
             cached: false,
             route: "sources (s3://x)".into(),
             pack: None,
+            pages: None,
         }
     }
 
@@ -1103,6 +1212,7 @@ mod tests {
             cached: false,
             route: String::new(),
             pack: None,
+            pages: None,
         }
     }
 
@@ -1197,6 +1307,7 @@ mod tests {
             cached: false,
             route: String::new(),
             pack: None,
+            pages: None,
         };
         for obtained in [vec![o.clone()], vec![o.clone(), o.clone()]] {
             let (subject, _) = message("e", &obtained, &[], &[], &[]);

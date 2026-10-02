@@ -104,6 +104,45 @@ pub struct Scheme {
     /// How a mutable local id becomes the pinned one `pattern` admits (#1343).
     #[serde(default)]
     pub pin: Option<PinRead>,
+    /// How the address is read past its first page (#1341).
+    #[serde(default)]
+    pub paginate: Option<Paginate>,
+}
+
+/// How a paged service is read to its end (#1341):
+///
+/// ```toml
+/// paginate = { offset = "resultOffset", items = "features/*", until = "!exceededTransferLimit" }
+/// paginate = { offset = "$offset", limit = "$limit", size = 1000, items = "*" }
+/// ```
+///
+/// A paged service answers a single `GET` with its first page and HTTP 200, so the page looks
+/// like the whole. With this declared, a fetch asks page after page, each at the offset the
+/// records already received reach, and records one artifact: the first page's document with
+/// every page's records at `items`. The offset advances by what arrived and not by `size`,
+/// because a server whose own cap is lower than the size asked returns fewer and says nothing
+/// else.
+///
+/// The fetch stops where `until` says, or else on a page shorter than `size`. Only JSON is
+/// paged.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Paginate {
+    /// The query parameter carrying how many records to skip.
+    pub offset: String,
+    /// The query parameter carrying how many records to ask for. Paired with `size`.
+    #[serde(default)]
+    pub limit: Option<String>,
+    /// How many records to ask for in each page. Paired with `limit`.
+    #[serde(default)]
+    pub size: Option<u32>,
+    /// The path of each record in a page, as `[search]` writes `items`: `features/*`, or `*`
+    /// for a page that is one array.
+    pub items: String,
+    /// The path of a boolean that ends the paging when true, or with a leading `!` when not
+    /// true: `!exceededTransferLimit`. Absent, a page shorter than `size` is the last.
+    #[serde(default)]
+    pub until: Option<String>,
 }
 
 /// A read `source add` makes to fix a mutable identifier to one version (#1343):
