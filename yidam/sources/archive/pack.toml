@@ -1,9 +1,17 @@
-# Archived copies: Wayback Machine snapshots and Internet Archive items.
+# Archived copies and pinned versions: Wayback Machine snapshots, Internet Archive items,
+# GitHub files at a commit, and Wikipedia articles at a revision.
 #
 # `wayback` is the scheme `catalog-fetch --archive` adds: a snapshot by its 14-digit
 # timestamp and the address it captured, read in the `id_` form, which is the bytes the
 # crawler saw and not the archive's replay of them. Enabling this pack is what makes
 # `--archive` available to every other pack that says `archive = "wayback"`.
+#
+# `github` is one file of a repository at one commit, and `wikipedia` one revision of an
+# article, as its wikitext. A branch, a tag and a title each name whatever is there today,
+# so `source add` takes them in that form and reads the version they name: the commit a ref
+# points at, the revision a title is at. The same goes for `wayback:<url>` alone, pinned to
+# the capture the archive's availability API names. The location written is the pinned form.
+# A ref with a `/` in it is not read; name the commit or a tag without one.
 #
 # `ia` reads an Internet Archive item's metadata and names the OCR text file the item holds,
 # when it holds one; `ia-file` is any one file of an item, by `item/file`. OCR text is a
@@ -11,13 +19,44 @@
 # original publisher's licence.
 [pack]
 name        = "archive"
-version     = "0.1.0"
-description = "Wayback Machine snapshots and Internet Archive items, by timestamp and URL or by item identifier."
+version     = "0.2.0"
+description = "Wayback Machine snapshots, Internet Archive items, GitHub files and Wikipedia revisions, each pinned to one version."
 
 [scheme.wayback]
-pattern = '^(?P<ts>\d{14})/(?P<url>https?://\S+)$'
+pattern = '^(?P<pin>\d{14})/(?P<url>https?://\S+)$'
 type    = "document"
-resolve = { template = "https://web.archive.org/web/{ts}id_/{url}" }
+resolve = { template = "https://web.archive.org/web/{pin}id_/{url}" }
+
+[scheme.wayback.pin]
+mutable = '^(?P<url>https?://\S+)$'
+read    = "https://archive.org/wayback/available?url={url}"
+media   = "application/json"
+value   = "archived_snapshots/closest/timestamp"
+pinned  = "{pin}/{url}"
+
+[scheme.github]
+pattern = '^(?P<owner>[A-Za-z0-9][A-Za-z0-9-]*)/(?P<repo>[A-Za-z0-9._-]+)@(?P<pin>[0-9a-f]{40})/(?P<path>[^\s?#]+)$'
+type    = "document"
+resolve = { template = "https://raw.githubusercontent.com/{owner}/{repo}/{pin}/{path}" }
+
+[scheme.github.pin]
+mutable = '^(?P<owner>[A-Za-z0-9][A-Za-z0-9-]*)/(?P<repo>[A-Za-z0-9._-]+)@(?P<ref>[^\s/@?#]+)/(?P<path>[^\s?#]+)$'
+read    = "https://api.github.com/repos/{owner}/{repo}/commits/{ref}"
+media   = "application/json"
+value   = "sha"
+pinned  = "{owner}/{repo}@{pin}/{path}"
+
+[scheme.wikipedia]
+pattern = '^(?P<lang>[a-z][a-z-]*)/(?P<title>[^\s@#]+)@(?P<pin>\d+)$'
+type    = "document"
+resolve = { template = "https://{lang}.wikipedia.org/w/index.php?oldid={pin}&action=raw" }
+
+[scheme.wikipedia.pin]
+mutable = '^(?P<lang>[a-z][a-z-]*)/(?P<title>[^\s@#]+)$'
+read    = "https://{lang}.wikipedia.org/w/api.php?action=query&prop=revisions&rvprop=ids&format=json&formatversion=2&titles={title}"
+media   = "application/json"
+value   = "query/pages/0/revisions/0/revid"
+pinned  = "{lang}/{title}@{pin}"
 
 [scheme.ia]
 pattern  = '^[A-Za-z0-9][A-Za-z0-9._-]*$'
@@ -47,5 +86,9 @@ id       = "identifier"
 title    = "title"
 fixtures = { "title:(history of allen county ohio)" = "ia-search.json" }
 
+# The three mutable identifiers are keyed to what their pin read answered.
 [fixtures]
-"ia:historyofallenco00unse_0" = "ia-historyofallenco00unse_0.json"
+"ia:historyofallenco00unse_0"                     = "ia-historyofallenco00unse_0.json"
+"wayback:https://www.co.allen.oh.us/"             = "wayback-available-co-allen-oh-us.json"
+"github:rust-lang/rust@1.80.0/README.md"          = "github-rust-lang-rust-1.80.0.json"
+"wikipedia:en/Allen_County,_Ohio"                 = "wikipedia-allen-county-ohio.json"

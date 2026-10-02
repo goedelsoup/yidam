@@ -635,7 +635,7 @@ fn add(
                 Err(why) => refused.push(why),
                 Ok(r) => {
                     if let Some((id, at)) = r.locations.iter().find_map(|l| {
-                        held.get(enabled.source_of(&l.identifier))
+                        held.get(enabled.source_of(&l.identifier).as_ref())
                             .map(|at| (&l.identifier, at))
                     }) {
                         refused.push(format!(
@@ -723,7 +723,7 @@ pub(crate) fn catalogued(dir: &Path, enabled: &Enabled) -> HashMap<String, Strin
         {
             if l.kind.as_deref() == Some("identifier") {
                 if let Some(v) = l.value {
-                    out.entry(enabled.source_of(v.trim()).to_string())
+                    out.entry(enabled.source_of(v.trim()).into_owned())
                         .or_insert_with(|| format!(".yidam/catalog/{name}"));
                 }
             }

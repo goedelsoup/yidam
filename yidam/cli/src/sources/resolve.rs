@@ -12,6 +12,7 @@
 //! `source check` reports why. A scheme declared by two enabled packs is held as ambiguous, and
 //! an identifier in it is refused rather than resolved by whichever pack sorts first.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -19,6 +20,7 @@ use anyhow::Result;
 
 use super::lookup::{self, Base, Lookup, Page};
 use super::manifest::{Archive, Form, Manifest, Scheme, Transport};
+use super::pinning::Pinning;
 use super::{Origin, Pack};
 
 /// One scheme an enabled pack declares, with what resolving it needs.
@@ -29,6 +31,9 @@ struct Declared {
     scheme: Scheme,
     transport: Transport,
     pattern: regex::Regex,
+    /// The pin read's `mutable`, compiled. `None` with no pin read, or one that does not
+    /// compile, which `source check` reports.
+    mutable: Option<regex::Regex>,
 }
 
 /// The schemes the enabled packs declare.
@@ -86,6 +91,9 @@ pub enum Refusal {
     },
     /// The scheme's resolve cannot be used as written. `source check` reports the pack.
     Unusable { pack: String, why: String },
+    /// The local id is the mutable form the scheme's pin read reads, which names whatever the
+    /// publisher holds today. A fetch never makes the read (#1343).
+    Mutable { pack: String, read: String },
 }
 
 impl Refusal {
@@ -131,6 +139,11 @@ impl Refusal {
                 "`{identifier}`: {pack} reads its address off `{page}`, and the identifier \
                  pins no `@<name>` it read there. A fetch follows only a pinned identifier; \
                  `yidam source add --dry-run {identifier}` reads the page and prints one"
+            ),
+            Self::Mutable { pack, read } => format!(
+                "`{identifier}` names whatever {pack}'s publisher holds today, and a location \
+                 names one version. `yidam source add --dry-run {identifier}` asks `{read}` \
+                 and prints the identifier pinned to it"
             ),
             Self::Unusable { pack, why } => format!(
                 "`{identifier}`: {pack}'s resolve {why}. `yidam source check` reports the pack"
@@ -220,7 +233,9 @@ impl Enabled {
             Some((l, _)) if d.scheme.resolve.form().is_ok_and(|f| f.looks_up()) => l,
             _ => local,
         };
-        if d.pattern.is_match(local) {
+        // A mutable local id is well formed: it is refused at resolve, with how to pin it.
+        let mutable = d.mutable.as_ref().is_some_and(|m| m.is_match(local));
+        if d.pattern.is_match(local) || mutable {
             Ok(())
         } else {
             Err(Refusal::Malformed {
@@ -276,6 +291,15 @@ impl Enabled {
             _ => (local, None),
         };
         let Some(caps) = d.pattern.captures(local) else {
+            if let Some(p) = self.pinning_of(d, scheme, local) {
+                return Err(match p {
+                    Ok(p) => Refusal::Mutable {
+                        pack: d.pack.clone(),
+                        read: p.url,
+                    },
+                    Err(r) => r,
+                });
+            }
             return Err(Refusal::Malformed {
                 scheme: scheme.to_string(),
                 local: local.to_string(),
@@ -289,14 +313,66 @@ impl Enabled {
                 bindings.push((group.to_string(), v.as_str().to_string()));
             }
         }
+        // A pin read's value is the scheme's `pin` group.
+        let pinned = d
+            .scheme
+            .pin
+            .as_ref()
+            .and_then(|_| caps.name("pin"))
+            .map(|m| m.range());
         Ok(Split {
             d,
             form,
             scheme,
             local,
             pin,
+            pinned,
             bindings,
         })
+    }
+
+    /// The read that pins `identifier`, when it is the mutable form a scheme's pin read reads
+    /// (#1343). `None` for any other identifier, which [`Self::resolve`] answers as it is.
+    pub fn pinning(&self, identifier: &str) -> Result<Option<Pinning>, Refusal> {
+        match self.split(identifier) {
+            Ok(_) => Ok(None),
+            Err(Refusal::Mutable { .. }) => {
+                let Some((scheme, local)) = identifier.split_once(':') else {
+                    return Ok(None);
+                };
+                let Some(d) = self.schemes.get(scheme) else {
+                    return Ok(None);
+                };
+                self.pinning_of(d, scheme, local).transpose()
+            }
+            Err(r) => Err(r),
+        }
+    }
+
+    fn pinning_of(
+        &self,
+        d: &Declared,
+        scheme: &str,
+        local: &str,
+    ) -> Option<Result<Pinning, Refusal>> {
+        let (pin, mutable) = (d.scheme.pin.as_ref()?, d.mutable.as_ref()?);
+        let p = Pinning::of(&d.pack, scheme, local, pin, mutable, &d.pattern)?;
+        Some(
+            p.map_err(|slots| Refusal::Unbound {
+                pack: d.pack.clone(),
+                slots,
+            })
+            .and_then(|p| {
+                if p.url.starts_with("https://") || p.url.starts_with("http://") {
+                    Ok(p)
+                } else {
+                    Err(Refusal::NotHttp {
+                        pack: d.pack.clone(),
+                        url: p.url,
+                    })
+                }
+            }),
+        )
     }
 
     /// Resolve `scheme:local-id` to the address a fetch follows.
@@ -421,13 +497,32 @@ impl Enabled {
     }
 
     /// What two identifiers share when they name one source: `scheme:local-id`, less the pin a
-    /// lookup scheme's carries. A re-read listing pins a newer file of the same source.
-    pub fn source_of<'a>(&self, identifier: &'a str) -> &'a str {
+    /// lookup scheme's carries, or the value a pin read wrote. A re-read listing pins a newer
+    /// file of the same source, and a re-read branch a newer commit of the same file.
+    pub fn source_of<'a>(&self, identifier: &'a str) -> Cow<'a, str> {
         match self.split(identifier) {
             // A scheme name has no `@`, so the first is the one `split` cut at.
-            Ok(sp) if sp.pin.is_some() => identifier.split_once('@').map_or(identifier, |(s, _)| s),
-            _ => identifier,
+            Ok(sp) if sp.pin.is_some() => {
+                Cow::Borrowed(identifier.split_once('@').map_or(identifier, |(s, _)| s))
+            }
+            Ok(sp) => match sp.pinned {
+                Some(range) => {
+                    let at = sp.scheme.len() + 1;
+                    Cow::Owned(format!(
+                        "{}{}",
+                        &identifier[..at + range.start],
+                        &identifier[at + range.end..]
+                    ))
+                }
+                None => Cow::Borrowed(identifier),
+            },
+            _ => Cow::Borrowed(identifier),
         }
+    }
+
+    /// Whether `identifier` is the mutable form a scheme's pin read reads.
+    pub fn is_mutable(&self, identifier: &str) -> bool {
+        matches!(self.split(identifier), Err(Refusal::Mutable { .. }))
     }
 }
 
@@ -438,6 +533,8 @@ struct Split<'a> {
     scheme: &'a str,
     local: &'a str,
     pin: Option<&'a str>,
+    /// Where in `local` a pin read's value sits.
+    pinned: Option<std::ops::Range<usize>>,
     bindings: Vec<(String, String)>,
 }
 
@@ -450,10 +547,12 @@ pub const TEMPLATE_SCHEMES: &[(&str, &str)] = &[
     ("arxiv", "scholarly"),
     ("doi", "scholarly"),
     ("europepmc", "scholarly"),
+    ("github", "archive"),
     ("ia", "archive"),
     ("ia-file", "archive"),
     ("pmc", "scholarly"),
     ("wayback", "archive"),
+    ("wikipedia", "archive"),
 ];
 
 /// The template pack that declares `scheme`, if one does.
@@ -488,6 +587,10 @@ fn declared(m: &Manifest) -> Vec<(String, Declared)> {
                     scheme: s.clone(),
                     transport: m.transport.clone(),
                     pattern,
+                    mutable: s
+                        .pin
+                        .as_ref()
+                        .and_then(|p| regex::Regex::new(&p.mutable).ok()),
                 },
             ))
         })
@@ -554,6 +657,81 @@ resolve = { template = "https://web.archive.org/web/{ts}id_/{url}" }
         assert_eq!(
             r.url,
             "https://web.archive.org/web/20240102030405id_/https://www.bls.gov/cpi/data.htm?x=1"
+        );
+    }
+
+    const GITHUB: &str = r#"
+[pack]
+name = "archive"
+version = "0.2.0"
+
+[scheme.github]
+pattern = '^(?P<owner>[A-Za-z0-9-]+)/(?P<repo>[A-Za-z0-9._-]+)@(?P<pin>[0-9a-f]{40})/(?P<path>[^\s?#]+)$'
+type = "document"
+resolve = { template = "https://raw.githubusercontent.com/{owner}/{repo}/{pin}/{path}" }
+
+[scheme.github.pin]
+mutable = '^(?P<owner>[A-Za-z0-9-]+)/(?P<repo>[A-Za-z0-9._-]+)@(?P<ref>[^\s/@?#]+)/(?P<path>[^\s?#]+)$'
+read = "https://api.github.com/repos/{owner}/{repo}/commits/{ref}"
+media = "application/json"
+value = "sha"
+pinned = "{owner}/{repo}@{pin}/{path}"
+"#;
+
+    const SHA: &str = "051478957371ee0084a7c0913941d2a8c4757bb9";
+
+    /// A branch names whatever it points at today, so a fetch refuses it and says how to pin
+    /// it. A commit is what the pattern admits, and resolves offline.
+    #[test]
+    fn a_mutable_identifier_is_refused_with_its_pin_read_and_a_pinned_one_resolves() {
+        let e = Enabled::from_packs(&[pack("archive", Origin::Vendored, GITHUB)]);
+        let branch = "github:rust-lang/rust@main/README.md";
+        let refusal = e.resolve(branch).unwrap_err();
+        assert_eq!(
+            refusal,
+            Refusal::Mutable {
+                pack: "archive@0.2.0".into(),
+                read: "https://api.github.com/repos/rust-lang/rust/commits/main".into(),
+            }
+        );
+        assert!(!refusal.is_benign());
+        assert!(
+            refusal
+                .message(branch)
+                .contains(&format!("yidam source add --dry-run {branch}")),
+            "{}",
+            refusal.message(branch)
+        );
+        assert_eq!(e.admits(branch), Ok(()), "well formed, only not fixed");
+        assert!(e.is_mutable(branch));
+
+        let p = e.pinning(branch).unwrap().unwrap();
+        let answer = format!(r#"{{"sha": "{SHA}"}}"#);
+        let (_, pinned) = p.pin(answer.as_bytes()).unwrap();
+        assert_eq!(pinned, format!("github:rust-lang/rust@{SHA}/README.md"));
+        assert!(e.pinning(&pinned).unwrap().is_none());
+        assert_eq!(
+            e.resolve(&pinned).unwrap().url,
+            format!("https://raw.githubusercontent.com/rust-lang/rust/{SHA}/README.md")
+        );
+        assert!(matches!(
+            e.resolve("github:rust-lang/rust/README.md"),
+            Err(Refusal::Malformed { .. })
+        ));
+    }
+
+    /// Two commits of one file are one source, so `source add` finds the entry that pinned the
+    /// older one.
+    #[test]
+    fn a_pinned_identifier_is_one_source_whatever_its_pin() {
+        let e = Enabled::from_packs(&[pack("archive", Origin::Vendored, GITHUB)]);
+        let at = |sha: &str| format!("github:o/r@{sha}/a/b.csv");
+        let other = "0".repeat(40);
+        assert_eq!(e.source_of(&at(SHA)), e.source_of(&at(&other)));
+        assert_eq!(e.source_of(&at(SHA)), "github:o/r@/a/b.csv");
+        assert_ne!(
+            e.source_of(&at(SHA)),
+            e.source_of(&format!("github:o/r@{SHA}/a/c.csv"))
         );
     }
 

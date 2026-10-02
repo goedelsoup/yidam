@@ -468,6 +468,60 @@ fn add_offline_reads_a_recorded_catalog_and_pins_the_file() {
     );
 }
 
+/// A mutable identifier, offline: the recorded answer to its pin read is the revision the
+/// title named, and the entry is written pinned to it (#1343). A second add of the title
+/// finds that entry.
+#[test]
+fn add_offline_reads_a_recorded_pin_and_writes_the_pinned_identifier() {
+    let manifest = GOOD
+        .replace(
+            "[transport]",
+            "[scheme.wikipedia]\n\
+             pattern = '^(?P<lang>[a-z]+)/(?P<title>[^\\s@#]+)@(?P<pin>\\d+)$'\n\
+             type    = \"document\"\n\
+             resolve = { template = \"https://{lang}.wikipedia.org/w/index.php?oldid={pin}&action=raw\" }\n\
+             pin     = { mutable = '^(?P<lang>[a-z]+)/(?P<title>[^\\s@#]+)$', \
+             read = \"https://{lang}.wikipedia.org/w/api.php?titles={title}\", \
+             media = \"application/json\", value = \"query/pages/0/revisions/0/revid\", \
+             pinned = \"{lang}/{title}@{pin}\" }\n\n[transport]",
+        )
+        .replace(
+            "[fixtures]\n",
+            "[fixtures]\n\"wikipedia:en/Allen_County,_Ohio\" = \"revid.json\"\n",
+        );
+    let dir = corpus(&manifest);
+    std::fs::write(
+        dir.path()
+            .join(".yidam/sources/scholarly/fixtures/revid.json"),
+        r#"{"query": {"pages": [{"revisions": [{"revid": 1375157827}]}]}}"#,
+    )
+    .unwrap();
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-q", "-m", "a pin read fixture"]);
+
+    let id = "wikipedia:en/Allen_County,_Ohio";
+    let pinned = "wikipedia:en/Allen_County,_Ohio@1375157827";
+    let r = json(dir.path(), &["add", id, "--offline"], &[]);
+    let d = &r["drafts"][0];
+    assert_eq!(d["identifier"], id, "{d}");
+    assert_eq!(d["answered"], "fixture", "{d}");
+    assert_eq!(d["locations"][0]["identifier"], pinned);
+    assert_eq!(
+        d["locations"][0]["url"],
+        "https://en.wikipedia.org/w/index.php?oldid=1375157827&action=raw"
+    );
+    let text = std::fs::read_to_string(dir.path().join(entry_path(&r))).unwrap();
+    assert!(text.contains(&format!("value: {pinned}")), "{text}");
+    assert!(
+        text.contains(&format!("pinned to what `{id}` named")),
+        "{text}"
+    );
+
+    let again = yidam(dir.path(), &["add", id, "--offline"], &[]);
+    assert_ne!(again.code, 0);
+    assert!(again.said.contains("already catalogued"), "{}", again.said);
+}
+
 // ── the report contract ──────────────────────────────────────────────────────────────────
 
 /// `report_goldens` reaches none of these three: its fixture holds no pack, and `add` commits.

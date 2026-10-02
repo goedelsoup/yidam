@@ -460,7 +460,7 @@ across, query across, then pack what you decided to keep.
 as tools. Neither writes. Adding the entry stays a commit you make with `yidam source add`.
 
 Every answer carries `answered`. It is `network` when the publisher was asked and `fixture` when
-a recorded response was read. Reading a listing or a catalog to pin a file counts as asking. It
+a recorded response was read. Reading a listing, a catalog or a pin read to pin a version counts as asking. It
 is null when nothing was asked. A corpus declares the fixture
 route in its own config:
 
@@ -704,7 +704,7 @@ only where you look for it.
 tool-not-found errors:
 
 ```json
-{"contract": "0.29.0",
+{"contract": "0.30.0",
  "corpus": {"domain": "streamflow", "commit": "a1b2c3d",
             "nodes": 8, "skills": 1, "decisions": 2,
             "indexed_commit": null, "stale": false},

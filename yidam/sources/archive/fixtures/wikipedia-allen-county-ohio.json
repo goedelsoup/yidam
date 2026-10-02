@@ -1,0 +1,25 @@
+{
+  "batchcomplete": true,
+  "query": {
+    "normalized": [
+      {
+        "fromencoded": false,
+        "from": "Allen_County,_Ohio",
+        "to": "Allen County, Ohio"
+      }
+    ],
+    "pages": [
+      {
+        "pageid": 93144,
+        "ns": 0,
+        "title": "Allen County, Ohio",
+        "revisions": [
+          {
+            "revid": 1375157827,
+            "parentid": 1365403040
+          }
+        ]
+      }
+    ]
+  }
+}
