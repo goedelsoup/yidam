@@ -24,6 +24,15 @@
 //!
 //! [fixtures]
 //! "doi:10.1167/tvst.8.5.14" = "crossref-tvst.json"
+//!
+//! [search]
+//! scheme   = "doi"
+//! template = "https://api.crossref.org/works?query={query}&rows={limit}"
+//! media    = "application/json"
+//! items    = "message/items/*"
+//! id       = "DOI"
+//! title    = "title/0"
+//! fixtures = { "retinal imaging" = "crossref-search.json" }
 //! ```
 //!
 //! Every table refuses a key it does not know. A misspelt `min_intreval` would otherwise be a
@@ -32,6 +41,12 @@
 //! `[fixtures]` maps an identifier to a file under `fixtures/`. It is how a fixture is claimed
 //! by a scheme: the identifier names the scheme, and its local id has to match that scheme's
 //! pattern. A file under `fixtures/` that no identifier names belongs to nothing.
+//!
+//! `[search]` is the endpoint `source search` asks (#1316). It is one per pack, because the
+//! command names a pack and not a scheme. What it answers is read by path rather than by a
+//! transform, so a search works in a build without `source-transforms`: each field matching
+//! `items` is one candidate, and `id` and `title` are paths below it. Its fixtures are its own,
+//! keyed by query, since a query is not an identifier any scheme could claim.
 //!
 //! `[vendored]` is written by `yidam-vendor-update` onto the copy it makes, and never by an
 //! author. It records the pin the copy satisfied and where it came from.
@@ -52,6 +67,8 @@ pub struct Manifest {
     pub defaults: Defaults,
     #[serde(default)]
     pub fixtures: BTreeMap<String, String>,
+    #[serde(default)]
+    pub search: Option<Search>,
     #[serde(default)]
     pub vendored: Option<Vendored>,
 }
@@ -287,6 +304,27 @@ pub struct Defaults {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct Search {
+    /// The scheme a candidate's `id` is a local id in. One this pack declares.
+    pub scheme: String,
+    /// An `http(s)` address with a `{query}` slot, and optionally `{limit}`.
+    pub template: String,
+    /// The media type the endpoint answers in.
+    pub media: String,
+    /// The path of each result, with `*` for any one segment: `message/items/*`.
+    pub items: String,
+    /// The path of a result's local id, below the result.
+    pub id: String,
+    /// The path of a result's title, below the result.
+    #[serde(default)]
+    pub title: Option<String>,
+    /// A query to the file under `fixtures/` that records what the endpoint answered.
+    #[serde(default)]
+    pub fixtures: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Vendored {
     /// The `prelude_sources` entry this copy satisfied, verbatim.
     pub pin: String,
@@ -347,6 +385,19 @@ redistributable = false
         assert_eq!(m.scheme.len(), 2);
         assert_eq!(m.transport.contact, Contact::Required);
         assert_eq!(m.scheme["doi"].then[0].scheme, "pmc");
+        assert!(m.search.is_none());
+    }
+
+    #[test]
+    fn a_search_table_parses_and_refuses_a_key_it_does_not_know() {
+        let head = "[pack]\nname = \"a\"\nversion = \"0.1.0\"\n[search]\nscheme = \"doi\"\n\
+                    template = \"https://e.org/?q={query}\"\nmedia = \"application/json\"\n\
+                    items = \"items/*\"\nid = \"DOI\"\n";
+        let m: Manifest = toml::from_str(head).unwrap();
+        let s = m.search.unwrap();
+        assert_eq!((s.items.as_str(), s.title), ("items/*", None));
+        let err = toml::from_str::<Manifest>(&format!("{head}titel = \"t\"\n")).unwrap_err();
+        assert!(err.to_string().contains("titel"), "{err}");
     }
 
     #[test]

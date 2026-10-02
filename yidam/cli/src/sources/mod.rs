@@ -28,17 +28,21 @@
 //! - templates bind
 //! - fixtures are claimed by a scheme
 //! - every vendored pack is the one its pin asked for
+//! - a `[search]` names a scheme of its own, binds only `{query}` and `{limit}`, and every
+//!   one of its fixtures answers with candidates that scheme's pattern admits (#1316)
 //! - every transform is admitted by the closed prelude, runs over each of its scheme's
 //!   fixtures, and yields every identifier a `then.from` reads from it (#1318)
 //!
 //! The last needs the gluon engine, which is behind `source-transforms`. A build without it
 //! says so once per pack that declares a transform, as an info finding, and checks the rest.
 
+pub mod draft;
 pub mod manifest;
 #[cfg(feature = "source-transforms")]
 pub mod parsed;
 pub mod pin;
 pub mod resolve;
+pub mod search;
 pub mod transform;
 pub mod version;
 
@@ -538,6 +542,9 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
             );
         }
     }
+    if let Some(search) = &m.search {
+        check_search(&abs, m, search, &compiled, &mut claimed, out);
+    }
     let fixtures = abs.join("fixtures");
     for file in files_under(&fixtures) {
         if !claimed.contains(&file) {
@@ -545,6 +552,110 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
                 &format!("fixtures/{file}"),
                 "no [fixtures] identifier names this file, so no scheme claims it".into(),
             );
+        }
+    }
+}
+
+/// The slots a `[search]` template may carry.
+pub const SEARCH_SLOTS: &[&str] = &["query", "limit"];
+
+fn check_search(
+    abs: &Path,
+    m: &Manifest,
+    search: &manifest::Search,
+    compiled: &BTreeMap<&str, regex::Regex>,
+    claimed: &mut BTreeSet<String>,
+    out: &mut Findings<'_>,
+) {
+    let scheme = &search.scheme;
+    if !m.scheme.contains_key(scheme) {
+        out.error(
+            "pack.toml",
+            format!("[search] scheme `{scheme}` is not one this pack declares"),
+        );
+    }
+    let template = &search.template;
+    if !(template.starts_with("https://") || template.starts_with("http://")) {
+        out.error(
+            "pack.toml",
+            format!("[search] template `{template}` is not an http(s) address"),
+        );
+    }
+    let slots = crate::cmd::catalog::location::slots(template);
+    if !slots.iter().any(|s| s == "query") {
+        out.error(
+            "pack.toml",
+            "[search] template has no `{query}` slot, so every query would ask the same thing"
+                .into(),
+        );
+    }
+    for slot in slots.iter().filter(|s| !SEARCH_SLOTS.contains(&s.as_str())) {
+        out.error(
+            "pack.toml",
+            format!("[search] template slot `{{{slot}}}` is bound by nothing: a search binds `{{query}}` and `{{limit}}`"),
+        );
+    }
+    for (field, path) in [("items", &search.items), ("id", &search.id)] {
+        if path.split('/').all(str::is_empty) {
+            out.error("pack.toml", format!("[search] {field} is an empty path"));
+        }
+    }
+    for (query, file) in &search.fixtures {
+        let inside = !file.is_empty()
+            && !file.starts_with('/')
+            && !file
+                .split('/')
+                .any(|c| c == ".." || c == "." || c.is_empty());
+        if !inside {
+            out.error(
+                "pack.toml",
+                format!("[search] fixture `{query}` names `{file}`, which is not a path inside fixtures/"),
+            );
+            continue;
+        }
+        claimed.insert(file.clone());
+        let at = format!("fixtures/{file}");
+        let Ok(bytes) = std::fs::read(abs.join("fixtures").join(file)) else {
+            out.error(
+                &at,
+                format!("named by [search] fixture `{query}` and missing"),
+            );
+            continue;
+        };
+        let found = match search::candidates(search, &bytes) {
+            Ok(found) => found,
+            Err(why) if !transform::AVAILABLE && !search::is_json(&search.media) => {
+                out.info(&at, format!("not read: {why}"));
+                continue;
+            }
+            Err(why) => {
+                out.error(&at, format!("[search] fixture `{query}`: {why}"));
+                continue;
+            }
+        };
+        if found.is_empty() {
+            out.error(
+                &at,
+                format!(
+                    "[search] fixture `{query}` yields no candidate: nothing at `{}` has an `{}`",
+                    search.items, search.id
+                ),
+            );
+        }
+        let Some(re) = compiled.get(scheme.as_str()) else {
+            continue;
+        };
+        for c in &found {
+            let local = c.identifier.split_once(':').map_or("", |(_, l)| l);
+            if !re.is_match(local) {
+                out.error(
+                    &at,
+                    format!(
+                        "[search] fixture `{query}` yields `{}`, which [scheme.{scheme}] pattern does not admit",
+                        c.identifier
+                    ),
+                );
+            }
         }
     }
 }

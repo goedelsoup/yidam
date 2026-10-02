@@ -522,6 +522,11 @@ const LIVE: &[(&str, &[&str])] = &[
     // asserted against histories built for the purpose in `score_range.rs`; what is checked
     // here is the envelope, and that a read-only report is read-only.
     ("score", &["score", "HEAD~1..HEAD"]),
+    // Not a golden, and for the build's reason rather than the calendar's: `transforms_run` is
+    // true under `source-transforms` and false without it, and CI runs this suite both ways.
+    // The fixture holds no pack, so the list is empty; `source_add.rs` stages one and holds
+    // every emitted path to the schema.
+    ("source-list", &["source", "list"]),
 ];
 
 /// Commands carrying a `--format` flag that this file cannot exercise, and why.
@@ -536,6 +541,18 @@ const LIVE: &[(&str, &[&str])] = &[
 /// it names the export format — and it is here so that fact is written down rather than
 /// rediscovered.
 const NO_REPORT: &[(&str, &str)] = &[
+    (
+        "source search",
+        "asks a pack's search endpoint, and this fixture holds no pack. `--offline` answers \
+         from a pack's fixtures, so `source_add.rs` runs it without a network, against a pack \
+         staged for it, and holds every emitted path to this schema",
+    ),
+    (
+        "source add",
+        "commits a catalog entry — the fixture every golden here reads must not be mutated by \
+         one of them — and resolves through a pack this fixture does not hold. Exercised end \
+         to end in `source_add.rs`, which asserts the envelope and each draft's fields",
+    ),
     (
         "export",
         "its `--format` names the export format (bundle, rdf, …), not the report contract",
@@ -2399,6 +2416,19 @@ const UNREACHED: &[(&str, &str)] = &[
     (
         "pack_findings[]",
         "`source check` finds nothing in a repository with no packs — see `packs[]`",
+    ),
+    (
+        "source_packs[]",
+        "`source list` lists the enabled packs, and this fixture holds none — see `packs[]`. \
+         `source_add.rs` stages one and holds every emitted path to this schema",
+    ),
+    (
+        "search",
+        "`source search` is on NO_REPORT: it needs a pack, and this fixture holds none",
+    ),
+    (
+        "drafts",
+        "`source add` is on NO_REPORT: it commits, and needs a pack this fixture does not hold",
     ),
     (
         "blessed",

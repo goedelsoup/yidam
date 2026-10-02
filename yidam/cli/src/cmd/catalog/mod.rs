@@ -21,7 +21,7 @@ pub(crate) mod location;
 mod reconcile;
 mod record;
 pub(crate) mod superseded;
-mod transport;
+pub(crate) mod transport;
 
 pub(crate) use crate::cmd::operational::{refuse_epistemic, Detached, Writer};
 pub use audit::catalog_audit;
@@ -40,8 +40,8 @@ pub(crate) const AUTHOR_EMAIL: &str = "catalog@yidam";
 pub(crate) const WHO: crate::cmd::operational::Who<'static> = (AUTHOR_NAME, AUTHOR_EMAIL);
 pub(crate) use extract::extract_in;
 pub use extract::{extract, ExtractOptions};
-pub(crate) use fetch::fetch_in;
 pub use fetch::{fetch, FetchOptions};
+pub(crate) use fetch::{fetch_in, render as render_fetched, EntryOutcome};
 pub use location::parse_binding;
 pub(crate) use reconcile::reconcile_in;
 pub use reconcile::{reconcile, ReconcileOptions};

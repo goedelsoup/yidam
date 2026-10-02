@@ -197,6 +197,67 @@ fn each_scheme_rule_is_held() {
     }
 }
 
+/// The `[search]` table `source search` asks (#1316), and the fixture its `--offline` answers
+/// from.
+const SEARCH: &str = r#"
+[search]
+scheme   = "doi"
+template = "https://api.crossref.org/works?query={query}&rows={limit}"
+media    = "application/json"
+items    = "message/items/*"
+id       = "DOI"
+title    = "title/0"
+fixtures = { "retinal imaging" = "crossref-search.json" }
+"#;
+
+const SEARCHED: &str = r#"{"message": {"items": [{"DOI": "10.1167/tvst.8.5.14"}]}}"#;
+
+#[test]
+fn each_search_rule_is_held() {
+    let good = format!("{GOOD}{SEARCH}");
+    let searched = |manifest: &str, fixture: &str| {
+        let dir = corpus();
+        let at = dir.path().join(".yidam/sources/scholarly");
+        pack(&at, manifest);
+        std::fs::write(at.join("fixtures/crossref-search.json"), fixture).unwrap();
+        dir
+    };
+    let dir = searched(&good, SEARCHED);
+    let (code, said, _) = check(dir.path());
+    assert_eq!(code, 0, "{said}");
+
+    for (from, to, needle) in [
+        ("scheme   = \"doi\"", "scheme   = \"isbn\"", "isbn"),
+        (
+            "\"https://api.crossref.org/works?",
+            "\"ftp://x/?",
+            "http(s)",
+        ),
+        ("query={query}", "query=fixed", "{query}"),
+        ("rows={limit}", "rows={rows}", "{rows}"),
+        (
+            "items    = \"message/items/*\"",
+            "items    = \"/\"",
+            "items",
+        ),
+        (
+            "= \"crossref-search.json\"",
+            "= \"../pack.toml\"",
+            "inside fixtures/",
+        ),
+        ("= \"crossref-search.json\"", "= \"gone.json\"", "missing"),
+        ("id       = \"DOI\"", "id       = \"ISSN\"", "no candidate"),
+    ] {
+        assert!(good.contains(from), "{from}");
+        let dir = searched(&good.replace(from, to), SEARCHED);
+        assert_refused(dir.path(), needle);
+    }
+    let dir = searched(&good, r#"{"message": {"items": [{"DOI": "not-a-doi"}]}}"#);
+    assert_refused(dir.path(), "does not admit");
+    let dir = searched(&good, "<xml/>");
+    assert_refused(dir.path(), "not JSON");
+}
+
 #[test]
 fn every_fixture_is_claimed_by_a_scheme_and_binds() {
     // A file nothing names.

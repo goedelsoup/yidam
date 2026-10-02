@@ -315,7 +315,14 @@ pub fn resolve(location: &CatalogLocation, ctx: &Context) -> Result<Plan, Unfoll
 }
 
 /// What a request to `r`'s publisher sends, or what this environment lacks to send it.
-fn policy_for(identifier: &str, r: &Resolved, ctx: &Context) -> Result<Policy, Unfollowable> {
+///
+/// `source search` and `source add` ask through the same policy (#1316), so a credential a
+/// pack declares is sent, or refused for, by one function.
+pub(crate) fn policy_for(
+    identifier: &str,
+    r: &Resolved,
+    ctx: &Context,
+) -> Result<Policy, Unfollowable> {
     let t = &r.transport;
     let pack = &r.pack;
     if t.contact == Contact::Required && ctx.contact.is_none() {

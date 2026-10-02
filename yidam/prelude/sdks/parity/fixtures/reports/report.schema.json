@@ -3807,6 +3807,413 @@
           }
         }
       }
+    },
+    "transforms_run": {
+      "type": "boolean",
+      "description": "`source list` only. Whether this build runs a pack's `describe` and `extract`, which needs the `source-transforms` feature."
+    },
+    "source_packs": {
+      "type": "array",
+      "description": "`source list` only. Every enabled source pack, authored packs first, each sorted by name (RFC-0048). A shadowed vendored pack, or one whose manifest does not parse, is not enabled and not here. Not `packs`, which is `source check`'s list of every pack held.",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "origin",
+          "path",
+          "description",
+          "schemes",
+          "search",
+          "needs",
+          "ready"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The pack's directory name."
+          },
+          "version": {
+            "type": "string",
+            "description": "`[pack].version`."
+          },
+          "origin": {
+            "enum": [
+              "authored",
+              "vendored"
+            ],
+            "description": "As in `packs[].origin`."
+          },
+          "path": {
+            "type": "string",
+            "description": "The pack directory, relative to the repository root."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`[pack].description`."
+          },
+          "schemes": {
+            "type": "array",
+            "description": "Each scheme the pack declares, sorted.",
+            "items": {
+              "type": "object",
+              "required": [
+                "scheme",
+                "type",
+                "describe",
+                "extract",
+                "then"
+              ],
+              "properties": {
+                "scheme": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "description": "The catalog `type:` an entry of this scheme is written with."
+                },
+                "describe": {
+                  "type": "boolean",
+                  "description": "Whether the scheme names a `describe` transform."
+                },
+                "extract": {
+                  "type": "boolean",
+                  "description": "Whether the scheme names an `extract` transform."
+                },
+                "then": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The schemes its `then` leads to."
+                }
+              }
+            }
+          },
+          "search": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The scheme `[search]` answers in, or null when the pack declares no search."
+          },
+          "needs": {
+            "type": "object",
+            "description": "What the pack's `[transport]` asks of the environment, and whether the environment has it. Never a value.",
+            "required": [
+              "contact",
+              "contact_set",
+              "auth",
+              "blocked"
+            ],
+            "properties": {
+              "contact": {
+                "enum": [
+                  "required",
+                  "optional"
+                ],
+                "description": "`[transport] contact`. A pack that requires one is not asked without `YIDAM_CONTACT`."
+              },
+              "contact_set": {
+                "type": "boolean",
+                "description": "Whether `YIDAM_CONTACT` is set and not blank."
+              },
+              "auth": {
+                "type": "array",
+                "description": "Each `[transport] auth` variable.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "var",
+                    "set"
+                  ],
+                  "properties": {
+                    "var": {
+                      "type": "string",
+                      "description": "The variable's name."
+                    },
+                    "set": {
+                      "type": "boolean",
+                      "description": "Whether it is set and not blank. Its value is never reported."
+                    }
+                  }
+                }
+              },
+              "blocked": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "`[transport] blocked`: why the pack says its publisher cannot be asked at all."
+              }
+            }
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "Whether every need is met, so a request to the publisher would be made here."
+          }
+        }
+      }
+    },
+    "unreadable_packs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "`source list` only. Pack directories whose manifest does not parse, and so are not enabled. `source check` says why."
+    },
+    "search": {
+      "type": "object",
+      "description": "`source search` only. What a pack's `[search]` endpoint answered. Nothing is written.",
+      "required": [
+        "pack",
+        "query",
+        "scheme",
+        "url",
+        "answered",
+        "candidates"
+      ],
+      "properties": {
+        "pack": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string",
+          "description": "The query as given."
+        },
+        "scheme": {
+          "type": "string",
+          "description": "The scheme every candidate's identifier is in."
+        },
+        "url": {
+          "type": "string",
+          "description": "The template with `{query}` percent-encoded and `{limit}` bound. Asked only when `answered` is `network`."
+        },
+        "answered": {
+          "enum": [
+            "network",
+            "fixture"
+          ],
+          "description": "`fixture` under `--offline`: the pack's recorded `[search] fixtures` answered, and nothing was asked."
+        },
+        "candidates": {
+          "type": "array",
+          "description": "In the order the endpoint answered, at most `--limit`. A result with no value at the `id` path is passed over.",
+          "items": {
+            "type": "object",
+            "required": [
+              "identifier",
+              "title"
+            ],
+            "properties": {
+              "identifier": {
+                "type": "string",
+                "description": "`scheme:local-id`, the value `source add` takes."
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The result's title as the publisher wrote it."
+              }
+            }
+          }
+        }
+      }
+    },
+    "drafts": {
+      "type": "array",
+      "description": "`source add` only. One row per identifier, each a draft catalog entry written `obtained: false`. Every identifier resolves or none is written, so a refusal is an error and not a row.",
+      "items": {
+        "type": "object",
+        "required": [
+          "entry",
+          "path",
+          "written",
+          "commit",
+          "identifier",
+          "pack",
+          "locations",
+          "draft",
+          "ttl_days",
+          "answered",
+          "unfollowed"
+        ],
+        "properties": {
+          "entry": {
+            "type": "string",
+            "description": "The entry's file stem, and its `name:`."
+          },
+          "path": {
+            "type": "string",
+            "description": "`.yidam/catalog/<entry>.md`."
+          },
+          "written": {
+            "type": "boolean",
+            "description": "False under `--dry-run`."
+          },
+          "commit": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The `catalog:` commit that wrote the entry. Null under `--dry-run`. Operational: it adds a source anchor and says nothing about what the source holds.",
+            "required": [
+              "sha",
+              "subject"
+            ],
+            "properties": {
+              "sha": {
+                "type": "string",
+                "description": "Short sha of the commit."
+              },
+              "subject": {
+                "type": "string",
+                "description": "`catalog: <entry> from <identifier>`."
+              }
+            }
+          },
+          "identifier": {
+            "type": "string",
+            "description": "The identifier asked for, trimmed."
+          },
+          "pack": {
+            "type": "string",
+            "description": "The pack whose scheme resolved it."
+          },
+          "locations": {
+            "type": "array",
+            "description": "The identifier first, then each one its `then` chain reached. Each is a `kind: identifier` location of the entry.",
+            "items": {
+              "type": "object",
+              "required": [
+                "identifier",
+                "url",
+                "via"
+              ],
+              "properties": {
+                "identifier": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string",
+                  "description": "The address the scheme's template binds it to."
+                },
+                "via": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Null for the identifier asked for; otherwise the identifier whose describe named it, and the key."
+                }
+              }
+            }
+          },
+          "draft": {
+            "type": "object",
+            "description": "What the identifier's `describe` made of its answer, or the pack's templates alone and why.",
+            "required": [
+              "name",
+              "kind",
+              "date",
+              "description",
+              "identifiers",
+              "unfilled",
+              "why",
+              "by"
+            ],
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The source's title. The entry's slug and heading come from it."
+              },
+              "kind": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The catalog `type:`. The scheme's own when the transform names none."
+              },
+              "date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "identifiers": {
+                "type": "array",
+                "description": "Further identifiers the answer names, as `[key, value]` pairs a `then.from` of `describe.<key>` reads.",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "unfilled": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The draft fields left empty."
+              },
+              "why": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Why no transform filled them, when none ran."
+              },
+              "by": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The transform that filled the draft."
+              }
+            }
+          },
+          "ttl_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "`[defaults] ttl_days`, which the entry is written with."
+          },
+          "answered": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "network",
+              "fixture",
+              null
+            ],
+            "description": "Where the describe's answer came from. Null when no describe was asked."
+          },
+          "unfollowed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Why a `then` was not followed, one line each."
+          }
+        }
+      }
     }
   }
 }

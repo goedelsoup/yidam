@@ -1059,6 +1059,9 @@ knowledge claim, only the time to re-fetch.
 | `catalog-extract [entry]` * | Take each reading an artifact lacks — a PDF's text, or a [source pack](#source-packs)'s `extract` — file it in the cache, record it under the artifact in `readings:`, and commit it as `extract:`. `--dry-run` reports and reads nothing |
 | `catalog-reconcile [entry]` * | Rewrite a drifted `used-by` list to the citations, which are authoritative, and commit it as `reconcile:`. `--dry-run` reports and writes nothing |
 | `source check` | Hold every [source pack](#source-packs) and every `prelude_sources` pin to the pack format, offline, and run each transform over its fixtures. Exits nonzero on an error |
+| `source list` | Print each enabled pack, its schemes, and what its transport needs: `YIDAM_CONTACT` and any auth variables, each marked set or not. Never prints a value |
+| `source search <pack> <query>` | Ask the pack's `[search]` endpoint and print the identifiers it answers with. `--limit` caps them; `--offline` answers from the pack's fixtures. Writes nothing |
+| `source add <scheme:id>…` * | Resolve each identifier through its pack and commit a draft catalog entry, `obtained: false`, as `catalog:`. `--fetch` then runs `catalog-fetch` on it; `--offline` answers from fixtures; `--dry-run` writes nothing |
 
 ### Following an address
 
@@ -1223,6 +1226,35 @@ fixtures. A `then` that reads `describe.<key>` must be answered by at least one 
 Transforms need the `source-transforms` feature. A build without it checks the rest of the
 pack and says it did not check the transforms. `catalog-extract` reports each reading it could
 not take as skipped.
+
+A pack may declare one search endpoint. `source search` asks it:
+
+```toml
+[search]
+scheme   = "doi"
+template = "https://api.crossref.org/works?query={query}&rows={limit}"
+media    = "application/json"
+items    = "message/items/*"
+id       = "DOI"
+title    = "title/0"
+fixtures = { "retinal imaging" = "crossref-search.json" }
+```
+
+Each field matching `items` is one result, and `*` matches any one name. `id` and `title` are
+paths below it, named the way a transform names them. A search is read by path, so it needs no
+transform. JSON is read in every build. XML and CSV need `source-transforms`.
+
+`source add` writes a draft entry for each identifier and commits each as `catalog:`. It
+follows the scheme's `then`, and adds each identifier found as another location. Where the
+build runs transforms, `describe` fills the title, type, date and description. The entry is
+`obtained: false`, with the pack's `ttl_days`. Its body is the pack's `entry.md`, or a
+template of eight prompts. `source add` never writes a node and never writes
+`obtained: true`. It refuses an identifier the catalog already holds. If one identifier fails,
+it writes nothing.
+
+`source search` and `source add` ask a publisher the way `catalog-fetch` does, under the
+pack's `[transport]`, described below. A pack missing its contact or a credential is not
+asked. `--offline` answers from the pack's recorded fixtures and asks nothing.
 
 ### Fetching an identifier
 

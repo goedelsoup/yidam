@@ -770,7 +770,7 @@ fn hang(message: &str, indent: &str) -> String {
         .join("\n")
 }
 
-fn render(entries: &[EntryOutcome], dry_run: bool) -> String {
+pub(crate) fn render(entries: &[EntryOutcome], dry_run: bool) -> String {
     use std::fmt::Write;
     let mut s = String::new();
     if entries.is_empty() {

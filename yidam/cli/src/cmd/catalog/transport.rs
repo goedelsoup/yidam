@@ -367,6 +367,32 @@ impl Session {
         )
     }
 
+    /// `GET` a URL and return its body, for a reader that files nothing: `source search`, and
+    /// the answer `source add` hands a pack's `describe` (#1316).
+    ///
+    /// Through [`Self::get`], so it is spaced, credentialed and redirect-guarded as a fetch is.
+    /// The body passes through a scratch file in the system temporary directory and is removed
+    /// once read.
+    pub fn read(
+        &mut self,
+        url: &str,
+        policy: &Policy,
+    ) -> Result<std::result::Result<Vec<u8>, Refused>> {
+        use anyhow::Context;
+        let scratch =
+            std::env::temp_dir().join(format!("yidam-source-read.{}", std::process::id()));
+        let answer = self.get(url, policy, &scratch)?;
+        Ok(match answer {
+            Ok(_) => {
+                let body = std::fs::read(&scratch)
+                    .with_context(|| format!("reading {}", scratch.display()))?;
+                let _ = std::fs::remove_file(&scratch);
+                Ok(body)
+            }
+            Err(r) => Err(r),
+        })
+    }
+
     /// The Wayback capture nearest now of `url`, through the availability API at `api`.
     ///
     /// A read. It never asks the archive to capture anything: that is a write to a service the

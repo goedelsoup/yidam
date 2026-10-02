@@ -1268,12 +1268,13 @@ enum Command {
         #[command(subcommand)]
         sub: yidam::PolicyCommand,
     },
-    /// Check the source packs this repository resolves identifiers through (RFC-0048)
+    /// Find and add sources through the packs this repository resolves identifiers with (RFC-0048)
     ///
     /// A pack names a family of sources by identifier — `doi:…`, `pmc:…` — and says how each
     /// resolves to an address. A corpus writes its own in `.yidam/sources/` and vendors others
     /// by pinning them in `prelude_sources`. `check` holds both to the pack format offline, and
-    /// is the CI gate for a pack the corpus wrote.
+    /// is the CI gate for a pack the corpus wrote. `list` and `search` write nothing; `add`
+    /// writes a draft catalog entry, `obtained: false`, as a `catalog:` commit.
     Source {
         #[command(flatten)]
         root: RootArg,
