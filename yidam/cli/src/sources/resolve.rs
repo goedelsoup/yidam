@@ -192,6 +192,45 @@ impl Enabled {
         }
     }
 
+    /// Whether no enabled pack declares any scheme: the corpus lists no packs, or none it
+    /// lists parses.
+    pub fn is_empty(&self) -> bool {
+        self.schemes.is_empty() && self.ambiguous.is_empty()
+    }
+
+    /// Whether `scheme:local-id` names something an enabled pack declares, as
+    /// `catalog-location-malformed` asks it (RFC-0048 §2): the scheme is declared, and the
+    /// local id matches its pattern. Only [`Refusal::NoPack`] and [`Refusal::Malformed`] come
+    /// back. An ambiguous or blocked scheme, or a template that binds badly, is the pack's
+    /// defect and `source check`'s finding, not the location's.
+    pub fn admits(&self, identifier: &str) -> Result<(), Refusal> {
+        let Some((scheme, local)) = identifier.split_once(':') else {
+            return Ok(());
+        };
+        if self.ambiguous.contains_key(scheme) {
+            return Ok(());
+        }
+        let Some(d) = self.schemes.get(scheme) else {
+            return Err(Refusal::NoPack {
+                scheme: scheme.to_string(),
+            });
+        };
+        // A lookup scheme's pin is not part of the local id its pattern reads.
+        let local = match local.split_once('@') {
+            Some((l, _)) if d.scheme.resolve.form().is_ok_and(|f| f.looks_up()) => l,
+            _ => local,
+        };
+        if d.pattern.is_match(local) {
+            Ok(())
+        } else {
+            Err(Refusal::Malformed {
+                scheme: scheme.to_string(),
+                local: local.to_string(),
+                pattern: d.scheme.pattern.clone(),
+            })
+        }
+    }
+
     /// Whether an enabled pack declares `scheme`, unambiguously.
     pub fn declares(&self, scheme: &str) -> bool {
         self.schemes.contains_key(scheme)
@@ -402,6 +441,29 @@ struct Split<'a> {
     bindings: Vec<(String, String)>,
 }
 
+/// Each scheme a pack the template ships in `yidam/sources/` declares, and that pack.
+///
+/// A corpus lints with a binary, not a template checkout, so this is how a finding about an
+/// undeclared scheme names the pack to pin. `template_source_packs.rs` holds it to the
+/// manifests in both directions.
+pub const TEMPLATE_SCHEMES: &[(&str, &str)] = &[
+    ("arxiv", "scholarly"),
+    ("doi", "scholarly"),
+    ("europepmc", "scholarly"),
+    ("ia", "archive"),
+    ("ia-file", "archive"),
+    ("pmc", "scholarly"),
+    ("wayback", "archive"),
+];
+
+/// The template pack that declares `scheme`, if one does.
+pub fn template_pack(scheme: &str) -> Option<&'static str> {
+    TEMPLATE_SCHEMES
+        .iter()
+        .find(|(s, _)| *s == scheme)
+        .map(|(_, p)| *p)
+}
+
 /// Whether a pack with this transport offers `--archive`.
 pub fn archives(t: &Transport) -> bool {
     t.archive == Some(Archive::Wayback)
@@ -493,6 +555,32 @@ resolve = { template = "https://web.archive.org/web/{ts}id_/{url}" }
             r.url,
             "https://web.archive.org/web/20240102030405id_/https://www.bls.gov/cpi/data.htm?x=1"
         );
+    }
+
+    #[test]
+    fn admits_answers_only_for_the_scheme_and_the_pattern() {
+        let e = Enabled::from_packs(&[pack("scholarly", Origin::Authored, SCHOLARLY)]);
+        assert!(!e.is_empty());
+        assert_eq!(e.admits("doi:10.1167/tvst.8.5.14"), Ok(()));
+        assert!(matches!(
+            e.admits("doi:not-a-doi"),
+            Err(Refusal::Malformed { .. })
+        ));
+        assert!(matches!(
+            e.admits("isbn:9780262033848"),
+            Err(Refusal::NoPack { .. })
+        ));
+        // Two packs declaring `doi` is the packs' defect, which `source check` reports.
+        let twice = Enabled::from_packs(&[
+            pack("scholarly", Origin::Authored, SCHOLARLY),
+            pack(
+                "other",
+                Origin::Authored,
+                &SCHOLARLY.replace("scholarly", "other"),
+            ),
+        ]);
+        assert_eq!(twice.admits("doi:not-a-doi"), Ok(()));
+        assert!(Enabled::from_packs(&[]).is_empty());
     }
 
     #[test]
@@ -614,6 +702,21 @@ resolve = { dcat = "data.cms.gov", media = "text/csv" }
         assert!(!err.is_benign());
         let msg = err.message("climdiv:pcpndv");
         assert!(msg.contains("source add --dry-run climdiv:pcpndv"), "{msg}");
+    }
+
+    /// `catalog-location-malformed` reads the local id before the pin, as `resolve` does.
+    #[test]
+    fn admits_reads_a_lookup_identifier_without_its_pin() {
+        let e = noaa();
+        assert_eq!(
+            e.admits("climdiv:pcpndv@climdiv-pcpndv-v1.0.0-20261001"),
+            Ok(())
+        );
+        assert_eq!(e.admits("climdiv:pcpndv"), Ok(()));
+        assert!(matches!(
+            e.admits("climdiv:PCP@climdiv-pcpndv-v1.0.0-20261001"),
+            Err(Refusal::Malformed { local, .. }) if local == "PCP"
+        ));
     }
 
     #[test]

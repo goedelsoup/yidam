@@ -1704,6 +1704,46 @@ fn a_re_vendor_copies_the_pinned_packs_and_refuses_an_unsatisfied_pin() {
     assert!(vendor_sources(&repo, &tmp).0);
 }
 
+/// The vendor step refuses a pin whose pack name `yidam source check` would refuse, before
+/// the name reaches a path (#1333).
+///
+/// Each name runs through the whole step, so a name the shell lets past is caught by what it
+/// does next: `a/b` dies on a raw `cp` error, and `../x` writes outside the staging directory.
+#[test]
+fn the_vendor_step_reads_a_pack_name_as_source_check_does() {
+    let dir = tempfile::tempdir().unwrap();
+    let (repo, tmp) = (dir.path().join("repo"), dir.path().join("tmp"));
+    std::fs::create_dir_all(&repo).unwrap();
+    // Both would resolve to a pack upstream, so an unchecked name gets as far as `cp`.
+    let sources = tmp.join("yidam/yidam/sources");
+    write_pack(&sources.join("a/b"), "b", "0.1.0");
+    write_pack(&sources.join("../x"), "x", "0.1.0");
+    for name in [
+        "a/b", "../x", "..", ".", "Upper", "9lives", "-x", "_x", "a_b", "a.b", "é", "x", "a-1",
+    ] {
+        set_pins(&repo, &format!("prelude_sources: [{name}@^0.1]\n"));
+        let (ok, out) = vendor_sources(&repo, &tmp);
+        assert!(!ok, "{name}: {out}");
+        assert!(
+            !tmp.join("x").exists(),
+            "{name} escaped the staging directory"
+        );
+        assert!(
+            out.contains("a prelude_sources pin was refused"),
+            "{name} did not reach the refusal: {out}"
+        );
+        assert!(!repo.join(".yidam/.vendor").exists(), "{name}: {out}");
+        let refused = out.contains(&format!(
+            "ERROR: prelude_sources: '{name}@^0.1': '{name}' is not a pack name"
+        ));
+        assert_eq!(
+            refused,
+            !yidam::sources::pin::is_pack_name(name),
+            "the shell reads `{name}` differently: {out}"
+        );
+    }
+}
+
 /// A `from` pin copies a pack another corpus wrote, at the commit it names, and checks the
 /// range against that one commit rather than looking for another.
 #[test]

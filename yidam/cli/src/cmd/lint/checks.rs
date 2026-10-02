@@ -3387,7 +3387,10 @@ pub fn catalog_artifact_unroutable(sources: &[Source], declared: &[String]) -> C
     )
 }
 
-pub fn catalog_location_malformed(sources: &[Source]) -> Check {
+pub fn catalog_location_malformed(
+    sources: &[Source],
+    packs: &crate::sources::resolve::Enabled,
+) -> Check {
     let mut violations = Vec::new();
     for s in sources {
         for (i, loc) in s.locations.iter().enumerate() {
@@ -3419,7 +3422,7 @@ pub fn catalog_location_malformed(sources: &[Source]) -> Check {
                             .push("kind `url_template` but value has no `{…}` placeholder".into());
                     }
                     if k == "identifier" && !v.trim().is_empty() {
-                        if let Some(p) = identifier_problem(v) {
+                        if let Some(p) = identifier_problem(v).or_else(|| undeclared(v, packs)) {
                             problems.push(p);
                         }
                     }
@@ -3448,16 +3451,19 @@ pub fn catalog_location_malformed(sources: &[Source]) -> Check {
          where an entry has several locations, the description is the only thing \
          distinguishing them. An `identifier` names a source by what it is rather than where \
          it is, as `scheme:local-id` — `doi:10.1167/tvst.8.5.14` — and one kind serves every \
-         scheme so that the set of kinds stays closed.",
+         scheme so that the set of kinds stays closed. Once the repository enables a source \
+         pack, the scheme must be one an enabled pack declares and the local id must match \
+         its pattern, since that pack is what resolves it; a repository that enables none \
+         is held to the shape alone.",
         violations,
     )
 }
 
 /// What is wrong with an `identifier` location's value, if anything.
 ///
-/// `scheme:local-id`, both halves non-empty. Until source packs declare schemes (RFC-0048 §3)
-/// any scheme passes; what can be refused now is a value that is not the shape at all, and a
-/// URL, whose `https:` would otherwise read as a scheme.
+/// `scheme:local-id`, both halves non-empty. What is refused here is a value that is not the
+/// shape at all, and a URL, whose `https:` would otherwise read as a scheme. Whether a pack
+/// declares the scheme is [`undeclared`]'s.
 fn identifier_problem(v: &str) -> Option<String> {
     let Some((scheme, local)) = v.split_once(':') else {
         return Some(format!(
@@ -3478,6 +3484,38 @@ fn identifier_problem(v: &str) -> Option<String> {
         ));
     }
     None
+}
+
+/// What the enabled packs say is wrong with a well-shaped `identifier` value (RFC-0048 §2).
+///
+/// Nothing when the repository enables no pack: a corpus that lists none sees no change
+/// (RFC-0048, *Migration & compatibility*), and the `doi:` locations `yidam migrate locations`
+/// wrote are not wrong for want of a pack. Once one is enabled, the packs are the scheme set.
+fn undeclared(v: &str, packs: &crate::sources::resolve::Enabled) -> Option<String> {
+    use crate::sources::resolve::{template_pack, Refusal};
+    if packs.is_empty() {
+        return None;
+    }
+    match packs.admits(v).err()? {
+        Refusal::NoPack { scheme } => Some(match template_pack(&scheme) {
+            Some(pack) => format!(
+                "no enabled source pack declares scheme `{scheme}`; the template's `{pack}` \
+                 pack does, so pin it under prelude_sources: {v}"
+            ),
+            None => format!(
+                "no enabled source pack declares scheme `{scheme}`; write one in {}: {v}",
+                crate::sources::AUTHORED
+            ),
+        }),
+        Refusal::Malformed {
+            scheme,
+            local,
+            pattern,
+        } => Some(format!(
+            "`{local}` does not match [scheme.{scheme}] pattern `{pattern}`: {v}"
+        )),
+        _ => None,
+    }
 }
 
 /// A catalog entry whose `type:` is outside the closed set.
@@ -6517,7 +6555,12 @@ mod tests {
             value: Some("see the reading room".into()),
             description: None,
         }];
-        assert_eq!(catalog_location_malformed(&[s]).violations.len(), 1);
+        assert_eq!(
+            catalog_location_malformed(&[s], &no_packs())
+                .violations
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -6528,7 +6571,7 @@ mod tests {
             value: Some("https://example.org/x".into()),
             description: None,
         }];
-        assert!(catalog_location_malformed(&[s]).passed());
+        assert!(catalog_location_malformed(&[s], &no_packs()).passed());
     }
 
     fn located(kind: &str, value: &str) -> Source {
@@ -6541,12 +6584,42 @@ mod tests {
         s
     }
 
-    /// Until packs declare schemes, any scheme with a local id passes (RFC-0048 §2).
+    fn no_packs() -> crate::sources::resolve::Enabled {
+        crate::sources::resolve::Enabled::default()
+    }
+
+    fn enabled(packs: &[(&str, crate::sources::Origin, &str)]) -> crate::sources::resolve::Enabled {
+        crate::sources::resolve::Enabled::from_packs(
+            &packs
+                .iter()
+                .map(|(name, origin, manifest)| crate::sources::Pack {
+                    name: name.to_string(),
+                    dir: std::path::PathBuf::from(format!(".yidam/sources/{name}")),
+                    origin: *origin,
+                    manifest: toml::from_str(manifest).map_err(|e| e.to_string()),
+                })
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    const SCHOLARLY_DOI: &str = r#"
+[pack]
+name = "scholarly"
+version = "0.1.0"
+
+[scheme.doi]
+pattern = '^10\.\d{4,9}/\S+$'
+type = "paper"
+resolve = { template = "https://api.crossref.org/works/{id}" }
+"#;
+
+    /// With no pack enabled, any scheme with a local id passes (RFC-0048, *Migration &
+    /// compatibility*): a corpus that lists none sees no change.
     #[test]
     fn an_identifier_location_is_a_scheme_and_a_local_id() {
         for v in ["doi:10.1167/tvst.8.5.14", "pmc:PMC6753881", "orc:2921.13"] {
             assert!(
-                catalog_location_malformed(&[located("identifier", v)]).passed(),
+                catalog_location_malformed(&[located("identifier", v)], &no_packs()).passed(),
                 "{v}"
             );
         }
@@ -6557,7 +6630,7 @@ mod tests {
             "https://doi.org/10.1/x",
         ] {
             assert_eq!(
-                catalog_location_malformed(&[located("identifier", v)])
+                catalog_location_malformed(&[located("identifier", v)], &no_packs())
                     .violations
                     .len(),
                 1,
@@ -6566,11 +6639,71 @@ mod tests {
         }
     }
 
+    /// Once a pack is enabled, the packs are the scheme set (RFC-0048 §2, #1328).
+    #[test]
+    fn an_enabled_pack_holds_the_scheme_and_its_pattern() {
+        use crate::sources::Origin;
+        let packs = enabled(&[("scholarly", Origin::Authored, SCHOLARLY_DOI)]);
+        let said = |v: &str| {
+            let c = catalog_location_malformed(&[located("identifier", v)], &packs);
+            c.violations
+                .into_iter()
+                .map(|v| v.detail)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(said("doi:10.1167/tvst.8.5.14"), Vec::<String>::new());
+
+        // The pattern refuses the local id.
+        let found = said("doi:not-a-doi");
+        assert_eq!(found.len(), 1);
+        assert!(
+            found[0].contains("does not match [scheme.doi] pattern"),
+            "{found:?}"
+        );
+
+        // A scheme the template ships a pack for names that pack.
+        let found = said("wayback:20240102030405/https://example.org/");
+        assert_eq!(found.len(), 1);
+        assert!(
+            found[0].contains("no enabled source pack declares scheme `wayback`"),
+            "{found:?}"
+        );
+        assert!(
+            found[0].contains("the template's `archive` pack"),
+            "{found:?}"
+        );
+
+        // One it ships none for says where to write one.
+        let found = said("orc:2921.13");
+        assert_eq!(found.len(), 1);
+        assert!(
+            found[0].contains("write one in .yidam/sources"),
+            "{found:?}"
+        );
+
+        // The shape is still checked first, and once.
+        assert_eq!(said("https://doi.org/10.1/x").len(), 1);
+    }
+
+    /// A vendored pack that an authored pack of the same name shadows declares nothing.
+    #[test]
+    fn a_shadowed_vendored_pack_declares_nothing() {
+        use crate::sources::Origin;
+        let vendored = SCHOLARLY_DOI.replace("[scheme.doi]", "[scheme.pmc]");
+        let packs = enabled(&[
+            ("scholarly", Origin::Authored, SCHOLARLY_DOI),
+            ("scholarly", Origin::Vendored, &vendored),
+        ]);
+        let c = catalog_location_malformed(&[located("identifier", "pmc:PMC6753881")], &packs);
+        assert_eq!(c.violations.len(), 1);
+        assert!(c.violations[0].detail.contains("scheme `pmc`"));
+    }
+
     /// The two kinds corpora wrote before `identifier` existed are still refused, and the
     /// finding names the migration that fixes them.
     #[test]
     fn a_retired_kind_names_its_migration() {
-        let c = catalog_location_malformed(&[located("doi", "10.1167/tvst.8.5.14")]);
+        let c = catalog_location_malformed(&[located("doi", "10.1167/tvst.8.5.14")], &no_packs());
         assert_eq!(c.violations.len(), 1);
         assert!(
             c.violations[0].detail.contains("yidam migrate locations"),

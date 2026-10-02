@@ -61,13 +61,10 @@ fn the_template_ships_scholarly_and_archive() {
 /// Each shipped pack, copied where step 8 copies it with the `[vendored]` table step 8
 /// appends, and pinned in `prelude_sources`, passes `source check`. In a build with
 /// `source-transforms` that runs every describe and extract over the pack's own fixtures.
-#[test]
-fn every_shipped_pack_checks_once_vendored_and_pinned() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+/// Vendor `packs` into the corpus at `root` the way step 8 does, and pin each one.
+fn vendor_and_pin(root: &Path, packs: &[(String, Vec<String>)]) {
     let mut pins = Vec::new();
-    let packs = shipped();
-    for (pack, files) in &packs {
+    for (pack, files) in packs {
         let at = root.join(".yidam/.vendor/sources").join(pack);
         install(pack, files, &at);
         let manifest = std::fs::read_to_string(at.join("pack.toml")).unwrap();
@@ -88,6 +85,14 @@ fn every_shipped_pack_checks_once_vendored_and_pinned() {
         format!("prelude_sources: [{}]\n", pins.join(", ")),
     )
     .unwrap();
+}
+
+#[test]
+fn every_shipped_pack_checks_once_vendored_and_pinned() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let packs = shipped();
+    vendor_and_pin(root, &packs);
 
     let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
         .args(["source", "--root"])
@@ -103,6 +108,83 @@ fn every_shipped_pack_checks_once_vendored_and_pinned() {
     for p in checked {
         assert_eq!(p["origin"], "vendored", "{said}");
     }
+}
+
+/// `TEMPLATE_SCHEMES` is how a lint finding names the pack to pin, so it has to be exactly the
+/// schemes the shipped manifests declare: a scheme it lacks gets "write one" where a pin would
+/// do, and one it keeps after a pack drops it names a pack that cannot help.
+#[test]
+fn the_template_scheme_table_is_the_shipped_manifests() {
+    let mut declared = Vec::new();
+    for (pack, _) in shipped() {
+        let manifest = std::fs::read_to_string(
+            common::repo_root()
+                .join("yidam/sources")
+                .join(&pack)
+                .join("pack.toml"),
+        )
+        .unwrap();
+        let table: toml::Value = toml::from_str(&manifest).unwrap();
+        for scheme in table["scheme"].as_table().unwrap().keys() {
+            declared.push((scheme.clone(), pack.clone()));
+        }
+    }
+    declared.sort();
+    let mut table: Vec<(String, String)> = yidam::sources::resolve::TEMPLATE_SCHEMES
+        .iter()
+        .map(|(s, p)| (s.to_string(), p.to_string()))
+        .collect();
+    table.sort();
+    assert_eq!(table, declared);
+}
+
+/// Once `scholarly` is pinned, `catalog-location-malformed` holds identifier locations to it
+/// (RFC-0048 §2, #1328): a local id its pattern refuses, and a scheme only the unpinned
+/// `archive` declares, which the finding names.
+#[test]
+fn a_pinned_pack_holds_the_identifier_locations() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let scholarly: Vec<_> = shipped()
+        .into_iter()
+        .filter(|(n, _)| n == "scholarly")
+        .collect();
+    vendor_and_pin(root, &scholarly);
+    std::fs::create_dir_all(root.join(".yidam/catalog")).unwrap();
+    std::fs::write(
+        root.join(".yidam/catalog/tvst.md"),
+        "---\nname: tvst\ndescription: A paper and a snapshot.\ntype: paper\nlocation:\n\
+         \x20 - kind: identifier\n    value: doi:10.1167/tvst.8.5.14\n    description: the paper\n\
+         \x20 - kind: identifier\n    value: doi:not-a-doi\n    description: a typo\n\
+         \x20 - kind: identifier\n    value: wayback:20240102030405/https://example.org/\n\
+         \x20   description: a snapshot\n---\n\n# A paper\n",
+    )
+    .unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .args(["lint", "--warn", "--format", "json", "--root"])
+        .arg(root)
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out.stdout);
+    let report: serde_json::Value = serde_json::from_str(&said).unwrap();
+    let found: Vec<String> = report["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["id"] == "catalog-location-malformed")
+        .flat_map(|c| c["violations"].as_array().unwrap().iter())
+        .map(|v| v.to_string())
+        .collect();
+    assert_eq!(found.len(), 2, "{found:#?}");
+    assert!(
+        found[0].contains("location[1]") && found[0].contains("[scheme.doi] pattern"),
+        "{found:#?}"
+    );
+    assert!(
+        found[1].contains("location[2]") && found[1].contains("`archive` pack"),
+        "{found:#?}"
+    );
 }
 
 // ── the acceptance run ─────────────────────────────────────────────────────────────────
