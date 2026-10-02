@@ -246,11 +246,11 @@ fn a_pdf_quotation_is_checked_once_the_pdf_has_been_read() {
     // The record names the reading, the reading is in the cache, and it holds the page.
     let entry = std::fs::read_to_string(s.entry()).unwrap();
     let (_, nested) = entry
-        .split_once("    media_type: application/pdf\n    text:\n      sha256: ")
+        .split_once("    media_type: application/pdf\n    readings:\n      - sha256: ")
         .unwrap_or_else(|| panic!("a reading is recorded under the PDF:\n{entry}"));
     let (digest, rest) = nested.split_once('\n').unwrap();
     assert!(
-        rest.starts_with("      extractor: pdf-extract 0."),
+        rest.starts_with("        media_type: text/plain\n        by: pdf-extract 0."),
         "{entry}"
     );
     let digest = ContentHash::parse(digest).unwrap();
@@ -269,7 +269,10 @@ fn a_pdf_quotation_is_checked_once_the_pdf_has_been_read() {
     // A second run finds the reading already taken, and commits nothing.
     let again = s.ok(&["catalog-extract"]);
     assert_eq!(s.commit_count(), commits + 1, "{again}");
-    assert!(again.contains("No catalog entry records a PDF"), "{again}");
+    assert!(
+        again.contains("No catalog entry records an artifact with a reading still to take"),
+        "{again}"
+    );
 }
 
 /// Bytes this machine does not hold are reported and not read, and nothing is committed.

@@ -77,9 +77,29 @@ fn pack(dir: &Path, manifest: &str) {
     std::fs::create_dir_all(dir.join("fixtures")).unwrap();
     std::fs::write(dir.join("pack.toml"), manifest).unwrap();
     std::fs::write(dir.join("entry.md"), "# scholarly\n").unwrap();
-    std::fs::write(dir.join("transforms/crossref.glu"), "1\n").unwrap();
-    std::fs::write(dir.join("fixtures/crossref-tvst.json"), "{}").unwrap();
+    std::fs::write(dir.join("transforms/crossref.glu"), CROSSREF).unwrap();
+    std::fs::write(dir.join("fixtures/crossref-tvst.json"), TVST).unwrap();
 }
+
+/// A describe transform over a Crossref work: its first title, and its PMCID when it has one.
+const CROSSREF: &str = r#"\p ->
+    let same : String -> String -> Bool = \a b -> a == b
+    let pick name acc f =
+        match acc with
+        | Some found -> Some found
+        | None -> if same f.path name then Some f.value else None
+    let text : String -> Option String = \name ->
+        match array.foldable.foldl (pick name) None p.fields with
+        | Some (Text s) -> Some s
+        | _ -> None
+    let ids =
+        match text "message/pmcid" with
+        | Some d -> [{ key = "pmcid", value = d }]
+        | None -> []
+    { name = text "message/title/0", kind = None, date = None, description = None, identifiers = ids }
+"#;
+
+const TVST: &str = r#"{"message": {"title": ["Retinal Imaging"], "pmcid": "PMC6762077"}}"#;
 
 /// Each error as `<path>: <message>`, the way the text report prints it.
 fn errors(report: &serde_json::Value) -> Vec<String> {
@@ -356,4 +376,89 @@ fn every_emitted_field_is_declared_in_the_schema() {
             );
         }
     }
+}
+
+/// A build without the engine checks everything else and says, once, what it did not check.
+#[cfg(not(feature = "source-transforms"))]
+#[test]
+fn a_build_without_transforms_says_it_did_not_check_them() {
+    let dir = corpus();
+    pack(&dir.path().join(".yidam/sources/scholarly"), GOOD);
+    let (code, said, report) = check(dir.path());
+    assert_eq!(code, 0, "{said}");
+    let infos: Vec<&str> = report["pack_findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["severity"] == "info")
+        .map(|f| f["message"].as_str().unwrap())
+        .collect();
+    assert_eq!(infos.len(), 1, "{report}");
+    assert!(infos[0].contains("source-transforms"), "{}", infos[0]);
+}
+
+/// A transform the closed prelude does not admit fails the check at the script.
+#[cfg(feature = "source-transforms")]
+#[test]
+fn a_transform_that_is_not_a_describe_is_refused() {
+    let dir = corpus();
+    let at = dir.path().join(".yidam/sources/scholarly");
+    pack(&at, GOOD);
+    std::fs::write(at.join("transforms/crossref.glu"), "\\p -> 1\n").unwrap();
+    assert_refused(dir.path(), "is not a describe transform");
+    assert_refused(dir.path(), "transforms/crossref.glu: ");
+}
+
+/// A `then` reads an identifier describe never yields for any fixture: it resolves nothing.
+#[cfg(feature = "source-transforms")]
+#[test]
+fn a_then_no_fixture_yields_is_refused() {
+    let dir = corpus();
+    pack(
+        &dir.path().join(".yidam/sources/scholarly"),
+        &GOOD.replace("describe.pmcid", "describe.pmid"),
+    );
+    assert_refused(dir.path(), "yields no identifier `pmid` for any fixture");
+}
+
+/// A fixture the transform cannot read — here, not JSON — fails the check at the fixture.
+#[cfg(feature = "source-transforms")]
+#[test]
+fn a_fixture_the_transform_cannot_read_is_refused() {
+    let dir = corpus();
+    let at = dir.path().join(".yidam/sources/scholarly");
+    pack(&at, GOOD);
+    std::fs::write(at.join("fixtures/crossref-tvst.json"), "<xml/>").unwrap();
+    assert_refused(
+        dir.path(),
+        "fixtures/crossref-tvst.json: `doi:10.1167/tvst.8.5.14`",
+    );
+    assert_refused(dir.path(), "is not JSON");
+}
+
+/// An extract transform runs over each fixture of its scheme too.
+#[cfg(feature = "source-transforms")]
+#[test]
+fn an_extract_transform_runs_over_its_fixtures() {
+    let dir = corpus();
+    let at = dir.path().join(".yidam/sources/scholarly");
+    let manifest = GOOD.replace(
+        "describe = \"transforms/crossref.glu\"",
+        "describe = \"transforms/crossref.glu\"\nextract  = \"transforms/body.glu\"",
+    );
+    pack(&at, &manifest);
+    std::fs::write(
+        at.join("transforms/body.glu"),
+        "\\p ->\n    { media_type = \"text/plain\", text = p.media_type }\n",
+    )
+    .unwrap();
+    let (code, said, _) = check(dir.path());
+    assert_eq!(code, 0, "{said}");
+
+    std::fs::write(
+        at.join("transforms/body.glu"),
+        "\\p ->\n    { media_type = \"text/plain\", text = \"\" }\n",
+    )
+    .unwrap();
+    assert_refused(dir.path(), "returned an empty reading");
 }

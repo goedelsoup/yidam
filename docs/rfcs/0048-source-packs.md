@@ -292,14 +292,26 @@ maps.
 
 **Host-side parsing.**
 
-- JSON and CSV use parsers already in the closure.
+- JSON uses `serde_json`, which is already in the closure. CSV does not, whatever this section
+  first assumed: the closure carried no CSV parser, so `csv` is a new name (#1318).
 - XML is needed because Europe PMC full text, arXiv's Atom feed and eCFR all answer in it. It
-  takes `quick-xml`, behind the same feature as the transforms.
-- `quick-xml` is measured against RFC-0024's bar (marginal packages, binary delta) in the PR that
-  adds it, and the numbers go in that PR.
+  takes `quick-xml`, which was already a dev-dependency.
+- Both sit behind `source-transforms`, which implies `calculators-gluon`. Measured against
+  RFC-0024's bar in #1318: 3 marginal packages (`quick-xml`, `csv`, `csv-core`) and +0.12 MB on
+  the release binary over `calculators-gluon` alone.
 - The default build gains no XML parser. A scheme whose `resolve` names an XML media type still
-  fetches in the default build. Only its `describe` and `extract` wait for the feature. A transform cannot fetch, read a file or write a node, because the prelude does not
-contain those things to refuse — the argument RFC-0042 makes for calculators, unchanged.
+  fetches in the default build. Only its `describe` and `extract` wait for the feature.
+
+A transform cannot fetch, read a file or write a node, because the prelude does not contain
+those things to refuse — the argument RFC-0042 makes for calculators, unchanged.
+
+**What `Parsed` is.** A gluon record cannot be recursive through a derive, so a parsed document
+is its tree written out in document order. `Parsed` is `{ media_type, fields }`. Each field is
+`{ parent, name, path, value }`, with `parent` an index into `fields` (`-1` at the root) and
+`path` every name from the root down, joined by `/`. A container's value is empty and its
+children follow it. XML text is a `#text` child and an attribute is an `@name` child, so mixed
+content keeps its order. A CSV row is a field named by its index, and its cells are named by the
+header.
 
 An `extract` output is recorded on the artifact as a derived reading, generalising the `text:`
 reading `catalog-extract` already writes for PDFs:
@@ -324,10 +336,12 @@ pack for its own county auditor without writing a crate, which §1.3 says is the
 them.
 
 **Why gluon is optional.** Templates resolve most measured identifiers (§3). A pack with no
-`.glu` works in the default build. Transforms need `calculators-gluon`, which stays outside the
-default set for RFC-0024's reasons: +71 packages and +6.8 MB, measured 2026-09-26. A pack whose
-scheme declares `describe` degrades without the feature: `source add` writes the draft from the
-template alone and says what it could not fill.
+`.glu` works in the default build. Transforms need `source-transforms`, and through it
+`calculators-gluon`, which stays outside the default set for RFC-0024's reasons: +71 packages
+and +6.8 MB, measured 2026-09-26. A pack whose scheme declares `describe` degrades without the
+feature: `source add` writes the draft from the template alone and names the fields it could
+not fill. `source check` says it did not check the transforms, and `catalog-extract` reports the
+reading it could not take as a skip.
 
 ### 7. The first packs
 
@@ -414,7 +428,7 @@ Settled in review on 2026-10-01. These were this RFC's open questions.
 1. **Catalog `type`:** the closed set gains `statute`, `report`, `standard` and `document`.
    `primary` is a standing, not a form, and is resolved by hand (§2.1).
 2. **XML parsing:** `quick-xml` on the host, behind the transform feature, measured against
-   RFC-0024 when it lands (§6).
+   RFC-0024 when it lands (§6). Landed in #1318 as `source-transforms`, with `csv` beside it.
 3. **MCP:** in this RFC, as two read-only tools, `search_sources` and `resolve_source`. No write
    tool (§8).
 4. **Pack versioning:** each pack carries its own semver, and a corpus pins it in

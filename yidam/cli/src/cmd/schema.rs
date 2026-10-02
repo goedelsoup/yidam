@@ -616,6 +616,39 @@ pub fn catalog_entry_schema() -> Value {
                                             A licensing fact about the source, which overrides \
                                             `vault` — a route is edited casually and a licence \
                                             is not something that edit may undo."
+                        },
+                        "text": {
+                            "type": "object",
+                            "description": "A text reading as entries before #1318 recorded \
+                                            it. Read still; `catalog-extract` now writes \
+                                            `readings:`.",
+                            "properties": {
+                                "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                                "extractor": non_empty_string()
+                            },
+                            "additionalProperties": false
+                        },
+                        "readings": {
+                            "type": "array",
+                            "description": "Derived readings of these bytes (RFC-0048 §6): a \
+                                            PDF's text, a source pack's extract. Each names \
+                                            its own digest, its media type, and what took it.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                                    "media_type": non_empty_string(),
+                                    "by": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "description": "`<crate> <version>` for an extractor; \
+                                                        `<pack>@<version>/<transform>@sha256:<hash>` \
+                                                        for a pack's transform."
+                                    }
+                                },
+                                "required": ["sha256", "media_type", "by"],
+                                "additionalProperties": false
+                            }
                         }
                     },
                     "required": ["sha256"],
