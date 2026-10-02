@@ -243,9 +243,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = tr
 # shared by `vector-read` and `export-sqlite`. **Free to move.** These were held at
 # lancedb's transitive arrow (#904), and #1287 removed lancedb: nothing else in the graph
 # takes arrow, so a major bump is three declarations moving together and nothing more.
-arrow-array = { version = "54", optional = true }
-arrow-schema = { version = "54", optional = true }
-arrow-ipc = { version = "54", optional = true }
+arrow-array = { version = "60", optional = true }
+arrow-schema = { version = "60", optional = true }
+arrow-ipc = { version = "60", optional = true }
 
 # ── optional: `export-sqlite` — `export --format sqlite`. `bundled` compiles
 #    SQLite from C source. ──────────────────────────────────────────────────
