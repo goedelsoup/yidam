@@ -191,6 +191,12 @@ Resolution is a template wherever a template suffices. The 86 measured `url_temp
 are that shape already: an address with an identifier's parts left as placeholders. `then` chains one identifier to another. It is
 how 140 entries got their second location by hand.
 
+Where no template reaches the file, a scheme names a page that lists it: `listing` for a
+directory index, `dcat` for a publisher's DCAT-US `data.json` (#1342). A release date in the
+filename, a moved address, or a fresh `<uuid>` path each defeat a template. `source add` reads
+the page once and writes what it picked into the identifier, `scheme:local-id@<pin>`. A fetch
+follows only the pin, so an entry stays the file that was read.
+
 **A pack carries its own semver.** A pack changes on the publisher's schedule, not on
 yidam's. Crossref adds a field, or a legislature moves its API to `v3`. So `version` in
 `pack.toml` is the pack's own, and a corpus pins it:
@@ -473,6 +479,10 @@ Settled in review on 2026-10-01. These were this RFC's open questions.
    `answered`: `network`, `fixture`, or null where nothing was asked. An identifier being a
    fixture's own does not tell a caller that the list was not the publisher's answer today.
    Settled in #1319 (§8).
+9. **A location never names a member inside a file.** A location names the bytes a fetch
+   reads. A file inside `oh2010.sf1.zip` is read from the zip, so the location names the zip.
+   `source check` refuses a template or listing that carries a `#`, and a pin may not carry
+   one. Settled in #1342 (§3).
 
 ## Open questions
 

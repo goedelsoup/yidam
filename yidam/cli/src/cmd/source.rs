@@ -562,18 +562,25 @@ impl Asker for Network<'_> {
     fn answered(&self) -> Answered {
         Answered::Network
     }
+    /// `url` is what the scheme resolves the identifier to, or the listing or catalog a lookup
+    /// scheme reads (#1342). Either is on the host the pack declares, so its transport applies.
     fn ask(
         &mut self,
         _: &Pack,
         _: &Manifest,
         identifier: &str,
-        _: &str,
+        url: &str,
     ) -> Result<Vec<u8>, String> {
-        let r = self
-            .ctx
-            .packs
-            .resolve(identifier)
-            .map_err(|refusal| refusal.message(identifier))?;
+        let scheme = identifier.split_once(':').map_or(identifier, |(s, _)| s);
+        let Some((pack, transport)) = self.ctx.packs.transport_of(scheme) else {
+            return Err(format!("no enabled source pack declares `{scheme}`"));
+        };
+        let r = resolve::Resolved {
+            pack: pack.to_string(),
+            scheme: scheme.to_string(),
+            url: url.to_string(),
+            transport: transport.clone(),
+        };
         ask_publisher(&mut self.session, identifier, &r, &self.ctx)
     }
 }
@@ -614,7 +621,8 @@ fn add(
 ) -> Result<()> {
     let packs = sources::load(root)?;
     let catalog_dir = crate::paths::yidam_catalog_dir(root);
-    let held = catalogued(&catalog_dir);
+    let enabled = Enabled::from_packs(&packs);
+    let held = catalogued(&catalog_dir, &enabled);
 
     // Every identifier resolves, or nothing is written: a run that wrote two of three entries
     // and then refused would leave a person to work out which.
@@ -626,11 +634,10 @@ fn add(
             match draft::resolve(root, &packs, raw, asker) {
                 Err(why) => refused.push(why),
                 Ok(r) => {
-                    if let Some((id, at)) = r
-                        .locations
-                        .iter()
-                        .find_map(|l| held.get(&l.identifier).map(|at| (&l.identifier, at)))
-                    {
+                    if let Some((id, at)) = r.locations.iter().find_map(|l| {
+                        held.get(enabled.source_of(&l.identifier))
+                            .map(|at| (&l.identifier, at))
+                    }) {
                         refused.push(format!(
                             "`{id}` is already catalogued in {at}; a second entry for one \
                              source would split what is said about it"
@@ -700,8 +707,10 @@ fn add(
     crate::report::finish(root, format, report, |r| render_add(r, dry_run, fetch))
 }
 
-/// Every identifier the catalog already records, and the entry it is in.
-pub(crate) fn catalogued(dir: &Path) -> HashMap<String, String> {
+/// Every source the catalog already records, by [`Enabled::source_of`] its identifier, and the
+/// entry it is in. A lookup scheme's identifier is held without its pin, so adding it again
+/// finds the entry that pinned an older file.
+pub(crate) fn catalogued(dir: &Path, enabled: &Enabled) -> HashMap<String, String> {
     let mut out = HashMap::new();
     for path in crate::walk::walk_md_files(dir) {
         let Ok(text) = std::fs::read_to_string(&path) else {
@@ -714,7 +723,7 @@ pub(crate) fn catalogued(dir: &Path) -> HashMap<String, String> {
         {
             if l.kind.as_deref() == Some("identifier") {
                 if let Some(v) = l.value {
-                    out.entry(v.trim().to_string())
+                    out.entry(enabled.source_of(v.trim()).to_string())
                         .or_insert_with(|| format!(".yidam/catalog/{name}"));
                 }
             }

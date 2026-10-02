@@ -23,6 +23,7 @@ use serde_json::{json, Value};
 use super::ServerState;
 use crate::cmd::source;
 use crate::sources::draft::{self, Needs, Resolved};
+use crate::sources::resolve::Enabled;
 use crate::sources::transform::{self, Draft};
 
 /// The default `limit`, the same as `source search`'s.
@@ -118,11 +119,12 @@ pub(crate) fn resolve_source(state: &ServerState, args: &Value) -> Result<Value,
     .map_err(|e| format!("{e:#}"))??;
 
     let catalog_dir = crate::paths::yidam_catalog_dir(root);
-    let catalogued = source::catalogued(&catalog_dir);
+    let enabled = Enabled::from_packs(&state.packs);
+    let catalogued = source::catalogued(&catalog_dir, &enabled);
     let already = resolved
         .locations
         .iter()
-        .find_map(|l| catalogued.get(&l.identifier).cloned());
+        .find_map(|l| catalogued.get(enabled.source_of(&l.identifier)).cloned());
     let entry = source::free_slug(&catalog_dir, &source::slug_for(&resolved), &[]);
     let needs = needs(state, &resolved);
 

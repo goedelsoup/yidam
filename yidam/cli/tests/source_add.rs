@@ -430,6 +430,44 @@ fn add_follows_then_and_titles_the_entry_from_the_describe() {
     assert!(text.contains("named by"), "{text}");
 }
 
+/// A catalog scheme, offline: the recorded `data.json` is read for the dataset's file, and
+/// the entry is written pinned to it.
+#[test]
+fn add_offline_reads_a_recorded_catalog_and_pins_the_file() {
+    let manifest = GOOD
+        .replace(
+            "[transport]",
+            "[scheme.cms]\npattern = '^[0-9a-f-]{36}$'\ntype    = \"dataset\"\n\
+             resolve = { dcat = \"data.cms.gov\", media = \"text/csv\" }\n\n[transport]",
+        )
+        .replace(
+            "[fixtures]\n",
+            "[fixtures]\n\"cms:6a3aa708-3c9f-4c1a-8b8d-9d0c1d1e6b1a\" = \"cms-data.json\"\n",
+        );
+    let dir = corpus(&manifest);
+    std::fs::write(
+        dir.path().join(".yidam/sources/scholarly/fixtures/cms-data.json"),
+        r#"{"dataset": [{"identifier": "6a3aa708-3c9f-4c1a-8b8d-9d0c1d1e6b1a",
+            "distribution": [{"mediaType": "text/csv", "downloadURL": "https://data.cms.gov/files/a.csv"}]}]}"#,
+    )
+    .unwrap();
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-q", "-m", "a catalog fixture"]);
+
+    let id = "cms:6a3aa708-3c9f-4c1a-8b8d-9d0c1d1e6b1a";
+    let r = json(dir.path(), &["add", id, "--offline"], &[]);
+    let d = &r["drafts"][0];
+    assert_eq!(d["identifier"], id, "{d}");
+    assert_eq!(d["locations"][0]["identifier"], format!("{id}@files/a.csv"));
+    assert_eq!(d["locations"][0]["url"], "https://data.cms.gov/files/a.csv");
+    let text = std::fs::read_to_string(dir.path().join(entry_path(&r))).unwrap();
+    assert!(text.contains(&format!("value: {id}@files/a.csv")), "{text}");
+    assert!(
+        text.contains("pinned to the file https://data.cms.gov/data.json listed"),
+        "{text}"
+    );
+}
+
 // ── the report contract ──────────────────────────────────────────────────────────────────
 
 /// `report_goldens` reaches none of these three: its fixture holds no pack, and `add` commits.
