@@ -2,7 +2,7 @@ mod backfill;
 mod bench;
 mod build;
 mod bundle;
-mod catalog;
+pub(crate) mod catalog;
 pub(crate) mod check_diff;
 mod clone;
 pub(crate) mod cohort;
@@ -77,6 +77,7 @@ mod sangha;
 mod schema;
 pub(crate) mod score;
 pub(crate) mod serve;
+pub(crate) mod source;
 pub(crate) mod status;
 #[cfg(feature = "tonpa")]
 pub mod tonpa;
@@ -166,6 +167,7 @@ pub use score::score as run_score;
 pub use serve::serve_mcp;
 #[cfg(feature = "serve-http")]
 pub use serve::serve_mcp_http;
+pub use source::{run as run_source, SourceCommand};
 pub(crate) use status::index_status_data;
 pub use status::{index_status, status};
 pub use vault::{run as run_vault, vault_status, VaultCommand};

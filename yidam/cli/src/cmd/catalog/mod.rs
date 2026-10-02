@@ -17,7 +17,7 @@
 pub(crate) mod audit;
 mod extract;
 mod fetch;
-mod location;
+pub(crate) mod location;
 mod reconcile;
 mod record;
 pub(crate) mod superseded;

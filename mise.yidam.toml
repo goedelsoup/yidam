@@ -514,6 +514,177 @@ if [ ! -d "$tmp/yidam/yidam/prelude" ]; then
   echo "ERROR: $origin@$commit has no yidam/prelude/ — wrong origin?" >&2
   exit 1
 fi
+# ── source packs, and the version each pin asked for (RFC-0048) ─
+#
+# `prelude_sources` in .yidam/decisions/proposals.yml pins each pack this repository
+# vendors: `<pack>@<range>` names one the template ships in `yidam/sources/`, and
+# `<pack>@<range> from <repo>@<commit>` names one another corpus wrote in its own
+# `.yidam/sources/`. Each is copied wholesale into .yidam/.vendor/sources/, and the copy
+# records the pin it satisfied under `[vendored]`.
+#
+# A commit holds exactly one version of a pack, so a range is checked against it and
+# never resolved: this task does not go looking for a version that would satisfy it.
+# A pin it cannot satisfy refuses the whole update, and it runs before the prelude is
+# replaced, so a refusal leaves this repository as it was. No pins, or no record,
+# vendors none.
+#
+# No backslashes, for the reason the tools block gives. `satisfies` is the grammar
+# `yidam source check` reads (src/sources/version.rs); tests/task_layer.rs holds the two
+# to one table.
+# VENDOR-SOURCES BEGIN
+# SATISFIES BEGIN
+satisfies() {
+  awk -v v="$1" -v r="$2" '
+    function digits(s) { return s != "" && s !~ /[^0-9]/ }
+    BEGIN {
+      if (split(v, a, ".") != 3 || !digits(a[1]) || !digits(a[2]) || !digits(a[3])) exit 1
+      op = substr(r, 1, 1)
+      if (op == "^" || op == "~" || op == "=") rest = substr(r, 2)
+      else { op = "^"; rest = r }
+      n = split(rest, b, ".")
+      if (n < 1 || n > 3) exit 1
+      for (i = 1; i <= n; i++) if (!digits(b[i])) exit 1
+      for (i = n + 1; i <= 3; i++) b[i] = 0
+      l1 = b[1] + 0; l2 = b[2] + 0; l3 = b[3] + 0
+      if (op == "=" && n == 3) { h1 = l1; h2 = l2; h3 = l3 + 1 }
+      else if ((op == "=" || op == "~") && n == 1) { h1 = l1 + 1; h2 = 0; h3 = 0 }
+      else if (op == "=" || op == "~") { h1 = l1; h2 = l2 + 1; h3 = 0 }
+      else if (n == 1 || l1 > 0) { h1 = l1 + 1; h2 = 0; h3 = 0 }
+      else if (n == 2 || l2 > 0) { h1 = 0; h2 = l2 + 1; h3 = 0 }
+      else { h1 = 0; h2 = 0; h3 = l3 + 1 }
+      x1 = a[1] + 0; x2 = a[2] + 0; x3 = a[3] + 0
+      ge = x1 > l1 || (x1 == l1 && (x2 > l2 || (x2 == l2 && x3 >= l3)))
+      lt = x1 < h1 || (x1 == h1 && (x2 < h2 || (x2 == h2 && x3 < h3)))
+      exit !(ge && lt)
+    }'
+}
+# SATISFIES END
+# `version` in a pack.toml's [pack] table, unquoted.
+pack_version() {
+  awk '
+    BEGIN { q = sprintf("%c%c", 34, 39) }
+    substr($0, 1, 1) == "[" { t = $0; sub(/[ ]*#.*$/, "", t); gsub(/[ ]/, "", t); next }
+    t == "[pack]" && $0 ~ /^[ ]*version[ ]*=/ {
+      v = $0; sub(/^[^=]*=/, "", v); sub(/#.*$/, "", v); gsub("[ " q "]", "", v); print v; exit
+    }' "$1"
+}
+proposals=.yidam/decisions/proposals.yml
+pins=""
+if [ -f "$proposals" ]; then
+  pins=$(awk '
+    BEGIN { q = sprintf("%c%c", 34, 39) }
+    function emit(s) {
+      sub(/[ ]*#.*$/, "", s); gsub("[" q "]", "", s); sub(/^[ ]+/, "", s); sub(/[ ]+$/, "", s)
+      if (s != "") print s
+    }
+    /^prelude_sources:/ {
+      line = $0
+      sub(/^prelude_sources:[ ]*/, "", line)
+      sub(/[ ]*#.*$/, "", line)
+      if (substr(line, 1, 1) == "[") {
+        gsub(/[][]/, "", line)
+        n = split(line, items, ",")
+        for (i = 1; i <= n; i++) emit(items[i])
+      } else if (line == "") { block = 1 }
+      next
+    }
+    block == 1 && $0 ~ /^[ ]*-[ ]+/ { s = $0; sub(/^[ ]*-[ ]+/, "", s); emit(s); next }
+    block == 1 && $0 ~ /^[^ ]/ { block = 0 }
+  ' "$proposals")
+fi
+staged="$tmp/sources"
+rm -rf "$staged"
+mkdir -p "$staged"
+refused=0
+peers=0
+set -f
+while IFS= read -r pin; do
+  [ -n "$pin" ] || continue
+  set -- $pin
+  if [ $# -eq 1 ]; then
+    peer=""
+  elif [ $# -eq 3 ] && [ "$2" = from ]; then
+    peer=$3
+  else
+    echo "ERROR: prelude_sources: '$pin' is neither <pack>@<range> nor <pack>@<range> from <repo>@<commit>" >&2
+    refused=1; continue
+  fi
+  pack=${1%%@*}
+  range=${1#*@}
+  if [ "$pack" = "$1" ] || [ -z "$pack" ] || [ -z "$range" ]; then
+    echo "ERROR: prelude_sources: '$pin' names no range; write $1@^<major>.<minor>" >&2
+    refused=1; continue
+  fi
+  if [ -e "$staged/$pack" ]; then
+    echo "ERROR: prelude_sources: $pack is pinned twice" >&2
+    refused=1; continue
+  fi
+  if [ -z "$peer" ]; then
+    src="$tmp/yidam/yidam/sources/$pack"
+    from="$origin"
+    at="$commit"
+  else
+    from=${peer%@*}
+    at=${peer##*@}
+    case "$at" in
+      *[!0-9a-f]*) at="" ;;
+    esac
+    if [ "$from" = "$peer" ] || [ -z "$from" ] || [ ${#at} -ne 40 ]; then
+      echo "ERROR: prelude_sources: '$pin' does not end in <repo>@<40-hex commit>" >&2
+      refused=1; continue
+    fi
+    case "$from" in
+      *://* | git@* | /* | .*) url="$from" ;;
+      *) url="https://$from" ;;
+    esac
+    peers=$((peers + 1))
+    clone="$tmp/peer-$peers"
+    rm -rf "$clone"
+    if ! git clone --quiet --filter=blob:none "$url" "$clone" || ! git -C "$clone" checkout --quiet "$at"; then
+      echo "ERROR: prelude_sources: '$pin': cannot check out $at from $url" >&2
+      refused=1; continue
+    fi
+    src="$clone/.yidam/sources/$pack"
+  fi
+  if [ ! -f "$src/pack.toml" ]; then
+    echo "ERROR: prelude_sources: '$pin': $from at $at has no $pack pack" >&2
+    refused=1; continue
+  fi
+  version=$(pack_version "$src/pack.toml")
+  if ! satisfies "$version" "$range"; then
+    echo "ERROR: prelude_sources: '$pin': $pack is ${version:-unversioned} at $from@$at, which $range does not admit" >&2
+    refused=1; continue
+  fi
+  if grep -qx '[[]vendored[]]' "$src/pack.toml"; then
+    echo "ERROR: prelude_sources: '$pin': $from carries $pack as a vendored copy; pin the corpus that wrote it" >&2
+    refused=1; continue
+  fi
+  cp -R "$src" "$staged/$pack"
+  cat >> "$staged/$pack/pack.toml" <<VENDORED
+
+# Written by yidam-vendor-update: the pin this copy satisfied, and where it came from.
+[vendored]
+pin = "$pin"
+from = "$from"
+commit = "$at"
+VENDORED
+  echo "sources/$pack: $version from $from@$at (per $pin)"
+done <<PINS
+$pins
+PINS
+set +f
+if [ "$refused" -ne 0 ]; then
+  echo "ERROR: a prelude_sources pin was refused; nothing in this repository has changed." >&2
+  exit 1
+fi
+rm -rf .yidam/.vendor/sources
+if [ -n "$(ls "$staged")" ]; then
+  mkdir -p .yidam/.vendor
+  cp -R "$staged" .yidam/.vendor/sources
+else
+  echo "sources/: none pinned (per $proposals)"
+fi
+# VENDOR-SOURCES END
 # Wholesale replacement, not a merge: the prelude is read-only in a derived
 # repo, so there is nothing local to preserve. Anything that WAS edited locally
 # shows up in the diff below, which is the point.

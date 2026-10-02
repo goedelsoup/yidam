@@ -467,6 +467,11 @@ const COMMANDS: &[(&str, &[&str])] = &[
     // and no reading of it. `--dry-run` reads no cache, so the golden does not depend on what
     // the machine running it has fetched; the reading itself is `tests/catalog_extract.rs`.
     ("catalog-extract", &["catalog-extract", "--dry-run"]),
+    // The empty arm: the fixture holds no source pack and pins none. A pack in the fixture
+    // would be a new top-level `.yidam/` directory under every other golden, so the shape of
+    // a populated report — packs, findings, both origins — is `tests/source_check.rs`, which
+    // reads this same JSON.
+    ("source-check", &["source", "check"]),
     // The one `cluster` reader that needs no cluster: it reads `kubectl get -o json` output
     // from a file, so the fixture is that output and the golden holds every outcome a run
     // records (#1236). `--remote .` is the staged repository itself, which has a `main` and no
@@ -2382,6 +2387,18 @@ const UNREACHED: &[(&str, &str)] = &[
          fixture declares none — the arm every repository is in, which the `derive-check` golden \
          pins. Staging a dossier here would be a fact thirty goldens and three SDK runners carry. \
          `derive_check.rs` stages both populated arms and holds every emitted path to this schema",
+    ),
+    (
+        "packs[]",
+        "`source check` lists a pack only when the repository holds one, and this fixture holds \
+         none and pins none — the arm every repository is in until it pins a pack, which the \
+         `source-check` golden pins. A pack here would be a `.yidam/sources/` directory under \
+         thirty goldens. `source_check.rs` stages both origins and holds every emitted path to \
+         this schema",
+    ),
+    (
+        "pack_findings[]",
+        "`source check` finds nothing in a repository with no packs — see `packs[]`",
     ),
     (
         "blessed",
