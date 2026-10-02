@@ -1,0 +1,20 @@
+\p ->
+    let same : String -> String -> Bool = \a b -> a == b
+    let pick name acc f =
+        match acc with
+        | Some found -> Some found
+        | None -> if same f.path name then Some f.value else None
+    let text : String -> Option String = \name ->
+        match array.foldable.foldl (pick name) None p.fields with
+        | Some (Text s) -> Some s
+        | _ -> None
+    let first : String -> Option String = \key -> text ("resultList/result/0/" ++ key)
+    let yes : String -> Bool = \key ->
+        match first key with
+        | Some v -> same v "Y"
+        | None -> False
+    let ids =
+        match first "pmcid" with
+        | Some id -> if yes "isOpenAccess" && yes "inEPMC" then [{ key = "pmcid", value = id }] else []
+        | None -> []
+    { name = first "title", kind = None, date = first "firstPublicationDate", description = None, identifiers = ids }

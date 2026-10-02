@@ -1,0 +1,39 @@
+\p ->
+    let same : String -> String -> Bool = \a b -> a == b
+    let pick name acc f =
+        match acc with
+        | Some found -> Some found
+        | None -> if same f.path name then Some f.value else None
+    let field name = array.foldable.foldl (pick name) None p.fields
+    let text : String -> Option String = \name ->
+        match field name with
+        | Some (Text s) -> Some s
+        | _ -> None
+    let number : String -> Option Int = \name ->
+        match field name with
+        | Some (Int n) -> Some n
+        | _ -> None
+    let padded : Int -> String = \n ->
+        if n < 10 then "0" ++ int.show.show n else int.show.show n
+    let part : String -> String = \i ->
+        match number ("message/issued/date-parts/0/" ++ i) with
+        | Some n -> "-" ++ padded n
+        | None -> ""
+    let date : Option String =
+        match number "message/issued/date-parts/0/0" with
+        | Some y -> Some (int.show.show y ++ part "1" ++ part "2")
+        | None -> None
+    let kind : Option String =
+        match text "message/type" with
+        | Some t ->
+            if same t "journal-article" || same t "proceedings-article" || same t "posted-content" then Some "paper"
+            else if same t "report" || same t "report-component" then Some "report"
+            else if same t "standard" then Some "standard"
+            else if same t "dataset" then Some "dataset"
+            else None
+        | None -> None
+    let ids =
+        match text "message/DOI" with
+        | Some d -> [{ key = "doi", value = d }]
+        | None -> []
+    { name = text "message/title/0", kind, date, description = None, identifiers = ids }

@@ -380,6 +380,12 @@ and vendored by the others through a `from <repo>@<commit>` pin (§3). That is t
 test for two claims: a corpus can carry a pack the template does not ship, and a pack written
 once is used five times.
 
+Landed in #1320: `scholarly` and `archive`, in `yidam/sources/`. `scholarly` has a fourth
+scheme, `europepmc`, because Crossref names no PMCID. The DOI's `then` asks Europe PMC for the
+record, and that answer names the PMCID when the full text is open access. `archive` has `ia`
+and `ia-file` beside `wayback`, for Internet Archive items and their OCR text. `us-federal`,
+`courts` and `socrata` are #1344.
+
 ### 8. Two read-only MCP tools
 
 The measured workflow is an agent adding sources: 267 one-entry commits, each co-authored by

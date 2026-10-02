@@ -1,0 +1,21 @@
+\p ->
+    let same : String -> String -> Bool = \a b -> a == b
+    let equal : Int -> Int -> Bool = \a b -> a == b
+    let block : String -> Bool = \n ->
+        same n "p" || same n "title" || same n "article-title" || same n "label" || same n "caption" || same n "td" || same n "th"
+    let wanted : String -> Bool = \path ->
+        if string.contains path "/ref-list/" then False
+        else string.starts_with path "article/body/" || string.contains path "/abstract/" || string.contains path "/title-group/article-title/"
+    let step acc f =
+        let at : Int = acc.at + 1
+        match f.value with
+        | Text s ->
+            if same f.name "#text" && wanted f.path then
+                let sep : String = if equal (string.len acc.text) 0 || equal acc.open acc.last then "" else "\n\n"
+                { text = acc.text ++ sep ++ s, open = acc.open, last = acc.open, at }
+            else { text = acc.text, open = acc.open, last = acc.last, at }
+        | _ ->
+            if block f.name then { text = acc.text, open = at, last = acc.last, at }
+            else { text = acc.text, open = acc.open, last = acc.last, at }
+    let read = array.foldable.foldl step { text = "", open = 0, last = 0, at = 0 } p.fields
+    { media_type = "text/plain", text = read.text }
