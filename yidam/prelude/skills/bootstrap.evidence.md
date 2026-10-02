@@ -149,6 +149,19 @@ or reinstate all fifteen. A derived repository has no task that builds them, no 
 includes them, and no CI job that runs them, so they now sit beside the prelude and arrive only
 when named (#934).
 
+## a-pack-before-a-crate
+
+Of ten derived repositories measured on 2026-10-01, three wrote working connectors, each
+re-implementing the same five patterns. Eighteen more connector crates were only a
+README. One corpus resolved about 330 papers through DOI, Crossref and Europe PMC by hand, one
+commit per entry (RFC-0048 §1). A pack is that pipeline written once, and asking about it before
+proposing a crate is what keeps a nineteenth README from being scaffolded in step 7.
+
+Packs are named here and vendored in step 8 for the reason the domain libraries are. Step 8
+deletes `yidam/`, so a pack not moved then can only arrive through `yidam-vendor-update`.
+`yidam source check` reports a pin with no vendored copy as an error. Recording a pin without
+the move would leave the repository failing its own check from genesis.
+
 ## a-link-is-not-an-edge
 
 A link to a README, to a directory, or to the class definition alone is a citation rather than a

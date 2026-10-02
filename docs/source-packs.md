@@ -34,6 +34,23 @@ yidam migrate locations
 
 A value that is a URL is reported and left alone. Rewrite it by hand.
 
+## Find and add a source
+
+`yidam source list` prints each enabled pack and its schemes.
+It also says which of the transport's variables are set.
+
+Find an identifier with the pack's search endpoint, then draft its entry:
+
+```sh
+yidam source search scholarly "visual acuity reading speed"
+yidam source add doi:10.1167/tvst.8.5.14 --fetch
+```
+
+`source add` commits a draft `.yidam/catalog/<slug>.md` as `catalog:`.
+The draft is `obtained: false`, with the pack's `entry.md` as its body.
+`--fetch` then runs `catalog-fetch` on it, as a second commit.
+Neither command writes a node.
+
 ## Use a pack another corpus wrote
 
 Pin each pack under `prelude_sources` in `.yidam/decisions/proposals.yml`:
@@ -196,7 +213,8 @@ Fetch it by hand, and record the export as a `kind: file` location.
 | `ttl_days` | The `ttl_days` a new entry from this pack starts with. |
 | `redistributable` | Whether a new entry's artifacts may leave this machine. |
 
-Both are parsed and type-checked today. They are for `source add`, which is not built yet.
+`source add` writes `ttl_days` into the draft entry it commits.
+`redistributable` is parsed and type-checked, and nothing reads it yet.
 
 ### `[fixtures]`
 
@@ -212,7 +230,8 @@ Every file under `fixtures/` must be named here. An unnamed file belongs to no s
 
 ### `[vendored]`
 
-Never write this table. `yidam-vendor-update` writes it on each copy it makes.
+Never write this table by hand. `yidam-vendor-update` writes it on each copy it makes.
+So does the bootstrap's vendor step, for each pack the bootstrap pinned.
 
 | Key | Value |
 |---|---|
@@ -228,7 +247,7 @@ A transform is a pure gluon script under `transforms/`. A scheme names at most o
 
 | Transform | Entry point | Used by |
 |---|---|---|
-| `describe` | `Parsed -> EntryDraft` | `source check` today, and `source add` later. |
+| `describe` | `Parsed -> EntryDraft` | `source add`, and `source check` over the fixtures. |
 | `extract` | `Parsed -> Reading` | `catalog-extract`, on an artifact fetched through this scheme. |
 
 The script is a single function value. The host parses the response, and the script never sees bytes.

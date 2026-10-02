@@ -84,6 +84,14 @@ learn them:
 Tag honestly while you write. `[open]` on a claim nobody has settled is the corpus working,
 not a gap to fill in; the `tagging-a-claim` skill has the traps.
 
+**Replace the example catalog entry the same way, and by identifier where you can.** If the
+source has a DOI or another identifier and `yidam source list` shows a pack for its scheme,
+`yidam source search <pack> <query>` finds it and `yidam source add <scheme:id>` drafts the
+entry. The draft says nothing was read yet, and `--fetch` records the bytes. A corpus
+`yidam init` wrote has no packs, so `source list` will usually be empty; write the entry by
+hand then, or write a pack in `.yidam/sources/` if the publisher answers by identifier
+([Source packs](https://goedelsoup.github.io/yidam/source-packs/)).
+
 ## Then watch it fail, once
 
 Run `yidam graph-check` and `yidam lint` before the first commit, and expect findings. What

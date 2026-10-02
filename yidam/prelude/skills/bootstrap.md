@@ -543,9 +543,13 @@ user for confirmation:
 
 **Connectors** — external data sources that could feed this corpus, and the crate adapter each would require:
 
-| Name | Source | Feeds | Notes |
-|------|--------|-------|-------|
-| `name` | external system or dataset | which classes | one line |
+| Name | Source | Feeds | Notes | Source pack |
+|------|--------|-------|-------|-------------|
+| `name` | external system or dataset | which classes | one line | `<pack>`, or — |
+
+Before proposing a connector, read each `yidam/sources/*/pack.toml`, if any. A source a
+pack's scheme matches needs no crate: name the pack. **Only packs named here are vendored in
+step 8.** [why](bootstrap.evidence.md#a-pack-before-a-crate)
 
 **Calculators** — domain computations that follow naturally from the class structure:
 
@@ -582,9 +586,10 @@ context: |
 decision: |
   <what the user approved, modified, or discarded — item by item>
 prelude_domains: []          # domains selected for vendoring in step 8; [] is the common case
+prelude_sources: []          # packs vendored in step 8, each <pack>@^<major>.<minor> of its pack.toml
 rationale: |
   <any rationale provided; gaps or domain logic behind approvals; for each domain named,
-  which calculator would call into it>
+  which calculator would call into it; for each pack, which connector it replaces>
 ```
 
 ### 6. Seed corpus objects
@@ -713,8 +718,8 @@ rather than the most interesting one that might be. If you cannot do either, do 
 edge — and if it was approved in step 5, say so in the report rather than quietly dropping
 it. [why](bootstrap.evidence.md#only-edges-you-can-defend)
 
-**Connectors** — for each approved connector not already invoked during seeding, scaffold
-a crate stub in `crates/`:
+**Connectors** — for each approved connector with no source pack and not already invoked
+during seeding, scaffold a crate stub in `crates/`:
 
 ```
 crates/<connector-name>/
@@ -844,7 +849,7 @@ into the `.yidam/` infrastructure namespace and delete the rest of the template.
 bootstrapping from the yidam template).
 
 **Vendor exactly one directory.** `yidam/prelude/` is what a derived repo inherits; nothing
-else under `yidam/` is, except the domain libraries step 5 named.
+else under `yidam/` is, except the domain libraries and source packs step 5 named.
 [why](bootstrap.evidence.md#vendor-exactly-one-directory)
 
 Because `yidam/` was not staged in the genesis commit (it is untracked), use filesystem
@@ -874,7 +879,18 @@ for d in <selected> README.md parity; do mv "yidam/domains/$d" .yidam/.vendor/do
 named domains into `.yidam/.vendor/domains/` on every update. Write the field even when it is
 empty, because the empty list is a decision and the task reads it as one (#808).
 
-**Then delete the rest of the template directory**, the unnamed domains with it:
+**Then vendor the packs `prelude_sources` pins, the same way**, appending the record
+`yidam-vendor-update` writes: the pin as spelled there, and `origin` and `commit` from
+`.yidam.toml` (confirmed below):
+
+```
+mkdir -p .yidam/.vendor/sources
+mv yidam/sources/<pack> .yidam/.vendor/sources/
+printf '\n[vendored]\npin = "%s"\nfrom = "%s"\ncommit = "%s"\n' \
+  '<pin>' '<origin>' '<commit>' >> .yidam/.vendor/sources/<pack>/pack.toml
+```
+
+**Then delete the rest of the template directory**, the unnamed domains and packs with it:
 
 ```
 rm -rf yidam/
@@ -1047,11 +1063,16 @@ finding an empty directory and guessing:
   repository, and one can be vendored later by adding its name to `prelude_domains` in
   `.yidam/decisions/proposals.yml` and re-running `mise run yidam-vendor-update`. A reader
   who never hears of the layer will write the calculator by hand.
+- `.yidam/sources/` — packs this corpus writes, for publishers no vendored pack covers. Name
+  the packs vendored in step 8; more are pinned in `prelude_sources` and vendored by the same
+  update.
 
 **Next steps** — three concrete, ordered actions:
 
 1. **First catalog entry** — identify the most authoritative data source for this domain
    and add it to `.yidam/catalog/` as the first provenance anchor. Name it specifically.
+   If `yidam source list` shows a pack for its scheme, offer `yidam source search <pack>
+   <query>` and `yidam source add <scheme:id> --fetch` to write it.
 2. **First corpus expansion** — name the instance node most ready to grow and suggest the
    first sub-node or property to deepen it. This becomes the first `establish:` commit
    after genesis.

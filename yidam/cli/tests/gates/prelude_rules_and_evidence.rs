@@ -425,7 +425,13 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// is **31 words in `directories.md`**: `.yidam/sources/` in the tier list and `.vendor/`'s
 /// contents naming the pinned `domains/` and `sources/`. The catalog section's 106 are on the
 /// recurring routes, not this path. 20,415 + 31 is this figure exactly.
-const BOOTSTRAP_CEILING: usize = 20_446;
+///
+/// **Raised to 20,619 when the bootstrap learned source packs (#1321).** The delta is **173
+/// words in `bootstrap.md`**: step 5's pack column and `prelude_sources`, step 8's move with
+/// its `[vendored]` record, and step 9's `.yidam/sources/` line and its `source search` / `source
+/// add` offer. The argument is in the evidence half, which this path skips. 20,446 + 173 is
+/// this figure exactly.
+const BOOTSTRAP_CEILING: usize = 20_619;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -594,11 +600,15 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// half: the catalog's `identifier`, `type` and `readings` rules, and where source packs are
 /// written and vendored. The floor moves by 293, because 113 had been standing as slack: main
 /// measured 12,933 against 12,820 before this edit. Closed rather than carried forward.
+///
+/// **`bootstrap.md` raised to 11,466 for #1321.** 307 words arrived: 173 in the rules half (the
+/// figure `BOOTSTRAP_CEILING` moved by) and 134 in `a-pack-before-a-crate`. Main measured
+/// exactly 11,159, so there was no slack to close.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_686),
     ("yidam/prelude/GRAPH.md", 10_830),
     ("yidam/prelude/guidelines/directories.md", 13_113),
-    ("yidam/prelude/skills/bootstrap.md", 11_159),
+    ("yidam/prelude/skills/bootstrap.md", 11_466),
 ];
 
 /// The `##` sections of the seven step-1 files that no read reaches, as `file#slug` under
