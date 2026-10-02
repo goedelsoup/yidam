@@ -530,7 +530,7 @@ the phase shipped as two routes and one page. Three things it settled by being b
   pins, on the CLI side, that a three-line frame followed by EOF is a conversation the server
   finishes.
 - **It did not need Phase 2.** `propose`'s whole input schema is `{ dry_run }`
-  ([`tools.rs:287`](../../yidam/cli/src/cmd/serve/tools.rs#L287)); it drafts from the gate's
+  ([`tools.rs:294`](../../yidam/cli/src/cmd/serve/tools.rs#L294)); it drafts from the gate's
   findings on the committed corpus and refuses a dirty `.yidam/`
   ([`write.rs:110`](../../yidam/cli/src/cmd/propose/write.rs#L110)). Nothing a form produces can
   reach it. The two phases were ordered by an assumption that a write takes content, and this one

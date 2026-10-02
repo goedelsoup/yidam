@@ -82,7 +82,7 @@ file onto the same pane.
 
 ### Claude Code, as a plugin
 
-This is the one that gives you both halves. Four of the fourteen read tools the contract
+This is the one that gives you both halves. Four of the sixteen read tools the contract
 freezes exist for one reason. The practice is documented in the prelude. But *an agent that has
 to hold that prose in context complies by having remembered*. The plugin puts the prose and the
 tools in the same install.
@@ -337,6 +337,8 @@ bundle was made at, not an unknown one.
 | `pack` | That path's answer as prose, filled to a token budget, with what did not fit | You are about to write from the corpus and have a budget |
 | `estimate` | What that would cost, in nodes and approximate tokens, before you pay for it | You have a budget and want to know what fits |
 | `cycle` | Where this repository is in its loop: what is owed, in flight, blocked, and what the next act is | You are starting a session and do not know where to begin |
+| `search_sources` | The identifiers a source pack's search endpoint answers for a name, each with what its describe would fill | You need a source and do not yet hold its identifier |
+| `resolve_source` | The catalog entry `yidam source add` would write for one identifier, and what the server's environment lacks to fetch it | You hold an identifier and want the entry before anyone commits it |
 | `propose` | Drafts the epistemic commits this corpus's findings license, onto a `propose/<head>` branch | You have been told a clock is due and can discharge it |
 
 **`claims` returns assertions; every other tool returns documents.** A node is 2–10 sentences by
@@ -452,6 +454,24 @@ two corpora would put a dependency's prose under this repository's class names. 
 `omitted_by_class` receipt would then be arithmetic over a category nobody declared. Retrieve
 across, query across, then pack what you decided to keep.
 
+### Asking a source pack, and writing nothing
+
+`search_sources` and `resolve_source` are `yidam source search` and `yidam source add --dry-run`
+as tools. Neither writes. Adding the entry stays a commit you make with `yidam source add`.
+
+Every answer carries `answered`. It is `network` when the publisher was asked and `fixture` when
+a recorded response was read. It is null when nothing was asked. A corpus declares the fixture
+route in its own config:
+
+```toml
+[serve]
+offline_sources = true
+```
+
+`resolve_source` also reports `needs` and `unmet`. They describe the server's environment, not
+yours. A pack requiring a contact address needs `YIDAM_CONTACT` set where the server runs. The
+answer names the variable and never its value.
+
 ### Two tools that write, and one that does not, behind a declaration
 
 `propose` and `cycle` sit at the **`act` tier**, and no server serves them unless the corpus it
@@ -463,10 +483,10 @@ act = true
 ```
 
 Until it is written, `tools/list` carries the read tier and nothing else. That is at most
-fourteen tools, and usually fewer. Six of the fourteen are listed only where the corpus backs
-them. `query`, `paths`, `pack`, `estimate` and `licensed_edges` need declared classes, and
-`check_citation` needs an installed dependency. **Fourteen is the contract's count, not a
-promise about any one server.** What decides each, and what the example corpus below backs, is
+sixteen tools, and usually fewer. Eight of the sixteen are listed only where the corpus backs
+them. `query`, `paths`, `pack`, `estimate` and `licensed_edges` need declared classes.
+`check_citation` needs an installed dependency. `search_sources` and `resolve_source` need an
+enabled source pack. **Sixteen is the contract's count, not a promise about any one server.** What decides each, and what the example corpus below backs, is
 in §4. A call to either of these comes back `capability-not-supported`, exactly as an unbacked
 `query` does.
 
@@ -683,13 +703,14 @@ only where you look for it.
 tool-not-found errors:
 
 ```json
-{"contract": "0.27.0",
+{"contract": "0.28.0",
  "corpus": {"domain": "streamflow", "commit": "a1b2c3d",
             "nodes": 8, "skills": 1, "decisions": 2,
             "indexed_commit": null, "stale": false},
  "retrieve": {"vector": false, "reason": "no_index"},
  "graph": true, "ontology": true, "dependencies": false,
- "phases": false, "sangha": false, "act": false, "resources": true}
+ "phases": false, "sangha": false, "act": false, "sources": false,
+ "resources": true}
 ```
 
 `corpus` is the banner, in the protocol (contract 0.13.0). Every other key here says what this
@@ -715,6 +736,9 @@ case: most corpora depend on none. A server with nothing installed *could* serve
 answer `external-citation-unresolved` to every citation put to it. That is correct every time,
 and a statement about a dependency set it does not have. That is the same thing the contract
 forbids one tier over. There, a server with no `.ont.yml` must not call a class unpopulated.
+
+`sources` follows the corpus too. It is true iff `.yidam/sources/` enables a pack, and
+`examples/streamflow` enables none.
 
 **A tool this server does not back refuses by name.** Calling one returns an MCP tool error whose
 text begins `capability-not-supported`, naming the capability that is false, rather than `unknown

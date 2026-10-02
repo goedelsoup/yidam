@@ -88,6 +88,11 @@ and `licensed_edges` all need class declarations, and a projected mirror can hol
 edges and no `.ont.yml`; such a server declares `"ontology": false` and refuses those five with
 `capability-not-supported`. That is a fact you can read rather than a hole you discover.
 
+`search_sources` and `resolve_source` need a source pack the corpus enables, and a corpus with
+none declares `"sources": false`. Neither writes: `resolve_source` returns the catalog entry
+`yidam source add` would commit, and adding it is that command, run as a person would. Read
+`answered` before trusting a list — `fixture` means a recorded answer, not the publisher's today.
+
 ## Where the reasoning is
 
 `docs/mcp-server.md` §3 in this repository, and RFC-0005 for the frozen contract.

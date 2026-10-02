@@ -19,7 +19,8 @@
 //! location `catalog-fetch` can never follow.
 //!
 //! Nothing here writes. The command writes the entry; the MCP `resolve_source` (#1319) returns
-//! the same [`Resolved`] without writing it.
+//! the same [`Resolved`] without writing it, and `search_sources` runs [`describe_only`] on
+//! each candidate.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -338,6 +339,36 @@ pub fn resolve(
         queue = next;
     }
     Ok(out)
+}
+
+/// What `identifier`'s own describe makes of it, with no `then` followed.
+///
+/// The summary the MCP `search_sources` gives each candidate (#1319). A search answers with
+/// several identifiers, and following each one's chain would ask the publisher for sources
+/// nobody has chosen yet. The [`Answered`] is `None` when nothing was asked.
+pub fn describe_only(
+    root: &Path,
+    packs: &[Pack],
+    identifier: &str,
+    asker: &mut dyn Asker,
+) -> Result<(Draft, Option<Answered>), String> {
+    let identifier = identifier.trim();
+    let asked = Enabled::from_packs(packs)
+        .resolve(identifier)
+        .map_err(|refusal| refusal.message(identifier))?;
+    let (pack, manifest, s) = transform::scheme(packs, &asked.scheme)?;
+    let mut answered = None;
+    let draft = describe(
+        root,
+        pack,
+        manifest,
+        s,
+        identifier,
+        &asked.url,
+        asker,
+        &mut answered,
+    );
+    Ok((draft, answered))
 }
 
 #[allow(clippy::too_many_arguments)]

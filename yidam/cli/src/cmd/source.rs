@@ -365,16 +365,17 @@ struct SearchReport {
     search: Searched,
 }
 
+/// What a pack's search endpoint answered: `source search`, and the MCP `search_sources`.
 #[derive(Serialize)]
-struct Searched {
-    pack: String,
-    query: String,
+pub(crate) struct Searched {
+    pub pack: String,
+    pub query: String,
     /// The scheme every candidate's identifier is in.
-    scheme: String,
+    pub scheme: String,
     /// The address asked, with the query bound. Asked only when `answered` is `network`.
-    url: String,
-    answered: Answered,
-    candidates: Vec<Candidate>,
+    pub url: String,
+    pub answered: Answered,
+    pub candidates: Vec<Candidate>,
 }
 
 fn search_cmd(
@@ -386,7 +387,20 @@ fn search_cmd(
     format: Format,
 ) -> Result<()> {
     let packs = sources::load(root)?;
-    let enabled = transform::enabled(&packs);
+    let search = search(root, &packs, pack, query, limit, offline)?;
+    crate::report::finish(root, format, SearchReport { search }, render_search)
+}
+
+/// Ask `pack`'s search endpoint for `query`, or read its recorded fixture when `offline`.
+pub(crate) fn search(
+    root: &Path,
+    packs: &[Pack],
+    pack: &str,
+    query: &str,
+    limit: usize,
+    offline: bool,
+) -> Result<Searched> {
+    let enabled = transform::enabled(packs);
     let Some((p, m)) = enabled.iter().find(|(p, _)| p.name == pack) else {
         let names: Vec<&str> = enabled.iter().map(|(p, _)| p.name.as_str()).collect();
         bail!(
@@ -435,7 +449,7 @@ fn search_cmd(
             );
         }
         let contact = transport::contact(&env).map_err(anyhow::Error::msg)?;
-        let enabled = Enabled::from_packs(&packs);
+        let enabled = Enabled::from_packs(packs);
         let ctx = Asking {
             root,
             bindings: &[],
@@ -455,21 +469,18 @@ fn search_cmd(
     };
     let mut candidates = search::candidates(s, &bytes).map_err(anyhow::Error::msg)?;
     candidates.truncate(limit);
-    let report = SearchReport {
-        search: Searched {
-            pack: p.name.clone(),
-            query: query.to_string(),
-            scheme: s.scheme.clone(),
-            url,
-            answered: if offline {
-                Answered::Fixture
-            } else {
-                Answered::Network
-            },
-            candidates,
+    Ok(Searched {
+        pack: p.name.clone(),
+        query: query.to_string(),
+        scheme: s.scheme.clone(),
+        url,
+        answered: if offline {
+            Answered::Fixture
+        } else {
+            Answered::Network
         },
-    };
-    crate::report::finish(root, format, report, render_search)
+        candidates,
+    })
 }
 
 /// The search template with the query and the limit bound, the query percent-encoded.
@@ -567,6 +578,32 @@ impl Asker for Network<'_> {
     }
 }
 
+/// Run `f` with the asker each describe is answered through: the pack's recorded fixtures when
+/// `offline`, and otherwise the publisher, asked as `catalog fetch` would ask it.
+pub(crate) fn with_asker<T>(
+    root: &Path,
+    packs: &[Pack],
+    offline: bool,
+    f: impl FnOnce(&mut dyn Asker) -> T,
+) -> Result<T> {
+    if offline {
+        return Ok(f(&mut draft::Fixtures { root }));
+    }
+    let contact = transport::contact(&env).map_err(anyhow::Error::msg)?;
+    let enabled = Enabled::from_packs(packs);
+    let mut network = Network {
+        session: transport::Session::new(),
+        ctx: Asking {
+            root,
+            bindings: &[],
+            packs: &enabled,
+            contact: contact.as_deref(),
+            env: &env,
+        },
+    };
+    Ok(f(&mut network))
+}
+
 fn add(
     root: &Path,
     identifiers: &[String],
@@ -579,47 +616,35 @@ fn add(
     let catalog_dir = crate::paths::yidam_catalog_dir(root);
     let held = catalogued(&catalog_dir);
 
-    let contact = transport::contact(&env).map_err(anyhow::Error::msg)?;
-    let enabled = Enabled::from_packs(&packs);
-    let mut fixtures = draft::Fixtures { root };
-    let mut network = Network {
-        session: transport::Session::new(),
-        ctx: Asking {
-            root,
-            bindings: &[],
-            packs: &enabled,
-            contact: contact.as_deref(),
-            env: &env,
-        },
-    };
-    let asker: &mut dyn Asker = if offline { &mut fixtures } else { &mut network };
-
     // Every identifier resolves, or nothing is written: a run that wrote two of three entries
     // and then refused would leave a person to work out which.
-    let mut resolved = Vec::new();
-    let mut refused = Vec::new();
-    let mut taken: Vec<String> = Vec::new();
-    for raw in identifiers {
-        match draft::resolve(root, &packs, raw, asker) {
-            Err(why) => refused.push(why),
-            Ok(r) => {
-                if let Some((id, at)) = r
-                    .locations
-                    .iter()
-                    .find_map(|l| held.get(&l.identifier).map(|at| (&l.identifier, at)))
-                {
-                    refused.push(format!(
-                        "`{id}` is already catalogued in {at}; a second entry for one source \
-                         would split what is said about it"
-                    ));
-                    continue;
+    let (resolved, refused) = with_asker(root, &packs, offline, |asker| {
+        let mut resolved = Vec::new();
+        let mut refused = Vec::new();
+        let mut taken: Vec<String> = Vec::new();
+        for raw in identifiers {
+            match draft::resolve(root, &packs, raw, asker) {
+                Err(why) => refused.push(why),
+                Ok(r) => {
+                    if let Some((id, at)) = r
+                        .locations
+                        .iter()
+                        .find_map(|l| held.get(&l.identifier).map(|at| (&l.identifier, at)))
+                    {
+                        refused.push(format!(
+                            "`{id}` is already catalogued in {at}; a second entry for one \
+                             source would split what is said about it"
+                        ));
+                        continue;
+                    }
+                    let entry = free_slug(&catalog_dir, &slug_for(&r), &taken);
+                    taken.push(entry.clone());
+                    resolved.push((entry, r));
                 }
-                let entry = free_slug(&catalog_dir, &slug_for(&r), &taken);
-                taken.push(entry.clone());
-                resolved.push((entry, r));
             }
         }
-    }
+        (resolved, refused)
+    })?;
     if !refused.is_empty() {
         bail!(
             "nothing was written:\n{}",
@@ -676,7 +701,7 @@ fn add(
 }
 
 /// Every identifier the catalog already records, and the entry it is in.
-fn catalogued(dir: &Path) -> HashMap<String, String> {
+pub(crate) fn catalogued(dir: &Path) -> HashMap<String, String> {
     let mut out = HashMap::new();
     for path in crate::walk::walk_md_files(dir) {
         let Ok(text) = std::fs::read_to_string(&path) else {
@@ -699,7 +724,7 @@ fn catalogued(dir: &Path) -> HashMap<String, String> {
 }
 
 /// The entry's stem: the describe's name where there is one, else the identifier.
-fn slug_for(r: &Resolved) -> String {
+pub(crate) fn slug_for(r: &Resolved) -> String {
     let from = r
         .draft
         .name
@@ -728,7 +753,7 @@ fn slug_for(r: &Resolved) -> String {
 }
 
 /// `base`, or `base-2`, `base-3`… — the first that is neither on disk nor taken by this run.
-fn free_slug(dir: &Path, base: &str, taken: &[String]) -> String {
+pub(crate) fn free_slug(dir: &Path, base: &str, taken: &[String]) -> String {
     let free = |s: &str| !dir.join(format!("{s}.md")).exists() && !taken.iter().any(|t| t == s);
     if free(base) {
         return base.to_string();
@@ -748,8 +773,13 @@ fn scalar(s: &str) -> String {
 
 /// The draft entry: frontmatter from the resolution, body from the pack.
 fn entry_text(entry: &str, r: &Resolved) -> String {
+    format!("---\n{}---\n\n{}", frontmatter(entry, r), body(r))
+}
+
+/// The draft's frontmatter, between the `---` fences and without them.
+pub(crate) fn frontmatter(entry: &str, r: &Resolved) -> String {
     let d = &r.draft;
-    let mut out = String::from("---\n");
+    let mut out = String::new();
     let _ = writeln!(out, "name: {}", scalar(entry));
     if let Some(desc) = d.description.as_deref().filter(|s| !s.trim().is_empty()) {
         let _ = writeln!(out, "description: {}", scalar(desc.trim()));
@@ -770,14 +800,19 @@ fn entry_text(entry: &str, r: &Resolved) -> String {
         let _ = writeln!(out, "    value: {}", scalar(&l.identifier));
         let _ = writeln!(out, "    description: {}", scalar(&l.description()));
     }
-    out.push_str("---\n\n");
-    let title = d
+    out
+}
+
+/// The draft's body: the source's title, then the pack's `entry.md` below its own H1.
+pub(crate) fn body(r: &Resolved) -> String {
+    let title = r
+        .draft
         .name
         .as_deref()
         .map(str::trim)
         .filter(|n| !n.is_empty())
         .unwrap_or(&r.identifier);
-    let _ = writeln!(out, "# {title}\n");
+    let mut out = format!("# {title}\n\n");
     // The pack's own H1 names the pack, not the source, so the entry's title replaces it.
     let body = r.body.trim_start();
     let body = match body.strip_prefix("# ") {

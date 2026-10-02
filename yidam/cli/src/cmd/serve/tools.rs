@@ -75,6 +75,11 @@ pub(crate) fn capabilities(state: &ServerState) -> Value {
         // telling its caller that `upstream` is not installed would be a statement about the
         // mirror dressed as one about the repository the mirror came from.
         "dependencies": !state.dependencies.is_empty(),
+        // Whether this corpus enables a source pack (RFC-0048 §8, #1319). The same shape
+        // again: a fact about the corpus, true iff there is a pack to search or resolve
+        // through. A server answering `search_sources` with "no enabled pack" to every call
+        // would be correct and would be telling its caller nothing it could not read here.
+        "sources": super::sources::backed(state),
         "phases": false,
         "sangha": false,
         // Whether this server may write — RFC-0029's `act` tier, and the one capability here
@@ -245,6 +250,8 @@ fn dispatch(state: &mut ServerState, name: &str, args: &Value) -> Result<Value, 
         "paths" => paths(state, args),
         "pack" => pack(state, args),
         "estimate" => estimate(state, args),
+        "search_sources" => super::sources::search_sources(state, args),
+        "resolve_source" => super::sources::resolve_source(state, args),
         other => Err(format!("unknown tool: {other}")),
     }
 }

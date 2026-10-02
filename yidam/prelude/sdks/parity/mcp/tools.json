@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "contract": "0.27.0",
+  "contract": "0.28.0",
   "description": "The frozen MCP tool contract (RFC-0005). Names are bare — no `yidam_` prefix — because the server is already namespaced by its own name in every client that mounts one. `tier` is `core` (every server MUST back it) or a capability name (backed iff the server declares that capability true). This file is the only place the list lives; a harness that restates it is a second freeze, which is how three servers ended up sharing one name out of five capabilities. A TOOL A SERVER DOES NOT BACK MUST REFUSE, NOT MERELY GO UNLISTED (contract 0.11.1). Omitting an unbacked tool from `tools/list` and dispatching it anyway re-opens the hole the capability block exists to close, from the other side: the block is what lets a client learn the holes at connect time rather than through a tool-not-found error, and a server that answers a tool it has just said it does not serve has told a client two things at once. The refusal is an MCP tool error (`isError: true`) whose text begins `capability-not-supported`, and that token is frozen — `unknown tool` is a different repair, and a caller told it will go hunting for a spelling mistake in a name this file froze. It was unenforceable until a fixture corpus existed on which some tier goes unbacked; `corpora.json` ships one.",
   "capabilities": {
     "corpus": {
@@ -28,6 +28,7 @@
     "resources": "Serves the `yidam://` URI scheme over MCP `resources/*`. A tools-only server declares false and MUST map each URI to its tool peer without diverging — `read_resource(\"yidam://corpus/<class>/<name>\")` returns the same node as `get_node(\"<class>/<name>\")`.",
     "ontology": "Backs the class contract: what a class declares it may link to. A server whose corpus is a projected mirror holds nodes and edges and may hold no `.ont.yml` at all — it can back `graph` and not this. Optional is not absent: such a server declares false and its cases are skipped rather than passed. Whether a server declares it is a fact about ITS CORPUS, not about its build: a corpus with no `.ont.yml` has no class contract to back, so a conforming server pointed at one declares false — which is what `corpora.json` freezes for `corpus-unschematised/`. One consequence is worth stating, because it reads as a gap otherwise: `query`'s `unschematised` is therefore always `false` on this surface. The only corpus that would make it true is one where `query` is not served at all, so the `true` arm is reachable from a CLI and not from a conforming server, and no case here can assert it.",
     "dependencies": "Backs the four `cites:` checks against the dependencies actually installed. True iff the server resolved at least one — a fact about ITS CORPUS, not about its build, in exactly the way `ontology` is. A server that resolved none MUST declare false and refuse `check_citation`, and MUST NOT serve it answering `external-citation-unresolved` to everything: that verdict is literally correct and asserts a fact about a dependency set the server does not have, which is the shape `class-unpopulated` on an unschematised corpus already has a MUST NOT for. A projected mirror carries no `.yidam/tonpa/` and would be reporting about the mirror while its caller reads it as being about the repository the mirror came from. Optional is not absent: such a server declares false and its cases are skipped rather than passed.",
+    "sources": "Backs `search_sources` and `resolve_source` (contract 0.28.0, RFC-0048 §8). True iff the corpus enables at least one source pack — an authored pack in `.yidam/sources/`, or a vendored one no authored pack shadows, whose `pack.toml` parses. A fact about ITS CORPUS, in exactly the way `dependencies` is: a server with no pack could answer every call `no enabled source pack` and be correct, and would be telling its caller nothing the handshake cannot. Network access is NOT this capability. A server whose corpus declares `[serve] offline_sources` still backs the tier, and answers from the packs' recorded fixtures; each answer says so in `answered`.",
     "act": "THE ONE CAPABILITY HERE THAT IS PERMISSION RATHER THAN ABILITY (contract 0.22.0, RFC-0029). Every other key says what this server CAN back — a projected mirror holds no class files, so `ontology` is false because it cannot. `act` is false unless the deployment explicitly said otherwise, on a server that could write perfectly well. THE DECLARATION IS OPT-IN AND MUST NEVER BE INFERRED from what the server is capable of: a server permitted to discover that it may write has discovered a policy, and that is not a thing a policy can be.\n\nA SERVER MAY DECLARE IT ONLY WHERE A GIT AUTHOR IDENTITY EXISTS, in the corpus it serves — `user.name` and `user.email`, the values the commit would actually take. The history an act tool writes into IS the knowledge graph, and a commit recording what a process did rather than who decided it is what this clause exists to prevent. A checkout with no configured identity cannot declare `act` on ANY transport, stdio included.\n\nAND ONLY WHERE EVERY LISTENING SOCKET IS LOOPBACK — `127.0.0.1` or `::1`. That is not a security boundary and must not be read as one: every socket transport has an unbounded peer set, and an operator can put a tunnel in front of a loopback port, which is the remote case wearing this clause's clothes. What it separates is THIS MACHINE from ANOTHER MACHINE without inventing an authenticator, which is the most a server can see from inside. A server reachable from another machine MUST NOT declare `act` until a remote author exists. Over stdio the clause is vacuous: the transport has one peer and it is the process that started the server.\n\nA SERVER THAT WAS TOLD TO WRITE AND CANNOT SATISFY THOSE CLAUSES MUST REFUSE TO START. Serving the read tools and declaring `act: false` is a silent downgrade, and the operator who wrote the declaration reads a running server as the answer to the question they asked.\n\nWHAT THE TIER MEANS IS *ADDRESSED TO AN AGENT THAT CAN ACT HERE*, NOT *PERFORMS A WRITE*. `cycle` is in it and writes nothing: a server that declares `act` serves the actions and the report that orients them, and one that does not serves neither — so an agent never reads \"here is your next act\" from a surface where it cannot act.\n\nTHE ONLY WRITE IN THE TIER IS A PROPOSAL BRANCH. A run authors operational commits directly; every EPISTEMIC commit goes to a `propose/*` ref, and nothing merges itself (RFC-0026). An act tool that wrote an epistemic commit onto the baseline is a divergence, and the check is mechanical: classify every commit the call produced by leading verb and assert the epistemic ones are all on `propose/*`."
   },
   "tools": [
@@ -515,6 +516,80 @@
           "note"
         ],
         "notes": "`declares_edges: false` DOES NOT MEAN THE CLASS LICENSES NOTHING. It means the class has said nothing, and the gate skips it. The two answers are opposite and a client that collapses them will report every instance in a corpus whose ontology is not filled in. `note` states which case this is in words, so a client that reads only prose still gets it right.\n\nEVERY DECLARED EDGE, BOTH DIRECTIONS. An edge is documented from both ends — `person` declares `played in` as `direction: out` and `band` declares the same relationship as `direction: in`. The licensing check ignores direction, so filtering to `out` here would answer a question the gate does not ask.\n\nAN EMPTY `target` LICENSES ANY TARGET CLASS, rather than none.\n\nLICENSING APPLIES ONLY TO EDGES BETWEEN INSTANCES. The `instance-of` link to `../<class>.ont.yml` and a citation into the catalog are not relationships and no class declares them; an edge to a file that is not there is `dangling-edge`'s finding, not this one's.\n\nTHE CLASS IS ITS FILENAME. Where a `.ont.yml`'s `class:` field disagrees with its stem, the stem governs — it is what the gate keys on and what an instance's directory must match."
+      }
+    },
+    {
+      "name": "search_sources",
+      "tier": "sources",
+      "description": "Ask a source pack's search endpoint what it holds under a name, and get candidate identifiers back — `yidam source search` over MCP. Each candidate is a `scheme:local-id` that `resolve_source` and `source add` take. Writes nothing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pack": {
+            "type": "string",
+            "description": "The pack, by its directory name, as `yidam source list` prints it."
+          },
+          "query": {
+            "type": "string",
+            "description": "What to search for, in the publisher's terms: a title, an author, a phrase."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Most candidates returned, and the `{limit}` the endpoint is asked for (default 10)."
+          }
+        },
+        "required": [
+          "pack",
+          "query"
+        ]
+      },
+      "response": {
+        "required": [
+          "pack",
+          "query",
+          "scheme",
+          "url",
+          "answered",
+          "candidates",
+          "undescribed"
+        ],
+        "notes": "THE SAME SEARCH THE COMMAND RUNS (contract 0.28.0). A server answers from the predicate `source search` uses: the pack's `[search]` template with the query bound, its answer read by the pack's `items`, `id` and `title` paths. `candidates[]` is in the order the endpoint answered, each `{identifier, title, summary}`. `identifier` is `scheme:local-id` in the pack's `[search] scheme`; `title` is the result's title as the publisher wrote it, or null.\n\n`summary` IS THE PACK'S DESCRIBE, NOT THE TITLE. Where the build runs source transforms and the scheme declares a `describe`, each candidate is resolved and described, and `summary` carries `{name, type, date, description, by}` — the fields a draft entry would start with, and the transform that filled them. No `then` is followed: a search answers with sources nobody has chosen yet. `summary` is null for a candidate whose describe did not run. `undescribed` says why NONE can carry one — the build has no transforms, or the scheme declares no describe — and is null otherwise, so a caller is told once rather than by the same null on every row.\n\n`answered` IS THE OFFLINE MARKER: `network` when the publisher was asked, `fixture` when the answer is the pack's recorded `[search] fixtures`. A server whose corpus declares `[serve] offline_sources` asks no publisher and answers `fixture`, and that is an answer rather than an error, so the tool is testable with no network. That a candidate's identifier is a fixture's own does not tell a caller the list was not live; this field does. `url` is the address with the query bound, whether or not it was asked.\n\nREFUSALS ARE TOOL ERRORS (`isError: true`), each naming its repair: a `pack` no enabled pack is called (with the enabled set), a pack declaring no `[search]`, an offline query no fixture records (with the queries that are), and a publisher not asked because the pack's transport needs a contact or credential this server's environment lacks. A search that ran and matched nothing is `candidates: []`, never an error.\n\nTIER. `sources`, which a corpus with no enabled pack declares false."
+      }
+    },
+    {
+      "name": "resolve_source",
+      "tier": "sources",
+      "description": "The draft catalog entry `yidam source add` would write for an identifier — its frontmatter, its locations after `then` chaining, and its body — and the path it would write it to. Writes nothing: an agent holding the draft runs `source add` as a person would.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "description": "`scheme:local-id`, e.g. \"doi:10.1167/tvst.8.5.14\". A candidate `search_sources` returned, or one already in hand."
+          }
+        },
+        "required": [
+          "identifier"
+        ]
+      },
+      "response": {
+        "required": [
+          "identifier",
+          "pack",
+          "entry",
+          "path",
+          "catalogued",
+          "frontmatter",
+          "body",
+          "locations",
+          "draft",
+          "ttl_days",
+          "answered",
+          "unfollowed",
+          "needs",
+          "unmet"
+        ],
+        "notes": "THE ENTRY THE COMMAND WOULD WRITE, AND NOTHING WRITTEN (contract 0.28.0). A server answers from the resolution `source add` runs, so this and `source add --dry-run` cannot disagree. `entry` is the file stem and the entry's `name:`; `path` is `.yidam/catalog/<entry>.md`. `frontmatter` is the YAML between the fences and `body` the Markdown after them; `---\\n` + frontmatter + `---\\n\\n` + body is the file. Every draft is `obtained: false`: nothing has been read.\n\n`locations[]` IS THE IDENTIFIER FIRST, THEN EACH ONE `then` REACHED, breadth first — `{identifier, url, via, description}`, with `via` null for the identifier asked for. `unfollowed[]` says, one line each, why a `then` was not. `draft` is what the scheme's describe filled — `{name, type, date, description, unfilled, why, by}` — with `by` naming the transform, or null and `why` saying why none ran. A describe that could not run is not a failure to resolve: the draft is filled from the pack's templates and says so.\n\n`catalogued` IS THE ENTRY ALREADY HOLDING ONE OF THESE IDENTIFIERS, as `.yidam/catalog/<name>.md`, or null. `source add` refuses to write a second entry for one source, so a non-null value is the answer to the question the caller was about to ask.\n\n`needs` IS WHAT THE PACK'S TRANSPORT ASKS OF THIS SERVER'S ENVIRONMENT — `{contact, contact_set, auth, blocked}`, `contact` being `required` or `optional`, `auth` each variable and whether it is set, NEVER ITS VALUE — and `unmet` is why a request to the publisher would not be made, or null. They describe the environment of the server answering, which is not the caller's: a caller that will run `source add` itself reads them as a statement about the server.\n\n`answered` IS THE OFFLINE MARKER, as on `search_sources`: `network`, `fixture`, or null when no describe asked anything. A server whose corpus declares `[serve] offline_sources` answers from the pack's `[fixtures]`.\n\nREFUSED IS A TOOL ERROR (`isError: true`) only where no entry could carry the identifier: a scheme no enabled pack declares, a local id the scheme's pattern refuses, a template that does not bind, or a publisher the pack says is blocked. Each is `catalog-fetch`'s own refusal in its own words.\n\nTIER. `sources`, with `search_sources`."
       }
     },
     {

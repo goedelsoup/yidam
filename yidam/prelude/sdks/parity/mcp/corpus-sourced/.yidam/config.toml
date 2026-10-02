@@ -1,0 +1,9 @@
+# The declaration that makes this corpus answer `search_sources` and `resolve_source` from
+# the scholarly pack's recorded fixtures rather than from Crossref.
+#
+# Declared rather than inferred, on `act`'s precedent: a server that guessed it was offline
+# would answer from fixtures on a network that merely blipped, and a client could not tell.
+# Being a committed file, it settles the same thing for every conforming server — which is
+# what lets a parity case say `answered: "fixture"` without any server making a request.
+[serve]
+offline_sources = true

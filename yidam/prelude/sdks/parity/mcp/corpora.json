@@ -7,7 +7,8 @@
       "capabilities": {
         "ontology": true,
         "dependencies": true,
-        "act": false
+        "act": false,
+        "sources": false
       }
     },
     "corpus-unschematised": {
@@ -15,7 +16,8 @@
       "capabilities": {
         "ontology": false,
         "dependencies": false,
-        "act": false
+        "act": false,
+        "sources": false
       }
     },
     "corpus-dated": {
@@ -23,7 +25,8 @@
       "capabilities": {
         "ontology": true,
         "dependencies": false,
-        "act": false
+        "act": false,
+        "sources": false
       }
     },
     "corpus-measured": {
@@ -31,7 +34,8 @@
       "capabilities": {
         "ontology": true,
         "dependencies": false,
-        "act": false
+        "act": false,
+        "sources": false
       }
     },
     "corpus-acting": {
@@ -39,7 +43,17 @@
       "capabilities": {
         "ontology": true,
         "dependencies": false,
-        "act": true
+        "act": true,
+        "sources": false
+      }
+    },
+    "corpus-sourced": {
+      "why": "The only corpus here that enables a source pack, and so the only one on which `search_sources` and `resolve_source` are reachable (RFC-0048 §8, #1319). `sources` is filled from what a corpus holds rather than from what a deployment permits: a server backs the tier exactly when `.yidam/sources/` enables a pack, and every corpus beside this one has none, which is what makes the tier's refusal checkable against a server that really does decline it.\n\nIt also declares `[serve] offline_sources = true`, and that is what makes it a fixture at all. A search or a resolve otherwise asks Crossref, and a case whose answer is whatever a publisher said today is a case whose assertions move. Declared in a committed file, the switch settles the same thing for every conforming server, the way `corpus-acting/` settles `act`, and every answer here says `answered: \"fixture\"` — the marker RFC-0048's open question 1 asked for.\n\nThe pack is `tests/source_add.rs`'s, less its `auth`: a case reading `needs` must not depend on whether the machine running it has a token exported. Its search fixture holds four results, one with no DOI, so a server that lists every item rather than every identified one answers four where a conforming one answers three. The catalog already holds `doi:10.1000/xyz`, so `catalogued` has a path to report.\n\nWhat these cases cannot pin is anything a describe fills. That runs only in a build with `source-transforms`, so a summary, a `then` location and the draft's name differ by build, and the cases assert only what holds in both. The reference server's own tests hold the rest.",
+      "capabilities": {
+        "ontology": true,
+        "dependencies": false,
+        "act": false,
+        "sources": true
       }
     }
   }
