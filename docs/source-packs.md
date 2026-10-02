@@ -39,6 +39,10 @@ location:
 The scheme is the text before the first colon. `catalog-fetch` resolves it through the enabled pack that declares it.
 An identifier in a scheme no pack declares is passed over, and nothing fails.
 
+Once a corpus enables any pack, `catalog-location-malformed` holds each identifier to the packs.
+It reports a scheme no enabled pack declares, and a local id the scheme's `pattern` refuses.
+For a scheme a template pack declares, the finding names that pack. A corpus with no packs sees no change.
+
 An entry written with `kind: doi` or `kind: pmc` is reported by `catalog-location-malformed`. Rewrite them:
 
 ```sh
