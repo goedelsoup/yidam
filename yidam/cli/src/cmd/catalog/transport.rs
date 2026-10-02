@@ -55,7 +55,7 @@ pub fn get(url: &str, dest: &Path) -> Result<Fetched> {
             // Named, and named as this command rather than as the binary. A source that
             // rate-limits or blocks automated retrieval is entitled to see what is asking,
             // and several of the archives a corpus catalogues say so in their terms.
-            .user_agent(concat!("yidam-catalog/", env!("CARGO_PKG_VERSION")))
+            .user_agent(user_agent(None))
             .build()
             .context("building HTTP client")?;
         let resp = client
@@ -96,6 +96,59 @@ pub fn get(url: &str, dest: &Path) -> Result<Fetched> {
         })?;
         Ok(Fetched { media_type })
     })
+}
+
+/// The User-Agent every request names itself by, with a contact when there is one.
+///
+/// `yidam-catalog/<version>`, and `(+<contact>)` after it when `YIDAM_CONTACT` is set: the
+/// form a publisher that asks for one (Crossref's polite pool, BLS) reads (RFC-0048 §5).
+#[cfg(any(feature = "catalog-fetch", test))]
+pub fn user_agent(contact: Option<&str>) -> String {
+    let base = concat!("yidam-catalog/", env!("CARGO_PKG_VERSION"));
+    match contact.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(c) => format!("{base} (+{c})"),
+        None => base.to_string(),
+    }
+}
+
+/// `GET` a URL and return the body, for a reader that files nothing: `source search`, and the
+/// answer `source add` hands a pack's `describe` (#1316).
+///
+/// Nothing lands on disk, so there is nothing to make atomic, and a non-200 is the error it
+/// returns: a search or a describe that failed is reported, not recorded.
+#[cfg(feature = "catalog-fetch")]
+pub fn read(url: &str, contact: Option<&str>) -> Result<Vec<u8>> {
+    use anyhow::{bail, Context};
+
+    crate::runtime::block_on(async {
+        let client = reqwest::Client::builder()
+            .user_agent(user_agent(contact))
+            .build()
+            .context("building HTTP client")?;
+        let resp = client
+            .get(url)
+            .send()
+            .await
+            .with_context(|| format!("GET {url}"))?;
+        if !resp.status().is_success() {
+            bail!("HTTP {} from {url}", resp.status());
+        }
+        let body = resp
+            .bytes()
+            .await
+            .with_context(|| format!("reading the response body from {url}"))?;
+        Ok(body.to_vec())
+    })
+}
+
+/// [`read`] in a build that cannot make a request. Worded as [`get`]'s refusal is, with the
+/// way round it that `source` offers.
+#[cfg(not(feature = "catalog-fetch"))]
+pub fn read(url: &str, _contact: Option<&str>) -> Result<Vec<u8>> {
+    anyhow::bail!(
+        "this build cannot ask {url} — `catalog-fetch` is not compiled in. \
+         `--offline` answers from the pack's recorded fixtures instead"
+    )
 }
 
 /// The refusal a build without the feature gives.

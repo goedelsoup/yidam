@@ -249,6 +249,11 @@ One top-level command with subcommands, so the roster grows by one:
 `obtained: true`. Saying a source was read stays a person's commit, or a `catalog-fetch` that
 recorded the bytes.
 
+A pack declares its search endpoint in a `[search]` table (#1316). It gives the scheme, a
+template with `{query}` and `{limit}` slots, and the paths to each result and to its id and
+title. A search is read by path and needs no transform. Its fixtures are keyed by query.
+`search` and `add` take `--offline`, which answers from the pack's fixtures and asks nothing.
+
 ### 5. `catalog-fetch` learns identifiers
 
 `location.rs` gains a `Plan` arm for `identifier`. It resolves through the pack to a URL plus the
