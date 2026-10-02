@@ -267,6 +267,27 @@ fn every_fixture_is_claimed_by_a_scheme_and_binds() {
     std::fs::write(root.join("fixtures/stray.json"), "{}").unwrap();
     assert_refused(dir.path(), "stray.json");
 
+    // A file claimed through a `./` segment, which resolves but is not the name the walk
+    // of fixtures/ yields: refused as a path, not reported as both claimed and unclaimed.
+    let dir = corpus();
+    pack(
+        &dir.path().join(".yidam/sources/scholarly"),
+        &GOOD.replace("= \"crossref-tvst.json\"", "= \"./crossref-tvst.json\""),
+    );
+    let (code, said, report) = check(dir.path());
+    assert_ne!(code, 0, "refused nothing:\n{said}");
+    let errors = errors(&report);
+    assert!(
+        errors
+            .iter()
+            .any(|m| m.contains("`./crossref-tvst.json`, which is not a path inside fixtures/")),
+        "{said}"
+    );
+    assert!(
+        !errors.iter().any(|m| m.contains("no scheme claims it")),
+        "the refused path still left its file unclaimed:\n{said}"
+    );
+
     // An identifier whose local id the scheme's pattern refuses.
     let dir = corpus();
     pack(

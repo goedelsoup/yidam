@@ -241,6 +241,7 @@ Map each identifier to a recorded response under `fixtures/`:
 
 The identifier's scheme must be one this pack declares. Its local id must match that scheme's pattern.
 Every file under `fixtures/` must be named here. An unnamed file belongs to no scheme and is an error.
+Write each path relative to `fixtures/`, as `crossref.json` and not `./crossref.json`.
 
 ### `[vendored]`
 
