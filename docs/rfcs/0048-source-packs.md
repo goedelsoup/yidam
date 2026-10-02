@@ -197,6 +197,12 @@ filename, a moved address, or a fresh `<uuid>` path each defeat a template. `sou
 the page once and writes what it picked into the identifier, `scheme:local-id@<pin>`. A fetch
 follows only the pin, so an entry stays the file that was read.
 
+Where the identifier itself names a moving target, a scheme declares a `pin` read (#1343). A
+branch, an article title and a bare `wayback:<url>` each name whatever is there today.
+`source add` asks the read once and writes the version it answered into the identifier: a commit
+SHA, a revision id, a capture timestamp. A fetch refuses the mutable form and never makes the
+read. `archive` 0.2.0 pins `github` and `wikipedia` this way, and `wayback` too.
+
 **A pack carries its own semver.** A pack changes on the publisher's schedule, not on
 yidam's. Crossref adds a field, or a legislature moves its API to `v3`. So `version` in
 `pack.toml` is the pack's own, and a corpus pins it:

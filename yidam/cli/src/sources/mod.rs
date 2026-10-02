@@ -42,6 +42,7 @@ pub mod manifest;
 #[cfg(feature = "source-transforms")]
 pub mod parsed;
 pub mod pin;
+pub mod pinning;
 pub mod resolve;
 pub mod search;
 pub mod transform;
@@ -383,6 +384,9 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
             }
         };
         check_resolve(name, s, &names, out);
+        if let Some(pin) = &s.pin {
+            check_pin_read(name, s, pin, &names, out);
+        }
         for (field, path) in [("describe", &s.describe), ("extract", &s.extract)] {
             let Some(path) = path else { continue };
             let inside = path.starts_with("transforms/")
@@ -488,6 +492,10 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
             check_lookup_fixture(&abs, &own, m, id, file, out);
             continue;
         }
+        if own.is_mutable(id) {
+            check_pin_fixture(&abs, &own, id, file, out);
+            continue;
+        }
         let Some(re) = compiled.get(scheme) else {
             continue;
         };
@@ -574,6 +582,110 @@ fn check_lookup_fixture(
                 out.error(&at, format!("`{id}` picks `{pin}`: {}", r.message(&pinned)));
             }
         }
+    }
+}
+
+/// A mutable identifier's fixture is what its pin read answered (#1343). The answer has a value
+/// at the path, and the identifier it pins resolves.
+fn check_pin_fixture(
+    abs: &Path,
+    own: &resolve::Enabled,
+    id: &str,
+    file: &str,
+    out: &mut Findings<'_>,
+) {
+    let p = match own.pinning(id) {
+        Ok(Some(p)) => p,
+        Ok(None) => return,
+        Err(r) => return out.error("pack.toml", format!("[fixtures] {}", r.message(id))),
+    };
+    // A file `inside_fixtures` refused, or found missing, is already reported.
+    let Ok(bytes) = std::fs::read(abs.join("fixtures").join(file)) else {
+        return;
+    };
+    let at = format!("fixtures/{file}");
+    match p.pin(&bytes) {
+        Err(why) if !transform::AVAILABLE && !search::is_json(&p.media) => {
+            out.info(&at, format!("not read: {why}"));
+        }
+        Err(why) => out.error(&at, format!("`{id}`: {why}")),
+        Ok((value, pinned)) => {
+            if let Err(r) = own.resolve(&pinned) {
+                out.error(
+                    &at,
+                    format!("`{id}` pins `{value}`: {}", r.message(&pinned)),
+                );
+            }
+        }
+    }
+}
+
+/// A scheme's `[scheme.<name>.pin]` (#1343): a read bound by the mutable form, whose value
+/// fills the pinned form the scheme's pattern admits.
+fn check_pin_read(
+    name: &str,
+    s: &manifest::Scheme,
+    pin: &manifest::PinRead,
+    names: &[String],
+    out: &mut Findings<'_>,
+) {
+    let at = |what: &str| format!("[scheme.{name}] pin.{what}");
+    let mut error = |m: String| out.error("pack.toml", m);
+    if s.resolve.form().is_ok_and(|f| f.looks_up()) {
+        error(format!(
+            "{} pins a scheme that reads its address off a page, which `source add` already pins to the file it picked",
+            at("read")
+        ));
+    }
+    if !names.iter().any(|n| n == "pin") {
+        error(format!(
+            "[scheme.{name}] pattern has no group `(?P<pin>…)`, so nothing says where in the pinned identifier the value read sits"
+        ));
+    }
+    if !(pin.mutable.starts_with('^') && pin.mutable.ends_with('$')) {
+        error(format!(
+            "{} is not anchored with `^…$`, so it would read a pin for an id that only contains a match",
+            at("mutable")
+        ));
+    }
+    let groups: Vec<String> = match regex::Regex::new(&pin.mutable) {
+        Ok(re) => re.capture_names().flatten().map(str::to_string).collect(),
+        Err(e) => {
+            error(format!("{} does not compile: {e}", at("mutable")));
+            return;
+        }
+    };
+    let bound = |slot: &str| slot == "id" || groups.iter().any(|g| g == slot);
+    if !(pin.read.starts_with("https://") || pin.read.starts_with("http://")) {
+        error(format!(
+            "{} `{}` is not an http(s) address",
+            at("read"),
+            pin.read
+        ));
+    }
+    for slot in crate::cmd::catalog::location::slots(&pin.read) {
+        if !bound(&slot) {
+            error(format!(
+                "{} slot `{{{slot}}}` is bound by nothing: it is not `{{id}}` and `mutable` has no group `(?P<{slot}>…)`",
+                at("read")
+            ));
+        }
+    }
+    let slots = crate::cmd::catalog::location::slots(&pin.pinned);
+    if !slots.iter().any(|s| s == "pin") {
+        error(format!(
+            "{} has no `{{pin}}` slot, so the value read is written nowhere",
+            at("pinned")
+        ));
+    }
+    for slot in slots.iter().filter(|s| *s != "pin" && !bound(s)) {
+        error(format!(
+            "{} slot `{{{slot}}}` is bound by nothing: it is not `{{id}}`, `{{pin}}`, or a group of `mutable`",
+            at("pinned")
+        ));
+    }
+    if pin.value.split('/').all(str::is_empty) {
+        error(format!("{} is an empty path", at("value")));
     }
 }
 
@@ -868,6 +980,8 @@ fn check_transforms(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'
             .iter()
             .filter(|(id, _)| id.split_once(':').is_some_and(|(sc, _)| sc == name))
             .filter(|(id, _)| !looks_up || own.source_of(id) != id.as_str())
+            // A mutable identifier's fixture is its pin read's answer, not the file.
+            .filter(|(id, _)| !own.is_mutable(id))
             .collect();
         let mut yielded: BTreeSet<String> = BTreeSet::new();
         let mut described = false;

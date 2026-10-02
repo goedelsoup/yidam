@@ -1,0 +1,35 @@
+{
+  "sha": "051478957371ee0084a7c0913941d2a8c4757bb9",
+  "node_id": "C_kwDOAAsO6NoAKDA1MTQ3ODk1NzM3MWVlMDA4NGE3YzA5MTM5NDFkMmE4YzQ3NTdiYjk",
+  "url": "https://api.github.com/repos/rust-lang/rust/commits/051478957371ee0084a7c0913941d2a8c4757bb9",
+  "html_url": "https://github.com/rust-lang/rust/commit/051478957371ee0084a7c0913941d2a8c4757bb9",
+  "commit": {
+    "author": {
+      "name": "bors",
+      "email": "bors@rust-lang.org",
+      "date": "2024-07-21T15:48:16Z"
+    },
+    "committer": {
+      "name": "bors",
+      "email": "bors@rust-lang.org",
+      "date": "2024-07-21T15:48:16Z"
+    },
+    "message": "Auto merge of #128032 - Mark-Simulacrum:stable-next, r=Mark-Simulacrum\n\n[stable] 1.80.0 release\n\nhttps://forge.rust-lang.org/release/process.html#promote-branches-t-3-days-monday\n\nr? `@Mark-Simulacrum`",
+    "tree": {
+      "sha": "8895c76e0797545edc414c417ea9d7fd8473653c",
+      "url": "https://api.github.com/repos/rust-lang/rust/git/trees/8895c76e0797545edc414c417ea9d7fd8473653c"
+    }
+  },
+  "parents": [
+    {
+      "sha": "7466ba077d7454d5a81e1a3dcbd1b5bac3704e3d",
+      "url": "https://api.github.com/repos/rust-lang/rust/commits/7466ba077d7454d5a81e1a3dcbd1b5bac3704e3d",
+      "html_url": "https://github.com/rust-lang/rust/commit/7466ba077d7454d5a81e1a3dcbd1b5bac3704e3d"
+    },
+    {
+      "sha": "7fecb10eef1f145aa32ca948cd712ad44280e8bd",
+      "url": "https://api.github.com/repos/rust-lang/rust/commits/7fecb10eef1f145aa32ca948cd712ad44280e8bd",
+      "html_url": "https://github.com/rust-lang/rust/commit/7fecb10eef1f145aa32ca948cd712ad44280e8bd"
+    }
+  ]
+}

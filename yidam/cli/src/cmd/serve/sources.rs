@@ -121,10 +121,11 @@ pub(crate) fn resolve_source(state: &ServerState, args: &Value) -> Result<Value,
     let catalog_dir = crate::paths::yidam_catalog_dir(root);
     let enabled = Enabled::from_packs(&state.packs);
     let catalogued = source::catalogued(&catalog_dir, &enabled);
-    let already = resolved
-        .locations
-        .iter()
-        .find_map(|l| catalogued.get(enabled.source_of(&l.identifier)).cloned());
+    let already = resolved.locations.iter().find_map(|l| {
+        catalogued
+            .get(enabled.source_of(&l.identifier).as_ref())
+            .cloned()
+    });
     let entry = source::free_slug(&catalog_dir, &source::slug_for(&resolved), &[]);
     let needs = needs(state, &resolved);
 

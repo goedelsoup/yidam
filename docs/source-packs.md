@@ -13,7 +13,7 @@ The template ships two packs in `yidam/sources/`. A corpus can also write its ow
 | Pack | Schemes | Reads |
 |---|---|---|
 | `scholarly` | `doi`, `europepmc`, `pmc`, `arxiv` | Crossref metadata, Europe PMC full text, the arXiv API |
-| `archive` | `wayback`, `ia`, `ia-file` | Wayback Machine snapshots, Internet Archive items |
+| `archive` | `wayback`, `ia`, `ia-file`, `github`, `wikipedia` | Wayback Machine snapshots, Internet Archive items, GitHub files at a commit, Wikipedia revisions |
 
 One `doi:` reaches the full text when Europe PMC holds it open access.
 The DOI's describe names a `europepmc:` location for the same DOI.
@@ -23,6 +23,7 @@ A DOI Europe PMC does not index still gets the `europepmc:` location, which lead
 
 An `ia:` item names its OCR text as an `ia-file:` location, when it has one.
 `archive` is also what `catalog-fetch --archive` needs: it declares `wayback`.
+A `github:` file and a `wikipedia:` article are each pinned to one version when added.
 
 ## Name a source by identifier
 
@@ -192,6 +193,7 @@ One table per scheme. A scheme name is lowercase letters, digits and `-`, starti
 | `describe` | no | `transforms/<name>.glu`: publisher metadata to a draft entry. |
 | `extract` | no | `transforms/<name>.glu`: a fetched artifact to a reading. |
 | `then` | no | A list of `{ scheme, from }`. Each names a scheme in this pack, and `from = "describe.<key>"`. |
+| `pin` | no | A table that pins a mutable identifier to one version. See [When an identifier names a moving target](#when-an-identifier-names-a-moving-target). |
 
 A `then` names the next identifier a source leads to, such as a DOI's PMCID.
 Its `from` reads an identifier the scheme's `describe` returns.
@@ -275,6 +277,45 @@ A pack cannot set `redistributable`, and a pack that tries fails to load.
 Whether bytes may leave this machine is a licence for one source.
 Write `redistributable: true` on that artifact's record, in the entry.
 
+### When an identifier names a moving target
+
+Some identifiers name whatever the publisher holds today.
+A branch moves, an article is edited, and the Wayback Machine keeps capturing a page.
+A location names one version, so such a scheme declares a `pin` table:
+
+```toml
+[scheme.wikipedia]
+pattern = '^(?P<lang>[a-z][a-z-]*)/(?P<title>[^\s@#]+)@(?P<pin>\d+)$'
+type    = "document"
+resolve = { template = "https://{lang}.wikipedia.org/w/index.php?oldid={pin}&action=raw" }
+
+[scheme.wikipedia.pin]
+mutable = '^(?P<lang>[a-z][a-z-]*)/(?P<title>[^\s@#]+)$'
+read    = "https://{lang}.wikipedia.org/w/api.php?action=query&prop=revisions&rvprop=ids&format=json&formatversion=2&titles={title}"
+media   = "application/json"
+value   = "query/pages/0/revisions/0/revid"
+pinned  = "{lang}/{title}@{pin}"
+```
+
+| Key | Value |
+|---|---|
+| `mutable` | A regular expression, anchored `^…$`, for the mutable local id. Its named groups are slots. |
+| `read` | An `http(s)` address. Each slot is bound percent-encoded. |
+| `media` | The media type `read` answers in. |
+| `value` | The path of the version in the answer, written as a `[search]` path. |
+| `pinned` | The pinned local id. Slots are `mutable`'s groups, and `{pin}` for the value read. |
+
+The scheme's `pattern` admits only the pinned form. Its group `(?P<pin>…)` is the value read.
+`source add wikipedia:en/Allen_County,_Ohio` asks `read` once, and writes the pinned identifier:
+
+```yaml
+  - kind: identifier
+    value: wikipedia:en/Allen_County,_Ohio@1375157827
+```
+
+`catalog-fetch` refuses the mutable form, and says how to pin it.
+It never asks `read`. Two pins of one source are one source to `source add`.
+
 ### `[fixtures]`
 
 Map each identifier to a recorded response under `fixtures/`:
@@ -291,6 +332,9 @@ Write each path relative to `fixtures/`, as `crossref.json` and not `./crossref.
 For a `listing` or `dcat` scheme, record the page under the identifier without a pin.
 `source check` reads it, and the name it picks must resolve.
 Record the file itself under the pinned identifier. Only that fixture is extracted.
+
+For a scheme with a `pin`, record what `read` answered under the mutable identifier.
+`source check` reads the value from it, and the identifier it pins must resolve.
 
 ### `[vendored]`
 
@@ -434,6 +478,8 @@ It verifies that:
 - `min_interval` and every `auth` entry are well formed
 - every fixture is claimed by a scheme, matches its pattern, and exists
 - every recorded listing or catalog picks a name that resolves
+- each `pin` binds from `mutable`, writes `{pin}`, and its scheme's pattern has a `pin` group
+- every recorded pin read answers a value that pins a resolving identifier
 - no two enabled packs declare one scheme
 - every vendored pack has its pin, and every pin has its satisfying copy
 

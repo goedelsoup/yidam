@@ -101,6 +101,39 @@ pub struct Scheme {
     /// The identifiers this one leads to.
     #[serde(default)]
     pub then: Vec<Then>,
+    /// How a mutable local id becomes the pinned one `pattern` admits (#1343).
+    #[serde(default)]
+    pub pin: Option<PinRead>,
+}
+
+/// A read `source add` makes to fix a mutable identifier to one version (#1343):
+///
+/// ```toml
+/// [scheme.wikipedia.pin]
+/// mutable = '^(?P<lang>[a-z][a-z-]*)/(?P<title>[^\s@#]+)$'
+/// read    = "https://{lang}.wikipedia.org/w/api.php?action=query&prop=revisions&titles={title}"
+/// media   = "application/json"
+/// value   = "query/pages/0/revisions/0/revid"
+/// pinned  = "{lang}/{title}@{pin}"
+/// ```
+///
+/// A title names whatever the article says today, and a location names bytes that stay put.
+/// The scheme's `pattern` admits only the pinned form, and its group `(?P<pin>…)` is the value
+/// read. A fetch follows only the pinned form, so it never asks `read`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PinRead {
+    /// A regular expression, anchored `^…$`, the mutable local id matches. Its named groups
+    /// are the slots `read` and `pinned` bind.
+    pub mutable: String,
+    /// An `http(s)` address. Each slot is bound percent-encoded, so a URL lands in a query.
+    pub read: String,
+    /// The media type `read` answers in.
+    pub media: String,
+    /// The path of the value in the answer, as `[search]` writes paths.
+    pub value: String,
+    /// The pinned local id: `mutable`'s slots, and `{pin}` for the value read.
+    pub pinned: String,
 }
 
 /// How a scheme's identifier becomes an address. Exactly one of `template`, `listing` and

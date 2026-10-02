@@ -164,7 +164,16 @@ pub struct Located {
     pub via: Option<String>,
     /// The page the pin was read off, for a scheme that resolves through one.
     #[serde(skip)]
-    pub read_off: Option<String>,
+    pub read_off: Option<ReadOff>,
+}
+
+/// Where an identifier's pin came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadOff {
+    /// A listing or catalog page, which named the file (#1342).
+    Page(String),
+    /// A pin read, which answered with the version the identifier named then (#1343).
+    Read { asked: String, url: String },
 }
 
 impl Located {
@@ -177,7 +186,10 @@ impl Located {
         };
         match &self.read_off {
             None => how,
-            Some(page) => format!("{how}, pinned to the file {page} listed"),
+            Some(ReadOff::Page(page)) => format!("{how}, pinned to the file {page} listed"),
+            Some(ReadOff::Read { asked, url }) => {
+                format!("{how}, pinned to what `{asked}` named when {url} was read")
+            }
         }
     }
 }
@@ -383,10 +395,11 @@ struct Locating {
     answered: Option<Answered>,
 }
 
-/// Resolve `identifier`, asking a lookup scheme's page for the pin it lacks.
+/// Resolve `identifier`, asking a lookup scheme's page, or a pin read, for the pin it lacks.
 ///
 /// A pinned identifier, or one a template binds, is resolved offline. An unpinned one in a
 /// lookup scheme has its page asked through `asker`, and comes back pinned to what it picked.
+/// A mutable one (#1343) has its pin read asked, and comes back pinned to the value read.
 fn locate(
     packs: &[Pack],
     enabled: &Enabled,
@@ -408,7 +421,25 @@ fn locate(
             let pin = lookup
                 .pick(&page)
                 .map_err(|u| format!("`{identifier}`: {}", u.message(&lookup)))?;
-            (lookup.pinned(&pin), Some(lookup.url))
+            (lookup.pinned(&pin), Some(ReadOff::Page(lookup.url)))
+        }
+        Err(Refusal::Mutable { .. }) => {
+            let pinning = match enabled.pinning(identifier) {
+                Ok(Some(p)) => p,
+                Ok(None) => return Err(format!("`{identifier}` names no read to pin it")),
+                Err(refusal) => return Err(refusal.message(identifier)),
+            };
+            let (pack, manifest, _) = transform::scheme(packs, &pinning.scheme)?;
+            let answer = asker.ask(pack, manifest, &pinning.identifier, &pinning.url)?;
+            answered = Some(asker.answered());
+            let (_, pinned) = pinning
+                .pin(&answer)
+                .map_err(|why| format!("`{identifier}`: {why}"))?;
+            let read = ReadOff::Read {
+                asked: pinning.identifier,
+                url: pinning.url,
+            };
+            (pinned, Some(read))
         }
         _ => (identifier.to_string(), None),
     };

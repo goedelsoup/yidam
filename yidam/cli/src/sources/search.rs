@@ -56,6 +56,18 @@ pub fn candidates(search: &Search, bytes: &[u8]) -> Result<Vec<Candidate>, Strin
     Ok(out)
 }
 
+/// The text at `path` in `bytes`, trimmed: what a pin read takes from its answer (#1343).
+/// `None` when nothing there has text.
+pub fn value_at(media: &str, bytes: &[u8], path: &str) -> Result<Option<String>, String> {
+    let want = split(path).join("/");
+    Ok(flatten(media, bytes)?
+        .into_iter()
+        .find(|l| l.path == want)
+        .and_then(|l| l.text)
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty()))
+}
+
 /// One field of a parsed response.
 #[derive(Debug, Clone, PartialEq)]
 struct Leaf {
@@ -92,8 +104,8 @@ pub fn is_json(media: &str) -> bool {
 
 fn flatten(media: &str, bytes: &[u8]) -> Result<Vec<Leaf>, String> {
     if is_json(media) {
-        let v: serde_json::Value = serde_json::from_slice(bytes)
-            .map_err(|e| format!("the search response is not JSON: {e}"))?;
+        let v: serde_json::Value =
+            serde_json::from_slice(bytes).map_err(|e| format!("the response is not JSON: {e}"))?;
         let mut out = Vec::new();
         json("", &v, &mut out);
         return Ok(out);
@@ -143,8 +155,7 @@ fn json(path: &str, v: &serde_json::Value, out: &mut Vec<Leaf>) {
 #[cfg(feature = "source-transforms")]
 fn other(media: &str, bytes: &[u8]) -> Result<Vec<Leaf>, String> {
     use crate::gluon_arm::marshal::Value;
-    let parsed =
-        super::parsed::parse(media, bytes).map_err(|e| format!("the search response {e}"))?;
+    let parsed = super::parsed::parse(media, bytes).map_err(|e| format!("the response {e}"))?;
     Ok(parsed
         .fields
         .into_iter()
@@ -164,8 +175,8 @@ fn other(media: &str, bytes: &[u8]) -> Result<Vec<Leaf>, String> {
 #[cfg(not(feature = "source-transforms"))]
 fn other(media: &str, _: &[u8]) -> Result<Vec<Leaf>, String> {
     Err(format!(
-        "a search answering in `{media}` is read in a build with `source-transforms`; this \
-         build reads JSON"
+        "a response in `{media}` is read in a build with `source-transforms`; this build \
+         reads JSON"
     ))
 }
 
@@ -223,6 +234,15 @@ mod tests {
     fn a_response_that_is_not_its_media_type_says_so() {
         let err = candidates(&search("a/*", "b", None), b"<xml/>").unwrap_err();
         assert!(err.contains("not JSON"), "{err}");
+    }
+
+    #[test]
+    fn a_value_is_the_text_at_one_path_and_a_number_is_text() {
+        let wiki = br#"{"query": {"pages": [{"revisions": [{"revid": 1234}]}]}}"#;
+        let at = |p| value_at("application/json", wiki, p).unwrap();
+        assert_eq!(at("query/pages/0/revisions/0/revid"), Some("1234".into()));
+        assert_eq!(at("query/pages/0"), None, "a container has no text");
+        assert_eq!(at("query/pages/1/revisions/0/revid"), None);
     }
 
     /// The paths a pack author writes are the paths a transform sees, so a pack has one

@@ -660,3 +660,104 @@ fn each_lookup_rule_is_held() {
         assert_refused(dir.path(), needle);
     }
 }
+
+// ── pin reads (#1343) ────────────────────────────────────────────────────────────────────
+
+const PIN: &str = r#"[pack]
+name    = "revisions"
+version = "0.1.0"
+
+[scheme.wikipedia]
+pattern = '^(?P<lang>[a-z][a-z-]*)/(?P<title>[^\s@#]+)@(?P<pin>\d+)$'
+type    = "document"
+resolve = { template = "https://{lang}.wikipedia.org/w/index.php?oldid={pin}&action=raw" }
+
+[scheme.wikipedia.pin]
+mutable = '^(?P<lang>[a-z][a-z-]*)/(?P<title>[^\s@#]+)$'
+read    = "https://{lang}.wikipedia.org/w/api.php?action=query&prop=revisions&rvprop=ids&format=json&formatversion=2&titles={title}"
+media   = "application/json"
+value   = "query/pages/0/revisions/0/revid"
+pinned  = "{lang}/{title}@{pin}"
+
+[fixtures]
+"wikipedia:en/Allen_County,_Ohio" = "revid.json"
+"#;
+
+const REVID: &str = r#"{"query": {"pages": [{"title": "Allen County, Ohio", "revisions": [{"revid": 1375157827}]}]}}"#;
+
+fn pin_pack(root: &Path, manifest: &str) {
+    let dir = root.join(".yidam/sources/revisions");
+    std::fs::create_dir_all(dir.join("fixtures")).unwrap();
+    std::fs::write(dir.join("pack.toml"), manifest).unwrap();
+    std::fs::write(dir.join("entry.md"), "# revisions\n").unwrap();
+    std::fs::write(dir.join("fixtures/revid.json"), REVID).unwrap();
+}
+
+#[test]
+fn a_pin_read_pack_checks() {
+    let dir = corpus();
+    pin_pack(dir.path(), PIN);
+    let (code, said, report) = check(dir.path());
+    assert_eq!(code, 0, "{said}");
+    assert_eq!(report["passed"], true, "{said}");
+}
+
+#[test]
+fn each_pin_rule_is_held() {
+    for (from, to, needle) in [
+        (
+            "@(?P<pin>\\d+)$'",
+            "@(?P<rev>\\d+)$'",
+            "has no group `(?P<pin>…)`",
+        ),
+        (
+            "mutable = '^(?P<lang>",
+            "mutable = '(?P<lang>",
+            "pin.mutable is not anchored",
+        ),
+        (
+            "mutable = '^(?P<lang>",
+            "mutable = '^(?P<lang",
+            "pin.mutable does not compile",
+        ),
+        (
+            "titles={title}\"",
+            "titles={page}\"",
+            "pin.read slot `{page}` is bound by nothing",
+        ),
+        (
+            "read    = \"https://",
+            "read    = \"ftp://",
+            "is not an http(s) address",
+        ),
+        (
+            "\"{lang}/{title}@{pin}\"",
+            "\"{lang}/{title}\"",
+            "has no `{pin}` slot",
+        ),
+        (
+            "\"{lang}/{title}@{pin}\"",
+            "\"{lang}/{page}@{pin}\"",
+            "pin.pinned slot `{page}`",
+        ),
+        (
+            "value   = \"query/pages/0/revisions/0/revid\"",
+            "value   = \"/\"",
+            "pin.value is an empty path",
+        ),
+        // The recorded answer has nothing at the path.
+        (
+            "revisions/0/revid\"",
+            "revisions/0/oldid\"",
+            "answered with nothing at",
+        ),
+        // The value read pins an identifier the pattern does not admit.
+        ("revisions/0/revid\"", "title\"", "does not admit"),
+    ] {
+        let manifest = PIN.replacen(from, to, 1);
+        assert_ne!(manifest, PIN, "{from} is not in PIN");
+        let dir = corpus();
+        pin_pack(dir.path(), &manifest);
+        assert_refused(dir.path(), needle);
+    }
+}
