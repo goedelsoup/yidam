@@ -14,6 +14,7 @@ yidam doctor — /home/you/my-domain
   fail  provenance   .yidam.toml records no resolvable commit
                      → mise run yidam-vendor-update
   ok    binary       this repository pins no binary — nothing can be shadowed
+  skip  commit       .yidam.toml records no resolvable commit to compare against — see provenance
   ok    path         this repository pins no binary — PATH order does not matter
   warn  prelude      no .yidam/.vendor/prelude/ — this repository carries no vendored prelude
                      → mise run yidam-vendor-update
@@ -52,6 +53,7 @@ exit code unless you pass `--strict`, which is the reading a CI job wants.
 | `repository` | Am I in a derived repository? |
 | `provenance` | Does this repository record where it came from? |
 | `binary` | Is the running binary the one this repository pins? |
+| `commit` | Was the running binary built at the commit this repository pins? |
 | `path` | Is `.yidam/bin` ahead on `PATH`? |
 | `prelude` | How stale is the vendored prelude? |
 | `index` | Is the index built, and is it current? |

@@ -160,6 +160,7 @@ impl Check {
     const REPOSITORY: &'static str = "repository";
     const PROVENANCE: &'static str = "provenance";
     const BINARY: &'static str = "binary";
+    const COMMIT: &'static str = "commit";
     const PATH: &'static str = "path";
     const PRELUDE: &'static str = "prelude";
     const INDEX: &'static str = "index";
@@ -404,6 +405,66 @@ fn check_binary(root: &Path, running: Option<&Path>) -> Answer {
             ),
             Some("put `.yidam/bin` first on PATH"),
         ),
+    }
+}
+
+/// Was the running binary built at the commit this repository pins?
+///
+/// [`check_binary`] asks *which file* answered; this asks *what that file was built from*.
+/// The two come apart on the ordinary re-vendor: `yidam-vendor-update` rewrites
+/// `.yidam.toml`'s `commit` and leaves `.yidam/bin/yidam` where it was, so the pin is the
+/// file that answers and the prelude it reads is one commit ahead of the code reading it.
+///
+/// `built` is the binary's own stamp — [`env!`]`("YIDAM_BUILD_COMMIT")` in production, the
+/// same value `yidam --version` prints in parentheses — and is passed rather than read so
+/// every case is testable from one binary. It is `git rev-parse --short`, whose width follows
+/// the clone, while the pin is a full hash; so they agree when one is a prefix of the other.
+///
+/// A mismatch fails only when this repository pins a binary of its own. With no
+/// `.yidam/bin/yidam`, whatever answered is a `yidam` from somewhere else, which this
+/// repository never claimed to control — worth a word, not a red build.
+///
+/// A missing or unresolvable pin is [`check_provenance`]'s finding, so it is `skipped` here
+/// rather than reported twice.
+fn check_build_commit(root: &Path, built: &str) -> Answer {
+    const BUILD: &str = "mise run yidam-build";
+    let pin = std::fs::read_to_string(root.join(MANIFEST))
+        .map(|t| ManifestPin::parse(&t))
+        .unwrap_or_default();
+    let Some(pinned) = pin
+        .commit
+        .map(|c| c.trim().to_ascii_lowercase())
+        .filter(|c| !c.is_empty() && c != "unknown")
+    else {
+        return Answer::skipped(format!(
+            "{MANIFEST} records no resolvable commit to compare against — see provenance"
+        ));
+    };
+    let built = built.trim().to_ascii_lowercase();
+    if built.is_empty() || built == "unknown" {
+        return Answer::warn(
+            format!(
+                "this binary records no build commit, so it cannot be matched to the pin {}",
+                short(&pinned)
+            ),
+            Some(BUILD),
+        );
+    }
+    if pinned.starts_with(&built) || built.starts_with(&pinned) {
+        return Answer::ok(format!("built at {}, the pinned commit", short(&built)));
+    }
+    let detail = format!(
+        "this binary was built at {}, but {MANIFEST} pins {}",
+        short(&built),
+        short(&pinned)
+    );
+    if yidam_bin_path(root).is_file() {
+        Answer::fail(detail, Some(BUILD))
+    } else {
+        Answer::warn(
+            format!("{detail}; this repository pins no binary of its own"),
+            Some(BUILD),
+        )
     }
 }
 
@@ -1071,6 +1132,12 @@ const ROSTER: &[Question] = &[
         text: "Is the running binary the one this repository pins?",
         asked: Asked::OfARepository,
         answer: |s| check_binary(&s.root, s.running.as_deref()),
+    },
+    Question {
+        id: Check::COMMIT,
+        text: "Was the running binary built at the commit this repository pins?",
+        asked: Asked::OfARepository,
+        answer: |s| check_build_commit(&s.root, env!("YIDAM_BUILD_COMMIT")),
     },
     Question {
         id: Check::PATH,
@@ -3299,6 +3366,89 @@ jobs:
             c.detail.contains(&pinned.display().to_string()),
             "{}",
             c.detail
+        );
+    }
+
+    // ── commit ───────────────────────────────────────────────────────────────
+
+    const PIN: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    fn pinned_at(commit: Option<&str>, with_binary: bool) -> TempDir {
+        let tmp = derived_repo();
+        let manifest = match commit {
+            Some(c) => format!("[yidam]\ncommit = \"{c}\"\n"),
+            None => "[yidam]\ntemplate = \"cli/v0.2.0\"\n".to_string(),
+        };
+        std::fs::write(tmp.path().join(MANIFEST), manifest).unwrap();
+        if with_binary {
+            let bin = yidam_bin_path(tmp.path());
+            std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+            std::fs::write(&bin, b"#!/bin/sh\n").unwrap();
+        }
+        tmp
+    }
+
+    /// The build stamp is `git rev-parse --short`, so its width is the clone's choice (7 in a
+    /// shallow clone, 8 in this one) and never the pin's 40. Equality would fail every build.
+    #[test]
+    fn a_short_build_commit_matches_the_full_pin_it_abbreviates() {
+        let tmp = pinned_at(Some(PIN), true);
+        for built in ["0123456", "01234567", PIN, "0123456789ABCDEF"] {
+            let c = check_build_commit(tmp.path(), built);
+            assert_eq!(c.verdict, Verdict::Ok, "{built}: {}", c.detail);
+            assert!(c.remedy.is_none());
+        }
+    }
+
+    /// The re-vendor that moved `.yidam.toml` and left `.yidam/bin/yidam` behind: the pin
+    /// answers, and it is not the pin any more.
+    #[test]
+    fn a_pinned_binary_built_elsewhere_fails_and_names_both_commits() {
+        let tmp = pinned_at(Some(PIN), true);
+        let c = check_build_commit(tmp.path(), "fedcba9");
+        assert_eq!(c.verdict, Verdict::Fail);
+        assert!(c.detail.contains("fedcba9"), "{}", c.detail);
+        assert!(c.detail.contains(short(PIN)), "{}", c.detail);
+        assert_eq!(c.remedy.as_deref(), Some("mise run yidam-build"));
+    }
+
+    /// No `.yidam/bin/yidam`: whatever answered was never this repository's to control.
+    #[test]
+    fn a_mismatch_with_no_pinned_binary_only_warns() {
+        let tmp = pinned_at(Some(PIN), false);
+        let c = check_build_commit(tmp.path(), "fedcba9");
+        assert_eq!(c.verdict, Verdict::Warn);
+        assert!(c.detail.contains("fedcba9"), "{}", c.detail);
+        assert!(c.detail.contains(short(PIN)), "{}", c.detail);
+        assert_eq!(c.remedy.as_deref(), Some("mise run yidam-build"));
+    }
+
+    /// `build.rs` stamps `unknown` when it finds no git to ask. That binary cannot be held to
+    /// the pin, and saying so is the finding — not a pass, and not a mismatch.
+    #[test]
+    fn a_binary_with_no_build_commit_warns_rather_than_matching_or_failing() {
+        let tmp = pinned_at(Some(PIN), true);
+        for built in ["unknown", "", "  "] {
+            let c = check_build_commit(tmp.path(), built);
+            assert_eq!(c.verdict, Verdict::Warn, "{built:?}: {}", c.detail);
+            assert!(c.detail.contains("no build commit"), "{}", c.detail);
+        }
+    }
+
+    /// No commit to compare is `provenance`'s finding. Reporting it here too would be one
+    /// defect counted twice — and an empty pin is a prefix of every build commit, which is
+    /// the false pass this guards.
+    #[test]
+    fn a_manifest_with_no_commit_is_skipped_not_matched() {
+        for commit in [None, Some(""), Some("unknown")] {
+            let tmp = pinned_at(commit, true);
+            let c = check_build_commit(tmp.path(), "0123456");
+            assert_eq!(c.verdict, Verdict::Skipped, "{commit:?}: {}", c.detail);
+        }
+        let tmp = derived_repo();
+        assert_eq!(
+            check_build_commit(tmp.path(), "0123456").verdict,
+            Verdict::Skipped
         );
     }
 
