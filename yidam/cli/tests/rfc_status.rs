@@ -36,11 +36,20 @@
 //! mentions, is the judgement the line exists to record. What holds it is review, plus the
 //! population floor below and the title check, which takes the one case the documents make
 //! decidable: an RFC advertising a command in its own H1 has to declare it.
+//!
+//! ## And a group built one subcommand at a time (#1329)
+//!
+//! RFC-0048 specifies one group, `source`, with four subcommands, and #1315 shipped `check`
+//! alone. A line that could only say `source` read as fully built that day, so the status had
+//! to move to `Implemented` with three quarters of the surface still open. An entry may now be
+//! `group sub` as well as a bare name, and the subcommand half is asked of the group's own
+//! `--help`, so an RFC that lands across several PRs keeps its true status until the last one.
 
 mod common;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
+use std::process::Command;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -218,8 +227,9 @@ fn every_header_status_is_a_legend_status() {
 
 /// The commands an RFC's header declares it specifies, or `None` where it declares none.
 ///
-/// The line reads `- **Commands:**` followed by top-level names as `--help-all` spells them,
-/// comma-separated, backticks optional. Nothing else may be on it — a trailing clause would be
+/// The line reads `- **Commands:**` followed by top-level names as `--help-all` spells them, or
+/// `group sub` pairs as the group's own `--help` spells the second word, comma-separated,
+/// backticks optional. Nothing else may be on it — a trailing clause would be
 /// parsed as a command name, and `every_declared_command_is_spelled_like_a_command` rejects it
 /// rather than ignoring it, because a name this file cannot recognise is a name it cannot check
 /// the status against.
@@ -271,6 +281,58 @@ fn commands_in_title(text: &str) -> Vec<String> {
     found
 }
 
+/// The subcommands a group's own `--help` lists, or an empty set where it is not a group.
+///
+/// A group's `--help` is clap's flat document, not [`yidam::help`]'s template, so this reads a
+/// different shape from [`common::commands_from_help`]: a `Commands:` heading, then one row per
+/// subcommand indented two spaces, ending at the first blank line. `help` is clap's own and is
+/// dropped, as it is from the top-level roster. A name that exits nonzero, being no command at
+/// all, has no subcommands.
+fn subcommands_of(group: &str) -> BTreeSet<String> {
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .args([group, "--help"])
+        .output()
+        .unwrap_or_else(|e| panic!("running `yidam {group} --help` ({e})"));
+    if !out.status.success() {
+        return BTreeSet::new();
+    }
+    let help = String::from_utf8(out.stdout).expect("--help is utf-8");
+    let Some((_, rows)) = help.split_once("\nCommands:\n") else {
+        return BTreeSet::new();
+    };
+    rows.lines()
+        .take_while(|l| !l.trim().is_empty())
+        .filter_map(|l| l.strip_prefix("  ")?.split_whitespace().next())
+        .filter(|name| *name != "help")
+        .map(str::to_string)
+        .collect()
+}
+
+/// Every entry a `- **Commands:**` line could name that this binary has.
+///
+/// The top-level roster, plus `group sub` for every subcommand of each group some RFC declares a
+/// subcommand of. One set, so the checks below ask `contains` of a bare name and a pair alike.
+/// Only declared groups are asked, because each one costs a run of the binary.
+fn built_surface(declaring: &BTreeMap<String, (PathBuf, Vec<String>)>) -> BTreeSet<String> {
+    let mut built = common::commands_from_help();
+    let groups: BTreeSet<&str> = declaring
+        .values()
+        .flat_map(|(_, commands)| commands)
+        .filter_map(|c| c.split_once(' ').map(|(group, _)| group))
+        .collect();
+    for group in groups {
+        for sub in subcommands_of(group) {
+            built.insert(format!("{group} {sub}"));
+        }
+    }
+    built
+}
+
+/// The top-level command an entry belongs to: the name itself, or a pair's group.
+fn top_level(entry: &str) -> &str {
+    entry.split(' ').next().unwrap_or(entry)
+}
+
 /// Commands absent from a `--no-default-features` build, so absence proves nothing about them.
 ///
 /// `tonpa` alone, for `cli_reference.rs`'s reason: it is the one command gated at the clap
@@ -294,7 +356,7 @@ fn every_declared_command_is_spelled_like_a_command() {
         declaring.len()
     );
 
-    let built = common::commands_from_help();
+    let built = built_surface(&declaring);
     let mut malformed = Vec::new();
     for (number, (_, commands)) in &declaring {
         assert!(
@@ -303,10 +365,14 @@ fn every_declared_command_is_spelled_like_a_command() {
              commands it specifies."
         );
         for name in commands {
-            let looks_like_one = !name.is_empty()
-                && name.chars().all(|c| c.is_ascii_lowercase() || c == '-')
-                && !name.starts_with('-')
-                && !name.ends_with('-');
+            let words: Vec<&str> = name.split(' ').collect();
+            let looks_like_one = words.len() <= 2
+                && words.iter().all(|w| {
+                    !w.is_empty()
+                        && w.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+                        && !w.starts_with('-')
+                        && !w.ends_with('-')
+                });
             if !looks_like_one {
                 malformed.push(format!("RFC-{number}: `{name}`"));
             }
@@ -315,10 +381,29 @@ fn every_declared_command_is_spelled_like_a_command() {
     assert!(
         malformed.is_empty(),
         "these entries on a `- **Commands:**` line are not command names:\n  {}\nThe line takes \
-         comma-separated top-level names as `yidam --help-all` spells them, and nothing else — a \
-         clause explaining them belongs in the RFC's body.",
+         comma-separated top-level names as `yidam --help-all` spells them, or `group sub` pairs \
+         separated by one space, and nothing else — a clause explaining them belongs in the \
+         RFC's body.",
         malformed.join("\n  ")
     );
+
+    // The subcommand reader's floor: a group the binary has, which some RFC declares a
+    // subcommand of, lists at least one. Without it a change to clap's layout would leave every
+    // pair unbuilt, and an `Implemented` RFC declaring pairs would go red for the wrong reason
+    // while an `Accepted` one went quietly unchecked.
+    for (number, (_, commands)) in &declaring {
+        for name in commands {
+            let group = top_level(name);
+            if name != group && built.contains(group) {
+                assert!(
+                    built.iter().any(|b| b.starts_with(&format!("{group} "))),
+                    "RFC-{number} declares `{name}`, and `yidam {group} --help` parsed to no \
+                     subcommands at all — the reader in `subcommands_of` has stopped matching \
+                     clap's layout"
+                );
+            }
+        }
+    }
 
     assert!(
         declaring
@@ -338,13 +423,15 @@ fn every_declared_command_is_spelled_like_a_command() {
 /// Every command and not any, deliberately. An RFC that specifies three commands and has built
 /// one is mid-implementation, which is exactly what `Accepted` says — RFC-0004's `sync`,
 /// `check-drift` and `upgrade` are the standing case, none of them built. The status has to move
-/// on the day the last one lands, and this is what says so.
+/// on the day the last one lands, and this is what says so. A group counts the same way when
+/// its line names subcommands: `source check` built and `source add` not is `Accepted` (#1329).
 #[test]
 fn an_rfc_whose_commands_all_ship_is_not_draft_or_accepted() {
-    let built = common::commands_from_help();
+    let declaring = rfcs_declaring_commands();
+    let built = built_surface(&declaring);
     let mut lagging = Vec::new();
 
-    for (number, (path, commands)) in rfcs_declaring_commands() {
+    for (number, (path, commands)) in declaring {
         if !commands.iter().all(|c| built.contains(c)) {
             continue;
         }
@@ -374,16 +461,17 @@ fn an_rfc_whose_commands_all_ship_is_not_draft_or_accepted() {
 /// a `--no-default-features` build legitimately does not have it.
 #[test]
 fn an_implemented_rfc_declares_no_command_the_binary_lacks() {
-    let built = common::commands_from_help();
+    let declaring = rfcs_declaring_commands();
+    let built = built_surface(&declaring);
     let mut overclaimed = Vec::new();
 
-    for (number, (path, commands)) in rfcs_declaring_commands() {
+    for (number, (path, commands)) in declaring {
         if header_status(&read(&path)) != "Implemented" {
             continue;
         }
         let missing: Vec<&String> = commands
             .iter()
-            .filter(|c| !built.contains(*c) && !feature_gated(c))
+            .filter(|c| !built.contains(*c) && !feature_gated(top_level(c)))
             .collect();
         if !missing.is_empty() {
             overclaimed.push(format!("RFC-{number}: {missing:?}"));
@@ -404,7 +492,8 @@ fn an_implemented_rfc_declares_no_command_the_binary_lacks() {
 /// The one case the documents themselves make decidable, and so the only guard against the
 /// `- **Commands:**` line simply being left off. A title reading *"(`yidam query`)"* has already
 /// said what this RFC's command surface is; the header saying it again in a form a test can read
-/// costs one line, and is what puts five of the thirteen beyond a reviewer's memory.
+/// costs one line, and is what puts five of the thirteen beyond a reviewer's memory. A title
+/// naming a group is satisfied by a line naming its subcommands.
 #[test]
 fn a_command_an_rfc_titles_itself_after_is_declared_in_its_header() {
     let mut undeclared = Vec::new();
@@ -417,7 +506,7 @@ fn a_command_an_rfc_titles_itself_after_is_declared_in_its_header() {
         }
         let declared = declared_commands(&text).unwrap_or_default();
         for name in titled {
-            if !declared.contains(&name) {
+            if !declared.iter().any(|d| top_level(d) == name) {
                 undeclared.push(format!("RFC-{number}: `{name}`"));
             }
         }
