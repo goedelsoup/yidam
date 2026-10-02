@@ -38,6 +38,7 @@ pub mod manifest;
 #[cfg(feature = "source-transforms")]
 pub mod parsed;
 pub mod pin;
+pub mod resolve;
 pub mod transform;
 pub mod version;
 
@@ -467,14 +468,9 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
             );
         }
     }
-    for var in &t.auth {
-        if !is_env_name(var) {
-            out.error(
-                "pack.toml",
-                format!(
-                    "[transport] auth `{var}` is not an environment variable name; auth names a variable, never a value"
-                ),
-            );
+    for a in &t.auth {
+        if let Err(why) = a.spec() {
+            out.error("pack.toml", format!("[transport] auth {why}"));
         }
     }
 
@@ -752,14 +748,6 @@ fn check_pins(root: &Path, packs: &[Pack], findings: &mut Vec<Finding>) -> Resul
 /// `catalog-location-malformed` refuses them: such a value is a URL, not an identifier.
 fn is_scheme_name(s: &str) -> bool {
     pin::is_pack_name(s) && s != "http" && s != "https"
-}
-
-fn is_env_name(s: &str) -> bool {
-    let mut bytes = s.bytes();
-    bytes
-        .next()
-        .is_some_and(|b| b.is_ascii_uppercase() || b == b'_')
-        && bytes.all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
 }
 
 /// Files under `dir`, as `/`-separated paths relative to it, sorted.

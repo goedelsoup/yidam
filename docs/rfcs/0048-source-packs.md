@@ -179,7 +179,8 @@ resolve = { template = "https://www.ebi.ac.uk/europepmc/webservices/rest/{id}/fu
 [transport]
 contact       = "required"   # YIDAM_CONTACT goes into the User-Agent; never a browser string
 min_interval  = "100ms"
-auth          = []           # e.g. ["COURTLISTENER_TOKEN"] — env var names, never values
+auth          = []           # e.g. [{ env = "COURTLISTENER_TOKEN", header = "Authorization", prefix = "Token " }]
+                             # env var names and where each is sent, never values (§5)
 archive       = "wayback"    # may add a pinned `id_` snapshot location (§5)
 
 [defaults]
@@ -275,6 +276,18 @@ around a 403. One state's secretary of state refuses all automated clients, and 
 Wayback captures of that site are captures of the refusal page. The pack for such a publisher
 says `blocked = "..."` and `source list` reports it. The answer to a block is a manual export
 recorded as a `file` location, which is what that corpus did.
+
+**A credential says where it goes.** #1317 found that a bare variable name leaves the host to
+guess between a header and a query parameter, and a guess about a secret is a leak. So `auth`
+takes `{ env, header, prefix? }` or `{ env, query }`, and `source check` refuses a bare name. A
+query credential is added to the URL as it is sent and to no URL the report or the commit holds.
+A credentialed request follows redirects only on its own host.
+
+**No pack declares a bad TLS chain.** One publisher (dol.gov) serves a chain that does not verify
+(`UnknownIssuer`). A pack may not declare that chain trusted or turn verification off. Either is
+a step around a refusal, and it would hold for every corpus that pins the pack. Such a publisher
+is fetched by hand and recorded as a `file` location, and its pack may say `blocked`. Settled in
+#1317.
 
 ### 6. Pure gluon transforms
 
@@ -439,6 +452,8 @@ Settled in review on 2026-10-01. These were this RFC's open questions.
    pin does. A commit holds one `pack.toml`, so the range is checked against that version and
    a mismatch refuses the re-vendor. Nothing walks the other repository's history for a
    satisfying commit. Settled in #1315 (§3).
+7. **TLS:** no pack may declare a known-bad certificate chain trusted. Such a publisher is a
+   manual `file` location. Settled in #1317 (§5).
 
 ## Open questions
 

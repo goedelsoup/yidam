@@ -23,7 +23,9 @@
 
 use anyhow::{bail, Result};
 
-use crate::parse::{ArtifactOrigin, ArtifactReading, CatalogArtifact, TextReading};
+use crate::parse::{
+    ArtifactOrigin, ArtifactReading, CatalogArtifact, CatalogLocation, TextReading,
+};
 
 /// A document split at the frontmatter, losslessly.
 ///
@@ -273,6 +275,84 @@ pub fn append_artifacts(text: &str, records: &[CatalogArtifact]) -> Result<Strin
     Ok(rejoin(&split, &out.join("\n")))
 }
 
+/// Append locations to the end of an entry's `location:` list (`catalog fetch --archive`).
+///
+/// At the end, because a location is named by its index — `--location 1`, an artifact's
+/// `from: 1` — and an insertion anywhere else would renumber every one after it. A location
+/// the entry already lists, by kind and value, is skipped, so a second `--archive` run that
+/// found the same capture changes nothing.
+///
+/// The items are written at the indent the list already uses, and the result is read back
+/// through the parser: an edit that does not yield the list plus these is refused.
+pub fn append_locations(text: &str, new: &[CatalogLocation]) -> Result<String> {
+    let parsed = crate::parse::parse_frontmatter(text).location;
+    let held = parsed.clone().unwrap_or_default();
+    let same = |a: &CatalogLocation, b: &CatalogLocation| a.kind == b.kind && a.value == b.value;
+    let mut fresh: Vec<&CatalogLocation> = Vec::new();
+    for l in new {
+        if !held.iter().any(|h| same(h, l)) && !fresh.iter().any(|f| same(f, l)) {
+            fresh.push(l);
+        }
+    }
+    if fresh.is_empty() {
+        return Ok(text.to_string());
+    }
+    let split = split(text)?;
+    let lines: Vec<&str> = split.front.split('\n').collect();
+    let Some(range) = block_of(&lines, "location") else {
+        bail!("this entry declares no top-level `location:` list to add to");
+    };
+    if parsed.is_none() || held.is_empty() {
+        bail!("this entry's `location:` is not a list of locations this can add to");
+    }
+    let indent = lines[range.clone()]
+        .iter()
+        .skip(1)
+        .find_map(|l| {
+            let t = l.trim_start_matches(' ');
+            t.starts_with("- ").then(|| &l[..l.len() - t.len()])
+        })
+        .unwrap_or("  ");
+    let mut rendered: Vec<String> = Vec::new();
+    for l in &fresh {
+        let mut fields = vec![
+            ("kind", l.kind.as_deref().unwrap_or("")),
+            ("value", l.value.as_deref().unwrap_or("")),
+        ];
+        if let Some(d) = &l.description {
+            fields.push(("description", d));
+        }
+        for (i, (k, v)) in fields.into_iter().enumerate() {
+            let lead = if i == 0 { "- " } else { "  " };
+            rendered.push(format!("{indent}{lead}{k}: {}", quote_if_needed(v)));
+        }
+    }
+    let mut out: Vec<String> = lines.iter().map(|s| (*s).to_string()).collect();
+    let mut at = range.end;
+    while at > range.start + 1 && out[at - 1].trim().is_empty() {
+        at -= 1;
+    }
+    out.splice(at..at, rendered);
+    let updated = rejoin(&split, &out.join("\n"));
+
+    let after = crate::parse::parse_frontmatter(&updated)
+        .location
+        .unwrap_or_default();
+    let landed = after.len() == held.len() + fresh.len()
+        && after.iter().zip(&held).all(|(a, h)| same(a, h))
+        && after[held.len()..]
+            .iter()
+            .zip(&fresh)
+            .all(|(a, f)| same(a, f));
+    if !landed {
+        bail!(
+            "adding to this entry's `location:` list would not read back as the list plus the \
+             new locations, so it was not written"
+        );
+    }
+    Ok(updated)
+}
+
 /// Record a derived reading under the artifact record whose digest is `of` (#1172, #1318).
 ///
 /// `None` when that record already carries a reading of the same media type by the same
@@ -471,6 +551,77 @@ The system of record. **Parameter 00060** is discharge.
             text: None,
             readings: None,
         }
+    }
+
+    fn wayback(ts: &str) -> CatalogLocation {
+        CatalogLocation {
+            kind: Some("identifier".into()),
+            value: Some(format!("wayback:{ts}/https://x/?sites=09380000")),
+            description: Some(format!(
+                "Location 0, as the Wayback Machine held it on {ts}."
+            )),
+        }
+    }
+
+    /// At the end, so every index an artifact's `from:` names still names the same location.
+    #[test]
+    fn a_location_is_appended_after_the_ones_the_entry_lists() {
+        let out = append_locations(ENTRY, &[wayback("20240102030405")]).unwrap();
+        let locs = crate::parse::parse_frontmatter(&out).location.unwrap();
+        assert_eq!(locs.len(), 2);
+        assert_eq!(locs[0].kind.as_deref(), Some("url_template"));
+        assert_eq!(
+            locs[1].value.as_deref(),
+            Some("wayback:20240102030405/https://x/?sites=09380000")
+        );
+        assert!(
+            out.contains(
+                "    description: Instantaneous values.\n  - kind: identifier\n    \
+                 value: \"wayback:20240102030405/https://x/?sites=09380000\"\n"
+            ),
+            "{out}"
+        );
+        assert!(out.contains("used-by:\n  - ../corpus/gage/canyon-outlet.yml\n"));
+        assert!(out.contains("# USGS NWIS"));
+    }
+
+    #[test]
+    fn a_location_already_listed_is_not_added_twice() {
+        let once = append_locations(ENTRY, &[wayback("20240102030405")]).unwrap();
+        let again = append_locations(&once, &[wayback("20240102030405")]).unwrap();
+        assert_eq!(once, again);
+        let twice = append_locations(ENTRY, &[wayback("1"), wayback("1")]).unwrap();
+        assert_eq!(
+            crate::parse::parse_frontmatter(&twice)
+                .location
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    /// A list written flush with its key takes items at the same column.
+    #[test]
+    fn a_location_is_written_at_the_lists_own_indent() {
+        let flush = ENTRY
+            .replace("  - kind: url_template", "- kind: url_template")
+            .replace("    value: https://x/?sites", "  value: https://x/?sites")
+            .replace("    description: Inst", "  description: Inst");
+        let out = append_locations(&flush, &[wayback("2")]).unwrap();
+        assert!(out.contains("\n- kind: identifier\n  value: "), "{out}");
+        assert_eq!(
+            crate::parse::parse_frontmatter(&out)
+                .location
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn an_entry_with_no_location_list_is_refused() {
+        let none = "---\nname: x\n---\n";
+        assert!(append_locations(none, &[wayback("2")]).is_err());
     }
 
     #[test]
