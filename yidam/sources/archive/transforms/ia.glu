@@ -1,0 +1,29 @@
+\p ->
+    let same : String -> String -> Bool = \a b -> a == b
+    let pick name acc f =
+        match acc with
+        | Some found -> Some found
+        | None -> if same f.path name then Some f.value else None
+    let text : String -> Option String = \name ->
+        match array.foldable.foldl (pick name) None p.fields with
+        | Some (Text s) -> Some s
+        | _ -> None
+    let ocr acc f =
+        match acc with
+        | Some found -> Some found
+        | None ->
+            match f.value with
+            | Text s -> if same f.name "name" && string.ends_with s "_djvu.txt" then Some s else None
+            | _ -> None
+    let kind : Option String =
+        match text "metadata/mediatype" with
+        | Some m -> if same m "data" then Some "dataset" else None
+        | None -> None
+    let ids =
+        match text "metadata/identifier" with
+        | Some item ->
+            match array.foldable.foldl ocr None p.fields with
+            | Some file -> [{ key = "text", value = item ++ "/" ++ file }]
+            | None -> []
+        | None -> []
+    { name = text "metadata/title", kind, date = text "metadata/date", description = None, identifiers = ids }

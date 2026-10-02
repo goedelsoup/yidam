@@ -14,4 +14,3 @@ It refuses a pin the pack's version does not meet, and then changes nothing.
 
 **What changes for you: nothing, until you pin a pack.**
 A repository with no `prelude_sources` vendors no packs, and `source check` passes.
-The template ships no packs yet.

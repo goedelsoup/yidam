@@ -180,7 +180,19 @@ pub const COLLECTIVE: &str = "governance: collective";
 /// and step 8 then vendors no `domains/` directory at all.
 pub const DOMAIN_SELECTED: &str = "prelude_domains: non-empty";
 
+/// Step 8 pinned a `yidam/sources/` pack in `prelude_sources`. The default is that none is,
+/// and step 8 then vendors no `sources/` directory at all.
+pub const SOURCE_SELECTED: &str = "prelude_sources: non-empty";
+
 pub const MAPPING: &[Install] = &[
+    // The source packs, beside the prelude for the same reason as the domains (#1320). Step 8
+    // copies only the packs `prelude_sources` pins, and appends a `[vendored]` table to each
+    // copy's `pack.toml`; the tree [`materialize`] builds models the copy, not the append.
+    Install {
+        src: "yidam/sources",
+        dst: Some(".yidam/.vendor/sources"),
+        when: Some(SOURCE_SELECTED),
+    },
     // The domain libraries, beside the prelude rather than inside it (#934). Fifteen
     // libraries in three languages each, and step 8 copies only what a step 5 calculator
     // named. A derived repository has no task that builds them, no workspace that includes

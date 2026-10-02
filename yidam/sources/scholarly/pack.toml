@@ -1,0 +1,63 @@
+# Papers, by DOI, arXiv id and PMCID.
+#
+# `doi` reads Crossref's metadata. Crossref names no PMCID, so the full text is reached in two
+# steps: `europepmc` asks Europe PMC which record carries the DOI, and names its PMCID only
+# when Europe PMC holds the open-access full text; `pmc` reads that full text as JATS XML.
+# A DOI Europe PMC does not index still gets its `europepmc:` location, and that location's
+# answer names nothing further.
+#
+# `min_interval` is arXiv's: its API terms ask for one request every three seconds.
+[pack]
+name        = "scholarly"
+version     = "0.1.0"
+description = "Papers, by DOI, arXiv id and PMCID, read through Crossref, arXiv and Europe PMC."
+
+[scheme.doi]
+pattern  = '^10\.\d{4,9}/\S+$'
+type     = "paper"
+resolve  = { template = "https://api.crossref.org/works/{id}", media = "application/json" }
+describe = "transforms/crossref.glu"
+then     = [{ scheme = "europepmc", from = "describe.doi" }]
+
+[scheme.europepmc]
+pattern  = '^10\.\d{4,9}/\S+$'
+type     = "paper"
+resolve  = { template = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=DOI:%22{id}%22&format=json&resultType=core", media = "application/json" }
+describe = "transforms/europepmc.glu"
+then     = [{ scheme = "pmc", from = "describe.pmcid" }]
+
+[scheme.pmc]
+pattern = '^PMC\d+$'
+type    = "paper"
+resolve = { template = "https://www.ebi.ac.uk/europepmc/webservices/rest/{id}/fullTextXML", media = "application/xml" }
+extract = "transforms/europepmc-body.glu"
+
+[scheme.arxiv]
+pattern  = '^(\d{4}\.\d{4,5}|[a-z-]+(\.[A-Z]{2})?/\d{7})(v\d+)?$'
+type     = "paper"
+resolve  = { template = "https://export.arxiv.org/api/query?id_list={id}", media = "application/atom+xml" }
+describe = "transforms/arxiv.glu"
+then     = [{ scheme = "doi", from = "describe.doi" }]
+
+[transport]
+contact      = "required"
+min_interval = "3s"
+
+[defaults]
+ttl_days        = 365
+redistributable = false
+
+[search]
+scheme   = "doi"
+template = "https://api.crossref.org/works?query={query}&rows={limit}"
+media    = "application/json"
+items    = "message/items/*"
+id       = "DOI"
+title    = "title/0"
+fixtures = { "head scanning intersections central field loss" = "crossref-search.json" }
+
+[fixtures]
+"doi:10.1167/tvst.8.5.14"       = "crossref-tvst.json"
+"europepmc:10.1167/tvst.8.5.14" = "europepmc-tvst.json"
+"pmc:PMC6753881"                = "europepmc-pmc6753881.xml"
+"arxiv:1602.03837"              = "arxiv-1602.03837.xml"

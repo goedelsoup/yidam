@@ -41,7 +41,7 @@ use crate::common;
 
 use common::{
     blank_code_spans, install_of, repo_root, resolve, ALWAYS_PRESENT, COLLECTIVE, DOMAIN_SELECTED,
-    MAPPING,
+    MAPPING, SOURCE_SELECTED,
 };
 
 /// Sections of an otherwise unconditional file that bootstrap deletes unless a condition
@@ -481,6 +481,40 @@ fn the_domain_libraries_are_absent_by_default_and_present_when_named() {
     );
     assert_eq!(
         with_domain.len() - default_tree.len(),
+        withheld,
+        "the two trees differ only by additions"
+    );
+}
+
+/// The source packs are absent by default and present when `prelude_sources` pins one.
+///
+/// A pack's templates name publishers' hosts, and a corpus that pinned none must not find
+/// one enabled by having been vendored (RFC-0048 §7). The same guard as the domains row, for
+/// the same reason.
+#[test]
+fn the_source_packs_are_absent_by_default_and_present_when_pinned() {
+    let root = repo_root();
+    let default_tree = installed_tree(&root, &BTreeSet::new());
+    let with_sources = installed_tree(&root, &BTreeSet::from([SOURCE_SELECTED]));
+
+    let manifest = ".yidam/.vendor/sources/scholarly/pack.toml";
+    assert!(
+        !default_tree.contains(manifest),
+        "pinning no source pack is the default and must vendor none of them"
+    );
+    assert!(
+        with_sources.contains(manifest),
+        "a condition that withholds unconditionally is just a deletion"
+    );
+    assert!(
+        !with_sources
+            .iter()
+            .any(|p| p.starts_with(".yidam/.vendor/prelude/sources")),
+        "the source packs are vendored beside the prelude, not inside it"
+    );
+    let withheld = with_sources.difference(&default_tree).count();
+    assert_eq!(
+        with_sources.len() - default_tree.len(),
         withheld,
         "the two trees differ only by additions"
     );

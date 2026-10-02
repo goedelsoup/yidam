@@ -8,7 +8,21 @@ It also says how to ask that publisher politely, and how to read its answers.
 One pack serves every corpus that pins it, so nobody writes a connector twice.
 [RFC-0048](rfcs/0048-source-packs.md) gives the reasoning.
 
-The template ships no packs yet. A corpus can write its own, or pin one another corpus wrote.
+The template ships two packs in `yidam/sources/`. A corpus can also write its own, or pin one another corpus wrote.
+
+| Pack | Schemes | Reads |
+|---|---|---|
+| `scholarly` | `doi`, `europepmc`, `pmc`, `arxiv` | Crossref metadata, Europe PMC full text, the arXiv API |
+| `archive` | `wayback`, `ia`, `ia-file` | Wayback Machine snapshots, Internet Archive items |
+
+One `doi:` reaches the full text when Europe PMC holds it open access.
+The DOI's describe names a `europepmc:` location for the same DOI.
+That one asks Europe PMC for the record, and names a `pmc:` location when the full text is open.
+A DOI Europe PMC does not index still gets the `europepmc:` location, which leads nowhere.
+`scholarly` requires `YIDAM_CONTACT`, and waits three seconds between requests to one host, as arXiv asks.
+
+An `ia:` item names its OCR text as an `ia-file:` location, when it has one.
+`archive` is also what `catalog-fetch --archive` needs: it declares `wayback`.
 
 ## Name a source by identifier
 
@@ -173,7 +187,7 @@ One table per scheme. A scheme name is lowercase letters, digits and `-`, starti
 
 A `then` names the next identifier a source leads to, such as a DOI's PMCID.
 Its `from` reads an identifier the scheme's `describe` returns.
-`source check` holds each `then` to that. No command follows a `then` yet.
+`source check` holds each `then` to that. `source add` follows each `then`, and the identifiers it names become the entry's further locations.
 
 The catalog types are `paper`, `dataset`, `api`, `database`, `statute`, `report`, `standard`, `document` and `other`.
 
