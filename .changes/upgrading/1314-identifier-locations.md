@@ -4,7 +4,7 @@
 For example, `doi:10.1167/tvst.8.5.14` or `pmc:PMC6753881`.
 
 `kind: doi` and `kind: pmc` are still reported by `catalog-location-malformed`.
-The finding now names the fix: run `yidam migrate --dry-run locations`, then `yidam migrate locations`.
+The finding now names the fix, `yidam migrate locations`. Run it with `--dry-run` first to see each rewrite.
 A value that is a URL is reported and left for you to rewrite.
 
 **The catalog `type` set gains `statute`, `report`, `standard` and `document`.**

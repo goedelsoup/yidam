@@ -20,6 +20,7 @@ After bootstrap, a derived repository has two tiers:
 
 **`.yidam/`** — yidam-managed infrastructure:
 - `.yidam/catalog/` — provenance anchors for corpus knowledge
+- `.yidam/sources/` — source packs this repository wrote *(created on first use)*
 - `.yidam/corpus/` — the living knowledge graph
 - `.yidam/tonpa.toml` and `.yidam/tonpa/` — the corpora this one depends on, and where they land
 - `.yidam/decisions/` — structured records of choices made during this repo's life
@@ -229,6 +230,8 @@ location:
   - kind: url                # url | url_template | address | file | identifier
     value: https://example.org/pearl-2009
     description: publisher's copy   # required only when there are several locations
+  - kind: identifier         # scheme:local-id
+    value: doi:10.1167/tvst.8.5.14
 used-by:
   - ../corpus/concept/confounding.yml
 artifacts:                     # optional; what was actually obtained
@@ -239,8 +242,19 @@ artifacts:                     # optional; what was actually obtained
     from: 0                    # which `location` it came from, or a URL
     vault: sources             # optional; overrides the route its kind takes. `none` = local only
     redistributable: false     # whether they may leave this machine at all
+    readings:                  # optional; written by `yidam catalog-extract`
+      - sha256: 41d0a7…
+        media_type: text/plain
+        by: pdf-extract 0.12.1 # or <pack>@<version>/<transform>@sha256:<hash>
 ---
 ```
+
+- **`type`** names the source's form, not its standing: `document` is any other single
+  document, such as a manual or a filing. `catalog-type-unknown` reports any other word,
+  `primary` included.
+- **`kind: identifier`** takes `scheme:local-id`, such as `pmc:PMC6753881`, and the source pack
+  declaring that scheme fetches it. `yidam migrate locations` rewrites an older `kind: doi` or
+  `kind: pmc`.
 
 - **`obtained: false`** declares a source registered ahead of the extraction that will use it.
   It exempts the entry from `catalog-uncited` — which is the honest reason for a source nothing
@@ -302,6 +316,8 @@ artifacts:                     # optional; what was actually obtained
     [why](directories.evidence.md#vault-route-override)
   - `redistributable` is a **licensing fact about the source**, and it is deliberately not
     folded into `vault`. [why](directories.evidence.md#redistributable-separate)
+  - `readings` are derived from the bytes, and a quotation is compared with the first
+    `text/plain` one. An older entry's `text:` is still read.
 
   **What no check here can tell you is whether the bytes are present or correct.** That is a
   fact about the machine asking rather than about `HEAD`; `yidam vault verify` answers it, per
@@ -910,7 +926,8 @@ skills that require knowledge of this domain's corpus or toolkit live here.
 
 The inherited yidam prelude, moved here by the `vendor:` commit during bootstrap.
 
-**What belongs here:** `prelude/` and nothing else. The vendor step moves `yidam/prelude/` to
+**What belongs here:** `prelude/`, plus the `domains/` and `sources/` that
+`.yidam/decisions/proposals.yml` pins (see below). The vendor step moves `yidam/prelude/` to
 `.yidam/.vendor/prelude/` and deletes the rest of the template.
 
 **What deliberately does not belong here:** yidam's CLI source, its bootstrap test harness, its
@@ -970,6 +987,12 @@ libraries are not part of the prelude; the update reads `prelude_domains` from
 it keeps exactly what this repository already vendored. Adding a name to that field and
 re-running the update is how a domain is vendored later.
 [why](directories.evidence.md#prelude-domains-not-wholesale)
+
+**`.yidam/.vendor/sources/` holds the source packs `prelude_sources` pins** in the same file,
+as `<pack>@<range>` or `<pack>@<range> from <repo>@<commit>`. No pins vendors none, and a pin
+the update cannot satisfy changes nothing. A pack this repository writes lives in
+`.yidam/sources/<pack>/` and is read first. `yidam source check` holds packs and pins to the
+format; see [Source packs](https://github.com/goedelsoup/yidam/blob/main/docs/source-packs.md).
 
 `mise.yidam.toml` is on that list because it is inherited, not domain-owned: it is the task
 layer, as much yidam's to correct as the prelude is, and it sits at the repo root only because

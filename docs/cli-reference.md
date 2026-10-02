@@ -412,7 +412,7 @@ the read-only overview.
 | `estimate <query>` | What a query would cost before you run it |
 | `count [query]` * | How many nodes a query matches. With no query, refreshes every `<!-- REGEN: yidam count <query> -->` block in the tracked markdown set — the form `regen` runs ([RFC-0043](rfcs/0043-inline-regen-and-count.md)) |
 | `diff <range>` | Node and edge changes between two git refs |
-| `check-diff [range]` | What a code diff names that the ontology does not ([RFC-0021](rfcs/0021-diff-alignment.md)). Defaults to the merge-base with `main` — this branch's work |
+| `check-diff [range]` | What a code diff names that the ontology does not ([RFC-0021](rfcs/0021-diff-alignment.md)). Defaults to the merge-base with `main` — this branch's work. An `unmodelled-concept` row may carry a `nearest` declared name: one whose `-`-separated word shares a root of at least five characters with a word of the type's name, the two words' lengths within three. More shared words win, then the longer root, then the name. It is a lead to check, not a match — no model reads either name |
 | `log [range]` | Commit history classified as testimony or pipeline work. `--epistemic`, `--operational` |
 | `phases` | Active inquiry phases — `ma/*`, `rigpa/*` and `phase/*` branches. `State` is `active`, `interrupted`, `settled`, `rewritten` or `position`. `Source` says which evidence decided it |
 | `replay` | Corpus health reconstructed across the repository's whole history. `--every` |
@@ -425,7 +425,7 @@ the read-only overview.
 | `propose` * | Draft findings as proposed epistemic commits on a `propose/<head>` branch |
 | `run [step]` * | Invoke the stale capabilities declared in `.yidam/capabilities.toml`, in dependency order, and commit what each produced with a receipt. Named with a step, runs that step and everything it declares it comes `after`; with nothing, the whole manifest. `--dry-run` plans and writes nothing |
 | `phase <sub>` * | `start` opens a phase and snapshots what it begins from. `run` invokes its plan, recording each step. `settle` checks it produced outputs and drafts the merge — a person runs it |
-| `cluster <sub>` * | The same run on Argo Workflows, one pod per act. `workflow` generates the manifest. `pin` bundles the branch tip into a vault. `step` runs one capability against a bundle. `land` is the one command that moves a ref. `admit` says whether a run is owed |
+| `cluster <sub>` * | The same run on Argo Workflows, one pod per act. `workflow` generates the manifest. `network-policy` writes the egress fence. `pin` bundles the branch tip into a vault. `step` runs one capability against a bundle. `land` is the one command that moves a ref. `admit` says whether a run is owed. `survey`, `ask` and `gather` run a gather. `status` reports recent runs |
 | `gather <name>` * | Ask pinned peers the question in `.yidam/gathers/<name>.toml`. Their answers land as one cited `?` node on a `propose/*` branch. `--dry-run` asks and writes nothing |
 | `dispatch <question>` * | Run the agent electors named by `--seat`, each as its seat declares. Each position lands on a `propose/elector/*` branch with a receipt. `--dry-run` runs them and writes nothing |
 
@@ -611,6 +611,28 @@ question stops being counted among the claims the corpus makes. `open-questions`
 change: the record is still an open question on the node. That asymmetry is the thing the
 paragraph could not express. It is idempotent; run it with `--dry-run` first.
 
+`locations` moves each catalog location of kind `doi` or `pmc` onto `kind: identifier`. The
+value moves under its scheme unchanged:
+
+```yaml
+- kind: doi                      - kind: identifier
+  value: 10.1167/tvst.8.5.14  →    value: doi:10.1167/tvst.8.5.14
+```
+
+A value that already carries its scheme keeps it rather than gaining a second. The quoting
+follows what was written. Run it with `--dry-run` first:
+
+```sh
+yidam migrate --dry-run locations   # what it would rewrite, and what it leaves
+yidam migrate locations
+```
+
+**A value that is a URL is left alone and reported.** `https://doi.org/10.1/x` holds a DOI.
+Taking a link apart to find one is a reading of it, and that reading is yours. Rewrite it as
+`kind: url`, or as `kind: identifier` with the id the link holds. A block-scalar value or a flow
+mapping is reported too. So is a rewrite that does not read back as written. Each leftover is
+still a `catalog-location-malformed` finding, and the report lists it.
+
 ### `propose` is deliberately small
 
 Three acts only. `open` records a finding's question against the node it is about. `withdraw`
@@ -708,6 +730,8 @@ is written to be pasted somewhere. `--paths` opts back in.
 One section is a measurement with no verdict per member: **accretion**. It fits the two
 candidates RFC-0028 named for `inquiry`'s retired `classes` bands. Each is replayed over every
 member's history. A candidate any member leaves as it ages is printed as rejected.
+The trailing window is read over the last 25, 50 and 100 authored commits.
+RFC-0028 names no window, so the candidate is rejected only if it fails at all three.
 
 ### `run` is a plan, and only an operational commit advances your branch
 
@@ -934,6 +958,7 @@ whether a phase has landed on the baseline.
 
 ```
 yidam cluster workflow --cron "0 6 * * *" > yidam.cronworkflow.yml
+yidam cluster network-policy --executor 10.0.0.1/32 > deploy/corpus.netpol.yml
 yidam cluster admit --remote git@host:corpus.git
 yidam cluster pin   --remote git@host:corpus.git --vault-url file:///var/yidam/vault --out pin.json
 yidam cluster step  travel-tier --bundle <digest> --vault-url file:///var/yidam/vault --out step.json
@@ -949,6 +974,25 @@ prints an Argo `Workflow`. With `--cron` it prints a `CronWorkflow` that admits 
 `--on-push` it also prints an Argo Events `EventSource` and `Sensor`. A push to the branch
 then submits the run, which admits first. It
 runs in a checkout and writes nothing. Every flag it takes overrides one `[cluster]` key.
+`--image` names the container image every pod runs.
+
+**`network-policy`** prints the NetworkPolicies that limit what each kind of pod reaches.
+Every pod reaches DNS and the API server.
+`remote` pods reach the remote. `vault` pods reach the vault and nothing else.
+`internet` pods reach anywhere but the remote.
+A policy matches addresses, so each place is a CIDR list from `[cluster.egress]`.
+Each flag replaces its key, and each may be repeated:
+
+| Flag | Replaces | What it is |
+|---|---|---|
+| `--executor <CIDR>` | `[cluster.egress] executor` | The API server's endpoint addresses. The generator refuses without them |
+| `--remote-cidr <CIDR>` | `[cluster.egress] remote` | Where the git remote is |
+| `--vault-cidr <CIDR>` | `[cluster.egress] vault` | Where an `s3://` vault's endpoint is |
+| `--sts-cidr <CIDR>` | `[cluster.egress] sts` | Where STS is, for pods that assume a role |
+
+`--vault-url` overrides the vault's url, as it does for `workflow`. Apply the output with the
+corpus's overlay. [cluster-runs.md](cluster-runs.md#limit-what-each-pod-reaches) says what each
+address should be.
 
 **`admit`** clones the branch and reads `due`'s clocks, the manifest's staleness and the count
 of open `propose/*` branches. Its record says `admitted` either way, and it exits zero either
@@ -962,6 +1006,7 @@ sha and the bundle's digest. Everything downstream reads the pin, never the remo
 `run`'s loop body with the ref write removed. What it builds is a commit in a second bundle,
 and its record carries `{sha, class, verb, receipt, bundle}`. The command has no `--remote` and
 no `--branch`. That is the point of it, and a test holds it.
+Its `--image` is the reference the pod started from. The receipt records it only when it pins a digest.
 
 **`land`** reads a step record and verifies the bundle. It reads the class off the commit, not
 off the record. Then it pushes the commit to `main` or to `propose/<input>`, with
@@ -969,11 +1014,14 @@ off the record. Then it pushes the commit to `main` or to `propose/<input>`, wit
 only when nothing the step reads moved. Otherwise it refuses. Its last act is a fresh pin,
 which the next step reads. With `--git-auth github-app` it mints an installation token from
 `--github-app-key` and pushes over HTTPS. The token goes to git's environment and nowhere else.
+`--github-app-id` names the App. `--github-api` is GitHub's REST API, `https://api.github.com` by default.
+For GitHub Enterprise Server, pass `https://<host>/api/v3`.
 
 **`survey`**, **`ask`** and **`gather`** run a gather, one pod per peer. None takes `--remote`.
 `survey` plans at the pin and translates each peer's query there. Its `asks` list feeds the fan-out.
 `ask` takes the peer's bundle from the vault, or fetches its lock url when the vault lacks it.
 It checks the bytes against the lock, runs the query, and always puts a record in the vault.
+Like `step`, it records `--image` in the peer's receipt only when it pins a digest.
 `gather` holds every record to the plan. A peer with no record is `refused`, never dropped.
 It builds the tree a local `yidam gather` would, and `land` pushes it to `propose/gather/*`.
 The lander refuses a gather commit that is not `open:`, or that touches other files.
@@ -989,6 +1037,21 @@ reason, or not reached. It gives each gather peer's outcome. With `--remote`, or
 remote`, it reads the branch tip and says whether each proposal is still open. A run whose
 records are gone is `unknown`, with the reason. It never reads a log, and it commits nothing.
 Under `--format json` it is a report, not a pod record.
+`--limit` sets how many runs it shows, newest first; the default is 5.
+`--namespace` overrides `[cluster] namespace`, and `--context` picks the kubeconfig context.
+`--corpus` is the corpus's name in the cluster's objects. It defaults to the root directory's name.
+
+Every pod that reads the vault takes the same vault flags:
+
+| Flag | What it is |
+|---|---|
+| `--vault <NAME>` | The vault's name, which decides which credential variables are read. Default `default` |
+| `--vault-url <URL>` | `file:///path` or `s3://bucket/prefix` |
+| `--vault-region <REGION>` | The S3 region, for an `s3://` url |
+| `--vault-endpoint <URL>` | An S3-compatible endpoint, for a store that is not AWS |
+| `--vault-path-style` | Address the bucket in the path rather than the host |
+
+The generated workflow writes these from the config, so a person rarely types them.
 
 When `land` refuses, it still writes a record to `--out`, holding `refused` and the reason.
 The pod still fails. That record is what `status` shows.
@@ -1107,6 +1170,29 @@ Bindings are not inferred from the corpus. A gage node carrying `properties.para
 looks like it could fill a slot of that name. It might. That has not been checked against more
 than one corpus, so nothing guesses.
 
+### What `lint` holds a catalog entry to
+
+Two checks read a catalog entry's shape. Both are Warn.
+
+**`catalog-type-unknown`** reports a `type:` outside the closed set. The set is `paper`,
+`dataset`, `api`, `database`, `statute`, `report`, `standard`, `document` and `other`. A word
+outside it is reported, never mapped. The finding asks which of the four newer types it is.
+`primary` gets one more clause: it is a standing, not a form. A primary source can be a statute,
+a dataset or a report. Only someone who read it can choose, so no migration maps it.
+
+**`catalog-location-malformed`** reports a location with no `kind` or no `value`. It also reports
+a kind outside `url`, `url_template`, `address`, `file` and `identifier`. Several locations need a
+`description` each. A value must match its kind:
+
+| Kind | Refused |
+|---|---|
+| `url` | A value that does not start `http://` or `https://` |
+| `url_template` | A value with no `{…}` slot |
+| `identifier` | A value that is not `scheme:local-id`, has no local id, or is a URL |
+
+`kind: doi` and `kind: pmc` were written before `identifier` existed. The finding for either names
+`yidam migrate locations`, which rewrites it. See [`migrate` subcommands](#migrate-subcommands).
+
 ### Where a fetch stops
 
 **At the record, and at the local cache.** Two boundaries, each closing a shortcut.
@@ -1164,7 +1250,8 @@ delete the provenance of every claim resting on the older bytes.
 
 A source pack names a family of sources by identifier (RFC-0048). A catalog location
 `kind: identifier, value: doi:10.1167/tvst.8.5.14` names the scheme `doi`, and a pack declares
-how that scheme resolves to an address. A pack is a directory:
+how that scheme resolves to an address. [Source packs](source-packs.md) is the task page: pinning,
+writing, every manifest key, and the transform contract. A pack is a directory:
 
 ```
 <pack>/
@@ -1214,7 +1301,8 @@ version of a pack, so a `from` range is checked, never resolved. The update refu
 pack's version does not satisfy and copies nothing. An authored pack is read before a vendored
 pack of the same name.
 
-`source check` is the CI gate for an authored pack. It reads no network.
+`source check` is the CI gate for an authored pack. It reads no network, and exits nonzero on an
+error. `--format json` emits `passed`, `packs` and `pack_findings`; `text` is the default.
 
 A scheme may name two transforms, `describe` and `extract`, as `.glu` files under
 `transforms/`. They run in the calculator arm's closed prelude, over the response the scheme
@@ -1418,9 +1506,15 @@ never carry one:
 | `YIDAM_VAULT_<NAME>_ROLE_SESSION_NAME` | optional, with a role |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | **the vault named `default`, and no other** |
 | `AWS_ROLE_ARN` / `AWS_WEB_IDENTITY_TOKEN_FILE` | **the vault named `default`, and no other** |
+| `YIDAM_INDEX_ACCESS_KEY_ID` / `YIDAM_INDEX_SECRET_ACCESS_KEY` / `YIDAM_INDEX_SESSION_TOKEN` | the remote vector index `[index.remote]` declares |
+| `YIDAM_INDEX_ROLE_ARN` / `YIDAM_INDEX_WEB_IDENTITY_TOKEN_FILE` / `YIDAM_INDEX_ROLE_SESSION_NAME` | the remote index, assuming a role by web identity |
 
 A vault's own variables are tried first: its role, then its keys. Setting both is refused.
 Then, for `default` only, the `AWS_*` keys, then `AWS_ROLE_ARN`.
+
+The remote index follows the same order under `YIDAM_INDEX_`. It may fall back to `AWS_*`, as
+`default` does. A corpus declares at most one remote index, so there is no second store to
+confuse it with.
 
 A role is exchanged with STS's `AssumeRoleWithWebIdentity`, as IRSA on EKS sets it up. The
 token file is read on each exchange, and credentials are renewed before they expire. STS is
@@ -1647,7 +1741,7 @@ compiled-in mapping and reads no corpus.
 | Command | What it does |
 |---|---|
 | `serve --mcp` | MCP over stdio — the agent surface. See [Connecting an agent](mcp-server.md) |
-| `serve --mcp --http` | The same server over HTTP, for a client that takes a URL rather than spawning a process. `--bind` (loopback by default), `--port`, `--allow-origin`, `--token-file` (or `YIDAM_SERVE_TOKEN`) to require a bearer token. `--bundle` serves a `.yiz` read-only. `/healthz` and `/readyz` need no token |
+| `serve --mcp --http` | The same server over HTTP, for a client that takes a URL rather than spawning a process. `--bind` (loopback by default; an address off loopback with no token prints a startup warning naming every tool it serves), `--port`, `--allow-origin`, `--token-file` (or `YIDAM_SERVE_TOKEN`) to require a bearer token. `--bundle` serves a `.yiz` read-only. `/healthz` and `/readyz` need no token |
 | `serve --lsp` | LSP over stdio — the editor surface. See [Editor setup](editor-setup.md) |
 | `record` | What `serve --mcp` was asked, read from the record `[serve] record` keeps. Reads only, and exits 0 |
 | `record --fold` | Commits the record's new lines into `.yidam/consumption.json` as one `refresh:` commit. Commits nothing when nothing is new |

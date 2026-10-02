@@ -99,6 +99,20 @@ mise run yidam-vendor-status                     # is there a newer release?
 This re-vendors `.yidam/.vendor/prelude/` and rewrites `.yidam.toml`. Domain content is
 untouched.
 
+**Workflows are the repository's, and a re-vendor reaches only one region of one of them.**
+Genesis installs them from [`sadhana/github/workflows/`](https://github.com/goedelsoup/yidam/tree/main/sadhana/github/workflows):
+
+| Workflow | On re-vendor |
+|---|---|
+| `ci.yml` | The part between `YIDAM:CI` markers is rewritten from the scaffold. Everything outside them is yours and is never read |
+| `release.yml` | Not touched. It publishes your corpus as a `.yiz` bundle, and it belongs to the derived repository |
+| `index.yml` | Not touched. It still compiles yidam from the pinned source, since no release carries `--features index` |
+
+`watch.yml` is not touched either. So a fix to any workflow outside the `ci.yml` region reaches
+you only by hand. When the release notes name
+one, copy the template's new file over yours and review the diff. A repository whose `ci.yml`
+has no markers yet gets them from `yidam migrate scaffold`.
+
 **Prelude errata propagate by re-vendor, not by freezing.** A derived repository is never frozen
 at its birth prelude: a typo or vocabulary fix made upstream is a patch bump, and it reaches the
 repository on the next template bump it adopts.
