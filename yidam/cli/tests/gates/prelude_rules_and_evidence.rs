@@ -198,13 +198,18 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// The delta is **30 words in `reading-the-corpus.md`**: one sentence under *`yidam query`* and
 /// one row of the loop table. The worked example went to `docs/cli-reference.md` instead, where
 /// no occasion pays for it.
+///
+/// **Raised on *Before a claim crosses a corpus boundary*, on both routes, when the catalog
+/// gained `identifier` and four types (#1314, RFC-0048).** The delta is **10 words in
+/// `directories.md`**, the two comments in its catalog example naming the closed sets, and both
+/// routes moved by the same 10. Documenting `identifier` itself is #1321's.
 const READ_CEILING: &[(&str, &str, usize)] = &[
     ("AGENTS.md", "Before you write or revise a node", 6_693),
     ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
-        4_382,
+        4_392,
     ),
     ("AGENTS.md", "Before you change a class", 5_015),
     ("AGENTS.md", "Before you retrieve", 2_989),
@@ -217,7 +222,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
     (
         "sadhana/root/AGENTS.md",
         "Before a claim crosses a corpus boundary",
-        5_576,
+        5_586,
     ),
     ("sadhana/root/AGENTS.md", "Before you change a class", 6_209),
     ("sadhana/root/AGENTS.md", "Before you retrieve", 4_183),

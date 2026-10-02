@@ -59,8 +59,8 @@ impl Default for EmbedOptions {
 #[derive(Serialize)]
 pub struct EmbedRecord {
     pub path: String,
-    /// For a node, its ontology class. For a source, the catalog `type`
-    /// (`paper`/`dataset`/`api`/`database`), or `source` when it declares none.
+    /// For a node, its ontology class. For a source, the catalog `type` (one of
+    /// [`crate::parse::CATALOG_TYPES`]), or `source` when it declares none.
     pub class: String,
     pub label: String,
     pub text: String,

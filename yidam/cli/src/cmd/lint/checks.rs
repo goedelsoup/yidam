@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::parse::CATALOG_LOCATION_KINDS;
+use crate::parse::{CATALOG_LOCATION_KINDS, CATALOG_LOCATION_KINDS_RETIRED, CATALOG_TYPES};
 
 use super::model::{Check, Severity, Violation};
 use super::quotations::Declared;
@@ -3378,6 +3378,13 @@ pub fn catalog_location_malformed(sources: &[Source]) -> Check {
             let mut problems = Vec::new();
             match loc.kind.as_deref() {
                 None => problems.push("no `kind`".to_string()),
+                Some(k) if CATALOG_LOCATION_KINDS_RETIRED.contains(&k) => {
+                    problems.push(format!(
+                        "kind `{k}` is not one of {}; `yidam migrate locations` rewrites it as \
+                         `kind: identifier, value: {k}:…`",
+                        CATALOG_LOCATION_KINDS.join(", ")
+                    ));
+                }
                 Some(k) if !CATALOG_LOCATION_KINDS.contains(&k) => {
                     problems.push(format!(
                         "kind `{k}` is not one of {}",
@@ -3394,6 +3401,11 @@ pub fn catalog_location_malformed(sources: &[Source]) -> Check {
                     if k == "url_template" && !v.contains('{') {
                         problems
                             .push("kind `url_template` but value has no `{…}` placeholder".into());
+                    }
+                    if k == "identifier" && !v.trim().is_empty() {
+                        if let Some(p) = identifier_problem(v) {
+                            problems.push(p);
+                        }
                     }
                 }
             }
@@ -3418,7 +3430,80 @@ pub fn catalog_location_malformed(sources: &[Source]) -> Check {
         "A `location` is a list of typed places. The type decides whether a reader is \
          offered a link, so a value whose shape contradicts its type renders wrongly; and \
          where an entry has several locations, the description is the only thing \
-         distinguishing them.",
+         distinguishing them. An `identifier` names a source by what it is rather than where \
+         it is, as `scheme:local-id` — `doi:10.1167/tvst.8.5.14` — and one kind serves every \
+         scheme so that the set of kinds stays closed.",
+        violations,
+    )
+}
+
+/// What is wrong with an `identifier` location's value, if anything.
+///
+/// `scheme:local-id`, both halves non-empty. Until source packs declare schemes (RFC-0048 §3)
+/// any scheme passes; what can be refused now is a value that is not the shape at all, and a
+/// URL, whose `https:` would otherwise read as a scheme.
+fn identifier_problem(v: &str) -> Option<String> {
+    let Some((scheme, local)) = v.split_once(':') else {
+        return Some(format!(
+            "kind `identifier` but value is not `scheme:local-id`: {v}"
+        ));
+    };
+    if scheme.is_empty() || scheme.chars().any(char::is_whitespace) {
+        return Some(format!("kind `identifier` but value names no scheme: {v}"));
+    }
+    if matches!(scheme, "http" | "https") {
+        return Some(format!(
+            "kind `identifier` but value is a URL, so kind `url`: {v}"
+        ));
+    }
+    if local.trim().is_empty() {
+        return Some(format!(
+            "kind `identifier` but scheme `{scheme}` has no local id"
+        ));
+    }
+    None
+}
+
+/// A catalog entry whose `type:` is outside the closed set.
+///
+/// The set grew by four in RFC-0048 §2.1 — `statute`, `report`, `standard`, `document` — which
+/// covers 178 of the entries corpora had typed outside it. What it does not cover is reported
+/// here and resolved by hand. `primary` is the large case: it says what standing a source has,
+/// not what form it takes, and only the person who read the source knows which form that is.
+/// Nothing maps it, here or in a migration.
+///
+/// Warn, because the population is not empty: every corpus that coined a type is in it.
+pub fn catalog_type_unknown(sources: &[Source]) -> Check {
+    let mut violations = Vec::new();
+    for s in sources {
+        let Some(t) = s.r#type.as_deref() else {
+            continue;
+        };
+        if CATALOG_TYPES.contains(&t) {
+            continue;
+        }
+        let standing = if t == "primary" {
+            "`primary` is a standing, not a form; "
+        } else {
+            ""
+        };
+        violations.push(Violation::new(
+            &s.rel,
+            format!(
+                "`type: {t}` is not a catalog type — {standing}is it a `statute`, `report`, \
+                 `standard` or `document`? (all: {})",
+                CATALOG_TYPES.join(", ")
+            ),
+        ));
+    }
+    Check::new(
+        "catalog-type-unknown",
+        "Catalog type outside the closed set",
+        Severity::Warn,
+        "A catalog `type` says what form a source takes, and the set is closed so that a reader \
+         and the schema agree on what each word means. A word outside it is reported rather than \
+         mapped: `primary` says what standing a source has, and a primary source can be a \
+         statute, a dataset or a report, so only someone who read it can choose.",
         violations,
     )
 }
@@ -3946,6 +4031,7 @@ mod tests {
             rel: rel.to_string(),
             path: PathBuf::from(rel),
             obtained: fm.obtained.unwrap_or(true),
+            r#type: fm.r#type,
             used_by: fm.used_by,
             locations: fm.location.unwrap_or_default(),
             retrieved: fm.retrieved,
@@ -4201,6 +4287,7 @@ mod tests {
             rel: format!(".yidam/catalog/{slug}.md"),
             path: PathBuf::from(format!("/repo/.yidam/catalog/{slug}.md")),
             obtained,
+            r#type: None,
             used_by: used_by.map(|u| u.iter().map(|s| s.to_string()).collect()),
             locations: vec![],
             retrieved: None,
@@ -4447,6 +4534,7 @@ mod tests {
                 rel: a.entry.clone(),
                 path: std::path::PathBuf::from(&a.entry),
                 obtained: true,
+                r#type: None,
                 used_by: None,
                 locations: vec![],
                 retrieved: a.retrieved.clone(),
@@ -5720,6 +5808,7 @@ mod tests {
             rel: format!(".yidam/catalog/{slug}.md"),
             path: PathBuf::from(format!("/repo/.yidam/catalog/{slug}.md")),
             obtained,
+            r#type: None,
             used_by: None,
             locations: vec![],
             retrieved: None,
@@ -6397,6 +6486,84 @@ mod tests {
             description: None,
         }];
         assert!(catalog_location_malformed(&[s]).passed());
+    }
+
+    fn located(kind: &str, value: &str) -> Source {
+        let mut s = source("src", true, None);
+        s.locations = vec![crate::parse::CatalogLocation {
+            kind: Some(kind.into()),
+            value: Some(value.into()),
+            description: None,
+        }];
+        s
+    }
+
+    /// Until packs declare schemes, any scheme with a local id passes (RFC-0048 §2).
+    #[test]
+    fn an_identifier_location_is_a_scheme_and_a_local_id() {
+        for v in ["doi:10.1167/tvst.8.5.14", "pmc:PMC6753881", "orc:2921.13"] {
+            assert!(
+                catalog_location_malformed(&[located("identifier", v)]).passed(),
+                "{v}"
+            );
+        }
+        for v in [
+            "10.1167/tvst.8.5.14",
+            ":PMC6753881",
+            "doi:",
+            "https://doi.org/10.1/x",
+        ] {
+            assert_eq!(
+                catalog_location_malformed(&[located("identifier", v)])
+                    .violations
+                    .len(),
+                1,
+                "{v}"
+            );
+        }
+    }
+
+    /// The two kinds corpora wrote before `identifier` existed are still refused, and the
+    /// finding names the migration that fixes them.
+    #[test]
+    fn a_retired_kind_names_its_migration() {
+        let c = catalog_location_malformed(&[located("doi", "10.1167/tvst.8.5.14")]);
+        assert_eq!(c.violations.len(), 1);
+        assert!(
+            c.violations[0].detail.contains("yidam migrate locations"),
+            "{}",
+            c.violations[0].detail
+        );
+    }
+
+    fn typed(t: Option<&str>) -> Source {
+        let mut s = source("src", true, None);
+        s.r#type = t.map(str::to_string);
+        s
+    }
+
+    #[test]
+    fn every_catalog_type_passes_and_an_absent_one_is_not_this_check_s() {
+        for t in crate::parse::CATALOG_TYPES {
+            assert!(catalog_type_unknown(&[typed(Some(t))]).passed(), "{t}");
+        }
+        assert!(catalog_type_unknown(&[typed(None)]).passed());
+    }
+
+    /// `primary` and the long tail are reported with the four new words offered, and nothing
+    /// is chosen for the author (RFC-0048 §2.1).
+    #[test]
+    fn a_type_outside_the_set_is_offered_the_four_new_words() {
+        for t in ["primary", "publication", "thesis"] {
+            let c = catalog_type_unknown(&[typed(Some(t))]);
+            assert_eq!(c.violations.len(), 1, "{t}");
+            let m = &c.violations[0].detail;
+            for word in ["statute", "report", "standard", "document"] {
+                assert!(m.contains(&format!("`{word}`")), "{t}: {m}");
+            }
+        }
+        let c = catalog_type_unknown(&[typed(Some("primary"))]);
+        assert!(c.violations[0].detail.contains("standing"));
     }
 
     #[test]

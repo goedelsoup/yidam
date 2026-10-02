@@ -10,6 +10,8 @@ pub struct Source {
     /// searched for in a node's bytes, and nothing else ever needed it.
     pub path: PathBuf,
     pub obtained: bool,
+    /// The declared `type:`, verbatim. See [`crate::parse::CATALOG_TYPES`].
+    pub r#type: Option<String>,
     /// The declared list, or `None` where the key is absent. Not flattened to a `Vec`: an
     /// absent key and `used-by: []` are different claims and [`crate::cmd::lint::checks::used_by_drift`] turns on the
     /// difference.

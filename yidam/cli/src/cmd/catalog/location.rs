@@ -55,6 +55,12 @@ pub enum Unfollowable {
     /// one. An entry whose only address is a physical one is fully valid and is simply not
     /// something a fetch has anything to do; the caller skips it rather than failing.
     NotAnEndpoint { declared: String },
+    /// `kind: identifier` — `doi:10.1167/tvst.8.5.14`, a name for a source in some scheme.
+    ///
+    /// **Not an error**, for the same reason an address is not. Nothing in this repository
+    /// turns a scheme into a URL yet: that is a source pack's job (RFC-0048, #1315). Until one
+    /// does, an entry whose only location is an identifier has nothing to fetch.
+    Unresolved { declared: String },
     /// A `url_template` whose slots nothing bound.
     ///
     /// The slots are named so the message can say `--bind site=…` rather than "some
@@ -82,12 +88,12 @@ pub enum Unfollowable {
 impl Unfollowable {
     /// Whether this is a location a fetch should pass over in silence rather than report.
     ///
-    /// Only [`Self::NotAnEndpoint`]. An entry listing a records office and a URL should
+    /// Only [`Self::NotAnEndpoint`] and [`Self::Unresolved`]. An entry listing a records office and a URL should
     /// fetch the URL and say nothing about the office; an entry listing only the office
     /// should say it has nothing to fetch, which the caller decides from the *set* of
     /// outcomes rather than from any one of them.
     pub fn is_benign(&self) -> bool {
-        matches!(self, Self::NotAnEndpoint { .. })
+        matches!(self, Self::NotAnEndpoint { .. } | Self::Unresolved { .. })
     }
 
     pub fn message(&self) -> String {
@@ -95,6 +101,10 @@ impl Unfollowable {
             Self::NotAnEndpoint { declared } => format!(
                 "`{declared}` is a place rather than an endpoint — `kind: address` records \
                  where a source is held, and nothing fetches one"
+            ),
+            Self::Unresolved { declared } => format!(
+                "`{declared}` is an identifier rather than an endpoint — nothing resolves its \
+                 scheme to a URL yet"
             ),
             Self::Unbound { slots, declared } => format!(
                 "`{declared}` has {} nothing bound: {}. Supply {} — for example \
@@ -207,6 +217,7 @@ pub fn resolve(
     let declared = value.to_string();
     match kind {
         "address" => Err(Unfollowable::NotAnEndpoint { declared }),
+        "identifier" => Err(Unfollowable::Unresolved { declared }),
         "url" => Ok(Plan::Url {
             url: declared.clone(),
             declared,
@@ -413,6 +424,21 @@ mod tests {
                 declared: "a/../b/data.json".into(),
             })
         );
+    }
+
+    /// An identifier is a kind, so it is not reported as one outside the set; and until a pack
+    /// resolves its scheme it is skipped the way an address is, not failed.
+    #[test]
+    fn an_identifier_is_skipped_until_something_resolves_it() {
+        let err = resolve(&loc("identifier", "doi:10.1/a"), Path::new("/repo"), &[]).unwrap_err();
+        assert_eq!(
+            err,
+            Unfollowable::Unresolved {
+                declared: "doi:10.1/a".into()
+            }
+        );
+        assert!(err.is_benign());
+        assert!(!err.message().contains("not a location kind"));
     }
 
     #[test]

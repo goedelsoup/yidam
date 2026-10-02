@@ -1407,6 +1407,13 @@ enum MigrateCommand {
     /// sections, in the regions the re-vendor rewrites. A workflow with neither job gets an
     /// empty region the re-vendor fills. Idempotent; run it with `--dry-run` first.
     Scaffold,
+    /// Rewrite every catalog location of kind `doi` or `pmc` as `kind: identifier`
+    ///
+    /// RFC-0048 gave the catalog one kind for every identifier scheme. `kind: doi, value: X`
+    /// becomes `kind: identifier, value: doi:X`, and `pmc` likewise. A value that is a URL, or a
+    /// location written as a flow mapping, is reported and left as written. Idempotent; run it
+    /// with `--dry-run` first.
+    Locations,
     /// Point a declared relationship at a different class, at both ends
     Edge {
         /// The class that declares it
@@ -1449,6 +1456,7 @@ impl From<MigrateCommand> for yidam::MigrateOperation {
             MigrateCommand::Findings => Self::Findings,
             MigrateCommand::Routes => Self::Routes,
             MigrateCommand::Scaffold => Self::Scaffold,
+            MigrateCommand::Locations => Self::Locations,
             MigrateCommand::Edge {
                 class,
                 relationship,

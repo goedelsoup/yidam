@@ -13,7 +13,7 @@ pub struct Frontmatter {
     /// and `ttl_days` with it — the #1056 failure, reached by adding a field.
     #[serde(default)]
     pub status: Option<serde_yaml::Value>,
-    /// Catalog entries only. What kind of source this is — paper, dataset, api, database.
+    /// Catalog entries only. What form the source takes — one of [`CATALOG_TYPES`].
     #[serde(default)]
     pub r#type: Option<String>,
     /// Catalog entries only. Whether the source has actually been retrieved.
@@ -150,8 +150,8 @@ pub enum ArtifactOrigin {
 /// One typed place a catalog source can be reached.
 #[derive(serde::Deserialize, Default, Clone)]
 pub struct CatalogLocation {
-    /// `url`, `url_template`, `address`, or `file`. The type decides how a reader (or the
-    /// web export) should treat the value, so a value contradicting its type renders wrong.
+    /// One of [`CATALOG_LOCATION_KINDS`]. The type decides how a reader (or the web export)
+    /// should treat the value, so a value contradicting its type renders wrong.
     pub kind: Option<String>,
     pub value: Option<String>,
     /// Distinguishes several locations on one entry. Optional when there is only one.
@@ -160,7 +160,29 @@ pub struct CatalogLocation {
 }
 
 /// The location kinds a catalog entry may declare.
-pub const CATALOG_LOCATION_KINDS: &[&str] = &["url", "url_template", "address", "file"];
+///
+/// `identifier` is RFC-0048's, and its value is `scheme:local-id` — `doi:10.1167/tvst.8.5.14`.
+/// One kind for every scheme keeps this set closed: corpora wrote `kind: doi` and `kind: pmc`,
+/// and a kind per scheme would grow the set with every source a corpus reads.
+pub const CATALOG_LOCATION_KINDS: &[&str] =
+    &["url", "url_template", "address", "file", "identifier"];
+
+/// The kinds `yidam migrate locations` rewrites to `identifier`, the scheme each becomes.
+///
+/// Both were written by corpora before `identifier` existed, and both were refused by
+/// `catalog-location-malformed`. The value moves under the scheme unchanged: `kind: doi,
+/// value: X` is `kind: identifier, value: doi:X`.
+pub const CATALOG_LOCATION_KINDS_RETIRED: &[&str] = &["doi", "pmc"];
+
+/// What form a catalog source takes: the closed set its `type:` is one of.
+///
+/// `statute`, `report`, `standard` and `document` joined the first five in RFC-0048 §2.1,
+/// because corpora wrote them 178 times with no word in the set for them. `primary` did not:
+/// it says what standing a source has, not what form it takes, and a primary source can be a
+/// statute, a dataset or a report. The schema and `catalog-type-unknown` both read this list.
+pub const CATALOG_TYPES: &[&str] = &[
+    "paper", "dataset", "api", "database", "statute", "report", "standard", "document", "other",
+];
 
 pub fn parse_frontmatter(text: &str) -> Frontmatter {
     parse_frontmatter_reporting(text).0
