@@ -4,6 +4,13 @@ Connectors and calculators are the computational substrate agents use during pha
 
 ## Connectors
 
+Reach for a [source pack](source-packs.md) before a crate. A pack names a family of sources by
+identifier, and `catalog-fetch` resolves them through it. It needs no code of your own.
+`yidam source search` finds an identifier, and `yidam source add` writes the catalog entry.
+Write a crate when no pack's scheme matches the source, or when the source needs more than a fetch.
+
+A connector crate is:
+
 - External-facing async adapters
 - Fetch data from APIs, databases, external sources
 - May fail; results cached locally and refreshed on TTL or on demand

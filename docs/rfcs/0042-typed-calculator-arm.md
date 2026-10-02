@@ -60,7 +60,7 @@ and the title changed with it. Nothing about the cost measurement or the decisio
 > Pure, deterministic transforms — No network, no filesystem; same input always produces same
 > output
 >
-> — [`Calculators`](../domain-computer.md#L16-L21)
+> — [`Calculators`](../domain-computer.md#L23-L28)
 
 Three of those four are unenforced. `materialize` checks out the declared `reads` into a scratch
 tree, [`process`](../../yidam/cli/src/cmd/run/exec.rs#L301-L313) spawns `run[0]` in it with five
