@@ -66,7 +66,7 @@ exit code unless you pass `--strict`, which is the reading a CI job wants.
 | `corpora` | Did the corpora this repository depends on arrive? |
 | `corpus` | Can every corpus file be read? |
 | `contract` | Has the ontology said what its classes require? |
-| `vault` | Can this repository reach its vaults? |
+| `vault` | Can this repository reach its vaults, and where did each vault's credentials come from? |
 | `remote-index` | Is the declared remote vector index usable from here? |
 | `policy` | Do this repository's own rules compile, and which are its own? |
 | `governance` | Is this repository's governance mode carrying its own weight? |
@@ -333,6 +333,71 @@ YIDAM_REF=v0.2.0 mise run yidam-vendor-update   # target a tag or branch
 This re-vendors `.yidam/.vendor/prelude/` and rewrites `.yidam.toml`. It does not touch domain
 content. Upgrading the *binary* is a separate act on a separate release train — see
 [Versioning and releases](versioning.md).
+
+## The update refuses because the pin is ahead
+
+A pin taken with `YIDAM_REF=HEAD` usually sits ahead of the newest release. A plain
+`mise run yidam-vendor-update` would then move it backwards, to an older prelude and binary. So
+it refuses and changes nothing:
+
+```console
+ERROR: this repository is pinned at <commit>, which <release> (<commit>) does not contain.
+       Re-vendoring to the newest release would move it backwards. Either:
+         YIDAM_REF=HEAD mise run yidam-vendor-update    # stay on unreleased main (compiles)
+         YIDAM_REF=<release> mise run yidam-vendor-update    # take the release, deliberately
+```
+
+Pick one. The first keeps you on unreleased `main`, and builds the binary from source. The second
+moves back to the release because you named it. `yidam-vendor-status` says the same thing more
+quietly: `pinned ahead of <release> — nothing to adopt until a newer release`.
+
+## `commit` fails
+
+The running binary was built at a different commit than `.yidam.toml`'s `commit` pins:
+
+```console
+  fail  commit       this binary was built at 1a2b3c4, but .yidam.toml pins 5d6e7f8
+                     → mise run yidam-build
+```
+
+This is the ordinary aftermath of a re-vendor. `yidam-vendor-update` rewrites the pin and leaves
+`.yidam/bin/yidam` where it was. The prelude is then one commit ahead of the code reading it.
+Run `mise run yidam-build` to rebuild the pin at the new commit.
+
+The binary's stamp is a short hash, and the pin is a full one. They match when one is a prefix
+of the other. Two cases warn rather than fail:
+
+- **No `.yidam/bin/yidam`.** Whatever answered is a `yidam` from somewhere else. This repository
+  never claimed to control it, so a mismatch is a warning.
+- **The binary records no build commit.** It cannot be matched to the pin either way.
+  `yidam --version` shows `unknown` where the commit should be.
+
+A pin with no resolvable commit is `provenance`'s finding. `commit` skips it rather than report
+it twice.
+
+## `vault` names where credentials came from
+
+`doctor` stays offline, so `vault` never asks a store anything. For each `s3://` vault it says
+which variables its credentials resolved from. Variables are named, never values:
+
+```console
+  ok    vault        2 vaults configured (`default` AWS_ACCESS_KEY_ID, `sources` web identity via YIDAM_VAULT_SOURCES_ROLE_ARN); 3 artifact(s) cached
+```
+
+A `file://` vault needs no credentials and is not listed. Read the list against what you meant.
+A vault you meant to isolate should name its own `YIDAM_VAULT_<NAME>_` variable.
+
+It warns when:
+
+- **A vault has half a pair.** One key without the other, or a role without its token file.
+- **A vault has both its own role and its own keys.** The two name different principals, so it
+  is refused. Unset one.
+- **A role's token file is missing.** On EKS, check the service account's role annotation.
+- **Two vaults resolve to the same credentials.** That is legal, but it is also what an unfinished
+  isolation setup looks like.
+
+The same rules hold for the remote index under `YIDAM_INDEX_`, which `remote-index` checks.
+[Configuration](configuration.md#environment-variables) lists every variable.
 
 ## Still stuck
 

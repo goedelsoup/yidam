@@ -21,6 +21,7 @@ senses, each sense is named separately below and the docs use the qualified form
 | **gate** | The checks a corpus must pass before a commit counts — `graph-check`, `lint`, and the commit-vocabulary rule. What makes an edge a commitment rather than a hyperlink |
 | **traversal** | Walking edges from a starting node to answer a query, as opposed to retrieving by similarity |
 | **drift** | Divergence between the corpus and something derived from it — a stale index, an aged-out catalog source, a regenerated block no longer matching its source |
+| **paths** | The typed paths `yidam query --paths <from> <to>` prints between two nodes, shortest first. Each is a query that returns `<to>`. Unrelated to `cohort --paths`, which names repositories |
 
 ## The ontology
 
@@ -60,6 +61,16 @@ senses, each sense is named separately below and the docs use the qualified form
 | **genesis commit** | The first commit in a derived repo; names domain, seeds ontology |
 | **phase** | A bounded unit of agent inquiry: Investigation, Extraction, Synthesis, or Assessment |
 | **derivation** | A repository bootstrapped from this template. Its corpus is its own; the prelude is inherited |
+| **gather** | One question put to every installed tonpa peer, declared in `.yidam/gathers/<name>.toml`. The answers land as one cited question node on a `propose/*` branch. Nothing merges |
+| **cohort** | A set of derivations read together by `yidam cohort`, to ask how each norm of their inherited prelude fared. A report about the prelude, not about a corpus |
+| **accretion** | How fast a corpus adds nodes per authored commit. `cohort` tests RFC-0028's two candidates for measuring it — a trailing window and a decay curve — against every member's history |
+
+## Cluster runs
+
+| Term | Meaning |
+|------|---------|
+| **admit** | The gate before a cluster run: `yidam cluster admit` decides whether anything is owed. Its record says `admitted` either way, and a run with nothing owed submits no step |
+| **lander** | The one pod that may update a ref, `yidam cluster land`. It reads the commit's class off the commit, then pushes to the branch or to `propose/*`. See [cluster runs](cluster-runs.md) |
 
 ## The domain computer
 
@@ -78,6 +89,15 @@ senses, each sense is named separately below and the docs use the qualified form
 | **store** | The backing service a vault is configured against — S3, a local directory, or another supported target |
 | **bundle** | A `.yiz` archive publishing a corpus for another repository to consume |
 | **knowledge artifact** | A derived repository as a whole — the sense used in "living knowledge artifacts" |
+
+## Sources
+
+| Term | Meaning |
+|------|---------|
+| **identifier location** | A catalog location of `kind: identifier`, valued `scheme:local-id` — `doi:10.1167/tvst.8.5.14`. It names a source by what it is, not where it is |
+| **source pack** | A directory declaring how identifier schemes resolve to addresses, and how to fetch them. Authored in `.yidam/sources/` or pinned in `prelude_sources`. See [source packs](source-packs.md) |
+| **transform** | A `.glu` file a pack's scheme names, `describe` or `extract`. It runs in the calculator arm's closed prelude over the response the scheme resolves to |
+| **reading** | What an `extract` transform, or a PDF's text, takes from an artifact. `catalog-extract` caches it and records it under the artifact's `readings:` |
 
 ## Claim confidence markers
 

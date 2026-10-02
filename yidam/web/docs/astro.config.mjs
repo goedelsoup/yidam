@@ -67,6 +67,7 @@ const sidebar = [
       { slug: 'editor-setup', label: 'Editor setup' },
       { slug: 'mcp-server', label: 'Connecting an agent (MCP)' },
       { slug: 'artifact-vaults', label: 'Artifact vaults' },
+      { slug: 'source-packs', label: 'Source packs' },
       { slug: 'sharing-derivations', label: 'Sharing a derivation' },
       { slug: 'cluster-runs', label: 'Running on a cluster' },
       { slug: 'troubleshooting', label: 'Troubleshooting' },

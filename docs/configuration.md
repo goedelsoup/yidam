@@ -645,6 +645,31 @@ Two consequences worth knowing:
 Commit-vocabulary findings are baselined by **commit**, not by file: history is immutable, so a
 baselined commit stays baselined.
 
+## `.yidam/decisions/proposals.yml`
+
+Bootstrap writes this decision record when you approve its proposals. Two of its fields are read
+again on every re-vendor:
+
+```yaml
+prelude_domains: []
+prelude_sources:
+  - scholarly@^0.1
+  - us-oh-legislature@^0.3 from github.com/<owner>/<corpus>@<commit>
+```
+
+**`prelude_domains`** names the domain libraries to vendor into `.yidam/.vendor/domains/`.
+A domain is vendored only when this field names it. `mise run yidam-vendor-update` copies exactly
+those, with the index and the parity harness. An empty list vendors none, and is the common case.
+Write the field even when it is empty, because the empty list is a decision. Where the field is
+absent, the update keeps exactly what the repository already vendored. To vendor a domain later,
+add its name and re-run the update.
+
+**`prelude_sources`** pins the source packs a re-vendor copies into `.yidam/.vendor/sources/`.
+`<pack>@<range>` names a pack the template ships. A pin ending `from <repo>@<commit>` names one
+another corpus wrote, at a full 40-character commit. A pin the update cannot satisfy refuses
+the whole update, before anything changes. No pins vendors no packs.
+[Source packs](source-packs.md) covers the pack format and `yidam source check`.
+
 ## `.yidam/tonpa.toml`
 
 Bundle dependencies on other derived corpora. Written by `yidam tonpa add`; the lock file
@@ -724,6 +749,12 @@ through unchanged. A set on a coined type constrains nothing until the property 
 | `YIDAM_REQUIRE_CONTRACT` | extension tests | Turn a missing or stale binary from a skip into a failure; CI sets it |
 | `YIDAM_BUILD_COMMIT` | build script | Stamps the commit `yidam --version` reports |
 | `YIDAM_SERVE_TOKEN` | `serve --mcp --http` | The bearer token every request must carry. An empty value is refused; so is setting it beside `--token-file` |
+| `YIDAM_VAULT_<NAME>_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`, `_SESSION_TOKEN` | every vault command | One vault's keys. `<NAME>` is upper-cased, hyphens as underscores |
+| `YIDAM_VAULT_<NAME>_ROLE_ARN`, `_WEB_IDENTITY_TOKEN_FILE`, `_ROLE_SESSION_NAME` | every vault command | One vault's role, assumed by web identity. A vault given its own role and its own keys is refused |
+| `YIDAM_INDEX_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`, `_SESSION_TOKEN` | the remote index | Keys for the vector index `[index.remote]` declares |
+| `YIDAM_INDEX_ROLE_ARN`, `_WEB_IDENTITY_TOKEN_FILE`, `_ROLE_SESSION_NAME` | the remote index | A role for that index, assumed by web identity. Its own role and keys together are refused |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE` | the `default` vault and the remote index only | The fallback when their own variables are unset. Never read for any other vault |
+| `AWS_ENDPOINT_URL_STS` | web identity | The STS endpoint; otherwise the regional one for `AWS_REGION` |
 
 ## Editor settings
 

@@ -40,6 +40,8 @@ says so on every page.
 | Understand the model first | [What yidam is](https://goedelsoup.github.io/yidam/what-yidam-is/), then [Information architecture](https://goedelsoup.github.io/yidam/information-architecture/) |
 | Bootstrap a repository | [Bootstrap flow](https://goedelsoup.github.io/yidam/bootstrap-flow/) |
 | Point an agent at a corpus | [Connecting an agent (MCP)](https://goedelsoup.github.io/yidam/mcp-server/) |
+| Look up a command or a flag | [CLI reference](https://goedelsoup.github.io/yidam/cli-reference/) |
+| Look up a config key or environment variable | [Configuration](https://goedelsoup.github.io/yidam/configuration/) |
 | Look up a term | [Vocabulary](https://goedelsoup.github.io/yidam/vocabulary/) |
 
 Designs under review are in [RFCs](https://goedelsoup.github.io/yidam/rfcs/README/). The
