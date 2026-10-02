@@ -79,6 +79,21 @@ fn a_property_name_and_a_relationship_name_both_count_as_declared() {
     assert!(r.findings.is_empty());
 }
 
+/// #1299: a relationship declared as a phrase aligns with the type that implements it,
+/// rather than being reachable only as a near-miss.
+#[test]
+fn a_relationship_written_with_spaces_aligns_with_its_type() {
+    let vocabulary = extract::declared(&[class("ruling", &[], &["conflicts with"])]);
+    let r = build(
+        "main..HEAD",
+        &diff("+pub struct ConflictsWith;\n"),
+        &vocabulary,
+        &Authorship::default(),
+    );
+    assert_eq!((r.introduced, r.aligned), (1, 1), "{:?}", r.findings);
+    assert!(r.findings.is_empty());
+}
+
 #[test]
 fn a_type_nothing_names_is_a_warn_and_carries_the_kebab_form() {
     let r = report("+pub struct AgendaItem;\n", &Authorship::default());

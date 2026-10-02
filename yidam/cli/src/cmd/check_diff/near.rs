@@ -89,10 +89,13 @@ fn same_word(a: &str, b: &str) -> Option<String> {
 
 /// The declared name nearest `name`, if any word of it is a word of one.
 ///
-/// Split on `-` and nothing else, which is the rule RFC-0022 calibrated. A handful of
-/// declared relationships are written with spaces — `shared a split with` — and splitting
-/// on those too finds two more candidates in one repository and none in the other two, at
-/// the cost of no longer being the rule that was measured.
+/// Split on `-` and nothing else, which is the rule RFC-0022 calibrated. A declared
+/// relationship written with spaces — `shared a split with` — arrives here already
+/// kebab-cased, because [`kebab`](super::extract::kebab) treats whitespace as a separator
+/// (#1299), so its words split like any other name's. Over the full history of fifteen
+/// derived repositories, two of which declare spaced names (20 and 15), that adds two
+/// candidates in one repository (`Assessment` → `assessed-against`, `Coverage` →
+/// `covers-material-by`) and changes none.
 ///
 /// **Ranking is by agreement, then by root length, then by name.** More words in common
 /// beats a longer root, and the vocabulary is a `BTreeSet`, so a tie is broken
