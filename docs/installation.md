@@ -94,8 +94,8 @@ terminal anywhere in the process. Download the `.mcpb` for your Mac from the
 pane, or:
 
 ```sh
-open yidam-0.18.0-aarch64-apple-darwin.mcpb    # Apple silicon
-open yidam-0.18.0-x86_64-apple-darwin.mcpb     # Intel
+open yidam-0.19.0-aarch64-apple-darwin.mcpb    # Apple silicon
+open yidam-0.19.0-x86_64-apple-darwin.mcpb     # Intel
 ```
 
 The bundle is a zip holding a manifest and the light `yidam` build, and the installer asks
@@ -110,7 +110,7 @@ agent](mcp-server.md#claude-desktop-as-a-bundle) has the rest.
 ## From source
 
 ```sh
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.18.0 --locked yidam
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.19.0 --locked yidam
 ```
 
 The default build needs **only a Rust toolchain**: no system C library, no ML runtime. `--locked` builds from the lock file the tag committed, which is what makes this the
@@ -193,11 +193,11 @@ To build a heavier set from source:
 
 ```sh
 # Semantic retrieval, and building the index it reads.
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.18.0 --locked \
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.19.0 --locked \
   --features vector-read yidam
 
 # Everything, including the SQLite export and the gluon calculators.
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.18.0 --locked \
+cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.19.0 --locked \
   --features full yidam
 ```
 
