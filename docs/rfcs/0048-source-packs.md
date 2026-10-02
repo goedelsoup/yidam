@@ -9,7 +9,8 @@
   - RFC-0042 (the closed-prelude gluon arm, which this proposes as the only place a pack may carry logic)
   - RFC-0024 (the bar an embedded engine is measured against, which the gluon half of this proposal inherits rather than re-argues)
   - RFC-0045 (the precedent for measuring what derived repositories built for themselves and lifting the shape they agree on)
-- **Versioning layers touched:** template (`guidelines/directories.md` gains the `identifier` location kind and the pack layout; the bootstrap skill's first-catalog-entry step offers packs) / tooling (one `source` command, an extended `catalog-fetch`, one migration, a vendored `yidam/sources/` tree) / bootstrap protocol (`prelude_sources` beside `prelude_domains`). **No MCP contract bump** in this RFC; §8 names the tool that would be the bump.
+  - RFC-0005 (the MCP tool contract the two read-only tools of §8 are added to)
+- **Versioning layers touched:** template (`guidelines/directories.md` gains the `identifier` location kind and the pack layout; the bootstrap skill's first-catalog-entry step offers packs) / tooling (one `source` command, an extended `catalog-fetch`, one migration, a vendored `yidam/sources/` tree) / bootstrap protocol (`prelude_sources` beside `prelude_domains`, pinned per pack) / **MCP contract (minor bump)**: two read-only tools, `search_sources` and `resolve_source` (§8). The catalog `type` set grows by four (§2.1).
 - **Downstream reference case:** ten derived repositories on one machine — 1,069 catalog entries and every connector crate beside them — measured read-only on 2026-10-01.
 
 ## Summary
@@ -134,7 +135,20 @@ refused today show where that ends. `catalog-location-malformed` checks that the
 enabled pack declares, and that the local id matches the scheme's declared pattern.
 
 A migration rewrites `kind: doi, value: X` to `kind: identifier, value: doi:X`, and `pmc`
-likewise. It is the only migration this RFC needs.
+likewise.
+
+### 2.1 The catalog `type` set grows by four
+
+Corpora wrote `statute` (30), `report` (59), `standard` (27) and `document` (62) because the
+schema's five — `paper`, `dataset`, `api`, `database`, `other` — had no word for them. Those
+four join the closed set, which stays closed: a pack's scheme declares its type from the set,
+and `cmd/schema.rs` and the lint read one list.
+
+`primary` (107 entries, one corpus) is not added. It says what standing a source has, not what
+form it takes, and a primary source can be a statute, a dataset or a report. The migration
+does not guess. An entry typed `primary` is reported by the schema check with the four new words
+offered, and a person picks one. The long tail (`publication`, `reference`, `thesis`, `book`
+and others, 25 entries) is handled the same way.
 
 ### 3. A pack
 
@@ -149,7 +163,7 @@ yidam/sources/<pack>/
 ```toml
 [pack]
 name    = "scholarly"
-version = "0.1.0"
+version = "0.1.0"   # the pack's own semver; see below
 
 [scheme.doi]
 pattern  = '^10\.\d{4,9}/\S+$'
@@ -177,12 +191,40 @@ Resolution is a template wherever a template suffices. The 86 measured `url_temp
 are that shape already: an address with an identifier's parts left as placeholders. `then` chains one identifier to another. It is
 how 140 entries got their second location by hand.
 
-**Where packs come from.** The template ships packs in `yidam/sources/`. A corpus enables
-them by name in `prelude_sources` in `.yidam/decisions/proposals.yml`, beside `prelude_domains`.
-`yidam-vendor-update` copies the named packs wholesale into `.yidam/.vendor/sources/`, the way it
-copies domains. A corpus writes its own packs in `.yidam/sources/<pack>/`. They are tracked,
-linted, and read before vendored ones, so a corpus can carry a pack for a county auditor the
-template will never ship.
+**A pack carries its own semver.** A pack changes on the publisher's schedule, not on
+yidam's. Crossref adds a field, or a legislature moves its API to `v3`. So `version` in
+`pack.toml` is the pack's own, and a corpus pins it:
+
+```yaml
+# .yidam/decisions/proposals.yml
+prelude_sources:
+  - scholarly@^0.1
+  - archive@^0.1
+  - us-oh-legislature@^0.3 from github.com/<owner>/<corpus>@<commit>
+```
+
+- `yidam-vendor-update` resolves each pin.
+- It copies the pack wholesale into `.yidam/.vendor/sources/<pack>/`, the way it copies domains.
+- It refuses a pin that the available version does not satisfy, rather than vendoring the nearest version.
+- The vendored `pack.toml` records the exact version.
+- Every reading's `by` (§6) names `<pack>@<version>` beside the transform's hash.
+
+A pack's major version bumps when a scheme's pattern or resolution changes, since an entry's
+identifier then resolves differently.
+
+**Where packs come from.** There are three places:
+
+- **Template packs.** The template ships generic packs in `yidam/sources/`. Each pack is
+  versioned on its own, and the template carries the latest version of each.
+- **A corpus's own packs.** A corpus writes packs for its own publishers in
+  `.yidam/sources/<pack>/`. They are tracked and linted, and they are read before vendored ones.
+  That is how a corpus carries a pack for a county auditor that the template will never ship.
+- **Another corpus's pack.** A corpus can vendor a pack that a different corpus wrote. The pin
+  names the repository and commit (the `from` form above), and the vendored copy records both.
+  It is the same pinned-peer model `tonpa` uses for gathers.
+
+Nothing is fetched from a pack's source at `catalog-fetch` time. Vendoring is the only step that
+reaches another repository, and it is a reviewed commit.
 
 ### 4. The `source` command
 
@@ -246,7 +288,17 @@ extract  : Parsed -> Reading      -- fetched artifact   -> a derived reading (te
 These run under `gluon_arm`'s closed prelude: an allowlist of pure `std` modules, no macro
 invocation, and the entry point's type checked. That prelude has no `regex` or `serde`, so
 **the host parses** (JSON, XML, CSV) and marshals a typed `Parsed` value in. The transform only
-maps. A transform cannot fetch, read a file or write a node, because the prelude does not
+maps.
+
+**Host-side parsing.**
+
+- JSON and CSV use parsers already in the closure.
+- XML is needed because Europe PMC full text, arXiv's Atom feed and eCFR all answer in it. It
+  takes `quick-xml`, behind the same feature as the transforms.
+- `quick-xml` is measured against RFC-0024's bar (marginal packages, binary delta) in the PR that
+  adds it, and the numbers go in that PR.
+- The default build gains no XML parser. A scheme whose `resolve` names an XML media type still
+  fetches in the default build. Only its `describe` and `extract` wait for the feature. A transform cannot fetch, read a file or write a node, because the prelude does not
 contain those things to refuse — the argument RFC-0042 makes for calculators, unchanged.
 
 An `extract` output is recorded on the artifact as a derived reading, generalising the `text:`
@@ -259,7 +311,7 @@ artifacts:
     readings:
       - sha256: 9ab0…
         media_type: text/plain
-        by: scholarly/transforms/epmc-body.glu@sha256:77e2…
+        by: scholarly@0.1.0/transforms/epmc-body.glu@sha256:77e2…
 ```
 
 `by` names the transform by content hash. So a reading is reproducible from the artifact, and a
@@ -290,9 +342,32 @@ Chosen by the measurement in §1.1, generic families first:
 | `socrata` | `socrata:<host>/<dataset>` | one scheme covers CMS, CDC, HRSA and city portals |
 
 The state-legislature, revised-code and state-court families have the widest spread (five to six
-repositories), but every one of them is one state's. They are the first **corpus-authored**
-pack. It is written in a derived repository's `.yidam/sources/`, and it is the acceptance test
-for §3's claim that a corpus can carry a pack the template does not ship.
+repositories), but every one of them is one state's. **The template ships no state pack.** These
+become the first corpus-authored pack: written in one derived repository's `.yidam/sources/`,
+and vendored by the others through a `from <repo>@<commit>` pin (§3). That is the acceptance
+test for two claims: a corpus can carry a pack the template does not ship, and a pack written
+once is used five times.
+
+### 8. Two read-only MCP tools
+
+The measured workflow is an agent adding sources: 267 one-entry commits, each co-authored by
+one. So the search half of §4 is offered to agents directly. The contract (`mcp-contract.json`)
+gains two read-only tools and a minor version:
+
+- **`search_sources { pack, query, limit? }`** — the same as `source search`. Returns candidate
+  identifiers with the pack's `describe` summary where the build has transforms, and the raw
+  title otherwise.
+- **`resolve_source { identifier }`** — the draft entry `source add` would write: frontmatter,
+  locations after `then` chaining, and the body template. Nothing is written. It reports which
+  transport needs (`contact`, `auth`) the server's environment does not satisfy.
+
+No tool writes. Adding an entry is a commit, and stays `source add` on the CLI. An agent that
+has `resolve_source`'s draft in hand runs `source add` exactly as a person would. A write-tier
+`add_source` under RFC-0029 is left for a later RFC, once the read tools have been used.
+
+All three servers implement the two tools under RFC-0005's parity rule. A server whose
+environment has no network returns the pack's fixtures marked as such, not an error, so the
+tools are testable offline like `source check`.
 
 ## What this does not touch
 
@@ -300,7 +375,7 @@ for §3's claim that a corpus can carry a pack the template does not ship.
   transform is pure, not a rule a pack is trusted to keep.
 - **#460 decision 9.** A `kind = "connector"` capability is still refused by `run`. A pack
   is not a capability.
-- **The MCP contract.** No tool is added. §8 names the one that would be.
+- **An MCP write tool.** §8 adds two read tools and no write. `add_source` waits for its own RFC.
 - **Moving bytes between cluster pods** (#1224). `catalog-fetch` on a cluster is unchanged.
 - **Getting past a block.** The host takes no step around a publisher's refusal (§5).
 
@@ -310,8 +385,10 @@ for §3's claim that a corpus can carry a pack the template does not ship.
   bootstrap skill's first-catalog-entry step offers `source search` / `source add` for enabled
   packs.
 - **Tooling:** one new command, an extended `catalog-fetch`, an extended
-  `catalog-location-malformed`, and the `doi`/`pmc` → `identifier` migration. An entry with no
-  identifier location behaves exactly as today.
+  `catalog-location-malformed`, the `doi`/`pmc` → `identifier` migration, and four more catalog
+  types. An entry with no identifier location behaves exactly as today.
+- **MCP contract:** a minor bump for `search_sources` and `resolve_source`. It is taken when the
+  implementing PR lands, not here, because two branches can each claim the same contract number.
 - **Adoption:** a corpus opts in by listing packs. One that lists none sees no change except
   that 30 locations it wrote as `doi`/`pmc` now migrate instead of warning.
 - **Existing connector crates** keep working. A corpus that moves one onto a pack drops its own
@@ -330,17 +407,26 @@ for §3's claim that a corpus can carry a pack the template does not ship.
   manifest beside `artifacts:` rather than in it, and its registry is Rust, which brings back
   the second alternative.
 
+## Decisions
+
+Settled in review on 2026-10-01. These were this RFC's open questions.
+
+1. **Catalog `type`:** the closed set gains `statute`, `report`, `standard` and `document`.
+   `primary` is a standing, not a form, and is resolved by hand (§2.1).
+2. **XML parsing:** `quick-xml` on the host, behind the transform feature, measured against
+   RFC-0024 when it lands (§6).
+3. **MCP:** in this RFC, as two read-only tools, `search_sources` and `resolve_source`. No write
+   tool (§8).
+4. **Pack versioning:** each pack carries its own semver, and a corpus pins it in
+   `prelude_sources` (§3).
+5. **Per-state packs:** written by a corpus, and shared between corpora by a pinned
+   repository and commit. The template stays state-neutral (§7).
+
 ## Open questions
 
-1. **Catalog `type`.** Corpora wrote `statute`, `report`, `standard`, `document` and `primary`
-   (234 entries) beyond the schema's five. Should a pack's scheme declare its type from an
-   enlarged set, or should `type` gain a free sub-type?
-2. **Where `describe` gets its parse.** Host-side XML parsing is a new dependency (Europe PMC,
-   arXiv and eCFR all answer in XML). It is measured against RFC-0024 like any other.
-3. **`source search` as an MCP tool.** An agent adding sources is the measured workflow. A
-   read-only `search_sources` tool is the natural surface, and it would be a contract bump.
-   This RFC or its own?
-4. **A pack's version and the corpus pin.** Does a vendored pack ride the template version, or
-   carry its own, as `version` in `pack.toml` suggests?
-5. **The per-state packs.** Should a corpus-authored pack that several corpora vendor be
-   upstreamed to `yidam/sources/`, or should it stay outside the template that names no state?
+1. **Resolving a version range across sources.** A pin like `^0.1` against the template has one
+   candidate. The same range against another corpus's repository has its git history. Should
+   `from` pins accept a range at all, or only an exact version at a commit?
+2. **Fixtures in an offline MCP server.** §8 returns fixtures when there is no network. Should
+   that response carry a marker in the contract, or is it enough that the identifiers are the
+   fixtures' own?
