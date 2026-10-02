@@ -74,6 +74,8 @@ use crate::cmd::replay::ReplayRow;
 use crate::kuten::{measure, Measurement, Verdict, Vintage};
 use crate::paths::resolve_root;
 
+pub mod accretion;
+
 // ── the norms ─────────────────────────────────────────────────────────────────
 
 /// One rule the prelude states, and where it states it.
@@ -207,6 +209,11 @@ pub struct CohortReport {
     pub members: Vec<Member>,
     pub skipped: Vec<Skipped>,
     pub norms: Vec<Standing>,
+    /// The age-invariant candidates for `inquiry`'s retired `classes` slot, fitted from these
+    /// members and replayed against their histories (#1303). A measurement, never a norm: no
+    /// prelude document states an accretion rate, and a statistic gets no held/lost verdict
+    /// until a band exists. Fitting that band is what this reading is for.
+    pub accretion: accretion::Accretion,
 }
 
 pub struct Options {
@@ -381,6 +388,55 @@ fn read_one(root: &Path, m: &Measurement, vintage: &Vintage) -> Vec<Reading> {
     out
 }
 
+/// A member's corpus size at each authored commit that changed it, oldest first, ending at
+/// its head.
+///
+/// The index is counted through `lint --commits`' reader and merge predicate, the same ones
+/// [`measure`] counts `authored` with, so the head of a trajectory and the `authored` printed
+/// beside the member are one number. The node counts are the replay's, so the trajectory and
+/// the series above it describe one walk. Both read `git log` in the same order, and the index
+/// is a commit's position among the authored commits of that log rather than a count of its
+/// ancestors, because the replay applies diffs in that order too.
+fn trajectory(root: &Path, rows: &[ReplayRow], authored: usize) -> Vec<accretion::Point> {
+    use crate::cmd::lint::commits::{is_merge, read_subjects};
+    let mut index = std::collections::HashMap::new();
+    let mut k = 0usize;
+    for s in read_subjects(root, None).iter().rev() {
+        k += usize::from(!is_merge(&s.text, s.parents));
+        // The replay abbreviates its commit to seven characters, so the index is keyed at that
+        // width. A collision would need two commits of one repository to share seven hex
+        // characters, and the later one wins, as it would in `git rev-parse`'s ambiguity
+        // error rather than silently.
+        index.insert(s.hash.chars().take(7).collect::<String>(), k);
+    }
+    let mut points: Vec<accretion::Point> = Vec::new();
+    for row in rows {
+        let Some(&k) = index.get(&row.commit) else {
+            continue;
+        };
+        match points.last_mut() {
+            Some(p) if p.authored == k => p.nodes = row.nodes,
+            Some(p) if p.authored > k => {}
+            _ if k > 0 => points.push(accretion::Point {
+                authored: k,
+                nodes: row.nodes,
+            }),
+            _ => {}
+        }
+    }
+    // Authored commits after the last corpus change leave the corpus where it was, and they
+    // still age the repository. The head is the repository's, not the corpus's last touch.
+    if let Some(last) = points.last().copied() {
+        if authored > last.authored {
+            points.push(accretion::Point {
+                authored,
+                nodes: last.nodes,
+            });
+        }
+    }
+    points
+}
+
 fn verdict_of(held: bool) -> Verdict {
     if held {
         Verdict::Conforming
@@ -465,9 +521,28 @@ pub fn collect(roots: &[PathBuf], show_paths: bool) -> CohortReport {
     measured.sort_by(|a, b| (a.1.commits, &a.0).cmp(&(b.1.commits, &b.0)));
 
     let mut members = Vec::new();
+    let mut trajectories = Vec::new();
+    let mut out_of_vintage = Vec::new();
     for (i, (root, m)) in measured.into_iter().enumerate() {
         let vintage = Vintage::of_repo(&root);
         let rows = crate::cmd::replay::collect(&root);
+        // The vintage control, applied to the population rather than per metric. Accretion
+        // has no vintage-gated verb, but `inquiry` was fitted over repositories whose vendored
+        // prelude has the `phase` verb and a closed vocabulary, and a band fitted over the
+        // template's earlier derivations would be fitted over a different population.
+        if vintage.has_phase_verb && vintage.vocabulary_is_closed {
+            trajectories.push(accretion::Trajectory {
+                letter: letter(i),
+                points: trajectory(&root, &rows, m.commits),
+            });
+        } else {
+            out_of_vintage.push(accretion::Excluded {
+                letter: letter(i),
+                reason: "vintage: the prelude it vendored has no `phase` verb or no closed \
+                         vocabulary, so it is not the population `inquiry` was fitted over"
+                    .into(),
+            });
+        }
         let readings = read_one(&root, &m, &vintage);
         let series = match (rows.first(), rows.last()) {
             (Some(f), Some(l)) => Some(Series {
@@ -522,11 +597,16 @@ pub fn collect(roots: &[PathBuf], show_paths: bool) -> CohortReport {
         })
         .collect();
 
+    let mut accretion = accretion::assess(&trajectories);
+    accretion.excluded.extend(out_of_vintage);
+    accretion.excluded.sort_by(|a, b| a.letter.cmp(&b.letter));
+
     CohortReport {
         read: members.len(),
         members,
         skipped,
         norms,
+        accretion,
     }
 }
 
@@ -643,6 +723,8 @@ pub(crate) fn render(r: &CohortReport) -> String {
         }
     }
 
+    render_accretion(&mut out, &r.accretion);
+
     out.push_str("\nNorms — what the prelude asked for, and what its derivations did.\n\n");
     for s in &r.norms {
         let occasions = s.occasions();
@@ -732,6 +814,64 @@ pub(crate) fn render(r: &CohortReport) -> String {
     out
 }
 
+/// The accretion section. Every candidate is printed, the survivors and the rejected alike,
+/// because the result #1303 allows for is that none survives, and that result has to be
+/// legible from this report alone.
+fn render_accretion(out: &mut String, a: &accretion::Accretion) {
+    let Some((young, old)) = a.ages else {
+        return;
+    };
+    let _ = write!(
+        out,
+        "\nAccretion — the candidates RFC-0028 names for `inquiry`'s retired `classes` bands \
+         (#1303).\n  Fitted from the heads of {}, and replayed over every member's history from \
+         {young} to {old}\n  authored commits. A candidate any member leaves as it ages is \
+         rejected.\n\n",
+        a.fitted_from.join(", ")
+    );
+    for c in &a.candidates {
+        let tag = match c.survives {
+            Some(true) => "survives",
+            Some(false) => "rejected",
+            None => "unfitted",
+        };
+        let band = c.band.map_or_else(
+            || "no band".to_string(),
+            |(lo, hi)| format!("{lo:.2} to {hi:.2}"),
+        );
+        let _ = writeln!(out, "  [{tag:^10}] {:<20} band {band}", c.id);
+        let _ = writeln!(out, "               {}", c.reads);
+        if !c.unfitted.is_empty() {
+            let _ = writeln!(
+                out,
+                "               (unmeasurable at the head of {}: the history is too short)",
+                c.unfitted.join(", ")
+            );
+        }
+        for m in &c.replay {
+            let exit = m
+                .first_exit
+                .map_or_else(String::new, |(k, v)| format!("  first at {k} ({v:.3})"));
+            let rho = m
+                .rho
+                .map_or_else(|| "ρ —".to_string(), |r| format!("ρ {r:+.2}"));
+            let _ = writeln!(
+                out,
+                "                 {:<3} {:>4} read {:>4} outside   {rho}{exit}",
+                m.letter, m.read, m.outside
+            );
+        }
+        out.push('\n');
+    }
+    for e in &a.excluded {
+        let _ = writeln!(out, "  {} not fitted — {}", e.letter, e.reason);
+    }
+    out.push_str(
+        "  ρ is Spearman's, age against value over the points read. It is not part of the \
+         verdict; it is\n  what tells an exit by ageing from an exit by noise.\n",
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -773,6 +913,7 @@ mod tests {
             members: vec![],
             skipped: vec![],
             norms,
+            accretion: accretion::assess(&[]),
         }
     }
 
