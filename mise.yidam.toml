@@ -641,7 +641,9 @@ while IFS= read -r pin; do
     case "$at" in
       *[!0-9a-f]*) at="" ;;
     esac
-    if [ "$from" = "$peer" ] || [ -z "$from" ] || [ ${#at} -ne 40 ]; then
+    # Length by `expr`, not the parameter-length expansion: mise renders `run` through Tera
+    # first, where a brace followed by `#` opens a comment and the task never starts (#1367).
+    if [ "$from" = "$peer" ] || [ -z "$from" ] || [ "$(expr "$at" : '.*')" -ne 40 ]; then
       echo "ERROR: prelude_sources: '$pin' does not end in <repo>@<40-hex commit>" >&2
       refused=1; continue
     fi

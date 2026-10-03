@@ -111,6 +111,96 @@ fn the_task_file_holds_no_config_sections() {
     );
 }
 
+/// What opens a Tera tag. mise renders a task's `run` (and `env`, `dir`, `sources`, tool
+/// versions) through Tera before the shell sees it, so any of these in a string is a template
+/// tag whether or not it was meant as one.
+const TERA_OPENERS: &[&str] = &["{{", "{%", "{#"];
+
+/// Every string value in `value`, with the dotted key path that reaches it.
+fn strings<'a>(path: &str, value: &'a toml::Value, out: &mut Vec<(String, &'a str)>) {
+    match value {
+        toml::Value::String(s) => out.push((path.to_string(), s)),
+        toml::Value::Array(items) => {
+            for (i, v) in items.iter().enumerate() {
+                strings(&format!("{path}[{i}]"), v, out);
+            }
+        }
+        toml::Value::Table(t) => {
+            for (k, v) in t {
+                let next = if path.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{path}.{k}")
+                };
+                strings(&next, v, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// No string in a mise file opens a Tera tag.
+///
+/// #1367: `${#at}` in `yidam-vendor-update` opened a Tera comment, so mise refused to render
+/// the script and the task failed before its first line — in every derived repository, and
+/// in the one task that could have delivered the fix. The tests above run these scripts
+/// under `sh` directly, which skips the render, so the script passed them.
+///
+/// Every string and not only `run`: mise renders more fields than `run`, and a delimiter in
+/// one it does not render costs a rewording. The files are found by walking, not listed, so
+/// a new `mise.toml` under a tool is covered the day it lands.
+#[test]
+fn no_mise_file_opens_a_tera_tag() {
+    let root = repo_root();
+    let files: Vec<String> = common::repo_walk(&root)
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| {
+            let name = e.file_name().to_string_lossy();
+            let name = name.trim_start_matches('.');
+            name.starts_with("mise") && name.ends_with(".toml")
+        })
+        .map(|e| {
+            e.path()
+                .strip_prefix(&root)
+                .expect("walk is under the root")
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .collect();
+    // The two files #1367 is about. Without them the walk is looking at the wrong tree.
+    for required in ["mise.yidam.toml", "sadhana/root/mise.toml"] {
+        assert!(
+            files.iter().any(|f| f == required),
+            "the walk did not find {required}: {files:?}"
+        );
+    }
+
+    let mut found = Vec::new();
+    for rel in &files {
+        let doc = toml::Value::Table(parse(rel));
+        let mut values = Vec::new();
+        strings("", &doc, &mut values);
+        for (key, text) in values {
+            for (n, line) in text.lines().enumerate() {
+                for opener in TERA_OPENERS.iter().filter(|o| line.contains(**o)) {
+                    found.push(format!(
+                        "{rel}: {key} line {}: `{opener}` in {line:?}",
+                        n + 1
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "mise renders these strings through Tera, where these open a tag, so the task fails \
+         to render before the shell runs it. Rewrite without the delimiter — `${{#var}}` as \
+         `$(expr \"$var\" : '.*')`, a brace-heavy awk or jq program with a space after the \
+         `{{`:\n{}",
+        found.join("\n")
+    );
+}
+
 /// The `.yidam/bin` guarantee has to be declared somewhere a repository actually reads.
 ///
 /// `directories.md` tells a reader that mise resolves the pinned binary first, and the CLI's
