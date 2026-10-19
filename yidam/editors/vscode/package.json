@@ -270,8 +270,8 @@
     "@types/vscode": "~1.90.0",
     "@vscode/vsce": "^4.0.0",
     "ovsx": "^1.2.0",
-    "oxlint": "^1.87",
-    "smol-toml": "^1.9.0",
+    "oxlint": "^1.88",
+    "smol-toml": "^1.9.1",
     "typescript": "^6.0.3"
   }
 }
