@@ -6,9 +6,13 @@
 
 pub(crate) mod bigquery;
 pub(crate) mod contract;
+pub(crate) mod feeds;
 pub(crate) mod ownership;
 
-use anyhow::{bail, Result};
+use std::collections::BTreeSet;
+use std::path::Path;
+
+use anyhow::{bail, Context, Result};
 
 use crate::corpus::Class;
 use crate::model::DomainModel;
@@ -71,19 +75,89 @@ fn contract_json(contract: &contract::Contract) -> Result<String> {
     Ok(body)
 }
 
-/// Every file `export --format warehouse` writes, as output-relative path and bytes.
-pub(crate) fn render_warehouse(model: &DomainModel) -> Result<Vec<(String, Vec<u8>)>> {
+/// Where a corpus declares its feeds (§3.1).
+pub(crate) const FEEDS_DIR: &str = ".yidam/warehouse/feeds";
+
+/// What the warehouse export reads besides the ontology: the feed files, and the catalog
+/// slugs a feed's `source:` must name.
+pub(crate) struct Inputs {
+    pub feeds: Vec<feeds::FeedSource>,
+    pub catalog: BTreeSet<String>,
+}
+
+impl Inputs {
+    pub(crate) fn load(root: &Path) -> Result<Self> {
+        let dir = root.join(FEEDS_DIR);
+        let mut feeds = Vec::new();
+        if dir.is_dir() {
+            for entry in
+                std::fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))?
+            {
+                let path = entry?.path();
+                if path.extension().and_then(|x| x.to_str()) != Some("yml") {
+                    continue;
+                }
+                let stem = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or_default();
+                feeds.push(feeds::FeedSource {
+                    rel: format!("{FEEDS_DIR}/{stem}.yml"),
+                    stem: stem.to_string(),
+                    text: std::fs::read_to_string(&path)
+                        .with_context(|| format!("reading {}", path.display()))?,
+                });
+            }
+        }
+        feeds.sort_by(|a, b| a.stem.cmp(&b.stem));
+        let catalog = crate::walk::walk_md_files(&crate::paths::yidam_catalog_dir(root))
+            .iter()
+            .filter_map(|p| p.file_stem().and_then(|s| s.to_str()).map(String::from))
+            .collect();
+        Ok(Self { feeds, catalog })
+    }
+}
+
+/// What `export --format warehouse` produced.
+pub(crate) struct Rendered {
+    /// Every file, as output-relative path and bytes.
+    pub files: Vec<(String, Vec<u8>)>,
+    /// The feeds that were resolved, by name.
+    pub feeds: Vec<String>,
+    /// Classes no feed maps: coverage, reported and never refused (§3.2).
+    pub unmapped: Vec<String>,
+}
+
+/// Derive the contract, resolve the feeds against it, and render both.
+pub(crate) fn render_warehouse(model: &DomainModel, inputs: &Inputs) -> Result<Rendered> {
     let contract = contract(model)?;
-    Ok(vec![
+    let resolved = match feeds::resolve(&inputs.feeds, &contract, &inputs.catalog) {
+        Ok(f) => f,
+        Err(refusals) => bail!(
+            "A feed does not fit the warehouse contract. Nothing was written:\n  - {}",
+            refusals.join("\n  - ")
+        ),
+    };
+    let mut files = vec![
         (
-            "contract.json".into(),
+            "contract.json".to_string(),
             contract_json(&contract)?.into_bytes(),
         ),
         (
-            "ddl/bigquery/0001_init.sql".into(),
+            "ddl/bigquery/0001_init.sql".to_string(),
             bigquery::render_init(&contract).into_bytes(),
         ),
-    ])
+    ];
+    files.extend(
+        bigquery::render_feeds(&resolved)
+            .into_iter()
+            .map(|(p, s)| (p, s.into_bytes())),
+    );
+    Ok(Rendered {
+        files,
+        unmapped: feeds::unmapped(&contract, &resolved),
+        feeds: resolved.into_iter().map(|f| f.name).collect(),
+    })
 }
 
 #[cfg(test)]
@@ -142,9 +216,17 @@ mod tests {
         ])
     }
 
+    fn inputs() -> Inputs {
+        Inputs {
+            feeds: vec![feeds::tests::source("gcp-cai", feeds::tests::CAI)],
+            catalog: feeds::tests::catalog(),
+        }
+    }
+
     fn rendered() -> Vec<(String, String)> {
-        render_warehouse(&fixture())
+        render_warehouse(&fixture(), &inputs())
             .unwrap()
+            .files
             .into_iter()
             .map(|(p, b)| (p, String::from_utf8(b).unwrap()))
             .collect()
@@ -212,15 +294,43 @@ mod tests {
 
     #[test]
     fn a_refusal_lists_every_reason_and_names_the_class() {
-        let err = render_warehouse(&model(&[
-            ("a-b", "{}\n"),
-            ("a_b", "{}\n"),
-            ("thing", "properties:\n  - name: p\n"),
-        ]))
-        .unwrap_err()
+        let err = render_warehouse(
+            &model(&[
+                ("a-b", "{}\n"),
+                ("a_b", "{}\n"),
+                ("thing", "properties:\n  - name: p\n"),
+            ]),
+            &Inputs {
+                feeds: vec![],
+                catalog: BTreeSet::new(),
+            },
+        )
+        .err()
+        .unwrap()
         .to_string();
         assert!(err.contains("Nothing was written"), "{err}");
         assert!(err.contains("table `a_b`"), "{err}");
         assert!(err.contains("thing.ont.yml: property `p`"), "{err}");
+    }
+
+    #[test]
+    fn the_export_reports_the_classes_no_feed_maps() {
+        let r = render_warehouse(&fixture(), &inputs()).unwrap();
+        assert_eq!(r.feeds, ["gcp-cai"]);
+        assert_eq!(r.unmapped, ["network"]);
+    }
+
+    #[test]
+    fn a_feed_refusal_writes_nothing_and_names_the_file() {
+        let mut i = inputs();
+        i.feeds[0].text = i.feeds[0]
+            .text
+            .replace("source: gcp-cloud-asset-inventory", "source: x");
+        let err = render_warehouse(&fixture(), &i).err().unwrap().to_string();
+        assert!(err.contains("Nothing was written"), "{err}");
+        assert!(
+            err.contains(".yidam/warehouse/feeds/gcp-cai.yml: classes.compute-instance.source"),
+            "{err}"
+        );
     }
 }

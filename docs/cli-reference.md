@@ -1740,7 +1740,7 @@ the reliable answer, because two of the seven are feature-gated:
 | `llms` | A flattened corpus for a context window, on stdout unless `--out` names a file. `--token-budget` | default |
 | `rdf` | Turtle and JSON-LD. `--rdf-format` picks one | `export-graph` |
 | `sqlite` | SQLite + sqlite-vec | `export-sqlite` |
-| `warehouse` | `warehouse/`: the ontology as a BigQuery contract (`ddl/bigquery/0001_init.sql` and `contract.json`). A file edited since the last export is refused; `--force` overwrites it. A file it did not write is left alone. See [RFC-0049](rfcs/0049-warehouse-contract.md) | default |
+| `warehouse` | `warehouse/`: the ontology as a BigQuery contract (`ddl/bigquery/0001_init.sql` and `contract.json`), plus one load script per table for each feed under `.yidam/warehouse/feeds/` (`feeds/<feed>/<table>.sql`). A feed that does not fit the contract is refused, and classes no feed maps are listed. A file edited since the last export is refused; `--force` overwrites it. A file it did not write is left alone. See [RFC-0049](rfcs/0049-warehouse-contract.md) | default |
 
 **A directory that is not a corpus is refused, not exported empty.** `export`, `bundle` and
 `schema` check for `.yidam/` first. `schema --settings` is the exception: it prints a
