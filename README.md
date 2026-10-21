@@ -189,7 +189,7 @@ yidam index-build         build the vector index
 yidam serve --mcp         serve the domain computer to MCP-capable agents over stdio
 yidam serve --lsp         the language server — diagnostics, definition, references, rename
 yidam bench               the committed goal set: anchored traversal against flat retrieval
-yidam export --format …   bundle · web · rdf · graphml · sqlite · llms
+yidam export --format …   bundle · web · rdf · graphml · sqlite · llms · warehouse
 yidam tonpa add …         manage bundle dependencies on other derived repos
 ```
 

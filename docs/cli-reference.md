@@ -1725,12 +1725,12 @@ deciding *quietly*.
 
 | Command | What it does |
 |---|---|
-| `export` * | Export the domain model. `--format`, `--out`, `--list` |
+| `export` * | Export the domain model. `--format`, `--out`, `--list`, `--force` |
 | `bundle` * | Alias for `export --format bundle`, kept for compatibility *(no flags)* |
 | `schema` * | Emit JSON Schema for the corpus shapes into `.yidam/schemas/`. A file it did not write is left alone, and the run refuses; `--force` replaces it. `--settings` prints the editor `yaml.schemas` mapping instead |
 
 `yidam export --list` reports each format and its implementation status in *your* build. That is
-the reliable answer, because two of the six are feature-gated:
+the reliable answer, because two of the seven are feature-gated:
 
 | Format | Produces | Needs |
 |---|---|---|
@@ -1740,6 +1740,7 @@ the reliable answer, because two of the six are feature-gated:
 | `llms` | A flattened corpus for a context window, on stdout unless `--out` names a file. `--token-budget` | default |
 | `rdf` | Turtle and JSON-LD. `--rdf-format` picks one | `export-graph` |
 | `sqlite` | SQLite + sqlite-vec | `export-sqlite` |
+| `warehouse` | `warehouse/`: the ontology as a BigQuery contract (`ddl/bigquery/0001_init.sql` and `contract.json`). A file edited since the last export is refused; `--force` overwrites it. A file it did not write is left alone. See [RFC-0049](rfcs/0049-warehouse-contract.md) | default |
 
 **A directory that is not a corpus is refused, not exported empty.** `export`, `bundle` and
 `schema` check for `.yidam/` first. `schema --settings` is the exception: it prints a

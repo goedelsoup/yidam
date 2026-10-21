@@ -97,8 +97,10 @@ about a column.
 | `claim`, `quotation` | none | prose and standing, not facts; carried in the Markdown layer |
 | `required: true` | `NOT NULL` | |
 
-Identifiers are the stem with `-` turned to `_`. Two stems that collide after that
-(`a-b`, `a_b`) are a refusal naming both, not a silent merge.
+Identifiers are the name with every character outside `[A-Za-z0-9_]` turned to `_`. Class
+and property stems are kebab-case, but a relationship is free text: a derived corpus writes
+`exposed at`. Two names that collide after that (`a-b`, `a_b`) are a refusal naming both,
+not a silent merge.
 
 #### 2.2 The key
 
