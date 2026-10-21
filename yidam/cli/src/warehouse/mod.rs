@@ -8,6 +8,7 @@ pub(crate) mod bigquery;
 pub(crate) mod contract;
 pub(crate) mod feeds;
 pub(crate) mod ownership;
+pub(crate) mod textql;
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -128,16 +129,20 @@ pub(crate) struct Rendered {
     pub unmapped: Vec<String>,
 }
 
-/// Derive the contract, resolve the feeds against it, and render both.
-pub(crate) fn render_warehouse(model: &DomainModel, inputs: &Inputs) -> Result<Rendered> {
-    let contract = contract(model)?;
-    let resolved = match feeds::resolve(&inputs.feeds, &contract, &inputs.catalog) {
-        Ok(f) => f,
+fn resolve_feeds(contract: &contract::Contract, inputs: &Inputs) -> Result<Vec<feeds::Feed>> {
+    match feeds::resolve(&inputs.feeds, contract, &inputs.catalog) {
+        Ok(f) => Ok(f),
         Err(refusals) => bail!(
             "A feed does not fit the warehouse contract. Nothing was written:\n  - {}",
             refusals.join("\n  - ")
         ),
-    };
+    }
+}
+
+/// Derive the contract, resolve the feeds against it, and render both.
+pub(crate) fn render_warehouse(model: &DomainModel, inputs: &Inputs) -> Result<Rendered> {
+    let contract = contract(model)?;
+    let resolved = resolve_feeds(&contract, inputs)?;
     let mut files = vec![
         (
             "contract.json".to_string(),
@@ -158,6 +163,23 @@ pub(crate) fn render_warehouse(model: &DomainModel, inputs: &Inputs) -> Result<R
         unmapped: feeds::unmapped(&contract, &resolved),
         feeds: resolved.into_iter().map(|f| f.name).collect(),
     })
+}
+
+/// Render the `textql` folder (§5): the same contract and feeds the warehouse export reads,
+/// so a page cannot name a column the DDL does not create.
+pub(crate) fn render_textql(
+    model: &DomainModel,
+    inputs: &Inputs,
+    prefix: &str,
+) -> Result<textql::Folder> {
+    let contract = contract(model)?;
+    let resolved = resolve_feeds(&contract, inputs)?;
+    Ok(textql::render(
+        &classes(model),
+        &contract,
+        &resolved,
+        prefix,
+    ))
 }
 
 #[cfg(test)]
@@ -260,6 +282,82 @@ mod tests {
             let head = body.lines().take(3).collect::<Vec<_>>().join("\n");
             assert!(head.contains(MARKER_PREFIX), "{path} has no marker");
         }
+    }
+
+    fn textql() -> textql::Folder {
+        render_textql(&fixture(), &inputs(), "ontology/cloud").unwrap()
+    }
+
+    #[test]
+    fn the_textql_folder_renders_to_its_golden() {
+        for (path, body) in textql().files {
+            let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/textql")
+                .join(&path);
+            if std::env::var_os("YIDAM_BLESS").is_some() {
+                std::fs::create_dir_all(golden.parent().unwrap()).unwrap();
+                std::fs::write(&golden, &body).unwrap();
+                continue;
+            }
+            let want = std::fs::read_to_string(&golden).unwrap_or_else(|_| {
+                panic!(
+                    "missing golden {}; run with YIDAM_BLESS=1 to write it",
+                    golden.display()
+                )
+            });
+            assert_eq!(body, want, "{path} differs from its golden");
+        }
+    }
+
+    #[test]
+    fn a_claim_is_prose_on_its_page_and_a_column_nowhere() {
+        let folder = textql();
+        let page = &folder
+            .files
+            .iter()
+            .find(|(p, _)| p == "classes/compute-instance.md")
+            .unwrap()
+            .1;
+        let prose = page
+            .split("## Stated in prose")
+            .nth(1)
+            .expect("a prose section");
+        assert!(prose.contains("**standing** (claim)"), "{page}");
+        for (path, body) in folder.files.iter().chain(&rendered()) {
+            assert!(
+                !body.contains("`standing`"),
+                "{path} names `standing` as a column"
+            );
+        }
+    }
+
+    #[test]
+    fn every_page_carries_the_textql_marker_and_no_csv_does() {
+        let files = textql().files;
+        assert!(textql::MARKER.starts_with(textql::MARKER_PREFIX));
+        assert!(files.iter().any(|(p, _)| p.ends_with(".csv")));
+        for (path, body) in files {
+            let first = body.lines().next().unwrap();
+            if path.ends_with(".csv") {
+                assert_eq!(
+                    first, "value",
+                    "{path}: a marker line would be read as data"
+                );
+            } else {
+                assert!(
+                    first.contains(textql::MARKER_PREFIX),
+                    "{path} has no marker"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_navigation_row_names_every_class_and_the_prefix() {
+        assert_eq!(
+            textql().navigation,
+            "| Compute instance, Network | `ontology/cloud/README.md` |"
+        );
     }
 
     #[test]

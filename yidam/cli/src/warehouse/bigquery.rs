@@ -6,7 +6,7 @@ use super::contract::{Column, ColumnType, Contract, Table, TableKind};
 use super::feeds::{ClassLoad, EdgeLoad, Feed, Mode};
 use super::MARKER;
 
-fn type_name(ty: ColumnType) -> &'static str {
+pub(crate) fn type_name(ty: ColumnType) -> &'static str {
     match ty {
         ColumnType::String => "STRING",
         ColumnType::Float => "FLOAT64",

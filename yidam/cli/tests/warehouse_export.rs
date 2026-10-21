@@ -2,8 +2,8 @@
 //!
 //! The derivation and the ownership rules are unit-tested in `src/warehouse/`. What is held
 //! here is what only the binary shows: every shipped example's ontology places in a contract,
-//! an edit at the other end survives a re-export unless `--force` is given, and a feed file
-//! on disk becomes load SQL (#1397).
+//! an edit at the other end survives a re-export unless `--force` is given, a feed file on
+//! disk becomes load SQL (#1397), and the `textql` folder keeps the same rules (#1398).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -151,4 +151,50 @@ fn a_feed_on_disk_becomes_load_sql_and_coverage() {
         stderr.contains(".yidam/warehouse/feeds/nwis.yml: classes.gage.source"),
         "{stderr}"
     );
+}
+
+fn export_textql(root: &Path, out: &Path, extra: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .args(["export", "--format", "textql", "--root"])
+        .arg(root)
+        .arg("--out")
+        .arg(out)
+        .args(extra)
+        .output()
+        .expect("running yidam export")
+}
+
+/// #1398: the TextQL folder keeps the same ownership rules as the warehouse tree.
+#[test]
+fn an_edited_textql_page_is_refused_unless_forced() {
+    let root = repo_root().join("examples/streamflow");
+    let out = tempfile::tempdir().unwrap();
+    let first = export_textql(&root, out.path(), &["--prefix", "ontology/streamflow"]);
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&first.stdout);
+    assert!(
+        stdout.contains("| Concept, Gage, Reach | `ontology/streamflow/README.md` |"),
+        "{stdout}"
+    );
+    assert!(!out.path().join("ANA.md").exists());
+
+    let page = out.path().join("classes/gage.md");
+    let mut edited = std::fs::read_to_string(&page).unwrap();
+    edited.push_str("\nA TextQL user's note.\n");
+    std::fs::write(&page, &edited).unwrap();
+
+    let refused = export_textql(&root, out.path(), &[]);
+    assert!(!refused.status.success());
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(stderr.contains("classes/gage.md was edited"), "{stderr}");
+    assert_eq!(std::fs::read_to_string(&page).unwrap(), edited);
+
+    assert!(export_textql(&root, out.path(), &["--force"])
+        .status
+        .success());
+    assert_ne!(std::fs::read_to_string(&page).unwrap(), edited);
 }
