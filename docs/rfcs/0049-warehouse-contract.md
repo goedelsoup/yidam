@@ -223,7 +223,7 @@ corpus is one more origin, so it takes the same path and the same checks as any 
 The TextQL folder syncs both ways. So does any repository the warehouse tree is committed to.
 A re-export must not overwrite what someone changed at the other end.
 
-- Every generated file carries a marker in a comment, which is the `yidam schema` precedent (#1057).
+- Every generated file carries a marker in a comment, which is the `yidam schema` precedent (#1057). The vocab CSVs are the exception: CSV has no comment, and TextQL would read a marker line as a value. The manifest alone records them, and an edited CSV is still a refusal.
 - `.yidam-export.json` records each file's hash at export time.
 - A file whose hash no longer matches is a refusal naming it, unless `--force` is given.
 - A file without the marker was not written by yidam, and is left alone.
@@ -248,7 +248,9 @@ A re-export must not overwrite what someone changed at the other end.
 ```
 
 It writes no `ANA.md`. That file is loaded into every chat in the organisation, so adding
-to it is the work-side owner's call. The export prints the navigation row to add.
+to it is the work-side owner's call. The export prints the navigation row to add. `--prefix`
+is where the folder sits in the TextQL repository, and it appears only in that row, because
+every link inside the folder is relative. It defaults to the output folder's name.
 
 #### 5.2 What the `.tql` views expose
 

@@ -1725,12 +1725,12 @@ deciding *quietly*.
 
 | Command | What it does |
 |---|---|
-| `export` * | Export the domain model. `--format`, `--out`, `--list`, `--force` |
+| `export` * | Export the domain model. `--format`, `--out`, `--list`, `--force`, `--prefix` |
 | `bundle` * | Alias for `export --format bundle`, kept for compatibility *(no flags)* |
 | `schema` * | Emit JSON Schema for the corpus shapes into `.yidam/schemas/`. A file it did not write is left alone, and the run refuses; `--force` replaces it. `--settings` prints the editor `yaml.schemas` mapping instead |
 
 `yidam export --list` reports each format and its implementation status in *your* build. That is
-the reliable answer, because two of the seven are feature-gated:
+the reliable answer, because two of the nine are feature-gated:
 
 | Format | Produces | Needs |
 |---|---|---|
@@ -1741,6 +1741,7 @@ the reliable answer, because two of the seven are feature-gated:
 | `rdf` | Turtle and JSON-LD. `--rdf-format` picks one | `export-graph` |
 | `sqlite` | SQLite + sqlite-vec | `export-sqlite` |
 | `warehouse` | `warehouse/`: the ontology as a BigQuery contract (`ddl/bigquery/0001_init.sql` and `contract.json`), plus one load script per table for each feed under `.yidam/warehouse/feeds/` (`feeds/<feed>/<table>.sql`). A feed that does not fit the contract is refused, and classes no feed maps are listed. A file edited since the last export is refused; `--force` overwrites it. A file it did not write is left alone. See [RFC-0049](rfcs/0049-warehouse-contract.md) | default |
+| `textql` | `textql/`: the same contract as Markdown and CSV for a TextQL Ontology folder. It writes a `README.md` navigation table, `warehouse.md` (provenance columns, feeds, date precision), one `classes/<class>.md` per class and one `vocab/<class>__<property>.csv` per value set. It writes no `ANA.md`; it prints the row to add there, under `--prefix` (default: the output folder's name). The ownership rules are `warehouse`'s, and `--force` works the same way | default |
 
 **A directory that is not a corpus is refused, not exported empty.** `export`, `bundle` and
 `schema` check for `.yidam/` first. `schema --settings` is the exception: it prints a
