@@ -26,6 +26,12 @@ ignore = [
   # extractor. Either way `reading::EXTRACTOR` changes, and readings already taken keep the
   # extractor they name.
   { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained; reached only via pdf-extract 0.12.1 -> lopdf 0.42, which pdf-extract pins below the lopdf release that dropped it (#1172); expires 2027-01-31" },
+  # Unmaintained, not vulnerable. `unsafe-libyaml` is the parser under `serde_yaml_ng`, which
+  # the CLI and `yidam-core` read every `.ont.yml` and every node's frontmatter through. No
+  # `serde_yaml_ng` release drops it, so leaving means moving every YAML read to a safe-Rust
+  # parser (`serde-saphyr`), which changes how each corpus file is read. At expiry, either that
+  # migration is under way or a person re-decides this. It is not simply re-dated.
+  { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml is unmaintained (archived 2024-03); reached only via serde_yaml_ng in yidam and yidam-core, and replacing it means migrating every YAML read to a safe-Rust parser; expires 2027-01-31" },
 ]
 
 # ── licenses ─────────────────────────────────────────────────────────────────
