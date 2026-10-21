@@ -772,6 +772,10 @@ enum Command {
         /// Approximate token budget for the llms format (1 token ≈ 4 chars; default: unlimited)
         #[arg(long, value_name = "TOKENS")]
         token_budget: Option<usize>,
+        /// Overwrite generated files edited since the last export (warehouse format).
+        /// A file yidam did not generate is never touched.
+        #[arg(long)]
+        force: bool,
         /// List available export formats and their implementation status
         #[arg(long)]
         list: bool,
@@ -1851,6 +1855,7 @@ fn run() -> Result<()> {
             webllm_model,
             rdf_format,
             token_budget,
+            force,
             list,
         } => {
             if list {
@@ -1861,6 +1866,7 @@ fn run() -> Result<()> {
                     webllm_model,
                     rdf_format,
                     token_budget,
+                    force,
                 };
                 yidam::run_export(root.as_deref(), format.unwrap(), out.as_deref(), &options)
             }

@@ -104,6 +104,7 @@ pub mod s3vectors;
 pub mod sources;
 pub mod vault;
 mod walk;
+mod warehouse;
 
 /// The one tokio runtime (#930). Compiled for exactly the features that pull `tokio` —
 /// `tests/gates/light_build.rs` derives that set from Cargo.toml and holds this list to it.
