@@ -152,10 +152,13 @@ feed: gcp-cai
 description: Cloud Asset Inventory export, per-asset-type tables, daily.
 mode: snapshot            # snapshot: rows absent from landing are deleted for this _origin
                           # append:   rows are upserted and never deleted
-landing: "${landing_dataset}"
+landing: "${project}.${landing_dataset}"   # optional; `${landing}` below expands to it
+parameters:               # every other ${...}, with what it is
+  project: The GCP project holding the landing dataset.
+  landing_dataset: The dataset CAI exports into.
 classes:
   compute-instance:
-    from: "${landing}.cai_compute_googleapis_com_Instance"
+    from: "`${landing}.cai_compute_googleapis_com_Instance`"
     where: "resource.data.status != 'TERMINATED'"
     id: "name"
     source: gcp-cloud-asset-inventory        # a catalog slug, written to _source
@@ -166,13 +169,20 @@ classes:
     edges:
       attached-to:
         unnest: "resource.data.networkInterfaces"
-        dst_id: "network"
+        as: nic                              # names the element; CAI's interfaces have a `name` too
+        dst_id: "nic.network"
 ```
 
 The expressions are authored SQL fragments, trusted the way `.tql` treats authored fragments.
 They are reviewed in the corpus's own PRs, and the generator neither parses nor rewrites them.
 The `${...}` parameters are the only thing left for run time. They are template parameters,
-not SQL, so a dataset name that differs between environments needs no regeneration.
+not SQL, so a dataset name that differs between environments needs no regeneration. The one
+the generator touches is `${landing}`, which it expands to `landing:` when the feed declares
+one. Without `landing:` it is a run-time parameter like the rest. Every other parameter is
+listed under `parameters:`, and the script's header repeats that list.
+
+A `date` mapped without its `_precision` column is written as `day`, the precision of a
+source with full timestamps (§2.5).
 
 #### 3.2 What `export` checks before writing
 
@@ -189,13 +199,14 @@ gate on it would refuse the first feed anyone writes.
 
 #### 3.3 The SQL it generates
 
-For each mapped class, the export writes one BigQuery script, `warehouse/feeds/<feed>/<class>.sql`. The script:
+For each mapped class and each mapped edge, the export writes one BigQuery script, `warehouse/feeds/<feed>/<table>.sql`, named for the contract table it loads. The script:
 1. `CAST`s each expression to the contract type, so a landing column that arrives as `NUMERIC` or a JSON string still lands as the contract says;
 2. fails the job if any value of a value-set property is outside the set, naming the value;
-3. `MERGE`s into the contract table on `(id, _origin)`;
-4. under `mode: snapshot`, deletes this `_origin`'s rows that are absent from landing.
+3. fails the job if any `id` occurs twice in landing, naming it (`MERGE` would fail anyway, without saying which row);
+4. `MERGE`s into the contract table on `(id, _origin)`;
+5. under `mode: snapshot`, deletes this `_origin`'s rows that are absent from landing.
 
-Link tables get the same treatment. The scripts are plain SQL with a header naming the parameters.
+Link tables get the same treatment, keyed on `(src_id, dst_id, _origin)`. A row whose `dst_id` is null links to nothing, so it is dropped rather than refused. The scripts are plain SQL with a header naming the parameters.
 
 They run anywhere BigQuery SQL runs: an Airflow `BigQueryInsertJobOperator`, a scheduled
 query, `bq query`, or a dbt `run-operation`. yidam ships no DAG. A worked Airflow example belongs in the

@@ -3,6 +3,7 @@
 use std::fmt::Write as _;
 
 use super::contract::{Column, ColumnType, Contract, Table, TableKind};
+use super::feeds::{ClassLoad, EdgeLoad, Feed, Mode};
 use super::MARKER;
 
 fn type_name(ty: ColumnType) -> &'static str {
@@ -100,10 +101,292 @@ pub(crate) fn render_init(contract: &Contract) -> String {
     out
 }
 
+/// The clause that deletes this origin's rows landing no longer holds (§3.3, step 4).
+///
+/// The one place the snapshot delete is written. P0 (#1395) runs it at the other end, and if
+/// BigQuery wants a different form this is the only line that changes.
+fn snapshot_delete(origin: &str) -> String {
+    format!(
+        "WHEN NOT MATCHED BY SOURCE AND T.`_origin` = {} THEN\n  DELETE",
+        string_literal(origin)
+    )
+}
+
+/// The header every feed script opens with: what it loads, and what must be substituted.
+fn feed_header(out: &mut String, feed: &Feed, what: &str) {
+    let _ = writeln!(out, "-- {MARKER}");
+    let _ = writeln!(out, "--");
+    let _ = writeln!(out, "-- Feed `{}`: {what}.", feed.name);
+    if !feed.description.is_empty() {
+        let about = feed
+            .description
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let _ = writeln!(out, "-- {about}");
+    }
+    let mode = match feed.mode {
+        Mode::Snapshot => "snapshot: rows of this origin that landing no longer holds are deleted",
+        Mode::Append => "append: rows are upserted and never deleted",
+    };
+    let _ = writeln!(out, "-- Mode: {mode}.");
+    if feed.parameters.is_empty() {
+        let _ = writeln!(out, "-- Parameters: none.");
+    } else {
+        let _ = writeln!(
+            out,
+            "-- Parameters, to substitute before running (nothing else here is a template):"
+        );
+        for (name, about) in &feed.parameters {
+            let about = about.split_whitespace().collect::<Vec<_>>().join(" ");
+            let _ = writeln!(out, "--   ${{{name}}}  {about}");
+        }
+    }
+    let _ = writeln!(
+        out,
+        "-- Run with the contract's dataset as the job's default dataset, as 0001_init.sql is."
+    );
+    out.push('\n');
+    // One timestamp for every row this run writes, so a load reads as one event.
+    out.push_str("DECLARE loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP();\n\n");
+}
+
+fn from_clause(c: &ClassLoad, edge: Option<&EdgeLoad>) -> String {
+    let mut s = format!("FROM {}", c.from);
+    if let Some(unnest) = edge.and_then(|e| e.unnest.as_deref()) {
+        let _ = write!(s, ",\n  UNNEST({unnest})");
+        if let Some(alias) = edge.and_then(|e| e.alias.as_deref()) {
+            let _ = write!(s, " AS {alias}");
+        }
+    }
+    if let Some(filter) = &c.filter {
+        let _ = write!(s, "\nWHERE ({filter})");
+    }
+    s
+}
+
+/// Fail the job if any key in `_staged` occurs twice, naming it: `MERGE` would fail anyway,
+/// without saying which row.
+fn duplicate_check(out: &mut String, table: &str, key: &[&str]) {
+    let cols: Vec<String> = key.iter().map(|k| format!("`{k}`")).collect();
+    let shown: Vec<String> = key.iter().map(|k| format!("`{k}`")).collect();
+    let _ = writeln!(
+        out,
+        "SELECT ERROR(FORMAT({}, {}))\nFROM _staged\nGROUP BY {}\nHAVING COUNT(*) > 1\nLIMIT 1;\n",
+        string_literal(&format!(
+            "{table}: landing holds {} more than once ({})",
+            key.iter().map(|_| "%T").collect::<Vec<_>>().join(", "),
+            shown.join(", ")
+        )),
+        cols.join(", "),
+        cols.join(", "),
+    );
+}
+
+fn merge(
+    out: &mut String,
+    feed: &Feed,
+    table: &str,
+    key: &[&str],
+    set: &[&str],
+    source: Option<&str>,
+) {
+    let origin = string_literal(&feed.name);
+    let source = source.map_or("NULL".to_string(), string_literal);
+    let on: Vec<String> = key.iter().map(|k| format!("T.`{k}` = S.`{k}`")).collect();
+    let mut update: Vec<String> = set.iter().map(|c| format!("`{c}` = S.`{c}`")).collect();
+    update.push("`_loaded_at` = loaded_at".into());
+    update.push(format!("`_source` = {source}"));
+    let mut insert: Vec<String> = key.iter().chain(set).map(|c| format!("`{c}`")).collect();
+    insert.extend(["`_origin`", "`_loaded_at`", "`_source`"].map(String::from));
+    let mut values: Vec<String> = key.iter().chain(set).map(|c| format!("S.`{c}`")).collect();
+    values.extend([origin.clone(), "loaded_at".into(), source]);
+
+    let _ = writeln!(out, "MERGE `{table}` AS T\nUSING _staged AS S");
+    let _ = writeln!(out, "ON {} AND T.`_origin` = {origin}", on.join(" AND "));
+    let _ = writeln!(out, "WHEN MATCHED THEN\n  UPDATE SET {}", update.join(", "));
+    let _ = writeln!(
+        out,
+        "WHEN NOT MATCHED THEN\n  INSERT ({})\n  VALUES ({})",
+        insert.join(", "),
+        values.join(", ")
+    );
+    if feed.mode == Mode::Snapshot {
+        let _ = writeln!(out, "{}", snapshot_delete(&feed.name));
+    }
+    out.truncate(out.trim_end().len());
+    out.push_str(";\n");
+}
+
+fn class_script(feed: &Feed, c: &ClassLoad) -> String {
+    let mut out = String::new();
+    feed_header(
+        &mut out,
+        feed,
+        &format!("class `{}` into `{}`", c.class, c.table),
+    );
+
+    // 1. Cast each expression to its contract type.
+    let mut select = vec![format!("  CAST({} AS STRING) AS `id`", c.id)];
+    for m in &c.columns {
+        select.push(format!(
+            "  CAST({} AS {}) AS `{}`",
+            m.expr,
+            type_name(m.ty),
+            m.column
+        ));
+    }
+    let _ = writeln!(
+        out,
+        "CREATE TEMP TABLE _staged AS\nSELECT\n{}\n{};\n",
+        select.join(",\n"),
+        from_clause(c, None)
+    );
+    duplicate_check(&mut out, &c.table, &["id"]);
+
+    // 2. Fail on a value outside its declared set, naming it.
+    for m in &c.columns {
+        let allowed = if let Some(vocab) = &m.values {
+            format!("(SELECT `value` FROM `{vocab}`)")
+        } else if m.precision {
+            "(\"year\", \"month\", \"day\")".to_string()
+        } else {
+            continue;
+        };
+        let _ = writeln!(
+            out,
+            "SELECT ERROR(FORMAT({}, v))\nFROM (SELECT DISTINCT `{col}` AS v FROM _staged)\n\
+             WHERE v IS NOT NULL AND v NOT IN {allowed}\nLIMIT 1;\n",
+            string_literal(&format!(
+                "{}.{}: %T is not a declared value",
+                c.table, m.column
+            )),
+            col = m.column,
+        );
+    }
+
+    // 3. Merge on (id, _origin); 4. under snapshot, delete what landing no longer holds.
+    let set: Vec<&str> = c.columns.iter().map(|m| m.column.as_str()).collect();
+    merge(&mut out, feed, &c.table, &["id"], &set, c.source.as_deref());
+    out
+}
+
+fn edge_script(feed: &Feed, c: &ClassLoad, e: &EdgeLoad) -> String {
+    let mut out = String::new();
+    feed_header(
+        &mut out,
+        feed,
+        &format!(
+            "edge `{}` of class `{}` into `{}`",
+            e.relationship, c.class, e.table
+        ),
+    );
+    // A row whose `dst_id` is null links to nothing, so it is not a link.
+    let _ = writeln!(
+        out,
+        "CREATE TEMP TABLE _staged AS\nSELECT DISTINCT * FROM (\nSELECT\n  CAST({} AS STRING) AS \
+         `src_id`,\n  CAST({} AS STRING) AS `dst_id`\n{}\n)\nWHERE `src_id` IS NOT NULL AND \
+         `dst_id` IS NOT NULL;\n",
+        c.id,
+        e.dst_id,
+        from_clause(c, Some(e))
+    );
+    merge(
+        &mut out,
+        feed,
+        &e.table,
+        &["src_id", "dst_id"],
+        &[],
+        c.source.as_deref(),
+    );
+    out
+}
+
+/// Every feed's load scripts, as output-relative path and text: one per mapped class and one
+/// per mapped edge, under `feeds/<feed>/<table>.sql`.
+pub(crate) fn render_feeds(feeds: &[Feed]) -> Vec<(String, String)> {
+    let mut files = Vec::new();
+    for feed in feeds {
+        for c in &feed.classes {
+            files.push((
+                format!("feeds/{}/{}.sql", feed.name, c.table),
+                class_script(feed, c),
+            ));
+            for e in &c.edges {
+                files.push((
+                    format!("feeds/{}/{}.sql", feed.name, e.table),
+                    edge_script(feed, c, e),
+                ));
+            }
+        }
+    }
+    files
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::warehouse::contract::{derive, tests::class};
+    use crate::warehouse::feeds::{resolve, tests as feed};
+
+    fn cai(text: &str) -> Vec<(String, String)> {
+        let feeds = resolve(
+            &[feed::source("gcp-cai", text)],
+            &feed::contract(),
+            &feed::catalog(),
+        )
+        .unwrap();
+        render_feeds(&feeds)
+    }
+
+    #[test]
+    fn a_feed_writes_one_script_per_mapped_class_and_edge() {
+        let paths: Vec<String> = cai(feed::CAI).into_iter().map(|(p, _)| p).collect();
+        assert_eq!(
+            paths,
+            [
+                "feeds/gcp-cai/compute_instance.sql",
+                "feeds/gcp-cai/edge_compute_instance__attached_to.sql"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_snapshot_feed_deletes_and_an_append_feed_does_not() {
+        for (_, sql) in cai(feed::CAI) {
+            assert!(sql.contains("WHEN NOT MATCHED BY SOURCE AND T.`_origin` = \"gcp-cai\""));
+        }
+        let append = feed::CAI.replacen("mode: snapshot", "mode: append", 1);
+        for (path, sql) in cai(&append) {
+            assert!(!sql.contains("NOT MATCHED BY SOURCE"), "{path}");
+            assert!(!sql.contains("DELETE"), "{path}");
+        }
+    }
+
+    #[test]
+    fn run_time_parameters_reach_the_sql_untouched() {
+        let (_, sql) = &cai(feed::CAI)[0];
+        assert!(
+            sql.contains(
+                "FROM `${project}.${landing_dataset}.cai_compute_googleapis_com_Instance`"
+            ),
+            "{sql}"
+        );
+        assert!(sql.contains("--   ${project}  The GCP project"), "{sql}");
+        assert!(!sql.contains("${landing}"), "{sql}");
+    }
+
+    #[test]
+    fn a_value_set_column_is_checked_against_its_vocab_table() {
+        let (_, sql) = &cai(feed::CAI)[0];
+        assert!(
+            sql.contains(
+                "WHERE v IS NOT NULL AND v NOT IN (SELECT `value` FROM \
+                 `vocab_compute_instance__provider`)"
+            ),
+            "{sql}"
+        );
+    }
 
     #[test]
     fn a_string_literal_escapes_what_would_end_or_break_it() {
