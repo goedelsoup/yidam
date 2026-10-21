@@ -6,6 +6,7 @@
 
 pub(crate) mod bigquery;
 pub(crate) mod contract;
+pub(crate) mod evolution;
 pub(crate) mod feeds;
 pub(crate) mod ownership;
 pub(crate) mod textql;
@@ -119,10 +120,79 @@ impl Inputs {
     }
 }
 
+/// Where the migrations live. A migration an earlier export wrote is kept, since a pipeline
+/// may already have run it (§6).
+pub(crate) const HISTORY: &str = "ddl/bigquery/";
+
+/// What the last export left in `out`: its contract, and the next migration number.
+struct Previous {
+    contract: Option<contract::Contract>,
+    next: u32,
+}
+
+/// The number a migration file name opens with, if it opens with four digits and `_` or `.`.
+fn migration_number(name: &str) -> Option<u32> {
+    let digits = name.get(..4)?;
+    if !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    matches!(name.as_bytes().get(4), Some(b'_' | b'.')).then(|| digits.parse().ok())?
+}
+
+fn previous(out: &Path) -> Result<Previous> {
+    #[derive(serde::Deserialize)]
+    struct Envelope {
+        format_version: u32,
+        #[serde(flatten)]
+        contract: contract::Contract,
+    }
+    let path = out.join("contract.json");
+    let contract = match std::fs::read(&path) {
+        Ok(bytes) => {
+            let env: Envelope = serde_json::from_slice(&bytes)
+                .with_context(|| format!("reading the last export's {}", path.display()))?;
+            if env.format_version != CONTRACT_FORMAT_VERSION {
+                bail!(
+                    "{} is contract format {}, and this yidam reads format {}. Export with the \
+                     yidam that wrote it, or move the folder aside to start a new history.",
+                    path.display(),
+                    env.format_version,
+                    CONTRACT_FORMAT_VERSION
+                );
+            }
+            Some(env.contract)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    let mut last = 0;
+    for dir in [out.join(HISTORY), out.join(HISTORY).join("breaking")] {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries {
+            let name = entry?.file_name();
+            if let Some(n) = name.to_str().and_then(migration_number) {
+                last = last.max(n);
+            }
+        }
+    }
+    Ok(Previous {
+        contract,
+        next: last + 1,
+    })
+}
+
 /// What `export --format warehouse` produced.
 pub(crate) struct Rendered {
     /// Every file, as output-relative path and bytes.
     pub files: Vec<(String, Vec<u8>)>,
+    /// The migration this export added, if the contract changed.
+    pub migration: Option<String>,
+    /// The additive changes since the last export, one line each.
+    pub changes: Vec<String>,
+    /// The breaking changes `--allow-breaking` wrote for review, one line each.
+    pub breaking: Vec<String>,
     /// The feeds that were resolved, by name.
     pub feeds: Vec<String>,
     /// Classes no feed maps: coverage, reported and never refused (§3.2).
@@ -139,20 +209,69 @@ fn resolve_feeds(contract: &contract::Contract, inputs: &Inputs) -> Result<Vec<f
     }
 }
 
-/// Derive the contract, resolve the feeds against it, and render both.
-pub(crate) fn render_warehouse(model: &DomainModel, inputs: &Inputs) -> Result<Rendered> {
+/// Derive the contract, resolve the feeds against it, and render both, with the migration
+/// from the contract the last export left in `out` (§6).
+///
+/// The first export writes `0001_init.sql`. Every later one diffs against `contract.json`:
+/// an additive change becomes the next numbered migration, no change writes none, and a
+/// breaking change is refused unless `allow_breaking`, which writes it under `breaking/`.
+pub(crate) fn render_warehouse(
+    model: &DomainModel,
+    inputs: &Inputs,
+    out: &Path,
+    allow_breaking: bool,
+) -> Result<Rendered> {
     let contract = contract(model)?;
     let resolved = resolve_feeds(&contract, inputs)?;
-    let mut files = vec![
-        (
-            "contract.json".to_string(),
-            contract_json(&contract)?.into_bytes(),
-        ),
-        (
-            "ddl/bigquery/0001_init.sql".to_string(),
-            bigquery::render_init(&contract).into_bytes(),
-        ),
-    ];
+    let previous = previous(out)?;
+    let mut files = vec![(
+        "contract.json".to_string(),
+        contract_json(&contract)?.into_bytes(),
+    )];
+    let n = format!("{:04}", previous.next);
+    let (mut migration, mut changes, mut breaking) = (None, Vec::new(), Vec::new());
+    match &previous.contract {
+        None => {
+            let rel = format!("{HISTORY}{n}_init.sql");
+            files.push((rel.clone(), bigquery::render_init(&contract).into_bytes()));
+            migration = Some(rel);
+        }
+        Some(old) => {
+            let diff = evolution::diff(old, &contract);
+            breaking = diff.breaking.iter().map(|b| b.describe()).collect();
+            if !breaking.is_empty() && !allow_breaking {
+                let mut lines: Vec<String> = breaking.clone();
+                lines.extend(
+                    diff.additive
+                        .iter()
+                        .map(|a| format!("{} (additive, held with the rest)", a.describe())),
+                );
+                bail!(
+                    "The ontology changed in ways the tables already loaded cannot follow \
+                     without losing or altering rows. Nothing was written:\n  - {}\n\
+                     A rename shows as a removal and an addition. Revert the change, or pass \
+                     --allow-breaking to write the breaking statements to \
+                     {HISTORY}breaking/{n}.sql for review.",
+                    lines.join("\n  - ")
+                );
+            }
+            if !diff.additive.is_empty() {
+                let rel = format!("{HISTORY}{n}_{}.sql", diff.slug());
+                files.push((
+                    rel.clone(),
+                    bigquery::render_migration(&n, &diff).into_bytes(),
+                ));
+                migration = Some(rel);
+                changes = diff.additive.iter().map(|a| a.describe()).collect();
+            }
+            if !diff.breaking.is_empty() {
+                files.push((
+                    format!("{HISTORY}breaking/{n}.sql"),
+                    bigquery::render_breaking(&n, &diff.breaking).into_bytes(),
+                ));
+            }
+        }
+    }
     files.extend(
         bigquery::render_feeds(&resolved)
             .into_iter()
@@ -160,6 +279,9 @@ pub(crate) fn render_warehouse(model: &DomainModel, inputs: &Inputs) -> Result<R
     );
     Ok(Rendered {
         files,
+        migration,
+        changes,
+        breaking,
         unmapped: feeds::unmapped(&contract, &resolved),
         feeds: resolved.into_iter().map(|f| f.name).collect(),
     })
@@ -238,6 +360,9 @@ mod tests {
         ])
     }
 
+    /// An output folder no export has written to, so every render is a first export.
+    const NO_EXPORT: &str = "/nonexistent/yidam-warehouse-test";
+
     fn inputs() -> Inputs {
         Inputs {
             feeds: vec![feeds::tests::source("gcp-cai", feeds::tests::CAI)],
@@ -246,7 +371,7 @@ mod tests {
     }
 
     fn rendered() -> Vec<(String, String)> {
-        render_warehouse(&fixture(), &inputs())
+        render_warehouse(&fixture(), &inputs(), NO_EXPORT.as_ref(), false)
             .unwrap()
             .files
             .into_iter()
@@ -402,6 +527,8 @@ mod tests {
                 feeds: vec![],
                 catalog: BTreeSet::new(),
             },
+            NO_EXPORT.as_ref(),
+            false,
         )
         .err()
         .unwrap()
@@ -413,7 +540,7 @@ mod tests {
 
     #[test]
     fn the_export_reports_the_classes_no_feed_maps() {
-        let r = render_warehouse(&fixture(), &inputs()).unwrap();
+        let r = render_warehouse(&fixture(), &inputs(), NO_EXPORT.as_ref(), false).unwrap();
         assert_eq!(r.feeds, ["gcp-cai"]);
         assert_eq!(r.unmapped, ["network"]);
     }
@@ -424,11 +551,215 @@ mod tests {
         i.feeds[0].text = i.feeds[0]
             .text
             .replace("source: gcp-cloud-asset-inventory", "source: x");
-        let err = render_warehouse(&fixture(), &i).err().unwrap().to_string();
+        let err = render_warehouse(&fixture(), &i, NO_EXPORT.as_ref(), false)
+            .err()
+            .unwrap()
+            .to_string();
         assert!(err.contains("Nothing was written"), "{err}");
         assert!(
             err.contains(".yidam/warehouse/feeds/gcp-cai.yml: classes.compute-instance.source"),
             "{err}"
         );
+    }
+
+    /// Render into `out` as the export does, and write what was rendered.
+    fn export_into(out: &Path, m: &DomainModel, allow_breaking: bool) -> Result<Rendered> {
+        let r = render_warehouse(m, &inputs(), out, allow_breaking)?;
+        ownership::write_owned(
+            out,
+            GENERATOR,
+            MARKER_PREFIX,
+            &r.files,
+            Some(HISTORY),
+            false,
+        )?;
+        Ok(r)
+    }
+
+    fn with_property(extra: &str) -> DomainModel {
+        let mut m = fixture();
+        let c = &mut m.classes[0];
+        let text = String::from_utf8(c.content.clone()).unwrap();
+        c.content = text
+            .replacen("edges:\n", &format!("{extra}edges:\n"), 1)
+            .into_bytes();
+        m
+    }
+
+    fn migrations(out: &Path) -> Vec<String> {
+        let dir = out.join(HISTORY);
+        let mut names = Vec::new();
+        for sub in ["", "breaking"] {
+            let Ok(entries) = std::fs::read_dir(dir.join(sub)) else {
+                continue;
+            };
+            for e in entries.map(Result::unwrap) {
+                if e.path().is_file() {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    names.push(if sub.is_empty() {
+                        name
+                    } else {
+                        format!("{sub}/{name}")
+                    });
+                }
+            }
+        }
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn no_change_writes_no_migration_and_keeps_the_first() {
+        let out = tempfile::tempdir().unwrap();
+        let first = export_into(out.path(), &fixture(), false).unwrap();
+        assert_eq!(
+            first.migration.as_deref(),
+            Some("ddl/bigquery/0001_init.sql")
+        );
+        let again = export_into(out.path(), &fixture(), false).unwrap();
+        assert_eq!(again.migration, None);
+        assert!(again.changes.is_empty() && again.breaking.is_empty());
+        assert_eq!(migrations(out.path()), ["0001_init.sql"]);
+    }
+
+    #[test]
+    fn an_additive_change_writes_the_next_migration_and_only_it() {
+        let out = tempfile::tempdir().unwrap();
+        export_into(out.path(), &fixture(), false).unwrap();
+        let init = std::fs::read(out.path().join("ddl/bigquery/0001_init.sql")).unwrap();
+        let r = export_into(
+            out.path(),
+            &with_property("\x20 - name: zone\n    type: string\n"),
+            false,
+        )
+        .unwrap();
+        assert_eq!(r.changes, ["column `compute_instance.zone` added"]);
+        assert_eq!(
+            migrations(out.path()),
+            ["0001_init.sql", "0002_add_compute_instance__zone.sql"]
+        );
+        assert_eq!(
+            std::fs::read(out.path().join("ddl/bigquery/0001_init.sql")).unwrap(),
+            init,
+            "an earlier migration is history, and is not rewritten"
+        );
+        let sql = std::fs::read_to_string(
+            out.path()
+                .join("ddl/bigquery/0002_add_compute_instance__zone.sql"),
+        )
+        .unwrap();
+        assert!(sql.starts_with(&format!("-- {MARKER}")), "{sql}");
+        assert!(
+            sql.contains("ALTER TABLE `compute_instance` ADD COLUMN IF NOT EXISTS `zone` STRING;"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn a_breaking_change_is_refused_naming_both_halves_of_a_rename() {
+        let out = tempfile::tempdir().unwrap();
+        export_into(out.path(), &fixture(), false).unwrap();
+        let contract = std::fs::read(out.path().join("contract.json")).unwrap();
+        let mut renamed = fixture();
+        let c = &mut renamed.classes[0];
+        c.content = String::from_utf8(c.content.clone())
+            .unwrap()
+            .replace("name: vcpus", "name: cores")
+            .into_bytes();
+        let err = export_into(out.path(), &renamed, false)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("Nothing was written"), "{err}");
+        assert!(
+            err.contains("column `compute_instance.vcpus` removed"),
+            "{err}"
+        );
+        assert!(
+            err.contains("column `compute_instance.cores` added (additive, held with the rest)"),
+            "{err}"
+        );
+        assert!(err.contains("ddl/bigquery/breaking/0002.sql"), "{err}");
+        assert_eq!(
+            std::fs::read(out.path().join("contract.json")).unwrap(),
+            contract
+        );
+        assert_eq!(migrations(out.path()), ["0001_init.sql"]);
+    }
+
+    #[test]
+    fn allow_breaking_writes_the_statements_for_review_and_numbering_moves_past_them() {
+        let out = tempfile::tempdir().unwrap();
+        export_into(out.path(), &fixture(), false).unwrap();
+        let mut narrowed = fixture();
+        let c = &mut narrowed.classes[0];
+        c.content = String::from_utf8(c.content.clone())
+            .unwrap()
+            .replace("[gcp, aws]", "[gcp]")
+            .into_bytes();
+        let r = export_into(out.path(), &narrowed, true).unwrap();
+        assert_eq!(
+            r.breaking,
+            ["value `aws` removed from `vocab_compute_instance__provider`"]
+        );
+        assert_eq!(r.migration, None, "nothing additive, so no migration");
+        let sql =
+            std::fs::read_to_string(out.path().join("ddl/bigquery/breaking/0002.sql")).unwrap();
+        assert!(
+            sql.contains("DELETE FROM `vocab_compute_instance__provider` WHERE `value` = \"aws\";"),
+            "{sql}"
+        );
+
+        let next = export_into(
+            out.path(),
+            &{
+                let mut m = with_property("\x20 - name: zone\n    type: string\n");
+                let c = &mut m.classes[0];
+                c.content = String::from_utf8(c.content.clone())
+                    .unwrap()
+                    .replace("[gcp, aws]", "[gcp]")
+                    .into_bytes();
+                m
+            },
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            next.migration.as_deref(),
+            Some("ddl/bigquery/0003_add_compute_instance__zone.sql")
+        );
+        assert_eq!(
+            migrations(out.path()),
+            [
+                "0001_init.sql",
+                "0003_add_compute_instance__zone.sql",
+                "breaking/0002.sql"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_contract_of_another_format_version_is_refused() {
+        let out = tempfile::tempdir().unwrap();
+        export_into(out.path(), &fixture(), false).unwrap();
+        let path = out.path().join("contract.json");
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("\"format_version\": 1", "\"format_version\": 2");
+        std::fs::write(&path, text).unwrap();
+        let err = render_warehouse(&fixture(), &inputs(), out.path(), false)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("is contract format 2"), "{err}");
+    }
+
+    #[test]
+    fn a_migration_number_is_four_digits_and_a_separator() {
+        assert_eq!(migration_number("0001_init.sql"), Some(1));
+        assert_eq!(migration_number("0012.sql"), Some(12));
+        assert_eq!(migration_number("12_init.sql"), None);
+        assert_eq!(migration_number("00012_x.sql"), None);
+        assert_eq!(migration_number("README.md"), None);
     }
 }

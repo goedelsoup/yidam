@@ -3,7 +3,8 @@
 //! The derivation and the ownership rules are unit-tested in `src/warehouse/`. What is held
 //! here is what only the binary shows: every shipped example's ontology places in a contract,
 //! an edit at the other end survives a re-export unless `--force` is given, a feed file on
-//! disk becomes load SQL (#1397), and the `textql` folder keeps the same rules (#1398).
+//! disk becomes load SQL (#1397), the `textql` folder keeps the same rules (#1398), and a
+//! changed ontology becomes a migration or a refusal (#1401).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -79,13 +80,16 @@ fn an_edit_at_the_other_end_survives_a_re_export_unless_forced() {
     assert!(!refused.status.success());
     let stderr = String::from_utf8_lossy(&refused.stderr);
     assert!(
-        stderr.contains("ddl/bigquery/0001_init.sql was edited"),
+        stderr.contains("ddl/bigquery/0001_init.sql is a migration an earlier export wrote"),
         "{stderr}"
     );
     assert_eq!(std::fs::read_to_string(&ddl).unwrap(), edited);
 
+    // A migration is history: --force records the edit and does not rewrite the file,
+    // since the edited script may be the one that ran.
     assert!(export(&root, out.path(), &["--force"]).status.success());
-    assert_ne!(std::fs::read_to_string(&ddl).unwrap(), edited);
+    assert_eq!(std::fs::read_to_string(&ddl).unwrap(), edited);
+    assert!(export(&root, out.path(), &[]).status.success());
 }
 
 fn copy_tree(from: &Path, to: &Path) {
@@ -197,4 +201,52 @@ fn an_edited_textql_page_is_refused_unless_forced() {
         .status
         .success());
     assert_ne!(std::fs::read_to_string(&page).unwrap(), edited);
+}
+
+#[test]
+fn a_renamed_property_is_refused_until_allowed_and_then_written_for_review() {
+    let root = tempfile::tempdir().unwrap();
+    copy_tree(&repo_root().join("examples/streamflow"), root.path());
+    let out = tempfile::tempdir().unwrap();
+    let first = export(root.path(), out.path(), &[]);
+    assert!(
+        String::from_utf8_lossy(&first.stdout).contains("migration: ddl/bigquery/0001_init.sql")
+    );
+    let same = export(root.path(), out.path(), &[]);
+    assert!(
+        String::from_utf8_lossy(&same.stdout).contains("migration: none"),
+        "{}",
+        String::from_utf8_lossy(&same.stdout)
+    );
+
+    let gage = root.path().join(".yidam/corpus/gage.ont.yml");
+    let text = std::fs::read_to_string(&gage).unwrap();
+    std::fs::write(&gage, text.replace("name: units", "name: unit")).unwrap();
+
+    let refused = export(root.path(), out.path(), &[]);
+    assert!(!refused.status.success());
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(stderr.contains("column `gage.units` removed"), "{stderr}");
+    assert!(stderr.contains("column `gage.unit` added"), "{stderr}");
+    assert!(!out.path().join("ddl/bigquery/breaking").exists());
+
+    let allowed = export(root.path(), out.path(), &["--allow-breaking"]);
+    let stdout = String::from_utf8_lossy(&allowed.stdout);
+    assert!(
+        allowed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&allowed.stderr)
+    );
+    assert!(
+        stdout.contains("migration: ddl/bigquery/0002_add_gage__unit.sql"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("column `gage.units` removed"), "{stdout}");
+    let breaking =
+        std::fs::read_to_string(out.path().join("ddl/bigquery/breaking/0002.sql")).unwrap();
+    assert!(
+        breaking.contains("ALTER TABLE `gage` DROP COLUMN IF EXISTS `units`;"),
+        "{breaking}"
+    );
+    assert!(out.path().join("ddl/bigquery/0001_init.sql").is_file());
 }
