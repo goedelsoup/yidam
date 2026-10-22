@@ -3,11 +3,16 @@
 //! The derivation and the ownership rules are unit-tested in `src/warehouse/`. What is held
 //! here is what only the binary shows: every shipped example's ontology places in a contract,
 //! an edit at the other end survives a re-export unless `--force` is given, a feed file on
-//! disk becomes load SQL (#1397), the `textql` folder keeps the same rules (#1398), and a
-//! changed ontology becomes a migration or a refusal (#1401).
+//! disk becomes load SQL (#1397), the `textql` folder keeps the same rules (#1398), a
+//! changed ontology becomes a migration or a refusal (#1401), and `--with-corpus` writes the
+//! nodes as one more feed only when asked (#1400).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+
+mod common;
+
+use common::git::git;
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -249,4 +254,50 @@ fn a_renamed_property_is_refused_until_allowed_and_then_written_for_review() {
         "{breaking}"
     );
     assert!(out.path().join("ddl/bigquery/0001_init.sql").is_file());
+}
+
+#[test]
+fn the_corpus_travels_only_with_the_flag_and_only_from_a_corpus_with_its_own_genesis() {
+    let root = tempfile::tempdir().unwrap();
+    copy_tree(&repo_root().join("examples/streamflow"), root.path());
+    let out = tempfile::tempdir().unwrap();
+
+    // A tempdir is no repository, so there is no genesis to name the rows' corpus by.
+    let refused = export(root.path(), out.path(), &["--with-corpus"]);
+    assert!(!refused.status.success());
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(stderr.contains("genesis commit"), "{stderr}");
+    assert!(!out.path().join("contract.json").exists());
+
+    git(root.path(), &["init", "-q"]);
+    git(root.path(), &["add", "-A"]);
+    git(root.path(), &["commit", "-qm", "genesis: streamflow"]);
+    let run = export(root.path(), out.path(), &["--with-corpus"]);
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(stdout.contains("corpus: "), "{stdout}");
+    let corpus = out.path().join("feeds/corpus");
+    let gage = std::fs::read_to_string(corpus.join("gage.ndjson")).unwrap();
+    assert_eq!(gage.lines().count(), 2, "{gage}");
+    assert!(gage.contains("\"id\":\"yidam://"), "{gage}");
+    assert!(gage.contains("\"_source\":\"usgs-nwis\""), "{gage}");
+    assert!(corpus.join("gage.schema.json").is_file());
+    let runner = std::fs::read_to_string(corpus.join("load.sh")).unwrap();
+    assert!(runner.contains("gage.ndjson gage.schema.json"), "{runner}");
+
+    // Without the flag, no instance data: what the last export wrote is removed.
+    let again = export(root.path(), out.path(), &[]);
+    assert!(
+        again.status.success(),
+        "{}",
+        String::from_utf8_lossy(&again.stderr)
+    );
+    assert!(
+        !corpus.exists(),
+        "feeds/corpus survived an export without --with-corpus"
+    );
 }

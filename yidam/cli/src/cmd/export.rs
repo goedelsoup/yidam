@@ -34,6 +34,8 @@ pub struct ExportOptions {
     pub prefix: Option<String>,
     /// Write a breaking contract change for review instead of refusing it (warehouse).
     pub allow_breaking: bool,
+    /// Add the `corpus` feed: the nodes as NDJSON rows and their load scripts (warehouse).
+    pub with_corpus: bool,
 }
 
 /// Available export formats.
@@ -241,8 +243,13 @@ pub fn export(
         }
         ExportFormat::Warehouse => {
             let inputs = crate::warehouse::Inputs::load(root)?;
-            let rendered =
-                crate::warehouse::render_warehouse(model, &inputs, out, options.allow_breaking)?;
+            let rendered = crate::warehouse::render_warehouse(
+                model,
+                &inputs,
+                out,
+                options.allow_breaking,
+                options.with_corpus,
+            )?;
             let done = crate::warehouse::ownership::write_owned(
                 out,
                 crate::warehouse::GENERATOR,
@@ -288,6 +295,16 @@ pub fn export(
                 println!("  feeds: {}", rendered.feeds.join(", "));
                 if !rendered.unmapped.is_empty() {
                     println!("  classes no feed maps: {}", rendered.unmapped.join(", "));
+                }
+            }
+            if let Some(corpus) = &rendered.corpus {
+                let total: usize = corpus.rows.iter().map(|(_, n)| n).sum();
+                println!(
+                    "  corpus: {total} rows across {} tables, loaded by feeds/corpus/load.sh",
+                    corpus.rows.iter().filter(|(_, n)| *n > 0).count()
+                );
+                for line in &corpus.skipped {
+                    println!("    not carried: {line}");
                 }
             }
         }

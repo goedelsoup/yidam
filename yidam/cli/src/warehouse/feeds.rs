@@ -15,7 +15,7 @@ use super::contract::{ident, ColumnType, Contract, Table, TableKind, PRECISION_S
 const LANDING: &str = "landing";
 
 /// The origin `--with-corpus` writes (§3.4), which no feed may take.
-const CORPUS_ORIGIN: &str = "corpus";
+pub(crate) const CORPUS_ORIGIN: &str = "corpus";
 
 /// A feed file as found on disk.
 pub(crate) struct FeedSource {
