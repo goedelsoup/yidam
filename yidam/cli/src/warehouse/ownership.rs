@@ -37,6 +37,8 @@ pub(crate) struct Outcome {
     pub left_alone: Vec<String>,
     /// Recorded by the last export, produced by none this time, and unedited.
     pub removed: Vec<String>,
+    /// Recorded, not produced this time, and under the `history` prefix: kept as written.
+    pub kept: Vec<String>,
 }
 
 fn digest(bytes: &[u8]) -> String {
@@ -55,13 +57,18 @@ fn carries_marker(bytes: &[u8], marker_prefix: &str) -> bool {
 /// - An unmarked file with no record is someone else's. It is left alone and reported.
 /// - A recorded file this export no longer produces is removed if unedited.
 ///
-/// `force` turns each refusal into an overwrite (or a removal). It never touches an unowned
-/// file, because the export has no claim on one.
+/// - A recorded file under `history` that this export does not produce is kept, not removed:
+///   it is a migration somebody may already have run (§6). An edit to one is still a refusal.
+///
+/// `force` turns each refusal into an overwrite (or a removal, or, for a kept file, a record
+/// of its edited bytes). It never touches an unowned file, because the export has no claim
+/// on one.
 pub(crate) fn write_owned(
     out: &Path,
     generator: &str,
     marker_prefix: &str,
     files: &[(String, Vec<u8>)],
+    history: Option<&str>,
     force: bool,
 ) -> Result<Outcome> {
     let manifest_path = out.join(MANIFEST);
@@ -125,7 +132,17 @@ pub(crate) fn write_owned(
             continue;
         }
         let path = out.join(rel);
+        let kept = history.is_some_and(|h| rel.starts_with(h));
         match std::fs::read(&path) {
+            Ok(b) if kept => {
+                if digest(&b) != *hash {
+                    refusals.push(format!(
+                        "{rel} is a migration an earlier export wrote, and was edited since"
+                    ));
+                }
+                outcome.kept.push(rel.clone());
+                next.insert(rel.clone(), digest(&b));
+            }
             Ok(b) if digest(&b) == *hash => to_remove.push(rel.clone()),
             Ok(_) => {
                 refusals.push(format!(
@@ -190,7 +207,7 @@ mod tests {
     }
 
     fn write(dir: &Path, entries: &[(&str, &str)], force: bool) -> Result<Outcome> {
-        write_owned(dir, "test", MARK, &files(entries), force)
+        write_owned(dir, "test", MARK, &files(entries), None, force)
     }
 
     fn read(dir: &Path, rel: &str) -> String {
@@ -279,5 +296,44 @@ mod tests {
             "{err}"
         );
         assert!(dir.path().join("c.sql").exists());
+    }
+
+    #[test]
+    fn a_migration_no_longer_produced_is_kept_and_an_edit_to_it_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let hist = |entries: &[(&str, &str)], force| {
+            write_owned(
+                dir.path(),
+                "test",
+                MARK,
+                &files(entries),
+                Some("ddl/"),
+                force,
+            )
+        };
+        hist(&[("c.json", "1"), ("ddl/0001.sql", "1")], false).unwrap();
+        let o = hist(&[("c.json", "2"), ("ddl/0002.sql", "2")], false).unwrap();
+        assert_eq!(o.kept, ["ddl/0001.sql"]);
+        assert!(o.removed.is_empty());
+        let m: Manifest = serde_json::from_str(&read(dir.path(), MANIFEST)).unwrap();
+        assert!(
+            m.files.contains_key("ddl/0001.sql"),
+            "a kept file stays recorded"
+        );
+
+        std::fs::write(dir.path().join("ddl/0001.sql"), "edited").unwrap();
+        let err = hist(&[("c.json", "3")], false).unwrap_err();
+        assert!(
+            err.to_string().contains("ddl/0001.sql is a migration"),
+            "{err}"
+        );
+        assert!(read(dir.path(), "c.json").ends_with('2'));
+        hist(&[("c.json", "3")], true).unwrap();
+        assert_eq!(
+            read(dir.path(), "ddl/0001.sql"),
+            "edited",
+            "force records, never rewrites"
+        );
+        hist(&[("c.json", "3")], false).unwrap();
     }
 }

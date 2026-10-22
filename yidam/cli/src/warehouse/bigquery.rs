@@ -3,6 +3,7 @@
 use std::fmt::Write as _;
 
 use super::contract::{Column, ColumnType, Contract, Table, TableKind};
+use super::evolution::{Additive, Breaking, Diff};
 use super::feeds::{ClassLoad, EdgeLoad, Feed, Mode};
 use super::MARKER;
 
@@ -96,6 +97,123 @@ pub(crate) fn render_init(contract: &Contract) -> String {
         if let TableKind::Vocab { values, .. } = &t.kind {
             out.push('\n');
             seed_vocab(&mut out, t, values);
+        }
+    }
+    out
+}
+
+/// An additive migration (§6): the statements that bring a dataset at the last contract to
+/// this one without touching a row it holds. Each is guarded so a second run adds nothing.
+pub(crate) fn render_migration(name: &str, diff: &Diff) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "-- {MARKER}");
+    let _ = writeln!(
+        out,
+        "--\n-- Migration {name}: run it after every earlier file in this directory, in order.\n\
+         -- What changed in the ontology since the last export:"
+    );
+    for change in &diff.additive {
+        let _ = writeln!(out, "--   {}", change.describe());
+    }
+    for change in &diff.additive {
+        out.push('\n');
+        match change {
+            Additive::CreateTable(t) => {
+                create_table(&mut out, t);
+                if let TableKind::Vocab { values, .. } = &t.kind {
+                    seed_vocab(&mut out, t, values);
+                }
+            }
+            Additive::AddColumn { table, column: c } => {
+                let _ = writeln!(
+                    out,
+                    "ALTER TABLE `{table}` ADD COLUMN IF NOT EXISTS {};",
+                    column(c).trim_start()
+                );
+            }
+            Additive::DropNotNull { table, column } => {
+                let _ = writeln!(
+                    out,
+                    "ALTER TABLE `{table}` ALTER COLUMN `{column}` DROP NOT NULL;"
+                );
+            }
+            Additive::AddValues { table, values } => {
+                let list: Vec<String> = values.iter().map(|v| string_literal(v)).collect();
+                let _ = writeln!(
+                    out,
+                    "INSERT INTO `{table}` (`value`)\nSELECT v FROM UNNEST([{list}]) AS v\n\
+                     WHERE v NOT IN (SELECT `value` FROM `{table}`);",
+                    list = list.join(", ")
+                );
+            }
+        }
+    }
+    out
+}
+
+/// The breaking statements `--allow-breaking` writes for review (§6). yidam never runs them,
+/// and nothing in a pipeline should: each one alters or discards rows somebody loaded.
+pub(crate) fn render_breaking(name: &str, breaking: &[Breaking]) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "-- {MARKER}");
+    let _ = writeln!(
+        out,
+        "--\n-- Breaking changes {name}, written because the export was run with \
+         --allow-breaking.\n\
+         -- Review each statement against the rows the table holds before running any of it.\n\
+         -- A rename arrives as a removal here and an addition in the migration of the same\n\
+         -- number; to keep the data, copy the old column into the new before dropping it."
+    );
+    for change in breaking {
+        let _ = writeln!(out, "\n-- {}", change.describe());
+        match change {
+            Breaking::DropTable { table } => {
+                let _ = writeln!(out, "DROP TABLE IF EXISTS `{table}`;");
+            }
+            Breaking::DropColumn { table, column } => {
+                let _ = writeln!(
+                    out,
+                    "ALTER TABLE `{table}` DROP COLUMN IF EXISTS `{column}`;"
+                );
+            }
+            Breaking::TypeChange {
+                table, column, to, ..
+            } => {
+                let _ = writeln!(
+                    out,
+                    "-- BigQuery converts only a widening type in place. If this statement \
+                     fails,\n-- add a new column, copy the converted values, and drop this one.\n\
+                     ALTER TABLE `{table}` ALTER COLUMN `{column}` SET DATA TYPE {};",
+                    type_name(*to)
+                );
+            }
+            Breaking::Tightened { table, column } => {
+                let _ = writeln!(
+                    out,
+                    "-- BigQuery cannot make an existing column NOT NULL, so it stays nullable.\n\
+                     -- The rows that hold no value for it:\n\
+                     -- SELECT COUNT(*) FROM `{table}` WHERE `{column}` IS NULL;"
+                );
+            }
+            Breaking::RequiredAdded { table, column: c } => {
+                let mut nullable = c.clone();
+                nullable.required = false;
+                let _ = writeln!(
+                    out,
+                    "-- BigQuery cannot add a NOT NULL column to a table: it is added nullable, \
+                     and\n-- the rows already loaded have no value for it until a feed \
+                     supplies one.\n\
+                     ALTER TABLE `{table}` ADD COLUMN IF NOT EXISTS {};",
+                    column(&nullable).trim_start()
+                );
+            }
+            Breaking::ValueRemoved { table, value } => {
+                let _ = writeln!(
+                    out,
+                    "DELETE FROM `{table}` WHERE `value` = {};",
+                    string_literal(value)
+                );
+            }
         }
     }
     out
@@ -446,5 +564,60 @@ mod tests {
             ),
             "{sql}"
         );
+    }
+
+    #[test]
+    fn each_breaking_change_has_its_statement_or_its_reason_for_none() {
+        use crate::warehouse::evolution::diff;
+        let old = derive(&[
+            class(
+                "thing",
+                "properties:\n  - name: a\n    type: string\n  - name: b\n    type: number\n\
+                 \x20 - name: c\n    type: string\n    values: [x, y]\n",
+            ),
+            class("gone", "{}\n"),
+        ])
+        .unwrap();
+        let new = derive(&[class(
+            "thing",
+            "properties:\n  - name: a\n    type: string\n    required: true\n\
+             \x20 - name: c\n    type: string\n    values: [x]\n\
+             \x20 - name: d\n    type: date\n    required: true\n",
+        )])
+        .unwrap();
+        let d = diff(&old, &new);
+        let sql = render_breaking("0002", &d.breaking);
+        for want in [
+            "-- column `thing.a` becomes required\n-- BigQuery cannot make an existing column NOT NULL",
+            "ALTER TABLE `thing` ADD COLUMN IF NOT EXISTS `d` DATE",
+            "ALTER TABLE `thing` DROP COLUMN IF EXISTS `b`;",
+            "DELETE FROM `vocab_thing__c` WHERE `value` = \"y\";",
+            "DROP TABLE IF EXISTS `gone`;",
+        ] {
+            assert!(sql.contains(want), "missing {want:?} in\n{sql}");
+        }
+        assert!(!sql.contains("`d` DATE NOT NULL"), "{sql}");
+        assert!(sql.starts_with(&format!("-- {MARKER}")), "{sql}");
+    }
+
+    #[test]
+    fn a_migration_creates_a_new_vocab_table_and_seeds_it() {
+        use crate::warehouse::evolution::diff;
+        let old = derive(&[class("thing", "{}\n")]).unwrap();
+        let new = derive(&[class(
+            "thing",
+            "properties:\n  - name: s\n    type: string\n    values: [a]\n",
+        )])
+        .unwrap();
+        let sql = render_migration("0002", &diff(&old, &new));
+        assert!(
+            sql.contains("ALTER TABLE `thing` ADD COLUMN IF NOT EXISTS `s` STRING;"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("CREATE TABLE IF NOT EXISTS `vocab_thing__s`"),
+            "{sql}"
+        );
+        assert!(sql.contains("INSERT INTO `vocab_thing__s`"), "{sql}");
     }
 }

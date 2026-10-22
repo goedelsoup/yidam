@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::corpus::{Class, ClassProperty};
 
 /// A contract column's type. The dialect renderers map these and nothing else.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum ColumnType {
     String,
@@ -19,23 +19,23 @@ pub(crate) enum ColumnType {
     Timestamp,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Column {
     pub name: String,
     #[serde(rename = "type")]
     pub ty: ColumnType,
     pub required: bool,
     /// The ontology property this column carries; absent on the provenance columns.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub property: Option<String>,
     /// The `vocab_` table holding this column's declared values.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub values: Option<String>,
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub(crate) enum TableKind {
     Class {
@@ -55,18 +55,18 @@ pub(crate) enum TableKind {
     },
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Table {
     pub name: String,
     #[serde(flatten)]
     pub kind: TableKind,
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
     pub columns: Vec<Column>,
     pub primary_key: Vec<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Contract {
     /// Class tables by class name, then link tables, then value-set tables, each sorted, so
     /// two derivations of one ontology are byte-identical whatever order the files walked in.

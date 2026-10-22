@@ -780,6 +780,10 @@ enum Command {
         /// format prints (default: the output folder's name)
         #[arg(long, value_name = "DIR")]
         prefix: Option<String>,
+        /// Write a breaking contract change (a removed or retyped column, a removed value) to
+        /// ddl/bigquery/breaking/ for review instead of refusing it (warehouse)
+        #[arg(long)]
+        allow_breaking: bool,
         /// List available export formats and their implementation status
         #[arg(long)]
         list: bool,
@@ -1861,6 +1865,7 @@ fn run() -> Result<()> {
             token_budget,
             force,
             prefix,
+            allow_breaking,
             list,
         } => {
             if list {
@@ -1873,6 +1878,7 @@ fn run() -> Result<()> {
                     token_budget,
                     force,
                     prefix,
+                    allow_breaking,
                 };
                 yidam::run_export(root.as_deref(), format.unwrap(), out.as_deref(), &options)
             }

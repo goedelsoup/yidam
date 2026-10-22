@@ -274,6 +274,7 @@ declaration on `.ont.yml` is Q3.
 | class, property, edge or value added | `warehouse/ddl/bigquery/<n>_<slug>.sql` with `CREATE TABLE` / `ALTER TABLE ADD COLUMN` / `INSERT` into a vocab table |
 | a property's `required` loosened | `ALTER COLUMN DROP NOT NULL` |
 | removal, rename, type change, `required` tightened, value removed | **refused**, naming each |
+| a required property added to a class that already has a table | **refused**: BigQuery cannot add a `NOT NULL` column, and the rows already loaded have no value |
 
 `--allow-breaking` writes the breaking statements into a separate
 `warehouse/ddl/bigquery/breaking/<n>.sql` for a human to run. It never runs them, and never folds them into the additive
@@ -282,6 +283,16 @@ script.
 A rename shows up as a removal plus an addition, because the ontology records no class or
 property rename (RFC-0014 renames nodes). That is the reason renames are refused rather than
 guessed.
+
+> **As built (P6, #1401).** The first export, with no `contract.json` beside it, writes
+> `0001_init.sql`. `<n>` is one more than the highest four-digit prefix in `ddl/bigquery/` and
+> `ddl/bigquery/breaking/` together, so a breaking file and the migration written with it
+> share a number and the next export moves past both. A migration an earlier export wrote is
+> history: a later export keeps it although it no longer produces it, refuses an edit to it,
+> and under `--force` records the edit rather than rewriting the file, since the edited
+> script may be the one that ran. A refusal lists the additive changes too, since none of
+> them is written either. Descriptions and a link table's targets are not compared. A
+> `contract.json` of another `format_version` is refused rather than diffed.
 
 ### 7. Documentation
 
