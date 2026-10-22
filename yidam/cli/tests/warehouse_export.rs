@@ -269,7 +269,11 @@ fn the_corpus_travels_only_with_the_flag_and_only_from_a_corpus_with_its_own_gen
     assert!(stderr.contains("genesis commit"), "{stderr}");
     assert!(!out.path().join("contract.json").exists());
 
+    // The identity is the fixture's, not the host's: a runner has none to inherit.
     git(root.path(), &["init", "-q"]);
+    git(root.path(), &["config", "user.email", "fixture@yidam.test"]);
+    git(root.path(), &["config", "user.name", "Fixture"]);
+    git(root.path(), &["config", "commit.gpgsign", "false"]);
     git(root.path(), &["add", "-A"]);
     git(root.path(), &["commit", "-qm", "genesis: streamflow"]);
     let run = export(root.path(), out.path(), &["--with-corpus"]);
