@@ -218,6 +218,23 @@ guide (§7), not in the binary.
 schema file, together with a load script that runs `bq load` into a staging table and the same `MERGE`. The
 corpus is one more origin, so it takes the same path and the same checks as any other.
 
+> **As built (P5, #1400).** Every class and link table gets `feeds/corpus/<table>.sql`; a table
+> holding rows also gets `<table>.ndjson` and `<table>.schema.json`, and `load.sh` stages each
+> one with `bq load --replace` into `_staging_corpus__<table>` before running its script, which
+> drops the staging table. A line carries every contract column but `_origin` and
+> `_loaded_at`, which the `MERGE` writes, and a null is written rather than omitted. `id` is
+> `yidam://<genesis12>/node/<class>/<name>`, the corpus named as the RDF export names it, so a
+> corpus with no genesis of its own is refused rather than keyed under a shared constant.
+> `_source` is the slug of the one catalog entry the node links, and null when it links none
+> or several. The mode is `snapshot`, and a table the corpus holds no rows for stages nothing:
+> its script deletes the table's `corpus` rows. A node is checked with lint's own
+> `property-type` and declared-value predicates, plus the calendar, since `DATE` refuses the
+> `2024-02-31` lint admits. A missing required value is refused too. Every refusal names the
+> node, and nothing is written. Left out and counted, never refused: nodes of an undeclared class,
+> property values the class does not declare, links whose relationship is no declared edge,
+> and links to no node of the edge's target classes. A re-export removes a folder its
+> removals empty, so dropping the flag leaves no `feeds/corpus/` behind.
+
 ### 4. Ownership and re-export
 
 The TextQL folder syncs both ways. So does any repository the warehouse tree is committed to.

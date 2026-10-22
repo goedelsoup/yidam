@@ -6,6 +6,7 @@
 
 pub(crate) mod bigquery;
 pub(crate) mod contract;
+pub(crate) mod corpus;
 pub(crate) mod evolution;
 pub(crate) mod feeds;
 pub(crate) mod ownership;
@@ -197,6 +198,16 @@ pub(crate) struct Rendered {
     pub feeds: Vec<String>,
     /// Classes no feed maps: coverage, reported and never refused (§3.2).
     pub unmapped: Vec<String>,
+    /// What `--with-corpus` wrote, when it was given (§3.4).
+    pub corpus: Option<CorpusSummary>,
+}
+
+/// What the `corpus` feed carries.
+pub(crate) struct CorpusSummary {
+    /// Rows written, by table, in the contract's order. A table with none is listed too.
+    pub rows: Vec<(String, usize)>,
+    /// What no table holds, one line per reason.
+    pub skipped: Vec<String>,
 }
 
 fn resolve_feeds(contract: &contract::Contract, inputs: &Inputs) -> Result<Vec<feeds::Feed>> {
@@ -215,11 +226,15 @@ fn resolve_feeds(contract: &contract::Contract, inputs: &Inputs) -> Result<Vec<f
 /// The first export writes `0001_init.sql`. Every later one diffs against `contract.json`:
 /// an additive change becomes the next numbered migration, no change writes none, and a
 /// breaking change is refused unless `allow_breaking`, which writes it under `breaking/`.
+///
+/// `with_corpus` adds the `corpus` feed: the nodes as rows (§3.4). Without it no instance
+/// data is written, and a re-export removes what an earlier `--with-corpus` left.
 pub(crate) fn render_warehouse(
     model: &DomainModel,
     inputs: &Inputs,
     out: &Path,
     allow_breaking: bool,
+    with_corpus: bool,
 ) -> Result<Rendered> {
     let contract = contract(model)?;
     let resolved = resolve_feeds(&contract, inputs)?;
@@ -277,7 +292,33 @@ pub(crate) fn render_warehouse(
             .into_iter()
             .map(|(p, s)| (p, s.into_bytes())),
     );
+    let corpus = if with_corpus {
+        let rows = match corpus::rows(model, &classes(model), &contract) {
+            Ok(r) => r,
+            Err(refusals) => bail!(
+                "--with-corpus: a node cannot be placed in the contract as it stands. Nothing \
+                 was written:\n  - {}",
+                refusals.join("\n  - ")
+            ),
+        };
+        files.extend(
+            corpus::render(&rows)
+                .into_iter()
+                .map(|(p, s)| (p, s.into_bytes())),
+        );
+        Some(CorpusSummary {
+            rows: rows
+                .tables
+                .iter()
+                .map(|t| (t.table.name.clone(), t.rows.len()))
+                .collect(),
+            skipped: rows.skipped,
+        })
+    } else {
+        None
+    };
     Ok(Rendered {
+        corpus,
         files,
         migration,
         changes,
@@ -371,7 +412,7 @@ mod tests {
     }
 
     fn rendered() -> Vec<(String, String)> {
-        render_warehouse(&fixture(), &inputs(), NO_EXPORT.as_ref(), false)
+        render_warehouse(&fixture(), &inputs(), NO_EXPORT.as_ref(), false, false)
             .unwrap()
             .files
             .into_iter()
@@ -529,6 +570,7 @@ mod tests {
             },
             NO_EXPORT.as_ref(),
             false,
+            false,
         )
         .err()
         .unwrap()
@@ -540,7 +582,7 @@ mod tests {
 
     #[test]
     fn the_export_reports_the_classes_no_feed_maps() {
-        let r = render_warehouse(&fixture(), &inputs(), NO_EXPORT.as_ref(), false).unwrap();
+        let r = render_warehouse(&fixture(), &inputs(), NO_EXPORT.as_ref(), false, false).unwrap();
         assert_eq!(r.feeds, ["gcp-cai"]);
         assert_eq!(r.unmapped, ["network"]);
     }
@@ -551,7 +593,7 @@ mod tests {
         i.feeds[0].text = i.feeds[0]
             .text
             .replace("source: gcp-cloud-asset-inventory", "source: x");
-        let err = render_warehouse(&fixture(), &i, NO_EXPORT.as_ref(), false)
+        let err = render_warehouse(&fixture(), &i, NO_EXPORT.as_ref(), false, false)
             .err()
             .unwrap()
             .to_string();
@@ -564,7 +606,7 @@ mod tests {
 
     /// Render into `out` as the export does, and write what was rendered.
     fn export_into(out: &Path, m: &DomainModel, allow_breaking: bool) -> Result<Rendered> {
-        let r = render_warehouse(m, &inputs(), out, allow_breaking)?;
+        let r = render_warehouse(m, &inputs(), out, allow_breaking, false)?;
         ownership::write_owned(
             out,
             GENERATOR,
@@ -747,7 +789,7 @@ mod tests {
             .unwrap()
             .replace("\"format_version\": 1", "\"format_version\": 2");
         std::fs::write(&path, text).unwrap();
-        let err = render_warehouse(&fixture(), &inputs(), out.path(), false)
+        let err = render_warehouse(&fixture(), &inputs(), out.path(), false, false)
             .err()
             .unwrap()
             .to_string();

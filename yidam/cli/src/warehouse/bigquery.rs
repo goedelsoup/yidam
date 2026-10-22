@@ -2,9 +2,10 @@
 
 use std::fmt::Write as _;
 
-use super::contract::{Column, ColumnType, Contract, Table, TableKind};
+use super::contract::{Column, ColumnType, Contract, Table, TableKind, PRECISION_SUFFIX};
+use super::corpus::TableRows;
 use super::evolution::{Additive, Breaking, Diff};
-use super::feeds::{ClassLoad, EdgeLoad, Feed, Mode};
+use super::feeds::{ClassLoad, EdgeLoad, Feed, Mode, CORPUS_ORIGIN};
 use super::MARKER;
 
 pub(crate) fn type_name(ty: ColumnType) -> &'static str {
@@ -301,16 +302,8 @@ fn duplicate_check(out: &mut String, table: &str, key: &[&str]) {
     );
 }
 
-fn merge(
-    out: &mut String,
-    feed: &Feed,
-    table: &str,
-    key: &[&str],
-    set: &[&str],
-    source: Option<&str>,
-) {
+fn merge(out: &mut String, feed: &Feed, table: &str, key: &[&str], set: &[&str], source: &str) {
     let origin = string_literal(&feed.name);
-    let source = source.map_or("NULL".to_string(), string_literal);
     let on: Vec<String> = key.iter().map(|k| format!("T.`{k}` = S.`{k}`")).collect();
     let mut update: Vec<String> = set.iter().map(|c| format!("`{c}` = S.`{c}`")).collect();
     update.push("`_loaded_at` = loaded_at".into());
@@ -318,7 +311,7 @@ fn merge(
     let mut insert: Vec<String> = key.iter().chain(set).map(|c| format!("`{c}`")).collect();
     insert.extend(["`_origin`", "`_loaded_at`", "`_source`"].map(String::from));
     let mut values: Vec<String> = key.iter().chain(set).map(|c| format!("S.`{c}`")).collect();
-    values.extend([origin.clone(), "loaded_at".into(), source]);
+    values.extend([origin.clone(), "loaded_at".into(), source.to_string()]);
 
     let _ = writeln!(out, "MERGE `{table}` AS T\nUSING _staged AS S");
     let _ = writeln!(out, "ON {} AND T.`_origin` = {origin}", on.join(" AND "));
@@ -364,29 +357,44 @@ fn class_script(feed: &Feed, c: &ClassLoad) -> String {
 
     // 2. Fail on a value outside its declared set, naming it.
     for m in &c.columns {
-        let allowed = if let Some(vocab) = &m.values {
-            format!("(SELECT `value` FROM `{vocab}`)")
-        } else if m.precision {
-            "(\"year\", \"month\", \"day\")".to_string()
-        } else {
-            continue;
-        };
-        let _ = writeln!(
-            out,
-            "SELECT ERROR(FORMAT({}, v))\nFROM (SELECT DISTINCT `{col}` AS v FROM _staged)\n\
-             WHERE v IS NOT NULL AND v NOT IN {allowed}\nLIMIT 1;\n",
-            string_literal(&format!(
-                "{}.{}: %T is not a declared value",
-                c.table, m.column
-            )),
-            col = m.column,
+        value_check(
+            &mut out,
+            &c.table,
+            &m.column,
+            m.values.as_deref(),
+            m.precision,
         );
     }
 
     // 3. Merge on (id, _origin); 4. under snapshot, delete what landing no longer holds.
     let set: Vec<&str> = c.columns.iter().map(|m| m.column.as_str()).collect();
-    merge(&mut out, feed, &c.table, &["id"], &set, c.source.as_deref());
+    merge(&mut out, feed, &c.table, &["id"], &set, &constant_source(c));
     out
+}
+
+/// A feed's `_source`: the one catalog slug its class mapping names, for every row.
+fn constant_source(c: &ClassLoad) -> String {
+    c.source
+        .as_deref()
+        .map_or("NULL".to_string(), string_literal)
+}
+
+/// Fail the job on a staged value outside the column's declared set, naming it. A column with
+/// no set, `values` or `precision`, is not checked.
+fn value_check(out: &mut String, table: &str, column: &str, values: Option<&str>, precision: bool) {
+    let allowed = if let Some(vocab) = values {
+        format!("(SELECT `value` FROM `{vocab}`)")
+    } else if precision {
+        "(\"year\", \"month\", \"day\")".to_string()
+    } else {
+        return;
+    };
+    let _ = writeln!(
+        out,
+        "SELECT ERROR(FORMAT({}, v))\nFROM (SELECT DISTINCT `{column}` AS v FROM _staged)\n\
+         WHERE v IS NOT NULL AND v NOT IN {allowed}\nLIMIT 1;\n",
+        string_literal(&format!("{table}.{column}: %T is not a declared value")),
+    );
 }
 
 fn edge_script(feed: &Feed, c: &ClassLoad, e: &EdgeLoad) -> String {
@@ -415,7 +423,7 @@ fn edge_script(feed: &Feed, c: &ClassLoad, e: &EdgeLoad) -> String {
         &e.table,
         &["src_id", "dst_id"],
         &[],
-        c.source.as_deref(),
+        &constant_source(c),
     );
     out
 }
@@ -439,6 +447,118 @@ pub(crate) fn render_feeds(feeds: &[Feed]) -> Vec<(String, String)> {
         }
     }
     files
+}
+
+/// The table `load.sh` stages a corpus table's NDJSON into, in the contract's dataset.
+pub(crate) fn corpus_staging(table: &str) -> String {
+    format!("_staging_{CORPUS_ORIGIN}__{table}")
+}
+
+/// The load script for one table of the `corpus` feed (§3.4): the staged NDJSON through the
+/// feed SQL's checks and `MERGE`, as a snapshot, since the corpus is the whole truth for its
+/// origin. A table the corpus holds no rows for stages nothing and deletes its `corpus` rows.
+pub(crate) fn corpus_script(table: &Table, commit: &str, has_rows: bool) -> String {
+    let feed = Feed {
+        name: CORPUS_ORIGIN.to_string(),
+        description: format!(
+            "The corpus's own nodes, read at commit {commit}. Run by load.sh, which stages {}.ndjson \
+             first.",
+            table.name
+        ),
+        mode: Mode::Snapshot,
+        parameters: Default::default(),
+        classes: Vec::new(),
+    };
+    let (what, key): (String, &[&str]) = match &table.kind {
+        TableKind::Edge {
+            class,
+            relationship,
+            ..
+        } => (
+            format!(
+                "edge `{relationship}` of class `{class}` into `{}`",
+                table.name
+            ),
+            &["src_id", "dst_id"],
+        ),
+        TableKind::Class { class } | TableKind::Vocab { class, .. } => {
+            (format!("class `{class}` into `{}`", table.name), &["id"])
+        }
+    };
+    let mut out = String::new();
+    feed_header(&mut out, &feed, &what);
+    if !has_rows {
+        let _ = writeln!(
+            out,
+            "-- The corpus holds no rows for this table, so nothing is staged and every row of \
+             this origin goes.\nDELETE FROM `{}` WHERE `_origin` = {};",
+            table.name,
+            string_literal(CORPUS_ORIGIN)
+        );
+        return out;
+    }
+    let staging = corpus_staging(&table.name);
+    let _ = writeln!(
+        out,
+        "CREATE TEMP TABLE _staged AS\nSELECT * FROM `{staging}`;\n"
+    );
+    duplicate_check(&mut out, &table.name, key);
+    let set: Vec<&str> = super::corpus::staged_columns(table)
+        .filter(|c| !key.contains(&c.name.as_str()) && c.name != "_source")
+        .map(|c| c.name.as_str())
+        .collect();
+    for c in super::corpus::staged_columns(table) {
+        let precision = c.property.is_some()
+            && c.name.ends_with(PRECISION_SUFFIX)
+            && c.ty == ColumnType::String;
+        value_check(
+            &mut out,
+            &table.name,
+            &c.name,
+            c.values.as_deref(),
+            precision,
+        );
+    }
+    merge(&mut out, &feed, &table.name, key, &set, "S.`_source`");
+    let _ = writeln!(out, "\nDROP TABLE `{staging}`;");
+    out
+}
+
+/// `load.sh`: stage each table's NDJSON with `bq load`, then run its script. Class tables come
+/// before link tables, in the contract's order.
+pub(crate) fn corpus_runner(tables: &[TableRows]) -> String {
+    let mut out = String::from("#!/bin/sh\n");
+    let _ = writeln!(out, "# {MARKER}");
+    out.push_str(
+        "#\n\
+         # Loads the corpus's own rows, the feed `corpus`, into the contract's tables. Run it from\n\
+         # anywhere, after ddl/bigquery/ has been applied, with DATASET naming that dataset:\n\
+         #\n\
+         #   DATASET=my-project:my_dataset sh load.sh\n\
+         #\n\
+         # Each table's NDJSON is staged by `bq load` and merged by its .sql, which drops the\n\
+         # staging table. A table with no .ndjson has no corpus rows, and its .sql deletes them.\n\
+         set -eu\n\
+         : \"${DATASET:?set DATASET to the contract's dataset, as project:dataset}\"\n\
+         cd \"$(dirname \"$0\")\"\n",
+    );
+    for t in tables {
+        let name = &t.table.name;
+        out.push('\n');
+        if !t.rows.is_empty() {
+            let _ = writeln!(
+                out,
+                "bq load --replace --source_format=NEWLINE_DELIMITED_JSON \\\n  \
+                 \"$DATASET.{}\" {name}.ndjson {name}.schema.json",
+                corpus_staging(name)
+            );
+        }
+        let _ = writeln!(
+            out,
+            "bq --dataset_id=\"$DATASET\" query --use_legacy_sql=false \"$(cat {name}.sql)\""
+        );
+    }
+    out
 }
 
 #[cfg(test)]

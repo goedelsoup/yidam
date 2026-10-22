@@ -173,7 +173,16 @@ pub(crate) fn write_owned(
         outcome.written.push(rel.clone());
     }
     for rel in to_remove {
-        std::fs::remove_file(out.join(&rel))?;
+        let path = out.join(&rel);
+        std::fs::remove_file(&path)?;
+        // A directory the removal emptied goes too: one export's whole feed is a folder, and
+        // dropping it should not leave the folder behind. `remove_dir` refuses a directory
+        // anything else is in, so a file someone else keeps there keeps its folder.
+        for dir in path.ancestors().skip(1) {
+            if dir == out || std::fs::remove_dir(dir).is_err() {
+                break;
+            }
+        }
         outcome.removed.push(rel);
     }
 
@@ -222,6 +231,22 @@ mod tests {
         let m: Manifest = serde_json::from_str(&read(dir.path(), MANIFEST)).unwrap();
         assert_eq!(m.files.keys().collect::<Vec<_>>(), ["a.sql", "d/b.sql"]);
         assert_eq!(m.files["a.sql"], digest(format!("{MARK}\n1").as_bytes()));
+    }
+
+    #[test]
+    fn a_folder_its_removals_empty_goes_and_one_holding_another_file_stays() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path(),
+            &[("a.sql", "1"), ("f/x/b.sql", "2"), ("g/c.sql", "3")],
+            false,
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("g/notes.txt"), "kept").unwrap();
+        let o = write(dir.path(), &[("a.sql", "1")], false).unwrap();
+        assert_eq!(o.removed, ["f/x/b.sql", "g/c.sql"]);
+        assert!(!dir.path().join("f").exists());
+        assert_eq!(read(dir.path(), "g/notes.txt"), "kept");
     }
 
     #[test]

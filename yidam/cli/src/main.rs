@@ -784,6 +784,10 @@ enum Command {
         /// ddl/bigquery/breaking/ for review instead of refusing it (warehouse)
         #[arg(long)]
         allow_breaking: bool,
+        /// Add the corpus's own nodes as the feed `corpus`: NDJSON rows, their BigQuery schemas
+        /// and a load script, under feeds/corpus/ (warehouse)
+        #[arg(long)]
+        with_corpus: bool,
         /// List available export formats and their implementation status
         #[arg(long)]
         list: bool,
@@ -1866,6 +1870,7 @@ fn run() -> Result<()> {
             force,
             prefix,
             allow_breaking,
+            with_corpus,
             list,
         } => {
             if list {
@@ -1879,6 +1884,7 @@ fn run() -> Result<()> {
                     force,
                     prefix,
                     allow_breaking,
+                    with_corpus,
                 };
                 yidam::run_export(root.as_deref(), format.unwrap(), out.as_deref(), &options)
             }
