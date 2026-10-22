@@ -30,6 +30,25 @@ is to run the filing task and commit.
 
 <!-- file-upgrade-notes: new release sections go below this line -->
 
+## cli/v0.20.0
+
+### Export an ontology to BigQuery and TextQL
+
+**`yidam export --format warehouse` writes your ontology as a BigQuery contract (#1394).**
+It writes one table per class, a link table per edge and a value table per closed set.
+The first export writes `ddl/bigquery/0001_init.sql`.
+A later export writes the next numbered migration, and refuses a change that would lose data.
+
+**A feed maps a pipeline's landing table onto the contract.**
+Declare one in `.yidam/warehouse/feeds/<feed>.yml`, and the export writes a `MERGE` script per table.
+It refuses a feed that maps anything the ontology does not declare.
+
+**`--with-corpus` adds your nodes as rows, and `--format textql` writes a TextQL Ontology folder.**
+See [From a corpus to a warehouse](walkthroughs/corpus-to-warehouse.md) for the whole route.
+
+**What changes for you: nothing, until you run the export.**
+Never run a snapshot feed over an empty landing table, because it deletes every row that feed wrote.
+
 ## cli/v0.19.0
 
 ### `catalog-location-malformed` reports a `url` with a `#` fragment
