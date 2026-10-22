@@ -1,0 +1,17 @@
+class: account
+label: platform-prod (GCP project)
+description: |
+  The GCP project the build and data platform runs in. Billing and IAM are set here, and
+  every resource below it inherits both. [verified]
+
+  This is an **illustrative project**, not a real one. Its identifier follows GCP's
+  convention so the shape of a real inventory row is visible.
+properties:
+  provider: gcp
+  account_id: platform-prod
+  claim_tag: verified
+links:
+  - target: ../account.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/gcp-cloud-asset-inventory.md
+    relationship: sourced-from

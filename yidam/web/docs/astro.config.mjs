@@ -88,6 +88,7 @@ const sidebar = [
       { slug: 'walkthroughs/property-research', label: 'Property research' },
       { slug: 'walkthroughs/investigative-journalism', label: 'Investigative journalism' },
       { slug: 'walkthroughs/incident-retrospectives', label: 'Incident retrospectives' },
+      { slug: 'walkthroughs/corpus-to-warehouse', label: 'Corpus to warehouse' },
       { slug: 'walkthroughs/genealogy', label: 'Genealogy (sketch)' },
       { slug: 'walkthroughs/museum-provenance', label: 'Museum provenance (sketch)' },
       { slug: 'walkthroughs/language-documentation', label: 'Language documentation (sketch)' },

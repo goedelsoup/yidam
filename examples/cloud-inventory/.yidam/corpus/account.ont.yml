@@ -1,0 +1,19 @@
+class: account
+label: Account
+description: |
+  The boundary resources are billed and permissioned under: a project in GCP, an account in
+  AWS. Everything else in this corpus is owned by exactly one.
+properties:
+  - name: provider
+    type: string
+    values: [gcp, aws]
+    required: true
+    description: The cloud this account lives in.
+  - name: account_id
+    type: string
+    required: true
+    retrievable: true
+    description: The provider's own identifier for it — a GCP project ID, a twelve-digit AWS account number.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.

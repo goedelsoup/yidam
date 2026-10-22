@@ -1,0 +1,34 @@
+class: compute-instance
+label: Compute instance
+description: |
+  A virtual machine: a Compute Engine instance in GCP, an EC2 instance in AWS. One class for
+  both, so a question about machines is one question.
+properties:
+  - name: provider
+    type: string
+    values: [gcp, aws]
+    required: true
+    description: The cloud this instance runs in.
+  - name: zone
+    type: string
+    retrievable: true
+    description: The zone it runs in — `us-central1-a`, `eu-west-1b`.
+  - name: machine_type
+    type: string
+    retrievable: true
+    description: The provider's name for its size — `e2-standard-4`, `m6i.large`.
+  - name: created
+    type: date
+    description: When it was created, to whatever precision is known.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
+edges:
+  - relationship: owned-by
+    target: account
+    direction: out
+    description: The account this instance is created in.
+  - relationship: attached-to
+    target: network
+    direction: out
+    description: A network one of its interfaces is on.

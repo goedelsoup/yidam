@@ -1,0 +1,19 @@
+class: network
+label: default network (platform-prod)
+description: |
+  The auto-mode network GCP creates with a project. It has no range of its own: auto mode
+  gives it one subnetwork per region, each with a range from a fixed block. [verified]
+
+  Whether the build runners should still be on it is unsettled. Moving them to a custom-mode
+  network is cheap; knowing what else depends on the default firewall rules is not, and
+  nobody has inventoried those rules. [open]
+properties:
+  provider: gcp
+  claim_tag: open
+links:
+  - target: ../network.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/gcp-cloud-asset-inventory.md
+    relationship: sourced-from
+  - target: ../account/platform-prod.yml
+    relationship: owned-by

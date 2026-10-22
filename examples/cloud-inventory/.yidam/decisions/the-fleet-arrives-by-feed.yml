@@ -1,0 +1,15 @@
+id: the-fleet-arrives-by-feed
+summary: The corpus holds the resources someone has something to say about; the fleet arrives by feed.
+context: |
+  The inventory holds every project, network and machine, and it changes hourly. Writing it
+  into the corpus as nodes would have made the corpus a copy of the inventory.
+decision: |
+  Nodes are written for the resources that carry an argument — a decision, an open question,
+  an exception. Everything else is loaded by the `gcp-cai` and `aws-config` feeds, straight
+  from the inventory into the tables the ontology defines. `--with-corpus` loads the nodes as
+  one more origin beside them.
+rationale: |
+  A node is something a person wrote and can be held to. An inventory row is neither: it is
+  replaced at the next export, and nobody deliberates about one. Feeds keep the warehouse
+  complete without making the corpus a mirror, and the shared contract means the analyst
+  queries the hand-written and the inventoried rows in one table, told apart by `_origin`.

@@ -1,0 +1,19 @@
+class: compute-instance
+label: api-host
+description: |
+  The host the public API runs on. [verified]
+properties:
+  provider: aws
+  zone: eu-west-1b
+  machine_type: m6i.large
+  created: 2025-01-14
+  claim_tag: verified
+links:
+  - target: ../compute-instance.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/aws-config.md
+    relationship: sourced-from
+  - target: ../account/workloads-prod.yml
+    relationship: owned-by
+  - target: ../network/workloads-main.yml
+    relationship: attached-to

@@ -1,0 +1,42 @@
+feed: gcp-cai
+description: Cloud Asset Inventory's BigQuery export, one table per asset type, loaded as a daily snapshot.
+mode: snapshot
+landing: "${project}.${landing_dataset}"
+parameters:
+  project: The GCP project holding the landing dataset.
+  landing_dataset: The dataset Cloud Asset Inventory exports into, with `--per-asset-type` and the table prefix `cai`.
+classes:
+  account:
+    from: "`${landing}.cai_cloudresourcemanager_googleapis_com_Project`"
+    id: name
+    source: gcp-cloud-asset-inventory
+    columns:
+      provider: "'gcp'"
+      account_id: "resource.data.projectId"
+  network:
+    from: "`${landing}.cai_compute_googleapis_com_Network`"
+    id: name
+    source: gcp-cloud-asset-inventory
+    columns:
+      provider: "'gcp'"
+    edges:
+      owned-by:
+        dst_id: "resource.parent"
+  compute-instance:
+    from: "`${landing}.cai_compute_googleapis_com_Instance`"
+    where: "resource.data.status != 'TERMINATED'"
+    id: name
+    source: gcp-cloud-asset-inventory
+    columns:
+      provider: "'gcp'"
+      zone: "resource.location"
+      machine_type: "REGEXP_EXTRACT(resource.data.machineType, r'[^/]+$')"
+      created: "DATE(TIMESTAMP(resource.data.creationTimestamp))"
+    edges:
+      owned-by:
+        dst_id: "resource.parent"
+      attached-to:
+        unnest: "resource.data.networkInterfaces"
+        as: nic
+        # A self-link URL, rewritten to the full resource name the network rows are keyed on.
+        dst_id: "CONCAT('//compute.googleapis.com/', REGEXP_EXTRACT(nic.network, r'projects/.+$'))"

@@ -1,0 +1,21 @@
+class: compute-instance
+label: build-runner
+description: |
+  The CI runner for the platform's own builds. It is the one instance in platform-prod that
+  is never stopped, which is why its creation month is known and its creation day is not:
+  the project's history was imported, and the import kept months. [inference]
+properties:
+  provider: gcp
+  zone: us-central1-a
+  machine_type: e2-standard-4
+  created: 2024-03
+  claim_tag: inference
+links:
+  - target: ../compute-instance.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/gcp-cloud-asset-inventory.md
+    relationship: sourced-from
+  - target: ../account/platform-prod.yml
+    relationship: owned-by
+  - target: ../network/platform-default.yml
+    relationship: attached-to
