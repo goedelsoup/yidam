@@ -1,0 +1,46 @@
+feed: aws-config
+description: AWS Config snapshots delivered to S3 and loaded to BigQuery, one configuration item per row.
+mode: snapshot
+landing: "${project}.${landing_dataset}"
+parameters:
+  project: The GCP project holding the landing dataset.
+  landing_dataset: The dataset holding `aws_config_items` — top-level fields as STRING, `configuration` and `relationships` as JSON.
+classes:
+  account:
+    # Config records no account resource, so the accounts are the ones its items name.
+    from: "(SELECT DISTINCT awsAccountId FROM `${landing}.aws_config_items`)"
+    id: awsAccountId
+    source: aws-config
+    columns:
+      provider: "'aws'"
+      account_id: awsAccountId
+  network:
+    from: "`${landing}.aws_config_items`"
+    where: "resourceType = 'AWS::EC2::VPC' AND configurationItemStatus IN ('OK', 'ResourceDiscovered')"
+    id: ARN
+    source: aws-config
+    columns:
+      provider: "'aws'"
+      cidr: "JSON_VALUE(configuration, '$.cidrBlock')"
+    edges:
+      owned-by:
+        dst_id: awsAccountId
+  compute-instance:
+    from: "`${landing}.aws_config_items`"
+    where: "resourceType = 'AWS::EC2::Instance' AND configurationItemStatus IN ('OK', 'ResourceDiscovered') AND JSON_VALUE(configuration, '$.state.name') != 'terminated'"
+    id: ARN
+    source: aws-config
+    columns:
+      provider: "'aws'"
+      zone: availabilityZone
+      machine_type: "JSON_VALUE(configuration, '$.instanceType')"
+      created: "DATE(TIMESTAMP(resourceCreationTime))"
+    edges:
+      owned-by:
+        dst_id: awsAccountId
+      attached-to:
+        unnest: "JSON_QUERY_ARRAY(relationships)"
+        as: rel
+        # A relationship names the VPC by bare ID; its ARN is rebuilt so it joins. Any other
+        # relationship is null here, and a null dst_id is dropped rather than loaded.
+        dst_id: "IF(JSON_VALUE(rel, '$.resourceType') = 'AWS::EC2::VPC', CONCAT('arn:aws:ec2:', awsRegion, ':', awsAccountId, ':vpc/', JSON_VALUE(rel, '$.resourceId')), NULL)"

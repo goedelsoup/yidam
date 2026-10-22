@@ -1,0 +1,19 @@
+id: one-class-per-kind-not-per-cloud
+summary: A machine is a compute-instance whichever cloud runs it; the cloud is a property.
+context: |
+  The first draft had `gce-instance` and `ec2-instance`, `gcp-network` and `aws-vpc`, each
+  shaped like its provider's API.
+decision: |
+  One class per kind of resource, with `provider` a required property holding `gcp` or `aws`.
+  A field one cloud has and the other lacks is an optional property, absent where it does
+  not apply — `cidr` on a network.
+rationale: |
+  The classes become warehouse tables and the tables become what an analyst asks questions
+  of. Per-cloud classes would have made "how many machines do we run" a union the analyst has
+  to know to write, and every new cloud a new set of tables. One class keeps that question one
+  table, and each feed does the provider-specific work once, where the provider's schema is
+  in view.
+
+  The cost is a column that means slightly different things by row — a GCP zone and an AWS
+  availability zone are not the same construct — and a reader has to check `provider` before
+  comparing them. That was judged the cheaper failure.

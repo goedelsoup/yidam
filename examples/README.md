@@ -12,6 +12,7 @@ ontology rather than someone else's eight nodes.
 | [property/](property/) | Title research on a parcel | A chain of title as a typed path, a rejected `owner` class, and a gap the graph reports as a reasoned absence rather than as silence |
 | [journalism/](journalism/) | Investigative reporting on a company | Which findings rest on a single source, a rejected `allegation` class, and two vault audiences — a document the corpus may cite and may not host |
 | [incidents/](incidents/) | Incident retrospectives | Which contributing factors recur and which remediations nobody verified, a rejected `root-cause` class, and a **history** long enough for `replay` to show a slope |
+| [cloud-inventory/](cloud-inventory/) | Cloud resources across GCP and AWS | An ontology offboarded to BigQuery and TextQL, two **warehouse feeds** that load Cloud Asset Inventory and AWS Config into it, and a rejected per-cloud class split |
 
 ## The pages are transcripts, and they are re-run
 

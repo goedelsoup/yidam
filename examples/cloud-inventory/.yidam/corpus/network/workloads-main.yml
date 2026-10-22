@@ -1,0 +1,16 @@
+class: network
+label: main VPC (workloads-prod)
+description: |
+  The VPC the services in workloads-prod run in, with one range for the whole VPC and
+  subnets carved from it. [verified]
+properties:
+  provider: aws
+  cidr: 10.20.0.0/16
+  claim_tag: verified
+links:
+  - target: ../network.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/aws-config.md
+    relationship: sourced-from
+  - target: ../account/workloads-prod.yml
+    relationship: owned-by

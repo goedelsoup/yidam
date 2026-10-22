@@ -1,0 +1,25 @@
+class: network
+label: Network
+description: |
+  A private address space instances attach to: a VPC network in GCP, a VPC in AWS. The two
+  share a name and differ in where an address range lives.
+properties:
+  - name: provider
+    type: string
+    values: [gcp, aws]
+    required: true
+    description: The cloud this network lives in.
+  - name: cidr
+    type: string
+    required: false
+    description: |
+      The network's own IPv4 range, where it has one. An AWS VPC always does. A GCP VPC network
+      does not — its ranges belong to its subnetworks — so this is absent on every GCP network.
+  - name: claim_tag
+    type: claim
+    description: The evidence standing of this node, as a tag rather than as prose.
+edges:
+  - relationship: owned-by
+    target: account
+    direction: out
+    description: The account this network is created in.

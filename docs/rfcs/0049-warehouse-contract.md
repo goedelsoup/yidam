@@ -319,6 +319,15 @@ guessed.
   - AWS Config snapshot, delivered to S3 and loaded to BigQuery.
 - An Airflow example that runs a feed's scripts after an Airbyte sync.
 
+> **As built (P7, #1402).** The guide is the walkthrough
+> [`corpus-to-warehouse`](../walkthroughs/corpus-to-warehouse.md), so its `$ yidam` blocks are
+> re-run by the transcript gate like every other walkthrough's. Both reference feeds live in a
+> new example, [`examples/cloud-inventory/`](../../examples/cloud-inventory/README.md), whose
+> ontology gives them classes to map: an example's feeds have to pass the export's checks in
+> `every_example_places_in_a_contract`. The Airflow DAG is a fence on the guide. It guards
+> each snapshot behind a `BigQueryCheckOperator` that its landing table is not empty, which is
+> where the empty-landing deletion §3.3 cannot see is caught.
+
 ## What is verified, and what is not
 
 | Claim | Status |

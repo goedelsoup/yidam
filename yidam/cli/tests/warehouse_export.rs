@@ -50,6 +50,9 @@ fn every_example_places_in_a_contract() {
         "found {} examples; the scan is looking in the wrong place",
         examples.len()
     );
+    // The reference feeds (#1402) are covered here rather than by name: an example's feed that
+    // drifts from the format fails the export, and one the export skips fails below.
+    let mut feeds = 0;
     for root in examples {
         let out = tempfile::tempdir().unwrap();
         let run = export(&root, out.path(), &[]);
@@ -67,7 +70,29 @@ fn every_example_places_in_a_contract() {
         );
         assert!(out.path().join("contract.json").is_file());
         assert!(out.path().join(".yidam-export.json").is_file());
+
+        let declared = std::fs::read_dir(root.join(".yidam/warehouse/feeds"))
+            .into_iter()
+            .flatten()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|x| x == "yml"));
+        for feed in declared {
+            feeds += 1;
+            let stem = feed.file_stem().unwrap().to_str().unwrap();
+            let scripts = std::fs::read_dir(out.path().join("feeds").join(stem))
+                .unwrap_or_else(|e| panic!("{}: no scripts for feed `{stem}`: {e}", root.display()))
+                .count();
+            assert!(
+                scripts > 0,
+                "{}: feed `{stem}` wrote no scripts",
+                root.display()
+            );
+        }
     }
+    assert!(
+        feeds >= 2,
+        "found {feeds} example feed(s); the reference feeds are missing or the scan is blind"
+    );
 }
 
 #[test]

@@ -1,0 +1,16 @@
+class: account
+label: workloads-prod (AWS account)
+description: |
+  The AWS account customer-facing services run in. It is one member of an organization whose
+  other accounts this corpus does not describe. [verified]
+
+  This is an **illustrative account**. The number is a placeholder of the right length.
+properties:
+  provider: aws
+  account_id: "111122223333"
+  claim_tag: verified
+links:
+  - target: ../account.ont.yml
+    relationship: instance-of
+  - target: ../../catalog/aws-config.md
+    relationship: sourced-from
