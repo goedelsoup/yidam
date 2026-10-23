@@ -205,7 +205,7 @@ toml = "1.1"
 # `ast` costs zero additional packages (measured) and is what lets `policy check`
 # find a disallowed builtin by walking the parse tree rather than by grepping the
 # source, which a comment mentioning `http.send` would answer just as well.
-regorus = { version = "0.12", default-features = false, features = ["arc", "ast", "regex"] }
+regorus = { version = "0.13", default-features = false, features = ["arc", "ast", "regex"] }
 # Parity SDK — reference implementations of classify_commit etc.; the CLI
 # must not re-implement the parity surface (see yidam/sdks/parity/README.md).
 yidam-core = { path = "../sdks/rust", version = "0.11.0" }
@@ -619,7 +619,7 @@ toml = "1.1"
 serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 quick-xml = "0.42"
 tempfile = "3"
-jsonschema = { version = "0.58.1", default-features = false }
+jsonschema = { version = "0.59.0", default-features = false }
 
 # ── cargo-binstall ────────────────────────────────────────────────────────────
 #
