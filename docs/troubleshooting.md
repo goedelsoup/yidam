@@ -247,11 +247,15 @@ predates #655. Older builds read the check's declared severity rather than the f
 
 ## `serve --mcp` returns `degraded`
 
-The binary has no `vector-read` feature, so `retrieve` is doing keyword search rather than semantic
-search. It says so on every call rather than returning keyword results as though they were
-embeddings. Every other MCP tool is unaffected — both transports are in the light default build.
+`retrieve` is doing keyword search rather than semantic search. It says so on every call
+rather than returning keyword results as though they were embeddings. Every other MCP tool is
+unaffected. `degraded_reason` names the cause. Usually there is no index yet (`no_index`).
+Otherwise the binary lacks `vector-read` (`no_vector_support`). That is a binary from before it
+joined the default set, or one built `--no-default-features`. An Intel Mac with no ONNX
+Runtime is different: `retrieve` over an index is refused, not degraded. The error says to
+`brew install onnxruntime`.
 
-To get semantic retrieval you need a build with `--features vector-read` and a built index:
+To get semantic retrieval you need a current binary and a built index:
 
 ```sh
 yidam embed

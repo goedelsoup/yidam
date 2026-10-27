@@ -5,11 +5,13 @@
 #
 # ── Why this job exists ──────────────────────────────────────────────────────
 #
-# `.yidam/index/` is built only by a binary compiled `--features index` — an
-# ONNX runtime the release does not carry — and nothing keeps it in git. The released `yidam` is the
-# light default, so the machine that can *use* an index is almost never the
-# machine that can *build* one. Without a channel between them, `retrieve`
-# degrades to keyword search everywhere and is correct to.
+# `.yidam/index/` is built only by a binary with `vector-read` (alias `index`),
+# and nothing keeps it in git. Releases before `vector-read` joined yidam's default
+# set do not carry it, so on a repository pinned to one the machine that can *use*
+# an index is almost never the machine that can *build* one. And even where every
+# machine can, an index is minutes of embedding that one runner can do once for
+# every clone. Without a channel between them, `retrieve` degrades to keyword
+# search or to a rebuild per clone.
 #
 # This is that channel's producer: it builds the index on a runner that can, puts
 # it in the vault, and commits `.yidam/index.lock` so every clone knows which
@@ -18,10 +20,12 @@
 # ── Why it does not download the binary ──────────────────────────────────────
 #
 # `ci.yml` acquires `yidam` by downloading the release for the pinned commit,
-# which is the right thing for a graph gate: pure Rust reading Markdown, no
-# toolchain. It cannot work here. The release IS the light build, and asking it
-# to build an index is the whole problem this workflow exists to solve. So this
-# one compiles.
+# which is the right thing for a graph gate: no toolchain. This job cannot rely
+# on that yet. A pin older than the release that put `vector-read` in the
+# default set downloads a binary that cannot build an index, and this template
+# serves every pin. So it compiles `--features index`, which builds at every pin
+# on both sides of that change. Once no supported pin predates it, the download
+# path is enough here too.
 #
 # ── This workflow has never been run against a real store ────────────────────
 #
@@ -88,8 +92,9 @@ jobs:
 
       # The one scaffolded job that always compiles (#1308). Every other job that
       # installs yidam downloads a release first; this one needs `--features index`,
-      # and no release carries it — the decision, and what would reverse it, is the
-      # comment on `--features vector-read` in yidam's own release workflow (#442).
+      # which releases carry only from the version that made `vector-read` a
+      # default (#442; the header of yidam's own release workflow). The note at
+      # the top of this file says why it still compiles.
       - name: Fetch the pinned yidam source
         run: |
           set -eu

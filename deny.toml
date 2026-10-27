@@ -1,7 +1,7 @@
 # cargo-deny — what this repository is willing to ship.
 #
-# Nothing checked a single advisory before #463. The light binary carries rustls (and so
-# `ring`), reqwest and an S3 client; the full build adds an ONNX runtime and SQLite. Six
+# Nothing checked a single advisory before #463. The default binary carries rustls (and so
+# `ring`), reqwest, an S3 client and an ONNX runtime; the full build adds SQLite. Six
 # install channels deliver it, `install-channels.yml` verifies that they *work*, and nothing
 # asked whether what they deliver has a known vulnerability or a license this repository can
 # ship.
@@ -32,6 +32,12 @@ ignore = [
   # parser (`serde-saphyr`), which changes how each corpus file is read. At expiry, either that
   # migration is under way or a person re-decides this. It is not simply re-dated.
   { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml is unmaintained (archived 2024-03); reached only via serde_yaml_ng in yidam and yidam-core, and replacing it means migrating every YAML read to a safe-Rust parser; expires 2027-01-31" },
+  # Unmaintained, not vulnerable, and a proc-macro: `paste` runs at compile time and nothing of
+  # it is in the binary. It arrives through `tokenizers` (directly and via
+  # `macro_rules_attribute`) under fastembed, and so entered the default build with
+  # `vector-read`. No `tokenizers` release drops it yet. At expiry, check for one before
+  # re-dating; fastembed pins its tokenizers major, so a bump there is a fastembed bump too.
+  { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained (archived 2024-10); a compile-time proc-macro reached only via tokenizers under fastembed (vector-read), with no tokenizers release that drops it; expires 2027-01-31" },
 ]
 
 # ── licenses ─────────────────────────────────────────────────────────────────
@@ -59,9 +65,21 @@ allow = [
   "ISC",
   "Unicode-3.0",
   "Zlib",
+  # A public-domain dedication. Arrives as `tiny-keccak`, under `ahash` (arrow, tokenizers).
+  "CC0-1.0",
+  # A permissive licence for data rather than code: `webpki-roots`' copy of the Mozilla root
+  # store, under `ureq` (hf-hub, and `ort-sys` at build time).
+  "CDLA-Permissive-2.0",
 ]
 unused-allowed-license = "allow"
 confidence-threshold = 0.9
+# The one MPL-2.0 crate, and by name rather than by allowing the licence, for the reason above:
+# allowing it would pre-authorise the next one. `option-ext` is a single `Option` helper reached
+# as `hf-hub` -> `dirs` -> `dirs-sys`, which arrived when `vector-read` joined the default set.
+# MPL's obligations attach to modified files of it, and nothing here modifies it.
+exceptions = [
+  { crate = "option-ext", allow = ["MPL-2.0"] },
+]
 
 # ── bans ─────────────────────────────────────────────────────────────────────
 #

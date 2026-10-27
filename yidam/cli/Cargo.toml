@@ -141,8 +141,8 @@ use_self = "deny"
 debug = 0
 
 [dependencies]
-# ── base: the light `reports` build — the four reports + all pure-Rust
-#    commands. No native libraries, no ML runtime. ────────────────────────────
+# ── base: the `reports` build — the four reports + all pure-Rust commands.
+#    No native libraries, no ML runtime. ──────────────────────────────────────
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 flate2 = "1"
@@ -210,10 +210,10 @@ regorus = { version = "0.13", default-features = false, features = ["arc", "ast"
 # must not re-implement the parity surface (see yidam/sdks/parity/README.md).
 yidam-core = { path = "../sdks/rust", version = "0.11.0" }
 
-# ── optional: `vector-read` — semantic index build, and the vector arm of the
-#    MCP server's `retrieve`. Not `serve` itself: that is in the light default,
-#    and answers every tool without these. Pulls an ONNX runtime; no protoc
-#    since #1287 removed lancedb. ─────────────────────────────────────────────
+# ── `vector-read` (default) — semantic index build, and the vector arm of the
+#    MCP server's `retrieve`. Not `serve` itself: that answers every tool
+#    without these. Pulls an ONNX runtime; no protoc since #1287 removed
+#    lancedb. ─────────────────────────────────────────────────────────────────
 # **The major is a vector space — see #536.** fastembed 4 → 6 embedded the same sentence to a
 # different vector: every element of the `embed_config` parity witness moved by 1e-4 to 6e-4
 # against a 1e-5 tolerance. Bisecting puts it on ONE bump, `ort` 2.0.0-rc.12 to rc.13, which
@@ -412,7 +412,7 @@ ort = { version = "2.0.0-rc.13", optional = true, default-features = false, feat
 # `unrecognized subcommand`, which is not "this feature is unavailable" but "a
 # documented workflow is impossible". Every other gated feature degrades to a
 # missing capability; this one degraded to a broken instruction.
-default = ["reports", "tonpa", "vault-s3", "s3-vectors", "export-graph", "serve-http", "catalog-fetch", "pdf-text", "github-app"]
+default = ["reports", "tonpa", "vault-s3", "s3-vectors", "export-graph", "serve-http", "catalog-fetch", "pdf-text", "github-app", "vector-read"]
 # The name of the base build — and **not a supported feature set on its own.**
 #
 # It gates nothing. `reports = []` enables no dependency, and there is no
@@ -450,9 +450,13 @@ reports = []
 # it already held — and removed it. So the build that can read an index can build
 # one, with the model and the encoder and nothing else.
 #
-# Still not the light default: fastembed carries an ONNX runtime, which is a
-# native dependency the default build deliberately has none of. RFC-0023 gave an
-# index a way to travel to a machine without this.
+# **In the default set** since the owner accepted its cost: 23.3 MB to 55.9 MB on
+# aarch64-apple-darwin, 215 packages to 293. Until then the default build had no native
+# dependency at all, and an install that could not build or read an index could not do
+# the retrieval everything else in the toolchain feeds. ONNX Runtime is a prebuilt static
+# library on every released target except x86_64-apple-darwin, where it is loaded at run
+# time (the target tables above). RFC-0023's vault delivery still serves a
+# `--no-default-features` build, which answers keyword retrieval and says so.
 vector-read = [
   "dep:fastembed",
   # Declared for x86_64-apple-darwin only, so on every other target this enables nothing.
@@ -542,8 +546,8 @@ vault-s3 = ["dep:hmac", "dep:reqwest", "dep:tokio", "dep:tokio-util"]
 # takes gated facts as arguments.
 #
 # Note what this feature does NOT buy: a remote index is still only queryable by a build that
-# can embed the query, which is `vector-read`. This feature is the network, and the light
-# binary carrying it still answers `no_vector_support`.
+# can embed the query, which is `vector-read`. This feature is the network, and a build
+# carrying it without `vector-read` still answers `no_vector_support`.
 s3-vectors = ["dep:hmac", "dep:reqwest", "dep:tokio"]
 # `serve --mcp --http` — MCP over a transport a URL can reach. **In the default set,
 # deliberately**, and for the reason `vault-s3` and `export-graph` give rather than a new one:

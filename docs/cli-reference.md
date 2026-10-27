@@ -1061,8 +1061,8 @@ The pod still fails. That record is what `status` shows.
 | Command | What it does |
 |---|---|
 | `embed` * | Extract embedding text from corpus instances to `.yidam/embeddings/`. `--no-catalog`, `--dry-run` |
-| `index-build` * | Build the vector index as Arrow IPC (`corpus.arrow`), which `retrieve` and the web shell read. `--model`. **Needs `--features vector-read`** |
-| `index-push` | Mirror `.yidam/index/` into the vector bucket `[index.remote]` declares. `--dry-run`, `--create`. **Needs `--features vector-read`** |
+| `index-build` * | Build the vector index as Arrow IPC (`corpus.arrow`), which `retrieve` and the web shell read. `--model`. Needs `vector-read`, which is in the default set |
+| `index-push` | Mirror `.yidam/index/` into the vector bucket `[index.remote]` declares. `--dry-run`, `--create`. Needs `vector-read`, which is in the default set |
 
 `embed` walks `.yidam/catalog/` by default. In a real derived corpus the catalog was 51.3% of
 the indexable text, against the corpus's 41.9%. Leaving it out had been a scope decision nobody
@@ -1540,9 +1540,8 @@ refused with a message that says so. It does not fail at the server as `EntityTo
 
 ### The artifacts this repository computes
 
-`.yidam/index/` is built only by a binary compiled `--features vector-read`, which carries an
-ONNX runtime the release does not. Nothing keeps it in git. So the index exists on whichever machine could build it
-and nowhere else. The same vault carries it:
+`.yidam/index/` is built by `yidam index-build`, and nothing keeps it in git. Building one is
+minutes of embedding, so the vault carries it from the machine that built it to every other:
 
 ```sh
 yidam vault push --index --commit   # on a machine that has one; commits .yidam/index.lock
@@ -1764,9 +1763,9 @@ wherever the client happened to spawn the process. That is what
 -c 'cd … && exec …'` workaround for. A directory that is not in a corpus is refused, not served
 empty.
 
-**Both transports are in the light default build.** `--features vector-read` upgrades MCP's `retrieve`
-from keyword to semantic search, and adds nothing else. A default binary still serves every other
-tool. It says `degraded` on the calls where the difference shows.
+**Both transports are in the default build**, and so is `vector-read`. It upgrades MCP's
+`retrieve` from keyword to semantic search and adds nothing else. A build without it still
+serves every other tool. It says `degraded` on the calls where the difference shows.
 
 **`serve --mcp` writes nothing unless the corpus says to.** With `[serve] record = true` in
 `.yidam/config.toml` it appends one line per `tools/call` to `.yidam/record/calls.jsonl`. The line

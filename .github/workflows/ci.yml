@@ -135,7 +135,7 @@ jobs:
           # is what keeps this list and `[features] default` in step — it reads this line
           # and the manifest and requires them equal. (It used to say `light_build.rs`,
           # which never read this file.)
-          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text,github-app' || '' }}
+          features: ${{ matrix.workspace == 'cli' && 'reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text,github-app,vector-read' || '' }}
           # No `list-features`: both rows ran their suite under the default set, and that is
           # what an unqualified listing resolves. The `cli` row's run is the instrumented one
           # (`ci-cli-cov`), so its listing is taken against `llvm-cov-target` rather than
@@ -648,7 +648,8 @@ jobs:
       # step over: a kill here would leave the log d596634 left.
       - name: Benchmark against examples/streamflow, with a resource sampler
         run: .github/scripts/with-sampler.sh mise run bench-example
-      # The `vector-read` leg's own results. Before #1016 this job's one summary rendered
+      # The first leg's own results — `vector-read` until it joined the default set, now the
+      # default set without it (the note on `[tasks.ci-cli-full]` says why). Before #1016 this job's one summary rendered
       # them only when the leg failed and skipped `coverage-full` — the fallback the old
       # `if: always()` note described — and the published report never saw them at all.
       # With coverage on its own runner that fallback is gone, so the leg reports what it
@@ -657,14 +658,14 @@ jobs:
       - uses: ./.github/actions/test-summary
         if: always()
         with:
-          gate: ci (cli · vector-read)
+          gate: ci (cli · without vector-read)
           job: ci (cli · full features)
           junit: yidam/cli/target/nextest/ci/junit.xml
           manifest: yidam/cli/Cargo.toml
-          artifact: test-results-cli-vector-read
+          artifact: test-results-cli-without-vector-read
           json: "true"
           # The last nextest `ci-cli-full` runs; `bench-example` runs none.
-          list-features: --features vector-read
+          list-features: --no-default-features --features reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text,github-app
 
   cli-full-coverage:
     # The `--all-features` suite, run once and instrumented (#1013), on a runner of its own

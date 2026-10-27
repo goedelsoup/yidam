@@ -1,13 +1,12 @@
-# Release — prebuilt `yidam` binaries for the light `reports` build.
+# Release — prebuilt `yidam` binaries for the default build.
 #
 # VERSIONING.md has said "CI publishes to registries on matching tag patterns"
 # since it was written, and nothing did. Every adopter, every derived repository,
 # and every CI run of every derived repository compiled the CLI from source —
 # which made a Rust toolchain a prerequisite for reading a Markdown corpus.
 #
-# The light default set is the whole reason this is cheap. It needs no
-# ML runtime, and no C library that has to already exist for the target (see the
-# feature partition in yidam/cli/Cargo.toml). So cross-compiling needs a
+# The default set is the whole reason this is cheap. It needs no C library that has to
+# already exist for the target (see the feature partition in yidam/cli/Cargo.toml). So cross-compiling needs a
 # cross-toolchain and nothing else, and no runner needs provisioning beyond that.
 #
 # It is not literally pure Rust any more. `tonpa` joined the default set and its
@@ -17,25 +16,27 @@
 # below. openssl-sys — reqwest's default TLS — would instead need an aarch64
 # libssl installed on the runner, which is why Cargo.toml pins rustls.
 #
-# `--features full` is deliberately NOT built here. It needs an ONNX runtime and
-# SQLite from source, and the common case must not wait on it. Someone who wants
-# `index-build` still builds from source, as they do today. (`serve --mcp` used
-# to be in that sentence and no longer belongs: it moved into the light set, and
-# a default binary serves MCP — what it does not serve is *semantic* retrieval.)
+# `--features full` is deliberately NOT built here. It needs SQLite from source and the
+# gluon calculators, and the common case must not wait on them.
 #
-# `--features vector-read` is NOT built here either, and that is a decision
-# rather than an omission — #442 asked it directly, and #1287 left it open after
-# making it the build that can also *make* an index (`index` is now its alias, and
-# nothing needs protoc). It still carries an ONNX runtime, which is a
-# native dependency this matrix has never had to cross-compile for aarch64, and
-# publishing it would double the artifacts per platform — which every consumer
-# then has to choose between, on a `releases/latest` that already answers for
-# four versioning layers.
+# `vector-read` IS built here, because it is in the default set. #442 asked whether to
+# publish it, #1287 left that open, and it was decided by taking it into the default rather
+# than by a second artifact per platform — which every consumer would have had to choose
+# between, on a `releases/latest` that already answers for four versioning layers. The cost
+# was accepted knowingly: the aarch64-darwin binary goes from 23 MB to 56 MB.
 #
-# So the channel is `cargo install --features vector-read`: a Rust toolchain,
-# and nothing else. What would reverse this is somebody wanting semantic
-# retrieval on a machine that has no toolchain — at which point the cost above
-# is worth paying, and it is one workflow matrix entry.
+# What it adds to this matrix is an ONNX Runtime, and it is still vendored rather than
+# system, in the sense above. `ort-sys` downloads a prebuilt static library for the TARGET
+# triple at build time — including aarch64-linux on an x86_64 runner — and links it, so the
+# cross-linker is the only provisioning it needs. The one exception is x86_64-apple-darwin,
+# for which `ort` publishes no prebuilt: that target takes `ort-load-dynamic` (the target
+# tables in yidam/cli/Cargo.toml), links no runtime, and loads `libonnxruntime.dylib` the
+# first time a command embeds. The tap's formula depends on Homebrew's `onnxruntime` on
+# Intel for that reason.
+#
+# The linux prebuilts are linked against a glibc this workflow does not choose. The
+# ubuntu-22.04 note below sets the floor for everything else in the binary; if the runtime
+# needs a newer one, that link fails here, which is the right place.
 
 name: Release
 

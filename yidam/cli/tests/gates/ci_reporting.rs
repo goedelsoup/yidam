@@ -887,7 +887,7 @@ fn every_heavy_step_in_the_full_feature_jobs_is_sampled() {
     assert!(
         names.contains(&"cli-full"),
         "no feature build was discovered in `cli-full`, which runs `ci-cli-full` \
-         (`--features vector-read`). Discovered: {names:?}"
+         (`--all-features`). Discovered: {names:?}"
     );
 
     for (name, _) in ci_jobs() {
