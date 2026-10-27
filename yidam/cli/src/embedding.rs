@@ -15,7 +15,7 @@
 //! Here the feature buys the *build*, and naming a model is not building one.
 
 use anyhow::Result;
-use fastembed::{EmbeddingModel, TextEmbedding};
+use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
 
 /// The model an index is built with when `.yidam/config.toml` names none.
 pub const DEFAULT_MODEL: &str = "Xenova/all-MiniLM-L6-v2";
@@ -39,6 +39,46 @@ pub fn resolve_model(name: &str) -> Result<(EmbeddingModel, i32, String)> {
                 .join("\n");
             anyhow::anyhow!("unknown model {name:?}\n\nSupported models:\n{list}")
         })
+}
+
+/// Load `model` to embed with, or say why this machine cannot.
+///
+/// Every embedder in the binary is made here, so the one target that links ONNX Runtime at run
+/// time rather than at build time — x86_64-apple-darwin, for which `ort` publishes no prebuilt
+/// (see the per-target tables in Cargo.toml) — has one place to check for it. `ort` *panics*
+/// when that library is missing; checking first turns the panic into an error, which `retrieve`
+/// already degrades on and `index-build` already reports.
+pub fn load(model: EmbeddingModel) -> Result<TextEmbedding> {
+    runtime()?;
+    Ok(TextEmbedding::try_new(TextInitOptions::new(model))?)
+}
+
+/// Every target but one links ONNX Runtime statically, so there is nothing to find.
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+fn runtime() -> Result<()> {
+    Ok(())
+}
+
+/// Load `libonnxruntime.dylib` the way `ort` would, through `ort`'s own fallible entry point.
+///
+/// `ort::init_from` fills the same once-cell that `ort` later reads instead of loading the
+/// library itself, so a success here is the load fastembed uses, and a failure is returned
+/// rather than becoming `ort`'s `expect`. Its version check is the one that matters: fastembed
+/// asks for ONNX Runtime API 24, so an older library is refused here by name.
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn runtime() -> Result<()> {
+    let path = std::env::var("ORT_DYLIB_PATH")
+        .ok()
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(|| "libonnxruntime.dylib".to_string());
+    match ort::init_from(&path) {
+        Ok(_environment) => Ok(()),
+        Err(e) => Err(anyhow::anyhow!(
+            "no usable ONNX Runtime at {path:?} ({e}). On an Intel Mac yidam loads it at run \
+             time: `brew install onnxruntime`, or set ORT_DYLIB_PATH to a libonnxruntime.dylib \
+             of version 1.24 or newer"
+        )),
+    }
 }
 
 #[cfg(test)]

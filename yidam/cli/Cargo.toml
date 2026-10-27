@@ -237,7 +237,16 @@ yidam-core = { path = "../sdks/rust", version = "0.11.0" }
 # major against Cargo.lock, and the transformers.js major against the SDK's lock, on every
 # pull request. A major bump on either side is red there until `mise run embed-parity` has
 # been run under it.
-fastembed = { version = "7", optional = true }
+#
+# `default-features = false`, and the two features named here and below, because fastembed's
+# defaults are native-tls on both of its network paths — `hf-hub` at run time and `ort`'s binary
+# download at build time — and native-tls on Linux is `openssl-sys`: a SYSTEM library for the
+# target, which is what release.yml says the aarch64 cross-compile cannot link. rustls is already
+# this build's TLS (see `reqwest`). The defaults also pulled `image`, for image models nothing here
+# loads.
+#
+# Which ONNX Runtime it links is chosen per target, in the two tables after this section.
+fastembed = { version = "7", optional = true, default-features = false, features = ["hf-hub-rustls-tls"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
 # Arrow encodes the vector index (`index_build`) and decodes it (`model::index_rows`);
 # shared by `vector-read` and `export-sqlite`. **Free to move.** These were held at
@@ -374,6 +383,29 @@ hyper-util = { version = "0.1", default-features = false, features = [
 http-body-util = { version = "0.1", optional = true }
 tokio-util = { version = "0.7", default-features = false, features = ["io"], optional = true }
 
+
+# ── `vector-read`: which ONNX Runtime fastembed links, per target ───────────
+#
+# `ort` downloads a prebuilt, statically linked ONNX Runtime at build time for every target it
+# publishes one for, and that covers three of release.yml's four: aarch64-apple-darwin and both
+# linux-gnu targets. It publishes none for **x86_64-apple-darwin**, so there the runtime is loaded
+# at run time instead (`ort-load-dynamic`): `brew install onnxruntime` provides it, and the
+# Homebrew formula depends on it for Intel only. Without the library the binary still runs, and
+# the vector arm degrades rather than failing — see `embedding::runtime_available`.
+#
+# A cfg-scoped table is what lets one `vector-read` mean two link modes: Cargo features cannot
+# be target-specific, but a dependency's features can, and both tables name the same optional
+# `fastembed` that `vector-read`'s `dep:fastembed` enables.
+[target.'cfg(not(all(target_os = "macos", target_arch = "x86_64")))'.dependencies]
+fastembed = { version = "7", optional = true, default-features = false, features = ["ort-download-binaries-rustls-tls"] }
+
+[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
+fastembed = { version = "7", optional = true, default-features = false, features = ["ort-load-dynamic"] }
+# Named directly only for `ort::init_from`, the fallible load `embedding::runtime` checks with —
+# the version is whatever fastembed pins, and this requirement unifies with it rather than
+# choosing one.
+ort = { version = "2.0.0-rc.13", optional = true, default-features = false, features = ["load-dynamic", "std"] }
+
 [features]
 # `tonpa` is in the default set, and it is the one feature that had to be:
 # without it `yidam tonpa add …` in a derived repository fails with
@@ -423,6 +455,8 @@ reports = []
 # index a way to travel to a machine without this.
 vector-read = [
   "dep:fastembed",
+  # Declared for x86_64-apple-darwin only, so on every other target this enables nothing.
+  "dep:ort",
   "dep:arrow-array",
   "dep:arrow-schema",
   "dep:arrow-ipc",

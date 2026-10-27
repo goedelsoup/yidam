@@ -3,7 +3,6 @@ use anyhow::{Context, Result};
 use arrow_array::{FixedSizeListArray, Float32Array, RecordBatch, StringArray};
 use arrow_ipc::writer::FileWriter;
 use arrow_schema::{DataType, Field, Schema};
-use fastembed::{TextEmbedding, TextInitOptions};
 use std::sync::Arc;
 
 use crate::config::load_yidam_config;
@@ -122,7 +121,7 @@ pub fn index_build(model_arg: Option<String>) -> Result<()> {
     println!("Initializing model ({model_name})…");
     println!("  (first run downloads model weights)");
 
-    let mut model = TextEmbedding::try_new(TextInitOptions::new(embedding_model.clone()))?;
+    let mut model = crate::embedding::load(embedding_model.clone())?;
 
     let texts: Vec<String> = records.iter().map(|r| r.text.clone()).collect();
     println!("Embedding {} texts…", texts.len());

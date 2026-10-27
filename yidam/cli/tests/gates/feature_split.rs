@@ -171,6 +171,86 @@ fn nothing_in_the_lockfile_needs_protoc() {
     );
 }
 
+/// fastembed's default features would link OpenSSL, and would pick one ONNX Runtime for every
+/// target when one of release.yml's four has no prebuilt to download.
+///
+/// So every declaration of it turns the defaults off, and the two per-target tables choose the
+/// runtime: a download everywhere `ort` publishes one, a run-time load on x86_64-apple-darwin.
+/// The lockfile half covers every feature and every target at once — native-tls was reachable
+/// only through fastembed, so either name reappearing means a default came back.
+#[test]
+fn fastembed_takes_rustls_and_chooses_its_runtime_per_target() {
+    let manifest: toml::Value =
+        toml::from_str(&read("Cargo.toml")).expect("Cargo.toml is not TOML");
+    let mut declarations = vec![(
+        "[dependencies]".to_string(),
+        manifest["dependencies"].get("fastembed").cloned(),
+    )];
+    for (cfg, table) in manifest
+        .get("target")
+        .and_then(|t| t.as_table())
+        .into_iter()
+        .flatten()
+    {
+        if let Some(dep) = table.get("dependencies").and_then(|d| d.get("fastembed")) {
+            declarations.push((cfg.clone(), Some(dep.clone())));
+        }
+    }
+    assert_eq!(
+        declarations.len(),
+        3,
+        "expected fastembed in [dependencies] and in two target tables: {declarations:?}"
+    );
+
+    let features = |dep: &toml::Value| -> Vec<String> {
+        dep.get("features")
+            .and_then(|f| f.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|f| f.as_str().map(str::to_string))
+            .collect()
+    };
+    let intel =
+        |cfg: &str| cfg.contains("x86_64") && cfg.contains("macos") && !cfg.contains("not(");
+    for (cfg, dep) in &declarations {
+        let dep = dep
+            .as_ref()
+            .unwrap_or_else(|| panic!("no fastembed under {cfg}"));
+        assert_eq!(
+            dep.get("default-features").and_then(|v| v.as_bool()),
+            Some(false),
+            "fastembed under {cfg} keeps its default features, which are native-tls (OpenSSL on \
+             Linux) and an ONNX Runtime download on every target"
+        );
+        let named = features(dep);
+        assert!(
+            !named.iter().any(|f| f.contains("native-tls")),
+            "fastembed under {cfg} names a native-tls feature: {named:?}"
+        );
+        if cfg.starts_with("cfg(") {
+            let want = if intel(cfg) {
+                "ort-load-dynamic"
+            } else {
+                "ort-download-binaries-rustls-tls"
+            };
+            assert_eq!(named, [want], "fastembed under {cfg}");
+        }
+    }
+    assert!(
+        declarations.iter().any(|(cfg, _)| intel(cfg)),
+        "no target table names x86_64-apple-darwin, for which `ort` publishes no prebuilt"
+    );
+
+    let lock = read("Cargo.lock");
+    for name in ["native-tls", "openssl-sys"] {
+        assert!(
+            !lock.contains(&format!("\nname = \"{name}\"")),
+            "Cargo.lock resolves `{name}`. The aarch64 cross-compile cannot link a system \
+             OpenSSL; find what pulls it with `cargo tree -i {name} --features full --target all`."
+        );
+    }
+}
+
 /// A client tells a build that can make an index from one that cannot by the reported list,
 /// and since #1287 those are the same builds that can and cannot read one.
 #[test]
