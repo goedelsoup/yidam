@@ -59,8 +59,8 @@ release](https://github.com/goedelsoup/yidam/releases) . Drag it onto Claude Des
 Extensions pane, or use a shell:
 
 ```sh
-open yidam-0.20.0-aarch64-apple-darwin.mcpb    # Apple silicon
-open yidam-0.20.0-x86_64-apple-darwin.mcpb     # Intel
+open yidam-0.21.0-aarch64-apple-darwin.mcpb    # Apple silicon
+open yidam-0.21.0-x86_64-apple-darwin.mcpb     # Intel
 ```
 
 An `.mcpb` is a zip holding a manifest and the `yidam` binary. The bundle installs nothing onto
@@ -74,7 +74,7 @@ the corpus has an index (§1). On an Intel Mac that also needs `brew install onn
 Without it, `retrieve` over an index answers with an error that says so. It is also **macOS only**. Claude Desktop runs on macOS and Windows, and this repository cross-compiles no Windows
 target. A Linux user wants one of the routes below.
 
-The version is the CLI's own: `yidam-0.20.0-…` carries `yidam 0.20.0`. A bundle installed six
+The version is the CLI's own: `yidam-0.21.0-…` carries `yidam 0.21.0`. A bundle installed six
 months ago runs a binary these docs may no longer describe. Reinstalling is dragging a newer
 file onto the same pane.
 
