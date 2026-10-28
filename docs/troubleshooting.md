@@ -245,13 +245,23 @@ all.
 predates #655. Older builds read the check's declared severity rather than the finding's own.
 `missing-property` raises a `required: true` omission past its check. Update the extension.
 
+## `version GLIBC_2.39 not found` on Linux
+
+The release binary needs glibc 2.39 or newer, for its ONNX Runtime. Debian 12 and Ubuntu 22.04
+are older. Install from source without `vector-read` instead. [Installation](installation.md)
+has the command. Retrieval is then keyword-only.
+
 ## `serve --mcp` returns `degraded`
 
-The binary has no `vector-read` feature, so `retrieve` is doing keyword search rather than semantic
-search. It says so on every call rather than returning keyword results as though they were
-embeddings. Every other MCP tool is unaffected — both transports are in the light default build.
+`retrieve` is doing keyword search rather than semantic search. It says so on every call
+rather than returning keyword results as though they were embeddings. Every other MCP tool is
+unaffected. `degraded_reason` names the cause. Usually there is no index yet (`no_index`).
+Otherwise the binary lacks `vector-read` (`no_vector_support`). That is a binary from before it
+joined the default set, or one built `--no-default-features`. An Intel Mac with no ONNX
+Runtime is different: `retrieve` over an index is refused, not degraded. The error says to
+`brew install onnxruntime`.
 
-To get semantic retrieval you need a build with `--features vector-read` and a built index:
+To get semantic retrieval you need a current binary and a built index:
 
 ```sh
 yidam embed

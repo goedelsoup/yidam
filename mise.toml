@@ -341,7 +341,8 @@ run = [
 # Dafny is pinned per-task rather than in [tools]: `mise install` runs in every derived
 # repository, and this is a 200MB download for a task a corpus will almost never invoke.
 # The release ships a self-contained zip that unpacks to a `dafny/` directory holding the
-# binary and its .NET runtime, hence extract_all + bin_path rather than a one-line pin.
+# binary and its .NET runtime, hence bin_path rather than a one-line pin. The github backend
+# unpacks the whole archive on its own; mise 2026.10.21 refuses `extract_all`, which it never read.
 #
 # LEAN has no equivalent line. `github:leanprover/elan` ships only `elan-init`, a
 # bootstrapper, so mise cannot provision `lake` — and pinning `leanprover/lean4` directly
@@ -352,7 +353,7 @@ run = [
 [tasks.verify]
 description = "Formal verification: Dafny specs and LEAN 4 proofs (needs lake on PATH via elan)."
 dir = "yidam/sdks/spec"
-tools = { "github:dafny-lang/dafny" = { version = "4.11.0", extract_all = true, bin_path = "dafny" } }
+tools = { "github:dafny-lang/dafny" = { version = "4.11.0", bin_path = "dafny" } }
 run = [
   "dafny verify graph.dfy",
   "dafny verify sangha.dfy",
@@ -738,13 +739,17 @@ run = [
 # Clippy rather than `cargo check`, which is what #922 asked for, because two of the three
 # were LINT failures and not compile errors: `-D warnings` is what turns #1003's unused import
 # into a red gate, and passing it as `RUSTFLAGS` to a `check` instead would rekey every
-# dependency's fingerprint and rebuild the tree this task exists to avoid rebuilding. These
-# are the same two command lines `ci-cli-full` runs below, character for character, so they
-# resolve to artifacts its cache already holds — 8.5s and 11.8s off a warm one.
+# dependency's fingerprint and rebuild the tree this task exists to avoid rebuilding. The
+# `--all-features` leg is the command line `ci-cli-full` runs below, character for character,
+# so it resolves to artifacts its cache already holds.
 #
-# Both legs, because `--all-features` cannot see the code that `--features vector-read`
-# compiles *instead*: the `#[cfg(not(feature = "export-sqlite"))]`-style arms of a build with
-# fastembed and none of the other optional features.
+# The first leg used to be `--features vector-read`, which compiles the
+# `#[cfg(not(feature = "export-sqlite"))]`-style arms `--all-features` cannot see. Since
+# `vector-read` joined the default set that is the default build, which `ci-cli` clippies, so the
+# leg is now the build the default no longer compiles: every default feature except
+# `vector-read`, which is what installation.md tells a user to build to leave ONNX Runtime out.
+# It is the only build that compiles the `#[cfg(not(feature = "vector-read"))]` arms beside the
+# rest of the defaults.
 #
 # And a third, `--no-default-features --features reports`, because both of those turn the
 # defaults on and so compile out every `#[cfg(not(feature = "vault-s3"))]` arm there is.
@@ -757,7 +762,7 @@ run = [
 [tasks.check-features]
 description = "Compile-check the feature-gated CLI builds that only `ci-cli-full` otherwise compiles."
 run = [
-  "cargo clippy --manifest-path yidam/cli/Cargo.toml --features vector-read --locked -- -D warnings",
+  "cargo clippy --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text,github-app --locked -- -D warnings",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-features --locked -- -D warnings",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports --locked -- -D warnings",
 ]
@@ -767,7 +772,15 @@ run = [
 # .github/workflows/ci.yml), not on every PR. `ci-cli` above builds the default
 # set, which is also what the release publishes.
 [tasks.ci-cli-full]
-description = "Full-feature CI for the yidam CLI (all optional features, and the read-only vector build)."
+description = "Full-feature CI for the yidam CLI (all optional features, and the default set without vector-read)."
+# **The first leg is the default set less `vector-read`** since `vector-read` joined the
+# default. Until then it was `--features vector-read`, for the reasons the next three
+# paragraphs give; that build is now the default one, which `ci-cli` tests on every pull
+# request, so the leg moved to the build that became the one nobody compiles: the documented
+# way to install without ONNX Runtime, and the only one where every
+# `#[cfg(not(feature = "vector-read"))]` arm meets the rest of the defaults. The paragraphs
+# below are its history, and their argument now applies to this leg.
+#
 # `--all-features` proves that combination and not the one a user installs to get vector
 # search: `--features vector-read` (alias `index` since #1287), fastembed and arrow without
 # SQLite, RDF or gluon. That build would otherwise be the one nobody ever compiles, which is
@@ -798,9 +811,9 @@ description = "Full-feature CI for the yidam CLI (all optional features, and the
 # only build that proves the one `cargo install --features vector-read` gives.
 run = [
   "cargo fmt --all --manifest-path yidam/cli/Cargo.toml -- --check",
-  "cargo clippy --manifest-path yidam/cli/Cargo.toml --features vector-read --locked -- -D warnings",
-  "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --features vector-read --locked",
-  "cargo test --doc --manifest-path yidam/cli/Cargo.toml --features vector-read --locked",
+  "cargo clippy --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text,github-app --locked -- -D warnings",
+  "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text,github-app --locked",
+  "cargo test --doc --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text,github-app --locked",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-features --locked -- -D warnings",
   "cargo test --doc --manifest-path yidam/cli/Cargo.toml --all-features --locked",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports --locked -- -D warnings",

@@ -61,13 +61,14 @@ mise run ci-vscode    # the extension
 CI runs the harness and the light CLI build as parallel jobs on every PR, plus the extension,
 the parity suite, an aarch64 cross-compile and the scaling bench. A pull request also compiles
 the feature-gated code: `ci (cli · feature check)` runs the three clippy lines `ci-cli-full`
-runs, over `--features vector-read`, over `--all-features` and over `--no-default-features
---features reports`. What it does not do is run their
+runs: over the default set without `vector-read`, over `--all-features` and over
+`--no-default-features --features reports`. What it does not do is run their
 tests, or pass `--all-targets` — a `#[cfg(test)]` fixture behind a feature is still first
 compiled after the merge. **The full-feature test run is on `main` and weekly, not on PRs.**
 
-So `mise run check-features` before you push a change behind `--features vector-read`, and prefer
-taking gated facts as arguments so the logic around them stays testable from the light build.
+So `mise run check-features` before you push a change behind a feature, `vector-read` included —
+its `#[cfg(not(...))]` arms compile only there now — and prefer taking gated facts as arguments
+so the logic around them stays testable from every build.
 
 ## What a change needs
 

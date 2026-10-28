@@ -573,7 +573,9 @@ fn a_publish_without_a_token_fails_rather_than_passing() {
 /// install reported success; only running it failed.
 ///
 /// The runner image *is* the floor — nothing else in the repository declares one — so a diff
-/// putting `ubuntu-latest` back would raise it silently.
+/// putting `ubuntu-latest` back would raise it silently. Since #442 the floor is ubuntu-24.04,
+/// because ONNX Runtime's prebuilts do not link on anything older; that was a decision, and
+/// this keeps the next move one too.
 #[test]
 fn the_linux_release_builds_do_not_float_to_the_newest_glibc() {
     let text = read(".github/workflows/release.yml");
@@ -633,6 +635,7 @@ fn the_cross_compile_check_mirrors_the_release_build() {
         "CC_aarch64_unknown_linux_gnu",
         "aarch64-linux-gnu-gcc",
         "gcc-aarch64-linux-gnu",
+        "g++-aarch64-linux-gnu",
         "--locked",
     ] {
         assert!(
@@ -646,6 +649,28 @@ fn the_cross_compile_check_mirrors_the_release_build() {
              build that does not happen"
         );
     }
+
+    // The same runner, because the runner image is the glibc floor and ships the libstdc++
+    // ONNX Runtime links against. #442's first run cross-compiled on ubuntu-22.04 and failed
+    // a link the release would have failed too; on a newer image the reverse would pass.
+    let release_runner = release
+        .split("- target: aarch64-unknown-linux-gnu")
+        .nth(1)
+        .and_then(|row| row.lines().find_map(|l| l.trim().strip_prefix("os: ")))
+        .expect("release.yml's aarch64-unknown-linux-gnu row names an `os:`")
+        .trim()
+        .to_string();
+    let cross_runner = cross
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("runs-on: "))
+        .expect("ci.yml's cross job names a runner")
+        .trim()
+        .to_string();
+    assert_eq!(
+        cross_runner, release_runner,
+        "ci.yml's cross job runs on a different image from release.yml's aarch64 build, so it \
+         links against a different glibc and libstdc++"
+    );
 
     // No `--features`: the default IS the light set, and spelling it in either place makes
     // a second definition for the two to drift apart on. Read from the commands rather than

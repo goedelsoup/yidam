@@ -615,6 +615,21 @@ fn recorded_versions_in_the_repository() -> Vec<(String, BTreeSet<String>)> {
     found
 }
 
+/// The features a default binary *reports*: `[features] default`, plus `index` when it holds
+/// `vector-read`.
+///
+/// The two lists differ by that one name. `index` is a Cargo alias that enables `vector-read`,
+/// and `report.rs` lists it as a capability beside `vector-read` in every build that has it —
+/// `feature_split.rs` holds that pairing. So once `vector-read` joined `default`, a released
+/// binary prints `index` though `default` never spells it, and a transcript must show both.
+fn reported_default() -> BTreeSet<String> {
+    let mut set = feature_body("default");
+    if set.contains("vector-read") {
+        set.insert("index".to_string());
+    }
+    set
+}
+
 /// **A recorded `--version` names no feature outside the default set.**
 ///
 /// Subset, not equality, and the asymmetry is the point. Every released artifact carries
@@ -627,7 +642,7 @@ fn recorded_versions_in_the_repository() -> Vec<(String, BTreeSet<String>)> {
 /// The other direction is [`a_recorded_version_somewhere_shows_the_whole_default_set`].
 #[test]
 fn a_recorded_version_names_no_feature_outside_the_default_set() {
-    let default = feature_body("default");
+    let default = reported_default();
 
     let offenders: Vec<String> = recorded_versions_in_the_repository()
         .into_iter()
@@ -665,7 +680,7 @@ fn a_recorded_version_names_no_feature_outside_the_default_set() {
 /// that stops being true the day `default` grows.
 #[test]
 fn a_recorded_version_somewhere_shows_the_whole_default_set() {
-    let default = feature_body("default");
+    let default = reported_default();
     let recorded = recorded_versions_in_the_repository();
 
     let complete: Vec<&String> = recorded

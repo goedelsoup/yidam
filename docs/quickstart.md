@@ -234,9 +234,9 @@ One thing to know before you do: the server finds the corpus from the directory 
 started in, and refuses to start anywhere that is not one. So a client configured to launch it
 from the wrong place fails visibly rather than answering every question with nothing.
 
-The binary you installed in step 1 already carries this. `--features vector-read` upgrades
-`retrieve` from keyword to semantic search and changes nothing else; without it the server
-says `degraded: true` on every retrieval and names the reason.
+The binary you installed in step 1 already carries this, semantic retrieval included.
+`retrieve` is semantic once the corpus has an index (`yidam embed && yidam index-build`);
+before that the server says `degraded: true` on every retrieval and names the reason.
 
 That, plus which tool an agent should reach for and how to read `origin`, is in
 [mcp-server.md](mcp-server.md).

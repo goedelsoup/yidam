@@ -1,13 +1,12 @@
-# Release — prebuilt `yidam` binaries for the light `reports` build.
+# Release — prebuilt `yidam` binaries for the default build.
 #
 # VERSIONING.md has said "CI publishes to registries on matching tag patterns"
 # since it was written, and nothing did. Every adopter, every derived repository,
 # and every CI run of every derived repository compiled the CLI from source —
 # which made a Rust toolchain a prerequisite for reading a Markdown corpus.
 #
-# The light default set is the whole reason this is cheap. It needs no
-# ML runtime, and no C library that has to already exist for the target (see the
-# feature partition in yidam/cli/Cargo.toml). So cross-compiling needs a
+# The default set is the whole reason this is cheap. It needs no C library that has to
+# already exist for the target (see the feature partition in yidam/cli/Cargo.toml). So cross-compiling needs a
 # cross-toolchain and nothing else, and no runner needs provisioning beyond that.
 #
 # It is not literally pure Rust any more. `tonpa` joined the default set and its
@@ -17,25 +16,28 @@
 # below. openssl-sys — reqwest's default TLS — would instead need an aarch64
 # libssl installed on the runner, which is why Cargo.toml pins rustls.
 #
-# `--features full` is deliberately NOT built here. It needs an ONNX runtime and
-# SQLite from source, and the common case must not wait on it. Someone who wants
-# `index-build` still builds from source, as they do today. (`serve --mcp` used
-# to be in that sentence and no longer belongs: it moved into the light set, and
-# a default binary serves MCP — what it does not serve is *semantic* retrieval.)
+# `--features full` is deliberately NOT built here. It needs SQLite from source and the
+# gluon calculators, and the common case must not wait on them.
 #
-# `--features vector-read` is NOT built here either, and that is a decision
-# rather than an omission — #442 asked it directly, and #1287 left it open after
-# making it the build that can also *make* an index (`index` is now its alias, and
-# nothing needs protoc). It still carries an ONNX runtime, which is a
-# native dependency this matrix has never had to cross-compile for aarch64, and
-# publishing it would double the artifacts per platform — which every consumer
-# then has to choose between, on a `releases/latest` that already answers for
-# four versioning layers.
+# `vector-read` IS built here, because it is in the default set. #442 asked whether to
+# publish it, #1287 left that open, and it was decided by taking it into the default rather
+# than by a second artifact per platform — which every consumer would have had to choose
+# between, on a `releases/latest` that already answers for four versioning layers. The cost
+# was accepted knowingly: the aarch64-darwin binary goes from 23 MB to 56 MB.
 #
-# So the channel is `cargo install --features vector-read`: a Rust toolchain,
-# and nothing else. What would reverse this is somebody wanting semantic
-# retrieval on a machine that has no toolchain — at which point the cost above
-# is worth paying, and it is one workflow matrix entry.
+# What it adds to this matrix is an ONNX Runtime, and it is still vendored rather than
+# system, in the sense above. `ort-sys` downloads a prebuilt static library for the TARGET
+# triple at build time — including aarch64-linux on an x86_64 runner — and links it, so the
+# cross-linker is the only provisioning it needs. The one exception is x86_64-apple-darwin,
+# for which `ort` publishes no prebuilt: that target takes `ort-load-dynamic` (the target
+# tables in yidam/cli/Cargo.toml), links no runtime, and loads `libonnxruntime.dylib` the
+# first time a command embeds. The tap's formula depends on Homebrew's `onnxruntime` on
+# Intel for that reason.
+#
+# The linux prebuilts set the glibc floor, not this workflow. They reference glibc 2.38
+# symbols (`__isoc23_strtol`) and GCC 14's libstdc++ (`__cxa_call_terminate`), so they do not
+# link on ubuntu-22.04 — the first PR to build them found that. The ubuntu-24.04 note below
+# is the consequence.
 
 name: Release
 
@@ -75,31 +77,34 @@ jobs:
           - target: x86_64-apple-darwin
             os: macos-latest
             mcpb_platform: darwin
-          # ── ubuntu-22.04, not ubuntu-latest ──────────────────────────
+          # ── ubuntu-24.04, not ubuntu-latest ──────────────────────────
           #
           # A glibc binary runs on the glibc it was LINKED against or newer, and
-          # never on older. ubuntu-latest is 24.04 / glibc 2.39, so the tarball
-          # `install.sh` served for `cli/v0.2.0` died on Debian 12 with
-          # `version GLIBC_2.39 not found` — a successful download, a verified
-          # checksum, an installed binary, and no way to run it. Found by
-          # install-channels.yml on its first run; nothing before it looked.
+          # never on older. `cli/v0.2.0` was built on ubuntu-latest (24.04, glibc
+          # 2.39) and its tarball died on Debian 12 with `version GLIBC_2.39 not
+          # found` — a successful download, a verified checksum, an installed
+          # binary, and no way to run it. Found by install-channels.yml on its
+          # first run; nothing before it looked.
           #
-          # 22.04 is glibc 2.35, which clears Debian 12 (2.36), Ubuntu 22.04,
-          # and RHEL 9 (2.34 — still below, and out of scope until someone asks).
-          # The floor is the runner image and nothing else declares it, so moving
-          # this line to `ubuntu-latest` silently raises it again.
+          # The floor was 22.04 (glibc 2.35) until #442 put ONNX Runtime in the
+          # default build. Its prebuilts need glibc 2.38 and GCC 14's libstdc++,
+          # so the floor is now 24.04: glibc 2.39, which clears Debian 13 and
+          # Ubuntu 24.04 and no longer clears Debian 12, Ubuntu 22.04 or RHEL 9.
+          # Those install from source. Pinned rather than `ubuntu-latest`,
+          # because the floor is the runner image and nothing else declares it.
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-22.04
+            os: ubuntu-24.04
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-22.04
+            os: ubuntu-24.04
             # `gcc-aarch64-linux-gnu` is the cross C compiler, not only the
             # linker. Both halves are used: the linker for the final artifact,
-            # the compiler for ring's vendored C. If a dependency ever needs a
-            # SYSTEM library for the target rather than a vendored one, this is
-            # where it breaks first — which is the right place for it to break.
+            # the compiler for ring's vendored C. `g++-aarch64-linux-gnu` brings
+            # the target's libstdc++, which ONNX Runtime links against. If a
+            # dependency ever needs another SYSTEM library for the target, this
+            # is where it breaks first — which is the right place for it to break.
             linker: aarch64-linux-gnu-gcc
             cc: aarch64-linux-gnu-gcc
-            apt: gcc-aarch64-linux-gnu
+            apt: gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
     steps:
       - uses: actions/checkout@v7

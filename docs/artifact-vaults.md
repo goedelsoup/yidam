@@ -113,9 +113,10 @@ fact about a third party they may not be able to change at all.
 
 ## Share the vector index through a vault
 
-`.yidam/index/` is built only by a binary compiled `--features vector-read`. The release does
-not carry its ONNX runtime, and nothing keeps the index in git. So the index exists on whichever machine could build it
-and nowhere else. The vault is the channel between them:
+`.yidam/index/` is built by `yidam index-build`, which every released binary carries, and
+nothing keeps the index in git. Building one is minutes of embedding. Without a channel it is
+rebuilt on every clone, or exists only where someone ran it. The vault is the channel
+between them:
 
 ```sh
 yidam vault push --index                     # where one was built
@@ -132,13 +133,11 @@ deterministic archive and hashed as a whole. A `corpus.arrow` from one build bes
 `meta.json` from another is a corrupt index nothing would notice; making partial arrival
 inexpressible is better than checking for it.
 
-> **The default build still degrades, and there is a build that does not.** Pulling an index
-> does not make `retrieve` non-degraded in the light binary: reading the index needs
-> `arrow-ipc`, and embedding the *query* needs the ONNX model. The channel is necessary and not
-> sufficient.
->
-> `--features vector-read` is the build that completes it. It reads an index and answers over
-> it, and it is the same build that makes one. See [Installation](installation.md#check-which-build-you-have).
+> **A build without `vector-read` still degrades.** Pulling an index does not make `retrieve`
+> non-degraded in a `--no-default-features` binary: reading the index needs `arrow-ipc`, and
+> embedding the *query* needs the ONNX model. Every released binary has both; one built
+> without them gets the channel and not the answer. See
+> [Installation](installation.md#check-which-build-you-have).
 
 ## Finish a push that stopped part-way
 

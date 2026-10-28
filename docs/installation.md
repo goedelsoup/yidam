@@ -128,7 +128,7 @@ rather than a lower one — so #463 raised it to the pin, where every build veri
 
 ```console
 $ yidam --version
-yidam <version> (<commit>) [reports export-graph tonpa serve-http vault-s3 s3-vectors catalog-fetch pdf-text github-app]
+yidam <version> (<commit>) [reports vector-read index export-graph tonpa serve-http vault-s3 s3-vectors catalog-fetch pdf-text github-app]
 ```
 
 Three facts, and the third is the one that matters: the version, the commit it was built from,
@@ -151,7 +151,7 @@ artifacts — the script, the tap, binstall — carry the **default** set.
 |---|---|---|
 | `reports` *(default)* | Every pure-Rust command: reports, gates, queries, `clone`, `overlay`, `serve --mcp`, `serve --lsp`, export to graphml/llms | None |
 | `tonpa` *(default)* | Bundle dependency manager — `tonpa add`, `verify`, `update` | reqwest (rustls) + tokio; vendored C, no system library |
-| `vector-read` | `index-build`, and upgrades `serve --mcp`'s `retrieve` from keyword to semantic | fastembed (ONNX runtime) |
+| `vector-read` *(default)* | `index-build`, and upgrades `serve --mcp`'s `retrieve` from keyword to semantic | fastembed and ONNX Runtime. **+78 packages, +32.6 MB** — the largest cost in the default set. On an Intel Mac the runtime is loaded at run time rather than linked (see below) |
 | `index` | An alias for `vector-read`, kept so existing `--features index` installs still build | Same as `vector-read` |
 | `export-sqlite` | `export --format sqlite` | Bundled SQLite + sqlite-vec, compiled from C |
 | `vault-s3` *(default)* | The `s3://` transport for `yidam vault`. The rest of the vault — addressing, cache, `file://` — is ungated | hmac + reqwest (rustls) + tokio |
@@ -168,33 +168,42 @@ artifacts — the script, the tap, binstall — carry the **default** set.
 Two things follow from that table that are easy to get backwards.
 
 **Deriving a repository does not need `full`.** `clone`, `overlay`, `tonpa`, both `serve`
-transports, every report and every gate are in the light set. A default binary serves MCP; what
-it does not serve is *semantic* retrieval, and it says so on every call rather than silently
-returning keyword results as though they were embeddings.
+transports, every report and every gate are in the default set. A `--no-default-features`
+binary still serves MCP; what it does not serve is *semantic* retrieval, and it says so on every
+call rather than silently returning keyword results as though they were embeddings.
 
 **Reading an index and building one are the same build.** Building one used to need
 `--features index`, which added LanceDB and needed protoc 31. Nothing ever read the LanceDB
 table, so it was removed, and `index-build` now writes the `corpus.arrow` every reader decodes.
-Measured against this repository's lockfile with `cargo tree`: the default build resolves 220
-packages, `vector-read` 375, and the old `index` set resolved 616.
+Measured against this repository's lockfile with `cargo tree`: without `vector-read` the default
+set resolves 215 packages, with it 293, and the old `index` set resolved 616.
 
-It is still not a *default*, because fastembed carries an ONNX runtime and the light set
-deliberately has no native dependency at all. A machine without it can still answer semantic
-queries over an index built elsewhere and delivered through a vault: `yidam vault pull --index`,
-then a `vector-read` build's `serve --mcp`. Whether you have it is on `yidam --version` and in
-`yidam doctor`.
+**`vector-read` is a default even though it more than doubles the binary** (23 MB to 56 MB on
+aarch64 macOS), because an install that cannot build or read an index cannot do the retrieval
+the rest of the toolchain is built to feed. fastembed is taken without its OpenSSL and image
+defaults, and ONNX Runtime arrives as a prebuilt static library on every released target but
+one: `ort` publishes none for **Intel macOS**, so there yidam loads `libonnxruntime.dylib`
+(1.24 or newer) when a command first needs a model. `brew install onnxruntime` provides it, or
+point `ORT_DYLIB_PATH` at one. Every command that does not embed runs without it. Whether you
+have semantic retrieval is on `yidam --version` and in `yidam doctor`.
+
+**The Linux release binaries need glibc 2.39 or newer.** ONNX Runtime's prebuilt requires it.
+That covers Debian 13 and Ubuntu 24.04. Debian 12, Ubuntu 22.04 and RHEL 9 are older. On those,
+install from source with the command below, which leaves the runtime out.
 
 **`tonpa` is a default even though it costs an HTTP stack**, because it is the only feature
 whose absence broke an instruction rather than removing a capability. Without it
 `yidam tonpa add …` answered `unrecognized subcommand`, and inside a script with output
 redirected that is indistinguishable from success.
 
-To build a heavier set from source:
+To build a different set from source:
 
 ```sh
-# Semantic retrieval, and building the index it reads.
+# The default set less the embedding model: no ONNX Runtime, keyword retrieval only.
 cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.20.0 --locked \
-  --features vector-read yidam
+  --no-default-features \
+  --features reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text,github-app \
+  yidam
 
 # Everything, including the SQLite export and the gluon calculators.
 cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.20.0 --locked \

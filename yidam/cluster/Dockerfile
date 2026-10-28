@@ -16,7 +16,10 @@
 # The exact toolchain `mise.toml` pins, not `1.88`: that tag floats to the newest patch, and a
 # published image would then be built by a compiler no gate here ran. `toolchain_pins.rs`
 # reads both files and fails when they disagree.
-FROM rust:1.88.0-bookworm AS build
+#
+# Trixie, not bookworm: the default build links ONNX Runtime's prebuilt, which needs glibc
+# 2.38 and GCC 14's libstdc++ (#442). Bookworm has 2.36 and GCC 12, and the link fails.
+FROM rust:1.88.0-trixie AS build
 WORKDIR /src
 COPY . .
 # `calculators-gluon`, because a pod runs whatever arm the manifest declares: an image
@@ -27,7 +30,7 @@ COPY . .
 RUN cargo build --release --locked --manifest-path yidam/cli/Cargo.toml --bin yidam \
       --features calculators-gluon,catalog-fetch
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git openssh-client ca-certificates \
  && rm -rf /var/lib/apt/lists/*

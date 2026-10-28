@@ -12,8 +12,8 @@ tool to reach for, and how to tell what you are connected to.
 
 ## 1. Check which binary carries `serve`
 
-**Any of them.** `serve --mcp` is in the light default build. That is the one the install script,
-the Homebrew tap, mise and `cargo binstall` all give you. No ONNX runtime, no C
+**Any of them.** `serve --mcp` is in the default build. The install script, the Homebrew tap, mise
+and `cargo binstall` all give you that one. It includes semantic retrieval and needs no C
 toolchain. Through mise, that is:
 
 ```sh
@@ -24,7 +24,8 @@ mise use -g "github:goedelsoup/yidam[version_prefix=cli/v]@latest"
 `@latest` resolves the editor release, which ships only a `.vsix` — so it fails rather than
 installing something stale. See [installation](installation.md#mise).
 
-What the `vector-read` feature adds is not the server but the *quality of one tool*. With it,
+The `vector-read` feature is in the default set. What it adds is not the server but the
+*quality of one tool*. With it,
 `retrieve` is semantic search over a vector index. Without it, `retrieve` falls back to
 keyword search and says so on every call. `get_node`, `neighbors`, `list_nodes`,
 `open_questions` and every resource are identical in both builds.
@@ -35,12 +36,9 @@ yidam --version
 # 0.2.1 (a1b2c3d) [reports vector-read index tonpa]    ← serves; retrieve is semantic
 ```
 
-If you want the semantic build, it needs a C toolchain and an ONNX runtime:
-
-```sh
-cargo install --git https://github.com/goedelsoup/yidam --tag cli/v0.20.0 --locked \
-  --features vector-read yidam
-```
+A binary from before `vector-read` joined the default set prints the first form; reinstalling
+from any channel gives the second. On an Intel Mac, semantic retrieval also needs ONNX Runtime
+installed (`brew install onnxruntime`) — see [Installation](installation.md#check-which-build-you-have).
 
 Inside a yidam checkout, `mise install && mise run yidam-build` provisions the toolchain and
 installs a `--features full` binary into `.local/bin`.
@@ -71,9 +69,9 @@ serve**: a directory picker fills `--root`, replacing the `cd` incantation two s
 That question is the whole reason this channel exists. It is the one thing every other route
 leaves to the working directory.
 
-Two things to know. The bundle carries the **light build**, so `retrieve` is keyword search and
-says so on every call. The difference is in §1; every other tool is identical. It is also **macOS
-only**. Claude Desktop runs on macOS and Windows, and this repository cross-compiles no Windows
+Two things to know. The bundle carries the **default build**, so `retrieve` is semantic once
+the corpus has an index (§1). On an Intel Mac that also needs `brew install onnxruntime`.
+Without it, `retrieve` over an index answers with an error that says so. It is also **macOS only**. Claude Desktop runs on macOS and Windows, and this repository cross-compiles no Windows
 target. A Linux user wants one of the routes below.
 
 The version is the CLI's own: `yidam-0.20.0-…` carries `yidam 0.20.0`. A bundle installed six
@@ -760,13 +758,13 @@ The reason says which repair you need, and they are not the same repair:
 | `degraded_reason` | What it means | What to do |
 |---|---|---|
 | `no_index` | This corpus has no vector index | `yidam embed && yidam index-build` |
-| `no_vector_support` | An index exists; this binary cannot read it | Reinstall with `--features vector-read` |
+| `no_vector_support` | An index exists; this binary cannot read it | Reinstall from any channel; a build from before `vector-read` joined the default set, or one built `--no-default-features`, lacks it |
 | `stale_contract` | An index exists and was built with different embedding settings than this server uses, so answering from it would be answering in another vector space | `yidam embed && yidam index-build` with this binary |
 | `remote_unavailable` | This corpus is served out of a remote vector index and the service did not answer — a permission, a throttle, an outage, no network | Check `[index.remote]` and its credentials; `yidam doctor` |
 
 The distinction is why the field exists. Both answer keyword-degraded. Being told to build an
 index you already built is the kind of advice that costs an afternoon. Note the precedence. A
-light binary on a corpus with *no* index reports `no_index`, not `no_vector_support`. Indexing is
+binary without `vector-read` on a corpus with *no* index reports `no_index`, not `no_vector_support`. Indexing is
 the repair under either build, so the reason names the nearer cause.
 
 `remote_unavailable` is different in kind from the other three and it is worth knowing which

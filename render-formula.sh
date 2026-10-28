@@ -93,9 +93,9 @@ cat <<FORMULA
 # the next release overwrites this file. Fix the generator instead.
 #
 # A binary formula, not a source one. The whole point of the tap is to skip a
-# compile: the light \`reports\` build is what ships, and \`--features full\`
-# (index-build, serve --mcp, the sqlite/rdf exports) remains a source build
-# because it needs an ONNX runtime.
+# compile: the default build is what ships, semantic retrieval included, and
+# \`--features full\` (the sqlite export, the gluon calculators) remains a source
+# build.
 class Yidam < Formula
   desc "Corpus analysis and index CLI for yidam-derived repositories"
   homepage "https://github.com/$repo"
@@ -110,6 +110,10 @@ class Yidam < Formula
     on_intel do
       url "$base/yidam-$version-x86_64-apple-darwin.tar.gz"
       sha256 "$mac_intel"
+      # The one target \`ort\` publishes no prebuilt ONNX Runtime for, so this
+      # binary loads libonnxruntime.dylib (1.24 or newer) when a command embeds.
+      # Every other platform's binary links the runtime statically.
+      depends_on "onnxruntime"
     end
   end
 

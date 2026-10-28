@@ -345,8 +345,12 @@ pub const GROUPS: &[Group] = &[
 /// `tonpa` was on this list until it joined the default set. It is off it now on purpose:
 /// an entry here is a licence for a command to be missing, and `tonpa` is no longer
 /// allowed to be. Anything that drops it from the build should fail this test.
+///
+/// `index-build` and `index-push` left it when `vector-read` joined the default set. Both are
+/// declared in every build and answer with the feature they lack, so neither was ever absent
+/// from clap; the entries only excused an absence that could not happen.
 #[cfg(test)]
-const FEATURE_GATED: &[&str] = &["index-build", "index-push"];
+const FEATURE_GATED: &[&str] = &[];
 
 /// The marker on a command that writes.
 ///
