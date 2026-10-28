@@ -471,7 +471,9 @@ jobs:
     # linker, same CC_*, same --locked, same absence of --features. A test
     # asserts that; drift between them is a green check for a build nobody ships.
     name: ci (cli · aarch64 cross-compile)
-    runs-on: ubuntu-22.04
+    # The release's runner, because the runner is the glibc floor: a cross job on an older
+    # image fails links the release would pass, and on a newer one passes links it would fail.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       # The pinned toolchain, not `@stable`. An artifact built by whatever stable shipped
@@ -483,9 +485,10 @@ jobs:
         with:
           targets: aarch64-unknown-linux-gnu
       # The cross C compiler, not only the linker. Both halves are used: the
-      # linker for the final artifact, the compiler for ring's vendored C.
+      # linker for the final artifact, the compiler for ring's vendored C. The
+      # C++ half brings the target's libstdc++, which ONNX Runtime links against.
       - name: Install cross-linker
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: yidam/cli

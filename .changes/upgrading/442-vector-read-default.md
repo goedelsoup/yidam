@@ -14,5 +14,9 @@ The Homebrew tap installs it for you.
 Elsewhere set `ORT_DYLIB_PATH` to a `libonnxruntime.dylib`.
 Without it, only commands that embed fail, and each names the fix.
 
+**On Linux, the release binaries now need glibc 2.39 or newer.** Debian 13 and Ubuntu 24.04 qualify.
+Debian 12, Ubuntu 22.04 and RHEL 9 do not, and fail with `version GLIBC_2.39 not found`.
+The cluster image moved to Debian 13 for the same reason.
+
 **To keep the old build, install from source.** Pass `--no-default-features` with the other default features.
 [Installation](installation.md#check-which-build-you-have) has the command.

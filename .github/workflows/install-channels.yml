@@ -86,7 +86,7 @@ jobs:
 
   # ── curl | sh, on a machine that has never seen this project ───────────────
   #
-  # debian:bookworm-slim rather than the runner image: the runner has cargo, git,
+  # debian:trixie-slim rather than the runner image: the runner has cargo, git,
   # a compiler and a checksum tool already, so it cannot tell the difference
   # between "install.sh works" and "install.sh works here". The container is
   # given curl, ca-certificates and tar and nothing else — the exact set the
@@ -95,7 +95,8 @@ jobs:
     name: install.sh (linux, clean container)
     needs: released
     runs-on: ubuntu-latest
-    container: debian:bookworm-slim
+    # Debian 13, because 12's glibc (2.36) is below the release floor (2.39) since #442.
+    container: debian:trixie-slim
     steps:
       - name: Nothing but what install.sh claims to need
         run: |

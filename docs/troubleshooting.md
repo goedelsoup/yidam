@@ -245,6 +245,12 @@ all.
 predates #655. Older builds read the check's declared severity rather than the finding's own.
 `missing-property` raises a `required: true` omission past its check. Update the extension.
 
+## `version GLIBC_2.39 not found` on Linux
+
+The release binary needs glibc 2.39 or newer, for its ONNX Runtime. Debian 12 and Ubuntu 22.04
+are older. Install from source without `vector-read` instead. [Installation](installation.md)
+has the command. Retrieval is then keyword-only.
+
 ## `serve --mcp` returns `degraded`
 
 `retrieve` is doing keyword search rather than semantic search. It says so on every call

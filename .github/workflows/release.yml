@@ -34,9 +34,10 @@
 # first time a command embeds. The tap's formula depends on Homebrew's `onnxruntime` on
 # Intel for that reason.
 #
-# The linux prebuilts are linked against a glibc this workflow does not choose. The
-# ubuntu-22.04 note below sets the floor for everything else in the binary; if the runtime
-# needs a newer one, that link fails here, which is the right place.
+# The linux prebuilts set the glibc floor, not this workflow. They reference glibc 2.38
+# symbols (`__isoc23_strtol`) and GCC 14's libstdc++ (`__cxa_call_terminate`), so they do not
+# link on ubuntu-22.04 — the first PR to build them found that. The ubuntu-24.04 note below
+# is the consequence.
 
 name: Release
 
@@ -76,31 +77,34 @@ jobs:
           - target: x86_64-apple-darwin
             os: macos-latest
             mcpb_platform: darwin
-          # ── ubuntu-22.04, not ubuntu-latest ──────────────────────────
+          # ── ubuntu-24.04, not ubuntu-latest ──────────────────────────
           #
           # A glibc binary runs on the glibc it was LINKED against or newer, and
-          # never on older. ubuntu-latest is 24.04 / glibc 2.39, so the tarball
-          # `install.sh` served for `cli/v0.2.0` died on Debian 12 with
-          # `version GLIBC_2.39 not found` — a successful download, a verified
-          # checksum, an installed binary, and no way to run it. Found by
-          # install-channels.yml on its first run; nothing before it looked.
+          # never on older. `cli/v0.2.0` was built on ubuntu-latest (24.04, glibc
+          # 2.39) and its tarball died on Debian 12 with `version GLIBC_2.39 not
+          # found` — a successful download, a verified checksum, an installed
+          # binary, and no way to run it. Found by install-channels.yml on its
+          # first run; nothing before it looked.
           #
-          # 22.04 is glibc 2.35, which clears Debian 12 (2.36), Ubuntu 22.04,
-          # and RHEL 9 (2.34 — still below, and out of scope until someone asks).
-          # The floor is the runner image and nothing else declares it, so moving
-          # this line to `ubuntu-latest` silently raises it again.
+          # The floor was 22.04 (glibc 2.35) until #442 put ONNX Runtime in the
+          # default build. Its prebuilts need glibc 2.38 and GCC 14's libstdc++,
+          # so the floor is now 24.04: glibc 2.39, which clears Debian 13 and
+          # Ubuntu 24.04 and no longer clears Debian 12, Ubuntu 22.04 or RHEL 9.
+          # Those install from source. Pinned rather than `ubuntu-latest`,
+          # because the floor is the runner image and nothing else declares it.
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-22.04
+            os: ubuntu-24.04
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-22.04
+            os: ubuntu-24.04
             # `gcc-aarch64-linux-gnu` is the cross C compiler, not only the
             # linker. Both halves are used: the linker for the final artifact,
-            # the compiler for ring's vendored C. If a dependency ever needs a
-            # SYSTEM library for the target rather than a vendored one, this is
-            # where it breaks first — which is the right place for it to break.
+            # the compiler for ring's vendored C. `g++-aarch64-linux-gnu` brings
+            # the target's libstdc++, which ONNX Runtime links against. If a
+            # dependency ever needs another SYSTEM library for the target, this
+            # is where it breaks first — which is the right place for it to break.
             linker: aarch64-linux-gnu-gcc
             cc: aarch64-linux-gnu-gcc
-            apt: gcc-aarch64-linux-gnu
+            apt: gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
     steps:
       - uses: actions/checkout@v7

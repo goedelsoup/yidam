@@ -187,6 +187,10 @@ one: `ort` publishes none for **Intel macOS**, so there yidam loads `libonnxrunt
 point `ORT_DYLIB_PATH` at one. Every command that does not embed runs without it. Whether you
 have semantic retrieval is on `yidam --version` and in `yidam doctor`.
 
+**The Linux release binaries need glibc 2.39 or newer.** ONNX Runtime's prebuilt requires it.
+That covers Debian 13 and Ubuntu 24.04. Debian 12, Ubuntu 22.04 and RHEL 9 are older. On those,
+install from source with the command below, which leaves the runtime out.
+
 **`tonpa` is a default even though it costs an HTTP stack**, because it is the only feature
 whose absence broke an instruction rather than removing a capability. Without it
 `yidam tonpa add …` answered `unrecognized subcommand`, and inside a script with output
