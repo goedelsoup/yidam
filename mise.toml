@@ -341,7 +341,8 @@ run = [
 # Dafny is pinned per-task rather than in [tools]: `mise install` runs in every derived
 # repository, and this is a 200MB download for a task a corpus will almost never invoke.
 # The release ships a self-contained zip that unpacks to a `dafny/` directory holding the
-# binary and its .NET runtime, hence extract_all + bin_path rather than a one-line pin.
+# binary and its .NET runtime, hence bin_path rather than a one-line pin. The github backend
+# unpacks the whole archive on its own; mise 2026.10.21 refuses `extract_all`, which it never read.
 #
 # LEAN has no equivalent line. `github:leanprover/elan` ships only `elan-init`, a
 # bootstrapper, so mise cannot provision `lake` — and pinning `leanprover/lean4` directly
@@ -352,7 +353,7 @@ run = [
 [tasks.verify]
 description = "Formal verification: Dafny specs and LEAN 4 proofs (needs lake on PATH via elan)."
 dir = "yidam/sdks/spec"
-tools = { "github:dafny-lang/dafny" = { version = "4.11.0", extract_all = true, bin_path = "dafny" } }
+tools = { "github:dafny-lang/dafny" = { version = "4.11.0", bin_path = "dafny" } }
 run = [
   "dafny verify graph.dfy",
   "dafny verify sangha.dfy",

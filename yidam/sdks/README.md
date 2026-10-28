@@ -806,7 +806,7 @@ description = "Formal verification: Dafny specs and LEAN 4 proofs (needs lake on
 # The task stood here and in mise.toml for months with repo-relative paths and no `dir`,
 # which is why it had never run once (#461).
 dir = "yidam/sdks/spec"
-tools = { "github:dafny-lang/dafny" = { version = "4.11.0", extract_all = true, bin_path = "dafny" } }
+tools = { "github:dafny-lang/dafny" = { version = "4.11.0", bin_path = "dafny" } }
 run = [
   "dafny verify graph.dfy",
   "dafny verify sangha.dfy",
