@@ -177,13 +177,39 @@ pub struct ClaimFields(std::collections::BTreeMap<String, Vec<String>>);
 /// tag is how a corpus and its own history come to disagree about it — and that disagreement
 /// surfaces as a question whose age is measured against an ontology that never applied to it
 /// (#1116).
+///
+/// **A record's `claim` field is here too, as a path** (RFC-0050): `effects[].claim_tag` for
+/// the `claim_tag` field of the `list` property `effects`. One list rather than two, because
+/// every reader of these names already passes them to the counters in this file and nowhere
+/// else — and those counters read a path as one claim per entry, scoped to the entry and not
+/// to the node. See [`entry_field`].
 pub(crate) fn declared_claim_fields(class: &crate::corpus::Class) -> Vec<String> {
-    class
+    let mut out: Vec<String> = class
         .properties
         .iter()
         .filter(|p| p.r#type == CLAIM_PROPERTY_TYPE)
         .map(|p| p.name.clone())
-        .collect()
+        .collect();
+    out.extend(class.properties.iter().flat_map(|p| {
+        // Only a declaration the gate can hold an instance to: under one it reports, the
+        // record has no reading, and its fields are no more a standing than a coined type's.
+        let readable = p.r#type == crate::cmd::lint::checks::LIST_PROPERTY_TYPE
+            && crate::cmd::lint::checks::list_declaration_problem(p).is_none();
+        p.fields
+            .iter()
+            .filter(move |f| readable && f.r#type == CLAIM_PROPERTY_TYPE)
+            .map(move |f| format!("{}{ENTRY_SEPARATOR}{}", p.name, f.name))
+    }));
+    out
+}
+
+/// What joins a `list` property to its record's `claim` field in a claim-field path.
+const ENTRY_SEPARATOR: &str = "[].";
+
+/// `(list, field)` when `path` names a record's claim field, `None` for a node's own.
+#[must_use]
+pub fn entry_field(path: &str) -> Option<(&str, &str)> {
+    path.split_once(ENTRY_SEPARATOR)
 }
 
 impl ClaimFields {
@@ -539,42 +565,91 @@ pub(crate) fn detail_tags(text: &str) -> Vec<DetailTag> {
 /// is under here (#857).
 const LINKS_KEY: &str = "links";
 
-/// Every value in the document held under one of `fields`, at any depth.
+/// The key a node's own properties sit under.
+const PROPERTIES_KEY: &str = "properties";
+
+/// One value a declared claim field holds.
+struct Declared {
+    /// The property it came from — the list, for an entry's.
+    property: String,
+    /// The entry it came from, 1-based, or `None` for the node's own standing.
+    entry: Option<usize>,
+    value: String,
+}
+
+/// Every value held under one of `fields`, where the class declared it: at the top of
+/// `properties:` or of the document, or in an entry of the `list` a path names.
 ///
-/// Depth-first over the whole document rather than only `properties`, because a projected
-/// corpus may put its typed fields anywhere and the key name was declared by the ontology —
-/// there is no false positive to guard against once the corpus has named the field.
-fn structural_values(value: &serde_yaml::Value, fields: &[String], out: &mut Vec<String>) {
-    match value {
-        serde_yaml::Value::Mapping(map) => {
-            for (k, v) in map {
-                if let Some(key) = k.as_str() {
-                    if key == LINKS_KEY {
-                        continue;
-                    }
-                    if fields.iter().any(|f| f == key) {
-                        match v {
-                            serde_yaml::Value::String(s) => out.push(s.clone()),
-                            // A list of tags is one claim each — a node carrying two is
-                            // making two statements about itself.
-                            serde_yaml::Value::Sequence(items) => out.extend(
-                                items.iter().filter_map(|i| i.as_str().map(str::to_string)),
-                            ),
-                            _ => {}
-                        }
-                        continue;
-                    }
+/// **A top level and never inside a value, and that is the #1382 repair.** This was a walk over the whole
+/// document at any depth, on the argument that "a projected corpus may put its typed fields
+/// anywhere" and a declared name has no false positive. It had one: civic-infrastructure's
+/// `parameters[].claim_tag: open`, an entry's standing, was read as the node's, beside a
+/// declared top-level `inference`. Measured before narrowing, 2026-10-29, over the twenty
+/// corpora on hand — 5,132 instance nodes — the any-depth walk found 1,921 declared claim
+/// values and **every one of them was at the top of `properties:`**, so the reach this gives
+/// up was reaching nothing a corpus wrote but the defect. The document's own top level is
+/// kept, though no corpus on hand writes a claim there: it is a key beside `class:`, not
+/// inside anything, and the fixtures that pin edge grading write one.
+///
+/// A list of tags is one claim each — a node carrying two is making two statements about
+/// itself — and so is a list of entries: each is its own statement.
+fn declared_values(doc: &serde_yaml::Value, fields: &[String]) -> Vec<Declared> {
+    let tags = |v: &serde_yaml::Value| -> Vec<String> {
+        match v {
+            serde_yaml::Value::String(s) => vec![s.clone()],
+            serde_yaml::Value::Sequence(items) => items
+                .iter()
+                .filter_map(|i| i.as_str().map(str::to_string))
+                .collect(),
+            _ => Vec::new(),
+        }
+    };
+    // The two levels a node's own fields are written at. `properties:` is a field nobody
+    // would declare `type: claim`, so the root never shadows it.
+    let levels = [doc.get(PROPERTIES_KEY), Some(doc)];
+    let mut out = Vec::new();
+    for path in fields {
+        match entry_field(path) {
+            None => out.extend(
+                levels
+                    .iter()
+                    .flatten()
+                    .filter_map(|level| level.get(path.as_str()))
+                    .flat_map(tags)
+                    .map(|value| Declared {
+                        property: path.clone(),
+                        entry: None,
+                        value,
+                    }),
+            ),
+            Some((list, field)) => {
+                let Some(serde_yaml::Value::Sequence(entries)) =
+                    doc.get(PROPERTIES_KEY).and_then(|p| p.get(list))
+                else {
+                    continue;
+                };
+                for (i, entry) in entries.iter().enumerate() {
+                    out.extend(
+                        entry
+                            .get(field)
+                            .into_iter()
+                            .flat_map(tags)
+                            .map(|value| Declared {
+                                property: list.to_string(),
+                                entry: Some(i + 1),
+                                value,
+                            }),
+                    );
                 }
-                structural_values(v, fields, out);
             }
         }
-        serde_yaml::Value::Sequence(items) => {
-            for item in items {
-                structural_values(item, fields, out);
-            }
-        }
-        _ => {}
     }
+    out
+}
+
+/// The values alone, for the tallies.
+fn structural_values(doc: &serde_yaml::Value, fields: &[String], out: &mut Vec<String>) {
+    out.extend(declared_values(doc, fields).into_iter().map(|d| d.value));
 }
 
 /// Markers a node declares structurally, in fields its class named.
@@ -625,19 +700,61 @@ pub fn count_structural(text: &str, fields: &[String]) -> ClaimCounts {
 /// tree and is outside the population; its uncommitted corpus holds 107 more, and 105 of them
 /// are one genuinely undeclared claim field — `record.claim_standings` — which is evidence for
 /// the check and not against the exclusion, since those are bracketed and therefore counted.)
-pub fn undeclared_structural_tags(text: &str, declared: &[String]) -> Vec<(String, String)> {
-    let Ok(doc) = serde_yaml::from_str::<serde_yaml::Value>(text) else {
+///
+/// **The reach is the counter's, so a declared name is skipped only where it is counted:** at
+/// the top of `properties:` or of the document, and in the entries of a `list` whose record declares it. A
+/// `claim_tag` anywhere else — in the entries of a list that declares no fields, nested in a
+/// mapping — is a standing [`count_structural`] does not read, and so is reported here, with
+/// the top-level property that holds it: the third element, `Some("parameters")`. That one's
+/// repair is a `list` with a `claim` field rather than a top-level declaration (RFC-0050).
+pub fn undeclared_structural_tags(
+    text: &str,
+    declared: &[String],
+) -> Vec<(String, String, Option<String>)> {
+    let Ok(mut doc) = serde_yaml::from_str::<serde_yaml::Value>(text) else {
         return Vec::new();
     };
+    // Lift out what is counted, then walk what is left: the inverse of the reader by
+    // construction rather than by a second statement of where it reads.
+    if let Some(root) = doc.as_mapping_mut() {
+        for path in declared.iter().filter(|p| entry_field(p).is_none()) {
+            root.remove(path.as_str());
+        }
+    }
+    if let Some(properties) = doc
+        .get_mut(PROPERTIES_KEY)
+        .and_then(serde_yaml::Value::as_mapping_mut)
+    {
+        for path in declared {
+            match entry_field(path) {
+                None => {
+                    properties.remove(path.as_str());
+                }
+                Some((list, field)) => {
+                    if let Some(serde_yaml::Value::Sequence(entries)) = properties.get_mut(list) {
+                        for entry in entries {
+                            if let Some(m) = entry.as_mapping_mut() {
+                                m.remove(field);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     let mut out = Vec::new();
-    undeclared_tags_in(&doc, declared, &mut out);
+    undeclared_tags_in(&doc, None, false, 0, &mut out);
     out
 }
 
+/// `holder` is the top-level property a nested value sits under, once the walk is inside one;
+/// `in_properties` is whether `value` is the `properties:` mapping itself.
 fn undeclared_tags_in(
     value: &serde_yaml::Value,
-    declared: &[String],
-    out: &mut Vec<(String, String)>,
+    holder: Option<&str>,
+    in_properties: bool,
+    depth: usize,
+    out: &mut Vec<(String, String, Option<String>)>,
 ) {
     match value {
         serde_yaml::Value::Mapping(map) => {
@@ -649,10 +766,7 @@ fn undeclared_tags_in(
                 // as nothing the corpus claims. Telling a corpus to declare `standing` as a
                 // claim property because a tool wrote one into its node would be this walk's
                 // worst finding.
-                if key == LINKS_KEY
-                    || key == crate::findings::CONTAINER
-                    || declared.iter().any(|f| f == key)
-                {
+                if depth == 0 && (key == LINKS_KEY || key == crate::findings::CONTAINER) {
                     continue;
                 }
                 let scalars: Vec<&str> = match v {
@@ -664,15 +778,22 @@ fn undeclared_tags_in(
                 };
                 for s in scalars {
                     if !s.trim().starts_with('[') && parse_tag(s).is_some() {
-                        out.push((key.to_string(), s.trim().to_string()));
+                        out.push((
+                            key.to_string(),
+                            s.trim().to_string(),
+                            holder.map(str::to_string),
+                        ));
                     }
                 }
-                undeclared_tags_in(v, declared, out);
+                // A key of `properties:` is the holder of everything beneath it.
+                let next = if in_properties { Some(key) } else { holder };
+                let entering = depth == 0 && key == PROPERTIES_KEY;
+                undeclared_tags_in(v, next, entering, depth + 1, out);
             }
         }
         serde_yaml::Value::Sequence(items) => {
             for item in items {
-                undeclared_tags_in(item, declared, out);
+                undeclared_tags_in(item, holder, false, depth + 1, out);
             }
         }
         _ => {}
@@ -1413,12 +1534,20 @@ fn prose_claims(text: &str) -> Vec<ServedClaim> {
     out
 }
 
-/// The standings a node declares structurally, in properties its class typed `claim`.
+/// The standings a node declares structurally, in properties its class typed `claim` — and
+/// the standings of its entries, in the `claim` field of a `list`'s record.
 ///
 /// A value that is *already bracketed* is visible to the prose pass too. The counter
 /// subtracts a tally to correct for that; a list cannot, because it has to know *which*
 /// occurrence is the duplicate — so this pass reports the byte offset of the value and the
 /// caller drops the prose claim that sits inside it.
+///
+/// **An entry's standing is a statement, not the node's** (RFC-0050). It is served
+/// [`ClaimScope::Statement`] — a tagged statement "in a property value", which is what an
+/// entry is — so [`node_standing`], which reads [`ClaimScope::Node`] alone, does not take an
+/// `[open]` entry as the standing of a node that may itself be `[verified]`. That is the
+/// half of #1382 the narrowed reach in [`declared_values`] does not cover: a corpus that
+/// *declared* the field still has it counted, as one claim per entry.
 fn structural_claims(text: &str, fields: &[String]) -> Vec<ServedClaim> {
     if fields.is_empty() {
         return Vec::new();
@@ -1426,27 +1555,35 @@ fn structural_claims(text: &str, fields: &[String]) -> Vec<ServedClaim> {
     let Ok(doc) = serde_yaml::from_str::<serde_yaml::Value>(text) else {
         return Vec::new();
     };
-    let mut named: Vec<(String, String)> = Vec::new();
-    named_values(&doc, fields, &mut named);
-
-    named
+    // Where each value sits in the raw bytes, so a bracketed one can be matched against the
+    // prose pass's finding. Searched forward from the last sighting of the same string,
+    // because entries repeat their tags: five `[open]` entries are five offsets, and all
+    // five at the first would leave four prose sightings undropped.
+    let mut from: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    declared_values(&doc, fields)
         .into_iter()
-        .filter_map(|(field, value)| {
+        .filter_map(|d| {
             // Through `parse_tag` and not `tag_of`, so a structural value that carries a
             // qualifier — `status: "[verified — as proposed]"` — keeps it. `tag_of` is that
             // function's standing half; reading the value twice would let the two disagree.
-            let parsed = parse_tag(&value)?;
+            let parsed = parse_tag(&d.value)?;
             let standing = bare_standing(parsed.standing)?;
-            // Where the value sits in the raw bytes, so a bracketed one can be matched
-            // against the prose pass's finding. `find` is enough: the value is a short
-            // scalar and a false match would have to be the same string in the same file,
-            // which dedupes to the same claim either way.
-            let at = text.find(value.trim()).unwrap_or(0);
+            let needle = d.value.trim().to_string();
+            let start = from.get(&needle).copied().unwrap_or(0);
+            let at = text
+                .get(start..)
+                .and_then(|rest| rest.find(&needle))
+                .map_or(start, |i| start + i);
+            from.insert(needle.clone(), at + needle.len().max(1));
+            let (text, scope) = match d.entry {
+                None => (d.property.clone(), ClaimScope::Node),
+                Some(n) => (format!("{} item {n}", d.property), ClaimScope::Statement),
+            };
             Some(ServedClaim {
-                text: field.clone(),
+                text,
                 standing,
-                scope: ClaimScope::Node,
-                property: Some(field),
+                scope,
+                property: Some(d.property),
                 qualifier: parsed.qualifier,
                 relationship: None,
                 target: None,
@@ -1454,44 +1591,6 @@ fn structural_claims(text: &str, fields: &[String]) -> Vec<ServedClaim> {
             })
         })
         .collect()
-}
-
-/// `(field, value)` for every value held under one of `fields`, at any depth.
-///
-/// The same walk `structural_values` performs, keeping the key so a served claim can say
-/// which property gave it its standing.
-fn named_values(value: &serde_yaml::Value, fields: &[String], out: &mut Vec<(String, String)>) {
-    match value {
-        serde_yaml::Value::Mapping(map) => {
-            for (k, v) in map {
-                if let Some(key) = k.as_str() {
-                    if key == LINKS_KEY {
-                        continue;
-                    }
-                    if fields.iter().any(|f| f == key) {
-                        match v {
-                            serde_yaml::Value::String(s) => out.push((key.to_string(), s.clone())),
-                            serde_yaml::Value::Sequence(items) => out.extend(
-                                items
-                                    .iter()
-                                    .filter_map(|i| i.as_str())
-                                    .map(|s| (key.to_string(), s.to_string())),
-                            ),
-                            _ => {}
-                        }
-                        continue;
-                    }
-                }
-                named_values(v, fields, out);
-            }
-        }
-        serde_yaml::Value::Sequence(items) => {
-            for item in items {
-                named_values(item, fields, out);
-            }
-        }
-        _ => {}
-    }
 }
 
 /// Every claim a node makes, prose and structure both.
@@ -2983,14 +3082,77 @@ mod structural_tests {
         assert_eq!((counts.verified, counts.open), (1, 1));
     }
 
-    /// The field is found wherever the corpus put it. The key name was declared, so depth
-    /// costs nothing — and a projected corpus does not have to flatten itself first.
+    /// #1382: a declared name nested inside a property's value is an entry's standing, not
+    /// the node's, and the reader no longer reaches it. It was found "wherever the corpus put
+    /// it", and where civic-infrastructure put it was `parameters[].claim_tag: open` beside
+    /// a node whose own standing was `inference`. Nothing is counted there now — the
+    /// corpus's repair is a `list` with a `claim` field, which `claim-property-undeclared`
+    /// names.
     #[test]
-    fn a_nested_declared_field_is_found() {
+    fn a_nested_declared_field_is_not_the_nodes() {
         let (_t, corpus) = corpus_with(TYPED);
         let f = ClaimFields::load(&corpus);
-        let node = "class: lead\nlabel: L\nproperties:\n  evidence:\n    - claim_tag: open\n";
-        assert!(has_open_claim("L", node, f.for_class("lead")));
+        let node = "class: lead\nlabel: L\nproperties:\n  claim_tag: inference\n  evidence:\n    - claim_tag: open\n";
+        assert!(!has_open_claim("L", node, f.for_class("lead")));
+        assert_eq!(count_in_node(node, f.for_class("lead")).total(), 1);
+        assert_eq!(node_standing(node, f.for_class("lead")), Some("inference"));
+        assert_eq!(
+            undeclared_structural_tags(node, f.for_class("lead")),
+            [(
+                "claim_tag".to_string(),
+                "open".to_string(),
+                Some("evidence".to_string())
+            )]
+        );
+    }
+
+    const RECORDS: &str = "class: lead\nlabel: Lead\nproperties:\n  \
+                           - name: claim_tag\n    type: claim\n    description: The tag.\n  \
+                           - name: effects\n    type: list\n    description: Effects.\n    \
+                           fields:\n      - { name: label, type: string }\n      \
+                           - { name: claim_tag, type: claim }\n";
+
+    /// RFC-0050: a record's `claim` field is one claim per entry, served as a statement, and
+    /// none of them is the node's standing — an `[open]` entry of a `[verified]` node leaves
+    /// the node verified and the entry open, which is the sentence #1391 could not write.
+    #[test]
+    fn an_entrys_claim_is_counted_once_per_entry_and_is_not_the_nodes() {
+        let (_t, corpus) = corpus_with(RECORDS);
+        let f = ClaimFields::load(&corpus);
+        assert_eq!(f.for_class("lead"), ["claim_tag", "effects[].claim_tag"]);
+        let node = "class: lead\nlabel: L\nproperties:\n  claim_tag: verified\n  effects:\n    - { label: short, claim_tag: open }\n    - { label: long, claim_tag: \"[open]\" }\n    - { label: none }\n";
+        let fields = f.for_class("lead");
+        let counts = count_in_node(node, fields);
+        assert_eq!((counts.verified, counts.inference, counts.open), (1, 0, 2));
+        assert_eq!(node_standing(node, fields), Some("verified"));
+        assert!(
+            has_open_claim("L", node, fields),
+            "an open entry is an open question"
+        );
+        let entries: Vec<_> = claims_in_node(node, fields)
+            .into_iter()
+            .filter(|c| c.scope == ClaimScope::Statement)
+            .map(|c| (c.text, c.property))
+            .collect();
+        assert_eq!(
+            entries,
+            [
+                ("effects item 1".to_string(), Some("effects".to_string())),
+                ("effects item 2".to_string(), Some("effects".to_string())),
+            ],
+            "the bracketed entry is one claim, not also a prose sighting"
+        );
+        assert!(undeclared_structural_tags(node, fields).is_empty());
+    }
+
+    /// A record under a declaration the gate reports has no reading: its `claim` field is not
+    /// a path, so it is neither counted nor exempted from the finding.
+    #[test]
+    fn an_unreadable_list_declares_no_entry_claims() {
+        let (_t, corpus) = corpus_with(
+            "class: lead\nlabel: Lead\nproperties:\n  - name: effects\n    type: list\n    description: E.\n    items: string\n    fields:\n      - { name: claim_tag, type: claim }\n",
+        );
+        assert!(ClaimFields::load(&corpus).for_class("lead").is_empty());
     }
 
     /// The class name comes from the filename when the field is absent, matching every other

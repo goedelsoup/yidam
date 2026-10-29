@@ -15,7 +15,7 @@ import { parse as parseYaml } from 'yaml'
 
 export interface OntologyProperty {
   name: string
-  /** `string`, `text`, `date`, `number`, `ref`, `claim`, `quotation` — or a type this corpus coined. */
+  /** `string`, `text`, `date`, `number`, `ref`, `claim`, `quotation`, `list` — or a type this corpus coined. */
   type: string
   description: string
   /**
@@ -44,6 +44,16 @@ export interface OntologyProperty {
    * is what lets `missing-property` gate at all.
    */
   required: boolean
+  /**
+   * The scalar type every item of a `list` has, or empty (RFC-0050). `values:` and `unit:`
+   * on the list apply to each item. Carried and ignored off `list`.
+   */
+  items: string
+  /**
+   * The fields of the record every item of a `list` is, or empty. Closed the way a class's
+   * property bag is; a `claim` field is the entry's standing, not the node's.
+   */
+  fields: OntologyProperty[]
 }
 
 export interface OntologyEdge {
@@ -61,6 +71,12 @@ export interface OntologyClass {
   properties: OntologyProperty[]
   edges: OntologyEdge[]
 }
+
+/**
+ * The types an `items:` may name, and a record field may have (RFC-0050). `list` is out
+ * because no corpus nests one; `quotation` because it already takes a list of itself.
+ */
+export const LIST_ITEM_TYPES = ['string', 'text', 'ref', 'date', 'number', 'claim'] as const
 
 /**
  * The evidence tokens a `claim` property may hold, in both spellings.
@@ -99,19 +115,24 @@ export function parseClass(name: string, content: string): OntologyClass {
   const strings = (v: unknown): string[] =>
     Array.isArray(v) ? v.filter((i): i is string => typeof i === 'string') : []
 
-  const declared = str(doc.class)
-  return {
-    name: declared !== '' ? declared : name,
-    label: str(doc.label),
-    description: str(doc.description),
-    properties: list(doc.properties).map((p) => ({
+  const properties = (v: unknown): OntologyProperty[] =>
+    list(v).map((p) => ({
       name: str(p.name),
       type: str(p.type),
       description: str(p.description),
       required: p?.required === true,
       unit: str(p.unit),
       values: strings(p.values),
-    })),
+      items: str(p.items),
+      fields: properties(p.fields),
+    }))
+
+  const declared = str(doc.class)
+  return {
+    name: declared !== '' ? declared : name,
+    label: str(doc.label),
+    description: str(doc.description),
+    properties: properties(doc.properties),
     edges: list(doc.edges).map((e) => ({
       relationship: str(e.relationship),
       target: str(e.target),
@@ -170,7 +191,51 @@ export function sourceClasses(classes: OntologyClass[]): Set<string> {
  * compiles to that set as `enum` (RFC-0044) — a constraint, because the gate refuses a value
  * outside it. Written as declared: no sorting, no trimming.
  */
-function propertySchema(type: string, values: string[]): unknown {
+function propertySchema(p: OntologyProperty): unknown {
+  return p.type === 'list' ? listSchema(p) : scalarSchema(p.type, p.values)
+}
+
+/** A property's schema with its `description` and `unit` as annotations. */
+function annotatedSchema(p: OntologyProperty): unknown {
+  let body = propertySchema(p)
+  if (typeof body === 'object' && body !== null) {
+    if (p.description !== '') body = { ...body, description: p.description }
+    if (p.unit !== '') body = { ...body, 'x-yidam-unit': p.unit }
+  }
+  return body
+}
+
+const isItemType = (t: string): boolean => (LIST_ITEM_TYPES as readonly string[]).includes(t)
+
+/**
+ * A `list` (RFC-0050): a non-empty array, of one scalar type or one closed record. A
+ * declaration the gate reports — `items:` and `fields:` together, or either naming a type it
+ * refuses — compiles to `true`: the gate constrains nothing under it.
+ */
+function listSchema(p: OntologyProperty): unknown {
+  const schema: Record<string, unknown> = { type: 'array', minItems: 1 }
+  if (p.items !== '' && p.fields.length > 0) return true
+  if (p.items !== '') {
+    if (!isItemType(p.items)) return true
+    // One tag per item: the one-or-a-list tolerance is the property's, not an item's.
+    schema.items = p.items === 'claim' ? { enum: [...CLAIM_TOKENS] } : scalarSchema(p.items, p.values)
+  } else if (p.fields.length > 0) {
+    if (p.fields.some((f) => f.type === 'list' || f.type === 'quotation')) return true
+    const declared: Record<string, unknown> = {}
+    for (const f of p.fields) declared[f.name] = annotatedSchema(f)
+    const required = p.fields.filter((f) => f.required).map((f) => f.name)
+    schema.items = {
+      type: 'object',
+      properties: declared,
+      ...(required.length > 0 ? { required } : {}),
+      // Closed, as the class's own bag is: `property-type` reports a key no field names.
+      additionalProperties: false,
+    }
+  }
+  return schema
+}
+
+function scalarSchema(type: string, values: string[]): unknown {
   if (type === 'string' && values.length > 0) return { type: 'string', minLength: 1, enum: values }
   switch (type) {
     case 'string':
@@ -236,14 +301,7 @@ export function compileClassSchema(cls: OntologyClass): Record<string, unknown> 
   // whose ontology is not filled in.
   if (cls.properties.length > 0) {
     const declared: Record<string, unknown> = {}
-    for (const p of cls.properties) {
-      let body = propertySchema(p.type, p.values)
-      if (typeof body === 'object' && body !== null) {
-        if (p.description !== '') body = { ...body, description: p.description }
-        if (p.unit !== '') body = { ...body, 'x-yidam-unit': p.unit }
-      }
-      declared[p.name] = body
-    }
+    for (const p of cls.properties) declared[p.name] = annotatedSchema(p)
     // Emitted for exactly the properties declared `required: true`, and omitted entirely
     // when there are none — an empty `required: []` would be a different document for the
     // same meaning, and these schemas are compared byte for byte across three languages.

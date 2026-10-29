@@ -132,7 +132,15 @@
       "id": "property-type",
       "title": "Property value that contradicts its declared type",
       "severity": "error",
-      "rationale": "A typed field the ontology declares is read by type, not by eye. A `claim` field holding prose is counted as no claim at all; a `string` holding an unquoted number has lost its leading zeros before anything reads it; a `number` holding a quoted one is text the compiled schema refuses and an ordering cannot compare. A `string` whose class declares `values:` is held to that set: a value outside it is either a widening the class never recorded or prose in a token field, and both are reported so the set the class publishes stays true. Types the corpus coins for itself are left alone — this reports only the ones it can test.",
+      "rationale": "A typed field the ontology declares is read by type, not by eye. A `claim` field holding prose is counted as no claim at all; a `string` holding an unquoted number has lost its leading zeros before anything reads it; a `number` holding a quoted one is text the compiled schema refuses and an ordering cannot compare. A `string` whose class declares `values:` is held to that set: a value outside it is either a widening the class never recorded or prose in a token field, and both are reported so the set the class publishes stays true. A `list` is a non-empty list, and each item is held to the `items:` type or the `fields:` record its class declares: a record is closed as the class is, so a misspelled `claim_tg` is reported rather than read as an entry with no standing. Types the corpus coins for itself are left alone — this reports only the ones it can test.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "list-declaration-invalid",
+      "title": "Class declares a list whose items cannot be read",
+      "severity": "error",
+      "rationale": "A `list` declares its items with `items:`, naming one scalar type, or with `fields:`, declaring a record — or with neither, and then holds any non-empty list. Both at once, an `items:` naming a list, a quotation or a coined type, or a record field typed `list` or `quotation` is a declaration nothing can hold an instance to, and the gate falls back to checking only that the value is a list. Reported here so the fallback is not silent.",
       "escalation_eligible": false,
       "violations": []
     },
@@ -227,6 +235,14 @@
           }
         }
       ]
+    },
+    {
+      "id": "entry-source-unresolved",
+      "title": "Evidenced list entry names a source this repository does not hold",
+      "severity": "error",
+      "rationale": "An entry of a `list` whose record declares a `claim` field carries its own standing, and a standing rests on a source. Its `source` is resolved as a link's `source:` is: a catalog entry by its file stem or by a path from the node, or a decision record by its `id:`. A name that resolves to nothing cites nothing, whatever standing sits beside it. A blank `source` is not checked, and a list whose record declares no `claim` field is not read at all (RFC-0050).",
+      "escalation_eligible": false,
+      "violations": []
     },
     {
       "id": "external-citation-unresolved",

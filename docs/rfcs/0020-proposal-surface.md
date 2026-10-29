@@ -53,12 +53,12 @@ The test that decides all three is not new. `prelude/GRAPH.md` already licenses 
 epistemic commit written outside a resolution event, and licenses it on exactly this ground:
 
 > It is carriage and not synthesis, which is what makes it legal outside a resolution event.
-> — [`GRAPH.md:675`](../../yidam/prelude/GRAPH.md#L675), on `transport`
+> — [`GRAPH.md:680`](../../yidam/prelude/GRAPH.md#L680), on `transport`
 
 The reason sits in the evidence beside it: *"`transport` is legal outside a resolution event
 because Article V confines synthesis to resolutions, and copying a file verbatim introduces no
 node, edge or claim that its author did not hold"*
-([`GRAPH.evidence.md:469-471`](../../yidam/prelude/GRAPH.evidence.md#L469-L471)).
+([`GRAPH.evidence.md:480-482`](../../yidam/prelude/GRAPH.evidence.md#L480-L482)).
 
 `propose` inherits that test and this RFC makes it mechanical: **a proposal's commit body must
 contain the finding's own words, verbatim.** That is the constitutional rule expressed as
@@ -123,7 +123,7 @@ people what good looks like, and that has to be said here.
 
 **(c) `orphan-in` is the only check that carries an age.** `Violation::age` is `None` for every
 finding except those `orphan_in_dated` decorates
-([`orphan_in_dated`](../../yidam/cli/src/cmd/lint/mod.rs#L927-L944),
+([`orphan_in_dated`](../../yidam/cli/src/cmd/lint/mod.rs#L945-L962),
 [`model.rs:58`](../../yidam/cli/src/cmd/lint/model.rs#L58)). "Past its residence threshold" is
 therefore well-defined for exactly one check today. That is not a problem to fix here — it is a
 bound on how much of the corpus `propose` can speak about, and the command should say so rather
@@ -165,8 +165,8 @@ and #271's expiry both collapse into the same act.
 
 #### 3. A question whose answer already landed — deciding that is the resolution event
 
-`claims::is_open_question` finds open questions
-([`claims.rs:587-593`](../../yidam/cli/src/claims.rs#L587-L593)). Nothing finds answers, and
+`claims::is_open_question` finds open questions (renamed by RFC-0037 to
+[`has_open_claim`](../../yidam/cli/src/claims.rs#L1725)). Nothing finds answers, and
 nothing could: an open question in this corpus is a paragraph of prose tagged `[open]`, and
 deciding that some later paragraph answers it is a judgment about content.
 

@@ -285,8 +285,8 @@ fn resolve_one(
                 .find(|c| c.name.to_ascii_lowercase() == wanted)
             else {
                 refusals.push(format!(
-                    "{at}.columns.{key}: `{class}` has no column `{key}`; a `claim` or \
-                     `quotation` property has none, and every other property's column is named \
+                    "{at}.columns.{key}: `{class}` has no column `{key}`; a `claim`, \
+                     `quotation` or `list` property has none, and every other property's column is named \
                      in contract.json"
                 ));
                 continue;

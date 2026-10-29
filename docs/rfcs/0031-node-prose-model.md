@@ -83,9 +83,9 @@ author to move prose *into*. None of them is on `CorpusInstance`, so all of them
 dropped by every consumer of the parsed node.
 
 That is not a tidiness complaint, because two families of check disagree as a result.
-[`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1215) reads the parsed field — the
-comment in its body ([`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1215-L1236)) is explicit
-that this is the intent — while [`count_in_node`](../../yidam/cli/src/claims.rs#L1534) takes the
+[`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1246) reads the parsed field — the
+comment in its body ([`node_too_long`](../../yidam/cli/src/cmd/lint/checks.rs#L1246-L1267)) is explicit
+that this is the intent — while [`count_in_node`](../../yidam/cli/src/claims.rs#L1633) takes the
 file's whole text. Two definitions of *the node's prose* inside one binary, and #674 measures the
 gap on a real corpus: median 118 lines read as the file, 21 read as `description`, 34 read as
 `summary` + `description` + `findings`. The band that judges it was fitted on the first and the
@@ -139,17 +139,17 @@ implements it:
 ### 1.3 The claim counter is two parsers
 
 Because prose lives inside YAML and the counter scans the file's bytes, it must be a prose parser
-and a YAML parser at once. [`is_block_scalar_header`](../../yidam/cli/src/claims.rs#L995) exists
+and a YAML parser at once. [`is_block_scalar_header`](../../yidam/cli/src/claims.rs#L1116) exists
 for one reason:
 
 > Without this arm a claim in the first sentence of a `description:` block reaches back over the
 > header and serves `class: gage label: Riffle description: |` as part of what the corpus
 > asserted.
 >
-> — [`claims.rs:992-994`](../../yidam/cli/src/claims.rs#L992-L994)
+> — [`claims.rs:1113-1115`](../../yidam/cli/src/claims.rs#L1113-L1115)
 
 Beside it: `starts_a_block`, telling a YAML key from a wrapped prose line;
-[`stop_is_lexical`](../../yidam/cli/src/claims.rs#L1131), a hand-rolled sentence segmenter with
+[`stop_is_lexical`](../../yidam/cli/src/claims.rs#L1252), a hand-rolled sentence segmenter with
 four rules and a pinned 0.09% residue; and `is_narrated`, a grammar heuristic deciding mention
 from use — adopted after the typographic rule it replaced made a corpus publish 26 open questions
 against a true 72, in a generated block on its front page.
@@ -313,7 +313,7 @@ node model that products would, for the first time, actually run.
    > The catalog schema describes frontmatter inside markdown, which yaml-language-server cannot
    > apply to a .md file
    >
-   > — [`schema.rs:773-774`](../../yidam/cli/src/cmd/schema.rs#L773-L774)
+   > — [`schema.rs:827-828`](../../yidam/cli/src/cmd/schema.rs#L827-L828)
 
    Every compiled per-class schema is delivered through `yaml.schemas`. Under Markdown nodes,
    none of them reaches a node in a third-party editor. This is the strongest argument against,
@@ -453,7 +453,7 @@ which Phase 1 does not do and which is a cheaper change than a format.
 #### 3.2.1 A soft-wrapped line beginning `word:` truncated a claim — fixed (#736)
 
 Found by the deletion above, and true in the YAML form with no format change in prospect.
-[`starts_a_block`](../../yidam/cli/src/claims.rs#L1099) read any line whose head is a bare token
+[`starts_a_block`](../../yidam/cli/src/claims.rs#L1220) read any line whose head is a bare token
 followed by a colon as a new YAML key, and a wrapped prose line is often exactly that shape:
 
 ```text
@@ -463,11 +463,11 @@ decades: there were still 22,498 acres of them in 1954. [verified] — the 1954 
 
 The claim was served as *"there were still 22,498 acres of them in 1954"* — the subject is on
 the line above, and the boundary is a wrap column, which is the same defect
-[`ends_statement`](../../yidam/cli/src/claims.rs#L1211) was rewritten to remove. It cut 125 of
+[`ends_statement`](../../yidam/cli/src/claims.rs#L1332) was rewritten to remove. It cut 125 of
 16,297 served claims (0.77%) across the population, the same order as the 179 lexical-stop
 truncations `stop_is_lexical` was given four rules to fix.
 
-The fix is [`continues_prose`](../../yidam/cli/src/claims.rs#L1075): a key-shaped line is a
+The fix is [`continues_prose`](../../yidam/cli/src/claims.rs#L1196): a key-shaped line is a
 wrapped sentence when the line above it is prose — not blank, not a key, not a list item, not a
 comment — and it does not stand to the left of that line. Ground truth came from a YAML
 tokenizer rather than from the served claims: of 41,248 key-shaped lines in the population, 404

@@ -276,13 +276,14 @@ fn class_page(class: &Class, table: &Table, contract: &Contract, feeds: &[Feed])
     let prose: Vec<_> = class
         .properties
         .iter()
-        .filter(|p| matches!(p.r#type.as_str(), "claim" | "quotation"))
+        .filter(|p| matches!(p.r#type.as_str(), "claim" | "quotation" | "list"))
         .collect();
     if !prose.is_empty() {
         out.push_str(
             "## Stated in prose, not in the table\n\n\
-             These properties are claims or quotations: each states a position with its \
-             evidence, and none is a fact a column can hold. No table carries them.\n\n",
+             These properties are claims, quotations or lists: each states a position with \
+             its evidence or holds several values, and none is a fact a column can hold. No \
+             table carries them.\n\n",
         );
         for p in prose {
             let what = cell(&p.description);

@@ -108,6 +108,17 @@ pass exactly that mistake. The bytes come from this machine's vault cache, becau
 only the record of them. A runner with no cache reports every quotation unchecked, at Info:
 an unchecked quotation is not a compared one, and an empty cache is not a defect in the corpus.
 
+## list
+
+Two corpora held values that each carried their own evidence: a short-run and a long-run fare
+elasticity, one resting on 33 studies and the other on 3. One coined `type: effect`, which the
+gate left alone, so a dead `source` and a `claim_tag` of `definitely-true` both passed. The
+other left the list untyped, and the claim reader, which then walked a node at any depth, read
+an entry's `open` as the node's standing. Measured over twenty corpora before the reader was
+narrowed, every declared claim value sat at the top of `properties:`, so the narrowing moved no
+count. A record is closed because a class is: an open one lets a misspelled `claim_tg` pass as
+an entry with no standing.
+
 ## values-closed
 
 Before the field existed a class spelled its set in the description — `extant | demolished |

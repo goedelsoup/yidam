@@ -135,6 +135,11 @@ the words, and `sha256:` names the artifact when the entry holds more than one.
 `quotation-span-drift` fails when the fetched bytes lack the words; where they are not
 fetched, `quotation-unchecked` says so. [why](GRAPH.evidence.md#quotation-bytes)
 
+**A `list` holds several values**: `items: number` makes each item a number, and `fields:`
+declares the record each item is, closed to keys it does not name. A record's `claim` field is
+that entry's standing, not the node's. Beside one, `source` must resolve as a link's does.
+[why](GRAPH.evidence.md#list)
+
 **Silence is not a contract**, read one field at a time. A class with no `properties:` has
 said nothing about properties and none are checked; a class with no `edges:` has said nothing
 about edges and none are licensed. The same rule decides which classes are source classes for
@@ -248,8 +253,8 @@ corpus, and one must not arrive as a side effect of the other.
 [why](GRAPH.evidence.md#edge-claims-two-keys)
 
 `edge-standing-unheld` reads an edge's standing against the ones its **own endpoints** declare.
-A node's standing here is a property its class declared `type: claim` — the node's own grade,
-not the weakest marker in its prose. A node that declares no such property has no standing and
+A node's standing here is a top-level property its class declared `type: claim` — the node's
+own grade, not the weakest marker in its prose. A node that declares no such property has no standing and
 is compared to nothing. The end an edge is measured against is the **weaker** of the two that
 declare one, and the edge's own standing is the **strongest** it spells. It never gates.
 [why](GRAPH.evidence.md#edge-standing-unheld)

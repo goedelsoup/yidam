@@ -741,12 +741,33 @@ a class with no type is the ordinary case rather than debt. Name the type as Rus
 `HTTPServer` and `HttpServer` are two types and one kebab-case name, so nothing is derived.
 
 **A property `type:` the corpus coins is carried through unconstrained.** `string`, `text`,
-`date`, `number`, `ref`, `claim` and `quotation` are the types the tooling understands; anything
+`date`, `number`, `ref`, `claim`, `quotation` and `list` are the types the tooling understands; anything
 else is accepted and left alone rather than rejected. A `number` is written unquoted. Its unit,
 if it has one, is declared once on the property as `unit:` rather than in each value. A
 `quotation` holds `of:` and `span:`: a catalog entry and words copied from it. Lint compares
 the words with the entry's cached bytes. Add `sha256:` when the entry holds more than one
 artifact.
+
+**A `list` holds several values**, and declares what they are in one of two ways.
+`items: number` makes every item a number. `fields:` makes every item a record, declared in
+the grammar a property is:
+
+```yaml
+  - name: effects
+    type: list
+    fields:
+      - { name: label,     type: string, required: true }
+      - { name: value,     type: number, unit: elasticity }
+      - { name: claim_tag, type: claim }
+      - { name: source,    type: ref }
+```
+
+A record is closed, as a class is: `property-type` reports a key no field names. A `claim`
+field is the standing of that entry, not of the node, and is counted once per entry. In an
+entry that has one, `source` must resolve as a link's `source:` does
+(`entry-source-unresolved`). A bare `type: list` holds any non-empty list. Declaring both
+`items:` and `fields:`, or a field typed `list` or `quotation`, is reported by
+`list-declaration-invalid`. See RFC-0050.
 
 **A `string` may declare the values it admits**, as `values: [extant, demolished, ruin]`
 beside `type:`. Declaring the set closes it. `property-type` reports an instance holding

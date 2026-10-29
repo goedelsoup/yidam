@@ -1,0 +1,66 @@
+function = "compile_class_schema"
+description = "A `fields:` entry is read one key at a time, as a class property is in every SDK: a key of the wrong shape reads as absent and the field is kept, an entry that is not a mapping is no field, and a `fields:` that is not a list declares none. One wrongly shaped field must not empty the class (RFC-0050)"
+
+[input]
+name = "model"
+content = """
+properties:
+  - name: parameters
+    type: list
+    fields:
+      - name: label
+        type: string
+        required: "true"
+      - name: value
+        type: [number]
+        unit: 3
+      - just a string
+      - name: tag
+        type: claim
+        values: { a: b }
+  - name: loose
+    type: list
+    fields: label
+  - name: identifier
+    type: string
+"""
+
+[expected]
+schema = """
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "yidam corpus node — model",
+  "type": "object",
+  "properties": {
+    "class": { "const": "model" },
+    "properties": {
+      "type": "object",
+      "properties": {
+        "parameters": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": { "type": "string", "minLength": 1 },
+              "value": true,
+              "tag": {
+                "anyOf": [
+                  { "enum": ["verified", "inference", "open", "[verified]", "[inference]", "[open]"] },
+                  { "type": "array", "items": { "enum": ["verified", "inference", "open", "[verified]", "[inference]", "[open]"] } }
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "loose": { "type": "array", "minItems": 1 },
+        "identifier": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["class"],
+  "additionalProperties": true
+}
+"""

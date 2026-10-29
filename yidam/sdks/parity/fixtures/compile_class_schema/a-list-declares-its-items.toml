@@ -1,0 +1,134 @@
+function = "compile_class_schema"
+description = "A `list` is a non-empty array (RFC-0050). `items:` names the scalar type of every item, and the list's `values:` and `unit:` apply per item: the set becomes the item's `enum`, the unit rides the list as `x-yidam-unit`. A `claim` item is one tag, not one-or-a-list. `fields:` declares a record every item is: each field compiles as a class property would, with its own annotations, `required` lists exactly the fields declared `required: true`, and the record is closed as a class's property bag is. An empty `fields: []` declares nothing and compiles as a bare list. A declaration the gate refuses compiles to `true`: `items:` and `fields:` together, an `items:` naming `list`, `quotation` or a coined type, or a field typed `list` or `quotation`. A field of a coined type is carried, as at class level"
+
+[input]
+name = "pathway"
+content = """
+properties:
+  - name: aliases
+    type: list
+    items: string
+  - name: modes
+    type: list
+    items: string
+    values: [rail, bus]
+  - name: lengths
+    type: list
+    items: number
+    unit: km
+  - name: standings
+    type: list
+    items: claim
+  - name: effects
+    type: list
+    description: One effect size per source.
+    fields:
+      - name: label
+        type: string
+        required: true
+      - name: value
+        type: number
+        unit: elasticity
+      - name: horizon
+        type: string
+        values: [short-run, long-run]
+      - name: claim_tag
+        type: claim
+      - name: source
+        type: ref
+        description: A catalog entry or node.
+      - name: span
+        type: river-mile-range
+  - name: empty
+    type: list
+    fields: []
+  - name: both
+    type: list
+    items: string
+    fields:
+      - name: label
+        type: string
+  - name: nested
+    type: list
+    items: list
+  - name: quoted
+    type: list
+    items: quotation
+  - name: coined
+    type: list
+    items: river-mile-range
+  - name: deep
+    type: list
+    fields:
+      - name: label
+        type: string
+      - name: inner
+        type: list
+  - name: anchored
+    type: list
+    fields:
+      - name: anchor
+        type: quotation
+"""
+
+[expected]
+schema = """
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "yidam corpus node — pathway",
+  "type": "object",
+  "properties": {
+    "class": { "const": "pathway" },
+    "properties": {
+      "type": "object",
+      "properties": {
+        "aliases": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "modes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1, "enum": ["rail", "bus"] }
+        },
+        "lengths": { "type": "array", "minItems": 1, "items": { "type": "number" }, "x-yidam-unit": "km" },
+        "standings": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["verified", "inference", "open", "[verified]", "[inference]", "[open]"] }
+        },
+        "effects": {
+          "type": "array",
+          "minItems": 1,
+          "description": "One effect size per source.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": { "type": "string", "minLength": 1 },
+              "value": { "type": "number", "x-yidam-unit": "elasticity" },
+              "horizon": { "type": "string", "minLength": 1, "enum": ["short-run", "long-run"] },
+              "claim_tag": {
+                "anyOf": [
+                  { "enum": ["verified", "inference", "open", "[verified]", "[inference]", "[open]"] },
+                  { "type": "array", "items": { "enum": ["verified", "inference", "open", "[verified]", "[inference]", "[open]"] } }
+                ]
+              },
+              "source": { "type": "string", "minLength": 1, "description": "A catalog entry or node." },
+              "span": true
+            },
+            "required": ["label"],
+            "additionalProperties": false
+          }
+        },
+        "empty": { "type": "array", "minItems": 1 },
+        "both": true,
+        "nested": true,
+        "quoted": true,
+        "coined": true,
+        "deep": true,
+        "anchored": true
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["class"],
+  "additionalProperties": true
+}
+"""

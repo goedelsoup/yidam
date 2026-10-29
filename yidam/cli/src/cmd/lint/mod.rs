@@ -365,6 +365,11 @@ const ROSTER: &[Entry] = &[
         run: |i| checks::property_type(i.nodes(), i.classes(), i.universal()),
     },
     Entry {
+        id: "list-declaration-invalid",
+        asked: Asked::Always,
+        run: |i| checks::list_declaration_invalid(i.classes()),
+    },
+    Entry {
         id: "unimplemented-class",
         asked: Asked::Always,
         run: |i| checks::unimplemented_class(i.classes(), i.types()),
@@ -408,6 +413,19 @@ const ROSTER: &[Entry] = &[
         id: edge_claims::SOURCE_UNRESOLVED,
         asked: Asked::Always,
         run: |i| i.edge_claim_checks()[3].clone(),
+    },
+    Entry {
+        id: edge_claims::ENTRY_SOURCE_UNRESOLVED,
+        asked: Asked::Always,
+        run: |i| {
+            edge_claims::entry_source_unresolved(
+                i.nodes(),
+                i.claim_fields(),
+                i.sources(),
+                i.decisions(),
+                i.catalog_dir(),
+            )
+        },
     },
     Entry {
         id: citations::UNRESOLVED,

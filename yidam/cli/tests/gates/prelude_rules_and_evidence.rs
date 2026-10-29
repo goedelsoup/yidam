@@ -209,20 +209,26 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// `identifier` location and a `readings:` block in its catalog example, two rules naming what
 /// `type` and `identifier` mean, and one sentence on `readings`. The full manifest and transform
 /// contract went to `docs/source-packs.md`, where no occasion pays for it.
+///
+/// **Raised on *Before you write or revise a node* and *Before you change a class*, on both
+/// routes, when `GRAPH.md` gained `type: list` (RFC-0050).** The delta is **49 words in
+/// `GRAPH.md`**: the paragraph naming `items:`, `fields:` and an entry's standing, and
+/// "top-level" in the standing sentence. The argument is in `GRAPH.evidence.md` and charged to
+/// [`PAIR_FLOOR`].
 const READ_CEILING: &[(&str, &str, usize)] = &[
-    ("AGENTS.md", "Before you write or revise a node", 6_693),
+    ("AGENTS.md", "Before you write or revise a node", 6_742),
     ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
         4_498,
     ),
-    ("AGENTS.md", "Before you change a class", 5_015),
+    ("AGENTS.md", "Before you change a class", 5_064),
     ("AGENTS.md", "Before you retrieve", 2_989),
     (
         "sadhana/root/AGENTS.md",
         "Before you write or revise a node",
-        7_887,
+        7_936,
     ),
     ("sadhana/root/AGENTS.md", "Before you run a phase", 5_800),
     (
@@ -230,7 +236,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
         "Before a claim crosses a corpus boundary",
         5_692,
     ),
-    ("sadhana/root/AGENTS.md", "Before you change a class", 6_209),
+    ("sadhana/root/AGENTS.md", "Before you change a class", 6_258),
     ("sadhana/root/AGENTS.md", "Before you retrieve", 4_183),
 ];
 
@@ -431,7 +437,12 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// its `[vendored]` record, and step 9's `.yidam/sources/` line and its `source search` / `source
 /// add` offer. The argument is in the evidence half, which this path skips. 20,446 + 173 is
 /// this figure exactly.
-const BOOTSTRAP_CEILING: usize = 20_619;
+///
+/// **Raised to 20,664 when `GRAPH.md` gained `type: list` (RFC-0050).** The delta is **45
+/// words**: 39 of `GRAPH.md`'s 49 on the lines step 1 charges, and 6 in `bootstrap.md`'s class
+/// template, whose type line now names `number`, `claim` and `list`. 20,619 + 45 is this figure
+/// exactly.
+const BOOTSTRAP_CEILING: usize = 20_664;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -590,6 +601,11 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// half, the allen-county-ohio measurement against its succession calculator. 10,585 + 245 is
 /// this figure exactly.
 ///
+/// **`GRAPH.md` re-measured to 11,001 for RFC-0050.** 171 words arrived — 49 in the rules half,
+/// the `list` paragraph and "top-level" that [`READ_CEILING`] moved by, and 122 in the evidence
+/// half, the `#list` section naming #1391, #1382 and why a record is closed. 10,830 + 171 is
+/// this figure exactly.
+///
 /// **`bootstrap.md` lowered to 11,159 for #934**, the one floor here that has moved down. The
 /// domain libraries moved out of the prelude, so step 8 stopped pruning them: the two `rm`
 /// recipes and the evidence section arguing for the prune were retired, not moved, and the
@@ -612,7 +628,7 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// half.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_686),
-    ("yidam/prelude/GRAPH.md", 10_830),
+    ("yidam/prelude/GRAPH.md", 11_001),
     ("yidam/prelude/guidelines/directories.md", 13_113),
     ("yidam/prelude/skills/bootstrap.md", 11_456),
 ];

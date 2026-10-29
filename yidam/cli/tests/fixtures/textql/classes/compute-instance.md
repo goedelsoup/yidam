@@ -18,7 +18,7 @@ Table: `compute_instance`, keyed on `(id, _origin)`. It also carries the provena
 
 ## Stated in prose, not in the table
 
-These properties are claims or quotations: each states a position with its evidence, and none is a fact a column can hold. No table carries them.
+These properties are claims, quotations or lists: each states a position with its evidence or holds several values, and none is a fact a column can hold. No table carries them.
 
 - **standing** (claim)
 

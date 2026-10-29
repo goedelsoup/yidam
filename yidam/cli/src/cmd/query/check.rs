@@ -462,6 +462,27 @@ fn check_pred(
             ),
         ));
     }
+    // A list holds several values, and a query operand is one (RFC-0050). Whether `=` means
+    // "any item equals" is a semantics the contract has not chosen, so `=` and `~` are
+    // refused here rather than answered by the gate's arm — whose "write it as a one-item
+    // list" is a sentence for a corpus file. `!=` falls through to that arm and is the
+    // trivially-true warning every operand a type cannot hold gets.
+    if matches!(pred.op, Op::Eq | Op::Contains)
+        && declared == crate::cmd::lint::checks::LIST_PROPERTY_TYPE
+    {
+        return Err(reject(
+            code::UNSATISFIABLE_PREDICATE,
+            Some(step_index),
+            format!(
+                "`{}` is `type: list` on `{}`, and a query does not read inside a list — \
+                 `{}` would match nothing. Use `{}?`.",
+                pred.prop,
+                class.name,
+                pred.op.as_str(),
+                pred.prop
+            ),
+        ));
+    }
     // The operand arrives as text, because a query is text. Against a `number` the gate's
     // string arm would say "unquote it", which is the right sentence for a corpus file and
     // nonsense for a query — so an operand that reads as a number is handed over as one, and
@@ -1201,6 +1222,30 @@ mod tests {
         let checked = check(&parse("provision[anchors!=veto]").unwrap(), &f.schema()).unwrap();
         assert_eq!(checked.diagnostics[0].code, "trivial-predicate");
         assert!(check(&parse("provision[anchors?]").unwrap(), &f.schema()).is_ok());
+    }
+
+    /// RFC-0050: a list holds several values and an operand is one. Whether `=` means "any
+    /// item" is deferred, so it is refused — with a sentence for a query, not the gate's "write
+    /// it as a one-item list".
+    #[test]
+    fn a_list_is_asked_only_whether_it_is_there() {
+        let f = Fixture::new(vec![class(
+            "class: pathway\nproperties:\n  - name: modes\n    type: list\n    items: string\n",
+        )]);
+        for q in ["pathway[modes~rail]", "pathway[modes=rail]"] {
+            let e = check(&parse(q).unwrap(), &f.schema()).unwrap_err();
+            assert_eq!(e.code, "unsatisfiable-predicate", "{q}");
+            assert!(
+                e.message.contains("does not read inside a list"),
+                "{}",
+                e.message
+            );
+        }
+        let e = check(&parse("pathway[modes<rail]").unwrap(), &f.schema()).unwrap_err();
+        assert_eq!(e.code, "unordered-property");
+        let checked = check(&parse("pathway[modes!=rail]").unwrap(), &f.schema()).unwrap();
+        assert_eq!(checked.diagnostics[0].code, "trivial-predicate");
+        assert!(check(&parse("pathway[modes?]").unwrap(), &f.schema()).is_ok());
     }
 
     /// A `string` that happens to hold digits is still text. `*` narrows an ordering to the

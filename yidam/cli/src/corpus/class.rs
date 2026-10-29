@@ -175,10 +175,25 @@ pub struct Class {
 pub struct ClassProperty {
     #[serde(default)]
     pub name: String,
-    /// `string`, `text`, `date`, `number`, `ref`, `claim`, `quotation` — or anything else,
-    /// which is unchecked.
+    /// `string`, `text`, `date`, `number`, `ref`, `claim`, `quotation`, `list` — or anything
+    /// else, which is unchecked.
     #[serde(default)]
     pub r#type: String,
+    /// The scalar type every item of a `list` has, or empty (RFC-0050).
+    ///
+    /// One of [`yidam_core::ontology::LIST_ITEM_TYPES`]. The list's [`Self::values`] apply to
+    /// each item, as they would to one scalar. Carried and ignored off `list`, as `values:`
+    /// is off `string`.
+    #[serde(default)]
+    pub items: String,
+    /// The fields of the record every item of a `list` is, or empty (RFC-0050).
+    ///
+    /// Declared in this grammar, and closed the way the class's own properties are: once a
+    /// field is named, an item key no field names is a `property-type` finding, as an
+    /// instance key no property names is an `undeclared-property` one. A `claim` field is the
+    /// standing of the entry and not of the node, which is what [`crate::claims`] reads it as.
+    #[serde(default)]
+    pub fields: Vec<ClassProperty>,
     /// What the property is for, as the class writes it.
     ///
     /// Required by `yidam schema`'s class shape, and prose: [`Class::text`] explains why the
