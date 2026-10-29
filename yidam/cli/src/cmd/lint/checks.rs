@@ -375,6 +375,37 @@ pub fn foundational_type_malformed(classes: &[Class]) -> Check {
     )
 }
 
+/// A `list` declaration that cannot be read as either form (RFC-0050).
+///
+/// The instance side is [`property_type`]'s; this is the class side, reported once on the
+/// class file rather than once per instance under it, for the reason
+/// [`foundational_type_malformed`] reports an alignment there. Under a declaration this
+/// reports, instances are held only to the bare `list` shape: neither half of a
+/// contradictory declaration is the one the class meant.
+pub fn list_declaration_invalid(classes: &[Class]) -> Check {
+    let violations = classes
+        .iter()
+        .flat_map(|c| {
+            c.properties.iter().filter_map(|p| {
+                list_declaration_problem(p)
+                    .map(|why| Violation::new(&c.rel, format!("`{}` {why}", p.name)))
+            })
+        })
+        .collect();
+    Check::new(
+        "list-declaration-invalid",
+        "Class declares a list whose items cannot be read",
+        Severity::Error,
+        "A `list` declares its items with `items:`, naming one scalar type, or with \
+         `fields:`, declaring a record — or with neither, and then holds any non-empty list. \
+         Both at once, an `items:` naming a list, a quotation or a coined type, or a record \
+         field typed `list` or `quotation` is a declaration nothing can hold an instance to, \
+         and the gate falls back to checking only that the value is a list. Reported here so \
+         the fallback is not silent.",
+        violations,
+    )
+}
+
 /// The id of [`malformed_yaml`], named once so the suppression it licenses cannot come to
 /// mean a check that no longer exists.
 pub const MALFORMED_YAML: &str = "malformed-yaml";
@@ -1503,8 +1534,142 @@ pub(crate) fn property_type_violation(declared: &str, value: &serde_yaml::Value)
         // the catalog and the vault cache — and it is read by the one parser those checks
         // read with, so a value this admits is one they can resolve.
         super::quotations::QUOTATION_PROPERTY_TYPE => super::quotations::read(value).err(),
+        // **A list, as a bare `list` declares it** (RFC-0050): a non-empty sequence of
+        // anything. What `items:` or `fields:` add is [`declared_violation`]'s, because they
+        // live on the declaration and this predicate is handed only its type.
+        LIST_PROPERTY_TYPE => match value {
+            serde_yaml::Value::Sequence(items) if items.is_empty() => {
+                Some("is an empty list — leave the property out instead".to_string())
+            }
+            serde_yaml::Value::Sequence(_) => None,
+            serde_yaml::Value::Null => Some("is empty".to_string()),
+            serde_yaml::Value::Mapping(_) => {
+                Some("is a mapping, not a list — write it as a one-item list".to_string())
+            }
+            _ => Some("is not a list — write it as a one-item list".to_string()),
+        },
         _ => None,
     }
+}
+
+/// The declared type a value may hold several of (RFC-0050).
+pub(crate) const LIST_PROPERTY_TYPE: &str = "list";
+
+/// Why a `list` declaration constrains nothing, or `None` when it is well formed.
+///
+/// `items:` and `fields:` together say two things about one item; an `items:` outside
+/// [`yidam_core::ontology::LIST_ITEM_TYPES`] names a list, a quotation or a coined type; a
+/// field typed `list` or `quotation` is one the readers that walk records do not reach. Each
+/// is reported once, on the class, by [`list_declaration_invalid`] — and an instance under it
+/// is held only to the bare `list` shape, because a declaration that cannot be read cannot
+/// be held to either half of what it says. The compiled schema says the same: `true`.
+pub(crate) fn list_declaration_problem(p: &crate::corpus::ClassProperty) -> Option<String> {
+    if p.r#type != LIST_PROPERTY_TYPE {
+        return None;
+    }
+    let item_type = |t: &str| yidam_core::ontology::LIST_ITEM_TYPES.contains(&t);
+    let kinds = yidam_core::ontology::LIST_ITEM_TYPES.join("`, `");
+    if !p.items.is_empty() && !p.fields.is_empty() {
+        return Some(
+            "declares both `items:` and `fields:` — an item is a scalar or a record, not both"
+                .into(),
+        );
+    }
+    if !p.items.is_empty() && !item_type(&p.items) {
+        return Some(format!(
+            "declares `items: {}` — an item is one of `{kinds}`, or a record declared with `fields:`",
+            p.items
+        ));
+    }
+    p.fields
+        .iter()
+        .find(|f| matches!(f.r#type.as_str(), LIST_PROPERTY_TYPE | super::quotations::QUOTATION_PROPERTY_TYPE))
+        .map(|f| {
+            format!(
+                "declares the field `{}` as `{}` — a record field is one of `{kinds}`, or a type the corpus coined",
+                f.name, f.r#type
+            )
+        })
+}
+
+/// What an instance value violates in its full declaration, or `None`.
+///
+/// [`property_type_violation`] reads a type; this reads the declaration, which is what a
+/// `string`'s `values:` and a `list`'s `items:` and `fields:` need. The shape first, then the
+/// set: a value that is not text is reported for what it is, not also for being outside a
+/// list of text.
+pub(crate) fn declared_violation(
+    p: &crate::corpus::ClassProperty,
+    value: &serde_yaml::Value,
+) -> Option<String> {
+    let why = property_type_violation(&p.r#type, value);
+    if why.is_some() {
+        return why;
+    }
+    match p.r#type.as_str() {
+        "string" => declared_value_violation(&p.values, value),
+        LIST_PROPERTY_TYPE if list_declaration_problem(p).is_none() => {
+            let serde_yaml::Value::Sequence(entries) = value else {
+                return None;
+            };
+            entries.iter().enumerate().find_map(|(i, entry)| {
+                let at = i + 1;
+                if !p.items.is_empty() {
+                    item_violation(p, entry).map(|why| format!("item {at} {why}"))
+                } else if !p.fields.is_empty() {
+                    record_violation(&p.fields, entry).map(|why| format!("item {at} {why}"))
+                } else {
+                    None
+                }
+            })
+        }
+        _ => None,
+    }
+}
+
+/// One item of an `items:` list, held to the scalar arm its type names and to the list's set.
+fn item_violation(p: &crate::corpus::ClassProperty, item: &serde_yaml::Value) -> Option<String> {
+    // The one-or-a-list tolerance is the property's: an item is one tag, and a list inside
+    // a list is the shape being wrong, whatever the claim arm would accept on its own.
+    if let serde_yaml::Value::Sequence(_) = item {
+        return Some("is a list — an item is one value".into());
+    }
+    property_type_violation(&p.items, item).or_else(|| {
+        (p.items == "string")
+            .then(|| declared_value_violation(&p.values, item))
+            .flatten()
+    })
+}
+
+/// One item of a `fields:` list: a mapping, closed against keys no field names, carrying
+/// every field declared `required: true`, and each field held to its own declaration.
+fn record_violation(
+    fields: &[crate::corpus::ClassProperty],
+    entry: &serde_yaml::Value,
+) -> Option<String> {
+    let serde_yaml::Value::Mapping(map) = entry else {
+        return Some("is not a record — each item is a mapping of the declared fields".into());
+    };
+    for key in map.keys() {
+        let name = key.as_str().unwrap_or_default();
+        if !fields.iter().any(|f| f.name == name) {
+            let named = fields
+                .iter()
+                .map(|f| format!("`{}`", f.name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Some(format!(
+                "has `{}`, which no field declares — the fields are {named}",
+                serde_yaml::to_string(key).unwrap_or_default().trim()
+            ));
+        }
+    }
+    fields.iter().find_map(|f| match map.get(f.name.as_str()) {
+        None if f.required() => Some(format!("has no `{}`, which every item carries", f.name)),
+        None => None,
+        Some(v) => declared_violation(f, v)
+            .map(|why| format!("has `{}` declared `{}`, which {why}", f.name, f.r#type)),
+    })
 }
 
 /// A `string` outside the closed set its class declares (RFC-0044), or `None`.
@@ -1666,17 +1831,13 @@ pub fn property_type(
             let Some(declared) = universal.declared_type_for(Some(*class), &key) else {
                 continue;
             };
-            // The shape first, then the set. A value that is not text is reported for what
-            // it is, not also for being outside a list of text — and the set is the class's
-            // own: `universal.yml` declares a type and nothing more.
-            let why = property_type_violation(declared, value).or_else(|| {
-                class
-                    .properties
-                    .iter()
-                    .find(|p| p.name == key)
-                    .filter(|p| p.r#type == "string")
-                    .and_then(|p| declared_value_violation(&p.values, value))
-            });
+            // The class's declaration whole, when the class made it: a `string`'s set and a
+            // `list`'s items and fields are the class's own, and `universal.yml` declares a
+            // type and nothing more.
+            let why = match class.properties.iter().find(|p| p.name == key) {
+                Some(p) => declared_violation(p, value),
+                None => property_type_violation(declared, value),
+            };
             if let Some(why) = why {
                 violations.push(Violation::new(
                     &n.rel,
@@ -1695,8 +1856,11 @@ pub fn property_type(
          one is text the compiled schema refuses and an ordering cannot compare. A `string` \
          whose class declares `values:` is held to that set: a value outside it is either a \
          widening the class never recorded or prose in a token field, and both are reported \
-         so the set the class publishes stays true. Types the corpus coins for itself are \
-         left alone — this reports only the ones it can test.",
+         so the set the class publishes stays true. A `list` is a non-empty list, and \
+         each item is held to the `items:` type or the `fields:` record its class declares: \
+         a record is closed as the class is, so a misspelled `claim_tg` is reported rather \
+         than read as an entry with no standing. Types the corpus coins for itself are left \
+         alone — this reports only the ones it can test.",
         violations,
     )
 }
@@ -2608,27 +2772,32 @@ pub fn claim_property_undeclared(nodes: &[Node], classes: &[Class]) -> Check {
         let Some(class) = by_name.get(class_name.as_str()) else {
             continue;
         };
-        let declared: Vec<String> = class
-            .properties
-            .iter()
-            .filter(|p| p.r#type == crate::claims::CLAIM_PROPERTY_TYPE)
-            .map(|p| p.name.clone())
-            .collect();
-        for (key, value) in crate::claims::undeclared_structural_tags(&n.text, &declared) {
-            violations.push(
-                Violation::new(
-                    &n.rel,
-                    format!(
-                        "`{key}: {}` spells a standing, and `{}` does not declare `{key}` \
-                         as `type: claim` — so it is counted as no claim at all. Declare it, \
-                         or rename the property if the word is a workflow state rather than a \
-                         standing",
-                        elide_value(&value),
-                        class.rel
-                    ),
-                )
-                .at(Severity::Info),
-            );
+        // The counters' own list, entry paths included, so a `claim` field a `list`'s
+        // record declares is skipped exactly where it is counted.
+        let declared = crate::claims::declared_claim_fields(class);
+        for (key, value, holder) in crate::claims::undeclared_structural_tags(&n.text, &declared) {
+            let detail = match holder {
+                // Nested under a property: the standing of an entry, which a top-level
+                // declaration would misdescribe as the node's (#1382).
+                Some(holder) => format!(
+                    "`{key}: {}` under `{holder}` spells a standing, and `{}` does not declare \
+                     it — so it is counted as no claim at all, and is not the node's. Declare \
+                     `{holder}` as `type: list` with a `{key}` field of `type: claim`, so each \
+                     entry carries its own standing, or rename the key if the word is a \
+                     workflow state rather than a standing",
+                    elide_value(&value),
+                    class.rel
+                ),
+                None => format!(
+                    "`{key}: {}` spells a standing, and `{}` does not declare `{key}` \
+                     as `type: claim` — so it is counted as no claim at all. Declare it, \
+                     or rename the property if the word is a workflow state rather than a \
+                     standing",
+                    elide_value(&value),
+                    class.rel
+                ),
+            };
+            violations.push(Violation::new(&n.rel, detail).at(Severity::Info));
         }
     }
     Check::new(
@@ -2754,9 +2923,10 @@ pub(crate) fn source_targets(dir: &Path, catalog: &Path, written: &str) -> [Path
 /// does. Two checks ask this per node, so re-parsing here meant a lint run parsed every
 /// node's YAML three times.
 ///
-/// Four things go in: every `links:` target, every markdown link in the prose, every
-/// non-blank `source:` an edge writes, and every `of:` a declared quotation writes. The last
-/// two are read through [`source_targets`]. An edge source is what an edge rests on, and it is a
+/// Five things go in: every `links:` target, every markdown link in the prose, every
+/// non-blank `source:` an edge writes, every `of:` a declared quotation writes, and every
+/// `source` an evidenced list entry writes (RFC-0050). The last three are read through
+/// [`source_targets`]. An edge source is what an edge rests on, and it is a
 /// citation for the same reason a prose link is — the node has named a catalog entry as the
 /// thing a claim draws from. A quotation names the entry its words were taken from, which is
 /// the same act (#1174). A blank `source:` names nothing and is skipped, as
@@ -2792,6 +2962,13 @@ fn linked_paths_from(
             .named_entries(&crate::paths::class_of_path(node_path), inst)
             .iter()
             .flat_map(|of| source_targets(dir, catalog, of)),
+    );
+    // An evidenced entry's `source`, which RFC-0050 resolves as an edge's.
+    out.extend(
+        quotations
+            .entry_sources(&crate::paths::class_of_path(node_path), inst)
+            .iter()
+            .flat_map(|s| source_targets(dir, catalog, s)),
     );
     out.extend(
         prose_links(rel, dir, text)
@@ -5700,6 +5877,56 @@ mod tests {
         assert!(d.contains("type: claim"), "{d}");
         // And the other repair, because for one of the three measured rows it is the right one.
         assert!(d.contains("rename"), "{d}");
+    }
+
+    /// #1382: a standing nested in a list is an entry's, and the repair named is a `list`
+    /// with a `claim` field — not the top-level declaration that would make it the node's.
+    /// Declaring the record silences it, because the counter then reads it per entry.
+    #[test]
+    fn a_nested_standing_is_told_to_declare_a_list() {
+        let body = "class: model\nlabel: M\nproperties:\n  claim_tag: inference\n  parameters:\n    - name: k\n      claim_tag: open\n";
+        let nodes = vec![node(".yidam/corpus/model/m.yml", body)];
+        let (_d, top_only) = loaded_class(
+            "model",
+            "class: model\ndescription: A model.\nproperties:\n  - name: claim_tag\n    type: claim\n",
+        );
+        let c = claim_property_undeclared(&nodes, &top_only);
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert!(
+            c.violations[0].detail.contains(
+                "Declare `parameters` as `type: list` with a `claim_tag` field of `type: claim`"
+            ),
+            "{c:#?}"
+        );
+        let (_d2, records) = loaded_class(
+            "model",
+            "class: model\ndescription: A model.\nproperties:\n  - name: claim_tag\n    type: claim\n  - name: parameters\n    type: list\n    fields:\n      - { name: name, type: string }\n      - { name: claim_tag, type: claim }\n",
+        );
+        assert!(claim_property_undeclared(&nodes, &records).passed());
+    }
+
+    /// RFC-0050: an evidenced entry's `source` cites, as an edge's does (#1174) — so a
+    /// catalog entry only an entry names is not `catalog-uncited`.
+    #[test]
+    fn an_evidenced_entrys_source_is_a_citation() {
+        let (_d, classes) = loaded_class(
+            "pathway",
+            "class: pathway\ndescription: A pathway.\nproperties:\n  - name: effects\n    type: list\n    fields:\n      - { name: claim_tag, type: claim }\n      - { name: source, type: ref }\n",
+        );
+        let universal = crate::universal::Universal::default();
+        let quotations = Declared::new(&classes, &universal);
+        let text = "class: pathway\nlabel: P\nproperties:\n  effects:\n    - claim_tag: verified\n      source: ridership-2019\nlinks: []\n";
+        let cited = linked_paths(
+            Path::new(".yidam/corpus/pathway/p.yml"),
+            ".yidam/corpus/pathway/p.yml",
+            text,
+            Path::new(".yidam/catalog"),
+            &quotations,
+        );
+        assert!(
+            cited.contains(&normalize(Path::new(".yidam/catalog/ridership-2019.md"))),
+            "{cited:?}"
+        );
     }
 
     /// The declaration is what silences it, and silencing it is the counter starting to read.
@@ -8740,6 +8967,159 @@ edges:
                 property_type(&status("abandoned"), &classes, &NONE).passed(),
                 "{declaration}"
             );
+        }
+    }
+
+    /// RFC-0050, the bare form: a non-empty list of anything, which is what `demi-moore`'s
+    /// coined `type: list` already holds. One value not wrapped in a list is the shape being
+    /// wrong — the claim arm's one-or-a-list tolerance is not a list's.
+    #[test]
+    fn a_bare_list_holds_any_non_empty_list() {
+        let classes = vec![class_from(
+            "observation",
+            "properties:\n  - name: extracts\n    type: list\n",
+        )];
+        let extracts = |v: &str| {
+            vec![node(
+                ".yidam/corpus/observation/alpha.yml",
+                &format!("class: observation\nproperties:\n  extracts:{v}\nlinks: []\n"),
+            )]
+        };
+        for v in ["\n    - file: a.csv\n      grain: day\n", " [a, 2, {b: c}]"] {
+            assert!(property_type(&extracts(v), &classes, &NONE).passed(), "{v}");
+        }
+        for (v, says) in [
+            (" []", "empty list"),
+            (" a.csv", "is not a list"),
+            ("\n    file: a.csv\n", "is a mapping"),
+            ("", "is empty"),
+        ] {
+            let c = property_type(&extracts(v), &classes, &NONE);
+            assert_eq!(c.violations.len(), 1, "{v}: {c:#?}");
+            assert!(c.violations[0].detail.contains(says), "{v}: {c:#?}");
+        }
+    }
+
+    /// `items:` holds every item to the scalar arm it names, and the list's `values:` to
+    /// each item. The finding names the item, because "a list is wrong" finds nothing.
+    #[test]
+    fn a_list_holds_each_item_to_its_declared_type() {
+        let classes = vec![class_from(
+            "pathway",
+            "properties:\n  - name: modes\n    type: list\n    items: string\n    values: [rail, bus]\n  - name: lengths\n    type: list\n    items: number\n  - name: standings\n    type: list\n    items: claim\n",
+        )];
+        let pathway = |props: &str| {
+            vec![node(
+                ".yidam/corpus/pathway/alpha.yml",
+                &format!("class: pathway\nproperties:\n{props}links: []\n"),
+            )]
+        };
+        let ok =
+            pathway("  modes: [rail, bus]\n  lengths: [1.5, 3]\n  standings: [open, verified]\n");
+        assert!(property_type(&ok, &classes, &NONE).passed());
+        for (props, says) in [
+            ("  modes: [rail, ferry]\n", "item 2"),
+            ("  modes: [rail, 7]\n", "quote it"),
+            ("  lengths: [1.5, about 3]\n", "item 2"),
+            ("  standings: [open, definitely-true]\n", "item 2"),
+            ("  modes: [[rail]]\n", "an item is one value"),
+        ] {
+            let c = property_type(&pathway(props), &classes, &NONE);
+            assert_eq!(c.violations.len(), 1, "{props}: {c:#?}");
+            assert!(c.violations[0].detail.contains(says), "{props}: {c:#?}");
+        }
+    }
+
+    /// `fields:` declares a record, and declaring it closes it: the misspelled `claim_tg` is
+    /// the silent loss #1391 reported, an entry reading as having no standing at all.
+    #[test]
+    fn a_list_of_records_is_closed_and_holds_each_field() {
+        let classes = vec![class_from(
+            "pathway",
+            "properties:\n  - name: effects\n    type: list\n    fields:\n      - { name: label, type: string, required: true }\n      - { name: value, type: number }\n      - { name: claim_tag, type: claim }\n      - { name: horizon, type: string, values: [short, long] }\n",
+        )];
+        let effects = |v: &str| {
+            vec![node(
+                ".yidam/corpus/pathway/alpha.yml",
+                &format!("class: pathway\nproperties:\n  effects:\n{v}links: []\n"),
+            )]
+        };
+        let ok = effects(
+            "    - { label: fare, value: -0.3, claim_tag: verified, horizon: short }\n    - { label: fare, claim_tag: open }\n",
+        );
+        assert!(property_type(&ok, &classes, &NONE).passed());
+        for (v, says) in [
+            (
+                "    - { label: fare, claim_tg: open }\n",
+                "`claim_tg`, which no field declares",
+            ),
+            ("    - { value: -0.3 }\n", "has no `label`"),
+            (
+                "    - { label: fare, value: high }\n",
+                "has `value` declared `number`",
+            ),
+            (
+                "    - { label: fare, claim_tag: definitely-true }\n",
+                "`claim_tag` declared `claim`",
+            ),
+            (
+                "    - { label: fare, horizon: medium }\n",
+                "`short`, `long`",
+            ),
+            (
+                "    - { label: fare }\n    - fare\n",
+                "item 2 is not a record",
+            ),
+        ] {
+            let c = property_type(&effects(v), &classes, &NONE);
+            assert_eq!(c.violations.len(), 1, "{v}: {c:#?}");
+            assert!(c.violations[0].detail.contains(says), "{v}: {c:#?}");
+        }
+    }
+
+    /// A declaration nothing can hold an instance to is reported once, on the class — and
+    /// an instance under it is held only to the bare shape, not to either half.
+    #[test]
+    fn an_unreadable_list_declaration_is_reported_on_the_class() {
+        let reported = [
+            "properties:\n  - name: xs\n    type: list\n    items: string\n    fields:\n      - { name: a, type: string }\n",
+            "properties:\n  - name: xs\n    type: list\n    items: quotation\n",
+            "properties:\n  - name: xs\n    type: list\n    items: list\n",
+            "properties:\n  - name: xs\n    type: list\n    items: effect\n",
+            "properties:\n  - name: xs\n    type: list\n    fields:\n      - { name: a, type: list }\n",
+            "properties:\n  - name: xs\n    type: list\n    fields:\n      - { name: a, type: quotation }\n",
+        ];
+        let xs = |v: &str| {
+            vec![node(
+                ".yidam/corpus/c/alpha.yml",
+                &format!("class: c\nproperties:\n  xs: {v}\nlinks: []\n"),
+            )]
+        };
+        for declaration in reported {
+            let classes = vec![class_from("c", declaration)];
+            let c = list_declaration_invalid(&classes);
+            assert_eq!(c.violations.len(), 1, "{declaration}: {c:#?}");
+            assert!(c.violations[0].detail.starts_with("`xs` "), "{c:#?}");
+            assert!(
+                property_type(&xs("[7, {z: 1}]"), &classes, &NONE).passed(),
+                "{declaration}"
+            );
+            assert_eq!(
+                property_type(&xs("seven"), &classes, &NONE)
+                    .violations
+                    .len(),
+                1
+            );
+        }
+        for declaration in [
+            "properties:\n  - name: xs\n    type: list\n",
+            "properties:\n  - name: xs\n    type: list\n    items: claim\n",
+            "properties:\n  - name: xs\n    type: list\n    fields:\n      - { name: a, type: span }\n",
+            // `items:` off a list is carried and ignored, as `values:` is off a string.
+            "properties:\n  - name: xs\n    type: string\n    items: quotation\n",
+        ] {
+            let classes = vec![class_from("c", declaration)];
+            assert!(list_declaration_invalid(&classes).passed(), "{declaration}");
         }
     }
 

@@ -208,7 +208,7 @@ toml = "1.1"
 regorus = { version = "0.13", default-features = false, features = ["arc", "ast", "regex"] }
 # Parity SDK — reference implementations of classify_commit etc.; the CLI
 # must not re-implement the parity surface (see yidam/sdks/parity/README.md).
-yidam-core = { path = "../sdks/rust", version = "0.11.0" }
+yidam-core = { path = "../sdks/rust", version = "0.12.0" }
 
 # ── `vector-read` (default) — semantic index build, and the vector arm of the
 #    MCP server's `retrieve`. Not `serve` itself: that answers every tool

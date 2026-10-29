@@ -150,6 +150,7 @@ pub const UNTAGGED: &str = "edge-untagged";
 pub const VERIFIED_UNSOURCED: &str = "edge-verified-unsourced";
 pub const STANDING_UNHELD: &str = "edge-standing-unheld";
 pub const SOURCE_UNRESOLVED: &str = "edge-source-unresolved";
+pub const ENTRY_SOURCE_UNRESOLVED: &str = "entry-source-unresolved";
 
 /// What a `source:` may name — everything this repository holds that an edge can rest on.
 ///
@@ -195,6 +196,98 @@ impl Held {
                 .iter()
                 .any(|p| self.catalog_paths.contains(p))
     }
+}
+
+/// Every non-blank `source` an evidenced entry writes, with the entry's address — the
+/// entries of a `list` whose record declares a `claim` field, read off the claim-field paths
+/// [`crate::claims::declared_claim_fields`] writes (RFC-0050).
+///
+/// One function for both readers of the population, `entry-source-unresolved` and the
+/// citation count, so an entry whose standing is counted, an entry whose source is resolved
+/// and an entry whose source cites are one set.
+pub(crate) fn entry_sources(
+    claim_paths: &[String],
+    properties: Option<&serde_yaml::Mapping>,
+) -> Vec<(String, String)> {
+    let mut lists: Vec<&str> = claim_paths
+        .iter()
+        .filter_map(|p| crate::claims::entry_field(p).map(|(list, _)| list))
+        .collect();
+    lists.dedup();
+    let mut out = Vec::new();
+    for list in lists {
+        let Some(serde_yaml::Value::Sequence(entries)) = properties.and_then(|p| p.get(list))
+        else {
+            continue;
+        };
+        for (i, entry) in entries.iter().enumerate() {
+            let Some(source) = entry
+                .get(ENTRY_SOURCE_KEY)
+                .and_then(serde_yaml::Value::as_str)
+            else {
+                continue;
+            };
+            let source = source.trim();
+            if !source.is_empty() {
+                out.push((format!("`{list}` item {}", i + 1), source.to_string()));
+            }
+        }
+    }
+    out
+}
+
+/// The key an evidenced entry names what it rests on under — a link's, for a link's reason.
+const ENTRY_SOURCE_KEY: &str = "source";
+
+/// `entry-source-unresolved`: an evidenced entry's `source` names nothing held (RFC-0050).
+///
+/// `edge-source-unresolved` for an entry, through the same [`Held`] — so a name one check
+/// resolves the other resolves, and `catalog-uncited` counts both. An entry is *evidenced*
+/// when its record declares a `claim` field: that is the entry saying it has a standing, and
+/// a standing rests on a source. The population is empty until a corpus declares one, so no
+/// corpus that has not asked for this is held to it.
+pub fn entry_source_unresolved(
+    nodes: &[Node],
+    fields: &crate::claims::ClaimFields,
+    sources: &[Source],
+    decisions: &[DecisionRecord],
+    catalog: &Path,
+) -> Check {
+    let held = Held::build(sources, decisions, catalog);
+    let violations = nodes
+        .iter()
+        .flat_map(|n| {
+            entry_sources(
+                fields.for_class(&super::checks::class_of(n)),
+                n.inst.properties.as_ref(),
+            )
+            .into_iter()
+            .filter(|(_, source)| !held.resolves(n, source))
+            .map(|(at, source)| {
+                Violation::new(
+                    &n.rel,
+                    format!(
+                        "{at} names `source: {source}`, which is no catalog entry and no \
+                             decision record — name a catalog entry by its file stem or by a \
+                             path from this node, or a decision record by its `id:`"
+                    ),
+                )
+            })
+            .collect::<Vec<_>>()
+        })
+        .collect();
+    Check::new(
+        ENTRY_SOURCE_UNRESOLVED,
+        "Evidenced list entry names a source this repository does not hold",
+        Severity::Error,
+        "An entry of a `list` whose record declares a `claim` field carries its own standing, \
+         and a standing rests on a source. Its `source` is resolved as a link's `source:` is: a \
+         catalog entry by its file stem or by a path from the node, or a decision record by its \
+         `id:`. A name that resolves to nothing cites nothing, whatever standing sits beside \
+         it. A blank `source` is not checked, and a list whose record declares no `claim` \
+         field is not read at all (RFC-0050).",
+        violations,
+    )
 }
 
 /// What a link's `claim_tag` spells.
@@ -1005,6 +1098,44 @@ mod tests {
             let (_, _, _, unresolved) = run_all(&sourced(Some("verified"), source), "", &[]);
             assert!(unresolved.is_empty(), "{source}: {unresolved:?}");
         }
+    }
+
+    /// RFC-0050: an evidenced entry's `source` resolves as an edge's does, through the same
+    /// [`Held`] — and only an evidenced entry's. A list whose record declares no `claim` field
+    /// has said nothing about standing, and its `source` key is the corpus's own business.
+    #[test]
+    fn an_evidenced_entrys_source_resolves_as_an_edges_does() {
+        let tmp = tempfile::tempdir().unwrap();
+        let node = tmp.path().join(".yidam/corpus/pathway/fares.yml");
+        std::fs::create_dir_all(node.parent().unwrap()).unwrap();
+        std::fs::write(
+            &node,
+            "class: pathway\nlabel: Fares\nproperties:\n  effects:\n    - label: short\n      claim_tag: verified\n      source: a-record\n    - label: long\n      claim_tag: open\n      source: a-recrod\n    - label: none\n      source: \"  \"\n  notes:\n    - source: nowhere\nlinks: []\n",
+        )
+        .unwrap();
+        let nodes = crate::corpus::load_nodes(tmp.path(), &[node], &Overlay::default());
+        let catalog = tmp.path().join(".yidam/catalog");
+        std::fs::create_dir_all(&catalog).unwrap();
+        let entry = catalog.join("a-record.md");
+        std::fs::write(&entry, "---\nobtained: true\n---\nA record.\n").unwrap();
+        let sources = crate::corpus::load_sources(tmp.path(), &[entry], &Overlay::default());
+        let run = |paths: &[&str]| {
+            let fields = crate::claims::ClaimFields::from_declarations([(
+                "pathway".to_string(),
+                paths.iter().map(|p| (*p).to_string()).collect(),
+            )]);
+            entry_source_unresolved(&nodes, &fields, &sources, &[], &catalog)
+        };
+        let c = run(&["claim_tag", "effects[].claim_tag"]);
+        assert_eq!(c.violations.len(), 1, "{c:#?}");
+        assert!(
+            c.violations[0]
+                .detail
+                .starts_with("`effects` item 2 names `source: a-recrod`"),
+            "{c:#?}"
+        );
+        // No entry path, no evidenced list: nothing is read, `notes` included.
+        assert!(run(&["claim_tag"]).passed());
     }
 
     /// The finding the issue is about: an entry that was renamed, or never existed, cited as

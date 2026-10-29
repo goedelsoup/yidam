@@ -115,10 +115,10 @@ sourceClasses(classes) : Set<string>
 
 OntologyProperty
   name        : string
-  type        : string             — string | text | date | number | ref | claim | quotation,
-                                     or a type this corpus coined, which is carried through
-                                     unconstrained. A quotation is {of, span, sha256?}, or a
-                                     non-empty list of them
+  type        : string             — string | text | date | number | ref | claim | quotation
+                                     | list, or a type this corpus coined, which is carried
+                                     through unconstrained. A quotation is {of, span, sha256?},
+                                     or a non-empty list of them. A list is a non-empty array
   description : string
   required    : boolean            — must every instance carry it? absent means false
   unit        : string             — what a number is written in; empty is dimensionless.
@@ -127,6 +127,12 @@ OntologyProperty
   values      : string[]           — the closed set a string may hold; empty is unbounded.
                                      Declaring it closes it: the gate reports a value outside
                                      it, and the schema carries it as enum, a constraint
+  items       : string             — on a list: the scalar type every item has, one of
+                                     string | text | ref | date | number | claim. The
+                                     list's values and unit apply to each item
+  fields      : OntologyProperty[] — on a list: the record every item is, closed against
+                                     keys it does not name. Exclusive with items; both, or
+                                     a field typed list or quotation, compiles to true
 
 OntologyEdge
   relationship : string

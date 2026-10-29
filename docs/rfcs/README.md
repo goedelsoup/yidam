@@ -80,6 +80,7 @@ re-deriving it.
 | [0047](0047-sealed-domain-articles.md) | I34 | A domain article is sealed by the genesis commit | Implemented |
 | [0048](0048-source-packs.md) | I35 | A source is named by what it is, and fetched by something the corpus did not write (source packs) | Implemented |
 | [0049](0049-warehouse-contract.md) | I36 | The ontology is the schema a pipeline loads, and the semantic layer reads (warehouse contract and the `textql` export) | Draft |
+| [0050](0050-list-property-type.md) | G14 | A list property type — scalar items, and records that carry their own standing | Draft |
 
 ## Reading order
 

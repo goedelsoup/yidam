@@ -18,6 +18,10 @@ from typing import Any
 
 import yaml
 
+#: The types an ``items:`` may name, and a record field may have (RFC-0050). ``list`` is
+#: out because no corpus nests one; ``quotation`` because it already takes a list of itself.
+LIST_ITEM_TYPES = ("string", "text", "ref", "date", "number", "claim")
+
 #: The evidence tokens a ``claim`` property may hold, in both spellings.
 #:
 #: Bare is what a typed vocabulary stores; bracketed is what a corpus writes after being
@@ -35,8 +39,8 @@ CLAIM_TOKENS = [
 @dataclass
 class OntologyProperty:
     name: str
-    #: ``string``, ``text``, ``date``, ``number``, ``ref``, ``claim`` — or a type this
-    #: corpus coined.
+    #: ``string``, ``text``, ``date``, ``number``, ``ref``, ``claim``, ``quotation``,
+    #: ``list`` — or a type this corpus coined.
     type: str = ""
     description: str = ""
     #: The unit a ``number`` is written in, or empty for a dimensionless quantity.
@@ -59,6 +63,12 @@ class OntologyProperty:
     #: Defaulting to ``True`` would require a declaration nobody made, in every derived
     #: repository at once. It is what lets ``missing-property`` gate at all.
     required: bool = False
+    #: The scalar type every item of a ``list`` has, or empty (RFC-0050). ``values:`` and
+    #: ``unit:`` on the list apply to each item. Carried and ignored off ``list``.
+    items: str = ""
+    #: The fields of the record every item of a ``list`` is, or empty. Closed the way a
+    #: class's property bag is; a ``claim`` field is the entry's standing, not the node's.
+    fields: list[OntologyProperty] = field(default_factory=list)
 
 
 @dataclass
@@ -142,6 +152,23 @@ def _strings(value: Any) -> tuple[str, ...]:
     return tuple(item for item in value if isinstance(item, str))
 
 
+def _properties(value: Any) -> list[OntologyProperty]:
+    """Every mapping is a property, and a key of the wrong shape reads as absent."""
+    return [
+        OntologyProperty(
+            name=_str(p.get("name")),
+            type=_str(p.get("type")),
+            description=_str(p.get("description")),
+            required=p.get("required") is True,
+            unit=_str(p.get("unit")),
+            values=_strings(p.get("values")),
+            items=_str(p.get("items")),
+            fields=_properties(p.get("fields")),
+        )
+        for p in _mappings(value)
+    ]
+
+
 def parse_class(name: str, content: str) -> OntologyClass:
     """Read a class definition. ``name`` is the fallback when the file does not name itself.
 
@@ -161,17 +188,7 @@ def parse_class(name: str, content: str) -> OntologyClass:
         name=declared or name,
         label=_str(doc.get("label")),
         description=_str(doc.get("description")),
-        properties=[
-            OntologyProperty(
-                name=_str(p.get("name")),
-                type=_str(p.get("type")),
-                description=_str(p.get("description")),
-                required=p.get("required") is True,
-                unit=_str(p.get("unit")),
-                values=_strings(p.get("values")),
-            )
-            for p in _mappings(doc.get("properties"))
-        ],
+        properties=_properties(doc.get("properties")),
         edges=[
             OntologyEdge(
                 relationship=_str(e.get("relationship")),
@@ -184,7 +201,57 @@ def parse_class(name: str, content: str) -> OntologyClass:
     )
 
 
-def _property_schema(property_type: str, values: tuple[str, ...]) -> Any:
+def _property_schema(p: OntologyProperty) -> Any:
+    if p.type == "list":
+        return _list_schema(p)
+    return _scalar_schema(p.type, p.values)
+
+
+def _annotated_schema(p: OntologyProperty) -> Any:
+    """A property's schema with its ``description`` and ``unit`` as annotations."""
+    body = _property_schema(p)
+    if isinstance(body, dict):
+        if p.description:
+            body = {**body, "description": p.description}
+        if p.unit:
+            body = {**body, "x-yidam-unit": p.unit}
+    return body
+
+
+def _list_schema(p: OntologyProperty) -> Any:
+    """A ``list`` (RFC-0050): a non-empty array, of one scalar type or one closed record.
+
+    A declaration the gate reports — ``items:`` and ``fields:`` together, or either naming a
+    type it refuses — compiles to ``True``: the gate constrains nothing under it.
+    """
+    schema: dict[str, Any] = {"type": "array", "minItems": 1}
+    if p.items and p.fields:
+        return True
+    if p.items:
+        if p.items not in LIST_ITEM_TYPES:
+            return True
+        # One tag per item: the one-or-a-list tolerance is the property's, not an item's.
+        if p.items == "claim":
+            schema["items"] = {"enum": list(CLAIM_TOKENS)}
+        else:
+            schema["items"] = _scalar_schema(p.items, p.values)
+    elif p.fields:
+        if any(f.type in ("list", "quotation") for f in p.fields):
+            return True
+        record: dict[str, Any] = {
+            "type": "object",
+            "properties": {f.name: _annotated_schema(f) for f in p.fields},
+        }
+        required = [f.name for f in p.fields if f.required]
+        if required:
+            record["required"] = required
+        # Closed, as the class's own bag is: `property-type` reports a key no field names.
+        record["additionalProperties"] = False
+        schema["items"] = record
+    return schema
+
+
+def _scalar_schema(property_type: str, values: tuple[str, ...]) -> Any:
     """Mirrors ``lint``'s ``property-type`` check, including what it declines to check.
 
     A type the corpus coined for itself compiles to ``True`` — valid against anything —
@@ -259,13 +326,7 @@ def compile_class_schema(cls: OntologyClass) -> dict[str, Any]:
     if cls.properties:
         declared: dict[str, Any] = {}
         for p in cls.properties:
-            body = _property_schema(p.type, p.values)
-            if isinstance(body, dict):
-                if p.description:
-                    body = {**body, "description": p.description}
-                if p.unit:
-                    body = {**body, "x-yidam-unit": p.unit}
-            declared[p.name] = body
+            declared[p.name] = _annotated_schema(p)
         bag: dict[str, Any] = {"type": "object", "properties": declared}
         # Emitted for exactly the properties declared `required: true`, and omitted
         # entirely when there are none — an empty `required: []` would be a different

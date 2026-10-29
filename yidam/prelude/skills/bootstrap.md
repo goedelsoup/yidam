@@ -500,7 +500,7 @@ description: |
   <one sentence — what this class of thing is and why it is irreducible>
 properties:
   - name: <field>
-    type: string | date | ref | text
+    type: string | date | ref | text | number | claim | list
     description: <one line>
 edges:
   - relationship: <verb phrase>

@@ -22,6 +22,8 @@ fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
                 prose: false,
                 values: vec![],
                 retrievable: false,
+                items: String::new(),
+                fields: vec![],
             })
             .collect(),
         edges: edges

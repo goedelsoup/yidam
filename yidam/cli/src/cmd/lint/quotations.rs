@@ -226,6 +226,28 @@ impl<'a> Declared<'a> {
             .map(|q| q.of)
             .collect()
     }
+
+    /// Every `source` an evidenced list entry of an instance of `class` writes (RFC-0050).
+    ///
+    /// Here rather than beside the claim readers because this is what the citation count
+    /// holds the ontology through: an entry's `source` is a citation for the reason an
+    /// edge's is, and only a class declaration can say which lists are evidenced.
+    pub(crate) fn entry_sources(
+        &self,
+        class: &str,
+        inst: &crate::parse::CorpusInstance,
+    ) -> Vec<String> {
+        let Some(class) = self.classes.get(class) else {
+            return Vec::new();
+        };
+        super::edge_claims::entry_sources(
+            &crate::claims::declared_claim_fields(class),
+            inst.properties.as_ref(),
+        )
+        .into_iter()
+        .map(|(_, source)| source)
+        .collect()
+    }
 }
 
 /// A media type whose bytes are text a span can be found in.

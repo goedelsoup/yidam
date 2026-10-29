@@ -631,7 +631,7 @@ because history cannot be rewritten to fix it.~~
 >   corpus. The `corpus = .yidam/**` reading above is a counterfactual that no declaration
 >   produces.
 > - **`regen` is not the export.** Its vocabulary row says
->   *"REGEN blocks refreshed"* ([`GRAPH.md:694`](../../yidam/prelude/GRAPH.md#L694)). Of the 278 `regen` commits that
+>   *"REGEN blocks refreshed"* ([`GRAPH.md:699`](../../yidam/prelude/GRAPH.md#L699)). Of the 278 `regen` commits that
 >   reach outside `.yidam/`, 267 touch only files that carry a REGEN block. Nearly all of
 >   those are the root `README.md`, which is corpus under the shipped rules. Of the other
 >   eleven, ten are allen-county-ohio's writes to `web/src/feeds/*.json`, and those ten are the
@@ -809,7 +809,7 @@ The slot has two halves and only one can be built:
   naming the state rather than leaving a blank to be invented twice — and the only prose the
   model has about coverage today is one unenforceable sentence about the `scope` verb:
   *"a negative result about coverage is the only durable record that the coverage was checked"*
-  ([`GRAPH.md:667-668`](../../yidam/prelude/GRAPH.md#L667-L668)).
+  ([`GRAPH.md:672-673`](../../yidam/prelude/GRAPH.md#L672-L673)).
 
 **#578 is unscheduled, on the record.** No track in the current iteration carries it. Two
 conditions would schedule it, either sufficing: a second series-completing corpus appears at a
@@ -917,7 +917,7 @@ by that file's own comments.
 
 | Prohibited | Because | Instead |
 |---|---|---|
-| Add a commit verb | The *"closed vocabulary of leading verbs"* ([`GRAPH.md:626`](../../yidam/prelude/GRAPH.md#L626)) is what makes `log --epistemic` decidable, and `classify_commit` is a parity function pinned by fixtures in three SDKs | Declare a **subset** and gloss it. A needed-and-absent verb is evidence for #292, not a patch |
+| Add a commit verb | The *"closed vocabulary of leading verbs"* ([`GRAPH.md:631`](../../yidam/prelude/GRAPH.md#L631)) is what makes `log --epistemic` decidable, and `classify_commit` is a parity function pinned by fixtures in three SDKs | Declare a **subset** and gloss it. A needed-and-absent verb is evidence for #292, not a patch |
 | Add or alter a claim standing | Article V reads the standings as a total order when it licenses lowering a claim at resolution ([`CONSTITUTION.md:72-76`](../../yidam/prelude/CONSTITUTION.md#L72-L76)) | Nothing. This is constitutional |
 | Contradict Articles I–VI | Article I — the prelude is not subject to resolution, and a kuten is vendored prelude | A domain extension appended at genesis, which the constitution already provides for |
 | Change the graph encoding | Files are nodes, links are edges, commits are events. This is the premise, not a policy | Nothing |
@@ -954,7 +954,7 @@ constitutional finding with a stated ground, not a scoping convenience.
 
 1. **RFC-0020, for findings:** a proposal is legal iff it carries what a finding or a corpus
    declaration already said — `transport`'s licence
-   ([`GRAPH.md:675`](../../yidam/prelude/GRAPH.md#L675)): *carriage and not synthesis,
+   ([`GRAPH.md:680`](../../yidam/prelude/GRAPH.md#L680)): *carriage and not synthesis,
    which is what makes it legal outside a resolution event*, because carrying introduces no
    node, edge or claim its author did not hold.
 2. **RFC-0026, for executions:** a run authors operational commits directly; every epistemic

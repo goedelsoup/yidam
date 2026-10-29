@@ -187,6 +187,7 @@ const sidebar = [
       { slug: 'rfcs/0047-sealed-domain-articles', label: '0047 · A domain article is sealed by the genesis commit' },
       { slug: 'rfcs/0048-source-packs', label: '0048 · A source is named by what it is (source packs)' },
       { slug: 'rfcs/0049-warehouse-contract', label: '0049 · Warehouse contract' },
+      { slug: 'rfcs/0050-list-property-type', label: '0050 · A list property type' },
     ],
   },
   {

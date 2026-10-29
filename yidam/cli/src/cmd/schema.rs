@@ -150,6 +150,35 @@ pub fn corpus_node_schema() -> Value {
     })
 }
 
+/// One field of a `list`'s record (RFC-0050): a property declaration without the flags
+/// that are about a node — `prose`, `retrievable` — and without a nested list or quotation,
+/// which `list-declaration-invalid` refuses. Not recursive for that reason.
+fn list_field_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "name": non_empty_string(),
+            "type": {
+                "type": "string",
+                "enum": yidam_core::ontology::LIST_ITEM_TYPES,
+            },
+            "description": { "type": "string" },
+            "required": {
+                "type": "boolean",
+                "default": false,
+                "description": "Whether every item carries this field."
+            },
+            "unit": { "type": "string" },
+            "values": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+            }
+        },
+        "required": ["name", "type"],
+        "additionalProperties": false
+    })
+}
+
 /// Schema for a class definition — `.yidam/corpus/<class>.ont.yml`.
 pub fn corpus_ontology_schema() -> Value {
     json!({
@@ -191,7 +220,7 @@ pub fn corpus_ontology_schema() -> Value {
                         "name": non_empty_string(),
                         "type": {
                             "type": "string",
-                            "enum": ["string", "date", "number", "ref", "text", "claim", "quotation"],
+                            "enum": ["string", "date", "number", "ref", "text", "claim", "quotation", "list"],
                             "description": "`claim` marks a property whose value IS an \
                                             evidence tag — `verified`, `inference`, or \
                                             `open` — rather than prose that mentions one. \
@@ -203,7 +232,32 @@ pub fn corpus_ontology_schema() -> Value {
                                             `quotation` marks a value that is a verbatim \
                                             span of a catalogued document, written \
                                             `{of, span, sha256?}`; lint holds the span to \
-                                            the artifact's cached bytes (RFC-0046)."
+                                            the artifact's cached bytes (RFC-0046). \
+                                            `list` marks a value that is a non-empty list, \
+                                            of the scalar `items:` names or of the record \
+                                            `fields:` declares (RFC-0050)."
+                        },
+                        "items": {
+                            "type": "string",
+                            "enum": yidam_core::ontology::LIST_ITEM_TYPES,
+                            "description": "The type every item of a `list` has. The list's \
+                                            `values:` and `unit:` apply to each item. \
+                                            Exclusive with `fields:`, and meaningful on \
+                                            `list` only."
+                        },
+                        "fields": {
+                            "type": "array",
+                            "items": list_field_schema(),
+                            "description": "The fields of the record every item of a `list` \
+                                            is, in the grammar a property is declared in. \
+                                            Declaring one closes the record: `property-type` \
+                                            reports an item key no field names, as \
+                                            `undeclared-property` reports an instance key no \
+                                            property names. A `claim` field is the standing \
+                                            of the entry, not of the node, and an entry with \
+                                            one resolves its `source` key as a link's \
+                                            `source:` resolves. Exclusive with `items:`, and \
+                                            meaningful on `list` only."
                         },
                         "description": non_empty_string(),
                         "required": {
@@ -505,7 +559,7 @@ pub fn corpus_universal_schema() -> Value {
                         },
                         "type": {
                             "type": "string",
-                            "enum": ["string", "date", "number", "ref", "text", "claim", "quotation"],
+                            "enum": ["string", "date", "number", "ref", "text", "claim", "quotation", "list"],
                             "description": "Universal does not mean untyped — `property-type` \
                                             checks these exactly as it checks a class's own, \
                                             and a class naming the same property wins."
@@ -845,6 +899,10 @@ pub fn class_schemas(root: &Path) -> Vec<(String, String, Value)> {
                             .to_string(),
                         unit: String::new(),
                         values: vec![],
+                        // `items:` and `fields:` are read from class files only (RFC-0050):
+                        // `universal.yml` maps a name to a bare type.
+                        items: String::new(),
+                        fields: vec![],
                         // A universal is never required. `universal.yml` has no `required`
                         // field to say so with, and a property declared for EVERY class
                         // that every instance must also carry would gate the whole corpus
@@ -889,6 +947,8 @@ fn with_pattern_properties(schema: &mut Value, universal: &crate::universal::Uni
                         .to_string(),
                     unit: String::new(),
                     values: vec![],
+                    items: String::new(),
+                    fields: vec![],
                     // A *pattern* is a permission, not a demand — the name is not even
                     // known until an instance writes one. Requiring it is not expressible
                     // and would not mean anything if it were.

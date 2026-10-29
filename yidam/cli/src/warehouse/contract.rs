@@ -282,8 +282,10 @@ fn class_table(class: &Class, refusals: &mut Vec<String>) -> (Table, Vec<Table>)
                     ),
                 });
             }
-            // Prose and standing, not facts: the Markdown layer carries them (§2.1).
-            "claim" | "quotation" => {}
+            // Prose and standing, not facts: the Markdown layer carries them (§2.1). A list
+            // is several values and a column holds one; a child table is RFC-0049's to
+            // design, and until it is, the list is carried where the claims are (RFC-0050).
+            "claim" | "quotation" | "list" => {}
             "" => refusals.push(format!(
                 "{at} declares no `type:`; the contract cannot choose a column type for it"
             )),
@@ -555,8 +557,10 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn claims_and_quotations_get_no_column() {
-        for ty in ["claim", "quotation"] {
+    fn claims_quotations_and_lists_get_no_column() {
+        // `list` was a refusal until RFC-0050 read the type: `demi-moore`'s coined one
+        // failed the whole contract over two properties a column cannot hold anyway.
+        for ty in ["claim", "quotation", "list"] {
             let t = table(&one_property(ty), "thing").clone();
             assert!(t.columns.iter().all(|c| c.name != "p"), "{ty}");
             assert_eq!(t.columns.len(), PROVENANCE.len(), "{ty}");

@@ -55,8 +55,8 @@ pub struct OntologyClass {
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct OntologyProperty {
     pub name: String,
-    /// `string`, `text`, `date`, `number`, `ref`, `claim`, `quotation` — or a type this corpus coined,
-    /// which is carried through and left unconstrained.
+    /// `string`, `text`, `date`, `number`, `ref`, `claim`, `quotation`, `list` — or a type this
+    /// corpus coined, which is carried through and left unconstrained.
     #[serde(default, rename = "type")]
     pub property_type: String,
     #[serde(default)]
@@ -101,7 +101,76 @@ pub struct OntologyProperty {
     /// on the second reading asserts a contract the ontology never wrote.
     #[serde(default)]
     pub required: bool,
+    /// The scalar type every item of a `list` has — `string`, `date`, `claim` — or empty.
+    ///
+    /// **A list declares what its items are in one of two ways, or not at all** (RFC-0050):
+    /// `items:` names one scalar type, and [`Self::fields`] declares a record. `values:` and
+    /// `unit:` on the list apply to each item. Carried and ignored off `list`.
+    #[serde(default)]
+    pub items: String,
+    /// The fields of the record every item of a `list` is, or empty.
+    ///
+    /// Declared in the grammar a class's own properties use, and closed the way a class's
+    /// property bag is: a key no field names is reported, once any field is named. A `claim`
+    /// field is the standing of the entry, not of the node that holds it.
+    ///
+    /// **Read leniently, one field at a time.** Deserialising this with the derive would let
+    /// one wrongly shaped field empty the whole class, where the Python and TypeScript
+    /// readers keep every mapping and blank the key they cannot read; a parity fixture holds
+    /// all three to the second.
+    #[serde(default, deserialize_with = "lenient_fields")]
+    pub fields: Vec<OntologyProperty>,
 }
+
+/// `fields:` as the other two SDKs read it: every mapping is a field, a key of the wrong
+/// shape reads as absent, and anything that is not a list declares none.
+fn lenient_fields<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<OntologyProperty>, D::Error> {
+    let value = <serde_yaml::Value as serde::Deserialize>::deserialize(d)?;
+    Ok(lenient_properties(&value))
+}
+
+fn lenient_properties(value: &serde_yaml::Value) -> Vec<OntologyProperty> {
+    let Some(items) = value.as_sequence() else {
+        return Vec::new();
+    };
+    let str_of = |m: &serde_yaml::Mapping, k: &str| {
+        m.get(k)
+            .and_then(serde_yaml::Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    items
+        .iter()
+        .filter_map(serde_yaml::Value::as_mapping)
+        .map(|m| OntologyProperty {
+            name: str_of(m, "name"),
+            property_type: str_of(m, "type"),
+            description: str_of(m, "description"),
+            unit: str_of(m, "unit"),
+            values: m
+                .get("values")
+                .and_then(serde_yaml::Value::as_sequence)
+                .map(|v| {
+                    v.iter()
+                        .filter_map(|i| i.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            required: m.get("required").and_then(serde_yaml::Value::as_bool) == Some(true),
+            items: str_of(m, "items"),
+            fields: m.get("fields").map(lenient_properties).unwrap_or_default(),
+        })
+        .collect()
+}
+
+/// The types an `items:` may name, and a record field may have (RFC-0050).
+///
+/// Everything a value can be on its own. `list` is out because no corpus nests one, and
+/// `quotation` because it already takes a list of itself — and, as a field, because the
+/// quotation reader matches only top-level keys, so a nested one would go unchecked.
+pub const LIST_ITEM_TYPES: [&str; 6] = ["string", "text", "ref", "date", "number", "claim"];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct OntologyEdge {
@@ -220,7 +289,82 @@ pub fn parse_class(name: &str, content: &str) -> OntologyClass {
 /// admitted one would be looser than the check it exists to be no stricter than. The set is
 /// written as declared — no sorting, no trimming — so the three compilers cannot come apart
 /// on a normalisation none of them was asked for.
-fn property_schema(property_type: &str, values: &[String]) -> Value {
+fn property_schema(property: &OntologyProperty) -> Value {
+    if property.property_type == "list" {
+        return list_schema(property);
+    }
+    scalar_schema(&property.property_type, &property.values)
+}
+
+/// A declared property's schema with its `description` and `unit` riding along as
+/// annotations, as a class's own properties and a record's fields both carry them.
+fn annotated_schema(property: &OntologyProperty) -> Value {
+    let mut schema = property_schema(property);
+    if let Value::Object(map) = &mut schema {
+        if !property.description.is_empty() {
+            map.insert("description".into(), json!(property.description));
+        }
+        if !property.unit.is_empty() {
+            map.insert("x-yidam-unit".into(), json!(property.unit));
+        }
+    }
+    schema
+}
+
+/// A `list` (RFC-0050): a non-empty array, of one scalar type or of one closed record.
+///
+/// A declaration the gate reports — `items:` and `fields:` together, or either naming a
+/// type outside [`LIST_ITEM_TYPES`] — compiles to `true`, because the gate constrains
+/// nothing under a declaration it refused, and a schema that did would be stricter than it.
+/// A bare `list` checks only the array, which is what the one corpus that coined the type
+/// before it existed relies on.
+fn list_schema(property: &OntologyProperty) -> Value {
+    let item_type = |t: &str| LIST_ITEM_TYPES.contains(&t);
+    let items = match (property.items.as_str(), property.fields.as_slice()) {
+        ("", []) => None,
+        (t, []) if item_type(t) => Some(match t {
+            // One tag per item: the one-or-a-list tolerance is the property's, not an item's.
+            "claim" => json!({ "enum": CLAIM_TOKENS }),
+            t => scalar_schema(t, &property.values),
+        }),
+        ("", fields) if !fields.iter().any(reported_field) => {
+            let mut declared = Map::new();
+            for f in fields {
+                declared.insert(f.name.clone(), annotated_schema(f));
+            }
+            let mut record = Map::new();
+            record.insert("type".into(), json!("object"));
+            record.insert("properties".into(), Value::Object(declared));
+            let required: Vec<Value> = fields
+                .iter()
+                .filter(|f| f.required)
+                .map(|f| json!(f.name))
+                .collect();
+            if !required.is_empty() {
+                record.insert("required".into(), Value::Array(required));
+            }
+            // Closed, as the class's own bag is: `property-type` reports a key no field names.
+            record.insert("additionalProperties".into(), json!(false));
+            Some(Value::Object(record))
+        }
+        _ => return Value::Bool(true),
+    };
+    let mut schema = Map::new();
+    schema.insert("type".into(), json!("array"));
+    schema.insert("minItems".into(), json!(1));
+    if let Some(items) = items {
+        schema.insert("items".into(), items);
+    }
+    Value::Object(schema)
+}
+
+/// Whether the gate refuses a field's type: `list` and `quotation` are named and refused.
+/// A type the corpus coined is carried, as it is at class level, and compiles to `true`.
+fn reported_field(field: &OntologyProperty) -> bool {
+    matches!(field.property_type.as_str(), "list" | "quotation")
+}
+
+fn scalar_schema(property_type: &str, values: &[String]) -> Value {
     match property_type {
         "string" if !values.is_empty() => {
             json!({ "type": "string", "minLength": 1, "enum": values })
@@ -316,16 +460,7 @@ pub fn compile_class_schema(class: &OntologyClass) -> Value {
     if !class.properties.is_empty() {
         let mut declared = Map::new();
         for p in &class.properties {
-            let mut schema = property_schema(&p.property_type, &p.values);
-            if let Value::Object(map) = &mut schema {
-                if !p.description.is_empty() {
-                    map.insert("description".into(), json!(p.description));
-                }
-                if !p.unit.is_empty() {
-                    map.insert("x-yidam-unit".into(), json!(p.unit));
-                }
-            }
-            declared.insert(p.name.clone(), schema);
+            declared.insert(p.name.clone(), annotated_schema(p));
         }
         let mut bag = Map::new();
         bag.insert("type".into(), json!("object"));
