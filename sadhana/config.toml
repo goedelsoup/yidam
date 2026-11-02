@@ -141,8 +141,18 @@
 [index]
 # The embedding model this corpus is indexed with. Read by `index-build`, which the light
 # build does not carry — a binary that cannot act on this still parses it rather than
-# rejecting the file.
-# model = "BAAI/bge-small-en-v1.5"
+# rejecting the file. Absent is the default shown.
+# model = "Xenova/all-MiniLM-L6-v2"
+
+# How `index-build` runs the model on this machine. Absent, each is what fastembed chooses:
+# 256 records per batch, one thread per logical core, no session entries. A smaller batch
+# holds less in memory and reports progress more often. Its vectors differ slightly from a
+# build at another batch size, because the default model quantizes with one scale per batch.
+# `threads = 0` lets ONNX Runtime choose, as Python `onnxruntime` does. `session_options`
+# passes ONNX Runtime session config entries through unread.
+# batch_size      = 64
+# threads         = 0
+# session_options = { "mlas.disable_kleidiai" = "1" }
 
 # The vector index this corpus publishes to and can be queried out of. One index holds one
 # vector space, so every corpus sharing it must be embedded with the same model. Never a
