@@ -101,9 +101,19 @@ impl Runtime {
     }
 }
 
-/// The batch `index-build` uses when `[index] batch_size` names none: fastembed's own, so an
-/// index built without the key is the one it would have been before the key existed.
-pub const DEFAULT_BATCH_SIZE: usize = 256;
+/// The batch `index-build` uses when `[index] batch_size` names none: one record per call,
+/// which is how every query is embedded (#1428).
+///
+/// The default model quantizes its activations with one scale over the whole input, padding
+/// included, so in a batch of 256 a record's vector depended on the 255 beside it. An index
+/// built that way was in a slightly different space from the queries searching it — on 1,808
+/// records, a median cosine of 0.994 to the same text embedded alone, and a record used as its
+/// own query kept 92% of its top ten on average and 40% at worst. It also moved when a record
+/// was added or renamed, because that reshuffled the batches after it.
+///
+/// One at a time costs nothing that was measured: no padding to the longest record meant 23s
+/// instead of 43s, and a peak of 0.2 GB resident instead of 12 GB.
+pub const DEFAULT_BATCH_SIZE: usize = 1;
 
 /// Embed `texts` a batch at a time, calling `progress(done, total)` after each.
 ///
@@ -234,6 +244,25 @@ mod tests {
         assert_eq!(reported, [(3, 7), (6, 7), (7, 7)]);
         let order: Vec<f32> = out.iter().map(|v| v[0]).collect();
         assert_eq!(order, [0., 1., 2., 3., 4., 5., 6.]);
+    }
+
+    /// With no `batch_size` set, every record reaches the model alone, the way a query does
+    /// (#1428). A default above one puts the index in a different space from its queries.
+    #[test]
+    fn the_default_embeds_each_record_alone() {
+        let texts: Vec<String> = (0..5).map(|i| i.to_string()).collect();
+        let mut sizes = Vec::new();
+        embed_in_batches(
+            &texts,
+            DEFAULT_BATCH_SIZE,
+            |batch| {
+                sizes.push(batch.len());
+                Ok(batch.iter().map(|_| vec![0.]).collect())
+            },
+            |_, _| {},
+        )
+        .unwrap();
+        assert_eq!(sizes, [1, 1, 1, 1, 1]);
     }
 
     /// A zero batch would loop on nothing; it is refused by name instead.
