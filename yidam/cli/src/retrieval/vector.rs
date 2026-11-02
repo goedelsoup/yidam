@@ -53,7 +53,7 @@ pub(crate) fn search(
     if embedder.is_none() {
         let (model, _, _) = crate::embedding::resolve_model(&index.model_id)
             .map_err(|e| format!("resolving embedding model: {e}"))?;
-        let mut loaded = crate::embedding::load(model)
+        let mut loaded = crate::embedding::load(model, &Default::default())
             .map_err(|e| format!("loading embedding model {}: {e:#}", index.model_id))?;
 
         // The witness, checked here and not by a command someone remembers to run.

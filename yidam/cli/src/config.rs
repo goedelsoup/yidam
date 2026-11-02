@@ -393,6 +393,28 @@ fn default_vault() -> String {
 pub struct IndexConfig {
     #[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
     pub model: Option<String>,
+    /// Records `index-build` hands the model per call, and so how often it reports progress.
+    ///
+    /// Absent is fastembed's own batch of 256, which is what every index before this key was
+    /// built with. A smaller batch holds less in memory at once, and it **moves the vectors**:
+    /// the default model quantizes its activations with one scale per batch, so a record's
+    /// vector depends on what it was batched with. Batch 64 against 256, on 1,808 records,
+    /// gave a lowest cosine of 0.987 (#1427). `threads` and `session_options` moved none.
+    #[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
+    pub batch_size: Option<usize>,
+    /// ONNX Runtime intra-op threads for `index-build` (#1427).
+    ///
+    /// Absent is fastembed's choice: one per logical core. `0` hands the choice to ONNX
+    /// Runtime itself, which is what Python `onnxruntime` does by default.
+    #[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
+    pub threads: Option<usize>,
+    /// ONNX Runtime session configuration entries for `index-build`, passed through unread.
+    ///
+    /// For the settings with no key of their own here. #1427's was
+    /// `mlas.disable_kleidiai = "1"`, for a build that stalled in KleidiAI's SME kernels.
+    #[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
+    #[serde(default)]
+    pub session_options: BTreeMap<String, String>,
     /// The vector index this corpus publishes to and can be queried out of (RFC-0033).
     ///
     /// **Not feature-gated, and for the reason the `[lint]` note above gives about its own

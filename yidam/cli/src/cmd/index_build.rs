@@ -1,4 +1,6 @@
-use crate::embedding::{resolve_model, DEFAULT_MODEL};
+use crate::embedding::{
+    embed_in_batches, resolve_model, Runtime, DEFAULT_BATCH_SIZE, DEFAULT_MODEL,
+};
 use anyhow::{Context, Result};
 use arrow_array::{FixedSizeListArray, Float32Array, RecordBatch, StringArray};
 use arrow_ipc::writer::FileWriter;
@@ -65,12 +67,12 @@ pub fn index_build(model_arg: Option<String>) -> Result<()> {
     }
 
     // Model resolution: CLI arg → .yidam/config.toml → default
-    let model_name = if let Some(m) = model_arg {
-        m
-    } else {
-        let cfg = load_yidam_config(&root)?;
-        cfg.index.model.unwrap_or_else(|| DEFAULT_MODEL.to_string())
-    };
+    let cfg = load_yidam_config(&root)?;
+    let model_name = model_arg
+        .or_else(|| cfg.index.model.clone())
+        .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+    let runtime = Runtime::from_config(&cfg.index);
+    let batch_size = cfg.index.batch_size.unwrap_or(DEFAULT_BATCH_SIZE);
 
     let (embedding_model, embedding_dim, model_file) = resolve_model(&model_name)?;
 
@@ -121,11 +123,26 @@ pub fn index_build(model_arg: Option<String>) -> Result<()> {
     println!("Initializing model ({model_name})…");
     println!("  (first run downloads model weights)");
 
-    let mut model = crate::embedding::load(embedding_model.clone())?;
+    let mut model = crate::embedding::load(embedding_model.clone(), &runtime)?;
 
     let texts: Vec<String> = records.iter().map(|r| r.text.clone()).collect();
-    println!("Embedding {} texts…", texts.len());
-    let embeddings = model.embed(texts, None)?;
+    println!(
+        "Embedding {} texts (batch: {batch_size}, {})…",
+        texts.len(),
+        runtime.describe()
+    );
+    let started = std::time::Instant::now();
+    let embeddings = embed_in_batches(
+        &texts,
+        batch_size,
+        |batch| Ok(model.embed(batch, Some(batch_size))?),
+        |done, total| {
+            println!(
+                "  embedded {done}/{total} ({:.1}s)",
+                started.elapsed().as_secs_f64()
+            )
+        },
+    )?;
 
     // Encoded before the old index is removed, so a failure here leaves that one standing.
     let ipc_bytes = encode_corpus_arrow(&records, &embeddings, embedding_dim)?;
