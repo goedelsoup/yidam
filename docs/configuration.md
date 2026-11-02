@@ -366,24 +366,28 @@ is `Xenova/all-MiniLM-L6-v2`.
 
 ### `[index] batch_size`, `threads`, `session_options`
 
-How `index-build` runs the model on this machine. Each one left out is fastembed's default.
+How `index-build` runs the model on this machine.
 
 | Key | Absent | Set |
 |---|---|---|
-| `batch_size` | 256 records per call | Records per call, and how often progress prints |
+| `batch_size` | 1 record per call | Records per call, and how often progress prints |
 | `threads` | One per logical core | ONNX Runtime intra-op threads; `0` lets ONNX Runtime choose |
 | `session_options` | No entries | ONNX Runtime session config entries, passed through unread |
 
 ```toml
 [index]
-batch_size      = 64
+batch_size      = 1
 threads         = 0
 session_options = { "mlas.disable_kleidiai" = "1" }
 ```
 
-`batch_size` changes the vectors slightly. The default model quantizes with one scale per batch.
-So a record's vector depends on what shares its batch. `threads` and `session_options` left the
-vectors unchanged when measured. Queries always embed with the defaults.
+Leave `batch_size` at 1. The default model quantizes with one scale per batch. In a larger
+batch, a record's vector depends on what shares its batch. It then drifts from the query
+vectors, which are always embedded alone (#1428). Batch 256 was also slower when measured. It
+used 12 GB of memory where batch 1 used 0.2 GB.
+
+`threads` and `session_options` left the vectors unchanged when measured. Queries always embed
+with the defaults.
 
 ### `[object] paths`
 

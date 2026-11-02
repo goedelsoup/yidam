@@ -144,13 +144,13 @@
 # rejecting the file. Absent is the default shown.
 # model = "Xenova/all-MiniLM-L6-v2"
 
-# How `index-build` runs the model on this machine. Absent, each is what fastembed chooses:
-# 256 records per batch, one thread per logical core, no session entries. A smaller batch
-# holds less in memory and reports progress more often. Its vectors differ slightly from a
-# build at another batch size, because the default model quantizes with one scale per batch.
+# How `index-build` runs the model on this machine. Absent: one record per call, one thread
+# per logical core, no session entries. One record per call embeds each record the way a query
+# is embedded. A larger batch makes each vector depend on the records batched with it, because
+# the default model quantizes with one scale per batch, and was slower when measured.
 # `threads = 0` lets ONNX Runtime choose, as Python `onnxruntime` does. `session_options`
 # passes ONNX Runtime session config entries through unread.
-# batch_size      = 64
+# batch_size      = 1
 # threads         = 0
 # session_options = { "mlas.disable_kleidiai" = "1" }
 

@@ -395,11 +395,11 @@ pub struct IndexConfig {
     pub model: Option<String>,
     /// Records `index-build` hands the model per call, and so how often it reports progress.
     ///
-    /// Absent is fastembed's own batch of 256, which is what every index before this key was
-    /// built with. A smaller batch holds less in memory at once, and it **moves the vectors**:
-    /// the default model quantizes its activations with one scale per batch, so a record's
-    /// vector depends on what it was batched with. Batch 64 against 256, on 1,808 records,
-    /// gave a lowest cosine of 0.987 (#1427). `threads` and `session_options` moved none.
+    /// Absent is one: each record embedded alone, as a query is (#1428). Anything larger
+    /// **moves the vectors**: the default model quantizes its activations with one scale per
+    /// batch, so a record's vector depends on what it was batched with and drifts from the
+    /// space queries are embedded in. It was also slower and larger when measured. See
+    /// `embedding::DEFAULT_BATCH_SIZE`. `threads` and `session_options` move none.
     #[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
     pub batch_size: Option<usize>,
     /// ONNX Runtime intra-op threads for `index-build` (#1427).
