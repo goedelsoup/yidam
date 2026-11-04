@@ -31,7 +31,7 @@ absolute: **TypeScript may compute affordances; only the CLI may compute verdict
 
 The derived-repo scaffold is explicit about what a contributor must run before committing —
 `mise run graph-check`, `mise run graph-lint`, `mise run regen`
-([`sadhana/root/CLAUDE.md`](../../sadhana/root/CLAUDE.md)) — and CI re-runs all three plus the
+([`sadhana/root/AGENTS.md`](../../sadhana/root/AGENTS.md)) — and CI re-runs all three plus the
 commit-vocabulary check and a REGEN staleness diff
 ([`sadhana/github/workflows/ci.yml`](../../sadhana/github/workflows/ci.yml), the `corpus` job).
 That is a correct gate and a poor feedback loop. A contributor writes a node, links it to a

@@ -18,7 +18,8 @@
 //! gets one from the pair of commands, without anybody writing YAML.
 //!
 //! In `CLAUDE.md` it is the run of sections from `## The short version` through the last of the
-//! template's headings. An owner's own section *between* two of the template's refuses, because
+//! template's headings, which a re-vendor then replaces with the scaffold's import of
+//! `AGENTS.md`. An owner's own section *between* two of the template's refuses, because
 //! wrapping it would hand it to the re-vendor. An owner's section after them stays outside.
 //! A `CLAUDE.md` with none of the template's headings is the owner's whole, and is left alone:
 //! two of seventeen derivations wrote their own, and an empty region there would put a second
@@ -46,7 +47,12 @@ const CLAUDE_CLOSE: &str = "<!-- /YIDAM:CLAUDE -->";
 /// The jobs that are yidam's, in the order the scaffold writes them.
 pub(crate) const GATE_JOBS: &[&str] = &["privacy", "corpus"];
 
-/// The template's `CLAUDE.md` headings. The first is where the region starts.
+/// The template's `CLAUDE.md` headings, as every derivation made before the region existed
+/// carries them. The first is where the region starts.
+///
+/// The scaffold no longer writes them: its region is now one import of `AGENTS.md`. They stay
+/// because they are what tells a template `CLAUDE.md` from an owner's in a repository that has
+/// never been migrated, and those files do not change because the scaffold did.
 const TEMPLATE_HEADINGS: &[&str] = &[
     "## The short version",
     "## Before writing",
@@ -469,18 +475,40 @@ jobs:
         assert_eq!(inside, GATE_JOBS);
     }
 
+    /// The region a re-vendor writes is the import of `AGENTS.md`, so a derivation keeps one
+    /// working contract and `CLAUDE.md` cannot drift from it.
     #[test]
-    fn the_scaffold_claude_region_opens_at_the_first_template_heading() {
+    fn the_scaffold_claude_region_imports_agents_md() {
         let text = scaffold("sadhana/root/CLAUDE.md");
         let open = text.find(CLAUDE_OPEN).unwrap();
-        let first = text.find(TEMPLATE_HEADINGS[0]).unwrap();
-        assert!(open < first);
-        for h in TEMPLATE_HEADINGS {
-            let at = text
-                .find(h)
-                .unwrap_or_else(|| panic!("the scaffold has no `{h}`"));
-            assert!(at > open && at < text.find(CLAUDE_CLOSE).unwrap(), "{h}");
-        }
+        let close = text.find(CLAUDE_CLOSE).unwrap();
+        let region = &text[open..close];
+        assert!(
+            region.lines().any(|l| l.trim() == "@../AGENTS.md"),
+            "the scaffold's CLAUDE.md region does not import AGENTS.md:\n{region}"
+        );
+        assert!(
+            !TEMPLATE_HEADINGS.iter().any(|h| region.contains(h)),
+            "the scaffold's CLAUDE.md region carries a section of its own again:\n{region}"
+        );
+    }
+
+    /// The headings name something real: the template `CLAUDE.md` an unmigrated derivation
+    /// still has, kept as a fixture because the scaffold stopped writing it. The first opens
+    /// the run, which is where [`wrap_claude`] starts the region.
+    #[test]
+    fn the_template_headings_are_the_pre_region_template_s() {
+        let text = scaffold("yidam/cli/tests/fixtures/scaffold/claude-before-regions.md");
+        let at: Vec<usize> = TEMPLATE_HEADINGS
+            .iter()
+            .map(|h| {
+                text.find(h)
+                    .unwrap_or_else(|| panic!("the pre-region template has no `{h}`"))
+            })
+            .collect();
+        assert!(at.windows(2).all(|w| w[0] < w[1]), "{at:?}");
+        assert!(claude_is_template(&text));
+        assert!(!claude_has_region(&text));
     }
 
     /// `yidam-vendor-update` stays quiet about a `CLAUDE.md` with none of these headings, by a

@@ -134,8 +134,8 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// the heaviest because it reads the whole class contract, 2,621 words, and the contract is rule
 /// all the way down: its lead alone is 327 and says nothing about properties.
 ///
-/// `sadhana/root/AGENTS.md` is exactly 1,194 words heavier on every occasion, because the route
-/// file itself is: 1,920 words against the template's 726. The equal difference is the control
+/// `sadhana/root/AGENTS.md` is exactly 918 words heavier on every occasion, because the route
+/// file itself is: 1,644 words against the template's 726. The equal difference is the control
 /// that the two routes read the same sections. The reference list at the bottom of each route
 /// is not charged. It is what an occasion *not* named here reads, and none of these do.
 ///
@@ -215,6 +215,11 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// `GRAPH.md`**: the paragraph naming `items:`, `fields:` and an entry's standing, and
 /// "top-level" in the standing sentence. The argument is in `GRAPH.evidence.md` and charged to
 /// [`PAIR_FLOOR`].
+///
+/// **Lowered by 276 on every occasion of the derived route when `CLAUDE.md` was folded into
+/// `AGENTS.md`.** The scaffold's `CLAUDE.md` now imports `AGENTS.md` instead of summarising it,
+/// and the summary and the conduct norms it repeated became one section. The delta is all in
+/// the route file, so all five moved by the same 276.
 const READ_CEILING: &[(&str, &str, usize)] = &[
     ("AGENTS.md", "Before you write or revise a node", 6_742),
     ("AGENTS.md", "Before you run a phase", 4_606),
@@ -228,16 +233,16 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
     (
         "sadhana/root/AGENTS.md",
         "Before you write or revise a node",
-        7_936,
+        7_660,
     ),
-    ("sadhana/root/AGENTS.md", "Before you run a phase", 5_800),
+    ("sadhana/root/AGENTS.md", "Before you run a phase", 5_524),
     (
         "sadhana/root/AGENTS.md",
         "Before a claim crosses a corpus boundary",
-        5_692,
+        5_416,
     ),
-    ("sadhana/root/AGENTS.md", "Before you change a class", 6_258),
-    ("sadhana/root/AGENTS.md", "Before you retrieve", 4_183),
+    ("sadhana/root/AGENTS.md", "Before you change a class", 5_982),
+    ("sadhana/root/AGENTS.md", "Before you retrieve", 3_907),
 ];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
