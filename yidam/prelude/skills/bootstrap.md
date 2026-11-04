@@ -858,10 +858,11 @@ operations and stage the result directly:
 ```
 mkdir -p .yidam/.vendor
 mv yidam/prelude .yidam/.vendor/prelude
+rm -r .yidam/.vendor/prelude/skills
 ```
 
-`yidam/sdks/` is not part of the prelude and is not vendored. A derived repository builds none
-of it, so it goes with the rest of `yidam/`.
+Neither `yidam/sdks/` nor this skill is vendored. A derived repository builds none of the
+first and never runs the second; `yidam-vendor-update` drops both.
 
 **Then vendor the domain libraries this corpus asked for, and none other.** `yidam/domains/`
 is fifteen domain libraries in three languages each, beside the prelude rather than inside it.

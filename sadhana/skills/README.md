@@ -1,8 +1,7 @@
 # skills
 
-Domain-specific skills available to agents in this repository. Generic skills inherited
-from yidam live in [`.yidam/.vendor/prelude/skills/`](../.vendor/prelude/skills/); skills that require
-knowledge of this domain's corpus or toolkit live here.
+Domain-specific skills available to agents in this repository: the ones that require
+knowledge of this domain's corpus or toolkit. The prelude ships none to a derived repository.
 
 <!-- TEMPLATE
 List the named skills expected to be invoked in this domain, with a one-line description
@@ -35,9 +34,3 @@ Fields per skill: name, filename, status, description.
 -->
 _Run `yidam skills-index` to populate._
 <!-- /REGEN -->
-
-## Inherited from prelude
-
-| Skill | Purpose |
-|---|---|
-| [`bootstrap`](../.vendor/prelude/skills/bootstrap.md) | Repository initialization |

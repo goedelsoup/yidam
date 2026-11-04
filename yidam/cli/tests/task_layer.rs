@@ -942,6 +942,56 @@ fn a_re_vendor_leaves_no_sdks_in_the_prelude() {
     }
 }
 
+/// A re-vendor drops the bootstrap skill, and only it, from the prelude.
+///
+/// The skill made the repository and is never run in it again, so genesis leaves it out; a
+/// re-vendor copies the prelude whole and has to leave it out too. Nothing else under
+/// `skills/` may go with it: a prelude skill written for derived repositories would sit there.
+#[test]
+fn a_re_vendor_drops_the_bootstrap_skill_and_nothing_else() {
+    let fragment = vendor_fragment("VENDOR-PRELUDE");
+
+    for other_skill in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let tmp = dir.path().join("tmp");
+        let repo = dir.path().join("repo");
+        let upstream = tmp.join("yidam/yidam/prelude");
+        std::fs::create_dir_all(upstream.join("skills")).unwrap();
+        std::fs::write(upstream.join("GRAPH.md"), "graph").unwrap();
+        std::fs::write(upstream.join("skills/bootstrap.md"), "bootstrap").unwrap();
+        std::fs::write(upstream.join("skills/bootstrap.evidence.md"), "evidence").unwrap();
+        std::fs::create_dir_all(&repo).unwrap();
+        if other_skill {
+            std::fs::write(upstream.join("skills/kept.md"), "kept").unwrap();
+        }
+
+        run_fragment(&fragment, &repo, &tmp);
+
+        let prelude = repo.join(".yidam/.vendor/prelude");
+        for gone in ["skills/bootstrap.md", "skills/bootstrap.evidence.md"] {
+            assert!(!prelude.join(gone).exists(), "{gone} survived a re-vendor");
+        }
+        if other_skill {
+            assert_eq!(
+                std::fs::read_to_string(prelude.join("skills/kept.md")).unwrap(),
+                "kept",
+                "a skill other than bootstrap must survive"
+            );
+        } else {
+            assert!(
+                !prelude.join("skills").exists(),
+                "an emptied skills/ must not be left behind"
+            );
+        }
+        // A fragment that deleted the prelude would pass the lines above.
+        assert_eq!(
+            std::fs::read_to_string(prelude.join("GRAPH.md")).unwrap(),
+            "graph",
+            "the rest of the prelude must still be copied"
+        );
+    }
+}
+
 /// The `[tools]` entry is derived from the pin, and touches nothing else in the file.
 ///
 /// `.yidam.toml` pins a **commit**; a mise `[tools]` entry names a **version**. VERSIONING.md

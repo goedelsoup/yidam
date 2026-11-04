@@ -202,6 +202,11 @@ pub const MAPPING: &[Install] = &[
         dst: Some(".yidam/.vendor/domains"),
         when: Some(DOMAIN_SELECTED),
     },
+    // The bootstrap skill and its evidence: the procedure that made a repository, which a
+    // made one never runs again. Step 8 drops them after vendoring and `yidam-vendor-update`
+    // never brings them back, so nothing installed may link to them. Before the prelude row,
+    // because the first matching row wins.
+    row("yidam/prelude/skills", None),
     // The vendored prelude. One directory, deliberately: everything else under `yidam/`
     // is yidam's own machinery and does not survive the vendor step.
     row("yidam/prelude", Some(".yidam/.vendor/prelude")),

@@ -5,8 +5,7 @@ One sentence naming the domain, so an agent knows what it is working on immediat
 -->
 
 This is a yidam-derived repository: a living knowledge artifact whose git history is the
-knowledge graph. It has already been bootstrapped — there is no bootstrap mode here, and
-`.yidam/.vendor/prelude/skills/bootstrap.md` is history, not an instruction.
+knowledge graph. It has already been bootstrapped, and there is no bootstrap mode here.
 
 Read [AGENTS.md](../AGENTS.md) before taking substantive action. It names the prelude files
 that govern conduct here and the gate that CI runs.

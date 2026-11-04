@@ -721,6 +721,11 @@ cp -R "$tmp/yidam/yidam/prelude" .yidam/.vendor/prelude
 # they sit beside the prelude (#1311). A ref from before the move carries them
 # inside it; never leave them in the copy.
 rm -rf .yidam/.vendor/prelude/sdks
+# The bootstrap skill made this repository and is never run in it again; genesis drops
+# it, and so does every update. Only those two files: a prelude skill meant for derived
+# repositories would sit beside them and must survive.
+rm -f .yidam/.vendor/prelude/skills/bootstrap.md .yidam/.vendor/prelude/skills/bootstrap.evidence.md
+rmdir .yidam/.vendor/prelude/skills 2>/dev/null || true
 # VENDOR-PRELUDE END
 # ── the domain libraries, and the choice this repository already made ─
 #
