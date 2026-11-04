@@ -314,7 +314,15 @@ Beyond that, each phase golden-fixtures its output where output is a contract:
 
    `yidam/tests/harness/ci-report/series-branch-README.md` is committed to that branch and
    carries the reasoning where somebody who lands on it will read it.
-2. **Which surfaces are inside the adherence lint?** P4 discovers consumers by token reference,
+2. ~~**Which surfaces are inside the adherence lint?**~~ **Settled 2026-11-04 in #591: the
+   webview is in scope, and it keeps the split it already has.** Colour and type come from the
+   editor's theme (`--vscode-*`), so the panel follows whatever theme the reader chose. Geometry
+   (`--space-*`, `--radius-*`, `--border-base`) comes from this repository's palette, so the panel
+   is spaced like every other surface. Measured at settlement, the webview's palette references
+   are geometry only: no palette colour is used. The `HOST_PREFIXES` exemption stays, with the
+   cost stated below. The thread that follows is kept as the record of how the question narrowed.
+
+   P4 discovers consumers by token reference,
    which is correct for CSS and JSX and says nothing about the VS Code extension, whose colors come
    from the editor's own theme API. Is a webview in scope? It renders in this repository's design
    language and cannot use its tokens directly. Moved to **#591**, which owns the answer.

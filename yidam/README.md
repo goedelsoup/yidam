@@ -24,7 +24,7 @@ particular field, corpus, or ontology. The domain lives in `corpus/`, `agents/`,
 | `sdks/` | Bindings to the prelude model in Rust, TypeScript, and Python; the parity harness; formal specifications |
 | `cli/` | The `yidam` CLI — corpus analysis, linting, indexing, export, MCP and LSP servers |
 | `editors/` | The editor surfaces: `serve --lsp` for any LSP client, and the VS Code extension |
-| `tests/` | Bootstrap test harness and rubric |
+| `tests/` | Bootstrap test harness and rubric (experimental, not a gate) |
 | `design/` | Design system and UI kits for the web surfaces |
 | `web/docs/` | The Astro/Starlight docs site, rendering the template's `docs/` |
 
@@ -84,6 +84,8 @@ verdicts the CLI computes and neither re-derives them — see
 The Rust test harness runs bootstrap scenarios against the judge rubric in `tests/rubric.md`.
 Each scenario in `tests/scenarios/` describes an agent run; the harness evaluates the outcome
 against rubric criteria. See [HARNESS.md](tests/HARNESS.md) for authoring scenarios.
+
+The harness is experimental and is not a gate. See [HARNESS.md](tests/HARNESS.md#status) for why.
 
 ## Lifecycle
 

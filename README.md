@@ -140,7 +140,7 @@ proper needs the `.vsix` from a GitHub release. To work *on* either surface, see
 |---|---|
 | [`yidam/prelude/`](yidam/prelude/) | The inherited model: scripture, identity, graph model, constitution, phases, conduct guidelines, skills, SDKs |
 | [`yidam/cli/`](yidam/cli/) | The `yidam` binary — corpus analysis, linting, indexing, export, MCP server |
-| [`yidam/tests/`](yidam/tests/) | Bootstrap test harness — scenarios scored against a judge [rubric](yidam/tests/rubric.md) |
+| [`yidam/tests/`](yidam/tests/) | Bootstrap test harness (experimental, not a gate) — scenarios scored against a judge [rubric](yidam/tests/rubric.md) |
 | [`yidam/design/`](yidam/design/) | Design system and UI kits for the web surfaces |
 | [`yidam/web/docs/`](yidam/web/docs/) | Astro/Starlight docs site, rendering `docs/` — published at [goedelsoup.github.io/yidam](https://goedelsoup.github.io/yidam/) |
 | [`sadhana/`](sadhana/) | The scaffold copied into derived repos — directory shape, README stubs, root files, CI |
