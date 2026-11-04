@@ -16,4 +16,4 @@ It contains:
 - **[Guidelines](guidelines/)** — behavioral norms, how to read the corpus, and directory conventions for agents operating in the graph
 - **[Kuten](kuten/README.md)** — the form a practice takes, and the profiles a corpus may adopt
 - **[Policy](policy/)** — the default Rego disclosure policy, the same bytes the binary runs
-- **[Skills](skills/)** — the bootstrap skill; after genesis it is history, not an instruction
+- **Skills** — `skills/` holds the bootstrap skill, which genesis and every update leave out of a derived repository

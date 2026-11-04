@@ -5,8 +5,7 @@ One sentence naming the domain, so an agent knows what it is working on immediat
 -->
 
 This is a yidam-derived repository: a living knowledge artifact whose git history is the
-knowledge graph. It has already been bootstrapped — there is no bootstrap mode here, and
-`.yidam/.vendor/prelude/skills/bootstrap.md` is history, not an instruction.
+knowledge graph. It has already been bootstrapped, and there is no bootstrap mode here.
 
 <!-- YIDAM:CLAUDE -->
 <!-- Written by yidam-vendor-update from the yidam scaffold; do not edit. Everything down to
