@@ -423,11 +423,11 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
-    /// What is due? The four clocks, read together, on a schedule.
+    /// What is due? The five clocks, read together, on a schedule.
     ///
     /// Index staleness, a catalog entry's TTL, how long a question has gone unanswered,
-    /// and how long a phase has been in flight. Each had a home and none said it was
-    /// time.
+    /// how long a phase has been in flight, and which nodes cite a source that has since
+    /// changed. Each had a home and none said it was time.
     ///
     /// **What is due is not what is wrong.** A corpus with three expired sources is not
     /// unhealthy, it is owed — so this exits zero however much is due, and `yidam doctor`
@@ -435,7 +435,7 @@ enum Command {
     /// nonzero, for a scheduled job that wants a signal.
     ///
     /// Every interval is declared by the corpus, never compiled in: `[catalog] ttl_days`
-    /// for sources, `[due]` for the other three. A clock with no interval reports what it
+    /// for sources, `[due]` for the other four. A clock with no interval reports what it
     /// measured and never comes due. Read-only and offline.
     Due {
         #[command(flatten)]
@@ -448,7 +448,7 @@ enum Command {
     },
     /// Where is this repository in its loop, and what is the next act?
     ///
-    /// One report in four halves: what is **owed** (`due`'s four clocks), what is **in
+    /// One report in four halves: what is **owed** (`due`'s five clocks), what is **in
     /// flight** (the unsettled inquiry refs `phases` lists), what is **blocked** (what
     /// `lint`'s ratchet and `graph-check` would fail on today), and what is **next**.
     ///

@@ -7,7 +7,7 @@ It does not contain knowledge directly — knowledge lives in the corpus. Sangha
 mechanism by which multiple participants resolve their positions into a shared graph.
 
 All resolution events are governed by the [prelude constitution](../.vendor/prelude/CONSTITUTION.md).
-Domain-specific procedure is defined in this repo's `sangha/PROTOCOL.md`, but the
+Domain-specific procedure is defined in this repo's `.yidam/sangha/PROTOCOL.md`, but the
 constitutional articles are invariant — `PROTOCOL.md` may not contradict them.
 
 ## The ref path store
@@ -82,6 +82,8 @@ Files here are protocol documents only — not knowledge:
 - `PROTOCOL.md` — the resolution algorithm for this repo's sangha (varies by domain)
 - `resolutions/` — records of past resolution events: what was resolved, from which tips, what remained open
 - `electors.md` — the current recognized participants: agents and humans with `ma/*` branches
+- `positions/` — one elector's stated position on one question, written before a resolution
+  reads it; see [positions/](positions/README.md)
 - `commitments/` — per seat, on that seat's own branch: what it currently holds, what it has
   withdrawn, and which of its own positions argued each. Never transported; see
   [commitments/](commitments/README.md)

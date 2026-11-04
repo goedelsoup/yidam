@@ -16,7 +16,7 @@ cannot disagree with them.
 
 | Half | What it is |
 |---|---|
-| `owed` | four clocks — index staleness, a source past its TTL, how long a question has gone unanswered, how long a phase has been in flight |
+| `owed` | five clocks — index staleness, a source past its TTL, how long a question has gone unanswered, how long a phase has been in flight, which nodes cite a source that has since changed |
 | `in_flight` | the unsettled inquiry refs |
 | `blocked` | what a gate would fail on **today** |
 | `next` | one act per half, each carrying the finding, clock or declaration behind it |
@@ -37,8 +37,9 @@ says so there — that is a supported state, not a gap to fill in.
 
 ## Second call: discharge what you can
 
-**One of the four clocks is dischargeable by a tool at all.** A source past its TTL is; the index
-wants a build, and an unanswered question and a phase in flight both want a person. Deciding a
+**One of the five clocks is dischargeable by a tool at all.** A source past its TTL is; the index
+wants a build, and an unanswered question, a phase in flight and a node citing a changed source
+all want a person. Deciding a
 question is answered is a resolution event, and no tool performs one.
 
 For that one, `propose` drafts the commits the corpus's own findings license. Three verbs —

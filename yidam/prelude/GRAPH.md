@@ -16,7 +16,7 @@ and it is not part of the recurring read.
 | File | Knowledge node — a concept, document, artifact, or relation |
 | Commit | Knowledge event — an addition, revision, or synthesis |
 | Commit message | Event description — what changed and why |
-| Link (`[label](path)`) | Edge — an explicit relationship from one node to another |
+| A `links:` entry | Edge — a typed relationship from one node to another |
 | Branch | Parallel inquiry thread — speculative or in-progress |
 | Merge commit | Synthesis — two threads of knowledge joined |
 | Tag | Stable checkpoint — a named state of the graph |
@@ -44,10 +44,10 @@ Node types are distinguished by directory, not by filename:
 
 | Directory | Node type | What it represents |
 |---|---|---|
-| `corpus/` | Knowledge node | A concept, relation, artifact, or open question in the domain |
-| `catalog/` | Source node | A data source — dataset, paper, API, external knowledge base |
+| `.yidam/corpus/<class>/` | Knowledge node | A concept, relation, artifact, or open question in the domain |
+| `.yidam/catalog/` | Source node | A data source — dataset, paper, API, external knowledge base |
 
-Corpus nodes represent derived knowledge; catalog nodes represent its provenance. An edge
+Corpus nodes represent derived knowledge; catalog nodes represent its provenance. A link
 from a corpus node to a catalog node reads as "this concept draws on this source." Catalog
 nodes do not contain derived knowledge — only enough to locate and characterize the source.
 
@@ -77,11 +77,11 @@ is unsettled; the `?` says the node **is** the question.
 
 ## Edges
 
-Edges are explicit markdown references: `[label](path)`. An agent reading the graph can
-follow edges to traverse related knowledge.
+An edge is a `links:` entry: a `target:` relative to the node's file, and a
+`relationship:` its class declares. A link in prose cites; it is not an edge.
 
-Edges are **directional** — the file containing the reference is the source node, the
-referenced file is the target. Bidirectional relationships require a reference in both files.
+Edges are **directional**, written once, read from both ends: `query` walks one backwards
+as `<-rel-`.
 
 ## The class contract
 

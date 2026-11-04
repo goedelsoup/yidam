@@ -138,14 +138,14 @@ yidam estimate 'reach -measured-by-> gage'
   a context pack                   1596        399
 ```
 
-The traversal costs the machine what an answer costs and costs you a few hundred bytes. Run it
+The traversal costs the machine what an answer costs and you a few hundred bytes. Run it
 before a `pack` you are not sure will fit.
 
 ## Where each one belongs in the loop
 
 | Step | Command |
 |---|---|
-| What is owed? | `yidam due` — index staleness, catalog TTL, unanswered questions, phases in flight |
+| What is owed? | `yidam due` — stale index, expired or superseded sources, open questions, open phases |
 | Where is the gap? | `yidam query` on the class you suspect, and read the **absence** |
 | What is around this node? | `yidam neighbors <node>` |
 | How are these two connected? | `yidam query --paths <a> <b>` |

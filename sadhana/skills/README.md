@@ -6,7 +6,7 @@ knowledge of this domain's corpus or toolkit live here.
 
 <!-- TEMPLATE
 List the named skills expected to be invoked in this domain, with a one-line description
-of each. The bootstrap will create stub files for them.
+of each. Mark one `status: stub` until an agent can follow it.
 
 Example:
 - **hypothesis-assessment** — evaluates a named hypothesis against the current corpus

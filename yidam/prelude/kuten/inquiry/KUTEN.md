@@ -88,8 +88,8 @@ forbids numbers chosen to fit.
 
 The quantities are still measured and reported under `measurement`; nothing judges them. What
 would replace them is an age-invariant statistic — accretion over a trailing window, or a curve
-with distance from it reported instead of a box — and choosing between those needs the
-eighteen-corpus re-measurement #288 is for.
+with distance from it reported instead of a box — and choosing between those needs a
+re-measurement across the derived corpora, which `yidam cohort` now takes.
 
 ## The direction of the arrow
 

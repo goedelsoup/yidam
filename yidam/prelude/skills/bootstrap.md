@@ -367,7 +367,7 @@ Then read each template file in `sadhana/`:
   `sadhana/root/PRACTICE.md`
 - `sadhana/config.toml`
 - every file in `sadhana/github/workflows/` — run `ls sadhana/github/workflows/` and read
-  each one; do not assume a fixed list (#589)
+  each one; do not assume a fixed list
 - `sadhana/sangha/README.md` (and PROTOCOL.md, electors.md, resolutions/, positions/) —
   **only if `governance: collective`**; skip these five reads entirely in single-elector mode
 
@@ -494,8 +494,8 @@ foundational_type:           # omit this field entirely if alignment is "none"
   iri: <url>                 # optional — the IRI that type has in that ontology, e.g.
                              #   BFO: http://purl.obolibrary.org/obo/BFO_0000002
                              #   UFO: https://purl.org/nemo/gufo#Relator
-                             # `export-rdf` emits it as skos:exactMatch. Omit it if you have
-                             # not looked it up; the alignment still exports without it.
+                             # `export --format rdf` emits it as skos:exactMatch. Omit it if you
+                             # have not checked it; the alignment exports without it.
 description: |
   <one sentence — what this class of thing is and why it is irreducible>
 properties:
@@ -876,7 +876,7 @@ for d in <selected> README.md parity; do mv "yidam/domains/$d" .yidam/.vendor/do
 
 `prelude_domains` is also what `mise run yidam-vendor-update` reads: it copies exactly the
 named domains into `.yidam/.vendor/domains/` on every update. Write the field even when it is
-empty, because the empty list is a decision and the task reads it as one (#808).
+empty, because the empty list is a decision and the task reads it as one.
 
 **Then vendor the packs `prelude_sources` pins, the same way**, appending the record
 `yidam-vendor-update` writes: the pin as spelled there, and `origin` and `commit` from
