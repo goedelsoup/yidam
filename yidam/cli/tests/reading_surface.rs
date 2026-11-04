@@ -16,9 +16,9 @@
 //!
 //! # Why the assertion is about the *derived* contract
 //!
-//! `sadhana/root/AGENTS.md` and `sadhana/root/CLAUDE.md` are what a derived repository
-//! actually gets; this repository's own `AGENTS.md` is read by people maintaining the
-//! template. Checking the second would pass while every derived repository stayed silent,
+//! `sadhana/root/AGENTS.md` is what a derived repository actually gets, and
+//! `sadhana/root/CLAUDE.md` imports it whole, so the one file reaches every harness; this
+//! repository's own `AGENTS.md` is read by people maintaining the template. Checking the second would pass while every derived repository stayed silent,
 //! which is precisely the state that was measured.
 //!
 //! # Narrow on purpose
@@ -50,13 +50,23 @@ fn read(rel: &str) -> String {
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{} is unreadable ({e})", p.display()))
 }
 
-/// What a derived repository is handed: its root contract and the short version beside it.
+/// What a derived repository is handed. `CLAUDE.md` carries none of it as text: it imports
+/// this file, which [`claude_md_imports_the_contract`] holds it to.
 fn derived_contract() -> String {
-    format!(
-        "{}\n{}",
-        read("sadhana/root/AGENTS.md"),
-        read("sadhana/root/CLAUDE.md")
-    )
+    read("sadhana/root/AGENTS.md")
+}
+
+/// The import is the only route from `CLAUDE.md`, the one file Claude Code loads unasked, to
+/// everything this file checks. Without it every other assertion here passes while a Claude
+/// session reads none of it.
+#[test]
+fn claude_md_imports_the_contract() {
+    let claude = read("sadhana/root/CLAUDE.md");
+    assert!(
+        claude.lines().any(|l| l.trim() == "@../AGENTS.md"),
+        "sadhana/root/CLAUDE.md no longer imports AGENTS.md, so the reading surface it names \
+         never reaches a Claude session"
+    );
 }
 
 #[test]
@@ -69,7 +79,7 @@ fn the_derived_repo_contract_names_every_retrieval_command() {
         .collect();
     assert!(
         missing.is_empty(),
-        "a derived repository's AGENTS.md and CLAUDE.md name none of: {missing:?}\n\
+        "a derived repository's AGENTS.md names none of: {missing:?}\n\
          That is the state #726 measured — 62,276 `yidam` invocations and zero runs of the \
          reading surface, because nothing an authoring agent reads had ever mentioned it."
     );
@@ -81,10 +91,6 @@ fn the_guideline_is_linked_from_both_contracts() {
     for (file, needle) in [
         (
             "sadhana/root/AGENTS.md",
-            "prelude/guidelines/reading-the-corpus.md",
-        ),
-        (
-            "sadhana/root/CLAUDE.md",
             "prelude/guidelines/reading-the-corpus.md",
         ),
         (
@@ -108,11 +114,7 @@ fn the_guideline_is_linked_from_both_contracts() {
 /// reason to switch.
 #[test]
 fn the_guidance_names_what_it_is_displacing() {
-    for file in [
-        "sadhana/root/AGENTS.md",
-        "sadhana/root/CLAUDE.md",
-        GUIDELINE,
-    ] {
+    for file in ["sadhana/root/AGENTS.md", GUIDELINE] {
         assert!(
             read(file).contains("grep"),
             "{file} recommends the reading surface without naming `grep`, which is what the \

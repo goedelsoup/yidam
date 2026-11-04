@@ -8,51 +8,14 @@ This is a yidam-derived repository: a living knowledge artifact whose git histor
 knowledge graph. It has already been bootstrapped — there is no bootstrap mode here, and
 `.yidam/.vendor/prelude/skills/bootstrap.md` is history, not an instruction.
 
-Read [AGENTS.md](../AGENTS.md) before taking substantive action. It names the prelude files
-that govern conduct here and the gate that CI runs.
-
 <!-- YIDAM:CLAUDE -->
 <!-- Written by yidam-vendor-update from the yidam scaffold; do not edit. Everything down to
 the closing marker is replaced at each re-vendor, so a correction upstream reaches this file.
-Put this domain's own sections above or below the region, never inside it. -->
+Put this domain's own sections above or below the region, never inside it.
 
-## The short version
+The working contract lives in AGENTS.md, which every agent harness reads; the line below
+imports it whole, so there is one copy to keep and nothing here to drift from it. -->
 
-- **Nodes** are files in [`.yidam/corpus/`](../.yidam/corpus/). One concept per file. Every
-  node needs at least one outgoing link.
-- **Sources** are files in [`.yidam/catalog/`](../.yidam/catalog/). Corpus nodes cite them by
-  link rather than embedding citations inline.
-- **Claims** carry `[verified]`, `[inference]`, or `[open]`. Untagged inference is a defect.
-- **Commits** are knowledge events. Epistemic commits (understanding changed) and operational
-  commits (a pipeline ran) are written in visibly different styles and never mixed.
-- **`.yidam/.vendor/` is read-only.** Fix prelude defects by re-vendoring
-  (`mise run yidam-vendor-update`), never by editing in place.
-- **Read the corpus with `yidam`, not with `grep`.** It is a typed graph and `grep` is a text
-  tool; see below.
-
-## Before writing
-
-```
-yidam due                        # what is owed — stale index, expired sources, open questions
-yidam query 'a -rel-> b'         # a typed path over the graph; says why an empty answer is empty
-yidam neighbors <class>/<node>.yml   # one node's neighbourhood
-yidam pack '<query>' --budget 4000   # that answer as prose, filled to a budget
-```
-
-The loop is **find a gap → retrieve → correct → settle a phase**, and the first two steps are
-these. `grep` finds a string; `query` finds a node, an edge, or a coverage gap — and when it
-matches nothing it says *which kind* of nothing, which a zero-hit `grep` cannot. Full surface:
-[reading the corpus](../.yidam/.vendor/prelude/guidelines/reading-the-corpus.md).
-
-## Before committing
-
-```
-mise run regen           # refresh REGEN blocks, then commit the result as `regen:`
-mise run ci              # the whole gate; the README's gate table lists its steps
-```
-
-`mise run ci` is what CI runs, and the two are held together by a test upstream. Run it
-rather than its parts: `graph-check` reads the graph and says nothing about a stale REGEN
-block, which is a failing build all the same.
+@../AGENTS.md
 
 <!-- /YIDAM:CLAUDE -->

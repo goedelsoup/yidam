@@ -955,8 +955,9 @@ fn migrate_routes_before_a_revendor_refuses() {
 
 // ── scaffold ─────────────────────────────────────────────────────────────────
 
-/// The scaffold's own `ci.yml` and `CLAUDE.md` as a derivation made before #1054 carries them:
-/// the markers stripped, and an owner's job and section added outside where they would go.
+/// The scaffold's own `ci.yml` and the template `CLAUDE.md` as a derivation made before #1054
+/// carries them: the markers stripped, and an owner's job and section added outside where they
+/// would go. The `CLAUDE.md` is a fixture, because the scaffold's own now holds only an import.
 fn with_old_scaffold(c: &Corpus) -> (String, String) {
     let unmark = |text: String| -> String {
         text.lines()
@@ -968,9 +969,11 @@ fn with_old_scaffold(c: &Corpus) -> (String, String) {
     let ci = unmark(
         std::fs::read_to_string(repo_root().join("sadhana/github/workflows/ci.yml")).unwrap(),
     ) + "\n  ours:\n    runs-on: ubuntu-latest\n    steps:\n      - run: make ours\n";
-    let claude =
-        unmark(std::fs::read_to_string(repo_root().join("sadhana/root/CLAUDE.md")).unwrap())
-            + "\n## Ours\n\nDomain notes.\n";
+    let claude = std::fs::read_to_string(
+        repo_root().join("yidam/cli/tests/fixtures/scaffold/claude-before-regions.md"),
+    )
+    .unwrap()
+        + "\n## Ours\n\nDomain notes.\n";
     std::fs::create_dir_all(c.path().join(".github/workflows")).unwrap();
     std::fs::create_dir_all(c.path().join(".claude")).unwrap();
     std::fs::write(c.path().join(".github/workflows/ci.yml"), &ci).unwrap();
