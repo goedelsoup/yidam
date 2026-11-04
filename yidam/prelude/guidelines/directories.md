@@ -46,8 +46,8 @@ the directory is absent. [why](directories.evidence.md#created-on-first-use)
 Agent definitions for agents that operate in this repository.
 
 **What belongs here:** Agent definitions (system prompts, role descriptions, capability
-declarations) for named agents whose purpose is specific to this domain. Generic agents
-inherited from yidam live in `.yidam/.vendor/prelude/`; domain-specific agents live here.
+declarations) for named agents whose purpose is specific to this domain. The prelude ships
+no agents; every definition here is this repository's own.
 
 ---
 
@@ -327,7 +327,7 @@ Run `yidam schema` to emit JSON Schema for this shape (and for corpus nodes and 
 definitions) into `.yidam/schemas/`, then `yidam schema --settings` for the editor mapping that
 validates them as you type.
 
-**Relationship to `.yidam/corpus/`:** Corpus nodes link to catalog nodes as edges. A corpus
+**Relationship to `.yidam/corpus/`:** Corpus nodes cite catalog nodes by link. A corpus
 node on a concept that draws on a source writes `[Pearl 2009](../../catalog/pearl-2009.md)`
 rather than embedding a full citation.
 
@@ -941,8 +941,8 @@ by re-vendoring — which is why `yidam lint` reports a broken link here at info
 than as a violation of this repository. See `.yidam/authorship.yml` above, of which this
 directory is the built-in instance.
 
-**Note:** Paths to inherited skills and agents use `.yidam/.vendor/prelude/` — for example, the
-bootstrap skill lives at `.yidam/.vendor/prelude/skills/bootstrap.md` after genesis.
+**Note:** Paths to inherited files use `.yidam/.vendor/prelude/` — for example, the glossary
+lives at `.yidam/.vendor/prelude/GLOSSARY.md` after genesis.
 
 ---
 
@@ -976,10 +976,10 @@ mise run yidam-vendor-status    # what you are pinned to, and what is newer
 mise run yidam-vendor-update    # fetch, replace prelude/ and mise.yidam.toml, re-pin .yidam.toml
 ```
 
-The update replaces `.yidam/.vendor/prelude/` wholesale, rewrites `.yidam.toml`, and replaces
-`mise.yidam.toml`. It touches nothing else — `corpus/`, `catalog/`, `decisions/`, `skills/`,
-`crates/`, and every other top-level file are domain-owned and are never overwritten by an
-update.
+The update replaces `.yidam/.vendor/prelude/` wholesale, rewrites `.yidam.toml` and
+`mise.yidam.toml`, and edits marked regions: the yidam pin in `mise.toml` and the `YIDAM:`
+regions of `.claude/CLAUDE.md` and `.github/workflows/ci.yml`. It seeds a missing
+`.yidam/lint-baseline.yml`. Corpus, catalog, decisions, skills and crates are untouched.
 
 **`.yidam/.vendor/domains/` is replaced by a decision rather than a copy.** The domain
 libraries are not part of the prelude; the update reads `prelude_domains` from

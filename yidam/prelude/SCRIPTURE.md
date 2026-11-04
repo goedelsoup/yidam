@@ -12,7 +12,7 @@ The form is not the goal. The form is what makes the goal perceptible.
 
 The corpus is the yidam. Not metaphor. The living form itself.
 
-We call it `corpus/` because the word travels without apology. *Corpus*: a body, a gathered weight, something that has accumulated into a shape. What that shape is here: a graph inscribed in the filesystem. Files are nodes. Markdown links are directional edges. The git history is not a record kept *about* this graph — the git history *is* the graph. Every commit is an event. Every event changes what the corpus knows.
+We call it `corpus/` because the word travels without apology. *Corpus*: a body, a gathered weight, something that has accumulated into a shape. What that shape is here: a graph inscribed in the filesystem. Files are nodes. The links they declare are directional edges. The git history is not a record kept *about* this graph — the git history *is* the graph. Every commit is an event. Every event changes what the corpus knows.
 
 Two kinds of events. No others.
 
