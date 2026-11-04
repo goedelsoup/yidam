@@ -488,8 +488,19 @@ tools = { "npm:oxlint" = "1.42.0" }
 # `yidam/design` and nothing else, and that is the one directory where the rule must never
 # apply" — a `<button>` in `Button.jsx` is the component, not a violation. Under a repo-wide
 # path that reason no longer holds for consumers, where a raw `<button>` is exactly what the
-# system's `Button` exists to replace. Removing the rule was still right; the reason has
-# expired, and #888 asks the question again with the scope it now has.
+# system's `Button` exists to replace. Removing the rule was still right, but that reason
+# expired, and #888 re-asked the question under the repo-wide scope.
+#
+# #888 measured it on 2026-11-04 and the rule stays out, for a new reason. The element list
+# (`button`, `input`, `select`, `textarea`) can be derived from the components' `.d.ts` files.
+# Re-enabled with that list and `yidam/design` exempted, the rule reported 0 findings. The
+# consumers it can parse (the JSX islands in `yidam/editors/web/src`) already import `Button`
+# and `Input`. The raw elements that do exist are in `.astro` markup, `.html` and HTML inside
+# template strings. oxlint cannot parse any of those, and all of them are correct code. So the
+# rule would cost upkeep and catch nothing it can reach. If it ever returns, the override needs
+# `components/**` (globs are relative to the config's folder) plus
+# `**/cli/design/components/**` (`yidam/cli/design` is a symlink to `../design`), and the
+# self-test fixture needs a raw `<button>`.
 #
 # `-A correctness` on that pass, so the adherence config enforces adherence and nothing else.
 # Correctness has one home in this repository, the root `.oxlintrc.json` that three packages

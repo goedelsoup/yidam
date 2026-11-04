@@ -6,6 +6,15 @@ This document describes yidam's own test infrastructure. It is **not** prelude â
 repositories do not inherit it and the bootstrap agent does not read it. It lives beside the
 harness it describes.
 
+## Status
+
+**Experimental, not a gate** (#946, decided 2026-11-04). The results hold one scenario
+(`causal-inference`), one model and one run, from 2026-08-21. A regression detector with one
+datapoint cannot detect a regression. CI runs the harness crate's own unit tests only; the
+model evaluation never runs there. There is also no domain owner agent yet (step 3 below), so
+Q1 cannot be measured. Treat a result here as a sample, not as evidence the bootstrap is
+unchanged. The harness becomes a gate when it runs on a schedule over more than one scenario.
+
 Everything in `yidam/tests/` is held out from the worktree the bootstrap agent runs in, and
 `the_scoring_layer_does_not_reach_the_worktree` asserts it over the real tree. That sentence
 above was true only as an intention until protocol 0.2.0: `prepare_worktree` copied the whole
