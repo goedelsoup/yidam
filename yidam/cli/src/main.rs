@@ -490,6 +490,24 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
+    /// Run one of the loop's Claude Code hooks: `session-start` or `stop`.
+    ///
+    /// Installed into `.claude/settings.json` by the scaffold and by `yidam migrate`, and not
+    /// often run by hand. `session-start` prints `cycle --brief`, which Claude Code adds to the
+    /// session's context, and records the round. `stop` records the round the turn ended on
+    /// and, when anything moved, prints a `systemMessage` saying what. A stop whose checkout
+    /// matches the last round's fingerprint reads nothing.
+    ///
+    /// **Always exits zero**, and prints nothing outside a corpus or on any failure: a hook
+    /// never fails the session. It writes only the round record, local gitignored state
+    /// under `.yidam/loop/`.
+    Hook {
+        #[command(flatten)]
+        root: RootArg,
+        /// Which hook is firing.
+        #[arg(value_enum)]
+        event: yidam::HookEvent,
+    },
     /// Refresh every REGEN block in one pass.
     Regen {
         #[command(flatten)]
@@ -1464,7 +1482,9 @@ enum MigrateCommand {
     /// `mise run yidam-vendor-update` reaches neither and a gate added upstream never reaches
     /// its CI. This wraps the `privacy` and `corpus` jobs, and the template's `CLAUDE.md`
     /// sections, in the regions the re-vendor rewrites. A workflow with neither job gets an
-    /// empty region the re-vendor fills. Idempotent; run it with `--dry-run` first.
+    /// empty region the re-vendor fills. It also adds the loop's two `yidam hook` entries to
+    /// `.claude/settings.json`, creating it if absent, and refuses a file that declares its own
+    /// `hooks`. Idempotent; run it with `--dry-run` first.
     Scaffold,
     /// Rewrite every catalog location of kind `doi` or `pmc` as `kind: identifier`
     ///
@@ -1703,6 +1723,7 @@ fn run() -> Result<()> {
             },
             format.value,
         ),
+        Command::Hook { root, event } => yidam::hook(root.as_deref(), event),
         Command::Regen {
             root,
             check,

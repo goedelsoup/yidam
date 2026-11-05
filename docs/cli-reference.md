@@ -116,13 +116,14 @@ the check passes.
 
 ## The practice
 
-Five commands, and none is a gate. Each exits zero however much is owed, however far a
+Six commands, and none is a gate. Each exits zero however much is owed, however far a
 corpus has drifted, and however a contribution reads.
 
 | Command | What it answers |
 |---|---|
 | `due` | What is due? Four clocks read together — index staleness, catalog TTL, unanswered questions, phases in flight. `--strict` exits nonzero on a due clock |
 | `cycle` | Where is this repository in its loop, and what is the next act? Owed, in flight, blocked, next — composed from `due`, `phases`, `lint` and `graph-check`. `--strict` exits nonzero on owed or blocked |
+| `hook <event>` | The loop's Claude Code hooks. `session-start` prints the brief; `stop` says what a turn moved. Always exits zero |
 | `kuten` * | What is this corpus's practice aimed at? Writes the declaration into `AGENTS.md`. `kuten check` reads the history against it; `kuten adopt <name>` declares one |
 | `practice` * | What has this corpus practiced? Writes a sampled series of its conduct into `PRACTICE.md`, each point read against the kuten that point's own tree held. Regenerated, never authored |
 | `score <range>` | How did this session's work read? One row per declared criterion, with its evidence |
@@ -168,8 +169,32 @@ declaration. Holding none is a supported state.
 
 Like `due`, it exits zero however much is owed. `--strict` exits nonzero when anything is owed
 *or* blocked. That is the union of the two signals it composes. A scheduled job wants one signal
-off the whole loop. It should not go quiet because the half that fired was the other one. This
-writes nothing and drafts no commit.
+off the whole loop. It should not go quiet because the half that fired was the other one. It
+drafts no commit.
+
+### A round remembers the last one
+
+`cycle --record` writes this round to `.yidam/loop/<branch>.json`. That is local state, and the
+directory ignores itself. `cycle --since-last` reports what arrived and what left since then. A
+branch with no record is told so, which is not the same as nothing having moved.
+
+`cycle --brief` is the report cut to a token budget, 500 by default. `--budget` changes it.
+
+### The hooks hand a session the loop
+
+`yidam hook` is what `.claude/settings.json` runs, and a person rarely runs it by hand. The
+scaffold installs it, and `yidam migrate scaffold` adds it to an older repository.
+
+| Event | What it does |
+|---|---|
+| `session-start` | Prints `cycle --brief` into the session's context and records the round. It runs after a compaction too |
+| `stop` | Records the round a turn ended on. When something moved, it tells the person what |
+
+**A hook never fails the session.** It exits zero on every path. Outside a corpus, or on any
+failure, it prints nothing.
+
+**A quiet turn costs one `git status`.** The round records a fingerprint of the checkout. A stop
+that matches it reads nothing else.
 
 ### A kuten declares what the work is for
 

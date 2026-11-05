@@ -509,6 +509,35 @@ fn with_scaffold(root: &Path, marked: bool) {
     std::fs::create_dir_all(root.join(".claude")).unwrap();
     std::fs::write(root.join(".github/workflows/ci.yml"), ci).unwrap();
     std::fs::write(root.join(".claude/CLAUDE.md"), claude).unwrap();
+    // A marked scaffold is a current one, and a current one runs the loop's hooks (#1444).
+    if marked {
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sadhana/root/claude-settings.json"),
+            root.join(".claude/settings.json"),
+        )
+        .unwrap();
+    }
+}
+
+/// Regions marked and no hooks: the session is never handed the brief, and nothing else says
+/// so. A settings file holding other keys is not one that runs them.
+#[test]
+fn a_scaffold_without_the_loop_hooks_is_reported_with_the_migration() {
+    let tmp = stage();
+    with_scaffold(tmp.path(), true);
+    std::fs::write(
+        tmp.path().join(".claude/settings.json"),
+        "{\"permissions\": {\"allow\": [\"Bash(yidam hook stop)\"]}}\n",
+    )
+    .unwrap();
+    let v = doctor_json(tmp.path());
+    let c = check(&v, "scaffold");
+    assert_eq!(c["verdict"], "warn", "{c:#?}");
+    assert!(
+        c["detail"].as_str().unwrap().contains("yidam hook"),
+        "{c:#?}"
+    );
+    assert_eq!(c["remedy"], "yidam migrate scaffold", "{c:#?}");
 }
 
 fn doctor_json(root: &Path) -> serde_json::Value {

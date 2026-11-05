@@ -32,12 +32,18 @@ files are nodes, commits are knowledge events, links are edges.
 these find nodes, edges and coverage gaps.
 
 ```sh
+yidam cycle                     # where the loop stands, and the next act — start here
 yidam due                       # what is owed — stale index, expired sources, open questions
 yidam query '<class> -<rel>-> <class>'   # a typed path; `<-rel-` walks it backwards
 yidam neighbors <class>/<node>.yml       # one node's neighbourhood, both directions
 yidam estimate '<query>'                 # what an answer would cost, before paying it
 yidam pack '<query>' --budget 4000       # that answer as prose, filled to a budget
 ```
+
+**A session opens with `yidam cycle --brief`** when `.claude/settings.json` runs the loop's
+hooks. Without them, `yidam cycle --since-last --record` says what moved since the last round
+and records this one. Take the first `next` act of kind `tool`, verify with `yidam lint`, and
+record again.
 
 **An empty `query` says why**: the class is not declared, it holds nothing, none of its
 instances carries that value (and here are the values they do), or nothing authors that

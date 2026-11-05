@@ -76,6 +76,11 @@ pub struct Round {
     pub in_flight: Vec<String>,
     /// Local `propose/*` heads, without `refs/heads/`.
     pub proposals: Vec<String>,
+    /// What the checkout looked like when the round was read, from [`fingerprint`]: absent
+    /// unless a hook recorded the round. Absent in a record written before #1444, which
+    /// reads as format 1 still — a record without it is one no fingerprint can match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
 }
 
 impl Round {
@@ -111,6 +116,7 @@ impl Round {
             stale_steps,
             in_flight,
             proposals: proposals(root),
+            fingerprint: None,
         }
     }
 
@@ -134,6 +140,68 @@ fn proposals(root: &Path) -> Vec<String> {
         .collect();
     out.sort();
     out
+}
+
+/// A digest of everything a round's halves are read from, so a hook can tell that nothing
+/// could have moved without reading the corpus (#1444).
+///
+/// The Stop hook fires after every turn, and a `cycle` read costs from half a second to
+/// several on the derived corpora measured. Most turns change nothing a round sees, and this
+/// is what lets those turns cost one `git status` instead. It covers HEAD, every ref and the
+/// object it names (in-flight refs, proposals), each path `git status` reports with its size
+/// and modification time (the working tree, which `lint` walks), and the day (the clocks).
+///
+/// **A match means nothing changed; a mismatch means only that something might have.** A
+/// change git cannot see — an edit to an ignored file — is missed, and those are not files a
+/// round reads. `None` when git will not answer, which no stored fingerprint matches.
+pub fn fingerprint(root: &Path, today: i64) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let head = Git::new(root)
+        .args(["rev-parse", "--verify", "-q", "HEAD"])
+        .try_run()
+        .unwrap_or_default();
+    let refs = Git::new(root)
+        .args(["for-each-ref", "--format=%(objectname) %(refname)"])
+        .try_run()?;
+    // Raw, not `try_run`: that trims, and the first entry's status column can be a space.
+    let out = Git::new(root)
+        .args([
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--ignore-submodules",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let status = String::from_utf8_lossy(&out.stdout).into_owned();
+    let mut h = Sha256::new();
+    for part in [head.as_str(), refs.as_str(), status.as_str()] {
+        h.update(part.as_bytes());
+        h.update([0]);
+    }
+    h.update(today.to_le_bytes());
+    let mut items = status.split('\0').filter(|i| !i.is_empty());
+    while let Some(item) = items.next() {
+        let (xy, path) = (item.get(..2).unwrap_or(""), item.get(3..).unwrap_or(""));
+        // A rename or copy is followed by its source path, which is not an entry.
+        if xy.contains('R') || xy.contains('C') {
+            items.next();
+        }
+        let stamp = std::fs::symlink_metadata(root.join(path)).ok().map(|m| {
+            let mtime = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_nanos());
+            (m.len(), mtime)
+        });
+        h.update(format!("{path}\0{stamp:?}\0").as_bytes());
+    }
+    Some(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// The record file for `branch`, absolute.

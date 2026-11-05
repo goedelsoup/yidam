@@ -27,6 +27,20 @@
 //!
 //! Wrapped content is written as it is. The re-vendor replaces it, and the diff it leaves is
 //! where an owner sees a step they had added inside a gate job. The report says so up front.
+//!
+//! # The loop's hooks
+//!
+//! A third file is not a region (#1444). `.claude/settings.json` gets the two `yidam hook`
+//! entries that hand a session `cycle --brief` and tell the person what each turn moved. JSON
+//! has no comments to hang a marker on, and a re-vendor has nothing to update there: the hook
+//! is one command line, and what it does is the binary's. So this installs them once, and that
+//! is all.
+//!
+//! **Written as text, not re-serialized.** The entries go in right after the object's opening
+//! brace and every other byte stays as the owner wrote it; the result is parsed back and must
+//! equal the original plus `hooks`, or nothing is written. A settings file that already
+//! declares `hooks` is refused, saying what to add: merging into an owner's own hooks is a
+//! judgment this does not make. An absent file is created holding only the hooks.
 
 use std::path::Path;
 
@@ -37,6 +51,117 @@ pub(crate) const CI: &str = ".github/workflows/ci.yml";
 
 /// The agent instructions, relative to the repository root.
 pub(crate) const CLAUDE: &str = ".claude/CLAUDE.md";
+
+/// The Claude Code settings, relative to the repository root.
+pub(crate) const SETTINGS: &str = ".claude/settings.json";
+
+/// The two hooks, as the value of `hooks` one level into the settings object. The scaffold's
+/// `sadhana/root/claude-settings.json` holds exactly this, and a test holds the two equal.
+///
+/// The command names no absolute path, so the file is the same in every checkout (#1065): it
+/// runs from the project root, prefers the binary `.yidam/bin` pins, and ends `exit 0` so a
+/// missing or older binary is silence rather than a failed hook.
+pub(crate) const HOOKS: &str = r#"{
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && PATH=\".yidam/bin:$PATH\" yidam hook session-start 2>/dev/null; exit 0",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && PATH=\".yidam/bin:$PATH\" yidam hook stop 2>/dev/null; exit 0",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }"#;
+
+/// The hook events, and the `yidam hook` argument each runs.
+const HOOK_EVENTS: [(&str, &str); 2] = [("SessionStart", "session-start"), ("Stop", "stop")];
+
+/// The settings file the scaffold ships: the hooks and nothing else.
+pub(crate) fn settings_scaffold() -> String {
+    format!("{{\n  \"hooks\": {HOOKS}\n}}\n")
+}
+
+/// Whether settings text runs `yidam hook <event>` under each event. Read from the parsed
+/// JSON, so a command string elsewhere in the file — an allowed permission, say — is not one.
+pub(crate) fn settings_has_hooks(text: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else {
+        return false;
+    };
+    HOOK_EVENTS.iter().all(|(event, arg)| {
+        let want = format!("yidam hook {arg}");
+        v.pointer(&format!("/hooks/{event}"))
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|groups| {
+                groups.iter().any(|g| {
+                    g.get("hooks")
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|hs| {
+                            hs.iter().any(|h| {
+                                h.get("command")
+                                    .and_then(serde_json::Value::as_str)
+                                    .is_some_and(|c| c.contains(&want))
+                            })
+                        })
+                })
+            })
+    })
+}
+
+/// Add the hooks to settings text, or say why not. Empty text is an absent file.
+fn wrap_settings(text: &str) -> Planned {
+    let events = || HOOK_EVENTS.iter().map(|(e, _)| e.to_string()).collect();
+    if text.trim().is_empty() {
+        return Ok((settings_scaffold(), events()));
+    }
+    let parsed: serde_json::Value = serde_json::from_str(text)
+        .map_err(|e| format!("{SETTINGS} is not JSON ({e}), so no hook is added to it"))?;
+    let Some(obj) = parsed.as_object() else {
+        return Err(format!(
+            "{SETTINGS} is not a JSON object, so no hook is added to it"
+        ));
+    };
+    if obj.contains_key("hooks") {
+        return Err(format!(
+            "{SETTINGS} declares its own `hooks`, and this does not merge into them — add a \
+             SessionStart and a Stop hook running `yidam hook session-start` and `yidam hook \
+             stop` by hand, as `sadhana/root/claude-settings.json` does"
+        ));
+    }
+    let out = if obj.is_empty() {
+        settings_scaffold()
+    } else {
+        let brace = text.find('{').unwrap_or(0);
+        format!(
+            "{}{{\n  \"hooks\": {HOOKS},{}",
+            &text[..brace],
+            &text[brace + 1..]
+        )
+    };
+    // The point is that nothing else moved: parse it back and compare.
+    let mut back: serde_json::Value = serde_json::from_str(&out)
+        .map_err(|e| format!("{SETTINGS}: adding the hooks would not parse ({e})"))?;
+    back.as_object_mut().map(|o| o.remove("hooks"));
+    if back != parsed {
+        return Err(format!(
+            "{SETTINGS}: adding the hooks would change something else, so nothing is written"
+        ));
+    }
+    Ok((out, events()))
+}
 
 /// The region tokens, as the scaffold and `yidam-vendor-update` spell them.
 const CI_OPEN: &str = "<!-- YIDAM:CI -->";
@@ -310,22 +435,34 @@ struct Kind {
     has: fn(&str) -> bool,
     template: fn(&str) -> bool,
     wrap: fn(&str) -> Planned,
+    /// An absent file is planned as empty text, which `wrap` creates, rather than skipped.
+    create: bool,
 }
 
-/// The two files, in the order the report lists them. Every workflow is the template's to
-/// mark: one with no gate job is the case an empty region exists for.
-const KINDS: [Kind; 2] = [
+/// The three files, in the order the report lists them. Every workflow is the template's to
+/// mark: one with no gate job is the case an empty region exists for. Every settings file is
+/// the template's to add hooks to, and an absent one is created.
+const KINDS: [Kind; 3] = [
     Kind {
         rel: CI,
         has: ci_has_region,
         template: |_| true,
         wrap: wrap_ci,
+        create: false,
     },
     Kind {
         rel: CLAUDE,
         has: claude_has_region,
         template: claude_is_template,
         wrap: wrap_claude,
+        create: false,
+    },
+    Kind {
+        rel: SETTINGS,
+        has: settings_has_hooks,
+        template: |_| true,
+        wrap: wrap_settings,
+        create: true,
     },
 ];
 
@@ -336,6 +473,7 @@ fn plan_file(root: &Path, kind: &Kind) -> (ScaffoldFile, Option<Planned>) {
         has,
         template,
         wrap,
+        create,
     } = kind;
     let mut f = ScaffoldFile {
         file: rel.to_string(),
@@ -344,9 +482,13 @@ fn plan_file(root: &Path, kind: &Kind) -> (ScaffoldFile, Option<Planned>) {
         owned: false,
         wrapped: vec![],
     };
-    let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-        f.absent = true;
-        return (f, None);
+    let text = match std::fs::read_to_string(root.join(rel)) {
+        Ok(t) => t,
+        Err(_) if *create => String::new(),
+        Err(_) => {
+            f.absent = true;
+            return (f, None);
+        }
     };
     if has(&text) {
         f.already = true;
@@ -380,7 +522,14 @@ pub(crate) fn plan(root: &Path, report: &mut MigrateReport) {
 /// and the apply are two reads of the same file.
 pub(crate) fn apply(root: &Path, report: &MigrateReport) -> anyhow::Result<Vec<String>> {
     let mut written = vec![];
-    for Kind { rel, has, wrap, .. } in &KINDS {
+    for Kind {
+        rel,
+        has,
+        wrap,
+        create,
+        ..
+    } in &KINDS
+    {
         let planned = report
             .scaffold
             .as_ref()
@@ -390,11 +539,17 @@ pub(crate) fn apply(root: &Path, report: &MigrateReport) -> anyhow::Result<Vec<S
             continue;
         }
         let path = root.join(rel);
-        let text = std::fs::read_to_string(&path)?;
+        let text = match std::fs::read_to_string(&path) {
+            Err(e) if *create && e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            read => read?,
+        };
         let (out, _) = wrap(&text).map_err(anyhow::Error::msg)?;
         // The point is that the re-vendor finds the region. If it would not, leave the file.
         if !has(&out) {
             anyhow::bail!("the region written into {rel} is not one a re-vendor would find");
+        }
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
         }
         std::fs::write(&path, out)?;
         written.push(rel.to_string());
@@ -404,7 +559,9 @@ pub(crate) fn apply(root: &Path, report: &MigrateReport) -> anyhow::Result<Vec<S
 
 /// One line, for the report once planned.
 pub(crate) fn summary(_report: &MigrateReport) -> String {
-    "ci.yml and CLAUDE.md regions a re-vendor updates".to_string()
+    "ci.yml and CLAUDE.md regions a re-vendor updates, and the loop's hooks in \
+     .claude/settings.json"
+        .to_string()
 }
 
 #[cfg(test)]
@@ -443,6 +600,67 @@ jobs:
                 .join(rel),
         )
         .unwrap_or_else(|e| panic!("{rel}: {e}"))
+    }
+
+    /// The scaffold's settings file is the hooks this installs, byte for byte, and they run
+    /// the two events `yidam hook` answers.
+    #[test]
+    fn the_scaffold_settings_are_the_hooks_this_installs() {
+        let text = scaffold("sadhana/root/claude-settings.json");
+        assert_eq!(text, settings_scaffold());
+        assert!(settings_has_hooks(&text));
+        for (_, arg) in HOOK_EVENTS {
+            use clap::ValueEnum as _;
+            assert!(
+                crate::cmd::hook::HookEvent::from_str(arg, false).is_ok(),
+                "`yidam hook {arg}` is not an event the binary takes"
+            );
+        }
+    }
+
+    /// An absent or empty settings file becomes the scaffold's; one with keys of its own keeps
+    /// every byte of them.
+    #[test]
+    fn hooks_are_added_and_nothing_else_moves() {
+        for empty in ["", "{}", "{ }\n"] {
+            let (out, events) = wrap_settings(empty).unwrap();
+            assert_eq!(out, settings_scaffold(), "{empty:?}");
+            assert_eq!(events, ["SessionStart", "Stop"]);
+        }
+        let owner =
+            "{\n  \"permissions\": {\n    \"allow\": [\"Bash(ls)\"]\n  },\n  \"zz\": 1\n}\n";
+        let (out, _) = wrap_settings(owner).unwrap();
+        assert!(settings_has_hooks(&out), "{out}");
+        assert!(
+            out.ends_with(&owner[1..]),
+            "the owner's bytes moved:\n{out}"
+        );
+        // Idempotent through `has`: the plan does not wrap a file that already has them.
+        assert!(!settings_has_hooks(owner));
+    }
+
+    /// An owner's own hooks are not merged into, and neither is a file that is not an object.
+    #[test]
+    fn settings_with_their_own_hooks_or_no_object_are_refused() {
+        let why = wrap_settings("{\"hooks\": {\"Stop\": []}}").unwrap_err();
+        assert!(why.contains("by hand"), "{why}");
+        assert!(wrap_settings("[]").is_err());
+        assert!(wrap_settings("{ not json").is_err());
+    }
+
+    /// A command naming the hook somewhere other than under its event is not the hook.
+    #[test]
+    fn a_hook_is_read_from_its_event() {
+        let elsewhere = r#"{"permissions": {"allow": ["Bash(yidam hook session-start)", "Bash(yidam hook stop)"]}}"#;
+        assert!(!settings_has_hooks(elsewhere));
+        let swapped = settings_scaffold()
+            .replace("hook session-start", "hook X")
+            .replace("hook stop", "hook session-start")
+            .replace("hook X", "hook stop");
+        assert!(!settings_has_hooks(&swapped));
+        // Half installed is not installed: a session briefed and never recorded, or the reverse.
+        let start_only = settings_scaffold().replace("hook stop", "hook other");
+        assert!(!settings_has_hooks(&start_only));
     }
 
     #[test]

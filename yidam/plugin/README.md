@@ -14,13 +14,14 @@ the surface RFC-0005 froze: sixteen read tools over the corpus, two more at the 
 that a corpus has to ask for, a capability block that declares its holes at connect time, and
 an `absence` field on every empty answer saying which kind of nothing it is.
 
-**Seven skills**, in [`skills/`](skills/) — one per decision the corpus constrains, one for
+**Eight skills**, in [`skills/`](skills/) — one per decision the corpus constrains, two for
 the decision of what to do next, and one for the project that is not a corpus yet:
 
 | Skill | Fires before | Calls |
 |---|---|---|
 | `starting-a-corpus` | there being a corpus at all | nothing — the server is not running yet |
 | `starting-a-session` | choosing what to work on | `cycle`, `propose` |
+| `running-a-round` | working the loop rather than one task | `cycle`, then each `tool` act's `argv` |
 | `writing-a-corpus-commit` | a commit subject | `check_subject` |
 | `tagging-a-claim` | an evidence tag | `claim_tags` |
 | `linking-a-node` | a link between nodes | `licensed_edges` |

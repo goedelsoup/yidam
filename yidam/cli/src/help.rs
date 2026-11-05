@@ -144,12 +144,16 @@ pub const GROUPS: &[Group] = &[
         // however much is owed; two of the four surfaces it reads *are* gates, and filing the
         // composition under them would make the whole report inherit a verdict that only a
         // quarter of it has.
+        // `hook` is `cycle` run for Claude Code at a session's start and a turn's end, so it
+        // sits beside it, and is `r` for the reason `cycle --record` is: the round it records
+        // is local state under `.yidam/loop/`, ignored by git, and no file a person reviews.
         // `practice` writes a REGEN block and still belongs here, beside `kuten`, for the
         // same reason: what it writes is a reading of how the practice has gone, in `kuten
         // check`'s verdict vocabulary, and divergence in it is a question and not a defect.
         commands: &[
             r("due").short(),
             r("cycle"),
+            r("hook"),
             w("kuten"),
             w("practice"),
             r("score"),
