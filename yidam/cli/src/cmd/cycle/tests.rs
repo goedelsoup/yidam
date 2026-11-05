@@ -262,6 +262,11 @@ fn an_unsettled_phase_is_in_flight_and_names_an_act() {
         .find(|a| a.source == Source::InFlight)
         .unwrap();
     assert!(act.act.contains("phase/open-work"), "{}", act.act);
+
+    // On the wire, not just as a variant: the schema spells it `in_flight`, and comparing Rust
+    // enums is how `"inflight"` shipped.
+    let json = serde_json::to_value(act).unwrap();
+    assert_eq!(json["source"], "in_flight", "{json}");
 }
 
 // ── blocked is what a gate would fail on, not what a corpus was forgiven ──────

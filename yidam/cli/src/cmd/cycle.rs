@@ -97,12 +97,19 @@ pub struct Blocked {
 
 /// Where a next act came from.
 ///
-/// Serialized lowercase. The value is the *half of this report* that produced the act, which
+/// The value is the *half of this report* that produced the act, which
 /// is what a reader needs to know to argue with the ranking — not a severity, and not a
 /// priority number, because this command's ordering is an argument rather than a measurement
 /// and a number would present it as the second thing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "lowercase")]
+///
+/// **Spelled by [`Source::name`], not by a serde rename rule.** This enum used
+/// `rename_all = "lowercase"`, which turns `InFlight` into `"inflight"`, while
+/// `report.schema.json` declares `"in_flight"` (the same spelling as the report's own `in_flight`
+/// half). So a validating consumer rejected every `cycle` report that had a phase in flight. No
+/// golden could see it, because the fixture has nothing in flight (see `UNREACHED` in
+/// `report_goldens.rs`). The tests here compared Rust variants, so they could not see it either.
+/// [`CYCLE_SOURCES`] is now the roster the schema is held to, in both directions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
     Blocked,
     Owed,
@@ -110,7 +117,47 @@ pub enum Source {
     Practice,
 }
 
+impl serde::Serialize for Source {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.name())
+    }
+}
+
+/// Every `next[].source` a report can carry: the roster that
+/// `properties.next.items.properties.source.enum` is compared against.
+///
+/// Built by walking a successor `match` with no wildcard arm, so a fifth variant is a compile
+/// error here and the fixed `[_; 4]` width fails to evaluate. This is the same construction as
+/// `COMMIT_KINDS`. An array literal would have been a second copy of the vocabulary.
+pub const CYCLE_SOURCES: [&str; 4] = {
+    let mut out = [""; 4];
+    let mut cur = Some(Source::Blocked);
+    let mut i = 0;
+    while let Some(k) = cur {
+        out[i] = k.name();
+        cur = match k {
+            Source::Blocked => Some(Source::Owed),
+            Source::Owed => Some(Source::InFlight),
+            Source::InFlight => Some(Source::Practice),
+            Source::Practice => None,
+        };
+        i += 1;
+    }
+    out
+};
+
 impl Source {
+    /// The value a report carries. Snake case, because the schema and the `in_flight` half both
+    /// spell it that way.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Blocked => "blocked",
+            Self::Owed => "owed",
+            Self::InFlight => "in_flight",
+            Self::Practice => "practice",
+        }
+    }
+
     fn heading(self) -> &'static str {
         match self {
             Self::Blocked => "blocked",
