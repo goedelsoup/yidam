@@ -82,6 +82,12 @@
   against the workflow. The base's names are roles, and an overlay's prefix makes them the ones
   #1228 derives. A one-shot `Workflow` stays out, because Kustomize refuses `generateName`, and
   the secret hash suffix is off. `--kustomize` is not built: it would remove no step.
+- **Amended 2026-11-05 (#1452):** §2's settle subsection is rewritten. The owner decided
+  (#1438) that `phase settle --merge` may write a phase's merge, under the `yidam phase`
+  author with the person as committer. The licence is phase refs only, onto a baseline that
+  is an ancestor of the phase, so the merged tree is the tree `settle` checked. `propose/*`
+  still merges by hand, and §7's cluster credential is unchanged. §2 records the check
+  against the constitution's Article V.
 - **Downstream reference case:** none yet. The first consumer is `examples/streamflow`, by
   construction — see "Why the first thing built is not the manifest".
 
@@ -279,27 +285,51 @@ Three things follow that are worth writing down because somebody will want each 
   own trailing paragraph says the corpus is unchanged until somebody merges, where an operational
   one says the pipeline advanced and no understanding changed.
 
-#### `phase settle` prepares; it does not merge
+#### `phase settle` prepares; `--merge` writes only what it checked
 
-*Built 2026-09-23 (#473), with `phase start` and `phase run` beside it.* The surface is three
-verbs: `start` snapshots the input state §1 specifies and commits it to `.yidam/phases/<name>.yml`
-on the phase's own branch, `run` records the plan before the first step and each step as it
-completes, and `settle` validates and drafts. The record is committed as `scaffold:` —
-operational, so the invariant below is untouched rather than argued around, and the one verb this
-layer might have wanted is the one only a person writes. RFC-0028 §3 makes the composition call
-the record is ranked under. `phase_record.rs`'s
-`settle_authors_no_commit_and_moves_no_ref` asserts the limit this section states, over the whole
-object graph rather than over the branch.
+*Built 2026-09-23 (#473), with `phase start` and `phase run` beside it; `--merge` built
+2026-11-05 (#1452).* The surface is three verbs: `start` snapshots the input state §1
+specifies and commits it to `.yidam/phases/<name>.yml` on the phase's own branch, `run`
+records the plan before the first step and each step as it completes, and `settle` validates
+and drafts. The record is committed as `scaffold:` — operational, so the invariant below is
+untouched rather than argued around. RFC-0028 §3 makes the composition call the record is
+ranked under. `phase_record.rs`'s `settle_authors_no_commit_and_moves_no_ref` asserts that
+`settle` without a flag writes nothing, over the whole object graph rather than over the
+branch.
 
-`phase:` is an **epistemic** verb. So `yidam phase settle` must not author the `--no-ff` merge —
-doing so would breach the invariant on the layer's second surface.
-
-This is not a limit invented here. `cmd/due.rs:48` already reached it, of the phase clock:
+`phase:` is an **epistemic** verb, and this section first concluded from that that no tool
+may author the `--no-ff` merge. `cmd/due.rs` reached the same limit, of the phase clock:
 
 > A person. Merging a phase, or abandoning it, is not a mechanical consequence of a finding.
 
-`settle` validates that the phase produced outputs and drafts a vocabulary-checked subject. A
-person merges. Same shape as `propose`, which is the point.
+That sentence still holds, and it is about *deciding*. #1438 measured what the limit cost: one
+derived corpus ran 135 rounds and typed 71 `phase:` merges by hand, each one the subject
+`settle` had already drafted. The owner decided that the tool may *write* the merge once a
+person has decided it. That is `yidam phase settle --merge`, and its licence is narrow:
+
+- It writes a `phase/<name>` merge and nothing else. `propose/*` is merged by a person, as
+  before. The run route's sentence above, *nothing merges itself*, is about those branches.
+- The phase must be ready, and its baseline must be an ancestor of it. The merge's tree is
+  then the phase tip's tree, which is the tree `settle` checked, so the commit resolves
+  nothing. A baseline that moved on is refused.
+- The checkout must be the commit, apart from the REGEN blocks `settle` staged. The
+  baseline must not be checked out in another worktree, and it moves by a compare-and-swap
+  `update-ref`.
+- The author is `yidam phase`, and the committer is the person who ran it. Nothing is
+  pushed, and no cluster pod settles a phase: §7's credential is unchanged.
+
+**The check against Article V, on the record.** Article V of
+[the constitution](../../yidam/prelude/CONSTITUTION.md) governs resolution between `ma/*`
+positions, and a phase merge is not one. Its rule is still the right test of a tool-written
+merge: *synthesis, not generation.* A merge commit keeps to it only where it introduces
+nothing that the merged branch did not already hold. Each limit above exists for that. The
+ancestor precondition makes the merge's tree the phase's tree, so there is no resolution in
+which anything could be introduced. The clean checkout keeps a person's edit in progress out
+of a commit under a tool's name. The scope keeps the licence off the refs where the tool
+*would* be choosing: a proposal a person has not reviewed, an evolution of a rigpa, a
+resolution between electors. PHASES.md states the scope in the vendored prelude.
+
+`phase_record.rs`'s `settle_merge_*` tests hold each refusal.
 
 ### 3 — The invariant is not policy-expressible, and RFC-0024 left that open for this
 
@@ -1070,8 +1100,9 @@ entry, and `vault push` is the command that writes it. A verb whose output is no
 no commit. It does not start tracking a file in order to have one.
 
 Each command commits under its own author, `yidam regen` or `yidam vault`, as `propose`,
-`run`, `phase` and `catalog` already do. `phase settle` still refreshes blocks without
-committing them, because settling prepares a merge and does not make one. The index workflow in
+`run`, `phase` and `catalog` already do. `phase settle` refreshes blocks without
+committing them. `phase settle --merge` commits them first under `yidam phase`, ahead of the
+merge it writes. The index workflow in
 `sadhana/github/workflows/` runs `vault push --index --commit` and pushes what it authored. It
 used to type the subject itself.
 

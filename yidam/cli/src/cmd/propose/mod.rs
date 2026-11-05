@@ -346,6 +346,7 @@ pub(crate) fn run(root: &Path, opts: &Options) -> Result<ProposeReport> {
     let written = if opts.dry_run || proposals.is_empty() {
         None
     } else {
+        write::require_room(root, &write::branch_for(&head))?;
         Some(write::write(root, &proposals, opts.force)?)
     };
 

@@ -497,3 +497,57 @@ fn a_reworded_paragraph_is_left_where_it_stands() {
         "the author's sentence was edited"
     );
 }
+
+/// **#1452.** `[cluster] max_open_proposals` was read only by `cluster admit`, so a local loop
+/// could pile up `propose/*` heads without limit. Now a run that would open a new head at the
+/// cap is refused and writes nothing; replacing the head that stands at this commit is not a
+/// new head, and is not refused.
+#[test]
+fn a_run_at_the_proposal_cap_opens_no_new_branch() {
+    let dir = fixture();
+    let root = dir.path();
+    std::fs::write(
+        root.join(".yidam/config.toml"),
+        "[lint]\nescalate_after = 1\n\n[cluster]\nmax_open_proposals = 1\n",
+    )
+    .unwrap();
+    commit(root, "scaffold: cap the open proposals");
+
+    let first = propose(root, &[]);
+    assert!(
+        first.ok,
+        "under the cap: {}\n{}",
+        first.stdout, first.stderr
+    );
+    let again = propose(root, &["--force"]);
+    assert!(
+        again.ok,
+        "replacing the standing head is not a new one: {}",
+        again.stderr
+    );
+
+    std::fs::write(root.join("README.md"), "moved\n").unwrap();
+    commit(root, "scaffold: a new head");
+    let refused = propose(root, &[]);
+    assert!(
+        !refused.ok,
+        "a second head was opened at the cap: {}",
+        refused.stdout
+    );
+    assert!(
+        refused.stderr.contains("max_open_proposals is 1"),
+        "{}",
+        refused.stderr
+    );
+    assert_eq!(
+        git(root, &["branch", "--list", "propose/*"])
+            .lines()
+            .count(),
+        1,
+        "the refusal wrote a branch"
+    );
+    assert!(
+        propose(root, &["--dry-run"]).ok,
+        "a dry run writes nothing, so is not capped"
+    );
+}

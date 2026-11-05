@@ -207,7 +207,9 @@ max_open_proposals = 1
 `namespace` is written into the manifest's metadata when set.
 
 `max_open_proposals` is the cap `cluster admit` reads. A run that would propose while that
-many `propose/*` branches stand open on the remote is not admitted. Absent means no cap. This
+many `propose/*` branches stand open on the remote is not admitted. Absent means no cap.
+`yidam propose` and `yidam run` read it too, against local `propose/*` branches. At the cap,
+neither opens a new branch. Re-proposing onto a branch that already exists is still allowed. This
 is the throughput judgement RFC-0026 §3 leaves to the corpus. It never decides what a run may
 author.
 

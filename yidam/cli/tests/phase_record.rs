@@ -902,3 +902,214 @@ fn a_dry_run_plans_and_writes_nothing() {
     assert_eq!(git(&f.root(), &["rev-parse", "HEAD"]), before);
     assert!(f.invocations().is_empty(), "a dry run invoked a step");
 }
+
+// ── settle --merge ────────────────────────────────────────────────────────────
+
+/// Every ref and the sha it stands at, for asserting a refusal moved nothing.
+fn refs(f: &Fixture) -> String {
+    git(
+        &f.root(),
+        &["for-each-ref", "--format=%(refname) %(objectname)"],
+    )
+}
+
+/// **#1452, owner decision 1 on #1438.** `--merge` writes the `--no-ff` merge PHASES.md asks
+/// for: two parents, the baseline first; the phase tip's tree exactly; `yidam phase` as author
+/// and the person as committer. Then the checkout is on the baseline and the branch is gone.
+#[test]
+fn settle_merge_writes_the_merge_under_the_phase_author() {
+    let f = corpus();
+    open_and_switch(&f);
+    f.ok(&["phase", "run"]);
+    f.resync();
+    let base_before = git(&f.root(), &["rev-parse", "main"]);
+    let tip = git(&f.root(), &["rev-parse", "HEAD"]);
+
+    let report = f.json(&["phase", "settle", "--merge"]);
+    let merged = &report["merged"];
+    assert_eq!(merged["switched"], true, "{report}");
+    assert_eq!(merged["deleted"], true, "{report}");
+    assert!(merged["regen"].is_null(), "{report}");
+
+    let root = f.root();
+    assert_eq!(git(&root, &["rev-parse", "--abbrev-ref", "HEAD"]), "main");
+    assert_eq!(
+        git(&root, &["rev-parse", "main^1"]),
+        base_before,
+        "the baseline is the first parent"
+    );
+    assert_eq!(
+        git(&root, &["rev-parse", "main^2"]),
+        tip,
+        "the phase is the second"
+    );
+    assert_eq!(
+        git(&root, &["rev-parse", "main^{tree}"]),
+        git(&root, &["rev-parse", &format!("{tip}^{{tree}}")]),
+        "the merge introduced something the phase did not hold"
+    );
+    assert_eq!(
+        git(&root, &["log", "-1", "--format=%an <%ae>|%cn", "main"]),
+        "yidam phase <phase@yidam>|Tester"
+    );
+    let subject = git(&root, &["log", "-1", "--format=%s", "main"]);
+    assert_eq!(subject, report["subject"].as_str().unwrap());
+    assert!(subject.starts_with("phase: outcome-axis — "), "{subject}");
+    assert!(
+        git(&root, &["branch", "--list", "phase/outcome-axis"]).is_empty(),
+        "the phase branch was left behind"
+    );
+    assert!(git(&root, &["status", "--porcelain"]).is_empty());
+
+    // And `phases` reads it settled, from the ref shape alone.
+    let phases = f.json(&["phases"]);
+    assert!(
+        !phases.to_string().contains("\"active\""),
+        "a merged phase still reads active: {phases}"
+    );
+}
+
+/// **The rework #1438 set out to remove.** After a hand merge, a `regen` on the baseline
+/// followed about twice a round. `--merge` commits the staged refresh on the phase branch and
+/// merges a tree equal to the phase tip's, and every block is a function of the tree (#647),
+/// so `regen --check` holds on the baseline with nothing left to do and no commit after the
+/// merge.
+#[test]
+fn settle_merge_leaves_the_baseline_passing_regen_check() {
+    let f = corpus();
+    with_block(&f, "status");
+    open_and_switch(&f);
+    f.ok(&["phase", "run"]);
+    f.resync();
+
+    let report = f.json(&["phase", "settle", "--merge"]);
+    let merged = &report["merged"];
+    assert!(merged["regen"].is_string(), "{report}");
+
+    let root = f.root();
+    let (stdout, stderr, current) = f.run(&["regen", "--check"]);
+    assert!(
+        current,
+        "the baseline is stale after --merge:\n{stdout}\n{stderr}"
+    );
+    assert!(git(&root, &["status", "--porcelain"]).is_empty());
+
+    // The `regen:` commit is on the phase side of the merge, under the same author.
+    let second_parent = git(&root, &["log", "-1", "--format=%s|%an", "main^2"]);
+    assert_eq!(
+        second_parent,
+        "regen: REGEN blocks refreshed to settle outcome-axis|yidam phase"
+    );
+    assert_eq!(
+        git(&root, &["log", "-1", "--format=%s", "main"]),
+        report["merged"]["subject"].as_str().unwrap(),
+        "something was committed after the merge"
+    );
+}
+
+/// `--summary` replaces the tally, which PHASES.md asks a person to do with the draft.
+#[test]
+fn settle_merge_takes_the_summary_in_place_of_the_tally() {
+    let f = corpus();
+    open_and_switch(&f);
+    f.ok(&["phase", "run"]);
+    f.resync();
+    f.ok(&[
+        "phase",
+        "settle",
+        "--merge",
+        "--summary",
+        "the outcome axis is computed",
+    ]);
+    assert_eq!(
+        git(&f.root(), &["log", "-1", "--format=%s", "main"]),
+        "phase: outcome-axis — the outcome axis is computed"
+    );
+}
+
+/// **Article V, the case it rules out.** A baseline that moved on since the phase branched
+/// would make the merge combine two trees, and the combination is something neither side
+/// held. Refused, with nothing written.
+#[test]
+fn settle_merge_refuses_a_baseline_that_moved_on() {
+    let f = corpus();
+    open_and_switch(&f);
+    f.ok(&["phase", "run"]);
+    f.resync();
+    let root = f.root();
+    git(&root, &["switch", "-q", "main"]);
+    std::fs::write(root.join("NOTES.md"), "elsewhere\n").unwrap();
+    git(&root, &["add", "NOTES.md"]);
+    git(&root, &["commit", "-q", "-m", "scaffold: notes"]);
+    git(&root, &["switch", "-q", "phase/outcome-axis"]);
+
+    let before = refs(&f);
+    let (stdout, stderr, ok) = f.run(&["phase", "settle", "--merge"]);
+    assert!(!ok, "a moved baseline was merged:\n{stdout}");
+    assert!(stderr.contains("has moved on"), "{stderr}");
+    assert!(stderr.contains("Nothing was merged"), "{stderr}");
+    assert_eq!(refs(&f), before, "a refusal moved a ref");
+}
+
+/// A checkout that is not the commit — the one `phase run` leaves — is not refreshed by
+/// `settle`, so it is not ready; and an edit in progress beside staged blocks is somebody's
+/// work, which the switch at the end would carry onto the baseline.
+#[test]
+fn settle_merge_refuses_a_checkout_that_is_not_the_commit() {
+    let f = corpus();
+    open_and_switch(&f);
+    f.ok(&["phase", "run"]);
+    let before = refs(&f);
+    let (_, stderr, ok) = f.run(&["phase", "settle", "--merge"]);
+    assert!(!ok);
+    assert!(stderr.contains("git reset --hard HEAD"), "{stderr}");
+    assert_eq!(refs(&f), before);
+
+    f.resync();
+    std::fs::write(
+        f.root().join(".yidam/corpus/seed.yml"),
+        "class: concept\nname: edited\n",
+    )
+    .unwrap();
+    let (_, stderr, ok) = f.run(&["phase", "settle", "--merge"]);
+    assert!(!ok, "an edit in progress was carried into a merge");
+    assert!(stderr.contains(".yidam/corpus/seed.yml"), "{stderr}");
+    assert_eq!(refs(&f), before);
+}
+
+/// Not ready is not merged: `--merge` adds a writer, not a looser gate.
+#[test]
+fn settle_merge_refuses_a_phase_that_is_not_ready() {
+    let f = corpus();
+    f.second_fails(true);
+    open_and_switch(&f);
+    let (_, _, ok) = f.run(&["phase", "run"]);
+    assert!(!ok);
+    f.resync();
+    let before = refs(&f);
+    let (_, stderr, ok) = f.run(&["phase", "settle", "--merge"]);
+    assert!(!ok);
+    assert!(stderr.contains("Not ready"), "{stderr}");
+    assert!(stderr.contains("Nothing was merged"), "{stderr}");
+    assert_eq!(refs(&f), before);
+}
+
+/// Moving the baseline's ref under a checkout of it elsewhere would leave that checkout
+/// reading as a revert of the phase.
+#[test]
+fn settle_merge_refuses_a_baseline_checked_out_in_another_worktree() {
+    let f = corpus();
+    open_and_switch(&f);
+    f.ok(&["phase", "run"]);
+    f.resync();
+    let other = f.dir.path().join("other");
+    git(
+        &f.root(),
+        &["worktree", "add", "-q", other.to_str().unwrap(), "main"],
+    );
+    let before = refs(&f);
+    let (_, stderr, ok) = f.run(&["phase", "settle", "--merge"]);
+    assert!(!ok);
+    assert!(stderr.contains("another worktree"), "{stderr}");
+    assert_eq!(refs(&f), before);
+}

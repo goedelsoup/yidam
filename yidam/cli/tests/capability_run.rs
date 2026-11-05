@@ -1910,3 +1910,39 @@ fn lint_tells_a_scope_failure_from_a_shape_failure() {
          what the prelude does bind — which is the list the author needs:\n{scope}"
     );
 }
+
+/// **#1452.** `run`'s proposal route opens a `propose/*` head like `propose` does, so it is
+/// held to `[cluster] max_open_proposals` the same way: at the cap, the epistemic step is
+/// refused before it is invoked and no head is opened.
+#[test]
+fn an_epistemic_run_at_the_proposal_cap_opens_no_new_branch() {
+    let (example, step) = every_terminal_capability()
+        .into_iter()
+        .next()
+        .expect("a terminal capability");
+    let e = Example::materialize_runnable(&example);
+    with_verb(&e, &step, "establish");
+    let config = e.path().join(".yidam/config.toml");
+    let mut text = std::fs::read_to_string(&config).unwrap_or_default();
+    text.push_str("\n[cluster]\nmax_open_proposals = 1\n");
+    std::fs::write(&config, text).unwrap();
+    settle(&e);
+    discard_proposals(&e);
+    git(&e.path(), &["branch", "propose/someone-elses"]);
+
+    let (out, err, code) = e.run(&["run", &step]);
+    assert_ne!(
+        code, 0,
+        "a run opened a head at the cap in {example}:\n{out}"
+    );
+    assert!(err.contains("max_open_proposals is 1"), "{err}");
+    assert!(err.contains(&format!("`{step}` was not run")), "{err}");
+    assert_eq!(
+        git(
+            &e.path(),
+            &["for-each-ref", "--format=%(refname)", "refs/heads/propose/"]
+        ),
+        "refs/heads/propose/someone-elses",
+        "the refused run left a head"
+    );
+}
