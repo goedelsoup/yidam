@@ -135,12 +135,22 @@ fn branch_exists(root: &Path, branch: &str) -> bool {
 /// Not a system temp file: the index must be on the same filesystem as the object store for
 /// git's rename-into-place to work, and `$GIT_DIR` is where git puts its own. Named so that a
 /// leftover after a crash is attributable rather than mysterious.
+///
+/// **One path per instance, not one per owner** (#1440). The name was `yidam-<owner>-index`,
+/// and [`TempIndex::new`] removes whatever is at its path before using it — so two holders of
+/// one owner deleted each other's index. That was harmless while every `run` owner was the
+/// one process writing; it stopped being harmless when `cycle` began planning a dry run on
+/// the checkout a person or a hook is running `yidam run` in, and a read-only report would
+/// have removed a live run's index between its `read-tree` and its `ls-files`. The owner is
+/// still the first part of the name, so a leftover is still attributable.
 pub(crate) struct TempIndex(std::path::PathBuf);
 
 impl TempIndex {
     pub(crate) fn new(root: &Path, owner: &str) -> Result<Self> {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = git(root, None, &["rev-parse", "--absolute-git-dir"], None)?;
-        let path = Path::new(&dir).join(format!("yidam-{owner}-index"));
+        let path = Path::new(&dir).join(format!("yidam-{owner}-{}-{n}-index", std::process::id()));
         // A leftover from an interrupted run would be read as the starting tree.
         let _ = std::fs::remove_file(&path);
         Ok(Self(path))
@@ -286,6 +296,22 @@ mod tests {
         crate::git::fixture::write(root, "README.md", "seed\n");
         crate::git::fixture::commit(root, "genesis: seed");
         dir
+    }
+
+    /// Two scratch indexes of one owner are two files, and dropping one leaves the other.
+    ///
+    /// The shape `cycle` reading a dry run beside a live `yidam run` reduces to: both hold a
+    /// `run` index, and the reader's must not be the writer's.
+    #[test]
+    fn two_scratch_indexes_of_one_owner_do_not_share_a_path() {
+        let dir = repo();
+        let a = TempIndex::new(dir.path(), "run").unwrap();
+        std::fs::write(a.path(), b"live").unwrap();
+        let b = TempIndex::new(dir.path(), "run").unwrap();
+        assert_ne!(a.path(), b.path());
+        assert!(a.path().exists(), "the second index removed the first");
+        drop(b);
+        assert!(a.path().exists(), "dropping the second removed the first");
     }
 
     fn proposal(verb: Verb, changes: Vec<Change>) -> Proposal {

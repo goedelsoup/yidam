@@ -2537,6 +2537,13 @@ const UNREACHED: &[(&str, &str)] = &[
          `cmd/cycle/tests.rs`, which can afford to build commits",
     ),
     (
+        "stale_steps[]",
+        "`cycle` only, and it needs a `.yidam/capabilities.toml`. The fixture declares none, and \
+         declaring one would move every golden that reads the tree — `lint`, `status`, \
+         `catalog-audit` — to reach three fields. `cmd/cycle/tests.rs` declares a step, and \
+         asserts the serialized item's keys and its `freshness` spelling against these names",
+    ),
+    (
         "index",
         "`index-verify` only, which needs a built index and the `vector-read` feature to build one \
          (see NO_REPORT)",
