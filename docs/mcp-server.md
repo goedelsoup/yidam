@@ -498,8 +498,8 @@ write perfectly well, until a deployment says otherwise.
 A server permitted to discover that it may write has discovered a policy. A policy a process can
 discover about itself is not one.
 
-Three more things must hold. Where one does not, **the server refuses to start** rather than
-quietly serving the read tools:
+Three more things must hold. Where one does not, `act = true` makes **the server refuse to
+start** rather than quietly serve the read tools:
 
 - **A git author identity must resolve** in the corpus being served — the `user.name` and
   `user.email` a commit here would carry. The history these tools write into *is* the knowledge
@@ -517,6 +517,12 @@ quietly serving the read tools:
 
 The refusal is the point rather than an inconvenience. An operator wrote the key and got a
 running server. They would read that as the answer to the question they asked.
+
+**`act = "when-identity"` asks a different question, and new scaffolds write it.** It declares
+the tier wherever the identity and loopback clauses hold. Where one fails, the server starts with
+the read tools and declares `act: false`. It says why at startup, and every refusal of `propose`
+or `cycle` carries the same sentence ([contract 0.32.0](rfcs/0029-write-tier.md)). A fresh clone
+with no `user.name` still serves every read.
 
 **`propose` may write one thing: a branch.** Three verbs are drafted as commits onto
 `propose/<head>`: `open`, `withdraw`, `close`. Each asserts only what a finding or the corpus's
@@ -703,7 +709,7 @@ only where you look for it.
 tool-not-found errors:
 
 ```json
-{"contract": "0.31.0",
+{"contract": "0.32.0",
  "corpus": {"domain": "streamflow", "commit": "a1b2c3d",
             "nodes": 8, "skills": 1, "decisions": 2,
             "indexed_commit": null, "stale": false},

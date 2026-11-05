@@ -63,6 +63,10 @@ pub(crate) struct ServerState {
     /// See [`act_declared`] for the three clauses that must hold before a `true` here is
     /// honoured, and for what a server does when one does not.
     pub act: bool,
+    /// Why `act` is false on a server whose corpus asked for it conditionally, or `None` —
+    /// [`ActDecision::withheld`]. Said in the banner and in every act tool's refusal, so the
+    /// tier's absence is never mistaken for a corpus that did not ask.
+    pub act_withheld: Option<String>,
     /// The operational record of what this server was asked, or `None` where the corpus
     /// declared none — [`record`].
     ///
@@ -250,7 +254,13 @@ impl ServerState {
     /// is what `graph`'s doc says the startup load exists to avoid, and it would make the
     /// cheapest query the most expensive thing here.
     pub(crate) fn reload(&mut self) -> Result<()> {
+        // The tier is decided once, at startup, by the transport that knows its bind: a reload
+        // re-reads the corpus, not the permission. `serve_mcp_http` withholds `act` off
+        // loopback after `load`, and a reload that re-derived it would grant it back.
+        let (act, withheld) = (self.act, self.act_withheld.take());
         *self = Self::load(&self.root.clone())?;
+        self.act = act;
+        self.act_withheld = withheld;
         Ok(())
     }
 
@@ -287,7 +297,10 @@ impl ServerState {
         // author in must fail at the command rather than at the first call — §5's shape for
         // the HTTP arm, applied to every transport. Loading ten thousand nodes first and
         // then refusing would be the same refusal, later and more expensively.
-        let act = act_declared(root)?;
+        let ActDecision {
+            act,
+            withheld: act_withheld,
+        } = act_declared(root, None)?;
         // Beside `act` and before the corpus, for `act_declared`'s own reason: a server told to
         // record into a path it cannot write must fail at the command rather than at the first
         // call.
@@ -363,6 +376,7 @@ impl ServerState {
         Ok(Self {
             root: root.to_path_buf(),
             act,
+            act_withheld,
             record,
             domain: model.provenance.domain,
             commit: model.provenance.commit,
@@ -404,24 +418,72 @@ impl ServerState {
 ///    something the server detects.** Nothing here checks it, and nothing can. §2.2 says so
 ///    in as many words, and it is why `act` is configuration at all.
 ///
-/// # A refusal, never a silent downgrade
+/// # A refusal, never a silent downgrade — unless the corpus asked for one
 ///
-/// A repository that declared `act` and cannot satisfy clause 1 gets an error and no server.
-/// The alternative — serve the read tools and declare `act: false` — is a deployment that
-/// asked to be written into, was not, and has no way to find out: the operator reads a
-/// running server as the answer to the question they asked. §5 specifies the refusal for the
-/// HTTP arm and the reasoning does not stop at a transport.
-fn act_declared(root: &Path) -> Result<bool> {
-    if !crate::config::load_yidam_config(root)?.serve.act {
-        return Ok(false);
+/// A repository that declared `act = true` and cannot satisfy clause 1 or 3 gets an error and
+/// no server. The alternative — serve the read tools and declare `act: false` — is a
+/// deployment that asked to be written into, was not, and has no way to find out: the
+/// operator reads a running server as the answer to the question they asked. §5 specifies the
+/// refusal for the HTTP arm and the reasoning does not stop at a transport.
+///
+/// `act = "when-identity"` asks the other question, and is what a new scaffold writes (#1444,
+/// RFC-0029's 2026-11-05 amendment). The corpus says *write where you may*, so a clause that
+/// fails withholds the tier instead, and the reason is said where the operator and the caller
+/// each look: the banner, and every act tool's `capability-not-supported`. The objection
+/// above was to a downgrade nobody can see, and this one is stated twice. Clause 2 is
+/// untouched by it: the word is still configuration, written by the corpus, and a corpus that
+/// writes nothing still declares false.
+///
+/// `bind` is clause 3's question, from the one caller that binds a socket: `None` over stdio,
+/// where it is vacuous, and `--bind` over HTTP.
+pub(crate) fn act_declared(root: &Path, bind: Option<&str>) -> Result<ActDecision> {
+    use crate::config::Act;
+    let asked = crate::config::load_yidam_config(root)?.serve.act;
+    if asked == Act::Off {
+        return Ok(ActDecision::default());
     }
-    match git_author(root) {
-        Some(_) => Ok(true),
-        None => anyhow::bail!(
-            "`[serve] act = true` in {}, and this checkout has no git author identity to \n               commit as. An `act` tool writes a proposal branch, and the history it writes \n               into is the knowledge graph — a commit recording what a process did rather than \n               who decided it is what RFC-0029's identity gate exists to prevent.\n               Set `user.name` and `user.email` in this repository, or remove the key.",
-            root.join(".yidam/config.toml").display()
+    let config = root.join(".yidam/config.toml");
+    let failed = if git_author(root).is_none() {
+        Some(format!(
+            "this checkout has no git author identity to commit as, and an `act` tool writes a \
+             proposal branch into the history that is the knowledge graph. Set `user.name` and \
+             `user.email` in {}",
+            root.display()
+        ))
+    } else {
+        bind.filter(|b| !is_loopback(b)).map(|bind| {
+            format!(
+                "`--bind {bind}` is reachable from another machine, and a server that may write \
+                 is declarable only where this machine is the whole of its peer set: over HTTP \
+                 no author exists for a remote caller until #427 supplies one. Bind 127.0.0.1"
+            )
+        })
+    };
+    match (asked, failed) {
+        (_, None) => Ok(ActDecision {
+            act: true,
+            withheld: None,
+        }),
+        (Act::WhenIdentity, Some(why)) => Ok(ActDecision {
+            act: false,
+            withheld: Some(format!(
+                "`[serve] act = \"when-identity\"` in {} and the tier is withheld: {why}.",
+                config.display()
+            )),
+        }),
+        (_, Some(why)) => anyhow::bail!(
+            "`[serve] act = true` in {} and {why}, or remove the key (RFC-0029 §2.2).",
+            config.display()
         ),
     }
+}
+
+/// What [`act_declared`] decided: the tier, or why it is withheld where the corpus asked for
+/// it conditionally. `withheld` is `Some` only with `act` false.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct ActDecision {
+    pub act: bool,
+    pub withheld: Option<String>,
 }
 
 /// The author a commit written here would carry, or `None` where git names none.
@@ -658,6 +720,9 @@ fn banner(state: &ServerState) {
     // What this server may do to the repository, said at connect time to the person who can
     // still stop it. A reader who sees nothing here is reading a server that only answers,
     // which is every server this repository shipped before RFC-0029.
+    if let Some(why) = &state.act_withheld {
+        eprintln!("act: WITHHELD — {why} Only the read tools are served.");
+    }
     if state.act {
         eprintln!(
             "act: DECLARED — `propose` and `cycle` are served, and `propose` writes a \
@@ -763,16 +828,15 @@ pub fn serve_mcp_http(
     //
     // A token does not lift it (#939). One shared secret says that a caller holds it, not who
     // the caller is, so it cannot supply the author §2.2 requires for a write.
-    if act_declared(&root)? && !is_loopback(bind) {
-        anyhow::bail!(
-            "`[serve] act = true` and `--bind {bind}`. A server that may write is declarable \n               only where this machine is the whole of its peer set (RFC-0029 §2.2), and \n               `{bind}` is reachable from another one; over HTTP no author exists for a remote \n               caller until #427 supplies one.\n               Bind 127.0.0.1, or drop `[serve] act` and serve the read tools."
-        );
-    }
+    let act = act_declared(&root, Some(bind))?;
     let identity = unpacked
         .as_ref()
         .map(|u| (u.commit.clone(), u.domain.clone()));
     let load = move || {
         let mut state = ServerState::load(&root)?;
+        // `load` asks clause 3 of nobody, as stdio does; this transport has the answer.
+        state.act = act.act;
+        state.act_withheld = act.withheld.clone();
         // What the bundle says it is, over what scratch says — see [`bundle`].
         if let Some((commit, domain)) = identity {
             state.commit = commit.unwrap_or(state.commit);
@@ -963,6 +1027,7 @@ mod tests {
             // are exercised against a real repository in `tests/mcp_serve.rs`, where the
             // commits they write can be read back.
             act: false,
+            act_withheld: None,
             // Recording nothing, which is every server that has not written the key. What a
             // record holds is exercised against a real repository in `tests/mcp_serve.rs`, where
             // the lines it appends can be read back — a hand-built snapshot has no root to
@@ -1267,5 +1332,85 @@ mod tests {
         let first: Value = serde_json::from_str(lines[0]).unwrap();
         assert_eq!(first["id"], 1);
         assert!(first["result"]["serverInfo"].is_object());
+    }
+
+    /// The decision table, for every row a checkout with an author can reach. The rows with no
+    /// author need git's whole environment stripped, which is process-wide, so they are in
+    /// `tests/mcp_act_tier.rs` where each server is its own process.
+    #[test]
+    fn act_is_granted_withheld_or_refused_by_what_the_corpus_asked() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join(".yidam")).unwrap();
+        for args in [
+            &["init", "-q"][..],
+            &["config", "user.email", "t@t.co"],
+            &["config", "user.name", "T"],
+        ] {
+            crate::git::fixture::git(root, args);
+        }
+        let asking = |act: &str| {
+            std::fs::write(
+                root.join(".yidam/config.toml"),
+                format!("[serve]\nact = {act}\n"),
+            )
+            .unwrap()
+        };
+        let granted = ActDecision {
+            act: true,
+            withheld: None,
+        };
+
+        asking("false");
+        assert_eq!(
+            act_declared(root, Some("0.0.0.0")).unwrap(),
+            ActDecision::default()
+        );
+
+        asking("true");
+        assert_eq!(act_declared(root, None).unwrap(), granted);
+        assert_eq!(act_declared(root, Some("127.0.0.1")).unwrap(), granted);
+        let refused = act_declared(root, Some("0.0.0.0")).unwrap_err().to_string();
+        assert!(refused.contains("`--bind 0.0.0.0`"), "{refused}");
+
+        asking("\"when-identity\"");
+        assert_eq!(act_declared(root, None).unwrap(), granted);
+        assert_eq!(act_declared(root, Some("::1")).unwrap(), granted);
+        let withheld = act_declared(root, Some("0.0.0.0")).unwrap();
+        assert!(!withheld.act);
+        let why = withheld.withheld.unwrap();
+        assert!(
+            why.contains("withheld") && why.contains("`--bind 0.0.0.0`"),
+            "{why}"
+        );
+    }
+
+    /// A reload re-reads the corpus and keeps the startup decision: over HTTP off loopback the
+    /// tier was withheld after `load`, and a reload that re-derived it from `load` alone would
+    /// grant it back.
+    #[test]
+    fn a_reload_keeps_the_tier_it_started_with() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join(".yidam")).unwrap();
+        for args in [
+            &["init", "-q"][..],
+            &["config", "user.email", "t@t.co"],
+            &["config", "user.name", "T"],
+        ] {
+            crate::git::fixture::git(root, args);
+        }
+        std::fs::write(
+            root.join(".yidam/config.toml"),
+            "[serve]\nact = \"when-identity\"\n",
+        )
+        .unwrap();
+        let mut state = ServerState::load(root).unwrap();
+        assert!(state.act, "stdio with an author grants it");
+        state.act = false;
+        state.act_withheld = Some("withheld for the test".into());
+        state.reload().unwrap();
+        assert!(!state.act);
+        assert_eq!(state.act_withheld.as_deref(), Some("withheld for the test"));
     }
 }

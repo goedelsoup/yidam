@@ -40,7 +40,7 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.31.0",
+    "contract": "0.32.0",
     "corpus": {
       "domain": "streamflow",
       "commit": "a1b2c3d",
@@ -239,6 +239,18 @@ Four consequences for a conforming server:
 - **`predicate-unsatisfied` joins the absence codes.** The predicate parsed, typechecked and
   refused every one of `instances` candidates. It is evidence about the values, and it is
   reported only when at least one candidate was evaluated.
+
+## A declaration may be conditional, and then a withheld tier says why (contract 0.32.0)
+
+`act` could be declared only unconditionally, and a server that could not satisfy its clauses
+refused to start (#1444). A corpus may now declare the tier *where its clauses hold*. Where one
+fails, the server serves the read tiers and declares `act: false`.
+
+- **The refusal says which clause failed.** A call to `propose` or `cycle` is refused
+  `capability-not-supported` as before. Its message adds the failed clause and its remedy.
+- **The handshake does not distinguish the two.** The tier is absent either way, and the reason
+  is in the refusal.
+- **An unconditional declaration is unchanged.** It still refuses to start.
 
 ## `cycle` names a command where running it is the act (contract 0.31.0)
 

@@ -488,16 +488,25 @@ launcher's argv — a client config, a desktop manifest, a shell alias. *May a t
 corpus* would then be a fact about who started the server. It is a fact about the corpus, and this
 file is the corpus saying it.
 
-Writing `true` is necessary and not sufficient. Two more conditions are checked at startup, and
-where one fails **the server refuses to start**:
+The key takes three values. `false`, or no key, declares nothing. `true` and `"when-identity"`
+both declare the tier, and both are necessary and not sufficient. Two more conditions are
+checked at startup:
 
 | Condition | Why |
 |---|---|
 | A git author identity resolves — `user.name` and `user.email`, the values a commit here would take | The history these tools write into *is* the knowledge graph. A commit recording what a process did rather than who decided it is what this clause prevents. It applies on every transport, stdio included |
 | Every listening socket is loopback — `serve --mcp --http --bind 0.0.0.0` is refused, with a bearer token or without one | A server reachable from another machine has no author for a remote caller. A shared token says a caller holds it, not who they are. Vacuous over stdio, where the transport has one peer and it is the process that started the server |
 
-The refusal is the point. Serving the read tools and declaring `act: false` would be a silent
-downgrade. Whoever wrote this key would read a running server as the answer to their question.
+What a failed condition does depends on the value:
+
+| Value | Where a condition fails |
+|---|---|
+| `true` | **The server refuses to start.** Serving the read tools and declaring `act: false` would be a silent downgrade, and whoever wrote `true` would read a running server as the answer to their question |
+| `"when-identity"` | **The server starts with the read tools only.** It declares `act: false`, prints which condition failed, and appends that sentence to every refusal of `propose` or `cycle`. The downgrade is stated, never silent |
+
+The scaffold writes `act = "when-identity"`, by the owner's decision on
+[#1438](https://github.com/goedelsoup/yidam/issues/1438). A fresh clone with no `user.name` still
+serves every read. Write `true` where a missing tier should stop the server.
 
 **The loopback rule is not a security boundary and should not be read as one.** Anything on the
 host reaches loopback. A tunnel in front of a loopback port is the remote case wearing this

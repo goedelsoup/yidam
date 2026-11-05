@@ -39,6 +39,14 @@
 > not hold — what the reload actually changes today, which is nothing. §2.5's ordering
 > expectation is also stale and §2.6 records the number the claim-at-landing rule gives.
 
+> **Amended 2026-11-05, the scaffold's default (#1444).** Epic #1438's owner decided that a new
+> scaffold turns `act` on. §2.2's clauses make `act = true` refuse the whole server where no git
+> author identity resolves, so a default of `true` would stop every read in a fresh clone that
+> has not set `user.name`. The owner chose a third value instead: **`act = "when-identity"`**
+> serves the tier where clauses 1 and 3 hold and **withholds** it, with the failed clause stated,
+> where they do not. An explicit `true` keeps the strict refusal. §2.2 carries the definition under
+> **A conditional declaration**.
+
 ## Summary
 
 RFC-0005 froze thirteen MCP tool names and every one of them reads. #474 states the consequence:
@@ -206,6 +214,38 @@ route into the tier: the loopback surface serves the same operations through the
 Reversing this at review means the proxy binds as written, `yidam edit`'s Phase 3 blocks on #427,
 and a loopback editor waits on a remote-authorisation question it does not raise. RFC-0030's open
 question and #608's schedule table both name that cost.
+
+#### A conditional declaration *(decided 2026-11-05)*
+
+Clause 3 says a failed condition is "an error, not a silent downgrade", and that stays true of
+`act = true`. A person who wrote `true` asked for the tier, and a server that started without it
+would answer their question wrongly. A scaffold's default asks something different: *serve the
+tier wherever this checkout can author it.* For that question, refusing to serve reads would be
+the wrong answer.
+
+**Decision: `[serve] act` takes three values.** `false`, or an absent key, declares nothing.
+`true` declares the tier, and the server refuses to start where clause 1 or clause 3 fails.
+`"when-identity"` declares the tier on the same two clauses, and where one fails the server starts
+with the read tiers only. It then:
+
+- declares `act: false` in the handshake and leaves `propose` and `cycle` out of `tools/list`;
+- prints, at startup, which clause failed and how to satisfy it;
+- appends that same sentence to every `capability-not-supported` refusal of an `act` tool.
+
+The downgrade is therefore never silent. The reason is in the banner and in each refusal, and a
+client reads it in the frozen refusal shape. The value is named for clause 1, the common case, and
+also covers clause 3, so a derived repository served on `0.0.0.0` keeps its reads.
+
+Clause 2 is unchanged. `"when-identity"` is still configuration: the corpus's own file says it,
+and a server that was not told so declares `false`. Clause 4 is unchanged too. The decision is
+evaluated once, at startup, and a reload after a write keeps it.
+
+New scaffolds write `act = "when-identity"`. An existing repository keeps whatever its file says,
+and no migration rewrites it.
+
+The contract states clause 3's refusal as a MUST, so this is a contract change. It is an additive
+minor, 0.32.0: it permits a server a behaviour, and the refusal shape a client branches on does not
+move.
 
 ### 2.3 `cycle` joins the `act` tier
 

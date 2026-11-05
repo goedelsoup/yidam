@@ -93,8 +93,9 @@ pub(crate) fn capabilities(state: &ServerState) -> Value {
         // write has discovered a policy, which is not a thing a policy can be.
         //
         // The other three clauses are checked before this value is ever read: a git author
-        // identity resolves (`serve::act_declared`) and every listening socket is loopback
-        // (`serve_mcp_http`), both of which refuse the server rather than downgrading it here.
+        // identity resolves and every listening socket is loopback (`serve::act_declared`).
+        // Under `act = true` a failed clause refuses the server rather than downgrading it
+        // here; under `"when-identity"` it is false and `state.act_withheld` says why.
         "act": state.act,
         "resources": true,
     })
@@ -183,11 +184,22 @@ fn refuse_unbacked(state: &ServerState, name: &str) -> Option<String> {
     let tier = tier(name)?;
     match backs(&tier, &capabilities(state)) {
         true => None,
-        false => Some(format!(
-            "capability-not-supported: `{name}` is served only by a server declaring the \
-             `{tier}` capability, and this one declares it false. It is absent from \
-             `tools/list` for the same reason."
-        )),
+        false => {
+            let mut text = format!(
+                "capability-not-supported: `{name}` is served only by a server declaring the \
+                 `{tier}` capability, and this one declares it false. It is absent from \
+                 `tools/list` for the same reason."
+            );
+            // A corpus that asked for `act` conditionally is told which clause withheld it, so
+            // a caller can tell *this deployment will not* from *this checkout cannot yet*.
+            if tier == "act" {
+                if let Some(why) = &state.act_withheld {
+                    text.push(' ');
+                    text.push_str(why);
+                }
+            }
+            Some(text)
+        }
     }
 }
 

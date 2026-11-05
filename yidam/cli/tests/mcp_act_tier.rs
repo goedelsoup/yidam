@@ -123,7 +123,12 @@ struct McpClient {
 
 impl McpClient {
     fn spawn(cwd: &Path) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        Self::spawn_from(Command::new(env!("CARGO_BIN_EXE_yidam")), cwd)
+    }
+
+    /// [`Self::spawn`], from a command whose environment the caller has already set.
+    fn spawn_from(mut command: Command, cwd: &Path) -> Self {
+        let mut child = command
             .args(["serve", "--mcp"])
             .current_dir(cwd)
             .stdin(Stdio::piped())
@@ -641,6 +646,64 @@ fn a_checkout_with_no_author_refuses_to_declare_act() {
         err.contains("no git author identity"),
         "the refusal must say which clause failed: {err}"
     );
+}
+
+/// Strip every source git takes an author from — see the test above for why it is all three.
+fn without_an_author(root: &Path, command: &mut Command) {
+    git(root, &["config", "--local", "--unset-all", "user.email"]);
+    git(root, &["config", "--local", "--unset-all", "user.name"]);
+    git(root, &["config", "--local", "user.useConfigOnly", "true"]);
+    command
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null");
+    for var in [
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+        "EMAIL",
+    ] {
+        command.env_remove(var);
+    }
+}
+
+/// `act = "when-identity"` — what a new scaffold writes (#1444) — declares the tier where the
+/// checkout has an author, and where it has none **serves the read tools and says why** rather
+/// than refusing as `true` does. The reason reaches the caller, in each act tool's refusal,
+/// because over MCP the caller is the one who cannot read the banner.
+#[test]
+fn a_conditional_act_follows_the_identity_and_says_why_it_is_withheld() {
+    let repo = stage_streamflow();
+    let root = repo.path();
+    std::fs::write(
+        root.join(".yidam/config.toml"),
+        "[serve]\nact = \"when-identity\"\n",
+    )
+    .unwrap();
+
+    let mut with = McpClient::spawn(root);
+    assert_eq!(with.capabilities()["act"], true);
+    assert!(with.listed().contains(&"cycle".to_string()));
+    drop(with);
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_yidam"));
+    without_an_author(root, &mut command);
+    let mut without = McpClient::spawn_from(command, root);
+    assert_eq!(without.capabilities()["act"], false);
+    let listed = without.listed();
+    for name in ["propose", "cycle"] {
+        assert!(!listed.contains(&name.to_string()), "{listed:?}");
+        let result = without.call(name, json!({}));
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.starts_with("capability-not-supported")
+                && text.contains("withheld")
+                && text.contains("no git author identity"),
+            "the refusal does not say which clause withheld the tier: {text}"
+        );
+    }
+    // And a read still answers: withholding is not refusing.
+    assert!(without.listed().contains(&"retrieve".to_string()));
 }
 
 /// Clause 3 — an `act`-declaring server may not bind an address another machine can reach.
