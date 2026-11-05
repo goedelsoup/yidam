@@ -104,14 +104,15 @@
 
 [serve]
 # Whether a server started against this corpus may declare the `act` capability — that is,
-# may write to it. `false` is the default, and a server satisfying every other condition
-# still declares false without this key: a read tier's absence says the server *cannot* and
-# is therefore discovered, while this says the deployment *will not*, and a policy a server
-# can discover about itself is not a policy. Declaring it true is not sufficient either — a
-# git author identity must resolve in the corpus being served, and every listening socket
-# must be loopback. Both are checked at startup and both fail the server rather than
-# quietly downgrading it.
-# act = true
+# may draft `propose/*` branches and answer `cycle`. The one key this file sets live.
+#
+# "when-identity" declares the tier where a git author identity resolves in this checkout
+# and every listening socket is loopback. Where either fails, the server still starts, serves
+# the read tools, and says which clause withheld the tier, at connect time and in each act
+# tool's refusal. Setting it true refuses to start instead, for a deployment where a server
+# that cannot write should be no server. Setting it false, or deleting the line, serves the
+# read tools only and asks nothing (RFC-0029 §2.2).
+act = "when-identity"
 
 # Whether `search_sources` and `resolve_source` answer from each source pack's recorded
 # fixtures rather than asking the publisher. `false` is the default: absent, they ask, as

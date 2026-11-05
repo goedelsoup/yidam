@@ -693,12 +693,19 @@ pub struct ServeConfig {
     /// than quietly downgrading it: a server that was told to write and serves reads instead
     /// is a deployment that believes something false about itself.
     ///
+    /// **`"when-identity"` is the conditional form, and what a new scaffold writes** (#1444,
+    /// RFC-0029's 2026-11-05 amendment). It declares `act` where clause 1 and clause 3 hold,
+    /// and where either does not it **withholds** the tier — serving the read tools, saying
+    /// which clause failed at connect time and in every act tool's refusal — rather than
+    /// refusing the server. `true` keeps the refusal: it is the form for an operator who wants
+    /// a server that cannot write to be no server at all.
+    ///
     /// ```toml
     /// [serve]
-    /// act = true
+    /// act = true            # or "when-identity"; false and absent are the same
     /// ```
     #[serde(default)]
-    pub act: bool,
+    pub act: Act,
     /// Whether a server started against this corpus appends a line per `tools/call` to
     /// `.yidam/record/calls.jsonl` — [`crate::cmd::serve::record`].
     ///
@@ -738,6 +745,44 @@ pub struct ServeConfig {
     pub offline_sources: bool,
 }
 
+/// `[serve] act`: whether a server may declare the write tier, and what it does where it may
+/// not — [`ServeConfig::act`].
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "RawAct")]
+pub enum Act {
+    /// `false`, or absent: the read tools only, and no clause is asked.
+    #[default]
+    Off,
+    /// `true`: the tier, or no server. A clause that fails refuses at startup.
+    On,
+    /// `"when-identity"`: the tier where every detectable clause holds, the read tools and a
+    /// stated reason where one does not.
+    WhenIdentity,
+}
+
+/// What `act` may be spelled as in TOML: the boolean it always was, or the one word.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RawAct {
+    Flag(bool),
+    Word(String),
+}
+
+impl TryFrom<RawAct> for Act {
+    type Error = String;
+
+    fn try_from(raw: RawAct) -> std::result::Result<Self, String> {
+        match raw {
+            RawAct::Flag(false) => Ok(Self::Off),
+            RawAct::Flag(true) => Ok(Self::On),
+            RawAct::Word(w) if w == "when-identity" => Ok(Self::WhenIdentity),
+            RawAct::Word(w) => Err(format!(
+                "`[serve] act = \"{w}\"`: expected true, false, or \"when-identity\""
+            )),
+        }
+    }
+}
+
 pub fn load_yidam_config(root: &Path) -> Result<YidamConfig> {
     let path = root.join(".yidam").join("config.toml");
     if !path.exists() {
@@ -751,6 +796,26 @@ pub fn load_yidam_config(root: &Path) -> Result<YidamConfig> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `act` is the boolean it always was, or the one word; any other word is refused by name
+    /// rather than read as either.
+    #[test]
+    fn act_is_a_flag_or_when_identity() {
+        let parse = |t: &str| toml::from_str::<YidamConfig>(t).map(|c| c.serve.act);
+        assert_eq!(parse("").unwrap(), Act::Off);
+        assert_eq!(parse("[serve]\nact = false").unwrap(), Act::Off);
+        assert_eq!(parse("[serve]\nact = true").unwrap(), Act::On);
+        assert_eq!(
+            parse("[serve]\nact = \"when-identity\"").unwrap(),
+            Act::WhenIdentity
+        );
+        for bad in ["\"true\"", "\"yes\"", "\"when_identity\"", "1"] {
+            let err = parse(&format!("[serve]\nact = {bad}"))
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("act"), "{bad}: {err}");
+        }
+    }
 
     /// A CIDR is the network address and a length its family allows. `10.0.0.1/8` is refused
     /// rather than read as `10.0.0.0/8`, which is wider than whoever wrote it meant.
@@ -810,17 +875,32 @@ mod tests {
         let text = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
 
-        // As delivered: no live keys at all, so a derived repository's config parses to
-        // exactly what an absent file gives it.
+        // As delivered: one live key, `[serve] act = "when-identity"`, and nothing else, so a
+        // derived repository's config parses to what an absent file gives it but for that.
+        //
+        // The one is the owner's decision on #1438, and of a different kind from the rest: a
+        // number shipped here is a judgement this corpus never made, and this is whether a
+        // server started in a checkout its owner can commit in may draft proposals there —
+        // which `when-identity` answers by asking the checkout, not by assuming.
         let delivered: YidamConfig = toml::from_str(&text)
             .unwrap_or_else(|e| panic!("{} does not parse as delivered: {e}", path.display()));
+        let assignments: Vec<&str> = text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.starts_with('#') && l.contains('='))
+            .collect();
+        assert_eq!(
+            assignments,
+            [r#"act = "when-identity""#],
+            "the scaffolded config sets a key besides `act`. Every other one is meant to be \
+             commented out: a number shipped here is a judgement this corpus never made."
+        );
         assert!(
             delivered.vault.is_empty()
                 && delivered.due.questions_after.is_none()
                 && delivered.lint.escalate_after.is_none()
-                && !delivered.serve.act,
-            "the scaffolded config sets a key. Every one of them is meant to be commented \
-             out: a number shipped here is a judgement this corpus never made."
+                && delivered.serve.act == Act::WhenIdentity,
+            "the delivered config does not parse to what its lines say"
         );
 
         // And as taken up.

@@ -522,6 +522,33 @@ fn a_bind_off_loopback_warns_before_it_listens() {
     );
 }
 
+/// `act = "when-identity"` off loopback serves the read tools and declares `act: false`, and
+/// says why — where `act = true` refuses (`mcp_act_tier.rs`). The scaffold writes this form,
+/// so a derived repository served on `0.0.0.0` must keep the server it had before #1444 (and
+/// must not gain a write tier reachable from another machine).
+#[test]
+fn a_conditional_act_off_loopback_is_withheld_and_the_server_starts() {
+    let repo = fixture_repo();
+    std::fs::write(
+        repo.path().join(".yidam/config.toml"),
+        "[serve]\nact = \"when-identity\"\n",
+    )
+    .unwrap();
+    let server = start(repo.path(), &["--bind", "0.0.0.0"]);
+    assert!(
+        server.banner.contains("act: WITHHELD") && server.banner.contains("`--bind 0.0.0.0`"),
+        "the banner does not say the tier was withheld, or why:\n{}",
+        server.banner
+    );
+    let (status, body) = rpc(
+        &server.addr,
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["result"]["capabilities"]["yidam"]["act"], false, "{v}");
+}
+
 /// The converse: the default bind is loopback, and says nothing about exposure.
 #[test]
 fn the_default_bind_does_not_warn() {
