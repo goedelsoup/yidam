@@ -1109,12 +1109,19 @@ Two constraints on that first slice, both learned here:
    pin, through a bundle that peer published — and publishing is currently the whole of the consent.
    That is probably right inside one organisation and probably not past that boundary. Named here
    so the gather design does not foreclose it, and left open because nothing yet needs it settled.
-2. **Does a write-capable MCP tool live in the existing tier or a new one?** RFC-0005 froze thirteen
+2. ~~**Does a write-capable MCP tool live in the existing tier or a new one?** RFC-0005 froze thirteen
    tool names and every one reads. #474 adds the first write-capable surface, which is a contract
    change rather than an addition. The refusal shape already exists — `refuse_unbacked` in
    `cmd/serve/tools.rs` declines a tool a server does not declare — and should be reused rather
    than re-invented. #426 records that the ChatGPT connector wants two specific names against
-   RFC-0005's thirteen; whatever is decided must not make that worse.
+   RFC-0005's thirteen; whatever is decided must not make that worse.~~ **Settled by
+   [RFC-0029](0029-write-tier.md) §2.1** (struck 2026-11-05, #1441). The mechanism is the existing
+   one, with one new tier, `act`, which differs from the others in a single rule. Other tiers are
+   declared whenever the server can back them. `act` is declared only when the deployment's
+   configuration says `[serve] act = true`, and is never inferred. The refusal is
+   `refuse_unbacked`'s frozen shape, reused. `cycle` sits in the same tier (§2.3), so a "next act"
+   never reaches an agent on a surface where it cannot act. #426's constraint is corrected in
+   §2.4, because RFC-0027 retracted its premise.
 3. **Where does a receipt live when a corpus has no vault?** The record is committed either way.
    Whether the *outputs* a receipt names must be retrievable, or may be absent with the receipt
    still standing as provenance, is not settled. RFC-0023's answer for catalog artifacts — a stale
