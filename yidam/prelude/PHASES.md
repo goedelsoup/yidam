@@ -74,8 +74,8 @@ phase whose run died and a phase opened this morning were the same row.
 
 `settle` refreshes the REGEN blocks and stages them, checks the phase produced outputs and
 drafts the merge subject. A block still stale after that, or one no generator writes, is not
-ready: closing a phase over it is a merge that fails its first build. **It does not merge**,
-and that is a limit rather than an omission — see the next section.
+ready: closing a phase over it is a merge that fails its first build. It merges only
+under `--merge` — see the next section.
 
 A phase without a record is listed exactly as it always was, with its state read from the ref
 and the table saying how many rows are an inference.
@@ -110,10 +110,10 @@ and the table saying how many rows are an inference.
 
   `yidam phase settle` drafts that subject and prints those three lines — four, when it
   refreshed a REGEN block: the `regen:` commit goes first, on the phase branch, because a
-  `--no-ff` merge refuses a dirty index. **A person runs them.**
-  `phase:` is an epistemic verb, and a tool that authored one would be claiming the synthesis
-  the merge exists to record. `yidam due` states the same limit of this clock: *a person —
-  merging a phase, or abandoning it, is not a mechanical consequence of a finding.*
+  `--no-ff` merge refuses a dirty index. A person decides a phase is finished, then runs
+  them or has `--merge` write them under the `yidam phase` author. So the merge introduces
+  nothing, as [Article V](CONSTITUTION.md) asks, it takes a ready `phase/*` ref only, onto a
+  baseline the phase descends from, from a checkout that is the commit.
 
   **If you settle through a pull request, check which merge button your repository uses.**
   *Rebase and merge* and *Squash and merge* both write a single-parent commit onto the baseline

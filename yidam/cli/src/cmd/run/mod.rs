@@ -407,6 +407,13 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
             continue;
         }
 
+        // Before the step is invoked, so a refused step costs nothing (#1452). Proposal-route
+        // steps run last in plan order, so every branch-route step ahead of this one landed.
+        if route == Route::Proposal && existing.is_none() {
+            crate::cmd::propose::write::require_room(root, &target).with_context(|| {
+                format!("`{name}` was not run; the steps ahead of it in the plan landed")
+            })?;
+        }
         let produced = exec::invoke(cap, &inputs, name, &full)?;
         exec::check_declared(cap, &produced.outputs)?;
 

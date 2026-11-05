@@ -13,13 +13,15 @@
 //! | `start` | opens `phase/<slug>` and snapshots the input state | one `scaffold:` commit |
 //! | `run` | invokes the manifest's plan, recording steps as they complete | one `scaffold:` commit per step, plus whatever the step itself lands |
 //! | `settle` | refreshes the REGEN blocks, checks the phase produced outputs and drafts the merge subject | **no commit** — it stages the refreshed blocks and moves no ref |
+//! | `settle --merge` | the same, then writes what it drafted | a `regen:` commit when blocks were stale, and the `--no-ff` merge, both under `yidam phase` |
 //!
-//! # `settle` prepares; it does not merge
+//! # `settle` prepares; `--merge` writes only what it checked
 //!
-//! `phase:` is an **epistemic** verb, and RFC-0026 §2's invariant is that *a run authors
-//! operational commits directly, every epistemic commit it produces goes to a proposal branch,
-//! and nothing merges itself.* A `settle` that wrote the `--no-ff` merge would breach that
-//! invariant on this layer's second surface.
+//! `phase:` is an **epistemic** verb. Deciding that a phase is finished is a person's act, and
+//! `settle` without a flag hands that decision back. `--merge` is the owner's decision on
+//! #1438: once a person has decided, the tool may write the merge. [`write_merge`] holds the
+//! licence to commits that introduce nothing — see its doc, and PHASES.md for the Article V
+//! check.
 //!
 //! # `settle` runs `regen`, stages the result, and refuses to close over a stale block
 //!
@@ -49,9 +51,9 @@
 //! > A person. Merging a phase, or abandoning it, is not a mechanical consequence of a
 //! > finding.
 //!
-//! So `settle` validates, drafts a vocabulary-checked subject, and hands back. Same shape as
-//! `propose`, which is the point — and it is pinned by
-//! `tests/phase_record.rs`'s `settle_authors_no_commit_and_moves_no_ref`.
+//! So `settle` validates, drafts a vocabulary-checked subject, and hands back, which
+//! `tests/phase_record.rs`'s `settle_authors_no_commit_and_moves_no_ref` pins. `--merge`
+//! writes the merge only after a person has asked for it.
 //!
 //! # Why `start` writes a `scaffold:` commit rather than a file
 //!
@@ -137,12 +139,20 @@ pub enum PhaseCommand {
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
     },
-    /// Check this phase produced outputs and draft the merge subject — a person merges
+    /// Check this phase produced outputs and draft the merge subject; `--merge` writes it
     ///
-    /// Authors nothing. `phase:` is an epistemic verb and RFC-0026 §2 forbids this layer
-    /// writing one, so the merge is printed for a person to run. `cmd/due.rs` reached the
-    /// same limit first: merging a phase is not a mechanical consequence of a finding.
+    /// Without `--merge`, authors nothing: it prints the merge for a person to run. With it,
+    /// writes the `--no-ff` merge onto the baseline under the `yidam phase` author, only when
+    /// the phase is ready and the baseline is an ancestor of it, so the merged tree is the one
+    /// checked here and nothing is resolved (PHASES.md, #1452).
     Settle {
+        /// Write the merge: the `regen:` commit first when blocks are staged, then the merge,
+        /// then switch to the baseline and delete the phase branch
+        #[arg(long)]
+        merge: bool,
+        /// With `--merge`, what the phase produced — replaces the drafted tally in the subject
+        #[arg(long, value_name = "TEXT", requires = "merge")]
+        summary: Option<String>,
         /// Output format. `json` emits the machine-readable report contract (RFC-0016)
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
@@ -153,7 +163,11 @@ pub fn run(sub: PhaseCommand) -> Result<()> {
     match sub {
         PhaseCommand::Start { name, kind, format } => start(&name, &kind, format),
         PhaseCommand::Run { dry_run, format } => run_phase(dry_run, format),
-        PhaseCommand::Settle { format } => settle(format),
+        PhaseCommand::Settle {
+            merge,
+            summary,
+            format,
+        } => settle(merge.then_some(summary), format),
     }
 }
 
@@ -783,6 +797,27 @@ struct SettleReport {
     regen: RegenSettle,
     #[serde(skip_serializing_if = "Option::is_none")]
     revision_skew: Option<Skew>,
+    /// What `--merge` wrote. Absent without `--merge`, where nothing is written.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    merged: Option<Merged>,
+}
+
+/// What `settle --merge` wrote, in the order it wrote it.
+#[derive(Debug, serde::Serialize)]
+struct Merged {
+    /// The `regen:` commit written on the phase branch for the staged blocks, or null.
+    regen: Option<String>,
+    /// The `--no-ff` merge commit now at the tip of the baseline.
+    merge: String,
+    /// The subject the merge carries — the draft, or the draft with `--summary` in place of
+    /// the tally.
+    subject: String,
+    /// Whether the checkout was moved to the baseline. False when git refused the switch, in
+    /// which case the merge stands and the switch is printed for a person.
+    switched: bool,
+    /// Whether the phase branch was deleted. Only after a switch: git refuses to delete the
+    /// branch that is checked out.
+    deleted: bool,
 }
 
 /// What `settle` did about the REGEN blocks, and what it could not.
@@ -810,7 +845,8 @@ struct RegenSettle {
     dirty: Vec<String>,
 }
 
-fn settle(format: Format) -> Result<()> {
+/// `settle`, and with `merge` (the `--summary`, if any) the merge written.
+fn settle(merge: Option<Option<String>>, format: Format) -> Result<()> {
     let root = repo_root()?;
     require_yidam_repo(&root)?;
     let (branch, slug, rec) = current_phase(&root)?;
@@ -871,7 +907,7 @@ fn settle(format: Format) -> Result<()> {
     );
 
     let held = held_kuten(&root)?;
-    let report = SettleReport {
+    let mut report = SettleReport {
         phase: slug,
         r#type: rec.r#type.clone(),
         branch,
@@ -885,8 +921,167 @@ fn settle(format: Format) -> Result<()> {
         revision_skew: rec
             .revision_skew(held.revision)
             .map(|(recorded, held)| Skew { recorded, held }),
+        merged: None,
     };
+    if let Some(summary) = merge {
+        if !report.ready {
+            let mut why = render_settle(&report);
+            why.push_str("\nNothing was merged: `--merge` writes only a phase that is ready.");
+            bail!(why);
+        }
+        report.merged = Some(write_merge(&root, &report, summary.as_deref())?);
+    }
     crate::report::finish(&root, format, report, |r| println!("{}", render_settle(r)))
+}
+
+/// `settle --merge`: write the merge `render_settle` would otherwise print (#1452).
+///
+/// # What licenses a tool to write a `phase:` merge
+///
+/// The owner's decision on #1438, recorded in PHASES.md and checked there against Article V:
+/// `phase settle` may write the merge of a phase ref, under this module's author — phase refs
+/// only, never `propose/*`, never `rigpa/*`, and nothing else merges itself. Article V binds
+/// a resolution to what the participating positions hold, *synthesis, not generation*, and a
+/// tool-written merge keeps to it only where it introduces nothing. So every refusal below is
+/// a case where the merge would have to introduce something:
+///
+/// - **The baseline must be an ancestor of the phase.** Then the merge's tree is the phase
+///   tip's tree, byte for byte — the tree this command just checked — and there is nothing to
+///   resolve. A baseline that moved on is refused rather than merged: bringing it into the
+///   phase is a merge with conflicts a person may have to decide, and a git-generated one.
+/// - **The checkout must be the commit**, but for the REGEN blocks `settle` staged. Anything
+///   else staged or edited is somebody's work, and the switch at the end would carry it.
+/// - **The baseline must not be checked out in another worktree.** Moving its ref would leave
+///   that checkout looking as if somebody had reverted the phase.
+///
+/// The baseline moves by compare-and-swap, so a baseline that moved while this ran is a
+/// refusal, not a lost commit. The author is `yidam phase`; the committer is whoever ran it.
+fn write_merge(root: &Path, r: &SettleReport, summary: Option<&str>) -> Result<Merged> {
+    let subject = match summary.map(str::trim) {
+        None => r.subject.clone(),
+        Some("") => bail!("`--summary` is empty — say what the phase produced, or omit it"),
+        Some(text) if text.contains('\n') => {
+            bail!("`--summary` is one line: it replaces the tally in the merge's subject")
+        }
+        Some(text) => format!("phase: {} — {text}", r.phase),
+    };
+
+    // The checkout is the commit, but for the blocks `settle` staged.
+    let unstaged = paths(git(root, None, &["diff", "--name-only"], None));
+    let foreign: Vec<String> = paths(git(root, None, &["diff", "--cached", "--name-only"], None))
+        .into_iter()
+        .filter(|p| !r.regen.staged.contains(p))
+        .chain(unstaged)
+        .collect();
+    if !foreign.is_empty() {
+        bail!(
+            "the checkout differs from HEAD in {} file(s) that are not refreshed REGEN blocks:\n{}\n  \
+             If that is what `phase run` landed, `git reset --hard HEAD` syncs it; if it is work \
+             in progress, commit or stash it. Nothing was merged.",
+            foreign.len(),
+            foreign
+                .iter()
+                .map(|f| format!("    {f}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+
+    let base_ref = format!("refs/heads/{}", r.baseline);
+    let base_old = git(root, None, &["rev-parse", "--verify", &base_ref], None)?;
+    if !crate::git::Git::new(root)
+        .args(["merge-base", "--is-ancestor"])
+        .rev(&base_old)
+        .rev("HEAD")
+        .succeeded()
+    {
+        bail!(
+            "{} has moved on since {} branched from it, so this merge would combine two trees \
+             rather than record one — and resolving them is not this tool's to do.\n  \
+             Bring the baseline into the phase first (`git merge {}` on {}), run \
+             `yidam phase settle` again, then `--merge`. Nothing was merged.",
+            r.baseline,
+            r.branch,
+            r.baseline,
+            r.branch
+        );
+    }
+    let elsewhere = git(root, None, &["worktree", "list", "--porcelain"], None)
+        .unwrap_or_default()
+        .lines()
+        .any(|l| l.trim() == format!("branch {base_ref}"));
+    if elsewhere {
+        bail!(
+            "{} is checked out in another worktree (`git worktree list`), and moving its ref \
+             would leave that checkout looking as if somebody had reverted the phase.\n  \
+             Run the printed sequence there instead. Nothing was merged.",
+            r.baseline
+        );
+    }
+
+    let who = (AUTHOR_NAME, AUTHOR_EMAIL);
+    let regen = if r.regen.staged.is_empty() {
+        None
+    } else {
+        crate::cmd::operational::author(
+            root,
+            who,
+            &regen_subject(&r.phase),
+            "Staged by `yidam phase settle`, so the merge that follows holds current blocks.",
+            &r.regen.staged,
+        )?
+        .map(|c| c.sha)
+    };
+
+    let tip = git(root, None, &["rev-parse", "HEAD"], None)?;
+    let tree = git(root, None, &["rev-parse", &format!("{tip}^{{tree}}")], None)?;
+    let message = format!(
+        "{subject}\n\n\
+         Written by `yidam phase settle --merge`. {} was an ancestor of {}, so this tree is the \
+         phase's tip as settle checked it, and nothing was resolved.\n",
+        r.baseline, r.branch
+    );
+    let sha = crate::git::Git::new(root)
+        .args(["commit-tree", &tree, "-p", &base_old, "-p", &tip, "-F", "-"])
+        .env("GIT_AUTHOR_NAME", AUTHOR_NAME)
+        .env("GIT_AUTHOR_EMAIL", AUTHOR_EMAIL)
+        .stdin(message.into_bytes())
+        .run()?;
+    git(
+        root,
+        None,
+        &["update-ref", &base_ref, &sha, &base_old],
+        None,
+    )
+    .with_context(|| {
+        format!(
+            "{} moved while the merge was being written; the merge was not landed",
+            r.baseline
+        )
+    })?;
+
+    // Trivial by construction: the baseline's tree is now the tree checked out.
+    let switched = crate::git::Git::new(root)
+        .args(["switch", "--quiet", &r.baseline])
+        .succeeded();
+    let deleted = switched
+        && crate::git::Git::new(root)
+            .args(["branch", "--quiet", "-d", &r.branch])
+            .succeeded();
+
+    // No REGEN refresh after the merge, and none is needed. Every block is a function of the
+    // tree (#647's contract), and this merge's tree is the tree `settle` just checked. The
+    // rework a hand merge left behind — a `regen` on the baseline straight after it — came
+    // from merging onto a baseline that had moved on, which the ancestor check refuses.
+    // `settle_merge_leaves_the_baseline_passing_regen_check` holds it.
+
+    Ok(Merged {
+        regen,
+        merge: short_of(root, &sha),
+        subject,
+        switched,
+        deleted,
+    })
 }
 
 /// The REGEN step of `settle`: check, refresh, stage, check again.
@@ -1013,6 +1208,10 @@ fn render_settle(r: &SettleReport) -> String {
         return out;
     }
 
+    if let Some(m) = &r.merged {
+        return render_merged(r, m, out);
+    }
+
     let regen_line = if r.regen.staged.is_empty() {
         String::new()
     } else {
@@ -1021,7 +1220,7 @@ fn render_settle(r: &SettleReport) -> String {
     let _ = write!(
         out,
         "Ready. `phase:` is an epistemic verb, so this drafts the merge and a person writes\n\
-         it — nothing here merges itself:\n\n  \
+         it, or `--merge` writes it:\n\n  \
          {regen_line}\
          git switch {}\n  \
          git merge --no-ff -m \"{}\" {}\n  \
@@ -1036,6 +1235,39 @@ fn render_settle(r: &SettleReport) -> String {
              dirty index, so the `regen:` commit goes first and lands on the phase branch.\n",
         );
     }
+    out
+}
+
+/// What `--merge` wrote, and what is left for a person.
+fn render_merged(r: &SettleReport, m: &Merged, mut out: String) -> String {
+    if let Some(sha) = &m.regen {
+        let _ = writeln!(out, "  {sha} {}", regen_subject(&r.phase));
+    }
+    let _ = writeln!(out, "  {} {}  (onto {})", m.merge, m.subject, r.baseline);
+    out.push('\n');
+    match (m.switched, m.deleted) {
+        (true, true) => {
+            let _ = writeln!(out, "Merged. On {}; {} is deleted.", r.baseline, r.branch);
+        }
+        (true, false) => {
+            let _ = write!(
+                out,
+                "Merged. On {}; git kept {}, so delete it:\n\n  git branch -d {}\n",
+                r.baseline, r.branch, r.branch
+            );
+        }
+        (false, _) => {
+            let _ = write!(
+                out,
+                "Merged. git refused to switch the checkout, so it is still on {}:\n\n  \
+                 git switch {}\n  git branch -d {}\n",
+                r.branch, r.baseline, r.branch
+            );
+        }
+    }
+    out.push_str(
+        "\nWritten under the `yidam phase` author, with you as committer. Nothing was pushed.\n",
+    );
     out
 }
 

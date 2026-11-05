@@ -123,6 +123,51 @@ pub fn branch_for(short_head: &str) -> String {
     format!("propose/{short_head}")
 }
 
+/// The local `propose/*` heads, counted the way `cluster admit` counts the remote's.
+///
+/// Every writer of a proposal branch writes under `propose/` — `propose` itself, `run`'s
+/// proposal route, `gather` and `dispatch` — so one prefix is one population.
+pub(crate) fn open_proposals(root: &Path) -> usize {
+    crate::git::Git::new(root)
+        .args(["for-each-ref", "--format=%(refname)", "refs/heads/propose/"])
+        .run()
+        .map(|out| out.lines().filter(|l| !l.trim().is_empty()).count())
+        .unwrap_or(0)
+}
+
+/// Refuse to open `branch` when `[cluster] max_open_proposals` proposal branches already stand
+/// here (#1452).
+///
+/// The cap was read only by `cluster admit`, so a local loop — `cycle` choosing `run`, an agent
+/// calling `propose` — could pile up `propose/*` heads without limit, and the person the
+/// branches wait on was the only brake. The count is of local heads, because a local loop
+/// writes local heads and need not have pushed one.
+///
+/// **Only a new head is refused.** Writing onto a branch that already stands — a re-run at the
+/// same `HEAD`, `--force` replacing it — leaves the count where it was. An unset cap refuses
+/// nothing, which is the default.
+pub(crate) fn require_room(root: &Path, branch: &str) -> Result<()> {
+    if branch_exists(root, branch) {
+        return Ok(());
+    }
+    let Some(cap) = crate::config::load_yidam_config(root)?
+        .cluster
+        .max_open_proposals
+    else {
+        return Ok(());
+    };
+    let open = open_proposals(root);
+    if open >= cap {
+        bail!(
+            "{open} proposal branch{} open and [cluster] max_open_proposals is {cap}; merge or \
+             delete one before another run may propose.\n  \
+             `git branch --list 'propose/*'` lists them. Nothing was written to {branch}.",
+            if open == 1 { " is" } else { "es are" }
+        );
+    }
+    Ok(())
+}
+
 fn branch_exists(root: &Path, branch: &str) -> bool {
     crate::git::Git::new(root)
         .args(["show-ref", "--verify", "--quiet"])

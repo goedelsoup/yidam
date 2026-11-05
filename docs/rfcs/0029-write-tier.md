@@ -45,7 +45,8 @@
 > has not set `user.name`. The owner chose a third value instead: **`act = "when-identity"`**
 > serves the tier where clauses 1 and 3 hold and **withholds** it, with the failed clause stated,
 > where they do not. An explicit `true` keeps the strict refusal. §2.2 carries the definition under
-> **A conditional declaration**.
+> **A conditional declaration**. That answers the open question *one `act` tier or two?*: one.
+> The conditional value withholds the whole tier or serves the whole tier. It does not split it.
 
 ## Summary
 
@@ -482,9 +483,11 @@ issue text, which this repository amends by comment, not by RFC.
 - **The tier's name.** `act` is recommended because §2.3 puts a read-only report in it — a tier
   named `write` holding a tool that only reads would misdescribe itself. `run` collides with the
   orchestrator's noun. Reversible at review with no downstream cost until the build lands.
-- **One `act` tier or two?** If a future surface wants *plan* separated from *perform* — an agent
-  that may draft proposals but not trigger runs — the single tier splits. Left open because
-  nothing yet needs it settled, and an additive split is a minor under §2.5's rule.
+- ~~**One `act` tier or two?**~~ **Answered 2026-11-05 (#1444, #1452): one.** The question
+  was raised again when the scaffold turned `act` on by default. A second tier would have let a
+  default serve `propose` while withholding `run`. The owner chose `"when-identity"` instead,
+  which serves or withholds the single tier whole. A future surface that wants *plan* separated
+  from *perform* can still split it additively, as a minor under §2.5's rule.
 - ~~**What explicit configuration declares `act`?**~~ **Decided at the build, 2026-09-21: a
   `[serve] act = true` key in the corpus's own `.yidam/config.toml`.** The third option offered
   here, `.yidam/capabilities.toml`, **does not exist** — the name appears in RFC-0026 and

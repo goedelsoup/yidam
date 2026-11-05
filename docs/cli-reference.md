@@ -953,11 +953,20 @@ in `yidam phases`, in `yidam status` and in `yidam due`'s phase clock. The state
 shape — only the record knows it.
 
 **`settle`** refreshes the REGEN blocks, checks the phase produced outputs and drafts the
-merge subject. **It commits nothing.** `phase:` is an epistemic verb, and
-[RFC-0026 §2](rfcs/0026-orchestrator-layer.md) holds that nothing merges itself. `due` reached
-the same limit first, of this very clock: *a person.* *Merging a phase, or abandoning it, is
-not a mechanical consequence of a finding.* So `settle` validates and hands back the commands
-to run.
+merge subject. **Without a flag it commits nothing.** `phase:` is an epistemic verb. `due`
+states who decides a phase is done: *a person.* *Merging a phase, or abandoning it, is not a
+mechanical consequence of a finding.* So `settle` validates and hands back the commands to run.
+
+**`settle --merge`** writes them, once you have decided. The `regen:` commit and the `--no-ff`
+merge are authored by `yidam phase`, with you as committer. Then it switches to the baseline
+and deletes the phase branch. `--summary "<text>"` replaces the drafted tally in the subject.
+Nothing is pushed.
+
+It refuses anything it would have to resolve. The baseline must be an ancestor of the phase.
+The checkout must be the commit, apart from the blocks `settle` staged. The baseline must not
+be checked out in another worktree. Each refusal says *Nothing was merged.* It never merges a
+`propose/*` branch. [RFC-0026 §2](rfcs/0026-orchestrator-layer.md) and PHASES.md state the
+licence.
 
 The REGEN step is `regen --check`, then `regen`, then `regen --check` again. A stale block is
 refreshed and staged. The printed sequence then opens with the `regen:` commit, because
@@ -966,7 +975,7 @@ generator writes, is *not ready*, with the remedy `regen --check` prints. Nothin
 from a checkout that differs from `HEAD`. A block generated from that tree would not hold
 against the commit. `settle` names the files and the sync instead.
 
-Like `run` and `propose`, all three write git objects and one ref. They touch neither the
+Like `run` and `propose`, all three write git objects and one ref, except `settle --merge`. They touch neither the
 working tree nor the index, so they are safe mid-edit. They therefore leave your checkout
 behind the branch. `git reset --hard HEAD` or a path-scoped `git restore` syncs it.
 

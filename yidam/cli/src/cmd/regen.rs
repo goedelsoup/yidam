@@ -330,8 +330,8 @@ const WHO: crate::cmd::operational::Who<'static> = ("yidam regen", "regen@yidam"
 /// out of the `regen:` commit.
 ///
 /// `phase settle` does not come here. It refreshes the blocks through [`refresh_quietly`] and
-/// stages them, and a person commits. That is deliberate and pinned by
-/// `settle_authors_no_commit_and_moves_no_ref`.
+/// stages them. Without `--merge` a person commits them, which
+/// `settle_authors_no_commit_and_moves_no_ref` pins; with it, `settle` commits them itself.
 fn refresh_and_commit(root: Option<&std::path::Path>, resolved: &std::path::Path) -> Result<()> {
     let stale = stale_blocks(root)?;
     let paths = repository_paths(resolved, &stale)?;
