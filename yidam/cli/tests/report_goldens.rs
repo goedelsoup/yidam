@@ -2327,6 +2327,39 @@ fn the_closed_defs_enums_and_the_values_the_code_emits_are_the_same_sets() {
     }
 }
 
+/// `cycle`'s `next[].source` and the values `cycle` can emit are the same set, in both directions.
+///
+/// This enum is inline, not in `$defs`, so it is read at its one site. It drifted unseen: the
+/// code serialized `"inflight"` against a declared `"in_flight"`, and no golden can reach the
+/// in-flight arm (`UNREACHED` says why). So this roster comparison is the only thing in the suite
+/// that holds the spelling.
+#[test]
+fn the_cycle_source_enum_and_the_sources_cycle_emits_are_the_same_set() {
+    let schema = schema();
+    let mut declared: Vec<String> = schema
+        .pointer("/properties/next/items/properties/source/enum")
+        .and_then(|e| e.as_array())
+        .expect(
+            "report.schema.json has no enum at properties.next.items.properties.source; this \
+             test reads that pointer, so a move must move it too",
+        )
+        .iter()
+        .map(|m| m.as_str().expect("enum members are strings").to_string())
+        .collect();
+    assert!(
+        !declared.is_empty(),
+        "an empty enum would satisfy any comparison"
+    );
+    declared.sort();
+    let mut emitted: Vec<String> = yidam::CYCLE_SOURCES.iter().map(|s| s.to_string()).collect();
+    emitted.sort();
+    assert_eq!(
+        declared, emitted,
+        "report.schema.json's `next[].source` enum and the sources `cycle` can emit disagree.\n\
+         A value the code emits and the schema omits is a report a validating consumer rejects."
+    );
+}
+
 // ── #660: a declaration nothing emits is a hole in the contract ───────────────
 
 /// Every path `report.schema.json` declares, in the shape [`walk`] records a reached one.
