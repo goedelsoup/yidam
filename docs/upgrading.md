@@ -30,6 +30,99 @@ is to run the filing task and commit.
 
 <!-- file-upgrade-notes: new release sections go below this line -->
 
+## cli/v0.24.0
+
+### `phase settle --merge` writes the phase merge, and `max_open_proposals` is read locally
+
+`yidam phase settle --merge` writes the merge that `settle` drafts. It is authored by `yidam phase`, with you as committer.
+It refuses a phase that is not ready, or a baseline that has moved on. It also refuses a checkout that is not the commit.
+`--summary "<text>"` replaces the drafted tally in the merge subject.
+Plain `yidam phase settle` is unchanged and still commits nothing.
+
+`[cluster] max_open_proposals` is now read by `yidam propose` and `yidam run`, against local `propose/*` branches.
+At the cap, neither opens a new proposal branch. A corpus without the key sees no change.
+See [cli-reference.md](cli-reference.md) and [configuration.md](configuration.md).
+
+### New derivations may write proposals, where an identity allows it
+
+New derivations ship `[serve] act = "when-identity"` in `.yidam/config.toml`.
+`serve --mcp` then serves `propose` and `cycle` wherever a git author identity resolves.
+Without one, the server still starts, with the read tools only.
+It says why at startup and in every refusal of `propose` or `cycle`.
+An HTTP bind beyond loopback is treated the same way.
+
+An existing repository keeps what its file says.
+Write `act = "when-identity"` under `[serve]` to adopt the new default.
+`act = true` still refuses to start where a condition fails.
+
+The MCP contract is now 0.32.0.
+
+### Sessions now open with the loop's brief
+
+New derivations ship `.claude/settings.json` with two Claude Code hooks.
+The SessionStart hook prints `yidam cycle --brief` into the session.
+The Stop hook records the round and tells you what each turn moved.
+
+Run `yidam migrate scaffold` to add the hooks to an existing repository.
+It creates `.claude/settings.json`, or adds the hooks to yours.
+It refuses a settings file that already declares `hooks`.
+Add the two entries by hand there, as `sadhana/root/claude-settings.json` does.
+
+`yidam doctor` warns when a repository with a `CLAUDE.md` has no hooks.
+The hooks run the binary in `.yidam/bin`, so pin a release that has `yidam hook`.
+An older binary makes the hooks silent, never a failure.
+
+### `cycle` can now say what moved since the last round
+
+`yidam cycle --record` keeps this round under `.yidam/loop/<branch>.json`.
+`yidam cycle --since-last` reports what arrived and what left since that record.
+It covers findings, due clocks, stale steps, refs in flight and local proposals.
+Each branch keeps its own record, and a detached HEAD keeps `HEAD.json`.
+
+The directory writes its own `.gitignore`, so nothing in it is ever staged.
+No migration is needed.
+
+With no record, `since_last` is absent and `since_last_unread` says why.
+Never read that as nothing having moved.
+
+`yidam cycle --brief` prints a short report within a token budget.
+The default budget is 500 tokens, and `--budget` changes it.
+It refuses `--format json`.
+
+Without these flags, `cycle` prints exactly what it printed before.
+
+### `cycle` acts now say whether a command does them
+
+Each act in `cycle`'s `next`, and each clock naming a remedy, now carries `kind`.
+It is `tool` or `person`.
+A `tool` act carries `argv`, and running it from the report's `root` is the act.
+A `next` item also carries `targets`, naming the nodes, steps or refs it is about.
+
+A loop can now run `tool` acts without parsing the prose `act` string.
+Treat a missing `kind` as `person`, because an older `yidam` sends none.
+
+The MCP contract is now 0.31.0.
+Its `cycle` notes now also describe `stale_steps` and `stale_steps_unread`.
+
+### `cycle` now reports stale manifest steps as owed
+
+`yidam cycle` now reads `.yidam/capabilities.toml` the way `yidam run --dry-run` does.
+A step whose receipt does not match the tip is listed under `stale_steps`.
+It adds one `yidam run` act to `next`.
+
+`cycle --strict` now exits nonzero on a stale step, as it does on a due clock.
+A scheduled job using `--strict` may start failing where it passed before.
+Run `yidam run`, or drop `--strict` if you only wanted the report.
+
+When the steps cannot be planned, `stale_steps_unread` says why.
+A detached HEAD is the common case, so CI checkouts will see it.
+
+### `cycle` now spells an in-flight act `in_flight`
+
+**`next[].source` for an in-flight phase is `"in_flight"`. It used to be `"inflight"` (#1439).** The schema always declared `"in_flight"`, so a validating consumer rejected any `cycle` report with a phase in flight.
+
+**If you match on `source`, match `"in_flight"`.** This applies to a script or a prompt that reads `cycle --format json` or the MCP `cycle` tool. A match on `"inflight"` will stop finding anything.
+
 ## cli/v0.23.1
 
 ### The bootstrap skill is no longer vendored
