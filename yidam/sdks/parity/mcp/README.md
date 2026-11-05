@@ -40,7 +40,7 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.30.0",
+    "contract": "0.31.0",
     "corpus": {
       "domain": "streamflow",
       "commit": "a1b2c3d",
@@ -239,6 +239,17 @@ Four consequences for a conforming server:
 - **`predicate-unsatisfied` joins the absence codes.** The predicate parsed, typechecked and
   refused every one of `instances` candidates. It is evidence about the values, and it is
   reported only when at least one candidate was evaluated.
+
+## `cycle` names a command where running it is the act (contract 0.31.0)
+
+Every act `cycle` returns now says who performs it (#1442). Each `next` item, and each clock
+naming a remedy, carries `kind`: `tool` or `person`. A `tool` act carries `argv`, and running
+it from the envelope's `root` is the act. A `next` item also carries `targets`, naming what the
+act is about.
+
+- **A missing `kind` is `person`.** An older server sends none.
+- **A `person` act has no `argv`.** A command that only lists work is a person's act.
+- **`stale_steps` is now stated.** It shipped at 0.30.0 with `stale_steps_unread`, unmentioned.
 
 ## A location pinned to the version a pin read named (contract 0.30.0)
 

@@ -111,7 +111,7 @@ pub use decisions::decisions_log;
 pub use derive::{run as run_derive, DeriveCommand};
 pub use diff::diff_corpus;
 pub use doctor::doctor;
-pub use due::due;
+pub use due::{due, ACT_KINDS};
 pub use embed::{embed, EmbedOptions};
 pub use estimate::estimate;
 pub use export::{export, list_formats, run_export, ExportFormat, ExportOptions, RdfFormat};

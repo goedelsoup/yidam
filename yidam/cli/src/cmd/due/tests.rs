@@ -119,6 +119,11 @@ fn a_corpus_that_wants_an_index_and_has_none_is_due_one() {
     assert_eq!(index.state, State::Due);
     assert_eq!(index.overdue, 1);
     assert_eq!(index.remedy.as_deref(), Some("yidam index-build"));
+    // And it is a tool act, because this binary runs the command it names (#1442).
+    assert!(
+        matches!(&index.actor, Some(Actor::Tool(argv)) if argv == &["yidam", "index-build"]),
+        "{index:?}"
+    );
     // And it does not hedge about a feature the reader has. The parenthetical was #1061's
     // other half: the remedy named `index` whether or not the binary carried it.
     assert!(
@@ -168,6 +173,9 @@ fn the_unbuildable_row_names_the_binary_and_the_install() {
     // The other route, because it needs no install at all: an index built elsewhere can be
     // pulled into this corpus.
     assert!(remedy.contains("vault pull"), "{remedy}");
+    // A person's act: `index-build` refuses in this binary, so naming it as the command that
+    // discharges the clock would hand a loop a command that cannot run (#1442).
+    assert!(matches!(index.actor, Some(Actor::Person)), "{index:?}");
     // And the row prints it. `render` shows a remedy on three states, and a state added to the
     // enum without being added there is a row that names a problem and withholds the fix.
     let out = render(&DueReport::new(vec![index], false), tmp.path());
@@ -251,6 +259,9 @@ label: C
     // And the remedy is the one this build can reach, not `index-build`.
     let remedy = index.remedy.as_deref().unwrap_or_default();
     assert!(remedy.contains("vault pull"), "{remedy}");
+    // A person's act: `index-build` refuses in this binary, so naming it as the command that
+    // discharges the clock would hand a loop a command that cannot run (#1442).
+    assert!(matches!(index.actor, Some(Actor::Person)), "{index:?}");
 }
 
 /// The state tag is its own spelling.
@@ -619,7 +630,7 @@ fn a_source_with_one_version_owes_nothing() {
 /// Being owed is not a failure. `--strict` is the only thing that makes it one.
 #[test]
 fn only_strict_turns_a_due_clock_into_a_nonzero_exit() {
-    let overdue = vec![Clock::new("x", "Q", State::Due, "one").owing(1, "do it")];
+    let overdue = vec![Clock::new("x", "Q", State::Due, "one").owing(1, "do it", Actor::Person)];
     assert!(DueReport::new(overdue.clone(), false).passed);
     assert!(!DueReport::new(overdue, true).passed);
     // And nothing due passes under either.
@@ -653,7 +664,7 @@ fn every_rendering_says_that_owed_is_not_broken() {
 
     let owed = render(
         &DueReport::new(
-            vec![Clock::new("x", "Q", State::Due, "one").owing(1, "do it")],
+            vec![Clock::new("x", "Q", State::Due, "one").owing(1, "do it", Actor::Person)],
             false,
         ),
         root,
@@ -663,7 +674,7 @@ fn every_rendering_says_that_owed_is_not_broken() {
 
     let strict = render(
         &DueReport::new(
-            vec![Clock::new("x", "Q", State::Due, "one").owing(1, "do it")],
+            vec![Clock::new("x", "Q", State::Due, "one").owing(1, "do it", Actor::Person)],
             true,
         ),
         root,

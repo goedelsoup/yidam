@@ -61,6 +61,93 @@ use std::path::Path;
 
 use crate::paths::{require_yidam_repo, yidam_catalog_dir};
 
+/// Whether an act is a command to run or a judgement to make — the one distinction an
+/// unattended loop must get right (#1442).
+///
+/// A remedy was prose, and the prose mixed the two: `yidam propose  (drafts an \`open:\` …)` is
+/// a command with advice beside it, and `yidam phases  (settle it, or say why it stands)` names
+/// a command that *lists* the act rather than performing it. An agent reading either had to
+/// parse English to learn whether running the command was the act. This table says it once,
+/// beside this module's own table of what discharges each clock.
+///
+/// **A tool act is one whose `argv` is the act**, run with the report's `root` as the working
+/// directory — the envelope carries `root`, so the command does not repeat it. Running a
+/// command that only lists what to do is not a tool act: that is a person act whose prose names
+/// where to look, which is why `yidam lint` under `blocked` is `person`. An agent may draft
+/// what a person act asks for; it lands only by a person, under the commit invariant.
+///
+/// The prose stays beside it, because it is the argument; this is what a loop switches on.
+/// Serialized by hand into `kind` and, on a tool act only, `argv`, so a person act carrying a
+/// command cannot be constructed, let alone emitted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Actor {
+    /// Running this, from the report's `root`, is the act.
+    Tool(Vec<String>),
+    /// A judgement: what to do is named in the prose and the `targets`, and no command does it.
+    Person,
+}
+
+impl Actor {
+    /// A tool act from its words. Every one this binary emits starts `yidam`.
+    pub(crate) fn tool(argv: &[&str]) -> Self {
+        Self::Tool(argv.iter().map(|a| a.to_string()).collect())
+    }
+
+    pub const fn kind(&self) -> ActKind {
+        match self {
+            Self::Tool(_) => ActKind::Tool,
+            Self::Person => ActKind::Person,
+        }
+    }
+}
+
+impl serde::Serialize for Actor {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap as _;
+        let mut m = s.serialize_map(None)?;
+        m.serialize_entry("kind", self.kind().name())?;
+        if let Self::Tool(argv) = self {
+            m.serialize_entry("argv", argv)?;
+        }
+        m.end()
+    }
+}
+
+/// The `kind` an act carries. Fieldless so that [`ACT_KINDS`] can walk it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActKind {
+    Tool,
+    Person,
+}
+
+impl ActKind {
+    /// The value a report carries — by hand, not by a serde rename rule, for `cycle::Source`'s
+    /// reason (#1439).
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Tool => "tool",
+            Self::Person => "person",
+        }
+    }
+}
+
+/// Every `kind` an act can carry: the roster `$defs/act_kind` is compared against, built by a
+/// successor `match` with no wildcard arm, as `COMMIT_KINDS` is.
+pub const ACT_KINDS: [&str; 2] = {
+    let mut out = [""; 2];
+    let mut cur = Some(ActKind::Tool);
+    let mut i = 0;
+    while let Some(k) = cur {
+        out[i] = k.name();
+        cur = match k {
+            ActKind::Tool => Some(ActKind::Person),
+            ActKind::Person => None,
+        };
+        i += 1;
+    }
+    out
+};
+
 /// What one clock concluded.
 ///
 /// Serialized lowercase, so a consumer switching on `"due"` need not know Rust's
@@ -151,6 +238,10 @@ pub struct Clock {
     pub detail: String,
     /// The command or act that discharges it. `None` when nothing is due.
     pub remedy: Option<String>,
+    /// Whether [`Self::remedy`] is a command to run or a judgement to make, as `kind` and
+    /// `argv`. Set exactly when `remedy` is — by the same three builders — and absent with it.
+    #[serde(flatten)]
+    pub actor: Option<Actor>,
     /// The decision record behind a [`State::Declined`] clock, repo-relative. `None` on
     /// every other state.
     ///
@@ -190,6 +281,7 @@ impl Clock {
             overdue: 0,
             detail: detail.into(),
             remedy: None,
+            actor: None,
             record: None,
             subjects: Vec::new(),
         }
@@ -200,9 +292,10 @@ impl Clock {
         self
     }
 
-    fn owing(mut self, overdue: usize, remedy: &str) -> Self {
+    fn owing(mut self, overdue: usize, remedy: &str, actor: Actor) -> Self {
         self.overdue = overdue;
         self.remedy = Some(remedy.to_string());
+        self.actor = Some(actor);
         self
     }
 
@@ -213,6 +306,7 @@ impl Clock {
     /// nothing about how to act on it is the shape of finding this roadmap keeps closing.
     fn unset(mut self, where_: &str) -> Self {
         self.remedy = Some(format!("declare {where_}"));
+        self.actor = Some(Actor::Person);
         self
     }
 
@@ -222,8 +316,11 @@ impl Clock {
     /// past an interval, and a build that cannot make an index has no subject to count. The row
     /// still needs a remedy — the act is an install rather than a corpus act, and a report that
     /// named the state and then said nothing about how to leave it is the shape #1061 is about.
+    /// Always a person act: what it advises is an install, and a loop installing the binary it
+    /// is running under is not a corpus act.
     fn advising(mut self, remedy: &str) -> Self {
         self.remedy = Some(remedy.to_string());
+        self.actor = Some(Actor::Person);
         self
     }
 
@@ -260,10 +357,12 @@ impl Clock {
                 "record `{record}` in .yidam/decisions/, or drop `[due.declined] {}`",
                 self.id
             ));
+            self.actor = Some(Actor::Person);
             return self;
         };
         self.state = State::Declined;
         self.remedy = None;
+        self.actor = None;
         self.record = Some(path);
         self
     }
@@ -365,6 +464,13 @@ fn clock_index(root: &Path, after: Option<usize>, can_build: bool) -> Clock {
         true => "yidam index-build",
         false => "cargo install yidam --locked --features vector-read  (this build cannot build one;                   `yidam vault pull --index` fetches one built elsewhere)",
     };
+    // Chosen with the remedy and from the same flag. A stale index in a build that cannot make
+    // one reaches `owing` below with the install text as its remedy, and calling that a
+    // `yidam index-build` tool act would hand a loop a command this binary refuses.
+    let actor = match can_build {
+        true => Actor::tool(&["yidam", "index-build"]),
+        false => Actor::Person,
+    };
 
     let measured = match (data.index_present, data.meta_present) {
         (false, _) => "no index has been built".to_string(),
@@ -407,7 +513,7 @@ fn clock_index(root: &Path, after: Option<usize>, can_build: bool) -> Clock {
     if !data.index_present {
         return Clock::new(Clock::INDEX, Q, State::Due, measured)
             .at(interval)
-            .owing(1, remedy);
+            .owing(1, remedy, actor);
     }
     if !data.meta_present {
         return Clock::new(Clock::INDEX, Q, State::Unmeasurable, measured).at(interval);
@@ -415,7 +521,7 @@ fn clock_index(root: &Path, after: Option<usize>, can_build: bool) -> Clock {
     if data.stale_nodes >= after {
         return Clock::new(Clock::INDEX, Q, State::Due, measured)
             .at(interval)
-            .owing(data.stale_nodes, remedy);
+            .owing(data.stale_nodes, remedy, actor);
     }
     Clock::new(Clock::INDEX, Q, State::Ok, measured).at(interval)
 }
@@ -513,6 +619,7 @@ fn clock_catalog(root: &Path, today: i64) -> Clock {
     .owing(
         expired.len(),
         "yidam propose  (drafts an `open:` against each expired source)",
+        Actor::tool(&["yidam", "propose"]),
     )
 }
 
@@ -584,6 +691,7 @@ fn clock_questions(root: &Path, after: Option<usize>) -> Clock {
     .owing(
         overdue.len(),
         "yidam open-questions  (answering one is a resolution event, not a drafted commit)",
+        Actor::Person,
     )
 }
 
@@ -675,6 +783,7 @@ fn clock_phases(root: &Path, after: Option<u32>, today: i64) -> Clock {
     .owing(
         overdue.len(),
         "yidam phases  (settle it, or say why it stands)",
+        Actor::Person,
     )
 }
 
@@ -766,6 +875,7 @@ fn clock_superseded(root: &Path, after: Option<u32>, today: i64) -> Clock {
     .owing(
         subjects.len(),
         "re-read the source, and commit to each node below — a commit touching it discharges it",
+        Actor::Person,
     );
     clock.subjects = subjects;
     clock

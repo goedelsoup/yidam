@@ -2312,6 +2312,7 @@ fn the_closed_defs_enums_and_the_values_the_code_emits_are_the_same_sets() {
     for (def, roster) in [
         ("severity", yidam::LINT_SEVERITIES.to_vec()),
         ("commit_kind", yidam::COMMIT_KINDS.to_vec()),
+        ("act_kind", yidam::ACT_KINDS.to_vec()),
     ] {
         let mut declared = defs_enum(def);
         declared.sort();
@@ -2535,6 +2536,27 @@ const UNREACHED: &[(&str, &str)] = &[
          golden and the `due` phases clock are both staged against. Giving one a unique commit \
          would move both to reach five declarations. The active arm is exercised in \
          `cmd/cycle/tests.rs`, which can afford to build commits",
+    ),
+    (
+        "clocks[].argv",
+        "`argv` is carried only by a `tool` act, and the fixture owes none: no clock there is due \
+         whose remedy is a command, and it declares no step. `tests/cycle_acts.rs` stages \
+         `examples/streamflow` owing both, and runs every `argv` it is handed rather than \
+         comparing it to a string",
+    ),
+    (
+        "next[].argv",
+        "`argv` is carried only by a `tool` act, and the fixture owes none: no clock there is due \
+         whose remedy is a command, and it declares no step. `tests/cycle_acts.rs` stages \
+         `examples/streamflow` owing both, and runs every `argv` it is handed rather than \
+         comparing it to a string",
+    ),
+    (
+        "owed[].argv",
+        "`argv` is carried only by a `tool` act, and the fixture owes none: no clock there is due \
+         whose remedy is a command, and it declares no step. `tests/cycle_acts.rs` stages \
+         `examples/streamflow` owing both, and runs every `argv` it is handed rather than \
+         comparing it to a string",
     ),
     (
         "stale_steps[]",

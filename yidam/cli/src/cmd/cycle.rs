@@ -63,7 +63,7 @@ use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::cmd::due::{Clock, State};
+use crate::cmd::due::{Actor, Clock, State};
 use crate::cmd::run::manifest::MANIFEST;
 use crate::cmd::run::{plan_and_write, Freshness};
 use crate::paths::require_yidam_repo;
@@ -179,6 +179,13 @@ pub struct Act {
     pub act: String,
     /// What makes it the thing to do — the finding, clock or declaration behind it.
     pub why: String,
+    /// `kind`, and `argv` on a tool act: what a loop switches on, where [`Self::act`] is what a
+    /// reader is told (#1442). An owed clock's is `due`'s, copied — not re-derived here.
+    #[serde(flatten)]
+    pub actor: Actor,
+    /// What the act is about: the nodes a finding names, the ref in flight, the steps a run
+    /// would invoke, the nodes a clock lists. Empty when the act is about the corpus as a whole.
+    pub targets: Vec<String>,
 }
 
 /// What this corpus declared its work is aimed at.
@@ -483,10 +490,25 @@ fn next_acts(
         if n == 0 {
             continue;
         }
+        // Each node once, in the order the gate reported it.
+        let mut targets: Vec<String> = Vec::new();
+        for node in blocked
+            .iter()
+            .filter(|b| b.gate == gate)
+            .filter_map(|b| b.node.clone())
+        {
+            if !targets.contains(&node) {
+                targets.push(node);
+            }
+        }
         out.push(Act {
             source: Source::Blocked,
             act: format!("yidam {gate}"),
             why: format!("{n} finding(s) would fail this gate today"),
+            // A person act, though the prose names a command: the command lists the findings
+            // and fixing them is an edit. See [`Actor`].
+            actor: Actor::Person,
+            targets,
         });
     }
 
@@ -496,6 +518,10 @@ fn next_acts(
             source: Source::Owed,
             act: remedy.clone(),
             why: format!("the {} clock is due — {}", c.id, c.detail),
+            // `due` sets the two together; a remedy without one is a builder that forgot, and
+            // the safe reading of a missing kind is the one a consumer is told to use.
+            actor: c.actor.clone().unwrap_or(Actor::Person),
+            targets: c.subjects.clone(),
         });
     }
 
@@ -511,6 +537,8 @@ fn next_acts(
                 names.len(),
                 names.join(", ")
             ),
+            actor: Actor::tool(&["yidam", "run"]),
+            targets: names.iter().map(|n| n.to_string()).collect(),
         });
     }
 
@@ -525,6 +553,8 @@ fn next_acts(
                 "in flight since {}, {} commit(s) ahead of the baseline",
                 f.started, f.commits
             ),
+            actor: Actor::Person,
+            targets: vec![f.ref_name.clone()],
         });
     }
 
@@ -548,6 +578,8 @@ fn next_acts(
                     types.join(", ")
                 ),
             },
+            actor: Actor::Person,
+            targets: Vec::new(),
         });
     }
 

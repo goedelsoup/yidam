@@ -702,7 +702,7 @@ only where you look for it.
 tool-not-found errors:
 
 ```json
-{"contract": "0.30.0",
+{"contract": "0.31.0",
  "corpus": {"domain": "streamflow", "commit": "a1b2c3d",
             "nodes": 8, "skills": 1, "decisions": 2,
             "indexed_commit": null, "stale": false},
