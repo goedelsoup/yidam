@@ -106,7 +106,7 @@ pub use clone::{clone, NOT_INHERITED, TEMPLATE_MARKERS};
 pub use cohort::{cohort, Norm as PreludeNorm, Options as CohortOptions, NORMS as PRELUDE_NORMS};
 pub use corpus::{corpus_index, graph_check, open_questions};
 pub use count::count;
-pub use cycle::{cycle, CYCLE_SOURCES};
+pub use cycle::{cycle, RoundOpts as CycleRounds, BRIEF_BUDGET, CYCLE_SOURCES};
 pub use decisions::decisions_log;
 pub use derive::{run as run_derive, DeriveCommand};
 pub use diff::diff_corpus;

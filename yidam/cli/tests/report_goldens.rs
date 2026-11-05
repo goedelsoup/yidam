@@ -2559,6 +2559,18 @@ const UNREACHED: &[(&str, &str)] = &[
          comparing it to a string",
     ),
     (
+        "since_last",
+        "`cycle --since-last` only, and it needs a round `cycle --record` kept. A golden is one \
+         invocation over a tree, and a delta is two rounds over a tree that moved between them. \
+         `cmd/cycle/round/tests.rs` records one, moves the corpus, and asserts every key of the \
+         serialized delta against these names",
+    ),
+    (
+        "since_last_unread",
+        "`cycle --since-last` only: no golden passes the flag. `cmd/cycle/round/tests.rs` reaches \
+         both of its arms, no record and a record in another format",
+    ),
+    (
         "stale_steps[]",
         "`cycle` only, and it needs a `.yidam/capabilities.toml`. The fixture declares none, and \
          declaring one would move every golden that reads the tree — `lint`, `status`, \

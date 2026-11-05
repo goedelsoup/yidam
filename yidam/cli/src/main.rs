@@ -463,7 +463,8 @@ enum Command {
     ///
     /// **Being owed is not being broken.** This exits zero however much is owed; `--strict`
     /// exits nonzero, for a scheduled job that wants a signal. `yidam doctor` answers what is
-    /// wrong and `yidam lint` is the gate. Read-only, offline, and it writes nothing.
+    /// wrong and `yidam lint` is the gate. Offline, and it writes nothing but `--record`'s
+    /// round record, which is local, gitignored state under `.yidam/loop/`.
     Cycle {
         #[command(flatten)]
         root: RootArg,
@@ -471,6 +472,21 @@ enum Command {
         /// signal off the whole loop rather than off one of its halves.
         #[arg(long)]
         strict: bool,
+        /// Record this round under `.yidam/loop/<branch>.json`, after any comparison. Local
+        /// state, never committed: the directory ignores itself.
+        #[arg(long)]
+        record: bool,
+        /// Report what arrived and what left since the round last recorded on this branch.
+        /// With no record, says so — that is not the same as nothing having moved.
+        #[arg(long)]
+        since_last: bool,
+        /// A short text rendering cut to `--budget` tokens, to open a session with. Includes
+        /// the delta whenever a round is recorded.
+        #[arg(long)]
+        brief: bool,
+        /// The brief's ceiling, in `pack`'s tokens (one per four bytes).
+        #[arg(long, requires = "brief", value_name = "TOKENS")]
+        budget: Option<usize>,
         #[command(flatten)]
         format: FormatArg,
     },
@@ -1672,8 +1688,21 @@ fn run() -> Result<()> {
         Command::Cycle {
             root,
             strict,
+            record,
+            since_last,
+            brief,
+            budget,
             format,
-        } => yidam::cycle(root.as_deref(), strict, format.value),
+        } => yidam::cycle(
+            root.as_deref(),
+            strict,
+            yidam::CycleRounds {
+                since_last,
+                record,
+                brief: brief.then(|| budget.unwrap_or(yidam::BRIEF_BUDGET)),
+            },
+            format.value,
+        ),
         Command::Regen {
             root,
             check,
