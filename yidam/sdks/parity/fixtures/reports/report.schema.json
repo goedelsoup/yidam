@@ -2848,6 +2848,172 @@
       ],
       "description": "`cycle` only. Why the manifest's steps could not be planned \u2014 a detached HEAD, or a step this binary cannot invoke \u2014 as the planner's own refusal. Null when they were planned AND when there is no manifest: a corpus declaring no capabilities has asked for nothing. A consumer MUST NOT read an empty `stale_steps` beside a non-null value as nothing owed."
     },
+    "since_last": {
+      "type": "object",
+      "description": "`cycle --since-last` only, and absent unless it was asked: what moved since the last round `cycle --record` kept for this branch. Each half is two lists, what arrived and what left, with no total across them. An empty delta is nothing having moved; a branch with no record has no `since_last` at all, and says so in `since_last_unread`.",
+      "properties": {
+        "head": {
+          "type": "string",
+          "description": "The full commit the recorded round stood on."
+        },
+        "findings": {
+          "type": "object",
+          "description": "Gating findings by `(gate, check, node)`, accepted or not, as a multiset: a second occurrence of one finding is an arrival.",
+          "properties": {
+            "arrived": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "gate": {
+                    "type": "string",
+                    "description": "`lint` or `graph-check`."
+                  },
+                  "check": {
+                    "type": "string"
+                  },
+                  "node": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "gate",
+                  "check",
+                  "node"
+                ]
+              }
+            },
+            "left": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "gate": {
+                    "type": "string",
+                    "description": "`lint` or `graph-check`."
+                  },
+                  "check": {
+                    "type": "string"
+                  },
+                  "node": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "gate",
+                  "check",
+                  "node"
+                ]
+              }
+            }
+          },
+          "required": [
+            "arrived",
+            "left"
+          ]
+        },
+        "due": {
+          "type": "object",
+          "description": "Clock ids newly due, and clock ids discharged.",
+          "properties": {
+            "arrived": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "left": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "arrived",
+            "left"
+          ]
+        },
+        "stale_steps": {
+          "type": "object",
+          "description": "Step names newly stale, and step names brought current.",
+          "properties": {
+            "arrived": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "left": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "arrived",
+            "left"
+          ]
+        },
+        "in_flight": {
+          "type": "object",
+          "description": "Inquiry refs started, and refs no longer in flight.",
+          "properties": {
+            "arrived": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "left": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "arrived",
+            "left"
+          ]
+        },
+        "proposals": {
+          "type": "object",
+          "description": "Local `propose/*` heads opened, and heads gone.",
+          "properties": {
+            "arrived": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "left": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "arrived",
+            "left"
+          ]
+        }
+      },
+      "required": [
+        "head",
+        "findings",
+        "due",
+        "stale_steps",
+        "in_flight",
+        "proposals"
+      ]
+    },
+    "since_last_unread": {
+      "type": "string",
+      "description": "`cycle --since-last` only, and absent unless it was asked: why there is no delta \u2014 no round recorded for this branch, or a record this binary cannot read. A consumer MUST NOT read its presence as nothing having moved."
+    },
     "in_flight": {
       "type": "array",
       "description": "`cycle` only. The UNSETTLED inquiry refs \u2014 `phases`' own rows, filtered to the state it publishes. A settled phase and a standing position are both absent, and that filter is the point: a list headed \"in flight\" holding refs that have landed is the conflation `phases` grew a `state` column to undo.",

@@ -56,8 +56,10 @@
 //!
 //! # It authors nothing
 //!
-//! RFC-0026's invariant does not have to be argued for here: this command opens no file for
-//! writing and drafts no commit. It reports.
+//! RFC-0026's invariant does not have to be argued for here: this command drafts no commit and
+//! touches no file a commit could carry. It reports. The one file it can write is `--record`'s
+//! round record under `.yidam/loop/`, which ignores itself and is local loop state rather than
+//! provenance — see [`round`]. Without `--record` it opens no file for writing at all.
 
 use anyhow::Result;
 use std::fmt::Write as _;
@@ -67,6 +69,10 @@ use crate::cmd::due::{Actor, Clock, State};
 use crate::cmd::run::manifest::MANIFEST;
 use crate::cmd::run::{plan_and_write, Freshness};
 use crate::paths::require_yidam_repo;
+
+pub mod round;
+
+use round::{Finding, Round, SinceLast};
 
 /// One inquiry ref in flight.
 ///
@@ -319,6 +325,20 @@ pub struct CycleReport {
     /// Clocks past their interval. `due`'s count, carried so a consumer need not re-derive it.
     pub due: usize,
     pub strict: bool,
+    /// What moved since the last round recorded on this branch (#1443). **Absent unless asked
+    /// for** with `--since-last`, and absent on the MCP tool, which takes no arguments: a field
+    /// that is absent was not asked, where a null would have read as asked and empty.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub since_last: Option<SinceLast>,
+    /// Why there is no delta when one was asked for — no round recorded on this branch, or a
+    /// record this binary cannot read. Exactly one of this and [`Self::since_last`] is present
+    /// on a `--since-last` run, so a missing record is never reported as nothing having moved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub since_last_unread: Option<String>,
+    /// Every gating finding behind [`Self::blocked`], accepted ones included: what a round
+    /// records, and not on the wire — the blocking half is what the report says about them.
+    #[serde(skip)]
+    pub findings: Vec<Finding>,
     /// Whether the run exits zero. True unless `--strict` and something is owed — a due clock or
     /// a stale step — or blocked.
     /// Being owed is not a defect, and this field exists so a consumer does not infer one.
@@ -405,8 +425,9 @@ fn in_flight(root: &Path) -> Vec<InFlight> {
 ///
 /// `graph-check` has no ratchet and needs none: it gates on `passed`, and every issue it
 /// lists is one.
-fn blocked(root: &Path) -> Vec<Blocked> {
+fn blocked(root: &Path) -> (Vec<Blocked>, Vec<Finding>) {
     let mut out = Vec::new();
+    let mut findings = Vec::new();
 
     let opts = crate::cmd::lint::Options::default();
     let checks = crate::cmd::lint::run_checks(root, &opts);
@@ -414,6 +435,20 @@ fn blocked(root: &Path) -> Vec<Blocked> {
     let corpus_commits = crate::cmd::lint::history::corpus_commits(root);
     let unasked = crate::cmd::lint::unasked(&checks);
     let diff = crate::cmd::lint::baseline::diff(&checks, &baseline, &corpus_commits, &unasked);
+
+    // What a round records: every violation the gate would count, accepted or not, by the
+    // baseline's own identity. Not only the blocking ones, because a round that fixes a finding
+    // the baseline forgave has still fixed it — and the blocking half would report that fix as
+    // a *new* blocker, "the baseline is stale".
+    for check in &checks {
+        for v in check.violations.iter().filter(|v| check.gates(v)) {
+            findings.push(Finding {
+                gate: "lint".to_string(),
+                check: check.id.to_string(),
+                node: v.node.clone(),
+            });
+        }
+    }
 
     for (check, node) in &diff.introduced {
         out.push(Blocked {
@@ -456,10 +491,15 @@ fn blocked(root: &Path) -> Vec<Blocked> {
                 detail: n.issues.join("; "),
                 remedy: "yidam graph-check".to_string(),
             });
+            findings.push(Finding {
+                gate: "graph-check".to_string(),
+                check: "graph".to_string(),
+                node: n.node.clone(),
+            });
         }
     }
 
-    out
+    (out, findings)
 }
 
 /// What to do next, in this command's ranking.
@@ -599,7 +639,7 @@ pub(crate) fn read_cycle(root: &Path, strict: bool, today: i64) -> Result<CycleR
     let due = owed.iter().filter(|c| c.state == State::Due).count();
     let (stale_steps, stale_steps_unread) = stale_steps(root);
     let in_flight = in_flight(root);
-    let blocked = blocked(root);
+    let (blocked, findings) = blocked(root);
     let practice = Practice::read(root);
     let next = next_acts(&blocked, &owed, &stale_steps, &in_flight, &practice);
 
@@ -614,22 +654,70 @@ pub(crate) fn read_cycle(root: &Path, strict: bool, today: i64) -> Result<CycleR
         practice,
         due,
         strict,
+        since_last: None,
+        since_last_unread: None,
+        findings,
     })
+}
+
+/// What a round asks of `cycle` beyond the report.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RoundOpts {
+    /// Compare against the last round recorded on this branch.
+    pub since_last: bool,
+    /// Record this round, after any comparison.
+    pub record: bool,
+    /// Render the token-budgeted brief instead of the full text report, with this budget.
+    pub brief: Option<usize>,
+}
+
+/// The default `--budget` for `--brief`, in `pack`'s tokens (one per four bytes).
+///
+/// Sized to open a session without crowding it: about two thousand bytes, which holds a
+/// header, five acts, and a few lines of each half.
+pub const BRIEF_BUDGET: usize = 500;
+
+/// Compare and record, in that order, and return the round this run saw.
+///
+/// **Compare first.** `--since-last --record` is the loop's step — what did the last round
+/// leave, then remember this one — and recording first would compare a round with itself.
+pub(crate) fn with_round(root: &Path, report: &mut CycleReport, opts: RoundOpts) -> Result<Round> {
+    let now = Round::of(root, report);
+    if opts.since_last || opts.brief.is_some() {
+        match round::load(root, now.branch.as_deref()) {
+            Ok(Some(last)) => report.since_last = Some(SinceLast::between(&last, &now)),
+            Ok(None) => report.since_last_unread = Some(round::no_record(now.branch.as_deref())),
+            Err(why) => report.since_last_unread = Some(why),
+        }
+    }
+    if opts.record {
+        round::store(root, &now)?;
+    }
+    Ok(now)
 }
 
 /// `yidam cycle`. Read-only, offline, and exits zero however much is owed unless `--strict`.
 pub fn cycle(
     root: Option<&std::path::Path>,
     strict: bool,
+    rounds: RoundOpts,
     format: crate::report::Format,
 ) -> Result<()> {
     let root = crate::paths::resolve_root(root)?;
     require_yidam_repo(&root)?;
-    let report = read_cycle(&root, strict, crate::dates::today_days())?;
+    if rounds.brief.is_some() && format.is_json() {
+        anyhow::bail!(
+            "`--brief` is a text rendering, cut to a budget — `--format json` already carries every \
+             field it summarizes, uncut. Pass one or the other."
+        );
+    }
+    let mut report = read_cycle(&root, strict, crate::dates::today_days())?;
+    let now = with_round(&root, &mut report, rounds)?;
     let passed = report.passed;
 
-    crate::report::gate(&root, format, report, passed, |r| {
-        println!("{}", render(r, &root))
+    crate::report::gate(&root, format, report, passed, |r| match rounds.brief {
+        Some(budget) => println!("{}", render_brief(r, &now, budget)),
+        None => println!("{}", render(r, &root)),
     })
 }
 
@@ -697,6 +785,23 @@ pub(crate) fn render(report: &CycleReport, root: &Path) -> String {
         );
     }
 
+    if report.since_last.is_some() || report.since_last_unread.is_some() {
+        let _ = writeln!(out, "\nsince the last round");
+    }
+    if let Some(why) = &report.since_last_unread {
+        let _ = writeln!(out, "  {why}");
+    }
+    if let Some(d) = &report.since_last {
+        let _ = writeln!(out, "  (recorded at {}; + arrived, - left)", d.short_head());
+        let lines = d.lines();
+        if lines.is_empty() {
+            let _ = writeln!(out, "  nothing moved");
+        }
+        for l in lines {
+            let _ = writeln!(out, "  {l}");
+        }
+    }
+
     let _ = writeln!(out, "\nnext");
     for a in &report.next {
         let _ = writeln!(out, "  {:<10} {}", a.source.heading(), a.act);
@@ -744,6 +849,170 @@ pub(crate) fn render(report: &CycleReport, root: &Path) -> String {
     let ranking = "The order under `next` is this command's — blocked, owed, in flight, \
                    practice — and not a kuten's: no profile declares a phase order.";
     let _ = write!(out, "\n{head}\n{line}\n{ranking}");
+    out
+}
+
+/// `--brief`: the report cut to `budget` tokens, to open a session with (#1443).
+///
+/// Written to be pasted or injected as a session's first context — after a compaction most of
+/// all: the 2026-11-04 scan found agents resuming mid-task, and in 1,681 calls after a
+/// compaction not one asked where the loop stood. So the acts come first, then the delta, then the halves: a reader cut
+/// short should lose the detail and keep what to do.
+///
+/// **The budget is `pack`'s arithmetic**, a token per four bytes, and it is a ceiling: lines
+/// are added in that order while they fit, and the brief says how many it left out and where
+/// they are. The header and the closing line are kept whatever the budget, because a brief
+/// that does not say what it is will be read as the whole report.
+pub(crate) fn render_brief(report: &CycleReport, now: &Round, budget: usize) -> String {
+    /// Items shown per half before the rest is counted, so one long half cannot spend the
+    /// whole budget.
+    const PER_HALF: usize = 5;
+
+    let header = format!(
+        "yidam cycle --brief — {} at {}",
+        now.branch
+            .as_deref()
+            .map_or_else(|| "detached HEAD".to_string(), |b| format!("branch {b}")),
+        now.short_head()
+    );
+    let footer = "Being owed is not being broken. `yidam cycle` is the full report.";
+
+    let mut body: Vec<String> = Vec::new();
+    let capped = |items: Vec<String>, body: &mut Vec<String>| {
+        let n = items.len();
+        body.extend(items.into_iter().take(PER_HALF));
+        if n > PER_HALF {
+            body.push(format!("  …and {} more", n - PER_HALF));
+        }
+    };
+
+    if report.next.is_empty() {
+        body.push("next: nothing to do — the loop is quiet".to_string());
+    } else {
+        body.push("next:".to_string());
+        capped(
+            report
+                .next
+                .iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    format!(
+                        "  {}. [{}] {} — {}",
+                        i + 1,
+                        a.actor.kind().name(),
+                        a.act,
+                        a.why
+                    )
+                })
+                .collect(),
+            &mut body,
+        );
+    }
+
+    match (&report.since_last, &report.since_last_unread) {
+        (Some(d), _) => {
+            let lines = d.lines();
+            if lines.is_empty() {
+                body.push(format!(
+                    "since the round at {}: nothing moved",
+                    d.short_head()
+                ));
+            } else {
+                body.push(format!(
+                    "since the round at {} (+ arrived, - left):",
+                    d.short_head()
+                ));
+                capped(
+                    lines.into_iter().map(|l| format!("  {l}")).collect(),
+                    &mut body,
+                );
+            }
+        }
+        (None, Some(why)) => body.push(format!("since the last round: {why}")),
+        (None, None) => {}
+    }
+
+    let mut owed: Vec<String> = report
+        .owed
+        .iter()
+        .filter(|c| c.state == State::Due)
+        .map(|c| format!("  {} — {}", c.id, c.detail))
+        .collect();
+    owed.extend(
+        report
+            .stale_steps
+            .iter()
+            .map(|s| format!("  run step {} — {}", s.step, s.because)),
+    );
+    if owed.is_empty() {
+        body.push("owed: nothing is due".to_string());
+    } else {
+        body.push("owed:".to_string());
+        capped(owed, &mut body);
+    }
+    if let Some(why) = &report.stale_steps_unread {
+        body.push(format!("  (steps unread: {why})"));
+    }
+
+    if report.blocked.is_empty() {
+        body.push("blocking: nothing".to_string());
+    } else {
+        body.push("blocking:".to_string());
+        capped(
+            report
+                .blocked
+                .iter()
+                .map(|b| {
+                    format!(
+                        "  {} {} {}",
+                        b.gate,
+                        b.check,
+                        b.node.as_deref().unwrap_or("")
+                    )
+                })
+                .collect(),
+            &mut body,
+        );
+    }
+
+    if report.in_flight.is_empty() {
+        body.push("in flight: nothing".to_string());
+    } else {
+        body.push("in flight:".to_string());
+        capped(
+            report
+                .in_flight
+                .iter()
+                .map(|f| format!("  {} — {} commit(s)", f.ref_name, f.commits))
+                .collect(),
+            &mut body,
+        );
+    }
+
+    // Fill to the ceiling. The cut-off note's own length is reserved up front, at the longest
+    // it can be, so adding it cannot push a brief that fit over the budget.
+    let ceiling = budget.saturating_mul(4);
+    let note = |left: usize| {
+        format!("({left} more line(s) past the {budget}-token budget — `yidam cycle`)")
+    };
+    let reserved = header.len() + 1 + footer.len() + 1 + note(body.len()).len() + 1;
+    let mut out = format!("{header}\n");
+    let mut used = reserved;
+    let mut kept = 0;
+    for line in &body {
+        if used + line.len() + 1 > ceiling {
+            break;
+        }
+        used += line.len() + 1;
+        out.push_str(line);
+        out.push('\n');
+        kept += 1;
+    }
+    if kept < body.len() {
+        out.push_str(&note(body.len() - kept));
+        out.push('\n');
+    }
+    out.push_str(footer);
     out
 }
 

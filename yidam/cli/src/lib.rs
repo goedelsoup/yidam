@@ -164,13 +164,13 @@ pub use cmd::{
     run_capability, run_cluster, run_derive, run_export, run_kuten, run_phase, run_policy,
     run_practice, run_score, run_source, run_vault, samudaya_audit, sangha, schema, serve_lsp,
     serve_mcp, skills_index, slid_line_citation, status, unverified_line_citation, vault_status,
-    vocabulary, BenchGoal, BenchGoalSet, ClusterCommand, CohortOptions, DeriveCommand,
+    vocabulary, BenchGoal, BenchGoalSet, ClusterCommand, CohortOptions, CycleRounds, DeriveCommand,
     DispatchOptions, EmbedOptions, ExportFormat, ExportOptions, ExtractOptions, FetchOptions,
     GatherOptions, KutenCommand, LineCitation, LineFragment, LintCheck, LintOptions, LintViolation,
     LogFilter, MigrateOperation, PhaseCommand, PolicyCommand, PreludeNorm, ProposeOptions,
     RdfFormat, ReconcileOptions, Relocation, RetrieveOptions, RunOptions, SourceCommand, VaultArgs,
-    VaultCommand, ACT_KINDS, COMMIT_KINDS, CYCLE_SOURCES, DEFAULT_CLASSES, LINT_SEVERITIES,
-    PRELUDE_NORMS,
+    VaultCommand, ACT_KINDS, BRIEF_BUDGET, COMMIT_KINDS, CYCLE_SOURCES, DEFAULT_CLASSES,
+    LINT_SEVERITIES, PRELUDE_NORMS,
 };
 
 /// The remote transport (#423). Gated because the feature is what pulls the server, and
