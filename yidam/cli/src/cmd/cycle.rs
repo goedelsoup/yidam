@@ -7,8 +7,9 @@
 //!
 //! So this composes rather than computes. Every number below is read from the command that
 //! already owns it — [`crate::cmd::due::read_clocks`], [`crate::cmd::phases::collect_phases`],
-//! [`crate::cmd::lint::run_checks`] against the baseline ratchet, and
-//! [`crate::cmd::corpus::graph_check_data`]. **Nothing here re-derives a fact a sibling
+//! [`crate::cmd::lint::run_checks`] against the baseline ratchet,
+//! [`crate::cmd::corpus::graph_check_data`], and — for the manifest's steps —
+//! [`crate::cmd::run::plan_and_write`] as a dry run, which is `yidam run --dry-run`'s reader. **Nothing here re-derives a fact a sibling
 //! surface publishes**, which is `due`'s own rule about `phases` (`status` reported 26 active
 //! phases against a true count of 1 for exactly as long as the classification lived in two
 //! places), applied one level out over four surfaces instead of one.
@@ -63,6 +64,8 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::cmd::due::{Clock, State};
+use crate::cmd::run::manifest::MANIFEST;
+use crate::cmd::run::{plan_and_write, Freshness};
 use crate::paths::require_yidam_repo;
 
 /// One inquiry ref in flight.
@@ -275,6 +278,16 @@ impl Practice {
 pub struct CycleReport {
     /// What is owed — `due`'s five clocks, read through `due`'s own reader and unchanged.
     pub owed: Vec<Clock>,
+    /// The manifest's steps whose committed receipt does not stand at the tip — owed as surely
+    /// as a due clock, and the half `due` cannot report (#1440).
+    ///
+    /// **`stale_steps` and not `stale`**, for `blocking`'s reason below: the schema's flat
+    /// namespace already gives `stale` to `regen --check`, as an array of REGEN blocks.
+    pub stale_steps: Vec<StaleStep>,
+    /// Why the step half could not be read, when it could not: the planner's own refusal,
+    /// verbatim. `None` both when it was read and when there is no manifest to read — a corpus
+    /// declaring no capabilities has asked for nothing, which is not a gap in this report.
+    pub stale_steps_unread: Option<String>,
     /// What is in flight — the unsettled inquiry refs `phases` lists.
     pub in_flight: Vec<InFlight>,
     /// What is blocked — what `lint`'s ratchet and `graph-check` would fail on today.
@@ -299,12 +312,60 @@ pub struct CycleReport {
     /// Clocks past their interval. `due`'s count, carried so a consumer need not re-derive it.
     pub due: usize,
     pub strict: bool,
-    /// Whether the run exits zero. True unless `--strict` and something is owed or blocked.
+    /// Whether the run exits zero. True unless `--strict` and something is owed — a due clock or
+    /// a stale step — or blocked.
     /// Being owed is not a defect, and this field exists so a consumer does not infer one.
     pub passed: bool,
 }
 
 // ── the four halves ───────────────────────────────────────────────────────────
+
+/// A manifest step that `yidam run` would invoke.
+#[derive(Debug, serde::Serialize)]
+pub struct StaleStep {
+    pub step: String,
+    /// `stale`, or `unknown` when a step earlier in the plan would write what this one reads.
+    /// Both are owed: a run invokes the first and then decides the second.
+    pub freshness: Freshness,
+    /// The planner's reason, verbatim.
+    pub because: String,
+}
+
+/// The manifest's half of what is owed, read the way `cluster admit` reads it.
+///
+/// `due` has no clock for this, because a stale step is stale rather than stale after N days,
+/// and `due`'s table is a table of declared intervals — `admit`'s argument for asking it
+/// beside `due` rather than inside it, and this command's for the same. Before #1440 `cycle`
+/// did not ask it at all, so a corpus whose manifest was a commit behind reported nothing owed
+/// and `next` said the loop was quiet while `cluster admit` admitted a run.
+///
+/// **Local refs only.** `admit` fetches `propose/*` first because it reads a single-branch
+/// clone; this reads the checkout it stands in, so a proposed result is fresh here exactly
+/// when `yidam run --dry-run` would say it is, and `cycle` stays offline.
+///
+/// **A refusal is reported, not raised.** The planner refuses a detached HEAD and a plan this
+/// binary cannot invoke; either would otherwise turn a report about four halves into an
+/// error about one, and the other three are still true.
+fn stale_steps(root: &Path) -> (Vec<StaleStep>, Option<String>) {
+    if !root.join(MANIFEST).exists() {
+        return (Vec::new(), None);
+    }
+    match plan_and_write(root, None, true) {
+        Ok(plan) => (
+            plan.steps
+                .into_iter()
+                .filter(|s| s.freshness != Freshness::Fresh)
+                .map(|s| StaleStep {
+                    step: s.step,
+                    freshness: s.freshness,
+                    because: s.because,
+                })
+                .collect(),
+            None,
+        ),
+        Err(e) => (Vec::new(), Some(format!("{e:#}"))),
+    }
+}
 
 /// The unsettled inquiry refs.
 ///
@@ -409,6 +470,7 @@ fn blocked(root: &Path) -> Vec<Blocked> {
 fn next_acts(
     blocked: &[Blocked],
     owed: &[Clock],
+    stale_steps: &[StaleStep],
     in_flight: &[InFlight],
     practice: &Practice,
 ) -> Vec<Act> {
@@ -434,6 +496,21 @@ fn next_acts(
             source: Source::Owed,
             act: remedy.clone(),
             why: format!("the {} clock is due — {}", c.id, c.detail),
+        });
+    }
+
+    // One act for the whole manifest, for the gates' reason above: `yidam run` invokes every
+    // stale step in plan order, so a reader with three stale steps has one thing to do.
+    if !stale_steps.is_empty() {
+        let names: Vec<&str> = stale_steps.iter().map(|s| s.step.as_str()).collect();
+        out.push(Act {
+            source: Source::Owed,
+            act: "yidam run".to_string(),
+            why: format!(
+                "{} step(s) have no receipt matching the tip — {}",
+                names.len(),
+                names.join(", ")
+            ),
         });
     }
 
@@ -488,14 +565,17 @@ pub(crate) fn read_cycle(root: &Path, strict: bool, today: i64) -> Result<CycleR
     let cfg = crate::config::load_yidam_config(root)?;
     let owed = crate::cmd::due::read_clocks(root, &cfg.due, today);
     let due = owed.iter().filter(|c| c.state == State::Due).count();
+    let (stale_steps, stale_steps_unread) = stale_steps(root);
     let in_flight = in_flight(root);
     let blocked = blocked(root);
     let practice = Practice::read(root);
-    let next = next_acts(&blocked, &owed, &in_flight, &practice);
+    let next = next_acts(&blocked, &owed, &stale_steps, &in_flight, &practice);
 
     Ok(CycleReport {
-        passed: !strict || (due == 0 && blocked.is_empty()),
+        passed: !strict || (due == 0 && stale_steps.is_empty() && blocked.is_empty()),
         owed,
+        stale_steps,
+        stale_steps_unread,
         in_flight,
         blocked,
         next,
@@ -532,11 +612,20 @@ pub(crate) fn render(report: &CycleReport, root: &Path) -> String {
     let mut out = format!("yidam cycle — {}\n\n", root.display());
 
     let _ = writeln!(out, "owed");
-    if report.owed.iter().all(|c| c.state != State::Due) {
+    if report.owed.iter().all(|c| c.state != State::Due) && report.stale_steps.is_empty() {
         let _ = writeln!(out, "  nothing is due");
     }
     for c in report.owed.iter().filter(|c| c.state == State::Due) {
         let _ = writeln!(out, "  {:<10} {}", c.id, c.detail);
+    }
+    for s in &report.stale_steps {
+        let _ = writeln!(out, "  {:<10} step {} — {}", "run", s.step, s.because);
+    }
+    if let Some(why) = &report.stale_steps_unread {
+        let _ = writeln!(
+            out,
+            "  (the manifest's steps could not be planned, so whether one is owed is unread: {why})"
+        );
     }
     let unset = report
         .owed
@@ -596,11 +685,17 @@ pub(crate) fn render(report: &CycleReport, root: &Path) -> String {
         let _ = writeln!(out, "  nothing to do — the loop is quiet");
     }
 
-    let head = match (report.due, report.blocked.len()) {
-        (0, 0) => "Nothing is due and nothing is blocked.".to_string(),
-        (0, b) => format!("Nothing is due; {b} finding(s) would fail a gate."),
-        (d, 0) => format!("{d} clock(s) due, nothing blocked."),
-        (d, b) => format!("{d} clock(s) due, and {b} finding(s) would fail a gate."),
+    let owed = match (report.due, report.stale_steps.len()) {
+        (0, 0) => None,
+        (d, 0) => Some(format!("{d} clock(s) due")),
+        (0, s) => Some(format!("{s} step(s) stale")),
+        (d, s) => Some(format!("{d} clock(s) due and {s} step(s) stale")),
+    };
+    let head = match (owed, report.blocked.len()) {
+        (None, 0) => "Nothing is due and nothing is blocked.".to_string(),
+        (None, b) => format!("Nothing is due; {b} finding(s) would fail a gate."),
+        (Some(o), 0) => format!("{o}, nothing blocked."),
+        (Some(o), b) => format!("{o}, and {b} finding(s) would fail a gate."),
     };
     // Stated on every run, including the quiet one, for `due`'s reason: it is the sentence
     // that keeps the report from being read as a gate, and the reader who only ever sees the

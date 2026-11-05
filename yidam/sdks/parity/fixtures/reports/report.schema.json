@@ -2785,6 +2785,42 @@
         }
       }
     },
+    "stale_steps": {
+      "type": "array",
+      "description": "`cycle` only. The manifest's steps whose committed receipt does not stand at the tip, read by `yidam run --dry-run`'s planner against the local checkout \u2014 owed as surely as a due clock, and the half `due` has no clock for. Empty when the corpus declares no manifest, and empty when the planner refused (see `stale_steps_unread`). NOT SPELLED `stale`, which this schema already gives to `regen --check` as an array of REGEN blocks.",
+      "items": {
+        "type": "object",
+        "required": [
+          "step",
+          "freshness",
+          "because"
+        ],
+        "properties": {
+          "step": {
+            "type": "string",
+            "description": "The capability's name in `.yidam/capabilities.toml`."
+          },
+          "freshness": {
+            "enum": [
+              "stale",
+              "unknown"
+            ],
+            "description": "`unknown` is a step a stale step earlier in the plan would write the inputs of. Both are owed: `yidam run` invokes the first and then decides the second. `fresh` never appears \u2014 a fresh step is not owed."
+          },
+          "because": {
+            "type": "string",
+            "description": "The planner's reason, verbatim."
+          }
+        }
+      }
+    },
+    "stale_steps_unread": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "`cycle` only. Why the manifest's steps could not be planned \u2014 a detached HEAD, or a step this binary cannot invoke \u2014 as the planner's own refusal. Null when they were planned AND when there is no manifest: a corpus declaring no capabilities has asked for nothing. A consumer MUST NOT read an empty `stale_steps` beside a non-null value as nothing owed."
+    },
     "in_flight": {
       "type": "array",
       "description": "`cycle` only. The UNSETTLED inquiry refs \u2014 `phases`' own rows, filtered to the state it publishes. A settled phase and a standing position are both absent, and that filter is the point: a list headed \"in flight\" holding refs that have landed is the conflation `phases` grew a `state` column to undo.",

@@ -446,6 +446,130 @@ fn the_ranking_is_this_commands_and_the_report_says_no_profile_declares_one() {
 
 // ── it authors nothing ────────────────────────────────────────────────────────
 
+// ── the manifest's half of owed (#1440) ───────────────────────────────────────
+
+/// Declares one calculator that writes one file, and commits the manifest.
+///
+/// The step really runs under [`a_step_whose_receipt_stands_is_not_owed`], so it writes into
+/// `$YIDAM_OUT` exactly what it declares.
+fn declare_a_step(root: &Path) {
+    let p = root.join(MANIFEST);
+    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+    std::fs::write(
+        p,
+        r#"[capability.count]
+kind   = "calculator"
+run    = ["sh", "-c", "mkdir -p \"$YIDAM_OUT/.yidam/computed\" && echo 'n: 2' > \"$YIDAM_OUT/.yidam/computed/count.yml\""]
+reads  = [".yidam/corpus/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"
+"#,
+    )
+    .unwrap();
+    commit(
+        root,
+        "2026-02-01",
+        "establish: a manifest declaring one step",
+    );
+}
+
+/// A step with no receipt is owed, is said to be owed, and is the one act `yidam run`.
+///
+/// Before #1440 this corpus read as quiet: no clock was due, nothing was blocked, and `next`
+/// said the loop had nothing to do while `cluster admit` admitted a run on the same tree.
+#[test]
+fn a_stale_step_is_owed_and_names_yidam_run() {
+    let tmp = repo();
+    let root = tmp.path();
+    declare_a_step(root);
+
+    let r = read(root);
+    assert_eq!(r.due, 0, "the step is owed without any clock being due");
+    let names: Vec<&str> = r.stale_steps.iter().map(|s| s.step.as_str()).collect();
+    assert_eq!(names, ["count"]);
+    assert_eq!(r.stale_steps[0].freshness, Freshness::Stale);
+    assert!(r.stale_steps_unread.is_none(), "{:?}", r.stale_steps_unread);
+
+    // The wire, not the struct: `report_goldens.rs` cannot reach these fields (the fixture
+    // declares no manifest), so the schema's names are held here. #1439 was a variant the
+    // Rust tests compared correctly and serde spelled wrong.
+    let wire = serde_json::to_value(&r).unwrap();
+    let item = &wire["stale_steps"][0];
+    let keys: Vec<&str> = item
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys, ["because", "freshness", "step"]);
+    assert_eq!(item["freshness"], "stale");
+    assert!(wire["stale_steps_unread"].is_null());
+
+    let run: Vec<&Act> = r.next.iter().filter(|a| a.act == "yidam run").collect();
+    assert_eq!(run.len(), 1, "{:?}", r.next);
+    assert_eq!(run[0].source, Source::Owed);
+    assert!(run[0].why.contains("count"), "{}", run[0].why);
+
+    let text = render(&r, root);
+    assert!(text.contains("step count"), "{text}");
+    assert!(!text.contains("nothing is due"), "{text}");
+    assert!(text.contains("1 step(s) stale, nothing blocked."), "{text}");
+
+    let strict = read_cycle(root, true, today()).unwrap();
+    assert!(
+        !strict.passed,
+        "`--strict` must fail on a stale step as it does on a due clock"
+    );
+}
+
+/// The converse: once a run has landed the step's receipt, the step is not owed.
+///
+/// Without this the test above is satisfied by a `cycle` that lists every declared step —
+/// the filter on freshness is the claim, and only a fresh step can show it is there.
+#[test]
+fn a_step_whose_receipt_stands_is_not_owed() {
+    let tmp = repo();
+    let root = tmp.path();
+    declare_a_step(root);
+    crate::cmd::run::plan_and_write(root, None, false).unwrap();
+
+    let r = read(root);
+    assert!(r.stale_steps.is_empty(), "{:?}", r.stale_steps);
+    assert!(r.stale_steps_unread.is_none(), "{:?}", r.stale_steps_unread);
+    assert!(!r.next.iter().any(|a| a.act == "yidam run"), "{:?}", r.next);
+    assert!(read_cycle(root, true, today()).unwrap().passed);
+}
+
+/// A planner refusal is a stated gap in one half, not an error out of the whole report.
+///
+/// A detached HEAD is where CI checks a commit out, and the planner refuses it. `cycle`
+/// reported the other three halves there before #1440, and must still.
+#[test]
+fn a_plan_that_cannot_be_read_is_said_to_be_unread() {
+    let tmp = repo();
+    let root = tmp.path();
+    declare_a_step(root);
+    git(root, &["checkout", "-q", "--detach"]);
+
+    let r = read(root);
+    assert!(r.stale_steps.is_empty());
+    let why = r
+        .stale_steps_unread
+        .as_deref()
+        .expect("the refusal is carried");
+    assert!(why.contains("detached"), "{why}");
+    assert!(render(&r, root).contains("could not be planned"));
+}
+
+/// A corpus declaring no capabilities has asked for nothing, which is neither owed nor unread.
+#[test]
+fn no_manifest_is_neither_owed_nor_unread() {
+    let tmp = repo();
+    let r = read(tmp.path());
+    assert!(r.stale_steps.is_empty());
+    assert!(r.stale_steps_unread.is_none());
+}
+
 /// The invariant #572 and RFC-0026 carry, asserted rather than argued: this command writes
 /// no file and adds no commit. `cycle` reports.
 #[test]
