@@ -90,12 +90,13 @@ tools in the same install.
 /plugin install yidam@yidam
 ```
 
-What arrives: the MCP server, registered, plus seven skills. Each fires at the point a
+What arrives: the MCP server, registered, plus eight skills. Each fires at the point a
 decision is made. `writing-a-corpus-commit` fires before a commit subject and
 `tagging-a-claim` before an evidence tag. `linking-a-node` fires before a link,
 `citing-a-dependency` before a `cites:`. `reading-a-corpus` fires before answering from the
 corpus rather than the model. `starting-a-session` fires at the start of a session, where
-what to do next is the decision. `starting-a-corpus` fires where there is no corpus yet. It
+what to do next is the decision. `running-a-round` fires when the work is the loop itself. It
+takes the first act a tool can take, verifies it, records it, and repeats. `starting-a-corpus` fires where there is no corpus yet. It
 is the one that calls no tool, because there is no server to call. Each of the others names
 the tool, and points at the prelude for the reasoning. None restates a rule: a second copy of
 a closed vocabulary is a second thing to hold in step. About 800 tokens are always on; the

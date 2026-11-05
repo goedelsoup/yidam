@@ -423,6 +423,7 @@ specific path, **overwriting yidam's own copy**:
 sadhana/root/README.md            → README.md            (overwrites yidam's)
 sadhana/root/AGENTS.md            → AGENTS.md            (overwrites yidam's)
 sadhana/root/CLAUDE.md            → .claude/CLAUDE.md    (overwrites yidam's)
+sadhana/root/claude-settings.json → .claude/settings.json (yidam keeps no copy)
 sadhana/root/mise.toml            → mise.toml            (overwrites yidam's)
 sadhana/root/mise.overrides.toml  → mise.overrides.toml  (yidam keeps no copy)
 sadhana/root/gitattributes        → .gitattributes       (overwrites yidam's)
@@ -430,9 +431,10 @@ sadhana/root/gitignore            → .gitignore           (overwrites yidam's)
 sadhana/root/PRACTICE.md          → PRACTICE.md          (yidam keeps no copy)
 ```
 
-Overwrite all six now. Do not merge yidam's content into them. `PRACTICE.md` and
-`mise.overrides.toml` install new rather than overwriting; step 8.5's `yidam regen` fills
-`PRACTICE.md`'s block.
+Overwrite all six now. Do not merge yidam's content into them. `PRACTICE.md`,
+`mise.overrides.toml` and `.claude/settings.json` install new rather than overwriting;
+step 8.5's `yidam regen` fills `PRACTICE.md`'s block. In existing-repo mode, keep an existing
+`.claude/settings.json` and run `yidam migrate scaffold` after step 8 to add the hooks.
 [why](bootstrap.evidence.md#overwrite-do-not-merge)
 
 **`.github/workflows/` — replace the directory, do not overwrite files inside it.** In

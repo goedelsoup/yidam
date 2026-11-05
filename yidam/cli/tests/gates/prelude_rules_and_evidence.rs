@@ -220,6 +220,12 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// `AGENTS.md`.** The scaffold's `CLAUDE.md` now imports `AGENTS.md` instead of summarising it,
 /// and the summary and the conduct norms it repeated became one section. The delta is all in
 /// the route file, so all five moved by the same 276.
+///
+/// **Raised by 59 on every occasion of the derived route when a session learned to open with
+/// the loop (#1444).** The delta is **59 words in `sadhana/root/AGENTS.md`**, the route file:
+/// `yidam cycle` heading the reading block, and one paragraph saying a session opens with its
+/// brief when the hooks run, and what to run when they do not. All five moved by the same 59,
+/// so nothing else did. The template route is untouched.
 const READ_CEILING: &[(&str, &str, usize)] = &[
     ("AGENTS.md", "Before you write or revise a node", 6_742),
     ("AGENTS.md", "Before you run a phase", 4_606),
@@ -233,16 +239,16 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
     (
         "sadhana/root/AGENTS.md",
         "Before you write or revise a node",
-        7_660,
+        7_719,
     ),
-    ("sadhana/root/AGENTS.md", "Before you run a phase", 5_524),
+    ("sadhana/root/AGENTS.md", "Before you run a phase", 5_583),
     (
         "sadhana/root/AGENTS.md",
         "Before a claim crosses a corpus boundary",
-        5_416,
+        5_475,
     ),
-    ("sadhana/root/AGENTS.md", "Before you change a class", 5_982),
-    ("sadhana/root/AGENTS.md", "Before you retrieve", 3_907),
+    ("sadhana/root/AGENTS.md", "Before you change a class", 6_041),
+    ("sadhana/root/AGENTS.md", "Before you retrieve", 3_966),
 ];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
@@ -447,7 +453,12 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// words**: 39 of `GRAPH.md`'s 49 on the lines step 1 charges, and 6 in `bootstrap.md`'s class
 /// template, whose type line now names `number`, `claim` and `list`. 20,619 + 45 is this figure
 /// exactly.
-const BOOTSTRAP_CEILING: usize = 20_664;
+///
+/// **Raised to 20,691 when the scaffold installed the loop's hooks (#1444).** The delta is **27
+/// words in `bootstrap.md`**: the install table's `claude-settings.json` row, and the sentence
+/// saying an existing-repo target keeps its own settings and runs `yidam migrate scaffold`.
+/// 20,664 + 27 is this figure exactly.
+const BOOTSTRAP_CEILING: usize = 20_691;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///

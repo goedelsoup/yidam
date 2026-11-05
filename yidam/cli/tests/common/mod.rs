@@ -215,6 +215,12 @@ pub const MAPPING: &[Install] = &[
     row("sadhana/root/README.md", Some("README.md")),
     row("sadhana/root/AGENTS.md", Some("AGENTS.md")),
     row("sadhana/root/CLAUDE.md", Some(".claude/CLAUDE.md")),
+    // The loop's two Claude Code hooks (#1444). A repository made before this gets them from
+    // `yidam migrate scaffold`; a re-vendor never writes the file.
+    row(
+        "sadhana/root/claude-settings.json",
+        Some(".claude/settings.json"),
+    ),
     row("sadhana/root/mise.toml", Some("mise.toml")),
     // Installs new: yidam's own mise.toml includes no overrides file, and a vendor update
     // never writes one, so the repository's overrides of inherited tasks survive it (#1064).

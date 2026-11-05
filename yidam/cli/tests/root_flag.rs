@@ -120,6 +120,15 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
              the default-feature binary these tests build cannot reach the flag at all",
         ),
     ),
+    (
+        "hook",
+        &["session-start"],
+        Tell::Elsewhere(
+            "exits zero and prints nothing for a directory holding no corpus, by contract: a \
+             hook that fails is a hook a person removes. `cycle_rounds.rs` proves the flag is \
+             read, by the round record landing in the corpus named and not where it is run",
+        ),
+    ),
     ("index-status", &["--format", "json"], Tell::Envelope),
     ("index-verify", &[], Tell::Names),
     ("kuten", &[], Tell::Writes("AGENTS.md")),

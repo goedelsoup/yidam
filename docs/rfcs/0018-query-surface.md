@@ -508,7 +508,7 @@ unproductive the report says so rather than shrugging:
 
 A rejected query **emits its report and exits 1**. That is the shape four commands already
 have — `doctor`
-([`crate::report::gate`](../../yidam/cli/src/cmd/doctor.rs#L2247)), `regen`
+([`crate::report::gate`](../../yidam/cli/src/cmd/doctor.rs#L2264)), `regen`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/regen.rs#L467)), `rename`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/rename.rs#L798)) and `index-verify`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/index_verify.rs#L260)) all print, then
@@ -547,10 +547,10 @@ fail.
 > is the labelled form working as #706 intended. A coordinate-only citation would have slid
 > onto whatever four lines took their place and stayed green.
 
-Exit **2** is not available and must not be borrowed. Its sites are `main.rs:1584`, inside the
+Exit **2** is not available and must not be borrowed. Its sites are `main.rs:1604`, inside the
 clap pre-dispatch arm for "ErrorKind::InvalidSubcommand | ErrorKind::UnknownArgument"
-([`main.rs:1566-1585`](../../yidam/cli/src/main.rs#L1566-L1585)), and the bare-`yidam` fallback
-at `main.rs:1600` — both reached *before* `match cli.command`, so no command body can produce
+([`main.rs:1586-1605`](../../yidam/cli/src/main.rs#L1586-L1605)), and the bare-`yidam` fallback
+at `main.rs:1620` — both reached *before* `match cli.command`, so no command body can produce
 it — and
 `tests/binary_pin.rs:140` pins it as the unrecognized-subcommand code. Returning an ordinary
 `Err` from a command body exits 1 with `Error: {:?}` prose and no envelope at all, which would
@@ -560,7 +560,7 @@ The one `Err` that is not ordinary is
 [`report::GateFailed`](../../yidam/cli/src/report.rs#L199), the sentinel #926 introduced so
 that the library could stop calling `std::process::exit` from inside a published crate. It
 carries no message, and `main.rs` prints nothing for it
-([`fn main`](../../yidam/cli/src/main.rs#L1540-L1547)) — so the report emitted above it is
+([`fn main`](../../yidam/cli/src/main.rs#L1560-L1567)) — so the report emitted above it is
 still the only thing on the stream, which is the whole property this section is arranged
 around. The exit code did not move; the call to `exit` did.
 

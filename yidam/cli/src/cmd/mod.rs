@@ -17,6 +17,7 @@ mod derive;
 mod diff;
 mod doctor;
 pub(crate) mod due;
+pub(crate) mod hook;
 // `pub(crate)` for one reason: `computed.rs` holds the list of names a signal may not take,
 // and its guard serializes an `EmbedRecord` to check that the list covers every field of it.
 // A guard that restated the field names would go on agreeing with itself as fields were added.
@@ -117,6 +118,7 @@ pub use estimate::estimate;
 pub use export::{export, list_formats, run_export, ExportFormat, ExportOptions, RdfFormat};
 pub use gates::gates;
 pub use graph::{graph, neighbors};
+pub use hook::{hook, HookEvent};
 #[cfg(feature = "vector-read")]
 pub use index_build::index_build;
 #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]

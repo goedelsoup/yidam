@@ -120,7 +120,8 @@ pub enum Operation {
     /// same reason the two lifts do: a one-time mechanical rewrite with a record of what it
     /// refused. See [`crate::cmd::migrate_routes`].
     Routes,
-    /// `ci.yml` and `CLAUDE.md` get the regions `yidam-vendor-update` rewrites (#1054).
+    /// `ci.yml` and `CLAUDE.md` get the regions `yidam-vendor-update` rewrites (#1054), and
+    /// `.claude/settings.json` the loop's two hooks (#1444).
     ///
     /// Migrates the scaffold, as [`Self::Routes`] does, and for the same reason. See
     /// [`crate::cmd::migrate_scaffold`].
@@ -183,7 +184,9 @@ impl Operation {
             // Replaced once planned, and for the same reasons as the two above.
             Self::Routes => "AGENTS.md reading list into a generated block".to_string(),
             // A stable form that does not begin with the operation's own name, as above.
-            Self::Scaffold => "ci.yml and CLAUDE.md regions a re-vendor updates".to_string(),
+            Self::Scaffold => "ci.yml and CLAUDE.md regions a re-vendor updates, and the loop's \
+                               hooks in .claude/settings.json"
+                .to_string(),
             // A stable form that does not begin with the operation's own name, as above.
             Self::Locations => "doi and pmc catalog locations into identifiers".to_string(),
         }
@@ -1933,6 +1936,20 @@ fn render_scaffold(r: &MigrateReport) -> String {
         let _ = writeln!(out, "{verb} {}:", r.summary);
     }
     for f in &scaffold.files {
+        // Not a region: the hooks are installed once and a re-vendor never touches them.
+        if f.file == super::migrate_scaffold::SETTINGS {
+            if f.already {
+                let _ = writeln!(out, "  {}  already runs the loop's hooks", f.file);
+            } else {
+                let _ = writeln!(
+                    out,
+                    "  {}  adds the loop's hooks: {}",
+                    f.file,
+                    f.wrapped.join(", ")
+                );
+            }
+            continue;
+        }
         if f.absent {
             let _ = writeln!(out, "  {}  absent, so there is nothing to mark", f.file);
         } else if f.already {

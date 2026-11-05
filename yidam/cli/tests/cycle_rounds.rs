@@ -120,3 +120,27 @@ fn a_budget_needs_a_brief() {
     assert!(text.starts_with("yidam cycle --brief"), "{text}");
     assert!(text.len() / 4 <= 100, "{} tokens:\n{text}", text.len() / 4);
 }
+
+/// `yidam hook --root` reads the corpus it names. `root_flag.rs` cannot hold this: a hook is
+/// silent and exits zero on a directory holding no corpus, which is the one answer that test
+/// tells a dropped flag by. So the proof is the write: run from a directory that is not a
+/// corpus, the round record lands in the corpus named, and the brief is on stdout.
+#[test]
+fn a_hook_reads_the_corpus_its_root_names() {
+    let tmp = repo();
+    let root = tmp.path();
+    let elsewhere = tempfile::TempDir::new().unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .args(["hook", "session-start", "--root"])
+        .arg(root)
+        .current_dir(elsewhere.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.starts_with("yidam cycle --brief"), "{text}");
+    assert!(root.join(".yidam/loop/main.json").exists());
+    assert!(!elsewhere.path().join(".yidam").exists());
+}

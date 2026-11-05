@@ -1000,7 +1000,11 @@ fn a_dry_run_of_migrate_scaffold_names_the_regions_and_changes_nothing() {
         "{out}"
     );
     assert!(out.contains("## The short version"), "{out}");
-    assert!(out.contains("(2 file(s) across 2 file(s))"), "{out}");
+    assert!(
+        out.contains(".claude/settings.json  adds the loop's hooks: SessionStart, Stop"),
+        "{out}"
+    );
+    assert!(out.contains("(3 file(s) across 3 file(s))"), "{out}");
     assert!(!c.dirty(), "a dry run wrote to the tree");
 }
 
@@ -1064,10 +1068,51 @@ fn migrate_scaffold_marks_the_template_s_part_and_nothing_else() {
         "{claude}"
     );
 
+    // The hooks, created where there was no settings file: the scaffold's, exactly (#1444).
+    assert_eq!(
+        c.read(".claude/settings.json"),
+        std::fs::read_to_string(repo_root().join("sadhana/root/claude-settings.json")).unwrap()
+    );
+
     // Idempotent.
     let (ok, out) = c.run(&["migrate", "scaffold"]);
     assert!(ok, "{out}");
     assert!(out.contains("Nothing to migrate"), "{out}");
+    assert!(
+        out.contains(".claude/settings.json  already runs the loop's hooks"),
+        "{out}"
+    );
+}
+
+/// A settings file of the owner's own gets the hooks and keeps every byte it had; one that
+/// declares its own `hooks` refuses the whole migration and writes nothing.
+#[test]
+fn migrate_scaffold_adds_hooks_to_an_owner_s_settings_or_refuses() {
+    let c = Corpus::new();
+    with_old_scaffold(&c);
+    let owner = "{\n  \"permissions\": { \"allow\": [\"Bash(ls)\"] }\n}\n";
+    std::fs::write(c.path().join(".claude/settings.json"), owner).unwrap();
+    c.git(&["add", "-A"]);
+    c.git(&["commit", "-q", "-m", "edit: our settings"]);
+    let (ok, out) = c.run(&["migrate", "scaffold"]);
+    assert!(ok, "{out}");
+    let settings = c.read(".claude/settings.json");
+    assert!(settings.ends_with(&owner[1..]), "{settings}");
+    assert!(settings.contains("yidam hook session-start"), "{settings}");
+
+    let c = Corpus::new();
+    with_old_scaffold(&c);
+    std::fs::write(
+        c.path().join(".claude/settings.json"),
+        "{\"hooks\": {\"Stop\": []}}\n",
+    )
+    .unwrap();
+    c.git(&["add", "-A"]);
+    c.git(&["commit", "-q", "-m", "edit: our hooks"]);
+    let (ok, out) = c.run(&["migrate", "scaffold"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("declares its own `hooks`"), "{out}");
+    assert!(!c.dirty(), "a refused migration wrote to the tree");
 }
 
 /// An owner's section between two of the template's refuses: wrapping it would hand it to the

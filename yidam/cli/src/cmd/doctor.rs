@@ -860,8 +860,25 @@ fn check_scaffold(root: &Path) -> Answer {
     {
         unmarked.push(m::CLAUDE);
     }
+    // The hooks, asked of a repository an agent works in: one with a `CLAUDE.md`. Without
+    // them no session is handed where the loop stands, and nothing else would say so (#1444).
+    let hooks = claude.is_some()
+        && !std::fs::read_to_string(root.join(m::SETTINGS))
+            .is_ok_and(|t| m::settings_has_hooks(&t));
+    if unmarked.is_empty() && !hooks {
+        return Answer::ok(
+            "each file genesis installed marks the part a re-vendor updates, and the loop's \
+             hooks are installed",
+        );
+    }
     if unmarked.is_empty() {
-        return Answer::ok("each file genesis installed marks the part a re-vendor updates");
+        return Answer::warn(
+            format!(
+                "`{}` does not run `yidam hook`, so no session is handed `cycle --brief`",
+                m::SETTINGS
+            ),
+            Some("yidam migrate scaffold"),
+        );
     }
     Answer::warn(
         format!(

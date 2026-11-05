@@ -157,8 +157,8 @@ pub use cmd::{
     catalog_fetch, catalog_reconcile, check_diff, citation_label_not_cited,
     citation_range_stated_twice, clone, cohort, collect_line_citations, corpus_index, count,
     crates_index, cycle, dead_line_citation, decisions_log, diff_corpus, dispatch, doctor, due,
-    embed, estimate, export, gates, gather, graph, graph_check, index_status, index_verify, init,
-    label_range, label_symbols, lint, list_formats, log, migrate, neighbors, open_questions,
+    embed, estimate, export, gates, gather, graph, graph_check, hook, index_status, index_verify,
+    init, label_range, label_symbols, lint, list_formats, log, migrate, neighbors, open_questions,
     overlay, pack, packages_index, parse_bench_goals, parse_binding, phases, propose, query,
     query_paths, record, record_fold, regen, relocate, rename, replay, retrieve, routes,
     run_capability, run_cluster, run_derive, run_export, run_kuten, run_phase, run_policy,
@@ -166,11 +166,11 @@ pub use cmd::{
     serve_mcp, skills_index, slid_line_citation, status, unverified_line_citation, vault_status,
     vocabulary, BenchGoal, BenchGoalSet, ClusterCommand, CohortOptions, CycleRounds, DeriveCommand,
     DispatchOptions, EmbedOptions, ExportFormat, ExportOptions, ExtractOptions, FetchOptions,
-    GatherOptions, KutenCommand, LineCitation, LineFragment, LintCheck, LintOptions, LintViolation,
-    LogFilter, MigrateOperation, PhaseCommand, PolicyCommand, PreludeNorm, ProposeOptions,
-    RdfFormat, ReconcileOptions, Relocation, RetrieveOptions, RunOptions, SourceCommand, VaultArgs,
-    VaultCommand, ACT_KINDS, BRIEF_BUDGET, COMMIT_KINDS, CYCLE_SOURCES, DEFAULT_CLASSES,
-    LINT_SEVERITIES, PRELUDE_NORMS,
+    GatherOptions, HookEvent, KutenCommand, LineCitation, LineFragment, LintCheck, LintOptions,
+    LintViolation, LogFilter, MigrateOperation, PhaseCommand, PolicyCommand, PreludeNorm,
+    ProposeOptions, RdfFormat, ReconcileOptions, Relocation, RetrieveOptions, RunOptions,
+    SourceCommand, VaultArgs, VaultCommand, ACT_KINDS, BRIEF_BUDGET, COMMIT_KINDS, CYCLE_SOURCES,
+    DEFAULT_CLASSES, LINT_SEVERITIES, PRELUDE_NORMS,
 };
 
 /// The remote transport (#423). Gated because the feature is what pulls the server, and
