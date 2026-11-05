@@ -35,6 +35,13 @@
       },
       "description": "A best-effort source location, declared once. Output-only wherever it appears and never part of anything's identity: a line number inside a violation's identity would make the baseline churn on every edit above it. Absent is a normal outcome \u2014 anchor at line 1."
     },
+    "act_kind": {
+      "enum": [
+        "tool",
+        "person"
+      ],
+      "description": "Whether an act is a command to run or a judgement to make (#1442). `tool`: running `argv` from the report's `root` IS the act. `person`: a judgement, named in the prose \u2014 a command that only LISTS what to do is not a tool act, which is why a gate's findings are `person`. An agent may draft what a person act asks for; it lands only by a person. A consumer MUST read a missing `kind` as `person`, never as `tool`: a producer older than this field emits none, and the safe reading of silence is the one that stops a loop."
+    },
     "commit_kind": {
       "enum": [
         "epistemic",
@@ -509,6 +516,16 @@
               "null"
             ],
             "description": "The command or act that discharges it \u2014 or, on an `undeclared` clock, the key that would set it. Null when there is nothing to do, which includes every `declined` clock: nothing discharges a decision not to want the thing."
+          },
+          "kind": {
+            "$ref": "#/$defs/act_kind"
+          },
+          "argv": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The command `remedy` names, as words to execute with the envelope's `root` as the working directory. Present exactly when `kind` is `tool`; a `person` remedy never carries one."
           },
           "record": {
             "type": [
@@ -2768,6 +2785,16 @@
             ],
             "description": "The command or act that discharges it \u2014 or, on an `undeclared` clock, the key that would set it. Null when there is nothing to do, which includes every `declined` clock: nothing discharges a decision not to want the thing."
           },
+          "kind": {
+            "$ref": "#/$defs/act_kind"
+          },
+          "argv": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The command `remedy` names, as words to execute with the envelope's `root` as the working directory. Present exactly when `kind` is `tool`; a `person` remedy never carries one."
+          },
           "record": {
             "type": [
               "string",
@@ -2925,6 +2952,23 @@
           "why": {
             "type": "string",
             "description": "The finding, clock or declaration behind it."
+          },
+          "kind": {
+            "$ref": "#/$defs/act_kind"
+          },
+          "argv": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The act as words to execute, with the envelope's `root` as the working directory \u2014 the command does not repeat it. Present exactly when `kind` is `tool`. Every value this binary emits starts `yidam`."
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What the act is about: the nodes a gate's findings name, the ref in flight, the steps a run would invoke, the nodes a clock lists. Empty when the act is about the corpus as a whole."
           }
         }
       }
