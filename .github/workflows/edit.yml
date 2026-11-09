@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
 
       # No yidam binary, and none is needed: every gate in this package is a property of the
       # package. ci.yml's `editor-web` job says why at length — a gate that needed a corpus
