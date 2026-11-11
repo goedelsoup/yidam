@@ -132,6 +132,47 @@ impl Fixture {
     }
 }
 
+impl Fixture {
+    /// Declare a connector and a calculator that runs after it, beside the two steps that run.
+    ///
+    /// The shape #1463 was filed from: a derived repository whose manifest still declares a
+    /// bootstrap connector. This binary refuses `kind = "connector"` by design, so there is no
+    /// fix to make to the step — only a plan that has to be resolved around it. Each step
+    /// would append to the probe if it ever started, which is how "never invoked" is counted.
+    fn declare_connector(&self, only: bool) {
+        let manifest = self.root().join(".yidam/capabilities.toml");
+        let mut text = if only {
+            String::new()
+        } else {
+            std::fs::read_to_string(&manifest).unwrap()
+        };
+        text.push_str(
+            r#"
+[capability.fetch]
+kind   = "connector"
+run    = ["sh", "-c", "printf 'fetch\n' >> \"$PROBE\""]
+reads  = [".yidam/corpus/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"
+
+[capability.after-fetch]
+kind   = "calculator"
+run    = ["sh", "-c", "printf 'after-fetch\n' >> \"$PROBE\""]
+reads  = [".yidam/corpus/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"
+after  = ["fetch"]
+"#,
+        );
+        std::fs::write(&manifest, text).unwrap();
+        git(&self.root(), &["add", "-A"]);
+        git(
+            &self.root(),
+            &["commit", "-q", "-m", "fix: declare the bootstrap connector"],
+        );
+    }
+}
+
 /// A repository with a corpus and a two-step manifest, the second waiting on the first.
 ///
 /// Built by hand rather than from `examples/`: the shipped examples' capabilities are real
@@ -430,6 +471,94 @@ fn an_interrupted_run_resumes_at_the_step_it_stopped_on() {
         "`first` was invoked once across both runs — a restart would show it twice"
     );
     assert!(report["remaining"].as_array().unwrap().is_empty());
+}
+
+/// #1463: a manifest declaring a step this binary refuses still runs a phase, and the phase
+/// can finish.
+///
+/// Before, the plan was committed with the connector in it and the run stopped on reaching
+/// it, so the phase read `interrupted` and nothing could move it on. Now the refused step and
+/// its dependent are named in the report, left out of the record's plan, and never started.
+#[test]
+fn a_refused_step_is_reported_and_left_out_of_the_plan_it_records() {
+    let f = corpus();
+    f.declare_connector(false);
+    open_and_switch(&f);
+
+    let report = f.json(&["phase", "run"]);
+    assert_eq!(report["plan"], serde_json::json!(["first", "second"]));
+    let refused: Vec<&str> = report["refused"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["step"].as_str().unwrap())
+        .collect();
+    assert_eq!(refused, ["fetch", "after-fetch"], "{report}");
+    assert!(
+        report["refused"][0]["because"]
+            .as_str()
+            .unwrap()
+            .contains(r#"`kind = "connector"`"#),
+        "{report}"
+    );
+    assert_eq!(
+        f.invocations(),
+        ["first", "second"],
+        "a refused step, and the step after it, were started"
+    );
+
+    let rec = f.record("outcome-axis");
+    assert_eq!(rec["plan"], serde_json::json!(["first", "second"]));
+    let rows = f.json(&["phases"]);
+    assert_eq!(rows["phases"][0]["state"], "active", "{rows}");
+}
+
+/// A plan in which nothing can run is refused before the plan commit, so it lands nothing.
+#[test]
+fn a_plan_nothing_can_run_lands_no_commit() {
+    let f = corpus();
+    f.declare_connector(true);
+    open_and_switch(&f);
+
+    let before = git(&f.root(), &["rev-parse", "HEAD"]);
+    let (_, stderr, ok) = f.run(&["phase", "run"]);
+    assert!(!ok, "a plan nothing can run succeeded");
+    assert!(stderr.contains("nothing was written"), "{stderr}");
+    assert!(
+        stderr.contains("fetch"),
+        "the refusal names the step: {stderr}"
+    );
+    assert_eq!(git(&f.root(), &["rev-parse", "HEAD"]), before);
+    assert!(f.invocations().is_empty());
+}
+
+/// A run that stops partway says its commits are not in the checkout, and how to take them.
+///
+/// The ref moves and the index does not, so after the failure the index reads as a staged
+/// revert of the plan commit — the thing #1463 found easy to commit by accident.
+#[test]
+fn a_run_that_stops_says_how_to_take_what_it_committed() {
+    let f = corpus();
+    f.second_fails(true);
+    open_and_switch(&f);
+
+    let (_, stderr, ok) = f.run(&["phase", "run"]);
+    assert!(!ok);
+    let line = stderr
+        .lines()
+        .find(|l| l.contains("git restore --source=HEAD --worktree --staged --"))
+        .unwrap_or_else(|| panic!("no restore line:\n{stderr}"));
+    for path in [
+        ".yidam/phases/outcome-axis.yml",
+        ".yidam/computed/first.yml",
+    ] {
+        assert!(line.contains(path), "`{path}` is not named: {line}");
+    }
+
+    // The line it prints is the repair: run it and the checkout is HEAD again.
+    let args: Vec<&str> = line.split_whitespace().skip(1).collect();
+    git(&f.root(), &args);
+    assert_eq!(git(&f.root(), &["status", "--porcelain"]), "");
 }
 
 /// The legibility half: an interrupted phase says so where a reader looks.
@@ -856,7 +985,14 @@ fn every_phase_report_carries_the_envelope_and_its_documented_fields() {
             "start is missing `{key}`: {start}"
         );
     }
-    for key in ["dry_run", "plan", "completed", "remaining", "resumed"] {
+    for key in [
+        "dry_run",
+        "plan",
+        "completed",
+        "remaining",
+        "resumed",
+        "refused",
+    ] {
         assert!(run.get(key).is_some(), "run is missing `{key}`: {run}");
     }
     for key in [

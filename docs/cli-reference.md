@@ -948,6 +948,12 @@ record that learned its plan on the way through could say which steps ran, and n
 not. A step already recorded is not re-entered, so a run killed partway completes rather than
 restarts.
 
+The plan holds only the steps this binary can invoke. A `kind = "connector"` is refused by
+design, so it is left out of the plan. So is any step that runs `after` a refused one. The
+report names each under `refused`, with its reason. If no step can run, nothing is committed.
+The commits move the branch and not your checkout. The run prints the `git restore` line that
+takes them, whether it finished or stopped.
+
 Until every step of the resolved plan is recorded, the phase reads `interrupted`. That is true
 in `yidam phases`, in `yidam status` and in `yidam due`'s phase clock. The state has no ref
 shape — only the record knows it.
