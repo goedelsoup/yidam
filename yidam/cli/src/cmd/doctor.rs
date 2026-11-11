@@ -1893,11 +1893,20 @@ fn check_corpora(root: &Path) -> Answer {
     for (name, dep) in &config.dependencies {
         // A path dependency is read where it sits and has nothing to fetch, which is exactly
         // what `cmd_install` decides about it. Counted, not graded.
-        if dep.path.is_some() {
+        //
+        // A *pinned* path (#1466) is installed and locked like a fetched one, and graded
+        // like one below.
+        if dep.is_live_path() {
             local += 1;
             continue;
         }
-        let Some(locked) = lock.packages.iter().find(|p| &p.name == name) else {
+        // A pinned path whose lock entry is at another commit than the declaration is not
+        // installed at the declared one — the same state as no entry, and the same remedy.
+        let Some(locked) = lock
+            .packages
+            .iter()
+            .find(|p| &p.name == name && (dep.rev.is_none() || p.rev == dep.rev))
+        else {
             // Declared and never pinned. The lock is the correctness story for a fetched
             // corpus, so a dependency outside it is not verifiable — but it is also the
             // normal state between `tonpa add` and the first install, so it is not a failure.
@@ -1910,7 +1919,7 @@ fn check_corpora(root: &Path) -> Answer {
             // returns false for both "absent" and "different". A caller that can re-fetch
             // does not care which; this one cannot fetch anything, so the remedy it prints
             // is the same but the sentence it writes is not.
-            Ok(false) if !tonpa_dir.join(name).join("bundle.yiz").exists() => {
+            Ok(false) if !crate::deps::installed_marker(name, &tonpa_dir, locked).exists() => {
                 missing.push(name.clone())
             }
             Ok(false) => corrupt.push(name.clone()),

@@ -196,6 +196,31 @@ path form is the one someone is actively editing. Silently preferring a stale un
 would make an edit appear to have no effect. That is the one failure a development loop must
 not have.
 
+### Pinned path dependencies
+
+A sibling repository, read **at a commit**:
+
+```sh
+yidam tonpa add ../sibling-corpus@6ca345d
+```
+
+This is for siblings with no releases that you still need to read reproducibly. `add` resolves
+the commit to its full SHA and records it as `rev` in `.yidam/tonpa.toml`. It reads the corpus
+out of the sibling's git objects at that commit. The working tree is never read. The corpus is
+written to `.yidam/tonpa/<name>/`, where a fetched bundle would unpack.
+
+The lock records the commit as the entry's identity. Its `sha256` is a digest of the corpus
+files, not of an archive. `verify` and `doctor` check that digest against the files on disk.
+
+| Command | On a pinned path |
+|---|---|
+| `tonpa install` | Writes the corpus back from the sibling at the locked commit |
+| `tonpa update [name]` | Moves the pin to the sibling's `HEAD`, in the declaration and the lock |
+| `tonpa status` | `[ok]`, `[not installed]`, `[hash mismatch]`, or `[pin moved]` |
+
+`install` needs the sibling checkout on this machine. A missing sibling fails that dependency
+and not the others.
+
 ## What changes once a dependency is installed
 
 Deliberately narrow: **readable and searchable, never an edge target.**

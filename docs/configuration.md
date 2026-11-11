@@ -743,7 +743,8 @@ tag    = "v1.2.0"
 merge_imported_index = true
 ```
 
-A dependency is named by exactly one source — `github`, `url`, or `path`. `merge_imported_index`
+A dependency is named by exactly one source — `github`, `url`, or `path`. A `path` may add
+`rev = "<full sha>"` to read the sibling at that commit instead of its working tree. `merge_imported_index`
 defaults to **true**: an imported corpus's vectors join the local index so retrieval spans both.
 A repository with no dependencies and one that never declared any are the same answer to every
 caller, and neither is an error.

@@ -87,6 +87,7 @@ pub async fn install_package(
         model: manifest.vector_index_model,
         dims,
         nodes: Some(nodes),
+        rev: None,
     })
 }
 

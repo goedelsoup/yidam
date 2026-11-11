@@ -10,6 +10,11 @@
 //!   locked, because hashing a working tree that changes under you records nothing. This is
 //!   the only form that supports a development loop: an edit in the producer is visible in
 //!   the consumer without cutting a release.
+//! - **Pinned path** — a sibling repository read **at a commit** (`rev = "<sha>"`, #1466).
+//!   The working tree is never consulted: the corpus is written out of the sibling's object
+//!   store at that commit into `.yidam/tonpa/<name>/`, the same place a fetched bundle
+//!   unpacks to, and locked with the commit as its identity. For a repository that has
+//!   siblings and no releases, and still needs a read it can reproduce.
 //!
 //! This module is **not** behind the `tonpa` feature. That feature buys the network —
 //! resolving a source, fetching an archive, writing a lock. Knowing what a repository
@@ -41,6 +46,29 @@ pub struct Dependency {
     pub github: Option<String>,
     pub tag: Option<String>,
     pub path: Option<String>,
+    /// The commit a `path` dependency is read at (#1466). Meaningless without `path`.
+    ///
+    /// Additive: a `tonpa.toml` written before it existed has no `rev`, and every path
+    /// dependency in it stays what it was — read live from the working tree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rev: Option<String>,
+}
+
+impl Dependency {
+    /// A path dependency read from the sibling's working tree as it stands: declared, never
+    /// installed, never locked.
+    ///
+    /// Not `path.is_some()`, which is what every site asked before `rev` existed. A pinned
+    /// path *is* installed and locked, so every branch that skipped a path dependency because
+    /// "there is nothing to install" is wrong about one.
+    pub fn is_live_path(&self) -> bool {
+        self.path.is_some() && self.rev.is_none()
+    }
+
+    /// `(path, rev)` for a path dependency pinned to a commit.
+    pub fn pinned_path(&self) -> Option<(&str, &str)> {
+        Some((self.path.as_deref()?, self.rev.as_deref()?))
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -100,6 +128,16 @@ pub struct LockedPackage {
     pub dims: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nodes: Option<u64>,
+    /// Present exactly when this entry pins a path dependency at a commit (#1466): the full
+    /// SHA it was materialised from. `url` is then the declared path and `sha256` is
+    /// [`corpus_digest`] of what was written, not the hash of an archive — there is no
+    /// archive.
+    ///
+    /// `sha256` stays filled rather than becoming optional, so a CLI from before this field
+    /// still parses the lock. It cannot verify the entry (it looks for a `bundle.yiz`), but a
+    /// lock it cannot read at all would take every fetched dependency down with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rev: Option<String>,
 }
 
 pub fn load_lock(path: &Path) -> anyhow::Result<LockFile> {
@@ -233,21 +271,89 @@ pub fn sha256_hex(data: &[u8]) -> String {
     hex::encode(h.finalize())
 }
 
+/// The content identity of a corpus tree, for a pinned path dependency (#1466).
+///
+/// SHA-256 over every file, sorted by its `/`-separated path relative to the corpus
+/// directory, each framed as `<path> NUL <length> NUL <bytes>`. The framing is what keeps two
+/// different trees from concatenating to one stream.
+///
+/// Defined over **content**, not over an archive, and that is the reason it exists rather
+/// than reusing [`sha256_hex`] on a tarball: a tar or a gzip stream is a function of the
+/// library that wrote it as well as of the files, so a dependency bump could move every pin
+/// in every lock without one byte of any corpus changing. This is computable the same way
+/// from git's blobs at materialisation and from the disk at verification, and nothing else
+/// goes into it.
+pub fn tree_digest(entries: &[(String, Vec<u8>)]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut sorted: Vec<&(String, Vec<u8>)> = entries.iter().collect();
+    sorted.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
+    let mut h = Sha256::new();
+    for (path, bytes) in sorted {
+        h.update(path.as_bytes());
+        h.update([0u8]);
+        h.update(bytes.len().to_string().as_bytes());
+        h.update([0u8]);
+        h.update(bytes);
+    }
+    hex::encode(h.finalize())
+}
+
+/// [`tree_digest`] of the files under `dir`, as they are on disk.
+pub fn corpus_digest(dir: &Path) -> anyhow::Result<String> {
+    use anyhow::Context;
+    let mut entries = Vec::new();
+    for e in walkdir::WalkDir::new(dir) {
+        let e = e.with_context(|| format!("walking {}", dir.display()))?;
+        if !e.file_type().is_file() {
+            continue;
+        }
+        let rel = e
+            .path()
+            .strip_prefix(dir)
+            .with_context(|| format!("{} is not under {}", e.path().display(), dir.display()))?
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join("/");
+        let bytes =
+            std::fs::read(e.path()).with_context(|| format!("reading {}", e.path().display()))?;
+        entries.push((rel, bytes));
+    }
+    Ok(tree_digest(&entries))
+}
+
+/// The file whose existence says an entry was installed at all: the cached `bundle.yiz` for
+/// a fetched dependency, the materialised `corpus/` for a pinned path. What a caller that
+/// cannot install looks at to tell "absent" from "different" — see [`verify_installed`].
+pub fn installed_marker(name: &str, tonpa_dir: &Path, locked: &LockedPackage) -> PathBuf {
+    if locked.rev.is_some() {
+        tonpa_dir.join(name).join("corpus")
+    } else {
+        tonpa_dir.join(name).join("bundle.yiz")
+    }
+}
+
 /// Is the bundle unpacked at `<tonpa_dir>/<name>/` the one `tonpa.lock` pins?
 ///
 /// `false` for both "not there" and "there but different", because the caller that fetches
 /// treats them the same — it re-fetches at the pinned hash either way. A caller that cannot
-/// fetch has to tell them apart itself; the bundle path is where it looks.
+/// fetch has to tell them apart itself; [`installed_marker`] is where it looks.
+///
+/// A pinned path dependency has no archive, so its entry is checked by [`corpus_digest`]
+/// over the materialised tree instead.
 pub fn verify_installed(
     name: &str,
     tonpa_dir: &Path,
     locked: &LockedPackage,
 ) -> anyhow::Result<bool> {
-    let bundle_path = tonpa_dir.join(name).join("bundle.yiz");
-    if !bundle_path.exists() {
+    let marker = installed_marker(name, tonpa_dir, locked);
+    if !marker.exists() {
         return Ok(false);
     }
-    let data = std::fs::read(&bundle_path)?;
+    if locked.rev.is_some() {
+        return Ok(corpus_digest(&marker)? == locked.sha256);
+    }
+    let data = std::fs::read(&marker)?;
     Ok(sha256_hex(&data) == locked.sha256)
 }
 
@@ -256,9 +362,12 @@ pub fn verify_installed(
 /// How a dependency arrived, which is what decides whether it can be pinned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DependencyKind {
-    /// Unpacked from a fetched bundle under `.yidam/tonpa/<name>/`.
+    /// Unpacked under `.yidam/tonpa/<name>/` and pinned: from a fetched bundle, or written
+    /// out of a sibling's git objects at a commit (a pinned path, #1466). The two are one kind
+    /// because every reader asks the same of both — read the unpacked copy, take the pin from
+    /// its `manifest.yml`.
     Fetched,
-    /// Read in place from a sibling repository.
+    /// Read in place from a sibling repository's working tree, unpinned.
     Path,
 }
 
@@ -287,6 +396,12 @@ pub fn resolved(root: &Path) -> Vec<ResolvedDependency> {
     // Path dependencies, declared in tonpa.toml and read where they sit.
     let config = load_config(&crate::paths::tonpa_config_path(root));
     for (name, dep) in &config.dependencies {
+        // A pinned path is read from its materialised copy under `.yidam/tonpa/`, which the
+        // loop below finds. Reading the sibling's working tree here would be reading exactly
+        // what the pin exists not to read.
+        if !dep.is_live_path() {
+            continue;
+        }
         let Some(rel) = &dep.path else { continue };
         // Relative to the repository root, which is what a person writing `../sibling` in
         // `.yidam/tonpa.toml` means — not relative to the config file two levels down.
@@ -366,6 +481,11 @@ pub fn shadowed(root: &Path) -> Vec<ShadowedDependency> {
     let mut out: Vec<ShadowedDependency> = Vec::new();
 
     for (name, dep) in &config.dependencies {
+        // A pinned path's unpacked copy is that sibling at a commit, written by `tonpa` and
+        // read *instead of* the checkout — nothing is shadowed.
+        if !dep.is_live_path() {
+            continue;
+        }
         let Some(rel) = &dep.path else { continue };
         let sibling = root.join(rel);
         if !crate::paths::yidam_corpus_dir(&sibling).is_dir() {

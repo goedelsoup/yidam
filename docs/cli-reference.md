@@ -437,7 +437,7 @@ the read-only overview.
 | `estimate <query>` | What a query would cost before you run it |
 | `count [query]` * | How many nodes a query matches. With no query, refreshes every `<!-- REGEN: yidam count <query> -->` block in the tracked markdown set — the form `regen` runs ([RFC-0043](rfcs/0043-inline-regen-and-count.md)) |
 | `diff <range>` | Node and edge changes between two git refs |
-| `check-diff [range]` | What a code diff names that the ontology does not ([RFC-0021](rfcs/0021-diff-alignment.md)). Defaults to the merge-base with `main` — this branch's work. An `unmodelled-concept` row may carry a `nearest` declared name: one whose `-`-separated word shares a root of at least five characters with a word of the type's name, the two words' lengths within three. A word that ends three or more of the report's type names and appears nowhere else in them, such as `error` in `FetchError`, is the code's suffix and is not compared. More shared words win, then the longer root, then the name. It is a lead to check, not a match — no model reads either name |
+| `check-diff [range]` | What a code diff names that the ontology does not ([RFC-0021](rfcs/0021-diff-alignment.md)). The ontology includes every installed dependency's classes. Defaults to the merge-base with `main` — this branch's work. An `unmodelled-concept` row may carry a `nearest` declared name: one whose `-`-separated word shares a root of at least five characters with a word of the type's name, the two words' lengths within three. A word that ends three or more of the report's type names and appears nowhere else in them, such as `error` in `FetchError`, is the code's suffix and is not compared. More shared words win, then the longer root, then the name. It is a lead to check, not a match — no model reads either name |
 | `log [range]` | Commit history classified as testimony or pipeline work. `--epistemic`, `--operational` |
 | `phases` | Active inquiry phases — `ma/*`, `rigpa/*` and `phase/*` branches. `State` is `active`, `interrupted`, `settled`, `rewritten` or `position`. `Source` says which evidence decided it |
 | `replay` | Corpus health reconstructed across the repository's whole history. `--every` |
@@ -1876,13 +1876,13 @@ corpus nodes, and the records it writes are a starting point for a person, not t
 
 | Subcommand | Effect |
 |---|---|
-| `add` | Add a dependency, fetch it, and update the lock file |
+| `add` | Add a dependency, fetch it, and update the lock file. `../sibling@<sha>` pins a path dependency to a commit |
 | `install` | Install everything declared in `.yidam/tonpa.toml` |
 | `remove` | Remove a dependency and delete its installed files |
 | `list` | Installed packages with node counts and model info |
 | `status` | Per-dependency: installed / missing / stale |
 | `verify` | Check installed bundle hashes against the lock file |
-| `update` | Re-fetch one or all dependencies to the latest bundle |
+| `update` | Re-fetch one or all dependencies to the latest bundle. A pinned path moves to the sibling's `HEAD` |
 
 [Sharing a derivation](sharing-derivations.md) covers publishing a `.yiz` and consuming one,
 and what a cross-corpus citation is and is not.
