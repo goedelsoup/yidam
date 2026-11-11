@@ -1018,6 +1018,36 @@ mod tests {
         assert!(unheld[0].contains("`[open]`"), "{unheld:?}");
     }
 
+    /// #1382, as filed: an entry of an untyped list carrying `claim_tag: open` is that entry's
+    /// standing and not the node's. civic-infrastructure's model declared `claim_tag:
+    /// inference`, its `parameters[]` were each `open`, and an `inference` edge was reported as
+    /// outranking a node that "declares `[open]`". Pinned here and not only at
+    /// [`crate::claims::node_standing`], because the finding is what the corpus saw — and the
+    /// variant with the node `verified` is the one that showed it was never the top-level tag
+    /// being read.
+    #[test]
+    fn an_entrys_claim_tag_is_not_the_endpoints_standing() {
+        let model = |standing: &str| {
+            format!(
+                "class: place\nlabel: A model\nproperties:\n  parameters:\n    - name: break-rate growth coefficient\n      claim_tag: open\n    - name: base rate\n      claim_tag: open\n  claim_tag: {standing}\nlinks:\n  - target: ./canyon.yml\n    relationship: located-in\n    claim_tag: inference\n"
+            )
+        };
+        for standing in ["inference", "verified"] {
+            let files = vec![
+                ("place/tailwater.yml".to_string(), model(standing)),
+                (
+                    "place/canyon.yml".to_string(),
+                    format!("class: place\nlabel: A place\nproperties:\n  claim_tag: {standing}\nlinks:\n{BACK}"),
+                ),
+            ];
+            let (_, _, unheld, _) = run_all(&files, TAGGED, &["claim_tag"]);
+            assert!(
+                unheld.is_empty(),
+                "{standing}: a nested `claim_tag: open` is an entry's: {unheld:?}"
+            );
+        }
+    }
+
     /// The strongest thing a listed `claim_tag` claims is what needs support, which is the same
     /// entry `edge-verified-unsourced` reads.
     #[test]
