@@ -494,6 +494,8 @@ fn artifact_for(o: &Obtained, prior: Option<&CatalogArtifact>) -> CatalogArtifac
         media_type: o.media_type.clone(),
         retrieved: Some(today_iso()),
         from: Some(ArtifactOrigin::Location(o.location)),
+        // A fetch reads the location's own bytes, not one of several resources behind it.
+        resource: None,
         vault: prior.and_then(|p| p.vault.clone()),
         redistributable: prior.and_then(|p| p.redistributable),
         // A reading is of these bytes, and a prior record's were of others.
@@ -1078,6 +1080,7 @@ mod tests {
             media_type: None,
             retrieved: Some("2026-01-01".into()),
             from: Some(ArtifactOrigin::Location(at)),
+            resource: None,
             vault: vault.map(str::to_string),
             redistributable: r,
             text: None,

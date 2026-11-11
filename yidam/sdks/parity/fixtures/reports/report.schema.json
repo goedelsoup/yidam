@@ -895,6 +895,13 @@
                   ],
                   "description": "Where it came from: an index into this entry's `location` list, or a literal URL. An untagged enum over the two, so a consumer branches on the JSON type. Declared with a description and no `type` until #650, which under draft 2020-12 is the empty schema and asserts nothing \u2014 `yidam schema` has always been stricter about the same field."
                 },
+                "resource": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Which of the resources at `from` these bytes are, when that origin serves more than one \u2014 the query an API base URL was asked, the file a download page listed (#1432). Null where the record names none, which reads as the location itself. A new digest is a new version only of a record with the same origin and resource."
+                },
                 "vault": {
                   "type": [
                     "string",

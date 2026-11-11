@@ -111,6 +111,16 @@ A route is edited casually — somebody reorganising storage moves a dozen entri
 in an afternoon — and a licence is not something that edit is allowed to undo. Keeping it separate
 means the reorganisation meets a refusal instead of publishing a paper.
 
+## resource-key
+
+A location is where a fetch starts, and one location often answers many distinct requests: an API
+base URL asked at several endpoints, a download page serving one CSV per state. Without a key,
+adding Delaware's file beside Ohio's reads as a new edition of Ohio's, and `yidam due` holds every
+node citing Ohio's until an edit made only to satisfy the clock (#1432). A record without
+`resource:` is the location itself, so an entry that never writes the key behaves as before. A
+keyed record and an unkeyed one are two sources, because the unkeyed one says nothing about which
+resource it was.
+
 ## bytes-present-is-per-machine
 
 Every check in `yidam lint` reads the working tree and nothing else. A gate whose verdict depended

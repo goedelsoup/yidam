@@ -226,13 +226,19 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// `yidam cycle` heading the reading block, and one paragraph saying a session opens with its
 /// brief when the hooks run, and what to run when they do not. All five moved by the same 59,
 /// so nothing else did. The template route is untouched.
+///
+/// **Raised by 41 on *Before a claim crosses a corpus boundary*, on both routes, when an
+/// artifact record gained `resource:` (#1432).** The delta is **41 words in `directories.md`**:
+/// the key's line in the catalog example and one rule saying a new digest supersedes only a
+/// record with the same origin and resource. Both routes moved by the same 41. The argument is
+/// in `directories.evidence.md`.
 const READ_CEILING: &[(&str, &str, usize)] = &[
     ("AGENTS.md", "Before you write or revise a node", 6_742),
     ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
-        4_498,
+        4_539,
     ),
     ("AGENTS.md", "Before you change a class", 5_064),
     ("AGENTS.md", "Before you retrieve", 2_989),
@@ -245,7 +251,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
     (
         "sadhana/root/AGENTS.md",
         "Before a claim crosses a corpus boundary",
-        5_475,
+        5_516,
     ),
     ("sadhana/root/AGENTS.md", "Before you change a class", 6_041),
     ("sadhana/root/AGENTS.md", "Before you retrieve", 3_966),

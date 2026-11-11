@@ -1293,6 +1293,10 @@ local-registry
     .yidam/corpus/record/hydrant-count.yml
 ```
 
+"Of the source" means the same location and the same `resource:`. A location serving one file per
+state, or an API asked at several endpoints, is many sources. Record which one each artifact is
+with `resource:`. A new state's file is then not read as a new version of the others.
+
 The `refresh:` commit body names each field it carried and the digest it came from. So a licence
 appearing on a new record is reviewable as continued rather than established.
 
