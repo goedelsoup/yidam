@@ -1,6 +1,7 @@
 mod add;
 mod config;
 pub(crate) mod install;
+mod pinned;
 mod query;
 mod remove;
 
@@ -15,7 +16,8 @@ use crate::paths::{tonpa_config_path, tonpa_dir};
 pub enum TonpaCommand {
     /// Add a bundle dependency, fetch it, and update the lock file
     Add {
-        /// Bundle URL (https://...) or GitHub shorthand (org/repo[@tag])
+        /// Bundle URL (https://...), GitHub shorthand (org/repo[@tag]), or a sibling
+        /// repository path (../sibling), optionally pinned to a commit (../sibling@<sha>)
         source: String,
         /// Override the package name derived from the URL
         #[arg(long)]
@@ -34,7 +36,8 @@ pub enum TonpaCommand {
     Status,
     /// Verify installed bundle hashes against the lock file
     Verify,
-    /// Re-fetch and update one or all dependencies to the latest bundle
+    /// Re-fetch and update one or all dependencies to the latest bundle (or, for a pinned
+    /// path dependency, move the pin to the sibling's HEAD)
     Update {
         /// Package name to update (omit to update all)
         name: Option<String>,

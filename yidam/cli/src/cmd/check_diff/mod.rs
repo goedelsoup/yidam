@@ -337,11 +337,19 @@ pub fn check_diff(
     let diff = read_diff(&root, &before, &after)?;
 
     let corpus_dir = yidam_corpus_dir(&root);
-    let classes = crate::corpus::load_classes(
+    let mut classes = crate::corpus::load_classes(
         &root,
         &crate::walk::walk_ont_files(&corpus_dir),
         &crate::corpus::Overlay::default(),
     );
+    // And every installed dependency's (#1466). A type named for a class a sibling declares
+    // is a name this repository has a meaning for, and asking about it as unknown is what
+    // drove one consumer to mirror 65 sibling class files into its own corpus, names only.
+    // Read from where the dependency is read — the unpacked copy, or a live path's checkout —
+    // through the same `deps::resolved` every other reader of a dependency uses.
+    for dep in crate::deps::resolved(&root) {
+        classes.extend(crate::corpus::read_classes(&dep.corpus_dir));
+    }
     // A manifest that exists and cannot be parsed is an error rather than an empty one: a
     // degraded read would silently report an imported region as though this repository had
     // authored it.

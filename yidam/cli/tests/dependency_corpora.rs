@@ -396,3 +396,212 @@ fn update_with_only_path_dependencies_says_so_rather_than_exiting_silently() {
         r.stdout
     );
 }
+
+// ── a path dependency pinned to a commit (#1466) ──────────────────────────────
+//
+// city-engine read six sibling corpora at commits and had neither form: fetched needs a
+// release, path is unpinned. It built a `corpora.toml` of pins, copied packs, and a binary
+// that mirrored 65 sibling class files into its own corpus so `check-diff` would know the
+// names. These go through the binary, for the reason the section above gives.
+
+/// A git repository producing a corpus with one class and one instance, committed. Returns
+/// the commit.
+fn committed_producer(dir: &Path, class: &str, node: &str) -> String {
+    let corpus = dir.join(".yidam/corpus");
+    std::fs::create_dir_all(corpus.join(class)).unwrap();
+    std::fs::write(
+        corpus.join(format!("{class}.ont.yml")),
+        format!("class: {class}\nlabel: {class}\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        corpus.join(class).join(format!("{node}.yml")),
+        format!("class: {class}\nlabel: {node}\n"),
+    )
+    .unwrap();
+    common::git::git(dir, &["init", "-q"]);
+    common::git::git(dir, &["config", "user.name", "t"]);
+    common::git::git(dir, &["config", "user.email", "t@example.invalid"]);
+    common::git::git(dir, &["add", "-A"]);
+    common::git::git_at(
+        dir,
+        &["commit", "-q", "--no-gpg-sign", "-m", "genesis: producer"],
+        common::git::FIXTURE_DATE,
+    );
+    common::git::out(dir, &["rev-parse", "HEAD"])
+}
+
+/// A consumer beside a committed producer, with nothing declared yet.
+fn pinned_fixture() -> (
+    tempfile::TempDir,
+    std::path::PathBuf,
+    std::path::PathBuf,
+    String,
+) {
+    let tmp = tempfile::tempdir().unwrap();
+    let producer = tmp.path().join("producer");
+    let sha = committed_producer(&producer, "gauge-station", "alpha");
+    let consumer = tmp.path().join("consumer");
+    std::fs::create_dir_all(consumer.join(".yidam/corpus")).unwrap();
+    common::git::git(&consumer, &["init", "-q"]);
+    (tmp, consumer, producer, sha)
+}
+
+fn node_names(root: &Path) -> Vec<String> {
+    yidam::model::all_dependency_nodes(root)
+        .into_iter()
+        .map(|n| n.label)
+        .collect()
+}
+
+#[test]
+fn add_with_a_commit_pins_locks_and_reads_the_corpus_at_that_commit() {
+    let (_tmp, consumer, producer, sha) = pinned_fixture();
+
+    let r = run(
+        &consumer,
+        &["tonpa", "add", &format!("../producer@{}", &sha[..8])],
+    );
+    assert_eq!(r.code, 0, "stdout: {}\nstderr: {}", r.stdout, r.stderr);
+
+    // Declared at the *full* commit, whatever abbreviation was typed.
+    let toml = std::fs::read_to_string(consumer.join(".yidam/tonpa.toml")).unwrap();
+    assert!(toml.contains(&format!("rev = \"{sha}\"")), "{toml}");
+    let lock = std::fs::read_to_string(consumer.join(".yidam/tonpa/tonpa.lock")).unwrap();
+    assert!(lock.contains(&format!("rev = \"{sha}\"")), "{lock}");
+
+    // The producer moves on — an uncommitted edit and a new commit. Neither is read.
+    std::fs::write(
+        producer.join(".yidam/corpus/gauge-station/beta.yml"),
+        "class: gauge-station\nlabel: beta\n",
+    )
+    .unwrap();
+    common::git::git(&producer, &["add", "-A"]);
+    common::git::git_at(
+        &producer,
+        &["commit", "-q", "--no-gpg-sign", "-m", "add beta"],
+        common::git::FIXTURE_DATE,
+    );
+    assert_eq!(node_names(&consumer), vec!["alpha".to_string()]);
+
+    let r = run(&consumer, &["tonpa", "status"]);
+    assert!(
+        r.stdout.contains("[ok]") && r.stdout.contains("pinned"),
+        "{}",
+        r.stdout
+    );
+    let r = run(&consumer, &["tonpa", "verify"]);
+    assert_eq!(r.code, 0, "stdout: {}\nstderr: {}", r.stdout, r.stderr);
+}
+
+/// The installed copy is a build product: deleted, `install` writes it back from the
+/// producer's objects at the locked commit — even with the producer's HEAD elsewhere.
+#[test]
+fn install_restores_a_pinned_path_at_its_commit() {
+    let (_tmp, consumer, producer, sha) = pinned_fixture();
+    assert_eq!(
+        run(&consumer, &["tonpa", "add", &format!("../producer@{sha}")]).code,
+        0
+    );
+    std::fs::write(
+        producer.join(".yidam/corpus/gauge-station/beta.yml"),
+        "label: b\n",
+    )
+    .unwrap();
+    common::git::git(&producer, &["add", "-A"]);
+    common::git::git(&producer, &["commit", "-q", "--no-gpg-sign", "-m", "beta"]);
+
+    std::fs::remove_dir_all(consumer.join(".yidam/tonpa/producer")).unwrap();
+    let r = run(&consumer, &["tonpa", "status"]);
+    assert!(r.stdout.contains("[not installed]"), "{}", r.stdout);
+
+    let r = run(&consumer, &["tonpa", "install"]);
+    assert_eq!(r.code, 0, "stdout: {}\nstderr: {}", r.stdout, r.stderr);
+    assert_eq!(node_names(&consumer), vec!["alpha".to_string()]);
+    assert_eq!(run(&consumer, &["tonpa", "verify"]).code, 0);
+}
+
+/// `update` moves the pin to the producer's HEAD, in the declaration and the lock at once —
+/// the refresh commit city-engine made by hand across 58 files.
+#[test]
+fn update_moves_a_pinned_path_to_the_producers_head() {
+    let (_tmp, consumer, producer, sha) = pinned_fixture();
+    assert_eq!(
+        run(&consumer, &["tonpa", "add", &format!("../producer@{sha}")]).code,
+        0
+    );
+    std::fs::write(
+        producer.join(".yidam/corpus/gauge-station/beta.yml"),
+        "class: gauge-station\nlabel: beta\n",
+    )
+    .unwrap();
+    common::git::git(&producer, &["add", "-A"]);
+    common::git::git(&producer, &["commit", "-q", "--no-gpg-sign", "-m", "beta"]);
+    let head = common::git::out(&producer, &["rev-parse", "HEAD"]);
+
+    let r = run(&consumer, &["tonpa", "update", "producer"]);
+    assert_eq!(r.code, 0, "stdout: {}\nstderr: {}", r.stdout, r.stderr);
+    let toml = std::fs::read_to_string(consumer.join(".yidam/tonpa.toml")).unwrap();
+    assert!(toml.contains(&format!("rev = \"{head}\"")), "{toml}");
+    let mut names = node_names(&consumer);
+    names.sort();
+    assert_eq!(names, vec!["alpha".to_string(), "beta".to_string()]);
+    assert_eq!(run(&consumer, &["tonpa", "verify"]).code, 0);
+
+    let r = run(&consumer, &["tonpa", "update", "producer"]);
+    assert!(r.stdout.contains("already at"), "{}", r.stdout);
+}
+
+/// A `rev` that does not name a commit is refused before anything is written.
+#[test]
+fn add_refuses_a_rev_that_is_not_a_commit() {
+    let (_tmp, consumer, _producer, _) = pinned_fixture();
+    let r = run(&consumer, &["tonpa", "add", "../producer@no-such-ref"]);
+    assert_ne!(r.code, 0);
+    assert!(r.stderr.contains("is not a commit"), "{}", r.stderr);
+    assert!(!consumer.join(".yidam/tonpa.toml").exists());
+}
+
+/// `check-diff` asks about a type named for nothing the ontology declares. A class the
+/// pinned dependency declares is declared, and the question goes away — the control is the
+/// same commit asked about before the dependency was added.
+#[test]
+fn check_diff_knows_a_class_a_dependency_declares() {
+    let (_tmp, consumer, _producer, sha) = pinned_fixture();
+    common::git::git(&consumer, &["config", "user.name", "t"]);
+    common::git::git(&consumer, &["config", "user.email", "t@example.invalid"]);
+    std::fs::write(consumer.join(".yidam/corpus/.keep"), "").unwrap();
+    common::git::git(&consumer, &["add", "-A"]);
+    common::git::git(
+        &consumer,
+        &["commit", "-q", "--no-gpg-sign", "-m", "genesis: consumer"],
+    );
+    std::fs::create_dir_all(consumer.join("crates/a/src")).unwrap();
+    std::fs::write(
+        consumer.join("crates/a/src/lib.rs"),
+        "pub struct GaugeStation;\n",
+    )
+    .unwrap();
+    common::git::git(&consumer, &["add", "-A"]);
+    common::git::git(&consumer, &["commit", "-q", "--no-gpg-sign", "-m", "code"]);
+
+    let asked = |consumer: &Path| {
+        let r = run(
+            consumer,
+            &["check-diff", "HEAD~1..HEAD", "--format", "json"],
+        );
+        assert_eq!(r.code, 0, "stdout: {}\nstderr: {}", r.stdout, r.stderr);
+        r.stdout.contains("\"name\":\"gauge-station\"")
+            || r.stdout.contains("\"name\": \"gauge-station\"")
+    };
+    assert!(
+        asked(&consumer),
+        "the control: unknown before the dependency"
+    );
+
+    assert_eq!(
+        run(&consumer, &["tonpa", "add", &format!("../producer@{sha}")]).code,
+        0
+    );
+    assert!(!asked(&consumer), "known once the dependency declares it");
+}
