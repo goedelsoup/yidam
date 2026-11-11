@@ -96,6 +96,17 @@ pub struct CatalogArtifact {
     pub retrieved: Option<String>,
     /// Where it came from: an index into this entry's `location` list, or a literal URL.
     pub from: Option<ArtifactOrigin>,
+    /// Which of the resources at [`Self::from`] these bytes are, when that origin serves more
+    /// than one (#1432): the query an API base URL was asked, or the file a download page
+    /// listed — `committee/C00401224/totals`, `eo_oh.csv`.
+    ///
+    /// Two records are versions of each other only when origin and resource both match. A
+    /// location is where a fetch starts, and one location commonly answers many distinct
+    /// requests; without a key, every new one reads as a new edition of every earlier one.
+    /// Free text, compared exactly after trimming. Absent on two records is a match, the
+    /// way two records that say nothing about their origin are one source.
+    #[serde(default)]
+    pub resource: Option<String>,
     /// Which vault these bytes may be stored in. `none` means the local cache and nowhere
     /// else.
     ///

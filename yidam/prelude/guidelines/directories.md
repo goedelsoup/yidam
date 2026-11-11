@@ -240,6 +240,7 @@ artifacts:                     # optional; what was actually obtained
     media_type: application/pdf
     retrieved: 2026-08-22
     from: 0                    # which `location` it came from, or a URL
+    resource: eo_oh.csv        # optional; which file or query at that location
     vault: sources             # optional; overrides the route its kind takes. `none` = local only
     redistributable: false     # whether they may leave this machine at all
     readings:                  # optional; written by `yidam catalog-extract`
@@ -304,6 +305,9 @@ artifacts:                     # optional; what was actually obtained
     case-insensitive and a content-addressed store is not.
     `catalog-artifact-malformed` reports the rest: a digest of the wrong length or alphabet, or a
     `from:` index naming a location the entry does not declare.
+  - `resource` names **which file or query at that location** these bytes are, when it serves
+    several. A new digest supersedes only a record with the same `from:` and `resource:`.
+    [why](directories.evidence.md#resource-key)
   - `vault` says **where these bytes may be kept**, and is optional. Omitted, the artifact goes
     wherever the config routes its kind: a lone vault that declares no `holds` takes
     everything, and where there are several, the one whose `holds` lists `catalog` takes it.

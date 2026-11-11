@@ -138,6 +138,9 @@ fn render(a: &CatalogArtifact) -> Vec<String> {
         Some(ArtifactOrigin::Url(u)) => push("from", quote_if_needed(u)),
         None => {}
     }
+    if let Some(r) = &a.resource {
+        push("resource", quote_if_needed(r));
+    }
     if let Some(v) = &a.vault {
         push("vault", quote_if_needed(v));
     }
@@ -549,6 +552,7 @@ The system of record. **Parameter 00060** is discharge.
             media_type: Some("application/json".to_string()),
             retrieved: Some("2026-09-07".to_string()),
             from: Some(ArtifactOrigin::Location(0)),
+            resource: None,
             vault: None,
             redistributable: None,
             text: None,
@@ -700,6 +704,26 @@ The system of record. **Parameter 00060** is discharge.
         assert!(out.contains("from: \"https://x/y?a=1\""), "{out}");
         let held = crate::parse::parse_frontmatter(&out).artifacts.unwrap();
         assert!(matches!(held[0].from, Some(ArtifactOrigin::Url(_))));
+    }
+
+    /// A resource is a query or a file name, and a query carries `:` and `?` often enough
+    /// that writing it bare would break the entry it is recorded in (#1432).
+    #[test]
+    fn a_resource_is_written_after_its_origin_and_reads_back() {
+        let mut a = artifact("aa");
+        a.resource = Some("schedule_e?min_date=2026-01-01&time:local".into());
+        let out = append_artifacts(ENTRY, &[a]).unwrap();
+        assert!(
+            out.contains(
+                "    from: 0\n    resource: \"schedule_e?min_date=2026-01-01&time:local\"\n"
+            ),
+            "{out}"
+        );
+        let held = crate::parse::parse_frontmatter(&out).artifacts.unwrap();
+        assert_eq!(
+            held[0].resource.as_deref(),
+            Some("schedule_e?min_date=2026-01-01&time:local")
+        );
     }
 
     #[test]

@@ -656,6 +656,15 @@ pub fn catalog_entry_schema() -> Value {
                                 non_empty_string()
                             ]
                         },
+                        "resource": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Which of the resources at `from` these bytes are, \
+                                            when that origin serves more than one: the query \
+                                            an API was asked, the file a download page \
+                                            listed. A new digest is a new version only of a \
+                                            record with the same origin and resource."
+                        },
                         "vault": {
                             "type": "string",
                             "description": "Which store these bytes may be kept in. `none` \

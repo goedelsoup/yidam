@@ -22,7 +22,7 @@ free because the detection it enforces already exists.
 ## Problem
 
 The hazard is documented with no operational remedy:
-[`directories.md:358-359`](../../yidam/prelude/guidelines/directories.md#L358-L359) — "renaming a node
+[`directories.md:362-363`](../../yidam/prelude/guidelines/directories.md#L362-L363) — "renaming a node
 severs edges, so choose well"; [`information-architecture.md:27`](../information-architecture.md#L27) —
 "renaming severs edges." Edges are path-based (`links[].target` on an instance; `[label](path)` in
 Markdown), so renaming `a/old.yml` → `a/new.yml` silently invalidates every inbound

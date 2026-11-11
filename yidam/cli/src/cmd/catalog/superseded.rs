@@ -21,6 +21,16 @@
 //! compares it — with one difference, argued where it lives: two records that both say
 //! nothing about their origin are read as one source here.
 //!
+//! **And the same resource at that origin.** One location can answer many distinct requests —
+//! an API base URL queried at several endpoints, a download page serving one file per state —
+//! and a new endpoint or a new state's file is a second source, not a second edition of the
+//! first (#1432). A record's `resource:` names which of them its bytes are, and two records
+//! are versions of each other only when origin and resource both match. A record with no
+//! `resource:` is read as the location itself, so two of those still match, and an entry that
+//! never writes the key behaves exactly as it did before the key existed. A keyed record and an
+//! unkeyed one do not match: the unkeyed one is the location's own bytes, or a resource nobody
+//! named, and neither is evidence about the keyed one.
+//!
 //! A text reading (#1172) is not a version. It is a reading of bytes that did not change, and
 //! it lives under the record rather than beside it, so it never reaches the digest set read
 //! here.
@@ -76,8 +86,8 @@ pub(crate) struct Reading {
     pub unread: usize,
 }
 
-/// Whether two records name the same origin, for the purpose of calling one a new version
-/// of the other.
+/// Whether two records name the same origin and the same resource at it, for the purpose of
+/// calling one a new version of the other.
 ///
 /// `prior_for` in [`super::fetch`] matches nothing against a record with no `from:`, and is
 /// right to: it lends a licence forward, and the failing direction there is lending one
@@ -85,8 +95,18 @@ pub(crate) struct Reading {
 /// silence about a claim that may no longer hold — so two unattributed records are read as one
 /// source. Hand-written and bulk-imported records carry no `from:` at all, and reading them
 /// as unrelated would make every edition they record invisible to this.
-fn same_origin(a: &CatalogArtifact, b: &CatalogArtifact) -> bool {
-    a.from == b.from
+///
+/// The resource is compared after trimming, and an empty one is an absent one, so a key
+/// written as `resource: ""` does not split an entry's history in two.
+fn same_source(a: &CatalogArtifact, b: &CatalogArtifact) -> bool {
+    a.from == b.from && resource(a) == resource(b)
+}
+
+fn resource(a: &CatalogArtifact) -> Option<&str> {
+    a.resource
+        .as_deref()
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
 }
 
 fn digest(a: &CatalogArtifact) -> Option<&str> {
@@ -96,8 +116,8 @@ fn digest(a: &CatalogArtifact) -> Option<&str> {
 /// Whether `new` is a new version of something `held` already records.
 ///
 /// A digest already held is not new — re-recording one is the no-op
-/// [`super::record::append_artifacts`] skips — and a digest from an origin nothing held names
-/// a second source rather than a second edition.
+/// [`super::record::append_artifacts`] skips — and a digest from an origin, or a resource at
+/// one, that nothing held names a second source rather than a second edition.
 pub(crate) fn supersedes(held: &[CatalogArtifact], new: &CatalogArtifact) -> bool {
     let Some(h) = digest(new) else {
         return false;
@@ -105,7 +125,7 @@ pub(crate) fn supersedes(held: &[CatalogArtifact], new: &CatalogArtifact) -> boo
     !held.iter().any(|a| digest(a) == Some(h))
         && held
             .iter()
-            .any(|a| digest(a).is_some() && same_origin(a, new))
+            .any(|a| digest(a).is_some() && same_source(a, new))
 }
 
 /// Whether an entry holds two digests from one origin, which is the precondition for any of
@@ -317,6 +337,13 @@ mod tests {
         }
     }
 
+    fn at(sha: &str, from: Option<usize>, resource: &str) -> CatalogArtifact {
+        CatalogArtifact {
+            resource: Some(resource.to_string()),
+            ..rec(sha, from)
+        }
+    }
+
     fn rev(commit: &str, artifacts: Vec<CatalogArtifact>) -> Revision {
         Revision {
             commit: commit.to_string(),
@@ -352,6 +379,84 @@ mod tests {
     fn two_records_naming_no_origin_are_one_source() {
         assert!(supersedes(&[rec("aa", None)], &rec("bb", None)));
         assert!(!supersedes(&[rec("aa", None)], &rec("bb", Some(0))));
+    }
+
+    /// #1432: an API base URL asked a second endpoint, and a download page's next state file.
+    /// Each is a second source behind one location, and nothing anyone read has changed.
+    #[test]
+    fn a_new_resource_at_a_held_origin_is_not() {
+        let held = [at("aa", Some(0), "schedule_b?committee_id=C1")];
+        assert!(!supersedes(
+            &held,
+            &at("bb", Some(0), "committee/C1/totals")
+        ));
+        let held = [
+            at("oh", Some(0), "eo_oh.csv"),
+            at("va", Some(0), "eo_va.csv"),
+        ];
+        assert!(!supersedes(&held, &at("de", Some(0), "eo_de.csv")));
+    }
+
+    #[test]
+    fn a_new_digest_of_a_held_resource_is_a_new_version() {
+        let held = [
+            at("oh", Some(0), "eo_oh.csv"),
+            at("va", Some(0), "eo_va.csv"),
+        ];
+        assert!(supersedes(&held, &at("oh2", Some(0), "eo_oh.csv")));
+        // Trimmed, so a stray space is not a second source.
+        assert!(supersedes(&held, &at("oh2", Some(0), " eo_oh.csv ")));
+    }
+
+    /// The resource narrows the origin and does not replace it: one file name at two
+    /// locations is two sources.
+    #[test]
+    fn one_resource_at_two_origins_is_two_sources() {
+        assert!(!supersedes(
+            &[at("aa", Some(0), "x.csv")],
+            &at("bb", Some(1), "x.csv")
+        ));
+    }
+
+    /// An unkeyed record is the location's own bytes, or a resource nobody named; neither says
+    /// anything about a keyed one, in either direction. An empty key is no key.
+    #[test]
+    fn a_keyed_and_an_unkeyed_record_are_two_sources() {
+        assert!(!supersedes(
+            &[rec("aa", Some(0))],
+            &at("bb", Some(0), "x.csv")
+        ));
+        assert!(!supersedes(
+            &[at("aa", Some(0), "x.csv")],
+            &rec("bb", Some(0))
+        ));
+        assert!(supersedes(&[rec("aa", Some(0))], &at("bb", Some(0), "  ")));
+    }
+
+    /// The history #1432 reported: Ohio, Virginia and DC, then Delaware, Florida and
+    /// Massachusetts in a later commit. Nothing is a new version until Ohio is re-fetched.
+    #[test]
+    fn files_added_beside_earlier_ones_supersede_nothing() {
+        let first = vec![
+            at("oh", Some(0), "eo_oh.csv"),
+            at("va", Some(0), "eo_va.csv"),
+            at("dc", Some(0), "eo_dc.csv"),
+        ];
+        let mut second = first.clone();
+        second.extend([
+            at("de", Some(0), "eo_de.csv"),
+            at("fl", Some(0), "eo_fl.csv"),
+            at("ma", Some(0), "eo_ma.csv"),
+        ]);
+        let mut third = second.clone();
+        third.push(at("oh2", Some(0), "eo_oh.csv"));
+        let history = [rev("c1", first), rev("c2", second.clone())];
+        assert!(latest_supersession(&history).is_none());
+        assert!(!has_versions(&second));
+        let history = [rev("c1", second), rev("c2", third.clone())];
+        let (r, d) = latest_supersession(&history).unwrap();
+        assert_eq!((r.commit.as_str(), d.as_str()), ("c2", "oh2"));
+        assert!(has_versions(&third));
     }
 
     /// A reading sits under its record, so a record gaining one gains no digest.
