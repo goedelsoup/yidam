@@ -783,6 +783,8 @@ invokes the step there, with `$YIDAM_IN`, `$YIDAM_OUT`, `$YIDAM_STEP` and `$YIDA
 set. A step whose `reads` admit a corpus node gets a fifth, `$YIDAM_GRAPH`. It names a file
 holding the corpus as `yidam` parsed it. Classes, labels, properties, and every link with its
 target already resolved. So a calculator writes no parser of its own.
+A list arrives one row per item, keyed `<key>[<i>]`. A record in a list adds one row per field,
+keyed `<key>[<i>].<field>`.
 
 That file is sliced to what the step reads. Its digest is part of the input state. Changing how
 `yidam` resolves a link therefore makes every calculator's step stale. A step that reads no corpus

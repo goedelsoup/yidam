@@ -37,10 +37,11 @@
 //! # What it does not carry
 //!
 //! Prose. A node's `description` and its body text are not here: those are what the bytes are
-//! for, and a step computing over prose has the file. Nor is a non-scalar property's value — a
-//! `prop` row for a mapping states its `kind` and stops, because rendering arbitrary nested
-//! YAML into a flat record would be inventing a second encoding of the file that sits next to
-//! it in the same tree.
+//! for, and a step computing over prose has the file. Nor is the value of nested YAML the class
+//! contract gives no shape to: a list of scalars and a list of records are flattened, because
+//! `items:` and `fields:` declare them, and anything deeper is a `prop` row stating its `kind`
+//! and stopping, because rendering arbitrary nested YAML into a flat record would be inventing
+//! a second encoding of the file that sits next to it in the same tree.
 
 use std::fmt::Write as _;
 
@@ -108,46 +109,59 @@ fn scalar(v: &Value) -> Option<String> {
     }
 }
 
-/// One node's properties as `prop` records, flattening a sequence of scalars and stopping at
-/// anything deeper.
+/// One `prop` record: a scalar's value, or a non-scalar's kind and no value.
+fn prop(out: &mut String, id: &str, key: &str, v: &Value) {
+    let value = scalar(v).map(|s| escape(&s)).unwrap_or_default();
+    let _ = writeln!(
+        out,
+        "prop\t{}\t{}\t{}\t{value}",
+        escape(id),
+        escape(key),
+        kind_of(v)
+    );
+}
+
+/// One node's properties as `prop` records, flattening a list of scalars or of records and
+/// stopping at anything deeper.
 ///
 /// A sequence element is keyed `<key>[<i>]`, which keeps a list readable without a second
-/// record kind and keeps the index in the key where a script can match on it. A nested
-/// sequence or mapping is one row stating its kind: the value is in the file, the step has the
-/// file, and a flat rendering of it would be a second encoding of the same bytes.
+/// record kind and keeps the index in the key where a script can match on it. A sequence's
+/// own row carries its length, so a consumer knows how many items to expect.
+///
+/// An element that is a mapping is a **record** — the shape a class's `fields:` declares and
+/// `lint` validates (GRAPH.md, *A `list` holds several values*). Its row states `map`, and each
+/// of its fields follows as `<key>[<i>].<field>`, in the order the file wrote them (#1473).
+/// Withholding them left a step two choices: parse the node YAML again, which is what this
+/// file exists to make unnecessary, or flatten the list into scalar properties and lose the
+/// per-record structure the list type was added for. A derived repository did the second.
+///
+/// Anything deeper — a top-level mapping, a sequence inside a sequence, a field that is itself
+/// a mapping or a sequence — is one row stating its kind. The class contract gives none of
+/// those a shape, and a flat rendering of arbitrary YAML would be a second encoding of the
+/// bytes the step already has.
 fn props(out: &mut String, id: &str, v: &Value) {
     let Value::Mapping(m) = v else { return };
     for (k, val) in m {
         let Some(key) = k.as_str() else { continue };
-        match val {
-            Value::Sequence(items) => {
-                let _ = writeln!(
-                    out,
-                    "prop\t{}\t{}\tseq\t{}",
-                    escape(id),
-                    escape(key),
-                    items.len()
-                );
-                for (i, item) in items.iter().enumerate() {
-                    let value = scalar(item).map(|s| escape(&s)).unwrap_or_default();
-                    let _ = writeln!(
-                        out,
-                        "prop\t{}\t{}[{i}]\t{}\t{value}",
-                        escape(id),
-                        escape(key),
-                        kind_of(item)
-                    );
+        let Value::Sequence(items) = val else {
+            prop(out, id, key, val);
+            continue;
+        };
+        let _ = writeln!(
+            out,
+            "prop\t{}\t{}\tseq\t{}",
+            escape(id),
+            escape(key),
+            items.len()
+        );
+        for (i, item) in items.iter().enumerate() {
+            let at = format!("{key}[{i}]");
+            prop(out, id, &at, item);
+            if let Value::Mapping(record) = item {
+                for (f, fv) in record {
+                    let Some(field) = f.as_str() else { continue };
+                    prop(out, id, &format!("{at}.{field}"), fv);
                 }
-            }
-            other => {
-                let value = scalar(other).map(|s| escape(&s)).unwrap_or_default();
-                let _ = writeln!(
-                    out,
-                    "prop\t{}\t{}\t{}\t{value}",
-                    escape(id),
-                    escape(key),
-                    kind_of(other)
-                );
             }
         }
     }
@@ -409,6 +423,53 @@ mod tests {
         let props = rows(&render_one(&n, &|_| true), "prop");
         assert_eq!(props[0][2..5], ["m", "map", ""]);
         assert_eq!(props[2][2..5], ["s[0]", "seq", ""]);
+        assert_eq!(props.len(), 3, "nothing under `m` or `s[0]`: {props:?}");
+    }
+
+    /// #1473: a list of records — the shape `fields:` declares and `lint` validates — reaches a
+    /// step field by field, with each field's kind, so a calculator never parses the node again.
+    /// Two records, so the index is shown to move with the record and not to be a constant.
+    #[test]
+    fn a_list_of_records_states_every_field() {
+        let n = node(
+            ".yidam/corpus/precinct/x.yml",
+            "class: precinct\nproperties:\n  primary_ballots:\n    \
+             - {general: 2024-03-05, voted_dem: 151, share: 0.5}\n    \
+             - {general: 2022-05-17, voted_dem: \"9\"}\n",
+        );
+        let props: Vec<Vec<String>> = rows(&render_one(&n, &|_| true), "prop")
+            .into_iter()
+            .map(|r| r[2..5].to_vec())
+            .collect();
+        let want: Vec<Vec<String>> = [
+            ["primary_ballots", "seq", "2"],
+            ["primary_ballots[0]", "map", ""],
+            ["primary_ballots[0].general", "string", "2024-03-05"],
+            ["primary_ballots[0].voted_dem", "int", "151"],
+            ["primary_ballots[0].share", "float", "0.5"],
+            ["primary_ballots[1]", "map", ""],
+            ["primary_ballots[1].general", "string", "2022-05-17"],
+            ["primary_ballots[1].voted_dem", "string", "9"],
+        ]
+        .iter()
+        .map(|r| r.iter().map(|s| s.to_string()).collect())
+        .collect();
+        assert_eq!(props, want);
+    }
+
+    /// A record's field that is itself nested is one row stating its kind, as at the top level:
+    /// the class contract gives a record's field no shape deeper than a scalar.
+    #[test]
+    fn a_nested_field_of_a_record_states_its_kind_and_no_value() {
+        let n = node(
+            ".yidam/corpus/claim/a.yml",
+            "class: claim\nproperties:\n  r:\n    - {m: {a: 1}, s: [1, 2]}\n",
+        );
+        let props = rows(&render_one(&n, &|_| true), "prop");
+        let keys: Vec<&[String]> = props.iter().map(|r| &r[2..5]).collect();
+        assert_eq!(keys[2], ["r[0].m", "map", ""]);
+        assert_eq!(keys[3], ["r[0].s", "seq", ""]);
+        assert_eq!(keys.len(), 4, "{keys:?}");
     }
 
     /// A node that will not parse is the default instance, so without a marker a consumer

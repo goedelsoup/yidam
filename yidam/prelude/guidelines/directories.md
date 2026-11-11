@@ -736,6 +736,11 @@ link resolution, neither of which anything compared against `yidam`'s own, and e
 could disagree with `yidam graph` about the same corpus without any gate noticing.
 [why](directories.evidence.md#resolved-corpus-is-handed-over)
 
+**A list reaches a step item by item, and a list of records field by field.** Each item is a
+`prop` row keyed `<key>[<i>]`, and each field of a record — the shape `fields:` declares — is
+keyed `<key>[<i>].<field>` with its kind and value. Nesting deeper than that states its kind
+and no value, because the class contract gives it no shape to resolve.
+
 **It is sliced to what the step reads, and `exists` is not.** The file describes exactly the nodes
 the step's `reads` admit, so it grants no view the scratch tree does not already grant. But
 whether a link's target *is there in the repository* is answered against the whole input commit,
