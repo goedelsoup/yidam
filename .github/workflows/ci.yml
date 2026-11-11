@@ -374,7 +374,7 @@ jobs:
       # here rather than skipped when absent: a guard that turns itself off on the machine
       # that runs it is not a guard.
       - name: rasteriser for the logo gate
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends librsvg2-bin
+        run: .github/scripts/apt-install.sh --no-install-recommends librsvg2-bin
       - run: mise run mark-guard
 
   supply-chain:
@@ -488,7 +488,7 @@ jobs:
       # linker for the final artifact, the compiler for ring's vendored C. The
       # C++ half brings the target's libstdc++, which ONNX Runtime links against.
       - name: Install cross-linker
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+        run: .github/scripts/apt-install.sh gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: yidam/cli

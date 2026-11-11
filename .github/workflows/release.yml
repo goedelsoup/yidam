@@ -120,7 +120,7 @@ jobs:
 
       - name: Install cross-linker
         if: matrix.apt != ''
-        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.apt }}
+        run: .github/scripts/apt-install.sh ${{ matrix.apt }}
 
       - uses: Swatinem/rust-cache@v2
         with:
