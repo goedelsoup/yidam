@@ -758,6 +758,9 @@ member's history. A candidate any member leaves as it ages is printed as rejecte
 The trailing window is read over the last 25, 50 and 100 authored commits.
 RFC-0028 names no window, so the candidate is rejected only if it fails at all three.
 
+Each member also carries `upstream`: how many commits cite an issue on the template's tracker.
+It is a count. No norm is scored on it.
+
 ### `run` is a plan, and only an operational commit advances your branch
 
 `.yidam/capabilities.toml` declares what may run. Per entry: a `kind`, the argv to invoke, the
@@ -980,6 +983,11 @@ refreshed and staged. The printed sequence then opens with the `regen:` commit, 
 generator writes, is *not ready*, with the remedy `regen --check` prints. Nothing is refreshed
 from a checkout that differs from `HEAD`. A block generated from that tree would not hold
 against the commit. `settle` names the files and the sync instead.
+
+`settle` also asks one question of the template. Did the phase add files outside the laid-out
+directories, and cite no issue on the template's tracker? Then it drafts a `from:derived-repo`
+report and prints the `gh issue create` line. Nothing is filed. The laid-out directories are the
+sections of `guidelines/directories.md`.
 
 Like `run` and `propose`, all three write git objects and one ref, except `settle --merge`. They touch neither the
 working tree nor the index, so they are safe mid-edit. They therefore leave your checkout

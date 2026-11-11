@@ -299,3 +299,55 @@ fn the_report_carries_every_accretion_candidate_and_its_verdict() {
         );
     }
 }
+
+/// **#1469.** What each member has said to the template, counted from its own history and
+/// printed beside it — so a population that files nothing upstream shows as one. Counts only:
+/// a bare `#N` is the member's own tracker, and the issue numbers themselves are never printed.
+#[test]
+fn each_member_carries_its_upstream_citations_as_a_count() {
+    let e = Example::materialize("streamflow");
+    let path = e.path().display().to_string();
+    let run = |args: &[&str]| {
+        let mut all = vec!["-c", "user.name=T", "-c", "user.email=t@yidam.test"];
+        all.extend(["-c", "commit.gpgsign=false"]);
+        all.extend_from_slice(args);
+        common::git::git(&e.path(), &all);
+    };
+    let json = || {
+        let (out, err, code) = e.run(&["cohort", &path, "--format", "json"]);
+        assert_eq!(code, 0, "{out}{err}");
+        serde_json::from_str::<serde_json::Value>(&out).unwrap()["members"][0]["upstream"].clone()
+    };
+    let before = json();
+    let base = before["citing_commits"].as_u64().unwrap();
+
+    run(&[
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "fix: carry it (ours #5)",
+    ]);
+    run(&[
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "fix: carry the mirror until goedelsoup/yidam#1466 lands\n\nAlso goedelsoup/yidam#1466.",
+    ]);
+    let after = json();
+    assert_eq!(
+        after["citing_commits"].as_u64().unwrap(),
+        base + 1,
+        "{after}"
+    );
+    assert!(after["issues"].as_u64().unwrap() >= 1, "{after}");
+    assert!(after.get("numbers").is_none() && !after.to_string().contains("1466"));
+
+    let (text, _, _) = e.run(&["cohort", &path]);
+    assert!(text.contains("upstream issue(s)"), "{text}");
+    assert!(
+        text.contains("cite no issue on the template's tracker"),
+        "{text}"
+    );
+}

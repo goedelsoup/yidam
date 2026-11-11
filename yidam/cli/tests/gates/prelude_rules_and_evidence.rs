@@ -458,7 +458,12 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// words in `bootstrap.md`**: the install table's `claude-settings.json` row, and the sentence
 /// saying an existing-repo target keeps its own settings and runs `yidam migrate scaffold`.
 /// 20,664 + 27 is this figure exactly.
-const BOOTSTRAP_CEILING: usize = 20_691;
+///
+/// **Raised to 20,724 when `directories.md` asked for the upstream citation (#1469).** The delta
+/// is **33 words in `directories.md`**: the paragraph under *Sending a finding back* naming the
+/// `goedelsoup/yidam#<n>` form a workaround's commit cites, which `phase settle` and `yidam
+/// cohort` read. 20,691 + 33 is this figure exactly.
+const BOOTSTRAP_CEILING: usize = 20_724;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///

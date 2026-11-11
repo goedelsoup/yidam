@@ -918,9 +918,117 @@ struct SettleReport {
     regen: RegenSettle,
     #[serde(skip_serializing_if = "Option::is_none")]
     revision_skew: Option<Skew>,
+    /// Whether this phase built something the conventions do not lay out, and whether it told
+    /// the template. A question and never a refusal: `ready` does not read it (#1469).
+    upstream: UpstreamAsk,
     /// What `--merge` wrote. Absent without `--merge`, where nothing is written.
     #[serde(skip_serializing_if = "Option::is_none")]
     merged: Option<Merged>,
+}
+
+/// The question `settle` asks at the end of a phase: did it build around a yidam gap? (#1469)
+///
+/// `guidelines/upstream.md` says *a misfit that is worth a workaround is worth an issue*, and
+/// one corpus carried four workarounds across ~4,500 commits without filing one: a pinned
+/// `corpora.toml`, copied packs, 65 mirrored ontology files, a hand-made question outbox. The
+/// norm was read at session start and asked at no point a workaround got written. The end of
+/// a phase is such a point, and this is where the question is asked.
+///
+/// **What it reads is structural, not prose.** A file the phase *added* outside every
+/// directory `directories.md` lays out — [`crate::upstream::LAID_OUT`] — is a directory the
+/// conventions did not anticipate, which is the shape all four took. Over the 743 phase merges
+/// on hand on 2026-11-11 that fired on 19, among them a 121-file `mirror/`; counting `crates/`,
+/// `packages/` and `web/` as well would have fired on every other phase of a working corpus.
+/// What it cannot see is a workaround inside a laid-out directory — a mirrored `.ont.yml`
+/// under `.yidam/corpus/` — or one that adds no file at all.
+///
+/// **And it never files.** A phase whose commits already cite the template's tracker is asked
+/// nothing; otherwise the body is drafted for a person to edit and send, with the pin and the
+/// paths filled in and the part only they know — what it cost — left for them.
+#[derive(Debug, serde::Serialize)]
+struct UpstreamAsk {
+    /// The template's `owner/repo`, from `.yidam.toml`'s `origin`.
+    repository: String,
+    /// Files this phase added outside every directory `directories.md` lays out.
+    unlaid: Vec<String>,
+    /// Upstream issues this phase's commits cite.
+    cited: Vec<u64>,
+    /// The `from:derived-repo` body, drafted when `unlaid` is non-empty and `cited` is empty.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    draft: Option<String>,
+}
+
+impl UpstreamAsk {
+    fn read(root: &Path, phase: &str, branch: &str, baseline: &str) -> Self {
+        use crate::upstream;
+        let repository = upstream::template_slug(root);
+        let unlaid: Vec<String> = git(
+            root,
+            None,
+            &[
+                "diff",
+                "--name-only",
+                "--diff-filter=A",
+                &format!("{baseline}...{branch}"),
+            ],
+            None,
+        )
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && upstream::is_unlaid(l))
+        .map(str::to_string)
+        .collect();
+        let not_base = format!("^{baseline}");
+        let cited = upstream::citations(root, &[branch, &not_base], &repository).issues;
+        let draft = (!unlaid.is_empty() && cited.is_empty()).then(|| {
+            upstream::draft(
+                &repository,
+                upstream::template_pin(root).as_deref(),
+                phase,
+                &unlaid,
+            )
+        });
+        Self {
+            repository,
+            unlaid,
+            cited,
+            draft,
+        }
+    }
+}
+
+/// The upstream question, for the text report. Empty when there is nothing to ask.
+fn render_upstream(u: &UpstreamAsk) -> String {
+    let Some(draft) = &u.draft else {
+        return String::new();
+    };
+    let mut out = String::new();
+    let _ = write!(
+        out,
+        "\nThis phase added {} file(s) outside every directory directories.md lays out:\n",
+        u.unlaid.len()
+    );
+    for (dir, n) in crate::upstream::group(&u.unlaid) {
+        let _ = writeln!(out, "  {dir}  ({n})");
+    }
+    let _ = write!(
+        out,
+        "\nIf any of that works around a gap in yidam, it is worth an issue (upstream.md). No\n\
+         commit in this phase cites {}. A draft, for you to edit and send — nothing was filed:\n\n  \
+         gh issue create --repo {} --label \"{}\" --title \"…\" --body-file <draft>\n\n",
+        u.repository,
+        u.repository,
+        crate::upstream::LABEL
+    );
+    for line in draft.lines() {
+        let _ = writeln!(out, "    {line}");
+    }
+    out.push_str(
+        "\nIf it is domain tooling, record the directory in AGENTS.md and .yidam/decisions/\n\
+         (directories.md, \"A directory these conventions do not name\"); this asks nothing more.\n",
+    );
+    out
 }
 
 /// What `settle --merge` wrote, in the order it wrote it.
@@ -1028,6 +1136,7 @@ fn settle(merge: Option<Option<String>>, format: Format) -> Result<()> {
     );
 
     let held = held_kuten(&root)?;
+    let upstream = UpstreamAsk::read(&root, &slug, &branch, &baseline);
     let mut report = SettleReport {
         phase: slug,
         r#type: rec.r#type.clone(),
@@ -1042,6 +1151,7 @@ fn settle(merge: Option<Option<String>>, format: Format) -> Result<()> {
         revision_skew: rec
             .revision_skew(held.revision)
             .map(|(recorded, held)| Skew { recorded, held }),
+        upstream,
         merged: None,
     };
     if let Some(summary) = merge {
@@ -1330,7 +1440,9 @@ fn render_settle(r: &SettleReport) -> String {
     }
 
     if let Some(m) = &r.merged {
-        return render_merged(r, m, out);
+        let mut out = render_merged(r, m, out);
+        out.push_str(&render_upstream(&r.upstream));
+        return out;
     }
 
     let regen_line = if r.regen.staged.is_empty() {
@@ -1356,6 +1468,7 @@ fn render_settle(r: &SettleReport) -> String {
              dirty index, so the `regen:` commit goes first and lands on the phase branch.\n",
         );
     }
+    out.push_str(&render_upstream(&r.upstream));
     out
 }
 
