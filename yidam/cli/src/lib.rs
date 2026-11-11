@@ -88,6 +88,9 @@ pub mod retrieval;
 /// the declared criteria to the implemented ones has to be able to ask both sides.
 pub mod score;
 pub mod universal;
+/// What a derived repository has said to the template it came from (#1469): citations of
+/// the template's tracker, and the paths `directories.md` does not lay out.
+pub mod upstream;
 // Ungated, and that is the design rather than an oversight. The vault's addressing, cache
 // and `file://` backend need only `sha2`, `hex` and std — all base dependencies — so the
 // light build every derived repository installs can hash, cache, verify and read a vault

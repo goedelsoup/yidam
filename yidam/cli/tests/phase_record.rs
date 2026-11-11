@@ -766,6 +766,144 @@ fn settle_reports_a_phase_that_produced_nothing_as_not_ready() {
     );
 }
 
+// ── settle and the upstream question (#1469) ──────────────────────────────────
+
+/// Commit `files` on the open phase branch under `subject`.
+fn commit_on_phase(f: &Fixture, files: &[&str], subject: &str) {
+    for p in files {
+        let path = f.root().join(p);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "x\n").unwrap();
+        git(&f.root(), &["add", p]);
+    }
+    git(&f.root(), &["commit", "-q", "-m", subject]);
+}
+
+/// **#1469.** One corpus carried four workarounds across ~4,500 commits and filed none,
+/// because the norm was prose read at session start and nothing asked when a workaround was
+/// written. A phase that adds files outside every laid-out directory is asked at settle, with
+/// a drafted `from:derived-repo` body — and still files nothing, moves no ref and gates nothing.
+#[test]
+fn settle_asks_about_files_added_outside_the_laid_out_directories() {
+    let f = corpus();
+    open_and_switch(&f);
+    f.ok(&["phase", "run"]);
+    commit_on_phase(
+        &f,
+        &[
+            "mirror/claim.ont.yml",
+            "mirror/source.ont.yml",
+            "corpora.toml",
+        ],
+        "scaffold: mirror the sibling's ontology",
+    );
+
+    let refs_before = git(
+        &f.root(),
+        &["for-each-ref", "--format=%(refname) %(objectname)"],
+    );
+    let report = f.json(&["phase", "settle"]);
+    let up = &report["upstream"];
+    assert_eq!(
+        report["ready"], true,
+        "the question is not a gate: {report}"
+    );
+    assert_eq!(up["repository"], "goedelsoup/yidam", "{up}");
+    assert_eq!(
+        up["unlaid"],
+        serde_json::json!([
+            "corpora.toml",
+            "mirror/claim.ont.yml",
+            "mirror/source.ont.yml"
+        ]),
+        "{up}"
+    );
+    let draft = up["draft"].as_str().expect("a draft when nothing is cited");
+    assert!(draft.contains("- `mirror/` (2 file(s))"), "{draft}");
+
+    let text = f.ok(&["phase", "settle"]);
+    assert!(text.contains("nothing was filed"), "{text}");
+    assert!(
+        text.contains("gh issue create --repo goedelsoup/yidam --label \"from:derived-repo\""),
+        "{text}"
+    );
+    let refs_after = git(
+        &f.root(),
+        &["for-each-ref", "--format=%(refname) %(objectname)"],
+    );
+    assert_eq!(refs_before, refs_after, "settle moved a ref");
+}
+
+/// A phase whose commits already cite the template's tracker has reported, and is asked
+/// nothing. The tracker is `.yidam.toml`'s `origin`, so a derivation of a fork cites the fork.
+#[test]
+fn settle_asks_nothing_of_a_phase_that_cites_the_templates_tracker() {
+    let f = corpus();
+    std::fs::write(
+        f.root().join(".yidam.toml"),
+        "[yidam]\norigin = \"git@github.com:someone/fork.git\"\ncommit = \"abc123\"\n",
+    )
+    .unwrap();
+    git(&f.root(), &["add", ".yidam.toml"]);
+    git(&f.root(), &["commit", "-q", "-m", "vendor: pin the fork"]);
+    open_and_switch(&f);
+    f.ok(&["phase", "run"]);
+
+    // Cites the wrong tracker: still asked, and the draft carries this repository's pin.
+    commit_on_phase(
+        &f,
+        &["tools/fetch.sh"],
+        "scaffold: fetch around goedelsoup/yidam#1466",
+    );
+    let report = f.json(&["phase", "settle"]);
+    assert_eq!(report["upstream"]["repository"], "someone/fork");
+    assert!(
+        report["upstream"]["draft"]
+            .as_str()
+            .unwrap()
+            .contains("commit = \"abc123\""),
+        "{report}"
+    );
+
+    commit_on_phase(
+        &f,
+        &["tools/pin.sh"],
+        "scaffold: pin until someone/fork#7 lands",
+    );
+    let report = f.json(&["phase", "settle"]);
+    assert_eq!(report["upstream"]["cited"], serde_json::json!([7]));
+    assert!(report["upstream"].get("draft").is_none(), "{report}");
+    assert!(
+        !f.ok(&["phase", "settle"]).contains("nothing was filed"),
+        "a phase that reported is asked nothing"
+    );
+}
+
+/// Domain tooling in a laid-out directory is the corpus's own compute layer, not a workaround,
+/// and asking about it would have fired on half the phases of a working corpus.
+#[test]
+fn settle_asks_nothing_of_a_phase_that_added_only_laid_out_paths() {
+    let f = corpus();
+    open_and_switch(&f);
+    f.ok(&["phase", "run"]);
+    commit_on_phase(
+        &f,
+        &[
+            "crates/ground/src/lib.rs",
+            "web/index.html",
+            "docs/notes.md",
+        ],
+        "scaffold: a crate, a page, a note",
+    );
+    let report = f.json(&["phase", "settle"]);
+    assert_eq!(
+        report["upstream"]["unlaid"],
+        serde_json::json!([]),
+        "{report}"
+    );
+    assert!(report["upstream"].get("draft").is_none());
+}
+
 // ── settle and the REGEN blocks ───────────────────────────────────────────────
 
 /// A README carrying one REGEN block with its placeholder, committed on the baseline before
@@ -1003,6 +1141,7 @@ fn every_phase_report_carries_the_envelope_and_its_documented_fields() {
         "ready",
         "subject",
         "regen",
+        "upstream",
     ] {
         assert!(
             settle.get(key).is_some(),

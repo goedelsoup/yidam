@@ -170,7 +170,25 @@ pub struct Member {
     /// `(classes behaving as declared, classes declaring)` at the last corpus commit. A
     /// measurement, never a verdict — see [`class_expectations`].
     pub declaring_classes_met: Option<(usize, usize)>,
+    /// What this repository has said to the template, counted from its own history (#1469).
+    pub upstream: Upstream,
     pub readings: Vec<Reading>,
+}
+
+/// Commits citing the template's tracker, and the distinct issues they cite (#1469).
+///
+/// **A measurement and not a norm.** `upstream.md` says *a misfit that is worth a workaround is
+/// worth an issue*, which is a conditional: a repository that never met a misfit has nothing to
+/// cite, and no count of zero can tell it from one that met four and said nothing. So it is
+/// printed beside every member — the silence is visible in the population, which is what the
+/// report was missing — and scored on none of them.
+///
+/// Counts only, never the issue numbers. The template's tracker is public, and a list of the
+/// issues one lettered member cites is a short walk from its name.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct Upstream {
+    pub citing_commits: usize,
+    pub issues: usize,
 }
 
 /// A path that is not a derived repository, and why. Reported rather than dropped.
@@ -562,8 +580,14 @@ pub fn collect(roots: &[PathBuf], show_paths: bool) -> CohortReport {
             }),
             _ => None,
         };
+        let cited =
+            crate::upstream::citations(&root, &["HEAD"], &crate::upstream::template_slug(&root));
         members.push(Member {
             declaring_classes_met: class_expectations(&rows),
+            upstream: Upstream {
+                citing_commits: cited.commits,
+                issues: cited.issues.len(),
+            },
             letter: letter(i),
             path: show_paths.then(|| root.display().to_string()),
             authored: m.commits,
@@ -710,13 +734,29 @@ pub(crate) fn render(r: &CohortReport) -> String {
                  instance cited today",
             );
         }
+        let _ = writeln!(
+            out,
+            "      {} commit(s) cite {} upstream issue(s)",
+            m.upstream.citing_commits, m.upstream.issues
+        );
     }
+    let silent = r
+        .members
+        .iter()
+        .filter(|m| m.upstream.citing_commits == 0)
+        .count();
+    let _ = writeln!(
+        out,
+        "\n  {silent} of {} cite no issue on the template's tracker in any commit.",
+        r.members.len()
+    );
 
     out.push_str(
-        "\n  The last line of each member is a measurement and not a score. GRAPH.md argues \
+        "\n  The class and upstream lines are measurements and not scores. GRAPH.md argues \
          that the\n  quantity worth reading is how long a node has been uncited and not how \
-         many are today —\n  a corpus mid-sweep is doing exactly what a sweep does — so no \
-         norm is scored on it here.\n",
+         many are today —\n  a corpus mid-sweep is doing exactly what a sweep does. And \
+         upstream.md asks for an issue\n  per workaround, so a repository that never needed \
+         one has nothing to cite. No norm is\n  scored on either.\n",
     );
 
     if !r.skipped.is_empty() {

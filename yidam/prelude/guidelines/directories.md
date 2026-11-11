@@ -1043,6 +1043,10 @@ What makes such a report actionable, in rough order of value:
 - **Whether you worked around it**, and where, so the workaround can be removed when the fix
   lands.
 
+**Cite the issue as `goedelsoup/yidam#<n>` in the commit that carries the workaround.**
+`phase settle` drafts a report when a phase adds files outside the directories above and cites
+none. `yidam cohort` counts citations.
+
 Do not send corpus content. A finding is about the template; the domain material that exposed it
 usually should not leave the repository, and often may not.
 
