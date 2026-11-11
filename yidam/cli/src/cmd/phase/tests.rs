@@ -127,3 +127,65 @@ fn the_drafted_subject_counts_in_the_plural_it_means() {
     assert!(merge_subject("x", 1, 1).contains("1 commit across 1 file"));
     assert!(merge_subject("x", 2, 3).contains("2 commits across 3 files"));
 }
+
+// ── the plan a phase records ──────────────────────────────────────────────────
+
+/// A manifest of a connector, a calculator waiting on it, and a calculator waiting on nothing.
+const MIXED: &str = r#"
+[capability.fetch]
+kind   = "connector"
+run    = ["sh", ".yidam/capabilities/fetch.sh"]
+reads  = [".yidam/corpus/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"
+
+[capability.derived]
+kind   = "calculator"
+run    = ["sh", ".yidam/capabilities/derived.sh"]
+reads  = [".yidam/corpus/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"
+after  = ["fetch"]
+
+[capability.standalone]
+kind   = "calculator"
+run    = ["sh", ".yidam/capabilities/standalone.sh"]
+reads  = [".yidam/corpus/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"
+"#;
+
+/// #1463: a step this binary refuses, and the step that waits on it, leave the phase's plan
+/// with their reasons, and the step that waits on neither stays in it.
+#[test]
+fn a_refused_step_and_what_runs_after_it_leave_the_plan() {
+    let m = Manifest::parse(MIXED, &crate::kuten::Registers::corpus_only()).unwrap();
+    let resolved = m.plan(None).unwrap();
+    assert_eq!(resolved.len(), 3, "{resolved:?}");
+
+    let (runnable, refused) = partition_plan(&m, &resolved).unwrap();
+    assert_eq!(runnable, ["standalone"]);
+    let names: Vec<&str> = refused.iter().map(|r| r.step.as_str()).collect();
+    assert_eq!(names, ["fetch", "derived"]);
+    assert!(
+        refused[0].because.contains(r#"`kind = "connector"`"#),
+        "the refusal quotes the declaration: {}",
+        refused[0].because
+    );
+    assert!(
+        refused[1].because.contains("`fetch`"),
+        "a dependent names the step it waits on: {}",
+        refused[1].because
+    );
+}
+
+/// The restore line names what moved and nothing else, and is absent where nothing moved.
+#[test]
+fn restore_advice_names_the_landed_paths_or_says_nothing() {
+    assert!(restore_advice(&[]).is_empty());
+    let advice = restore_advice(&[".yidam/phases/x.yml".to_string()]);
+    assert!(
+        advice.contains("git restore --source=HEAD --worktree --staged -- .yidam/phases/x.yml"),
+        "{advice}"
+    );
+}

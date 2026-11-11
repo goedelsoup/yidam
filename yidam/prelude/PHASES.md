@@ -66,7 +66,7 @@ declared type was checked against. It lands at `.yidam/phases/<name>.yml`, on th
 branch, so a phase somebody else opened is as legible from a fresh clone as one you opened
 yourself.
 
-`run` invokes the capability manifest's plan, recording the plan before the first step and each
+`run` invokes the manifest's runnable steps, recording the plan before the first step and each
 step as it completes. A step already recorded is not re-invoked, so a run killed partway
 completes rather than restarts — and until every step is recorded, `yidam phases` reads the
 phase as **interrupted** rather than active. That is the state nothing could say before: a

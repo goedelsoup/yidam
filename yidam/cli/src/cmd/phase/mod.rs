@@ -130,7 +130,8 @@ pub enum PhaseCommand {
     ///
     /// Resumable: a step already recorded is not re-invoked, so a run killed partway
     /// completes rather than restarts. Until every step of the resolved plan is recorded the
-    /// phase reads as `interrupted` in `yidam phases` and in `yidam status`.
+    /// phase reads as `interrupted` in `yidam phases` and in `yidam status`. A step this binary
+    /// does not invoke, and any step after one, is left out of the plan and reported as refused.
     Run {
         /// Resolve the plan and report what is left, invoking nothing and writing nothing
         #[arg(long)]
@@ -528,10 +529,79 @@ struct PhaseRunReport {
     /// job — and when that happens it appears in `completed` beside the steps this invocation
     /// planned. The two fields together say what happened; either alone would round it.
     resumed: usize,
+    /// Steps the manifest declares that this phase leaves out of its plan, each with the
+    /// sentence that left it out: a step this binary does not invoke, or one that runs `after`
+    /// such a step and so could never be handed its inputs.
+    ///
+    /// In the report and never in the record. The record's plan is what `interrupted` is
+    /// judged against, and a step in it that nothing can run is a phase that can never leave
+    /// `interrupted` (#1463). Always emitted, as `[]` where nothing was refused, for the reason
+    /// `remaining` is.
+    refused: Vec<Refused>,
+    /// The paths the commits this invocation landed changed — what is now behind HEAD in the
+    /// checkout. Text only: it is the argument to the `git restore` line the summary prints.
+    #[serde(skip)]
+    landed: Vec<String>,
     /// `{recorded, held}` where the kuten moved under this phase — RFC-0028 §2's
     /// annotate-never-silently-proceed, applied to a phase in flight across a re-vendor.
     #[serde(skip_serializing_if = "Option::is_none")]
     revision_skew: Option<Skew>,
+}
+
+/// A declared step the phase plan leaves out, and why.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+struct Refused {
+    step: String,
+    because: String,
+}
+
+/// Split a resolved plan into the steps this binary can invoke and the ones it cannot.
+///
+/// `cmd/run`'s pre-pass refuses a whole plan holding one unrunnable step, and that is right for
+/// `yidam run`, which can be pointed at a step. `phase run` cannot: it takes the whole manifest,
+/// so refusing the plan would mean a repository that declares one connector could never run a
+/// phase at all. And handing `run` the steps one at a time without this split commits a plan
+/// that stops at the first refused step and reads `interrupted` for good (#1463).
+///
+/// A step waiting `after` a refused one is refused with it. Its inputs are the refused step's
+/// outputs, and `plan_and_write` would refuse it anyway — it resolves the step's `after`
+/// closure and finds the same unrunnable declaration there. One pass is enough because the
+/// plan is dependencies-first.
+fn partition_plan(m: &Manifest, plan: &[&str]) -> Result<(Vec<String>, Vec<Refused>)> {
+    let mut runnable = Vec::new();
+    let mut refused: Vec<Refused> = Vec::new();
+    for &step in plan {
+        let cap = m.get(step)?;
+        let because = match cap.unrunnable_because() {
+            Some(why) => Some(format!(
+                "declares {}, which this binary does not invoke. {}",
+                why.declared, why.because
+            )),
+            None => cap
+                .after
+                .iter()
+                .find(|dep| refused.iter().any(|r| &r.step == *dep))
+                .map(|dep| format!("runs after `{dep}`, which this phase cannot run")),
+        };
+        match because {
+            Some(because) => refused.push(Refused {
+                step: step.to_string(),
+                because,
+            }),
+            None => runnable.push(step.to_string()),
+        }
+    }
+    Ok((runnable, refused))
+}
+
+/// The paths the commits between `from` and HEAD changed, which the checkout does not hold.
+fn landed_since(root: &Path, from: &str) -> Vec<String> {
+    paths(git(
+        root,
+        None,
+        &["diff", "--name-only", from, "HEAD", "--"],
+        None,
+    ))
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -546,14 +616,24 @@ fn run_phase(dry_run: bool, format: Format) -> Result<()> {
     let (branch, slug, mut rec) = current_phase(&root)?;
 
     let manifest = Manifest::load(&root)?;
-    let plan: Vec<String> = manifest
-        .plan(None)?
-        .into_iter()
-        .map(str::to_string)
-        .collect();
-    if plan.is_empty() {
+    let resolved = manifest.plan(None)?;
+    if resolved.is_empty() {
         bail!("{MANIFEST} declares no capabilities, so this phase has nothing to run");
     }
+    // Before anything is written, so a plan nothing can run lands no commit (#1463).
+    let (plan, refused) = partition_plan(&manifest, &resolved)?;
+    if plan.is_empty() {
+        bail!(
+            "no step {MANIFEST} declares can run here, so this phase has nothing to run and \
+             nothing was written.\n{}",
+            refused
+                .iter()
+                .map(|r| format!("  {} — {}", r.step, r.because))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+    let (started_at, _) = head(&root)?;
 
     let held = held_kuten(&root)?;
     let skew = rec
@@ -577,6 +657,8 @@ fn run_phase(dry_run: bool, format: Format) -> Result<()> {
             completed: Vec::new(),
             remaining: outstanding,
             resumed,
+            refused,
+            landed: Vec::new(),
             revision_skew: skew,
         };
         return crate::report::finish(&root, format, report, |r| println!("{}", render_run(r)));
@@ -622,14 +704,16 @@ fn run_phase(dry_run: bool, format: Format) -> Result<()> {
                 // is to fix the step and re-run rather than to start over. Said here because
                 // this is the one path that produces no report to say it.
                 let left = plan.iter().filter(|s| !rec.is_completed(s)).count();
-                format!(
+                let mut msg = format!(
                     "`{step}` did not complete, so the phase stops here with {} of {} step(s) \
                  recorded.\n  {branch} now reads `interrupted`. Fix the step and re-run \
                  `yidam phase run` — the {left} outstanding step(s) are what it will invoke, \
                  and nothing already recorded is re-entered.",
                     rec.completed.len(),
                     plan.len(),
-                )
+                );
+                msg.push_str(&restore_advice(&landed_since(&root, &started_at)));
+                msg
             })?;
         for s in &report.steps {
             let done = Step {
@@ -686,6 +770,8 @@ fn run_phase(dry_run: bool, format: Format) -> Result<()> {
         completed: recorded,
         remaining: rec.remaining(),
         resumed,
+        refused,
+        landed: landed_since(&root, &started_at),
         revision_skew: skew,
     };
     crate::report::finish(&root, format, report, |r| println!("{}", render_run(r)))
@@ -727,6 +813,25 @@ fn commit_record(
     land(root, branch, &parent, Some(&parent), rec, &message).map(Some)
 }
 
+/// What to say about a checkout the commits moved past, or nothing where none landed.
+///
+/// `commit_record` and the executor both move the ref and never the index — `cmd/run`'s rule,
+/// and RFC-0026 §5's reason for it. So after a run the index reads as a staged revert of what
+/// the run committed, which is easy to commit by accident (#1463). Said in the same words
+/// `yidam run` closes with, scoped to the paths that moved so nobody's own edits are restored
+/// over.
+fn restore_advice(landed: &[String]) -> String {
+    if landed.is_empty() {
+        return String::new();
+    }
+    format!(
+        "\n\nYour working tree and index were not touched, so they are now behind HEAD and \
+         read as a\nstaged revert of what was committed. Do not commit that; take the commits \
+         instead:\n\n    git restore --source=HEAD --worktree --staged -- {}",
+        landed.join(" ")
+    )
+}
+
 fn render_run(r: &PhaseRunReport) -> String {
     let mut out = format!("{} — {} phase", r.branch, r.r#type);
     if r.dry_run {
@@ -758,6 +863,22 @@ fn render_run(r: &PhaseRunReport) -> String {
             "\n{} step(s) outstanding. The phase reads `interrupted` until they complete.",
             r.remaining.len()
         );
+    }
+    if !r.refused.is_empty() {
+        let _ = writeln!(
+            out,
+            "\n{} declared step(s) are not in this phase's plan, because this binary cannot run \
+             them:",
+            r.refused.len()
+        );
+        for s in &r.refused {
+            let _ = writeln!(out, "  {} — {}", s.step, s.because);
+        }
+    }
+    let advice = restore_advice(&r.landed);
+    if !r.dry_run && !advice.is_empty() {
+        out.push_str(&advice);
+        out.push('\n');
     }
     if let Some(s) = &r.revision_skew {
         let _ = writeln!(
