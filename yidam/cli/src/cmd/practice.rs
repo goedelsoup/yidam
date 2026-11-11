@@ -35,7 +35,7 @@ use crate::kuten;
 /// list everywhere.
 const FILE: &str = "PRACTICE.md";
 
-/// How many points the series holds. Enough to show a trajectory, few enough that the
+/// The most points the series holds. Enough to show a trajectory, few enough that the
 /// document reads as a document; `replay` is the surface for every-commit resolution.
 const MAX_POINTS: usize = 8;
 
@@ -117,20 +117,32 @@ fn base_verb(verb: &str) -> &str {
     commits::split_scope(verb).map_or(verb, |(base, _)| base)
 }
 
-/// Which of `len` chronological positions to sample, first and last always kept.
+/// Which of `len` chronological positions to sample: fixed checkpoints, never "the newest".
 ///
-/// The same shape as `replay`'s sampler: strictly increasing because `len - 1 >= n - 1`,
-/// and deterministic, which is what the gate needs — two checkouts of one commit must
-/// sample the same points.
+/// The positions are `0, stride, 2·stride, …` up to `len - 1`, where `stride` is the
+/// smallest power of two that keeps the series to at most `max` points. A point's reading
+/// is a function of its own commit alone, so the document moves only when the population
+/// reaches the next checkpoint — not on every authored commit, which is what #1465 found
+/// it cost: a sampler that always kept the newest commit made every authored commit owe a
+/// `regen:`, a quarter of one corpus's history. The newest reading belongs to
+/// `kuten check`, which writes nothing.
+///
+/// Powers of two, so a growing stride only ever *drops* points: doubling it keeps the even
+/// checkpoints, and no point already shown is replaced by one beside it. Over a history of
+/// `len` authored commits the document moves about `max · log2(len / max)` times.
+///
+/// Deterministic, which is what the gate needs — two checkouts of one commit must sample
+/// the same points.
 fn sample_indices(len: usize, max: usize) -> Vec<usize> {
-    if len == 0 {
+    if len == 0 || max == 0 {
         return Vec::new();
     }
-    let n = len.min(max);
-    if n == 1 {
-        return vec![0];
+    let mut stride = 1usize;
+    // `(len - 1) / stride + 1` points fall on the checkpoints; widen until they fit.
+    while (len - 1) / stride + 1 > max {
+        stride *= 2;
     }
-    (0..n).map(|i| i * (len - 1) / (n - 1)).collect()
+    (0..len).step_by(stride).collect()
 }
 
 /// The sampled series, oldest first.
@@ -286,7 +298,11 @@ fn render(
 
     out.push_str(
         "\nThe population is authored commits: merges and `regen:` commits are outside it, \
-         so the commit that carries this document is never counted by it. A `diverges` \
+         so the commit that carries this document is never counted by it. Points sit at \
+         fixed checkpoints in that population — every first, second, fourth… authored \
+         commit, whichever keeps the series short — so the newest commit is usually not a \
+         point, and an authored commit moves this document only when it reaches the next \
+         checkpoint. A `diverges` \
          reading is a question for a person, not a defect — a kuten binds nobody. \
          `yidam kuten check` reads today's corpus in full, including the corpus-state \
          metrics no historical point can reconstruct.",
@@ -351,21 +367,51 @@ mod tests {
         );
     }
 
-    /// Deterministic, ends kept, never more than asked for. The gate's requirement: two
-    /// checkouts of one commit must sample the same points.
+    /// Deterministic, genesis kept, never more than asked for, strictly increasing. The
+    /// gate's requirement: two checkouts of one commit must sample the same points.
     #[test]
-    fn sampling_keeps_both_ends_and_is_deterministic() {
+    fn sampling_is_checkpoints_and_deterministic() {
         assert_eq!(sample_indices(0, 8), Vec::<usize>::new());
         assert_eq!(sample_indices(1, 8), vec![0]);
         assert_eq!(sample_indices(3, 8), vec![0, 1, 2]);
+        assert_eq!(sample_indices(8, 8), (0..8).collect::<Vec<_>>());
+        assert_eq!(sample_indices(9, 8), vec![0, 2, 4, 6, 8]);
         let picked = sample_indices(200, 8);
-        assert_eq!(picked.len(), 8);
-        assert_eq!(picked[0], 0);
-        assert_eq!(picked[7], 199);
+        assert_eq!(picked, vec![0, 32, 64, 96, 128, 160, 192]);
         assert_eq!(picked, sample_indices(200, 8));
-        let mut sorted = picked.clone();
-        sorted.dedup();
-        assert_eq!(sorted, picked, "indices repeat: {picked:?}");
+        for len in 1..2000 {
+            let p = sample_indices(len, 8);
+            assert!(!p.is_empty() && p.len() <= 8, "len {len}: {p:?}");
+            assert_eq!(p[0], 0, "len {len}: genesis dropped");
+            assert!(p.windows(2).all(|w| w[0] < w[1]), "len {len}: {p:?}");
+            assert!(*p.last().unwrap() < len, "len {len}: {p:?}");
+        }
+    }
+
+    /// **#1465: the newest commit is not a point.** Growing the population moves the series
+    /// only at a checkpoint, and a point once shown is never replaced by a neighbour — a
+    /// growing stride only drops points. Counted over a long history, the document moves
+    /// on a small fraction of authored commits, where the old sampler moved on every one.
+    #[test]
+    fn an_authored_commit_moves_the_series_only_at_a_checkpoint() {
+        let mut moves = 0;
+        for len in 2..=4000 {
+            let (before, after) = (sample_indices(len - 1, 8), sample_indices(len, 8));
+            if before != after {
+                moves += 1;
+                assert!(
+                    after.iter().all(|i| before.contains(i) || *i == len - 1),
+                    "len {len}: the series gained a point that is neither old nor the new \
+                     checkpoint: {before:?} -> {after:?}"
+                );
+            } else {
+                assert!(!after.contains(&(len - 1)));
+            }
+        }
+        assert!(
+            moves < 100,
+            "{moves} of 3999 authored commits moved the series — not a checkpoint sampler"
+        );
     }
 
     /// The fixed point's predicate: `regen:` is outside the population whatever it wears,
@@ -487,5 +533,37 @@ mod tests {
              generator ignoring history rather than the population rule working"
         );
         assert!(moved.contains("no kuten"), "{moved}");
+    }
+
+    /// **#1465, run for real.** Past the point where every commit is a checkpoint, an
+    /// authored commit that falls between checkpoints leaves the document byte-identical —
+    /// so it owes no `regen:` — and the next one, landing on a checkpoint, moves it.
+    #[test]
+    fn an_authored_commit_between_checkpoints_does_not_move_the_document() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        crate::git::fixture::init(root);
+        let commit = |msg: &str| {
+            std::fs::write(root.join("n"), msg).unwrap();
+            crate::git::fixture::commit(root, msg);
+        };
+        commit("genesis: a corpus");
+        for i in 1..9 {
+            commit(&format!("establish: thing {i}"));
+        }
+        // Nine authored commits: stride 2, checkpoints at 0, 2, 4, 6, 8 — the ninth is one.
+        let nine = generate(root).unwrap();
+        commit("establish: thing 9");
+        let ten = generate(root).unwrap();
+        assert_eq!(
+            nine, ten,
+            "the tenth authored commit is between checkpoints and still moved the document"
+        );
+        commit("establish: thing 10");
+        let eleven = generate(root).unwrap();
+        assert_ne!(
+            ten, eleven,
+            "the eleventh authored commit is a checkpoint and did not move the document"
+        );
     }
 }
