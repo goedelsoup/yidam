@@ -30,6 +30,15 @@ is to run the filing task and commit.
 
 <!-- file-upgrade-notes: new release sections go below this line -->
 
+## cli/v0.25.0
+
+### A coined property type is now reported
+
+**`property-type-unknown` warns on a `type:` that nothing reads (#1391).** Its values were never checked.
+Known types are `string`, `text`, `ref`, `date`, `number`, `claim`, `quotation` and `list`.
+For entries that are records, declare a `list` with `fields:`.
+The finding is a warning and does not gate.
+
 ## cli/v0.24.0
 
 ### `phase settle --merge` writes the phase merge, and `max_open_proposals` is read locally
