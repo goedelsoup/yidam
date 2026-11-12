@@ -5,8 +5,8 @@ type: api
 obtained: true
 location:
   - kind: url
-    value: https://waterdata.usgs.gov/nwis
-    description: Human-facing query interface.
+    value: https://waterservices.usgs.gov/docs/instantaneous-values/
+    description: Documentation of the instantaneous-values service below.
   - kind: url_template
     value: https://waterservices.usgs.gov/nwis/iv/?sites={site}&parameterCd=00060&format=json
     description: Instantaneous-values service; parameter 00060 is discharge.

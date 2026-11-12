@@ -326,8 +326,8 @@ impl Cluster {
         self.push_to_main("catalog: a gauge table a pod can read", |root| {
             let nwis = root.join(".yidam/catalog/usgs-nwis.md");
             let text = std::fs::read_to_string(&nwis).unwrap();
-            let url = "  - kind: url\n    value: https://waterdata.usgs.gov/nwis\n    \
-                       description: Human-facing query interface.\n";
+            let url = "  - kind: url\n    value: https://waterservices.usgs.gov/docs/instantaneous-values/\n    \
+                       description: Documentation of the instantaneous-values service below.\n";
             assert!(
                 text.contains(url),
                 "streamflow's entry changed shape:\n{text}"
