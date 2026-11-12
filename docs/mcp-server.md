@@ -325,7 +325,7 @@ bundle was made at, not an unknown one.
 | `get_node` | One node's full YAML content and its outgoing links | You know the id and need what it actually says |
 | `neighbors` | Nodes linked to one node, both directions, to `depth` hops | You want the argument around a node, not the node |
 | `list_nodes` | Every node, optionally in one class | You want the shape of the corpus |
-| `open_questions` | Nodes flagged as unsettled | You are looking for what is *not* known |
+| `open_questions` | Nodes flagged as unsettled, and beside them the open asks to dependencies | You are looking for what is *not* known |
 | `claims` | Assertions with the standing each is made at, filterable by standing | You want what the corpus *holds*, not the documents holding it |
 | `check_subject` | Whether a commit subject is in the closed vocabulary | Before you write the commit |
 | `check_citation` | Whether a `cites:` into a dependency would hold, and which of the four checks would fire | Before you write the citation |
@@ -709,7 +709,7 @@ only where you look for it.
 tool-not-found errors:
 
 ```json
-{"contract": "0.32.0",
+{"contract": "0.33.0",
  "corpus": {"domain": "streamflow", "commit": "a1b2c3d",
             "nodes": 8, "skills": 1, "decisions": 2,
             "indexed_commit": null, "stale": false},

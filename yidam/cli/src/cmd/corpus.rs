@@ -155,7 +155,7 @@ pub(crate) fn render_open_questions(corpus: &Corpus) -> String {
 ///
 /// An ask that `lint` would reject is left out: one with no package or no pin cannot say what
 /// it is waiting on, and listing it would present a malformed record as a question.
-fn open_asks(root: &std::path::Path) -> Vec<OpenAsk> {
+pub(crate) fn open_asks(root: &std::path::Path) -> Vec<OpenAsk> {
     crate::asks::read(root)
         .into_iter()
         .filter(crate::asks::Ask::is_open)

@@ -1190,7 +1190,13 @@ fn open_questions(state: &ServerState) -> Value {
             }));
         }
     }
-    json!({"open_questions": questions})
+    // Asks are listed beside the questions and never among them (#1486). An ask is a question
+    // this repository has of a corpus it depends on, settled on the far side; folding it into
+    // `open_questions` would count it as one the corpus itself raises. The CLI's own function,
+    // not a second reading of `.yidam/asks/`, so `open-questions --format json` and this tool
+    // cannot disagree about which asks are open.
+    let asks = crate::cmd::corpus::open_asks(&state.root);
+    json!({"open_questions": questions, "asks": asks})
 }
 
 // ── assertions, not documents (contract 0.5.0) ────────────────────────────────
