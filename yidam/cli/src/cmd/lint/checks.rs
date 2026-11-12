@@ -406,6 +406,59 @@ pub fn list_declaration_invalid(classes: &[Class]) -> Check {
     )
 }
 
+/// A declared `type:` that no reader grades (#1391).
+///
+/// [`property_type`] leaves a coined type alone, and so does every other reader: the compiled
+/// schema gives it `true`, the claim reader skips it, the warehouse gives it no column. So a
+/// corpus that writes `type: effect` hears nothing, and its values are held to nothing.
+/// `travel-demand` found that by probing: a `source` naming no entry, a `claim_tag` of
+/// `definitely-true` and a text `value` all passed. Reported once on the class, for a property
+/// or a record field, as [`list_declaration_invalid`] reports a declaration. A warning, not an
+/// error: coining was tolerated, and a coined type is not a wrong value, only an unread one.
+pub fn property_type_unknown(classes: &[Class]) -> Check {
+    let kinds = KNOWN_PROPERTY_TYPES.join("`, `");
+    let unknown = |t: &str| !t.is_empty() && !KNOWN_PROPERTY_TYPES.contains(&t);
+    let violations = classes
+        .iter()
+        .flat_map(|c| {
+            c.properties.iter().flat_map(move |p| {
+                let own = unknown(&p.r#type).then(|| (p.name.clone(), p.r#type.clone()));
+                let fields = p
+                    .fields
+                    .iter()
+                    .filter(|f| unknown(&f.r#type))
+                    .map(|f| (format!("{}[].{}", p.name, f.name), f.r#type.clone()));
+                own.into_iter()
+                    .chain(fields)
+                    .map(|(name, t)| (c.rel.clone(), name, t))
+                    .collect::<Vec<_>>()
+            })
+        })
+        .map(|(rel, name, t)| {
+            Violation::new(
+                &rel,
+                format!(
+                    "`{name}` is declared `type: {t}`, which nothing reads, so its values pass \
+                     unchecked — use one of `{kinds}`; a value holding records is a `list` with \
+                     `fields:`"
+                ),
+            )
+        })
+        .collect();
+    Check::new(
+        "property-type-unknown",
+        "Class declares a property type nothing reads",
+        Severity::Warn,
+        "A `type:` the tooling does not define is read by nothing: `property-type` leaves its \
+         values alone, the compiled schema admits anything, and a standing or a `source` \
+         inside it is neither graded nor resolved. A corpus that coins `type: effect` for a \
+         list of evidenced entries gets no finding, and its entries no checks. Reported so \
+         the choice is made knowingly: a known type, or a `list` with `fields:` for a value \
+         that holds records. Not a gate, because a coined type is unread, not wrong.",
+        violations,
+    )
+}
+
 /// The id of [`malformed_yaml`], named once so the suppression it licenses cannot come to
 /// mean a check that no longer exists.
 pub const MALFORMED_YAML: &str = "malformed-yaml";
@@ -1555,6 +1608,20 @@ pub(crate) fn property_type_violation(declared: &str, value: &serde_yaml::Value)
 /// The declared type a value may hold several of (RFC-0050).
 pub(crate) const LIST_PROPERTY_TYPE: &str = "list";
 
+/// Every `type:` a reader grades: the scalar item types, and the two that are not one.
+/// [`property_type_unknown`] reports any other; the test
+/// `known_types_are_exactly_the_graded_ones` holds this list to [`property_type_violation`].
+pub(crate) const KNOWN_PROPERTY_TYPES: [&str; 8] = [
+    "string",
+    "text",
+    "ref",
+    "date",
+    "number",
+    crate::claims::CLAIM_PROPERTY_TYPE,
+    super::quotations::QUOTATION_PROPERTY_TYPE,
+    LIST_PROPERTY_TYPE,
+];
+
 /// Why a `list` declaration constrains nothing, or `None` when it is well formed.
 ///
 /// `items:` and `fields:` together say two things about one item; an `items:` outside
@@ -1860,7 +1927,8 @@ pub fn property_type(
          each item is held to the `items:` type or the `fields:` record its class declares: \
          a record is closed as the class is, so a misspelled `claim_tg` is reported rather \
          than read as an entry with no standing. Types the corpus coins for itself are left \
-         alone — this reports only the ones it can test.",
+         alone — this reports only the ones it can test, and `property-type-unknown` names \
+         the rest.",
         violations,
     )
 }
@@ -9120,6 +9188,65 @@ edges:
         ] {
             let classes = vec![class_from("c", declaration)];
             assert!(list_declaration_invalid(&classes).passed(), "{declaration}");
+        }
+    }
+
+    // ── property-type-unknown (#1391) ─────────────────────────────────────────
+
+    /// `travel-demand`'s `type: effect`, and a coined field inside a record, are each reported
+    /// once on the class; every type a reader grades, and a property with no `type:`, is not.
+    #[test]
+    fn a_coined_type_is_reported_on_the_class_and_a_known_one_is_not() {
+        let classes = vec![class_from(
+            "pathway",
+            "properties:\n  - name: effect\n    type: effect\n  \
+             - name: effects\n    type: list\n    fields:\n      \
+             - { name: span, type: interval }\n      - { name: claim_tag, type: claim }\n  \
+             - name: untyped\n",
+        )];
+        let c = property_type_unknown(&classes);
+        assert_eq!(c.severity, Severity::Warn);
+        let details: Vec<_> = c.violations.iter().map(|v| v.detail.as_str()).collect();
+        assert_eq!(details.len(), 2, "{c:#?}");
+        assert!(
+            details[0].starts_with("`effect` is declared `type: effect`"),
+            "{details:?}"
+        );
+        assert!(
+            details[1].starts_with("`effects[].span` is declared `type: interval`"),
+            "{details:?}"
+        );
+        assert!(
+            c.violations
+                .iter()
+                .all(|v| v.node.ends_with("pathway.ont.yml")),
+            "{c:#?}"
+        );
+
+        let known = KNOWN_PROPERTY_TYPES
+            .iter()
+            .map(|t| format!("  - name: p_{t}\n    type: {t}\n"))
+            .collect::<String>();
+        let classes = vec![class_from("c", &format!("properties:\n{known}"))];
+        assert!(property_type_unknown(&classes).passed(), "{known}");
+    }
+
+    /// **The list is the grader's, not a second opinion of it.** A known type is one
+    /// [`property_type_violation`] reports something for — an empty value, which every graded
+    /// type refuses — and a coined one is a type it reports nothing for, whatever it holds.
+    /// A type added to the grader and not to [`KNOWN_PROPERTY_TYPES`] is then reported as
+    /// unread by a check that is wrong about it; this keeps the two from drifting the other way.
+    #[test]
+    fn known_types_are_exactly_the_graded_ones() {
+        for t in KNOWN_PROPERTY_TYPES {
+            assert!(
+                property_type_violation(t, &serde_yaml::Value::Null).is_some(),
+                "`{t}` is listed as known and grades nothing"
+            );
+        }
+        for v in ["~", "definitely-true", "[1, 2]", "{ a: 1 }", "7", "\"\""] {
+            let value: serde_yaml::Value = serde_yaml::from_str(v).unwrap();
+            assert_eq!(property_type_violation("effect", &value), None, "{v}");
         }
     }
 

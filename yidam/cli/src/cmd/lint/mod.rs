@@ -370,6 +370,11 @@ const ROSTER: &[Entry] = &[
         run: |i| checks::list_declaration_invalid(i.classes()),
     },
     Entry {
+        id: "property-type-unknown",
+        asked: Asked::Always,
+        run: |i| checks::property_type_unknown(i.classes()),
+    },
+    Entry {
         id: "unimplemented-class",
         asked: Asked::Always,
         run: |i| checks::unimplemented_class(i.classes(), i.types()),
