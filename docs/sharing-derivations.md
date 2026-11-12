@@ -156,7 +156,8 @@ yidam tonpa add https://…/bundle.yiz
 `add` writes the declaration to `.yidam/tonpa.toml`, fetches the bundle, records its
 `sha256` in `.yidam/tonpa/tonpa.lock`, and unpacks it to `.yidam/tonpa/<name>/`. **Commit
 both files.** The unpacked directory is a build product; the declaration and the lock are
-the record.
+the record. The derived `.gitignore` ignores `.yidam/tonpa/*/` and keeps the lock. `yidam lint`
+does not read the unpacked prose: its links resolve in the corpus it came from, not here.
 
 | Command | Answers |
 |---|---|
