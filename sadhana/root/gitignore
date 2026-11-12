@@ -81,6 +81,13 @@ dist/
 # the index in git, and `.yidam/index.lock` is the only part that travels (#895).
 .yidam/index/
 
+# Dependencies `yidam tonpa` unpacks, one directory per name, fetched or pinned. A build
+# product: `.yidam/tonpa.toml` and `.yidam/tonpa/tonpa.lock` beside them are the record, and
+# `yidam tonpa install` rebuilds the directories from it. One pinned corpus left 813 untracked
+# files here for the next prescribed `git add -A` to stage (#1483). `/*/` and not the whole
+# directory, so the lock stays tracked.
+.yidam/tonpa/*/
+
 # `yidam export --format bundle` output. Built by `release.yml` and attached to the release as
 # `bundle.yiz`; consumers fetch it from there, never from the tree.
 .yidam/bundle.yiz

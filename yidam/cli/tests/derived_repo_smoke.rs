@@ -565,6 +565,47 @@ fn a_prescribed_git_add_stages_no_cargo_install_bookkeeping() {
     );
 }
 
+/// `git add -A` after `yidam tonpa add` stages the record and not the unpacked dependency.
+///
+/// A pinned or fetched dependency unpacks into `.yidam/tonpa/<name>/`. That is a build product,
+/// and `tonpa install` rebuilds it from `.yidam/tonpa.toml` and `.yidam/tonpa/tonpa.lock`. One
+/// pinned corpus left 813 untracked files there for the next prescribed `git add -A` (#1483).
+/// The lock lives in the same directory, so the second assertion is the over-reach check: a
+/// rule that ignored `.yidam/tonpa/` wholesale would drop the record with the copies.
+#[test]
+fn a_prescribed_git_add_stages_no_unpacked_dependency() {
+    let repo = Derived::bootstrap();
+    let root = repo.path();
+
+    std::fs::create_dir_all(root.join(".yidam/tonpa/sibling/corpus/thing")).unwrap();
+    std::fs::write(
+        root.join(".yidam/tonpa/sibling/corpus/thing/one.yml"),
+        "class: thing\n",
+    )
+    .unwrap();
+    std::fs::write(root.join(".yidam/tonpa/tonpa.lock"), "[sibling]\n").unwrap();
+    std::fs::write(root.join(".yidam/tonpa.toml"), "[dependencies]\n").unwrap();
+
+    git(root, &["-c", "core.excludesFile=/dev/null", "add", "-A"]);
+    let staged = common::git::out(root, &["diff", "--cached", "--name-only"]);
+    let staged: Vec<&str> = staged.lines().collect();
+
+    assert!(
+        !staged
+            .iter()
+            .any(|p| p.starts_with(".yidam/tonpa/sibling/")),
+        "the command bootstrap and PROTOCOL.md both prescribe staged an unpacked dependency. \
+         Fix it in `sadhana/root/gitignore`. Staged: {staged:?}"
+    );
+    for record in [".yidam/tonpa/tonpa.lock", ".yidam/tonpa.toml"] {
+        assert!(
+            staged.contains(&record),
+            "the ignore rule is too broad — it took {record}, which is the record. \
+             Staged: {staged:?}"
+        );
+    }
+}
+
 /// `git add -A` after the editor extension activates stages no `.vscode/settings.json`.
 ///
 /// The extension's vendor guard writes `files.readonlyInclude` at workspace scope, and that

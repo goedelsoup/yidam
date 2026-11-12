@@ -1309,13 +1309,14 @@ fn instances_of(corpus: &Path, class: &str) -> Vec<PathBuf> {
 ///
 /// The same over-inclusive text scan `rename` performs, for the same reason: the reader is
 /// being asked to check rather than to act, and a line naming the old path in an argument
-/// is worth seeing even when it is not a link. `.yidam/.vendor/` is excluded — a finding
-/// there is one nobody can act on.
+/// is worth seeing even when it is not a link. The built-in authorship regions —
+/// `.yidam/.vendor/` and the unpacked dependencies under `.yidam/tonpa/` — are excluded: a
+/// finding there is one nobody can act on.
 fn prose_mentions(root: &Path, needle: &str) -> Vec<Unhandled> {
-    let vendor = root.join(".yidam").join(".vendor");
     let mut out = Vec::new();
     for path in crate::walk::walk_linkable_files(&root.join(".yidam")) {
-        if path.starts_with(&vendor) || path.extension().is_some_and(|x| x == "yml") {
+        let builtin = crate::authorship::Authorship::builtin_covering(&rel(root, &path));
+        if builtin.is_some() || path.extension().is_some_and(|x| x == "yml") {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap_or_default();

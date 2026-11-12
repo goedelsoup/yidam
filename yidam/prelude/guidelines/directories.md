@@ -910,8 +910,13 @@ a provenance label. [why](directories.evidence.md#authorship-requires-an-address
 Only `excluded` produces silence, and it is named so that a reviewer meeting it in the manifest
 sees the escape hatch as one. The other two are still real defects — simply somebody else's.
 
-`.yidam/.vendor/` is built in as `imported` and is not declared here: it is yidam's claim about
-a directory yidam manages, not this repository's.
+Two regions are built in and are not declared here. Each is yidam's claim about a directory
+yidam manages, not this repository's:
+
+- `.yidam/.vendor/` is `imported`.
+- Each unpacked dependency under `.yidam/tonpa/` is `excluded`. That covers every subdirectory,
+  but not `tonpa.lock` beside them. Its relative links were written to resolve in the corpus it
+  was copied from. So none of them is a defect here, and none is a defect upstream.
 
 **A declaration that matches nothing is reported** — `authorship-region-stale` — because the
 entry that outlives its directory quietly excuses a path somebody later creates under the same

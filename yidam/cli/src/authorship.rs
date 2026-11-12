@@ -46,6 +46,12 @@ use serde::Deserialize;
 /// Where a repository declares what it did not author, relative to its root.
 pub const MANIFEST: &str = ".yidam/authorship.yml";
 
+/// Each dependency `yidam tonpa` unpacks, fetched or pinned: one directory per name.
+///
+/// A path component of `*` matches any one directory, so this covers
+/// `.yidam/tonpa/<name>/…` and not `.yidam/tonpa/tonpa.lock`.
+pub const TONPA_UNPACKED: &str = ".yidam/tonpa/*";
+
 /// How material got here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -159,12 +165,27 @@ impl Default for Authorship {
     /// The built-in regions alone — what a repository with no manifest gets.
     fn default() -> Self {
         Self {
-            regions: vec![Region {
-                kind: Kind::Imported,
-                path: ".yidam/.vendor".to_string(),
-                note: "the yidam prelude, adopted by re-vendoring".to_string(),
-                builtin: true,
-            }],
+            regions: vec![
+                Region {
+                    kind: Kind::Imported,
+                    path: ".yidam/.vendor".to_string(),
+                    note: "the yidam prelude, adopted by re-vendoring".to_string(),
+                    builtin: true,
+                },
+                // Excluded rather than imported: the files are a copy of another corpus, but
+                // their relative links were written to resolve *there*. Every one of them is
+                // broken here and none is broken upstream, so an info finding addressed to the
+                // sibling would be false. `*` and not the whole directory, because
+                // `.yidam/tonpa/tonpa.lock` beside the unpacked copies is the record (#1483).
+                Region {
+                    kind: Kind::Excluded,
+                    path: TONPA_UNPACKED.to_string(),
+                    note: "an unpacked dependency, a build product of `yidam tonpa install` \
+                           whose relative links resolve in the corpus it was copied from"
+                        .to_string(),
+                    builtin: true,
+                },
+            ],
         }
     }
 }
@@ -229,15 +250,36 @@ impl Authorship {
     /// rather than in this function.
     pub fn covering(&self, rel: &str) -> Option<&Region> {
         let rel = normalize(rel);
-        self.regions
-            .iter()
-            .find(|r| rel == r.path || rel.starts_with(&format!("{}/", r.path)))
+        self.regions.iter().find(|r| under(&rel, &r.path))
+    }
+
+    /// The built-in region covering a repo-relative path, if any.
+    ///
+    /// For the walks that only ever skipped `.yidam/.vendor/` — `rename` and `migrate`'s
+    /// prose scans — so they learn about every directory yidam manages without starting to
+    /// honour a repository's own declarations, which they never did.
+    pub fn builtin_covering(rel: &str) -> Option<Region> {
+        Self::default().covering(rel).cloned()
     }
 
     /// The regions this repository declared — everything except the built-ins.
     pub fn declared(&self) -> impl Iterator<Item = &Region> {
         self.regions.iter().filter(|r| !r.builtin)
     }
+}
+
+/// Whether `rel` is `region` or under it, comparing whole components.
+///
+/// A region component of `*` matches any one *directory*: something in `rel` must follow it.
+/// A scan sees files, not directories, so this is the only way a pattern can say "the
+/// subdirectories here and not the files beside them" — `.yidam/tonpa/*` and the lock.
+fn under(rel: &str, region: &str) -> bool {
+    let mut rel = rel.split('/').peekable();
+    region.split('/').all(|want| match rel.next() {
+        Some(_) if want == "*" => rel.peek().is_some(),
+        Some(got) => want == got,
+        None => false,
+    })
 }
 
 /// Declared regions that match nothing on disk.
@@ -273,6 +315,25 @@ mod tests {
         assert_eq!(r.kind, Kind::Imported);
         assert!(r.builtin);
         // A repository is held to what it declared, and it did not declare this.
+        assert_eq!(a.declared().count(), 0);
+    }
+
+    /// #1483: six pinned corpora unpacked here gave 4017 `broken-prose-link` errors, every one
+    /// a link written to resolve in the sibling it was copied from.
+    #[test]
+    fn an_unpacked_dependency_is_built_in_and_excluded_but_its_lock_is_not() {
+        let a = Authorship::default();
+        let r = a
+            .covering(".yidam/tonpa/sibling/corpus/decisions/a.md")
+            .unwrap();
+        assert_eq!(r.kind, Kind::Excluded);
+        assert!(r.builtin);
+        assert!(a.covering(".yidam/tonpa/sibling/bundle.yiz").is_some());
+        // The record, beside the copies, is this repository's.
+        assert!(a.covering(".yidam/tonpa/tonpa.lock").is_none());
+        assert!(a.covering(".yidam/tonpa.toml").is_none());
+        assert!(a.covering(".yidam/tonpa").is_none());
+        assert!(a.covering(".yidam/tonpas/x/y.md").is_none());
         assert_eq!(a.declared().count(), 0);
     }
 

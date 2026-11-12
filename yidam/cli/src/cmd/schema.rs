@@ -752,8 +752,8 @@ pub fn authorship_schema() -> Value {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "yidam authorship manifest",
         "description": "What in this repository is not authored here. Checks that read prose \
-                        skip or re-address these regions. `.yidam/.vendor/` is built in and \
-                        is not declared here.",
+                        skip or re-address these regions. `.yidam/.vendor/` and `.yidam/tonpa/*/` \
+                        are built in and are not declared here.",
         "type": "object",
         "properties": {
             "generated": {

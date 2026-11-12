@@ -2121,6 +2121,26 @@ decision := {"allow": true, "deny": []}
         assert_eq!(check(&all, "unauthored-prose-link").violations.len(), 1);
     }
 
+    /// #1483: a dependency `tonpa` unpacked here is a build product, and its relative links
+    /// resolve in the sibling it was copied from. Six pinned corpora gave 4017 errors, all of
+    /// them this. Not even reported at info: none of them is broken upstream either. The
+    /// `.md` beside the copies is the control — it is not inside one, so it is still read.
+    #[test]
+    fn an_unpacked_dependency_needs_no_declaration_and_is_not_read() {
+        let tmp = clean_repo();
+        broken_link_at(tmp.path(), ".yidam/tonpa/sibling/corpus/decisions/a.md");
+        broken_link_at(tmp.path(), ".yidam/tonpa/notes.md");
+        let all = run_checks(tmp.path(), &Options::default());
+        let found: Vec<&str> = check(&all, "broken-prose-link")
+            .violations
+            .iter()
+            .map(|v| v.node.as_str())
+            .collect();
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].starts_with(".yidam/tonpa/notes.md"), "{found:?}");
+        assert!(check(&all, "unauthored-prose-link").passed());
+    }
+
     // ── #577: the artifact's links into the corpus ──────────────────────────────
 
     /// `clean_repo` with an artifact beside it: `crates/**` declared the object, and a crate

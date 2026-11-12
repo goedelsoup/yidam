@@ -389,15 +389,19 @@ pub(crate) fn plan(root: &Path, corpus: &Path, old: &str, new: &str) -> RenameRe
     // sangha positions, a resolution record and a skill — every one of which would have broken
     // silently.
     //
-    // `.yidam/.vendor/` is excluded for the reason lint excludes it: it is read-only here, and a
-    // finding there is one nobody can act on.
-    let vendor = root.join(".yidam").join(".vendor");
+    // The built-in authorship regions are excluded for the reason lint excludes them:
+    // `.yidam/.vendor/` is read-only here, an unpacked dependency under `.yidam/tonpa/` is
+    // rewritten by the next install (#1483), and a finding in either is one nobody can act on.
+    let builtin = |p: &Path| {
+        crate::authorship::Authorship::builtin_covering(&slash(p.strip_prefix(root).unwrap_or(p)))
+            .is_some()
+    };
     let stem = Path::new(&from)
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_default();
     for path in walk_linkable_files(&root.join(".yidam")) {
-        if path.starts_with(&vendor) || path.extension().is_some_and(|x| x == "yml") {
+        if builtin(&path) || path.extension().is_some_and(|x| x == "yml") {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap_or_default();
@@ -570,12 +574,13 @@ fn plan_catalog(root: &Path, corpus: &Path, from: String, new: &str) -> RenameRe
     // list is defined against the first: a line is shown when it names the old file more
     // often than it is rewritten, so a mention beside a handled link is not lost and a
     // handled link is not shown as both done and undone. The entry's own lines are under the
-    // name it ends up with, as every edit is. `.yidam/.vendor/` is excluded for the reason
-    // lint excludes it: it is read-only here, and a finding there is one nobody can act on.
-    let vendor = yidam.join(".vendor");
+    // name it ends up with, as every edit is. The built-in authorship regions are excluded,
+    // as in the scan above: `.yidam/.vendor/` is read-only here, and a link rewritten inside
+    // an unpacked dependency would point at nothing there and be undone by the next install.
     let moved_rel = report.moved_file();
     for path in walk_linkable_files(&yidam) {
-        if path.starts_with(&vendor) {
+        let on_disk = slash(path.strip_prefix(root).unwrap_or(&path));
+        if crate::authorship::Authorship::builtin_covering(&on_disk).is_some() {
             continue;
         }
         let rel = match path == old_path {
@@ -1125,6 +1130,36 @@ mod tests {
         assert_eq!(r.unhandled.len(), 1);
         assert!(r.unhandled[0].text.contains("concept/old.yml"));
         assert!(render_rename(&r).contains("NOT rewritten"));
+    }
+
+    /// Neither built-in region is scanned: the prelude is read-only here, and an unpacked
+    /// dependency is rewritten by the next `tonpa install` (#1483). The corpus README is the
+    /// control.
+    #[test]
+    fn prose_in_a_built_in_region_is_neither_reported_nor_rewritten() {
+        let (_t, root, corpus) = corpus();
+        write(&corpus.join("concept/old.yml"), "class: concept\n");
+        catalog(&root, "old.md", "---\nobtained: true\n---\n");
+        for rel in [
+            ".yidam/corpus/README.md",
+            ".yidam/.vendor/prelude/x.md",
+            ".yidam/tonpa/sibling/corpus/README.md",
+        ] {
+            std::fs::create_dir_all(root.join(rel).parent().unwrap()).unwrap();
+            write(
+                &root.join(rel),
+                "See [Old](concept/old.yml) and [it](../catalog/old.md).\n",
+            );
+        }
+        let files = |r: &RenameReport| -> Vec<String> {
+            let mut f: Vec<String> = r.unhandled.iter().map(|u| u.file.clone()).collect();
+            f.extend(r.edits.iter().map(|e| e.file.clone()));
+            f
+        };
+        let r = plan(&root, &corpus, "concept/old", "concept/new");
+        assert_eq!(files(&r), vec![".yidam/corpus/README.md"]);
+        let r = plan(&root, &corpus, "catalog/old", "new");
+        assert_eq!(files(&r), vec![".yidam/corpus/README.md"]);
     }
 
     /// The suggested subject has to be one `lint --commits` accepts.
