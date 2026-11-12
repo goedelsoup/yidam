@@ -6,6 +6,7 @@
 //! permanently ignored; see [`baseline`].
 
 pub(crate) mod articles;
+pub(crate) mod asks;
 pub(crate) mod attest;
 pub(crate) mod baseline;
 pub(crate) mod calculators;
@@ -471,6 +472,16 @@ const ROSTER: &[Entry] = &[
         id: local_citations::UNTAGGED,
         asked: Asked::Always,
         run: |i| i.local_citation_checks()[3].clone(),
+    },
+    Entry {
+        id: asks::UNRESOLVED,
+        asked: Asked::Always,
+        run: |i| i.ask_checks()[0].clone(),
+    },
+    Entry {
+        id: asks::MALFORMED,
+        asked: Asked::Always,
+        run: |i| i.ask_checks()[1].clone(),
     },
     Entry {
         id: quotations::UNRESOLVED,

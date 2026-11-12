@@ -289,7 +289,7 @@ impl Practice {
 /// Where this repository is in its loop.
 #[derive(Debug, serde::Serialize)]
 pub struct CycleReport {
-    /// What is owed — `due`'s five clocks, read through `due`'s own reader and unchanged.
+    /// What is owed — `due`'s six clocks, read through `due`'s own reader and unchanged.
     pub owed: Vec<Clock>,
     /// The manifest's steps whose committed receipt does not stand at the tip — owed as surely
     /// as a due clock, and the half `due` cannot report (#1440).
@@ -509,8 +509,8 @@ fn blocked(root: &Path) -> (Vec<Blocked>, Vec<Finding>) {
 /// one. Each half contributes its own acts; a half that found nothing contributes none, and a
 /// report that names no act at all says so rather than printing an empty heading.
 ///
-/// An owed clock contributes the remedy `due` already computed for it — the five remedies
-/// that are not this command's to invent, and four of the five are not commands at all. A
+/// An owed clock contributes the remedy `due` already computed for it — the six remedies
+/// that are not this command's to invent, and five of the six are not commands at all. A
 /// clock in any other state contributes nothing here: an unset clock's remedy is to set it,
 /// which is a thing to do about the configuration rather than about the corpus, and `due` is
 /// where that is said.
@@ -630,7 +630,7 @@ fn next_acts(
 
 /// Read every half against `root`.
 ///
-/// `today` is passed rather than read, for `due`'s reason: three of the five clocks count days,
+/// `today` is passed rather than read, for `due`'s reason: four of the six clocks count days,
 /// and a report whose own tests depend on the day they run is the failure `lint::today_iso`
 /// describes.
 pub(crate) fn read_cycle(root: &Path, strict: bool, today: i64) -> Result<CycleReport> {

@@ -23,6 +23,7 @@ After bootstrap, a derived repository has two tiers:
 - `.yidam/sources/` — source packs this repository wrote *(created on first use)*
 - `.yidam/corpus/` — the living knowledge graph
 - `.yidam/tonpa.toml` and `.yidam/tonpa/` — the corpora this one depends on, and where they land
+- `.yidam/asks/` — questions this repository put to those corpora *(created on first use)*
 - `.yidam/decisions/` — structured records of choices made during this repo's life
 - `.yidam/capabilities.toml` — what may run here, what it reads and what it writes
 - `.yidam/runs/` — one receipt per capability: what ran, against what, producing which bytes
@@ -437,6 +438,14 @@ and a `span:` is a claim about text no read-tool checks. `yidam lint` decides it
 **Whether `.yidam/tonpa/` should be committed is not settled here.** The gitignore template
 does not name it, and no derived repository has yet declared a dependency.
 [why](directories.evidence.md#tonpa-ignore-unsettled)
+
+---
+
+## `.yidam/asks/`
+
+Questions to the corpora this one depends on, one file each under `.yidam/asks/<package>/`.
+Authored, committed, never a corpus node. The format is in
+[agent-conduct.md](agent-conduct.md#when-you-have-a-question-for-a-corpus-you-depend-on).
 
 ---
 

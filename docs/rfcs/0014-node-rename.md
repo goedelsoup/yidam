@@ -22,7 +22,7 @@ free because the detection it enforces already exists.
 ## Problem
 
 The hazard is documented with no operational remedy:
-[`directories.md:362-363`](../../yidam/prelude/guidelines/directories.md#L362-L363) — "renaming a node
+[`directories.md:363-364`](../../yidam/prelude/guidelines/directories.md#L363-L364) — "renaming a node
 severs edges, so choose well"; [`information-architecture.md:27`](../information-architecture.md#L27) —
 "renaming severs edges." Edges are path-based (`links[].target` on an instance; `[label](path)` in
 Markdown), so renaming `a/old.yml` → `a/new.yml` silently invalidates every inbound
@@ -30,7 +30,7 @@ Markdown), so renaming `a/old.yml` → `a/new.yml` silently invalidates every in
 
 The detection *exists but does not gate.* `graph-check` already resolves each outgoing link against
 the filesystem and reports a break
-([`corpus.rs:254-256`](../../yidam/cli/src/cmd/corpus.rs#L254-L256)):
+([`corpus.rs:298-300`](../../yidam/cli/src/cmd/corpus.rs#L298-L300)):
 
 ```rust
 let resolved = dir.join(target);

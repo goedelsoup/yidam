@@ -317,6 +317,22 @@
       "violations": []
     },
     {
+      "id": "ask-unresolved",
+      "title": "Ask addressed to a corpus this repository does not depend on",
+      "severity": "error",
+      "rationale": "An ask's directory is the corpus it is addressed to, and the pin it was read against means something only against a dependency this repository declares. An ask to an undeclared corpus can never come due, so it would sit in the outbox unread — the failure the directory exists to end.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "ask-malformed",
+      "title": "Ask whose header cannot say what state it is in",
+      "severity": "error",
+      "rationale": "An ask records the far-side commit it was read against and where it stands. Without a pin nothing can tell when the far side has moved past it, and with a status outside the four, or an answer with no commit, a reader is back to maintaining its state in prose — which is how drafts went stale before this directory existed.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "quotation-unresolved",
       "title": "A quotation names no artifact the catalog records",
       "severity": "error",

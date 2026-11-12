@@ -576,6 +576,18 @@ pub struct DueConfig {
     /// superseded_after = 14
     /// ```
     pub superseded_after: Option<u32>,
+    /// Days an open ask may stand against a pin its corpus has since moved from before it is
+    /// due a re-read (#1467).
+    ///
+    /// **Days, counted from the commit that moved the pin** in `.yidam/tonpa/tonpa.lock`. That
+    /// commit is when this repository started reading the far side's new text, so it is when
+    /// an answer could first have been seen. `0` makes every such ask due on the re-pin.
+    ///
+    /// ```toml
+    /// [due]
+    /// asks_after = 7
+    /// ```
+    pub asks_after: Option<u32>,
     /// Clocks this corpus decided it does not want, each naming the record that argues it.
     ///
     /// **Unset and declined are different states, and only one of them was a choice.** A

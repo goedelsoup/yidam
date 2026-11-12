@@ -43,12 +43,17 @@
 # discharges it.
 # superseded_after = 14
 
+# Days an open question in .yidam/asks/<package>/ may stand against a pin that corpus has
+# since moved from before it is due a re-read. The clock starts at the commit that moved the
+# pin in .yidam/tonpa/tonpa.lock; marking the ask answered, or moving its `pin:`, discharges it.
+# asks_after = 7
+
 # Clocks this corpus examined and does not want, each naming the record that argues it.
 # Unset and declined are different states and only one of them was a choice: without this,
 # a corpus that considered a vector index and chose against it reports identically to one
 # that has never heard of it, and the only remedy `due` can offer the first is to declare an
 # interval for work nobody intends. The key is the clock's id — `index`, `catalog`,
-# `questions`, `phases`, `superseded` — and the value is a record in `.yidam/decisions/`,
+# `questions`, `phases`, `superseded`, `asks` — and the value is a record in `.yidam/decisions/`,
 # by its `id:` or its file stem. The record is required: a decline naming one this repository does not hold
 # is not honoured, and `due` says so rather than going quiet.
 # [due.declined]

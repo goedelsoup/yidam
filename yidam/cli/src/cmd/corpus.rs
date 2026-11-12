@@ -120,11 +120,55 @@ pub(crate) fn render_open_questions(corpus: &Corpus) -> String {
             ));
         }
     }
-    if items.is_empty() {
+    let mut out = if items.is_empty() {
         "_No open questions._".to_string()
     } else {
         items.join("\n")
+    };
+    // Questions this repository put to the corpora it depends on (#1467), listed beside its
+    // own questions rather than mixed into them. An ask is open on the far side, and an
+    // undecided claim here is not the same thing. A repository with no open asks renders
+    // exactly what it rendered before, so no README churns on the upgrade.
+    let asks = open_asks(root);
+    if !asks.is_empty() {
+        out.push_str("\n\nAsked of the corpora this one depends on:\n\n");
+        let lines: Vec<String> = asks
+            .iter()
+            .map(|a| {
+                let at = a
+                    .node
+                    .as_deref()
+                    .map(|n| format!(" `{n}`"))
+                    .unwrap_or_default();
+                format!(
+                    "- [{}]({}) — `{}`{at} at `{}`",
+                    a.title, a.ask, a.package, a.pin
+                )
+            })
+            .collect();
+        out.push_str(&lines.join("\n"));
     }
+    out
+}
+
+/// The open asks under `.yidam/asks/`, as `open-questions` lists them.
+///
+/// An ask that `lint` would reject is left out: one with no package or no pin cannot say what
+/// it is waiting on, and listing it would present a malformed record as a question.
+fn open_asks(root: &std::path::Path) -> Vec<OpenAsk> {
+    crate::asks::read(root)
+        .into_iter()
+        .filter(crate::asks::Ask::is_open)
+        .filter_map(|a| {
+            Some(OpenAsk {
+                package: a.package.clone()?,
+                pin: a.header.pin.clone().filter(|p| !p.trim().is_empty())?,
+                node: a.header.node.clone(),
+                title: a.title.clone(),
+                ask: a.rel.clone(),
+            })
+        })
+        .collect()
 }
 
 /// Returns (report_text, issue_count). issue_count > 0 means the graph has problems.
@@ -455,9 +499,28 @@ pub struct OpenQuestion {
     pub target: Option<String>,
 }
 
+/// A question this repository put to a corpus it depends on (#1467).
+#[derive(Debug, serde::Serialize)]
+pub struct OpenAsk {
+    /// Repo-relative path of the ask, under `.yidam/asks/<package>/`.
+    pub ask: String,
+    /// The dependency it is addressed to, as `.yidam/tonpa.toml` names it.
+    pub package: String,
+    /// The far-side node it is about. `None` for a question to the corpus as a whole.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node: Option<String>,
+    /// The far side's commit the question was read against.
+    pub pin: String,
+    /// The ask's first heading, or its file stem.
+    pub title: String,
+}
+
 #[derive(Debug, serde::Serialize)]
 pub struct OpenQuestionsReport {
     pub open_questions: Vec<OpenQuestion>,
+    /// Questions addressed to other corpora, kept beside this one's own and never counted in
+    /// them: whether one is settled is decided on the far side.
+    pub asks: Vec<OpenAsk>,
 }
 
 pub(crate) fn open_questions_data(corpus: &Corpus) -> OpenQuestionsReport {
@@ -493,7 +556,10 @@ pub(crate) fn open_questions_data(corpus: &Corpus) -> OpenQuestionsReport {
             });
         }
     }
-    OpenQuestionsReport { open_questions }
+    OpenQuestionsReport {
+        open_questions,
+        asks: open_asks(root),
+    }
 }
 
 pub fn corpus_index(root: Option<&std::path::Path>, format: crate::report::Format) -> Result<()> {
@@ -778,6 +844,55 @@ mod tests {
         .unwrap();
 
         assert_links_resolve(&render_open_questions(&Corpus::open(root)), root);
+    }
+
+    /// An open ask is listed beside the corpus's own questions, and its link resolves from the
+    /// root README like theirs. An answered ask and one with no pin are not listed; a corpus with
+    /// no asks renders exactly what it rendered before they existed.
+    #[test]
+    fn open_asks_are_listed_beside_the_questions_and_never_among_them() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        assert_eq!(
+            render_open_questions(&Corpus::open(root)),
+            "_No open questions._"
+        );
+
+        let asks = root.join(".yidam/asks/up");
+        std::fs::create_dir_all(&asks).unwrap();
+        std::fs::write(
+            asks.join("base-flow.md"),
+            "---\npin: 8d35441\nnode: concept/base-flow\nstatus: open\n---\n# Does base flow include bank storage?\n",
+        )
+        .unwrap();
+        std::fs::write(
+            asks.join("done.md"),
+            "---\npin: 8d35441\nstatus: answered\nanswered_at: 9e0\n---\n# Done?\n",
+        )
+        .unwrap();
+        std::fs::write(asks.join("unpinned.md"), "---\nstatus: open\n---\n").unwrap();
+
+        let corpus = Corpus::open(root);
+        let text = render_open_questions(&corpus);
+        assert!(text.starts_with("_No open questions._\n\n"), "{text}");
+        assert!(
+            text.contains(
+                "- [Does base flow include bank storage?](.yidam/asks/up/base-flow.md) — `up` \
+                 `concept/base-flow` at `8d35441`"
+            ),
+            "{text}"
+        );
+        assert!(
+            !text.contains("Done?") && !text.contains("unpinned"),
+            "{text}"
+        );
+        assert_links_resolve(&text, root);
+
+        let data = open_questions_data(&corpus);
+        assert!(data.open_questions.is_empty(), "never counted among them");
+        assert_eq!(data.asks.len(), 1, "{:?}", data.asks);
+        assert_eq!(data.asks[0].package, "up");
+        assert_eq!(data.asks[0].node.as_deref(), Some("concept/base-flow"));
     }
 
     /// A row's link is `/`-separated whatever the host does, because the rendered table is

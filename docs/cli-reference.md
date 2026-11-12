@@ -138,7 +138,7 @@ a session runs none of them, or one.
 
 | Half | What it reads |
 |---|---|
-| **owed** | `due`'s five clocks, through `due`'s own reader |
+| **owed** | `due`'s six clocks, through `due`'s own reader |
 | **in flight** | the unsettled inquiry refs `yidam phases` lists — `active`, never a settled phase or a standing position |
 | **blocked** | what `lint`'s baseline ratchet and `graph-check` would fail on **today** |
 | **next** | one act per half, each carrying the finding, clock or declaration behind it |
@@ -320,6 +320,7 @@ corpus said about itself, never a number in the binary. The reasoning is
 | `questions` | How long a question has gone unanswered | `[due] questions_after` | corpus commits |
 | `phases` | How long a bounded inquiry has been in flight | `[due] phases_after` | days |
 | `superseded` | How long a node has cited a source that changed since it was last committed | `[due] superseded_after` | days |
+| `asks` | How long an open question to another corpus has stood against a pin that corpus has since moved from | `[due] asks_after` | days, from the re-pin |
 
 The catalog clock reads the interval [where it already lived](configuration.md#catalog-ttl_days)
 rather than restating it under `[due]`. A source's TTL is a statement about the source. Two places
@@ -335,14 +336,14 @@ one. The clock reads `declined`, still prints what it measured, and prints the d
 behind it. The record is required, so a decline is something a corpus wrote down and can be
 asked about.
 
-Three of the five count days and two do not, which is deliberate. How long a question has gone
+Four of the six count days and two do not, which is deliberate. How long a question has gone
 unanswered is a fact about the repository, so its clock is `HEAD`. A corpus that has not committed
-has not ignored anything. A source's TTL, a phase's time in flight and a source's new version are facts about the world.
+has not ignored anything. A source's TTL and a phase's time in flight are facts about the world. So are a source's new version and a re-pin of a corpus you asked.
 The world does not stop moving because nobody committed.
 
 ### What discharges a clock
 
-`due` reports; it does not act. Only one of the five clocks is discharged by something
+`due` reports; it does not act. Only one of the six clocks is discharged by something
 [`propose`](#propose-is-deliberately-small) can draft:
 
 | Clock | What discharges it |
@@ -352,6 +353,7 @@ The world does not stop moving because nobody committed.
 | `questions` | A person. Deciding a question is answered is a resolution event, and Article V confines those to a sangha |
 | `phases` | A person. Settling a phase or abandoning it is not a mechanical consequence of a finding |
 | `superseded` | A person re-reading the source, and a commit to each node it lists. Any commit touching the node counts |
+| `asks` | A person reading the far side at its new pin, then marking the ask `answered` (with `answered_at:`) or moving its `pin:` to the new commit |
 
 Each clock names its own remedy in the report. The distinction is visible where it matters, not
 only here.

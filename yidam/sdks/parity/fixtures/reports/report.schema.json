@@ -465,7 +465,7 @@
     },
     "clocks": {
       "type": "array",
-      "description": "`due` only. The five clocks, each with the interval this corpus declared for it. A clock in state `undeclared` still reports what it measured: nobody has set it, which is not the same as its reading zero. Nor is it the same as `declined`, which is a corpus that decided against what the clock measures and recorded why — the two read identically until `record` is read.",
+      "description": "`due` only. The six clocks, each with the interval this corpus declared for it. A clock in state `undeclared` still reports what it measured: nobody has set it, which is not the same as its reading zero. Nor is it the same as `declined`, which is a corpus that decided against what the clock measures and recorded why — the two read identically until `record` is read.",
       "items": {
         "type": "object",
         "required": [
@@ -762,6 +762,41 @@
           "target": {
             "type": "string",
             "description": "`scope: edge` only. The edge's target, exactly as the node wrote it, so a consumer can find it in the file."
+          }
+        }
+      }
+    },
+    "asks": {
+      "type": "array",
+      "description": "`open-questions` only. The questions this repository put to the corpora it depends on, read from `.yidam/asks/<package>/` (#1467): only those with `status: open`, and only those whose header names a pin. BESIDE `open_questions` and never counted in it \u2014 whether an ask is settled is decided on the far side, and an undecided claim here is not the same thing. A consumer wanting to know whether one is due a re-read reads the `asks` clock in `due`, which compares `pin` with the dependency's current pin. NOT required: a CLI released before this field emits `open-questions` without it, and its output must still validate.",
+      "items": {
+        "type": "object",
+        "required": [
+          "ask",
+          "package",
+          "pin",
+          "title"
+        ],
+        "properties": {
+          "ask": {
+            "type": "string",
+            "description": "Repo-relative path of the ask file."
+          },
+          "package": {
+            "type": "string",
+            "description": "The dependency it is addressed to, as `.yidam/tonpa.toml` names it \u2014 the ask's directory."
+          },
+          "node": {
+            "type": "string",
+            "description": "The far-side node the question is about, as the ask's header gives it. Absent for a question to the corpus as a whole."
+          },
+          "pin": {
+            "type": "string",
+            "description": "The far side's commit the question was read against, as written; it may be abbreviated."
+          },
+          "title": {
+            "type": "string",
+            "description": "The ask's first `#` heading, or its file stem when it has none."
           }
         }
       }
@@ -2740,7 +2775,7 @@
     },
     "owed": {
       "type": "array",
-      "description": "`cycle` only. What this repository is owed \u2014 the same five clocks `due` reports, read through `due`'s own reader and carrying the same item shape. A consumer MUST NOT render a `due` clock as a fault: a corpus with three expired sources is owed, not unhealthy, and `doctor` is the report that answers whether anything is wrong.",
+      "description": "`cycle` only. What this repository is owed \u2014 the same six clocks `due` reports, read through `due`'s own reader and carrying the same item shape. A consumer MUST NOT render a `due` clock as a fault: a corpus with three expired sources is owed, not unhealthy, and `doctor` is the report that answers whether anything is wrong.",
       "items": {
         "type": "object",
         "required": [
@@ -3120,7 +3155,7 @@
           },
           "act": {
             "type": "string",
-            "description": "The command or act, as a reader would run or perform it. For an owed clock this is `due`'s own remedy verbatim \u2014 four of the five clocks are discharged by something that is not a command at all."
+            "description": "The command or act, as a reader would run or perform it. For an owed clock this is `due`'s own remedy verbatim \u2014 five of the six clocks are discharged by something that is not a command at all."
           },
           "why": {
             "type": "string",
