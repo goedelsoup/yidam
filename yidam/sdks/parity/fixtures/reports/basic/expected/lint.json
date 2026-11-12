@@ -132,7 +132,7 @@
       "id": "property-type",
       "title": "Property value that contradicts its declared type",
       "severity": "error",
-      "rationale": "A typed field the ontology declares is read by type, not by eye. A `claim` field holding prose is counted as no claim at all; a `string` holding an unquoted number has lost its leading zeros before anything reads it; a `number` holding a quoted one is text the compiled schema refuses and an ordering cannot compare. A `string` whose class declares `values:` is held to that set: a value outside it is either a widening the class never recorded or prose in a token field, and both are reported so the set the class publishes stays true. A `list` is a non-empty list, and each item is held to the `items:` type or the `fields:` record its class declares: a record is closed as the class is, so a misspelled `claim_tg` is reported rather than read as an entry with no standing. Types the corpus coins for itself are left alone — this reports only the ones it can test.",
+      "rationale": "A typed field the ontology declares is read by type, not by eye. A `claim` field holding prose is counted as no claim at all; a `string` holding an unquoted number has lost its leading zeros before anything reads it; a `number` holding a quoted one is text the compiled schema refuses and an ordering cannot compare. A `string` whose class declares `values:` is held to that set: a value outside it is either a widening the class never recorded or prose in a token field, and both are reported so the set the class publishes stays true. A `list` is a non-empty list, and each item is held to the `items:` type or the `fields:` record its class declares: a record is closed as the class is, so a misspelled `claim_tg` is reported rather than read as an entry with no standing. Types the corpus coins for itself are left alone — this reports only the ones it can test, and `property-type-unknown` names the rest.",
       "escalation_eligible": false,
       "violations": []
     },
@@ -141,6 +141,14 @@
       "title": "Class declares a list whose items cannot be read",
       "severity": "error",
       "rationale": "A `list` declares its items with `items:`, naming one scalar type, or with `fields:`, declaring a record — or with neither, and then holds any non-empty list. Both at once, an `items:` naming a list, a quotation or a coined type, or a record field typed `list` or `quotation` is a declaration nothing can hold an instance to, and the gate falls back to checking only that the value is a list. Reported here so the fallback is not silent.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "property-type-unknown",
+      "title": "Class declares a property type nothing reads",
+      "severity": "warn",
+      "rationale": "A `type:` the tooling does not define is read by nothing: `property-type` leaves its values alone, the compiled schema admits anything, and a standing or a `source` inside it is neither graded nor resolved. A corpus that coins `type: effect` for a list of evidenced entries gets no finding, and its entries no checks. Reported so the choice is made knowingly: a known type, or a `list` with `fields:` for a value that holds records. Not a gate, because a coined type is unread, not wrong.",
       "escalation_eligible": false,
       "violations": []
     },

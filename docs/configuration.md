@@ -813,6 +813,11 @@ anything else and names the set. The compiled class schema carries the set as `e
 match is exact, as written. The field binds `string` only. On every other type it is carried
 through unchanged. A set on a coined type constrains nothing until the property is retyped.
 
+**A coined type is read by nothing.** Its values pass every check, so
+`property-type-unknown` warns on it, for a property or a record field. The known types are
+`string`, `text`, `ref`, `date`, `number`, `claim`, `quotation` and `list`. A value holding
+records is a `list` with `fields:`. The finding does not gate.
+
 ## Environment variables
 
 | Variable | Read by | Effect |

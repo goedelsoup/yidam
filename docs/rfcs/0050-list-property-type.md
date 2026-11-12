@@ -258,7 +258,9 @@ holds all three to the tolerant behaviour.
   changes the contract and bumps the MCP version.
 - **A `property-type` finding for an unknown type.** #1391 also asks for this. It is a
   separate change, because it reddens every corpus that coined a type, not only the ones
-  that coined `list`.
+  that coined `list`. *Settled as a warning, `property-type-unknown`*: over 23 tracked
+  corpora on this machine (1,173 declared properties, 2026-11-11) none coins a type, so
+  only a corpus off it, such as `travel-demand`, sees the finding, and it does not gate.
 - **The node-standing narrowing.** *Settled by the measurement in Migration*: no corpus on
   hand puts a declared claim field anywhere but the top level, so the walk "a projected corpus
   may put its typed fields anywhere" served no corpus measured. An unmeasured projection could

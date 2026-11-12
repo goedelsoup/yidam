@@ -232,20 +232,25 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// the key's line in the catalog example and one rule saying a new digest supersedes only a
 /// record with the same origin and resource. Both routes moved by the same 41. The argument is
 /// in `directories.evidence.md`.
+///
+/// **Raised by 17 on *Before you write or revise a node* and *Before you change a class*, on
+/// both routes, when the class contract named `property-type-unknown` (#1391).** The delta is
+/// **17 words in `GRAPH.md`**: one row of the class-contract table. All four moved by the same
+/// 17, so nothing else did.
 const READ_CEILING: &[(&str, &str, usize)] = &[
-    ("AGENTS.md", "Before you write or revise a node", 6_742),
+    ("AGENTS.md", "Before you write or revise a node", 6_759),
     ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
         4_539,
     ),
-    ("AGENTS.md", "Before you change a class", 5_064),
+    ("AGENTS.md", "Before you change a class", 5_081),
     ("AGENTS.md", "Before you retrieve", 2_989),
     (
         "sadhana/root/AGENTS.md",
         "Before you write or revise a node",
-        7_719,
+        7_736,
     ),
     ("sadhana/root/AGENTS.md", "Before you run a phase", 5_583),
     (
@@ -253,7 +258,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
         "Before a claim crosses a corpus boundary",
         5_516,
     ),
-    ("sadhana/root/AGENTS.md", "Before you change a class", 6_041),
+    ("sadhana/root/AGENTS.md", "Before you change a class", 6_058),
     ("sadhana/root/AGENTS.md", "Before you retrieve", 3_966),
 ];
 
@@ -469,7 +474,11 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// is **33 words in `directories.md`**: the paragraph under *Sending a finding back* naming the
 /// `goedelsoup/yidam#<n>` form a workaround's commit cites, which `phase settle` and `yidam
 /// cohort` read. 20,691 + 33 is this figure exactly.
-const BOOTSTRAP_CEILING: usize = 20_724;
+///
+/// **Raised to 20,741 when the class contract named `property-type-unknown` (#1391).** The
+/// delta is **17 words in `GRAPH.md`**: one row of the class-contract table, warning on a
+/// `type:` nothing reads. 20,724 + 17 is this figure exactly.
+const BOOTSTRAP_CEILING: usize = 20_741;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///

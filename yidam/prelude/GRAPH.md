@@ -99,6 +99,7 @@ against it:
 | `interval-gap` | a span inside a finished line of holders that fewer hold than it seats | no, and only on a target marking its line finished |
 | `missing-property` | a declared property the instance omits | only where the class says `required: true` |
 | `claim-property-undeclared` | a value spelling a standing in a property the class did not declare `type: claim` | no |
+| `property-type-unknown` | a declared `type` no check reads, so its values pass unchecked | no |
 
 A standing in an undeclared property is counted by nothing. `claim-property-undeclared` never
 gates, because the repair is sometimes to rename the property rather than declare it.

@@ -281,8 +281,16 @@ fn a_retype_into_a_string_with_a_declared_set_is_held_to_the_set() {
         "-qam",
         "migrate: regulated is a coined type with a set it does not bind",
     ]);
-    // The premise: on a coined type the set is carried and ignored, so the gate is clean.
-    assert!(c.gate_is_clean(), "a set on a coined type must not bind");
+    // The premise: on a coined type the set is carried and ignored, so no value is reported.
+    // The one finding is the type itself, which nothing reads (#1391), and it does not gate.
+    let (lint_ok, lint) = c.run(&["lint"]);
+    assert!(lint_ok, "a set on a coined type must not bind:\n{lint}");
+    assert!(lint.contains("1 finding(s)"), "{lint}");
+    assert!(
+        lint.contains("`regulated` is declared `type: flow-control`"),
+        "{lint}"
+    );
+    assert!(c.run(&["graph-check"]).0, "graph-check");
 
     let (ok, out) = c.run(&["migrate", "retype", "reach", "regulated", "string"]);
     assert!(
@@ -298,7 +306,9 @@ fn a_retype_into_a_string_with_a_declared_set_is_held_to_the_set() {
     assert!(out.contains("widen `values:`"), "{out}");
     assert!(out.contains("nothing was written"), "{out}");
     assert!(!c.dirty(), "a blocked retype touched the tree");
-    assert!(c.gate_is_clean());
+    // The gate is as the premise left it: the one finding on the still-coined type.
+    let (lint_ok, after) = c.run(&["lint"]);
+    assert!(lint_ok && after.contains("1 finding(s)"), "{after}");
 }
 
 // ── value rename ──────────────────────────────────────────────────────────────
