@@ -53,7 +53,7 @@ documentation, its audit reports zero seeds, and the whole directory is destroye
 What placement decides is whether the new repository reads them as *its own*.
 
 The cost of that placement is that `samudaya-audit` will not validate these either — it skips
-the directory they are in. `yidam/cli/tests/samudaya_examples.rs` is what checks them
+the directory they are in. `yidam/cli/tests/suite/samudaya_examples.rs` is what checks them
 instead, holding them to the same `kind` vocabulary the audit enforces, read from the audit's
 own list rather than from a second copy of it.
 

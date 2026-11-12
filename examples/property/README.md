@@ -71,7 +71,7 @@ is why it is not a footnote in its neighbours.
 [`history.toml`](history.toml) names five commits, and the last one adds the 1961 entry. That
 is what lets the walkthrough ask the chain question at `HEAD` and at `HEAD~1` and get
 different answers: the 1948 deed is in the corpus in both, and is in the *chain* only in the
-one where the unreadable instrument was written down. `yidam/cli/tests/example_corpus.rs`
+one where the unreadable instrument was written down. `yidam/cli/tests/suite/example_corpus.rs`
 replays these commits when it materialises this example; an example with no manifest gets a
 single genesis commit.
 

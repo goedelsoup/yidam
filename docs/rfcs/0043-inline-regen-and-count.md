@@ -276,7 +276,7 @@ hazard is a property of the *old* locator, and clause (3) is what removed it. `u
 matches by equality over the one scan and writes every match, so on the implementation `count`
 ships against, neither the clobber nor the unwritten second block is reachable —
 `a_query_that_prefixes_another_does_not_clobber_it` and
-`two_blocks_asking_the_same_question_are_both_written` in `yidam/cli/tests/count.rs` are those
+`two_blocks_asking_the_same_question_are_both_written` in `yidam/cli/tests/suite/count.rs` are those
 two documents, run. What #1097 bought is a model that says so. It did not buy safety that
 `count` was waiting on.
 

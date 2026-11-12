@@ -260,7 +260,7 @@ The corpus above is the shape of
 which every report golden in this repository is generated from. It is two `.ont.yml` files,
 four instances and a catalog, and it is exercised on every commit.
 
-`yidam/cli/tests/first_corpus.rs` builds this page's files out of the blocks above and runs
+`yidam/cli/tests/suite/first_corpus.rs` builds this page's files out of the blocks above and runs
 the gates over them. A command whose output drifts from what is printed here fails there.
 
 ---

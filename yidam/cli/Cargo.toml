@@ -119,7 +119,8 @@ use_self = "deny"
 # `tests/`, and `ci-cli-full` does it twice, once per feature set. None of those binaries is
 # ever in the cache — rust-cache prunes workspace artifacts before saving, so every run
 # relinks all of them, and each statically contains whatever of arrow and ort it reaches (and,
-# until #1287 removed lancedb, lance and datafusion).
+# until #1287 removed lancedb, lance and datafusion). Since #1010 and #1488 those ~100 are
+# two, `tests/gates/` and `tests/suite/`, and this setting still shrinks the link of each.
 #
 # Measured here, before #1287: `cargo build --all-features` produces the same 606 dependency rlibs either
 # way, totalling 2,708MB under the default `debug = 2` and 1,402MB under this — 1.3GB of DWARF

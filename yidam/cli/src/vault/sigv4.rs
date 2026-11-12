@@ -282,7 +282,7 @@ mod tests {
     ///
     /// **The authority that the whole thing is correct is a real server accepting it.** A
     /// round-trip against MinIO is what establishes that, and it cannot run in hermetic CI —
-    /// see `tests/vault_s3.rs` for the harness and the note on running it.
+    /// see `tests/suite/vault_s3.rs` for the harness and the note on running it.
     ///
     /// (An earlier draft of this file asserted a constant recalled as being from the published
     /// `get-vanilla` case. It was wrong, and it failed on the first run — which is the argument

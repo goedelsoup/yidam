@@ -254,7 +254,7 @@ It exists because the list was previously frozen in three places at once: a Rust
 TypeScript README, and a third implementation's source. They shared **one tool name out of
 five capabilities**, and nothing compared them, because comparing them was nobody's file.
 
-Run by `yidam/cli/tests/mcp_serve.rs`, which reads `mcp/tools.json` rather than restating it.
+Run by `yidam/cli/tests/suite/mcp_serve.rs`, which reads `mcp/tools.json` rather than restating it.
 A server that declares a capability must pass its cases; one that declares it absent has
 those cases skipped, and the capability flag is checked against the served tool list so the
 two cannot disagree.
@@ -270,7 +270,7 @@ It is the largest fixture family here and it went undocumented in this file unti
 check below started asking who reads each directory — which is the finding that check exists
 to produce.
 
-Runners: `yidam/cli/tests/report_goldens.rs` for the goldens themselves; six test files in
+Runners: `yidam/cli/tests/suite/report_goldens.rs` for the goldens themselves; six test files in
 `yidam/editors/vscode/test/` which drive the extension's reader against the same corpus; and
 `yidam/editors/web/test/gate.mjs`, which reads the committed `expected/lint.json` directly. So
 a fixture whose output changes fails the goldens and both editors together. The first two stage

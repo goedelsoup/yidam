@@ -39,7 +39,7 @@ const BUILD_DIR_NAMES: &[&str] = &["node_modules", "__pycache__", ".venv", ".pyt
 /// describing the thing it was written about.
 const NOT_A_PRUNE: &[(&str, &str)] = &[
     (
-        "tests/derived_repo_smoke.rs",
+        "tests/suite/derived_repo_smoke.rs",
         "asserts build junk was NOT copied into a derived repo — the names are the finding, \
          not the filter, and the tree it walks is a tempdir",
     ),

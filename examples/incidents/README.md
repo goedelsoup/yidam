@@ -68,7 +68,7 @@ no factor concluded. It is here because a process that only records the incident
 up produces counts that measure attention rather than the system.
 
 **A history worth replaying.** [`history.toml`](history.toml) names ten commits with their
-dates. `yidam/cli/tests/example_corpus.rs` replays them when materialising this example;
+dates. `yidam/cli/tests/suite/example_corpus.rs` replays them when materialising this example;
 examples without a manifest get the single genesis commit they always did.
 
 ## Running the gates

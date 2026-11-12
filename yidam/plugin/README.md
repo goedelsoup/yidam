@@ -38,7 +38,7 @@ skills are what put the asking at the point in the loop where the decision is ma
 They do not restate the rules. A skill carries *when to ask* and the traps in reading the
 answer; the tool carries the content; the prelude carries the reasoning, which is what makes
 a rule arguable. A second copy of a closed vocabulary is a second thing to hold in step, and
-[`yidam/cli/tests/claude_plugin.rs`](../cli/tests/claude_plugin.rs) fails if a skill writes a
+[`yidam/cli/tests/suite/claude_plugin.rs`](../cli/tests/suite/claude_plugin.rs) fails if a skill writes a
 name the frozen contract does not define — or if a tool exists that no skill says when to
 reach for.
 

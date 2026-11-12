@@ -23,7 +23,7 @@
 # A SCRIPT and not a heredoc inside the workflow, for one reason: a formula that
 # is wrong is only discovered by a stranger running `brew install`, and a
 # workflow step is testable only by cutting a release. This is driven by
-# `yidam/cli/tests/homebrew_formula.rs` against fixture checksums.
+# `yidam/cli/tests/suite/homebrew_formula.rs` against fixture checksums.
 #
 # Every target must be present. A formula rendered with a platform missing
 # installs fine for everyone else and 404s for exactly the people who cannot

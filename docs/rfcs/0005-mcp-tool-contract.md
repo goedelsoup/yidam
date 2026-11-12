@@ -71,7 +71,7 @@ The divergence runs below the names:
   the `yidam://corpus/...` URI (`yidam_tools.py:11-18, 109-130`). Nothing says the two are meant to
   be the same surface.
 - **The list is frozen by hand, per server.** The Rust E2E test asserts the tool list is *exactly*
-  `["retrieve","get_node","neighbors","open_questions"]` (`tests/mcp_serve.rs:159-162`) — an
+  `["retrieve","get_node","neighbors","open_questions"]` (`tests/suite/mcp_serve.rs:159-162`) — an
   idiosyncratic list, pinned in one language's test, that neither other server can satisfy.
 - **Transport is per-language and unrelated to any of this.** Rust hand-rolls newline-delimited
   JSON-RPC 2.0 over stdio (`cmd/serve/mod.rs:1-9, 155-192`), *deliberately not* an MCP SDK — the
@@ -163,7 +163,7 @@ fixtures:
 - **`tools.json`** — the canonical tool list with input/output JSON Schemas and each tool's
   capability tier (core / optional-`graph` / optional-`phases` / …).
 - **`cases/<tool>/<name>.json`** — a call → expected-response pair over a shared fixture corpus (the
-  two-concept graph in `tests/mcp_serve.rs:19-50` is the seed). Cases assert the response *shape*
+  two-concept graph in `tests/suite/mcp_serve.rs:19-50` is the seed). Cases assert the response *shape*
   and the invariant fields (`degraded`, node model, `direction`), not embedding scores.
 - **`resources/<uri>.json`** — expected `resources/read` payloads, plus the tools-only-bridge
   equivalences a `resources:false` server must satisfy (`read_resource(uri)` ≡ its tool peer).

@@ -552,7 +552,7 @@ clap pre-dispatch arm for "ErrorKind::InvalidSubcommand | ErrorKind::UnknownArgu
 ([`main.rs:1586-1605`](../../yidam/cli/src/main.rs#L1586-L1605)), and the bare-`yidam` fallback
 at `main.rs:1620` — both reached *before* `match cli.command`, so no command body can produce
 it — and
-`tests/binary_pin.rs:140` pins it as the unrecognized-subcommand code. Returning an ordinary
+`tests/suite/binary_pin.rs:140` pins it as the unrecognized-subcommand code. Returning an ordinary
 `Err` from a command body exits 1 with `Error: {:?}` prose and no envelope at all, which would
 make every rejection this section specifies invisible to a JSON consumer.
 

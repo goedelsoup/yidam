@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run `tests/receipt_compat.rs` against the released CLI it is about (#475, amended 2026-09-30).
+# Run `tests/suite/receipt_compat.rs` against the released CLI it is about (#475, amended 2026-09-30).
 #
 # The claim under test is that the last release reads the receipt this tree writes. That is a
 # claim about a binary this tree cannot build, so this fetches it: the host's tarball from the
@@ -51,4 +51,4 @@ if [ ! -x "$dir/$name/yidam" ]; then
 fi
 
 YIDAM_PREVIOUS_BIN="$PWD/$dir/$name/yidam" \
-  cargo test --manifest-path yidam/cli/Cargo.toml --locked --test receipt_compat -- --ignored
+  cargo test --manifest-path yidam/cli/Cargo.toml --locked --test suite receipt_compat:: -- --ignored

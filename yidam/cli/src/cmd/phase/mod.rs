@@ -52,7 +52,7 @@
 //! > finding.
 //!
 //! So `settle` validates, drafts a vocabulary-checked subject, and hands back, which
-//! `tests/phase_record.rs`'s `settle_authors_no_commit_and_moves_no_ref` pins. `--merge`
+//! `tests/suite/phase_record.rs`'s `settle_authors_no_commit_and_moves_no_ref` pins. `--merge`
 //! writes the merge only after a person has asked for it.
 //!
 //! # Why `start` writes a `scaffold:` commit rather than a file

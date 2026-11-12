@@ -6,7 +6,7 @@ use crate::paths::samudaya_dir;
 
 /// The `kind` values a seed file may declare.
 ///
-/// `pub` so `tests/samudaya_examples.rs` can hold the domain seed sets under
+/// `pub` so `tests/suite/samudaya_examples.rs` can hold the domain seed sets under
 /// `samudaya/examples/` to this list. That directory is skipped by the walk below — which is
 /// what keeps those sets from being live seeds of this repository — so nothing else would
 /// check them, and a second copy of these four names is how the check and the command would

@@ -1024,12 +1024,12 @@ mod tests {
             // A `reload` against it fails loudly, which is what a test of the reload wants.
             root: std::path::PathBuf::from("/nonexistent/corpus-root"),
             // Read-only, which is every server that has not written the key. The act tools
-            // are exercised against a real repository in `tests/mcp_serve.rs`, where the
+            // are exercised against a real repository in `tests/suite/mcp_serve.rs`, where the
             // commits they write can be read back.
             act: false,
             act_withheld: None,
             // Recording nothing, which is every server that has not written the key. What a
-            // record holds is exercised against a real repository in `tests/mcp_serve.rs`, where
+            // record holds is exercised against a real repository in `tests/suite/mcp_serve.rs`, where
             // the lines it appends can be read back — a hand-built snapshot has no root to
             // append into, and `root` above names a path that deliberately does not exist.
             record: None,
@@ -1114,7 +1114,7 @@ mod tests {
             // rather than left to read as "nothing matched".
             graph_across: None,
             // No packs, so `sources` is unbacked here. The source tools run against a pack on
-            // disk in `tests/mcp_serve.rs`, where its fixtures can be read.
+            // disk in `tests/suite/mcp_serve.rs`, where its fixtures can be read.
             packs: Vec::new(),
             offline_sources: false,
         }
@@ -1336,7 +1336,7 @@ mod tests {
 
     /// The decision table, for every row a checkout with an author can reach. The rows with no
     /// author need git's whole environment stripped, which is process-wide, so they are in
-    /// `tests/mcp_act_tier.rs` where each server is its own process.
+    /// `tests/suite/mcp_act_tier.rs` where each server is its own process.
     #[test]
     fn act_is_granted_withheld_or_refused_by_what_the_corpus_asked() {
         let tmp = tempfile::TempDir::new().unwrap();

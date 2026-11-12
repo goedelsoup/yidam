@@ -252,7 +252,7 @@ is the whole citation mechanism — nothing else has to be configured.
 }
 
 /// Every file `init` writes, for a given class list. Pure, so the tree can be asserted on
-/// without one being created — and so `tests/init_corpus.rs` can build it and run the gates.
+/// without one being created — and so `tests/suite/init_corpus.rs` can build it and run the gates.
 pub fn corpus_files(classes: &[String]) -> Vec<Written> {
     let ring = instance_ring(classes);
     let edges = edge_declarations(classes, &ring);

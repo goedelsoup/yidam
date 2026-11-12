@@ -1,7 +1,7 @@
 //! The parts of `yidam phase` that are decidable without a repository.
 //!
 //! Everything that needs one — the commits, the resumption, the ranking against ref shape —
-//! is in `tests/phase_record.rs`, against the real binary. What is here is the three
+//! is in `tests/suite/phase_record.rs`, against the real binary. What is here is the three
 //! judgements this module makes before it touches git: what a phase may be named, what a
 //! kuten permits it to be, and what subject a person is handed to paste.
 

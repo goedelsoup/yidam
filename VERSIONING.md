@@ -11,7 +11,7 @@ history behind each protocol bump, and the arguments for what is deliberately *n
 It stays at the repository root rather than moving under `docs/` because it is part of the
 template root `clone` withholds and the bootstrap skill deletes — a derived repository does
 not release yidam's layers — and because `yidam/cli/tests/gates/versioning_layers.rs` and
-`yidam/cli/tests/release_script.rs` read it here to check that what it promises is what the
+`yidam/cli/tests/suite/release_script.rs` read it here to check that what it promises is what the
 manifests, constants and workflows do. Both documents are held to the tree: every path either
 one names must resolve, and the two must name the same set of tag prefixes.
 

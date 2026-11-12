@@ -14,7 +14,7 @@
  * So this spawns `yidam serve --mcp` — stdio, in the default feature set — and speaks the
  * protocol to it for exactly one call: `initialize`, `notifications/initialized`, one
  * `tools/call`, then stdin closes and the server exits. One connection per request, the same
- * per-request shape every read route already has, and `tests/mcp_act_tier.rs` on the CLI side
+ * per-request shape every read route already has, and `tests/suite/mcp_act_tier.rs` on the CLI side
  * pins that a one-shot connection answers and exits cleanly.
  *
  * # What this file decides

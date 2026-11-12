@@ -430,7 +430,7 @@ jobs:
     # The released CLI reading the receipt this tree writes (#475, amended 2026-09-30).
     # `receipt::FORMAT_VERSION` 2 is additive only if the binary already in every derived
     # corpus reads it, and that binary is not one this workspace builds — so the task
-    # downloads it, checksums it and runs `tests/receipt_compat.rs` against it. Its own job
+    # downloads it, checksums it and runs `tests/suite/receipt_compat.rs` against it. Its own job
     # because `ci-cli` does not reach the network; the test is `#[ignore]`d there and fails,
     # rather than skips, anywhere it runs without the binary.
     name: ci (receipt · previous CLI)
