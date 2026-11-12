@@ -338,7 +338,7 @@ asked about.
 
 Four of the six count days and two do not, which is deliberate. How long a question has gone
 unanswered is a fact about the repository, so its clock is `HEAD`. A corpus that has not committed
-has not ignored anything. A source's TTL, a phase's time in flight, a source's new version and a re-pin of a corpus you asked are facts about the world.
+has not ignored anything. A source's TTL and a phase's time in flight are facts about the world. So are a source's new version and a re-pin of a corpus you asked.
 The world does not stop moving because nobody committed.
 
 ### What discharges a clock

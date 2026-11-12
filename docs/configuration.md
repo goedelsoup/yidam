@@ -333,10 +333,10 @@ text reading of a PDF is not one. Any commit touching the node discharges it.
 
 `asks_after` counts from the commit that moved the dependency's pin in
 `.yidam/tonpa/tonpa.lock`, not from the ask's own date. That commit is when this repository
-started reading the far side's new text, so it is the first day an answer could have been seen.
-An ask whose `pin:` still matches the dependency is owed nothing however old it is: it is waiting
-on the far side, and there is nothing new to read. Marking it `answered`, or moving its `pin:` to
-the new commit after reading, discharges it.
+started reading the far side's new text. It is the first day an answer could have been seen.
+An ask whose `pin:` still matches the dependency is owed nothing, however old it is. It is
+waiting on the far side, and there is nothing new to read. Marking it `answered`, or moving its
+`pin:` to the new commit after reading, discharges it.
 
 ### `[due.declined]`
 
