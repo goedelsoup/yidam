@@ -268,6 +268,31 @@ drift reads in opposite directions for the two, and across every derived corpus 
 family with no subjects is how this layer has shipped surfaces nobody uses. Build it the day a real
 citation disagrees, for that reason.
 
+## asks
+
+The no-write-back rule left a question with nowhere to go, and a consumer built the place itself
+(#1467). city-engine depends on six pinned corpora and kept a hand-made outbox,
+`docs/open-questions/`, holding **40 drafts and a README tabulating them**. Each draft recorded,
+in prose, the package it was for and the far-side commit it was read against, which is the
+`package` and `pin` this format makes fields. **26 of the 40 had been answered upstream**, and the
+README table was the only thing that said so. Somebody re-read each producer after each re-pin
+and kept the table by hand. Of the 40, 14 were still open, close to the count of this corpus's own
+open questions. They were listed nowhere `yidam` reads.
+
+None of the drafts carried a `cites:` block, and most were addressed to the corpus as a whole
+("the pack") rather than to a node. That is why an ask is its own record rather than a field on
+a citation: a field would have fitted almost none of them.
+
+An ask is not a corpus node because it is not a claim this corpus makes. `lint` holds the header
+to two checks: `ask-unresolved` for an ask to a corpus `.yidam/tonpa.toml` does not declare, and
+`ask-malformed` for a header that cannot say its own state. `open-questions` lists open asks
+beside this corpus's own questions and never counts them among them, because whether one is
+settled is decided over there.
+
+The clock counts days from the re-pin, not from the ask, because nothing here could have seen an
+answer before this repository moved its pin. An ask that has waited a year on a far side that has
+not moved is owed nothing. That is the far side's backlog, and this side has nothing new to read.
+
 ## selection
 
 This is the finding that generalizes furthest and the one easiest to feel exempt from.

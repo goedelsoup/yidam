@@ -478,7 +478,12 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// **Raised to 20,741 when the class contract named `property-type-unknown` (#1391).** The
 /// delta is **17 words in `GRAPH.md`**: one row of the class-contract table, warning on a
 /// `type:` nothing reads. 20,724 + 17 is this figure exactly.
-const BOOTSTRAP_CEILING: usize = 20_741;
+/// **Raised to 20,931 when a question to another corpus got a home (#1467).** The delta is
+/// **149 words in `agent-conduct.md`** — *When you have a question for a corpus you depend on*,
+/// the `.yidam/asks/` header and the rule never to move a pin without reading — and **41 in
+/// `directories.md`**, its listing line and three-line section. The argument went to the
+/// evidence file. 20,741 + 190 is this figure exactly.
+const BOOTSTRAP_CEILING: usize = 20_931;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///

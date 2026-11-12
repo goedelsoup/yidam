@@ -215,7 +215,14 @@ fn the_json_report_carries_the_envelope_and_every_clock() {
     got.sort_unstable();
     assert_eq!(
         got,
-        ["catalog", "index", "phases", "questions", "superseded"],
+        [
+            "asks",
+            "catalog",
+            "index",
+            "phases",
+            "questions",
+            "superseded"
+        ],
         "the set of clocks changed"
     );
     for c in v["clocks"].as_array().unwrap() {
@@ -310,7 +317,7 @@ fn a_declined_clock_reaches_the_json_as_its_own_state_and_is_not_owed() {
     std::fs::write(
         root.join(".yidam/config.toml"),
         "[catalog]\nttl_days = 30\n\n[due]\nquestions_after = 1\nphases_after = 1\n\
-         superseded_after = 1\n\n[due.declined]\nindex = \"due-clocks\"\n",
+         superseded_after = 1\nasks_after = 1\n\n[due.declined]\nindex = \"due-clocks\"\n",
     )
     .unwrap();
 

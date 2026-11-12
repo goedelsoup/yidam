@@ -361,6 +361,26 @@ a disagreement may be that they conceded. [why](agent-conduct.evidence.md#cannot
 looking at the block. That is deliberate for now rather than overlooked.
 [why](agent-conduct.evidence.md#contradiction-unmarked)
 
+## When you have a question for a corpus you depend on
+
+**You still do not write to it.** The question lives on this side, in
+`.yidam/asks/<package>/`, one markdown file each, named for the dependency as
+`.yidam/tonpa.toml` names it:
+
+```markdown
+---
+pin: 8d35441              # the far side's commit you read when you asked
+node: concept/base-flow   # optional; most questions are to the corpus as a whole
+status: open              # open | answered (+ answered_at) | superseded (+ superseded_by) | dropped
+---
+# Does base flow include bank storage?
+```
+
+**`pin` is the load-bearing field.** Once the far side moves past it, the question may be answered,
+and the `asks` clock in `yidam due` says so. Discharge it by reading the far side at the new pin,
+then marking the ask `answered` or moving its `pin:`. **Never move the pin without reading**: that
+silences the clock and answers nothing. [why](agent-conduct.evidence.md#asks)
+
 ## The safeguards were built against carelessness, not against interest
 
 Every mechanism above catches an agent that was sloppy. None of them catches an agent that wants

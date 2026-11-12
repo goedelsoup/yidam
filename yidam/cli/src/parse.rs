@@ -327,6 +327,17 @@ where
     }
 }
 
+/// A document's frontmatter read into the caller's header type, and why it came back empty.
+///
+/// [`parse_header`] under a name a module outside this one can call — `.yidam/asks/` has its
+/// own header and must not grow a second reader of where a header starts and stops.
+pub(crate) fn parse_header_as<T>(text: &str) -> (T, Option<String>)
+where
+    T: Default + serde::de::DeserializeOwned,
+{
+    parse_header(text)
+}
+
 /// The prose beneath a file's YAML frontmatter, or the whole text when there is none.
 ///
 /// [`parse_frontmatter`] reads the header and discards this; for a catalog entry the body

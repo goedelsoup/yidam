@@ -1,4 +1,4 @@
-//! `yidam due` — the five clocks, read together, on a schedule.
+//! `yidam due` — the six clocks, read together, on a schedule.
 //!
 //! Four clocks existed in a derived repository and nothing read them as a set: index
 //! staleness, a catalog entry's TTL, how long a question has gone unanswered, and how long a
@@ -8,6 +8,10 @@
 //! The fifth had no home at all (#1200): how long a node has gone on citing a source from
 //! before its latest version. The catalog clock measures a source's age, and a source
 //! re-fetched yesterday with different bytes is young.
+//!
+//! The sixth is the far side's (#1467): a question this repository put to a corpus it depends
+//! on, asked at a pin that corpus has since moved past. Nothing on this side noticed when the
+//! far side answered, because nothing here recorded what was asked or at which commit.
 //!
 //! A practice is not performed because you suspect something. It is performed because it is
 //! time, and nothing here said it was time.
@@ -27,15 +31,15 @@
 //! So [`State`] is its own enum rather than a reuse of `doctor`'s `Verdict`, and this command
 //! exits zero however much is due unless `--strict` asks otherwise.
 //!
-//! # Intervals are declared, and four of the five were not
+//! # Intervals are declared, and five of the six were not
 //!
 //! A clock is an age and an interval, and the interval is never compiled in — the argument is
 //! [`crate::config::LintConfig::escalate_after`]'s and applies unchanged: a number in the
 //! binary is one corpus's judgement arriving in another that never agreed to it.
 //!
-//! One of the five already had its interval declared in the right place: a source's TTL, per
+//! One of the six already had its interval declared in the right place: a source's TTL, per
 //! entry or as `[catalog] ttl_days`. This command reads it there rather than restating it.
-//! The other four are `[due]` keys, absent by default, and a clock with no interval reports
+//! The other five are `[due]` keys, absent by default, and a clock with no interval reports
 //! what it measured and calls nothing due.
 //!
 //! # What discharges a clock, checked rather than assumed
@@ -51,8 +55,9 @@
 //! | questions | A person. Deciding a question is answered is the resolution event Article V confines to a sangha, and `propose` says so. |
 //! | phases | A person. Merging a phase, or abandoning it, is not a mechanical consequence of a finding. |
 //! | superseded | A person re-reading the source, and committing to the node. Whether a claim survives a new edition is a judgement. |
+//! | asks | A person reading the far side at its new pin, then marking the ask `answered` or moving its `pin:`. Whether a corpus answered a question is a reading of its text. |
 //!
-//! One of five. That is the honest surface, and the remedy column says so per clock rather
+//! One of six. That is the honest surface, and the remedy column says so per clock rather
 //! than this command growing a `--propose` that would shell into a command a reader can run.
 
 use anyhow::Result;
@@ -266,6 +271,7 @@ impl Clock {
     const QUESTIONS: &'static str = "questions";
     const PHASES: &'static str = "phases";
     const SUPERSEDED: &'static str = "superseded";
+    const ASKS: &'static str = "asks";
 
     fn new(
         id: &'static str,
@@ -422,7 +428,7 @@ impl DueReport {
     }
 }
 
-// ── the five clocks ───────────────────────────────────────────────────────────
+// ── the six clocks ────────────────────────────────────────────────────────────
 
 /// Is the index built against the corpus as it stands?
 ///
@@ -881,6 +887,126 @@ fn clock_superseded(root: &Path, after: Option<u32>, today: i64) -> Clock {
     clock
 }
 
+/// Has a corpus this repository depends on moved past the pin a question to it was asked at?
+///
+/// An ask is a question addressed to another corpus (#1467), and it goes stale in one way: the
+/// far side moves, may have answered it, and nobody here looks. The consumer that reported
+/// this kept 41 drafts in a hand-made outbox, and 26 of the 40 it tabulated had been answered
+/// upstream with nothing on this side saying so.
+///
+/// **Measured in days from the re-pin**, not from the far side's commit. This repository
+/// starts reading the far side's new answers when it moves its own pin, and that is a commit
+/// here, which the lock's history dates. A pin read only from the declaration, or from a lock
+/// nobody has committed, has no date; it is owed at `asks_after = 0` and unmeasurable past it.
+///
+/// An ask whose pin still matches is owed nothing, however old: it is waiting on the far side,
+/// and there is nothing new to read.
+fn clock_asks(root: &Path, after: Option<u32>, today: i64) -> Clock {
+    const Q: &str = "Has a corpus moved past the pin a question to it was asked at?";
+    let open: Vec<crate::asks::Ask> = crate::asks::read(root)
+        .into_iter()
+        .filter(crate::asks::Ask::is_open)
+        .collect();
+    let pins = crate::asks::pins(root);
+
+    let mut moved: Vec<(&crate::asks::Ask, &crate::asks::Pinned)> = Vec::new();
+    let mut unpinned = 0usize;
+    for ask in &open {
+        // An ask with no package, an undeclared one, or no pin of its own is `lint`'s finding
+        // (`ask-unresolved`, `ask-malformed`) and not a reading here.
+        let (Some(package), Some(asked)) = (ask.package.as_deref(), ask.header.pin.as_deref())
+        else {
+            continue;
+        };
+        match pins.get(package) {
+            None => {}
+            Some(None) => unpinned += 1,
+            Some(Some(pinned)) if !crate::asks::same_commit(asked, &pinned.commit) => {
+                moved.push((ask, pinned))
+            }
+            Some(Some(_)) => {}
+        }
+    }
+
+    let mut measured = match open.len() {
+        0 => "no open asks".to_string(),
+        n => format!(
+            "{n} open ask(s), {} read against a pin since moved",
+            moved.len()
+        ),
+    };
+    // Said rather than folded into the count: an ask to a dependency read live from a
+    // sibling's working tree has nothing to have moved past.
+    if unpinned > 0 {
+        let _ = write!(measured, "; {unpinned} to a dependency with no pin");
+    }
+
+    let Some(after) = after else {
+        return Clock::new(Clock::ASKS, Q, State::Undeclared, measured)
+            .unset("`[due] asks_after` in .yidam/config.toml");
+    };
+    let interval = format!("[due] asks_after = {after}");
+
+    let mut undated = 0usize;
+    let mut overdue: Vec<(&crate::asks::Ask, &crate::asks::Pinned, i64)> = Vec::new();
+    for (ask, pinned) in &moved {
+        match pinned.since.map(|day| today - day) {
+            Some(days) if days >= after as i64 => overdue.push((ask, pinned, days)),
+            Some(_) => {}
+            // A move with no date is still a move, and a corpus that asked to be told on the
+            // day of one is owed it now.
+            None if after == 0 => overdue.push((ask, pinned, 0)),
+            None => undated += 1,
+        }
+    }
+    overdue.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.rel.cmp(&b.0.rel)));
+
+    let Some(&(_, _, longest)) = overdue.first() else {
+        let state = match undated {
+            0 => State::Ok,
+            _ => State::Unmeasurable,
+        };
+        let detail = match (moved.len(), undated) {
+            (0, _) => measured,
+            (_, 0) => format!("none past {after} day(s); {measured}"),
+            (_, u) => format!("{u} re-pinned on a date git cannot give; {measured}"),
+        };
+        return Clock::new(Clock::ASKS, Q, state, detail).at(interval);
+    };
+
+    let subjects: Vec<String> = overdue
+        .iter()
+        .map(|(ask, pinned, days)| {
+            format!(
+                "{} — asked at {}, {} re-pinned to {} {days} day(s) ago",
+                ask.rel,
+                ask.header.pin.as_deref().unwrap_or_default(),
+                ask.package.as_deref().unwrap_or_default(),
+                pinned.commit.get(..12).unwrap_or(&pinned.commit),
+            )
+        })
+        .collect();
+    let mut clock = Clock::new(
+        Clock::ASKS,
+        Q,
+        State::Due,
+        format!(
+            "{} ask(s) past {after} day(s), longest {longest}; {measured}",
+            subjects.len()
+        ),
+    )
+    .at(interval)
+    // Not `propose`. Whether the far side answered is a reading of its new text, and a
+    // drafted edit to the header would discharge the clock without anybody having read it.
+    .owing(
+        subjects.len(),
+        "read each ask below against its corpus at the new pin, then mark it `answered` or move its `pin:`",
+        Actor::Person,
+    );
+    clock.subjects = subjects;
+    clock
+}
+
 // ── assembly ──────────────────────────────────────────────────────────────────
 
 /// Read every clock against `root`.
@@ -902,6 +1028,7 @@ pub(crate) fn read_clocks(root: &Path, cfg: &crate::config::DueConfig, today: i6
         clock_questions(root, cfg.questions_after),
         clock_phases(root, cfg.phases_after, today),
         clock_superseded(root, cfg.superseded_after, today),
+        clock_asks(root, cfg.asks_after, today),
     ]
     .into_iter()
     .map(|c| match cfg.declined.get(c.id) {

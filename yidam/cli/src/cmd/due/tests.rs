@@ -58,7 +58,7 @@ fn find<'a>(clocks: &'a [Clock], id: &str) -> &'a Clock {
 fn a_corpus_that_declared_nothing_is_owed_nothing() {
     let tmp = repo();
     let all = clocks(tmp.path());
-    assert_eq!(all.len(), 5, "five clocks: {all:?}");
+    assert_eq!(all.len(), 6, "six clocks: {all:?}");
     for c in &all {
         assert_ne!(
             c.state,
@@ -734,7 +734,7 @@ fn a_clock_declined_in_writing_is_not_a_clock_nobody_set() {
     // And it leaves the sentence about unset clocks to the clocks that really are unset.
     let report = DueReport::new(all, false);
     assert_eq!(report.declined, 1);
-    assert_eq!(report.undeclared, 4, "a decline was counted as an absence");
+    assert_eq!(report.undeclared, 5, "a decline was counted as an absence");
     assert_eq!(report.due, 0);
 }
 
@@ -885,4 +885,160 @@ fn a_declined_row_prints_the_record_behind_it() {
     assert_eq!(report.due, 0);
     assert!(report.passed);
     assert!(!out.contains("can never come due"), "{out}");
+}
+
+// ── asks ──────────────────────────────────────────────────────────────────────
+
+const ASKED_AT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const REPINNED: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+fn pin_upstream(root: &Path, commit: &str) {
+    std::fs::create_dir_all(root.join(".yidam/tonpa")).unwrap();
+    std::fs::write(
+        root.join(".yidam/tonpa.toml"),
+        format!("[dependencies.up]\npath = \"../up\"\nrev = \"{commit}\"\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join(".yidam/tonpa/tonpa.lock"),
+        format!(
+            "[[package]]\nname = \"up\"\nurl = \"../up\"\nsha256 = \"x\"\nrev = \"{commit}\"\n"
+        ),
+    )
+    .unwrap();
+}
+
+fn ask(root: &Path, stem: &str, header: &str) {
+    let p = root.join(".yidam/asks/up").join(format!("{stem}.md"));
+    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+    std::fs::write(p, format!("---\n{header}\n---\n# {stem}?\n")).unwrap();
+}
+
+/// One ask read at the first pin, and the dependency re-pinned past it on 2026-02-01 — 28 days
+/// before `today()`. A second ask asked at the new pin, and a third already answered.
+fn repinned_past_an_ask() -> tempfile::TempDir {
+    let tmp = repo();
+    let root = tmp.path();
+    pin_upstream(root, ASKED_AT);
+    ask(
+        root,
+        "stale",
+        &format!("pin: {}\nstatus: open", &ASKED_AT[..8]),
+    );
+    ask(
+        root,
+        "settled",
+        &format!("pin: {ASKED_AT}\nstatus: answered\nanswered_at: {REPINNED}"),
+    );
+    commit(root, "2026-01-10", "ask: up, twice");
+    pin_upstream(root, REPINNED);
+    commit(root, "2026-02-01", "pin: up moved");
+    ask(
+        root,
+        "current",
+        &format!("pin: {}\nstatus: open", &REPINNED[..12]),
+    );
+    commit(root, "2026-02-03", "ask: up, at the new pin");
+    tmp
+}
+
+#[test]
+fn an_ask_its_corpus_has_moved_past_is_due_from_the_re_pin() {
+    let tmp = repinned_past_an_ask();
+    let root = tmp.path();
+    config(root, "[due]\nasks_after = 7\n");
+
+    let c = find(&clocks(root), "asks").clone();
+    assert_eq!(c.state, State::Due, "{c:?}");
+    assert_eq!(c.overdue, 1, "{c:?}");
+    assert_eq!(c.subjects.len(), 1, "{c:?}");
+    let s = &c.subjects[0];
+    assert!(s.starts_with(".yidam/asks/up/stale.md"), "{s}");
+    assert!(s.contains("28 day(s)"), "{s}");
+    assert!(s.contains("bbbbbbbbbbbb"), "{s}");
+    assert_eq!(c.actor, Some(Actor::Person), "{c:?}");
+    assert!(
+        !c.remedy.unwrap_or_default().contains("propose"),
+        "whether a corpus answered is a reading, not a drafted commit"
+    );
+}
+
+/// A pin that still matches is waiting on the far side, however old, and an answered ask is
+/// not open — neither is owed, at any interval.
+#[test]
+fn an_ask_at_the_current_pin_or_answered_is_owed_nothing() {
+    let tmp = repinned_past_an_ask();
+    let root = tmp.path();
+    std::fs::remove_file(root.join(".yidam/asks/up/stale.md")).unwrap();
+    config(root, "[due]\nasks_after = 0\n");
+    let c = find(&clocks(root), "asks").clone();
+    assert_eq!(c.state, State::Ok, "{c:?}");
+    assert!(
+        c.detail.contains("1 open ask(s), 0 read against"),
+        "{}",
+        c.detail
+    );
+}
+
+#[test]
+fn an_ask_inside_its_interval_is_not_yet_due() {
+    let tmp = repinned_past_an_ask();
+    let root = tmp.path();
+    config(root, "[due]\nasks_after = 60\n");
+    let c = find(&clocks(root), "asks").clone();
+    assert_eq!(c.state, State::Ok, "{c:?}");
+    assert!(c.subjects.is_empty(), "{c:?}");
+}
+
+#[test]
+fn an_unset_asks_clock_measures_and_owes_nothing() {
+    let tmp = repinned_past_an_ask();
+    let c = find(&clocks(tmp.path()), "asks").clone();
+    assert_eq!(c.state, State::Undeclared, "{c:?}");
+    assert_eq!(c.overdue, 0);
+    assert!(
+        c.detail
+            .contains("2 open ask(s), 1 read against a pin since moved"),
+        "{}",
+        c.detail
+    );
+}
+
+/// A re-pin nobody committed has no date. It is owed on the day at `0`, and unmeasurable
+/// past it rather than either due or clean.
+#[test]
+fn an_uncommitted_re_pin_is_unmeasurable_past_zero() {
+    let tmp = repo();
+    let root = tmp.path();
+    pin_upstream(root, REPINNED);
+    ask(root, "stale", &format!("pin: {ASKED_AT}\nstatus: open"));
+
+    config(root, "[due]\nasks_after = 7\n");
+    let c = find(&clocks(root), "asks").clone();
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+
+    config(root, "[due]\nasks_after = 0\n");
+    let c = find(&clocks(root), "asks").clone();
+    assert_eq!(c.state, State::Due, "{c:?}");
+}
+
+/// A dependency read live from a sibling's tree has nothing to have moved past, and the clock
+/// says so rather than counting the ask clean.
+#[test]
+fn an_ask_to_a_live_dependency_is_said_to_have_no_pin() {
+    let tmp = repo();
+    let root = tmp.path();
+    std::fs::create_dir_all(root.join(".yidam")).unwrap();
+    std::fs::write(
+        root.join(".yidam/tonpa.toml"),
+        "[dependencies.up]\npath = \"../up\"\n",
+    )
+    .unwrap();
+    ask(root, "q", &format!("pin: {ASKED_AT}\nstatus: open"));
+    let c = find(&clocks(root), "asks").clone();
+    assert!(
+        c.detail.contains("1 to a dependency with no pin"),
+        "{}",
+        c.detail
+    );
 }

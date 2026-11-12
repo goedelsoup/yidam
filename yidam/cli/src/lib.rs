@@ -26,6 +26,7 @@
 //! failed. They now return [`report::GateFailed`] and the binary owns the exit. The exit
 //! code did not change; what changed is that a caller gets its process back.
 
+mod asks;
 mod authorship;
 mod claims;
 mod cmd;

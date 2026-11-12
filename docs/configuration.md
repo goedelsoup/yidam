@@ -312,12 +312,13 @@ never comes due.
 | `phases_after` | A bounded inquiry ref not yet on the baseline | days |
 | `index_after` | Corpus files changed since the index was built | files |
 | `superseded_after` | A node citing a source that gained a new version since the node's last commit | days |
+| `asks_after` | An open ask in `.yidam/asks/<package>/` whose `pin:` the dependency has since moved from | days |
 
 **The catalog clock's interval is not here.** `due` also reads a source record's TTL, and that
 is [`[catalog] ttl_days`](#catalog-ttl_days) and each entry's own `ttl_days:`, where it already
 lived. Restating it under `[due]` would create two places to set one number.
 
-**Two of these count days and two do not.** How long a question has gone unanswered is a fact
+**Three of these count days and two do not.** How long a question has gone unanswered is a fact
 about the repository, and the repository's clock is `HEAD`. A corpus that has not committed has
 not ignored anything. A phase's time in flight is a fact about the world, which is the same
 argument `ttl_days` makes. Work does not stop having been open for four months because nobody
@@ -330,6 +331,13 @@ saying it is content for retrieval to lag its own edits by that much.
 last edit. A new version is a digest from a location the entry already held one from. A new
 text reading of a PDF is not one. Any commit touching the node discharges it.
 
+`asks_after` counts from the commit that moved the dependency's pin in
+`.yidam/tonpa/tonpa.lock`, not from the ask's own date. That commit is when this repository
+started reading the far side's new text, so it is the first day an answer could have been seen.
+An ask whose `pin:` still matches the dependency is owed nothing however old it is: it is waiting
+on the far side, and there is nothing new to read. Marking it `answered`, or moving its `pin:` to
+the new commit after reading, discharges it.
+
 ### `[due.declined]`
 
 Clocks this corpus decided it does not want, each naming the record that argues it.
@@ -339,7 +347,7 @@ Clocks this corpus decided it does not want, each naming the record that argues 
 index = "due-clocks"
 ```
 
-The key is the clock's id: `index`, `catalog`, `questions`, `phases` or `superseded`. The value
+The key is the clock's id: `index`, `catalog`, `questions`, `phases`, `superseded` or `asks`. The value
 is a decision record in `.yidam/decisions/`, by its `id:` or its file stem.
 
 **Unset and declined are different states.** Without this key they report the same. A corpus

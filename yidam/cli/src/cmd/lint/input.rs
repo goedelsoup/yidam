@@ -27,7 +27,7 @@ use crate::authorship::{Authorship, Region};
 use crate::corpus::{Class, Corpus, DecisionRecord, Edges, Node, Overlay, Source};
 
 use super::{
-    articles, attest, calculators, checks, citations, commitments, deliberation, edge_claims,
+    articles, asks, attest, calculators, checks, citations, commitments, deliberation, edge_claims,
     elector_receipt, independence, line_citations, lineage, local_citations, quotations, scope,
     ttl, Check, Options,
 };
@@ -87,6 +87,7 @@ pub(crate) struct Input<'a> {
     // its id and `the_roster_declares_the_id_each_entry_produces` compares the two.
     citation_checks: OnceLock<[Check; 4]>,
     local_citation_checks: OnceLock<[Check; 4]>,
+    ask_checks: OnceLock<[Check; 2]>,
     quotation_checks: OnceLock<[Check; 3]>,
     edge_claim_checks: OnceLock<[Check; 4]>,
     article_checks: OnceLock<[Check; 4]>,
@@ -144,6 +145,7 @@ impl<'a> Input<'a> {
             packs: OnceLock::new(),
             citation_checks: OnceLock::new(),
             local_citation_checks: OnceLock::new(),
+            ask_checks: OnceLock::new(),
             quotation_checks: OnceLock::new(),
             edge_claim_checks: OnceLock::new(),
             article_checks: OnceLock::new(),
@@ -727,6 +729,11 @@ impl<'a> Input<'a> {
     pub(crate) fn local_citation_checks(&self) -> &[Check; 4] {
         self.local_citation_checks
             .get_or_init(|| local_citations::checks(self.nodes(), self.claim_fields()))
+    }
+
+    /// `.yidam/asks/`, read once for both of its checks (#1467).
+    pub(crate) fn ask_checks(&self) -> &[Check; 2] {
+        self.ask_checks.get_or_init(|| asks::checks(self.root()))
     }
 
     /// A value that is a span of a catalogued document (RFC-0046), held against the bytes this

@@ -145,7 +145,7 @@ fn the_quiet_run_still_says_being_owed_is_not_being_broken() {
 
 // ── it composes, and does not recompute ───────────────────────────────────────
 
-/// The owed half is `due`'s five clocks, by the ids `due` publishes — not a second set
+/// The owed half is `due`'s six clocks, by the ids `due` publishes — not a second set
 /// measured here.
 #[test]
 fn the_owed_half_is_dues_own_clocks() {
@@ -154,11 +154,18 @@ fn the_owed_half_is_dues_own_clocks() {
     let ids: Vec<&str> = r.owed.iter().map(|c| c.id).collect();
     assert_eq!(
         ids,
-        vec!["index", "catalog", "questions", "phases", "superseded"]
+        vec![
+            "index",
+            "catalog",
+            "questions",
+            "phases",
+            "superseded",
+            "asks"
+        ]
     );
 }
 
-/// A due clock contributes the remedy `due` computed, verbatim. Four of the five clocks are
+/// A due clock contributes the remedy `due` computed, verbatim. Five of the six clocks are
 /// discharged by something that is not a command, and inventing a remedy here would be this
 /// report claiming an agent can do what `due.rs`'s table says it cannot.
 #[test]
@@ -209,7 +216,7 @@ fn a_clock_this_build_cannot_discharge_proposes_no_act() {
         r.next
     );
     // And the row is still there. The owed half is `due`'s clock set, whole.
-    assert_eq!(r.owed.len(), 5);
+    assert_eq!(r.owed.len(), 6);
 }
 
 /// A phase that has already landed is not in flight. `phases` publishes the classification
@@ -370,7 +377,7 @@ fn a_repository_with_no_kuten_is_told_so_and_keeps_the_rest() {
     assert!(why.contains("supported state"), "{why}");
 
     // The other three halves are unaffected — they need no declaration at all.
-    assert_eq!(r.owed.len(), 5);
+    assert_eq!(r.owed.len(), 6);
     assert!(render(&r, root).contains("in flight"));
     assert!(render(&r, root).contains("blocked"));
 }

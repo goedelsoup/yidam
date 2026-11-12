@@ -289,6 +289,12 @@ pub fn yidam_decisions_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("decisions")
 }
 
+/// Questions this repository addresses to a corpus it depends on (#1467), one directory per
+/// dependency.
+pub fn yidam_asks_dir(root: &Path) -> PathBuf {
+    root.join(".yidam").join("asks")
+}
+
 /// The rules this repository writes about itself (RFC-0024).
 ///
 /// Absent in every corpus until somebody overrides a decision, which is why nothing here

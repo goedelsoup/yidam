@@ -2427,6 +2427,14 @@ fn declarations(
 /// instead of here, and `NO_REPORT` says why `index-verify` cannot run at all.
 const UNREACHED: &[(&str, &str)] = &[
     (
+        "asks",
+        "`open-questions` lists an ask only when the repository holds one under \
+         `.yidam/asks/<package>/`, addressed to a dependency `.yidam/tonpa.toml` declares, and \
+         this fixture declares none. Giving it one would move `doctor`, `lint` and `status` for \
+         every SDK runner graded against it. `asks.rs` stages a dependency and two asks and holds \
+         every emitted path, the optional `node` included, against this schema (#1467)",
+    ),
+    (
         "refs.unread",
         "`cluster status` reports a remote it cannot read rather than failing, and the reason \
          is git's own error, whose wording moves between git versions — so a golden of it would \
