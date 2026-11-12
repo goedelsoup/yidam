@@ -1,0 +1,11 @@
+{
+  "tool": "open_questions",
+  "why": "`corpus/` holds two asks addressed to its `upstream` dependency under `.yidam/asks/upstream/`, one open and one answered (contract 0.33.0). An ask is a question this repository has of a corpus it depends on and is listed beside the open questions, never among them. Three servers fail here, each on its own count: one that folds asks into `open_questions` answers four there instead of three; one that lists every ask rather than every open one answers two under `asks`; and one that predates the key has no `asks` at all. `everyItemHas` pins the entry to its package and to the pin it was read against, which is the information a hand-kept outbox loses.",
+  "call": {},
+  "expect": {
+    "fields": ["open_questions", "asks"],
+    "count": { "open_questions": 3, "asks": 1 },
+    "each": { "asks": ["ask", "package", "pin", "title", "node"] },
+    "everyItemHas": { "asks": { "package": "upstream", "pin": "abc1234", "node": "concept/telemetry" } }
+  }
+}

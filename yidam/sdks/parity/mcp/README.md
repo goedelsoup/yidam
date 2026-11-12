@@ -40,7 +40,7 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.32.0",
+    "contract": "0.33.0",
     "corpus": {
       "domain": "streamflow",
       "commit": "a1b2c3d",
@@ -486,6 +486,11 @@ asked to, and `pack` and `estimate` are local by construction.
 declaring `informs` and no local class declaring it). Before that, no case here could tell a
 server that backs `across` from one that accepts the flag and ignores it — and none could
 exercise a non-empty `absence.elsewhere` either, since there was no package to name.
+
+It also carries two asks to `upstream` under `.yidam/asks/upstream/`, one open and one
+answered (contract 0.33.0). `open_questions` lists the open one under `asks` and never among
+`open_questions`, so a server that folds the two together, or lists the answered one, fails on a
+count.
 
 ## Checking a citation before writing it (contract 0.12.0)
 
