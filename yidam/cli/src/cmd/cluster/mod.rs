@@ -31,7 +31,7 @@
 //! What the step pod emits is a sha, and a sha is not a permission. The step could compute
 //! the wrong class, lie about it in its output, or write `refs/heads/main` in its own scratch
 //! clone, and the corpus's remote would not move: the lander recomputes the class from the
-//! commit, and the pod's scratch clone dies with the pod. `tests/cluster_run.rs` holds the
+//! commit, and the pod's scratch clone dies with the pod. `tests/suite/cluster_run.rs` holds the
 //! boundary by trying to cross it — a valid commit sha in a process with no ref credential —
 //! and asserts the failure is git's, not a check of ours.
 //!

@@ -451,7 +451,7 @@ running against the same fixture corpora (`corpora.json`). The properties worth 
 
 One property is a CLI test, not a parity case, because it is a startup refusal and not a response:
 **`--profile openai` over a corpus with `[serve] act = true` exits non-zero naming both** (§2).
-It belongs beside `tests/mcp_act_tier.rs`, which already runs servers over `corpus-acting/`.
+It belongs beside `tests/suite/mcp_act_tier.rs`, which already runs servers over `corpus-acting/`.
 
 ## What this does not do
 

@@ -41,7 +41,7 @@ pub fn repo_root() -> Result<PathBuf> {
 /// were somewhere, and the report says what it found there. A named root *is* one — the
 /// caller said *that directory is the corpus* — so a typo, a stale path in an agent's MCP
 /// config, or a `--root` one level too high is a mistake rather than an empty corpus.
-/// Measured by deleting this call and running `tests/root_flag.rs`: of the forty-one rooted
+/// Measured by deleting this call and running `tests/suite/root_flag.rs`: of the forty-one rooted
 /// commands a default build can reach, **twenty-eight exit 0** against a git repository
 /// holding no `.yidam/`. `status` prints **0 nodes**, `open-questions` prints *no open
 /// questions*, and `regen` reports every generator current, because `update_file_regen`

@@ -33,7 +33,7 @@
 //! was fixed first; this is what the fix found.
 //!
 //! The repair is additive. [`crate::report::Envelope`] carries the report `#[serde(flatten)]`,
-//! so every key these arms already emitted keeps its place and its spelling — `tests/policy.rs`
+//! so every key these arms already emitted keeps its place and its spelling — `tests/suite/policy.rs`
 //! reads `v["ok"]` and `v["failed"]` and was not touched. What a consumer gains is the three
 //! envelope fields it should have had since RFC-0024.
 //!

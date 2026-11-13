@@ -908,7 +908,7 @@ stop.
 `corpus/` is the tree a case runs against unless it names another — a four-node `concept`
 graph, small enough to read in one sitting and shaped so each case has exactly one thing it
 can fail on. Stage it as a repository: copy it to a scratch directory, `git init`, commit
-once. The Rust harness (`yidam/cli/tests/mcp_serve.rs`) does that in ten lines, and so should
+once. The Rust harness (`yidam/cli/tests/suite/mcp_serve.rs`) does that in ten lines, and so should
 every other.
 
 It ships here because the counts in `cases/` describe it and nothing else. For a while it did

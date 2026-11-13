@@ -167,7 +167,7 @@ pub fn score_from_distance(metric: &str, distance: f64) -> Result<f32, String> {
 ///
 /// It lives here rather than beside its one caller because a *live* test has to be able to run
 /// it against a body the service actually sent. A unit test can only confirm the pointers match
-/// the shape as documented; `tests/s3vectors_live.rs` confirms they match the shape as served,
+/// the shape as documented; `tests/suite/s3vectors_live.rs` confirms they match the shape as served,
 /// which is the claim RFC-0033 §8 records.
 pub fn disagreement(body: &serde_json::Value, dimension: u32, name: &str) -> Option<String> {
     let got = body.pointer("/index/dimension").and_then(|v| v.as_u64());
@@ -394,7 +394,7 @@ mod tests {
     /// *monotone decreasing* — a nearer vector always scores higher — which is the property
     /// ranking depends on and which holds under any affine reading of the metric.
     ///
-    /// The absolute values are checked against a live index by `tests/s3vectors_live.rs`.
+    /// The absolute values are checked against a live index by `tests/suite/s3vectors_live.rs`.
     #[test]
     fn a_nearer_vector_always_scores_higher() {
         let mut last = f32::INFINITY;

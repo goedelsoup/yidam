@@ -77,8 +77,8 @@ The skips are the sharp edge. Four suites skip on environment and three tests ar
 | Where | Gate |
 |---|---|
 | `tests/gates/embed_parity.rs:27` | `YIDAM_EMBED_PARITY=1` |
-| `tests/vault_s3.rs:36`, plus three `#[ignore]` | `YIDAM_S3_TEST` and a live MinIO |
-| `tests/query_history.rs:640,664` | `ssh-keygen`, and a git that can sign with it |
+| `tests/suite/vault_s3.rs:36`, plus three `#[ignore]` | `YIDAM_S3_TEST` and a live MinIO |
+| `tests/suite/query_history.rs:640,664` | `ssh-keygen`, and a git that can sign with it |
 
 The discipline is right: each prints why it skipped. Nothing counts them. So *"how much of this
 suite actually ran on this PR?"* has no answer, and an honest `eprintln!` scrolls past in a log

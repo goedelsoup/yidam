@@ -1,4 +1,4 @@
-# A pack of papers, by DOI and PMCID, the shape of the one `tests/source_add.rs` uses.
+# A pack of papers, by DOI and PMCID, the shape of the one `tests/suite/source_add.rs` uses.
 #
 # No `auth`: a case reading `needs` must not depend on whether the machine running it has a
 # token exported. `contact` is still required, so `needs` has something to name.

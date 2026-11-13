@@ -65,9 +65,9 @@ covered the moment it is tracked, and one that is present but unstaged fails
 
 | Gate | Requires |
 |---|---|
-| `yidam/cli/tests/example_corpus.rs` | `graph-check` clean, `lint` at **zero findings at every severity**, at least one open question, a catalog entry, two decision records, a skill, and at least two classes — with the class count `graph-check` reports matching the `*.ont.yml` files the corpus ships |
+| `yidam/cli/tests/suite/example_corpus.rs` | `graph-check` clean, `lint` at **zero findings at every severity**, at least one open question, a catalog entry, two decision records, a skill, and at least two classes — with the class count `graph-check` reports matching the `*.ont.yml` files the corpus ships |
 | `yidam/cli/tests/gates/class_schemas.rs` | every instance validates against its own compiled class schema, and each schema requires exactly what its ontology declares required |
-| `yidam/cli/tests/walkthrough_transcripts.rs` | every `$ yidam …` block on the walkthrough page that links this example still produces what the page records |
+| `yidam/cli/tests/suite/walkthrough_transcripts.rs` | every `$ yidam …` block on the walkthrough page that links this example still produces what the page records |
 
 Both files keep a few tests pinned to `streamflow` on purpose, and say so where they are
 defined: those are regression tests and compiler-behaviour tests that know one corpus's edge

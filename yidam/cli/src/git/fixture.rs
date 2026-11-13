@@ -3,7 +3,7 @@
 //! #929: twenty-two test modules under `src/` spawned git forty-three times to build the
 //! repositories they test against — the same six lines rewritten, with no agreement on
 //! whether a commit is signed, dated or quiet, or on whether a failure says why. They are collapsed here so the gate in
-//! `tests/git_spawns.rs` can name three files without an allowlist of twenty-two exemptions
+//! `tests/suite/git_spawns.rs` can name three files without an allowlist of twenty-two exemptions
 //! standing beside it.
 //!
 //! **These are fixtures, not the runner.** They deliberately do not go through [`super::run`]:

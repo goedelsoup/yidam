@@ -1,0 +1,2867 @@
+//! Golden fixtures for the report contract — RFC-0001's `reports/` family, RFC-0016 Phase 0.
+//!
+//! Two obligations, and the first is the one that constrains the design:
+//!
+//! 1. **`--format text` is byte-identical to what these commands have always printed.**
+//!    JSON was added beside the prose path, not through it. A repository that never passes
+//!    `--format` must not be able to tell this work happened.
+//!
+//! 2. **`--format json` matches a committed golden**, so a consumer versioned independently
+//!    of the binary has something to write tests against — which is the whole point of
+//!    promoting the reports from CLI behaviour to a contract.
+//!
+//! Run with `UPDATE_GOLDENS=1` to rewrite the expected files after an intended change. The
+//! diff is the review.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use crate::common;
+
+fn fixture_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../sdks/parity/fixtures/reports/basic")
+}
+
+/// Copy the fixture repo into a tempdir and make it the repository `stage.toml` describes.
+///
+/// `repo_root()` shells out to `git rev-parse --show-toplevel`, so the reports cannot run
+/// against a bare directory. Committing also gives `status` a genesis date to report.
+///
+/// **The recipe is the fixture's, not this file's.** It used to live here, and separately in
+/// six copies across the extension's tests, which is how the goldens came to describe a
+/// three-commit two-branch repository while the extension was exercised on a one-commit one.
+fn stage() -> tempfile::TempDir {
+    let tmp = tempfile::tempdir().unwrap();
+    copy_dir(&fixture_dir().join("repo"), tmp.path());
+    apply_recipe(tmp.path(), &fixture_dir().join("stage.toml"));
+    tmp
+}
+
+/// Build the history `recipe` describes in an already-populated directory.
+fn apply_recipe(root: &Path, recipe: &Path) {
+    let spec: toml::Value =
+        toml::from_str(&std::fs::read_to_string(recipe).expect("stage.toml")).expect("stage.toml");
+
+    let git = |args: &[&str]| common::git::git(root, args);
+    git(&["init", "-q", "-b", "main"]);
+    git(&["config", "user.email", "fixture@yidam.test"]);
+    git(&["config", "user.name", "Fixture"]);
+
+    // The shas this recipe has made so far, oldest first — what `{{commit:N}}` resolves
+    // against. See [`resolve_commits`].
+    let mut shas: Vec<String> = Vec::new();
+
+    for commit in spec["commits"].as_array().expect("commits") {
+        // Edits first, then stage everything: a commit's `replace` and `write` describe the
+        // tree as of that commit, not a change made after it.
+        for edit in commit
+            .get("replace")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&Vec::new())
+        {
+            let path = root.join(edit["file"].as_str().unwrap());
+            let text = std::fs::read_to_string(&path).unwrap();
+            let from = edit["from"].as_str().unwrap();
+            assert!(
+                text.contains(from),
+                "stage.toml: {} does not contain {from:?}",
+                edit["file"].as_str().unwrap()
+            );
+            std::fs::write(&path, text.replace(from, edit["to"].as_str().unwrap())).unwrap();
+        }
+        for write in commit
+            .get("write")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&Vec::new())
+        {
+            let name = write["file"].as_str().unwrap();
+            let path = root.join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(
+                &path,
+                resolve_commits(write["content"].as_str().unwrap(), &shas, name),
+            )
+            .unwrap();
+        }
+        git(&["add", "-A"]);
+        // Fixed dates keep `status`'s genesis field stable across runs.
+        common::git::git_at(
+            root,
+            &["commit", "-q", "-m", commit["message"].as_str().unwrap()],
+            common::git::FIXTURE_DATE,
+        );
+        let sha = common::git::out(root, &["rev-parse", "HEAD"]);
+        // Empty would substitute as an empty `since`, which reads as "never expires" — the
+        // one failure this whole mechanism exists to make impossible.
+        assert!(
+            !sha.is_empty(),
+            "no HEAD after committing {:?}",
+            commit["message"]
+        );
+        shas.push(sha);
+    }
+
+    // Refs the sangha and phase reports read. `ma/gauge-reader` is deliberately absent: the
+    // fixture registers that elector anyway, so `branch_present: false` is exercised by a
+    // golden rather than only by a unit test.
+    for branch in spec["branches"].as_array().expect("branches") {
+        git(&["branch", branch.as_str().unwrap()]);
+    }
+}
+
+/// Resolve `{{commit:N}}` in a written file to the sha of this recipe's Nth commit, 1-indexed.
+///
+/// One file in the fixture has to name a commit: `.yidam/lint-baseline.yml`, whose `since:` is
+/// read against the corpus history and decides whether an entry has expired. A sha cannot be a
+/// literal in `repo/`, because a commit's sha is a function of the tree it holds — a baseline
+/// shipped inside that tree would have to name itself. So the recipe writes it at a later
+/// commit and refers to an earlier one by position.
+///
+/// **Unresolvable is a panic, not an empty string.** A `since` naming no commit reads as an
+/// entry whose clock cannot be established, and `history::commits_since` reports that as *not
+/// expired* — so a silent failure here would delete the arm this fixture exists to reach, and
+/// `UPDATE_GOLDENS=1` would record its absence as the new truth.
+fn resolve_commits(content: &str, shas: &[String], file: &str) -> String {
+    const OPEN: &str = "{{commit:";
+    let mut out = String::with_capacity(content.len());
+    let mut rest = content;
+    while let Some(start) = rest.find(OPEN) {
+        out.push_str(&rest[..start]);
+        let after = start + OPEN.len();
+        let end = rest[after..]
+            .find("}}")
+            .unwrap_or_else(|| panic!("stage.toml: {file}: unterminated `{OPEN}`"));
+        let raw = &rest[after..after + end];
+        let n: usize = raw
+            .parse()
+            .unwrap_or_else(|_| panic!("stage.toml: {file}: `{OPEN}{raw}}}}}` is not a number"));
+        let sha = shas.get(n.wrapping_sub(1)).unwrap_or_else(|| {
+            panic!(
+                "stage.toml: {file} names commit {n} and only {} have been made — a recipe can \
+                 only refer to a commit that already exists",
+                shas.len()
+            )
+        });
+        out.push_str(sha);
+        rest = &rest[after + end + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    for entry in walkdir::WalkDir::new(from)
+        .into_iter()
+        .filter_map(Result::ok)
+    {
+        let rel = entry.path().strip_prefix(from).unwrap();
+        let dest = to.join(rel);
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&dest).unwrap();
+        } else {
+            std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+            std::fs::copy(entry.path(), &dest).unwrap();
+        }
+    }
+}
+
+/// Replace what belongs to the run rather than to the corpus.
+///
+/// The absolute root, the binary's version and its build commit all vary by machine and by
+/// checkout. Redacting them is what lets the rest — every field name, every value, and the
+/// order they appear in — be compared literally.
+///
+/// **The feature set belongs here too**, and its absence is why `ci (cli · full features)`
+/// failed on every push to main from the day these goldens landed. It runs `--all-features`,
+/// which reports five, against goldens recorded from the light build, which reports one. The
+/// job does not run on pull requests, so nothing said so until somebody looked at main.
+///
+/// Redacting it does not lose the property: [`the_light_build_reports_exactly_reports`]
+/// asserts the light feature set on its own, where it can be stated once instead of repeated
+/// through eighteen goldens that are not about features.
+fn redact(out: &str, root: &Path) -> String {
+    let root_s = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let redacted = out
+        .replace(&root_s.display().to_string(), "<ROOT>")
+        .replace(&root.display().to_string(), "<ROOT>")
+        .replace(
+            &format!("\"version\": \"{}\"", env!("CARGO_PKG_VERSION")),
+            "\"version\": \"<VERSION>\"",
+        )
+        .replace(
+            &format!("\"commit\": \"{}\"", env!("YIDAM_BUILD_COMMIT")),
+            "\"commit\": \"<COMMIT>\"",
+        );
+    redact_features(&redact_first_commit(&redact_conditional_checks(&redacted)))
+}
+
+/// Drop the checks whose *presence* in the report depends on the build, so one golden is the
+/// expected output of every feature set.
+///
+/// The same failure [`redact`] above records, arriving through the roster instead of through the
+/// envelope: `calculator-scope` and `calculator-type` typecheck a declared calculator, and
+/// `cmd::lint::Asked::WithTypechecker` leaves them out of the report where the binary has no
+/// typechecker (#1099). A golden recorded in the light build would then fail every
+/// `--all-features` run on main, which is the job nothing runs on a pull request.
+///
+/// Redacting loses nothing that is stated here. **Which** builds carry them is asserted directly,
+/// by `capability_run::lint_admits_a_declared_calculator_and_reports_the_typed_checks_only_where
+/// _it_can`, and what they say when they fire is asserted by their own tests. What this golden is
+/// for is the shape of the document and the checks a report carries in every build.
+fn redact_conditional_checks(out: &str) -> String {
+    // The two ids `Asked::WithTypechecker` gates. `calculator-script` is deliberately not here:
+    // it is `Asked::Always`, so it is in every report and the golden pins it.
+    const CONDITIONAL: [&str; 2] = ["calculator-scope", "calculator-type"];
+
+    let mut lines: Vec<String> = out.lines().map(str::to_string).collect();
+    for id in CONDITIONAL {
+        let needle = format!("\"id\": \"{id}\"");
+        let Some(at) = lines.iter().position(|l| l.contains(&needle)) else {
+            continue;
+        };
+        // A check is one element of the `checks` array, which `to_string_pretty` opens and closes
+        // at a fixed indent. Bounded by the lines rather than by brace counting, because a
+        // rationale is prose and may say anything at all about braces.
+        let start = lines[..at]
+            .iter()
+            .rposition(|l| l == "    {")
+            .unwrap_or_else(|| panic!("no element start above `{id}`"));
+        let end = at
+            + lines[at..]
+                .iter()
+                .position(|l| l == "    }" || l == "    },")
+                .unwrap_or_else(|| panic!("no element end below `{id}`"));
+        // Removing the array's last element leaves the one before it with a trailing comma.
+        let was_last = lines[end] == "    }";
+        lines.drain(start..=end);
+        if was_last && start > 0 && lines[start - 1] == "    }," {
+            lines[start - 1] = "    }".to_string();
+        }
+    }
+    let mut joined = lines.join("\n");
+    if out.ends_with('\n') {
+        joined.push('\n');
+    }
+    joined
+}
+
+/// Collapse `first_commit` — the commit a corpus-state finding dates from — to a
+/// placeholder.
+///
+/// It is genuinely reproducible: `apply_recipe` fixes the author, the committer, both dates
+/// and every byte of content, so the fixture's shas are the same on every machine. It is
+/// redacted anyway, for the reason the module header gives about the feature set. A sha is
+/// an opaque forty characters that changes whenever `stage.toml` gains a commit *before*
+/// this one, so pinning it here would put an unreadable hex diff in front of whoever next
+/// extends the fixture — and would say nothing about whether the sha is the right one,
+/// since any sha matches any other sha's shape.
+///
+/// The property it would have pinned is stated where it can be checked exactly instead:
+/// `history::tests::the_dated_commit_is_the_one_that_orphaned_the_node` asserts the sha
+/// against `git rev-parse` on a repository built for the purpose.
+fn redact_first_commit(out: &str) -> String {
+    let key = "\"first_commit\": \"";
+    let mut result = String::with_capacity(out.len());
+    let mut rest = out;
+    while let Some(start) = rest.find(key) {
+        let after = start + key.len();
+        let end = after + rest[after..].find('"').unwrap_or(0);
+        result.push_str(&rest[..after]);
+        result.push_str("<FIRST_COMMIT>");
+        rest = &rest[end..];
+    }
+    result.push_str(rest);
+    result
+}
+
+/// Collapse the `features` array to a placeholder, whatever it holds.
+///
+/// Textual because these goldens are compared as text: parsing and re-emitting would
+/// reformat every document and make the diff on an intended change unreadable, which is the
+/// one thing a golden has to stay good at.
+fn redact_features(out: &str) -> String {
+    let Some(start) = out.find("\"features\": [") else {
+        return out.to_string();
+    };
+    let open = start + "\"features\": [".len();
+    let Some(close) = out[open..].find(']') else {
+        return out.to_string();
+    };
+    format!(
+        "{}\"features\": [\n      \"<FEATURES>\"\n    {}",
+        &out[..start],
+        &out[open + close..]
+    )
+}
+
+struct Run {
+    stdout: String,
+    code: i32,
+}
+
+fn run(root: &Path, args: &[&str]) -> Run {
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(root)
+        .args(args)
+        .output()
+        .unwrap();
+    Run {
+        stdout: redact(&String::from_utf8_lossy(&out.stdout), root),
+        code: out.status.code().unwrap_or(-1),
+    }
+}
+
+fn assert_golden(name: &str, actual: &str) {
+    let path = fixture_dir().join("expected").join(name);
+    if std::env::var("UPDATE_GOLDENS").is_ok() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, actual).unwrap();
+        return;
+    }
+    let expected = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+        panic!(
+            "missing golden {}. Run with UPDATE_GOLDENS=1 to create it.",
+            path.display()
+        )
+    });
+    assert_eq!(
+        expected, actual,
+        "\n{name} drifted from its golden. If the change is intended, \
+         re-run with UPDATE_GOLDENS=1 and review the diff.\n"
+    );
+}
+
+/// Every command that grew a `--format` flag, in both formats.
+const COMMANDS: &[(&str, &[&str])] = &[
+    ("lint", &["lint"]),
+    ("graph-check", &["graph-check"]),
+    ("status", &["status"]),
+    ("open-questions", &["open-questions"]),
+    ("corpus-index", &["corpus-index"]),
+    ("catalog-audit", &["catalog-audit"]),
+    // A query expression, unlike the other three query-shaped commands in NO_REPORT. Those
+    // project rows, and a row golden over this fixture would pin the projection; `count`
+    // returns one integer, which is stable for a fixture whose corpus does not move.
+    ("count", &["count", "concept"]),
+    // The refused arm, as a second golden rather than as an `UNREACHED` excuse. Every other
+    // entry on that roster is unreachable because reaching it would mean *moving the fixture*
+    // — a class file that does not parse, a branch ahead of the baseline, a REGEN block
+    // naming nothing. This one needs no such thing: `count` reads, and a query naming a class
+    // the ontology does not declare is a different argument, not a different corpus. So the
+    // `rejected` family is held to the schema the same way every other field is.
+    ("count-refused", &["count", "nosuchclass"]),
+    ("phases", &["phases"]),
+    // `--every 0` so the golden holds every row: a sampled golden would pin the sampler
+    // rather than the series, and would move whenever the fixture gained a commit.
+    ("replay", &["replay", "--every", "0"]),
+    ("diff", &["diff", "HEAD~1..HEAD"]),
+    // The same range as `diff`, and deliberately: one reads the corpus change and the
+    // other reads the code change, and the fixture's last commit makes both non-empty.
+    ("check-diff", &["check-diff", "HEAD~1..HEAD"]),
+    ("log", &["log"]),
+    ("log-epistemic", &["log", "--epistemic"]),
+    ("index-status", &["index-status"]),
+    ("sangha", &["sangha"]),
+    // The fixture declares no `[serve] record` and holds no record file, so this pins the arm
+    // every clone and every CI runner is in: *nothing was recorded*, said as such, and not a
+    // table of zeros a reader would take for a corpus nobody asked. The populated arm needs a
+    // server to write the file, which is `mcp_serve.rs`'s to run.
+    ("record", &["record"]),
+    ("graph", &["graph"]),
+    // A plan, not a rename: the golden must not mutate the fixture the other goldens read.
+    (
+        "rename",
+        &[
+            "rename",
+            "concept/low-flow.yml",
+            "concept/base-flow.yml",
+            "--dry-run",
+        ],
+    ),
+    (
+        "neighbors",
+        &["neighbors", "concept/tailwater.yml", "--depth", "2"],
+    ),
+    ("vocabulary", &["vocabulary"]),
+    // The fixture carries no vendored GRAPH.md, so this golden also pins the
+    // no-document arm: every `when` empty, and `drift` empty rather than thirty
+    // rows of "missing".
+    (
+        "vocabulary-check",
+        &[
+            "vocabulary",
+            "--check",
+            "vendor(yidam): the prelude at 4e1a2b0",
+        ],
+    ),
+    // The fixture declares no kuten, so this golden pins the arm every repository is in
+    // today: holding none is a supported state and reports as one rather than as a finding.
+    // The held arm cannot be a golden here — giving the fixture a kuten would move the
+    // other twenty goldens — and is covered by `kuten_cluster.rs` against the six shapes
+    // that defined the profile.
+    ("kuten-check", &["kuten", "check"]),
+    // The fixture declares no `[derive] paths`, so this pins the arm every repository is in
+    // today: nothing to read, an empty report, a pass. The held arms are `derive.rs`'s unit
+    // tests, for `kuten-check`'s reason — an artifact here would move the other goldens.
+    ("derive-check", &["derive", "check"]),
+    // `policy`'s four, none of which any golden covered before #893 — the roster could not
+    // see a subcommand, so nothing required them. RFC-0024 named its dependency as *"RFC-0001
+    // (the report contract `policy check --format json` emits on)"* and asked for these
+    // goldens in its definition of done; what shipped emitted the fields with no envelope
+    // around them, and these are the goldens that would have said so.
+    //
+    // All four answer from the compiled-in default: the fixture has no `.yidam/policy/`, which
+    // is the arm every repository is in and the one worth pinning. Same division `kuten-check`
+    // makes above.
+    ("policy-check", &["policy", "check"]),
+    ("policy-test", &["policy", "test"]),
+    // `gate` builds its own input from the working tree, so it needs no document — and it
+    // renders through the same `render()` as `eval`, which is why the pair below pins one
+    // shape from both directions rather than twice from one.
+    ("policy-gate", &["policy", "gate", "disclose/at_rest"]),
+    (
+        "policy-eval",
+        &[
+            "policy",
+            "eval",
+            "--decision",
+            "disclose/at_rest",
+            "--input",
+            "policy-input.json",
+        ],
+    ),
+    // The refused arm, which is the one RFC-0024 wrote `eval` for: *a person working out why a
+    // push was refused should be able to ask the question without a checkout.* A contract that
+    // pinned only the allowing shape would declare `deny[].rule` and `deny[].msg` and reach
+    // neither, which is the inert declaration `UNREACHED` exists to keep out.
+    (
+        "policy-eval-refused",
+        &[
+            "policy",
+            "eval",
+            "--decision",
+            "disclose/at_rest",
+            "--input",
+            "policy-input-refused.json",
+        ],
+    ),
+    // `--dry-run` on both, for the reason stated on LIVE below: these are the first two
+    // commands under `cmd/` besides `propose` that write commits, and they run against the
+    // same staged fixture every other golden reads. A writer would corrupt it for whatever
+    // ran next.
+    //
+    // The fixture's two entries declare no `location:`, so this pins the arm where an entry
+    // records a source it cannot re-fetch — which is every entry in this repository's own
+    // catalog and most entries anywhere. Giving the fixture an address would move the other
+    // twenty goldens and change what six other suites are staged against, so the followable
+    // arm is covered where it belongs: `tests/fixtures/catalog-fetch/`, end to end, through
+    // the binary. Same division `kuten-check` makes just above.
+    ("catalog-fetch", &["catalog-fetch", "--dry-run"]),
+    // This one is not the empty arm. `stage-discharge.md`'s `used-by` is deliberately wrong
+    // in *both* directions — it claims `mixing-zone.yml`, which cites nothing, and omits
+    // `tailwater.yml`, which cites it — so the golden holds a real repair rather than a
+    // "nothing to do".
+    ("catalog-reconcile", &["catalog-reconcile", "--dry-run"]),
+    // Not the empty arm either: `stage-discharge.md` records one `application/pdf` artifact
+    // and no reading of it. `--dry-run` reads no cache, so the golden does not depend on what
+    // the machine running it has fetched; the reading itself is `tests/suite/catalog_extract.rs`.
+    ("catalog-extract", &["catalog-extract", "--dry-run"]),
+    // The empty arm: the fixture holds no source pack and pins none. A pack in the fixture
+    // would be a new top-level `.yidam/` directory under every other golden, so the shape of
+    // a populated report — packs, findings, both origins — is `tests/suite/source_check.rs`, which
+    // reads this same JSON.
+    ("source-check", &["source", "check"]),
+    // The one `cluster` reader that needs no cluster: it reads `kubectl get -o json` output
+    // from a file, so the fixture is that output and the golden holds every outcome a run
+    // records (#1236). `--remote .` is the staged repository itself, which has a `main` and no
+    // `propose/*`, so the two proposals in the fixture read as gone. That they read as open
+    // while their branch exists is `cluster_run.rs`, over a real lander's records.
+    (
+        "cluster-status",
+        &[
+            "cluster",
+            "status",
+            "--workflows",
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/cluster-status/workflows.json"
+            ),
+            "--corpus",
+            "streamflow",
+            "--remote",
+            ".",
+        ],
+    ),
+];
+
+/// Reports checked by running them, because they cannot have a golden.
+///
+/// Each of these varies with the day it runs — a pin's age in days, a source's overdue count,
+/// an index's build date — so a committed golden would go red on the calendar rather than on
+/// a change. Their *shape* is checkable all the same, and shape is what the contract is.
+///
+/// **Every invocation here writes nothing**, which is not incidental: this runs against the
+/// same staged fixture the goldens read, and a writer would corrupt it for whatever test ran
+/// next. `regen` and `propose` are named with the flags that make that true — `--check` and
+/// `--dry-run` — and both refuse to write in those modes by design rather than by luck.
+const LIVE: &[(&str, &[&str])] = &[
+    ("doctor", &["doctor"]),
+    ("due", &["due"]),
+    // Beside `due` and for its reason exactly: `cycle` composes `due`'s four clocks, so a
+    // golden of it would go red on the calendar the moment a source's overdue count ticked.
+    // It writes nothing — every half reads a surface that reads — and unlike `propose` it
+    // needs no flag to make that true.
+    ("cycle", &["cycle"]),
+    ("regen", &["regen", "--check"]),
+    ("propose", &["propose", "--dry-run"]),
+    // Not a golden, and for `redact_first_commit`'s reason rather than the calendar's: every
+    // `register` evidence line carries a short sha, so a golden would put a screen of
+    // unreadable hex in front of whoever next extends `stage.toml` — and any sha matches any
+    // other sha's shape, so it would pin nothing worth pinning. The readings themselves are
+    // asserted against histories built for the purpose in `score_range.rs`; what is checked
+    // here is the envelope, and that a read-only report is read-only.
+    ("score", &["score", "HEAD~1..HEAD"]),
+    // Not a golden, and for the build's reason rather than the calendar's: `transforms_run` is
+    // true under `source-transforms` and false without it, and CI runs this suite both ways.
+    // The fixture holds no pack, so the list is empty; `source_add.rs` stages one and holds
+    // every emitted path to the schema.
+    ("source-list", &["source", "list"]),
+];
+
+/// Commands carrying a `--format` flag that this file cannot exercise, and why.
+///
+/// **An inverted roster, and that is the point.** A list of what *is* covered stops covering
+/// new commands without ever going red — the failure this repository has now found in a guard
+/// twice. This lists what is not covered, so a command added tomorrow is required by default
+/// and fails [`every_reporting_command_has_its_fields_checked`] until somebody decides which
+/// bucket it belongs in.
+///
+/// The reasons are load-bearing. `export`'s `--format` is not the report contract's at all —
+/// it names the export format — and it is here so that fact is written down rather than
+/// rediscovered.
+const NO_REPORT: &[(&str, &str)] = &[
+    (
+        "source search",
+        "asks a pack's search endpoint, and this fixture holds no pack. `--offline` answers \
+         from a pack's fixtures, so `source_add.rs` runs it without a network, against a pack \
+         staged for it, and holds every emitted path to this schema",
+    ),
+    (
+        "source add",
+        "commits a catalog entry — the fixture every golden here reads must not be mutated by \
+         one of them — and resolves through a pack this fixture does not hold. Exercised end \
+         to end in `source_add.rs`, which asserts the envelope and each draft's fields",
+    ),
+    (
+        "export",
+        "its `--format` names the export format (bundle, rdf, …), not the report contract",
+    ),
+    (
+        "bench",
+        "refuses to run without a committed goal set, and inventing one would measure whoever \
+         wrote the fallback",
+    ),
+    (
+        "index-verify",
+        "requires a built index, and the `index` feature to build one",
+    ),
+    ("migrate", "a subcommand group, and every migration writes"),
+    (
+        "run",
+        "needs a corpus declaring a capability, and lands a commit when it finds one — the \
+         fixture every golden here reads must not be mutated by one of them. Exercised \
+         end-to-end against a materialized example in `capability_run.rs`, which asserts the \
+         envelope and the report's own fields",
+    ),
+    (
+        "phase start",
+        "opens a branch and lands a `scaffold:` commit carrying the phase record — the fixture \
+         every golden here reads must not be mutated by one of them. Exercised end to end \
+         against a corpus built for it in `phase_record.rs`, which asserts the envelope and \
+         each report's own fields",
+    ),
+    (
+        "phase run",
+        "invokes the capability manifest and commits, for `run`'s reason and `phase start`'s \
+         — and there is no phase to run in a fixture no phase was started in",
+    ),
+    (
+        "phase settle",
+        "reads a phase record, which only `phase start` writes. It authors nothing, so the \
+         objection is not that it writes: it has nothing to answer about here. Covered in \
+         `phase_record.rs` beside the two above",
+    ),
+    (
+        "cohort",
+        "requires paths to derived repositories, which no fixture here holds and which are \
+         private on the machines that do — exercised against materialized examples in \
+         `cohort.rs`, which asserts the envelope and that the report names no repository",
+    ),
+    (
+        "retrieve",
+        "emits the MCP contract's own `retrieve` response shape — one shape for one answer, \
+         dispatched through the same `tools::call` an agent reaches. Declaring it a second time \
+         in report.schema.json would be a second freeze of one shape, under names \
+         (`results`, `scope`, `rejected`, `absence`) that `query`, `pack` and `estimate` also \
+         emit and that this contract deliberately does not declare. Where it IS checked: \
+         `yidam/sdks/parity/mcp/cases/retrieve/` pins the fields and their values for every \
+         server, and `tests/suite/retrieve_cli.rs` holds this command's own rendering of them",
+    ),
+    (
+        "cluster pin",
+        "reads a remote and writes a bundle to a vault: the pin of a cluster run, which has \
+         no meaning in a fixture with neither. Exercised against a bare remote and a `file://` \
+         vault built for it in `cluster_run.rs`, which asserts the envelope and the record",
+    ),
+    (
+        "cluster step",
+        "invokes a capability against a bundle from a vault and puts what it built back — \
+         `run`'s reason, in a pod's shape. Covered in `cluster_run.rs` beside `cluster pin`",
+    ),
+    (
+        "cluster land",
+        "moves a ref on a remote, which is the one write the whole cluster design exists to \
+         confine to one place. Covered in `cluster_run.rs`, including the attempt that must \
+         fail",
+    ),
+    (
+        "cluster admit",
+        "reads `due`'s clocks over a clone of a remote and counts its proposal branches — \
+         `due`'s reason for being live, plus a remote no fixture here holds. Covered in \
+         `cluster_run.rs`",
+    ),
+    (
+        "cluster survey",
+        "plans a gather at a pin read from a vault, over a `tonpa.lock` whose peers are \
+         bundles in that vault — the pin's reason. Covered in `cluster_run.rs`, which runs the \
+         survey, ask and gather pods end to end and reads each record out of its envelope",
+    ),
+    (
+        "cluster ask",
+        "asks one peer from a bundle in a vault, or fetched from its lock url, and puts its \
+         record back — `cluster step`'s reason. Covered in `cluster_run.rs` beside `cluster \
+         survey`",
+    ),
+    (
+        "cluster gather",
+        "settles the askers' records, which live in a vault, into commits on a pin that lives \
+         there too. Covered in `cluster_run.rs` beside `cluster survey`, through the land",
+    ),
+    (
+        "dispatch",
+        "requires `ma/*` seats, their registry rows and a declared elector, which the fixture \
+         holds none of, and lands a branch when it has them. Exercised end to end in \
+         `dispatch.rs`, which asserts the envelope, each seat's outcome and the exit code",
+    ),
+    (
+        "gather",
+        "requires `.yidam/gathers/<name>.toml` and installed peers, which the fixture holds \
+         neither of, and lands a branch when it has them. Exercised end to end in `gather.rs`, \
+         which asserts the envelope and every peer's outcome",
+    ),
+    ("query", "requires a query expression"),
+    ("pack", "requires a query expression"),
+    ("estimate", "requires a query expression"),
+];
+
+/// `--help` for a command or group.
+///
+/// Never the top level: since #921 its `--help` is the thirteen commands a session usually
+/// needs, and the population below is *every* command that emits the report contract. That
+/// roster is [`common::commands_from_help`], read from `--help-all`.
+fn help(args: &[&str]) -> String {
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .args(args)
+        .arg("--help")
+        .output()
+        .expect("running --help");
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+/// Whether this command's own help offers `--format`.
+///
+/// The match is on an option line named exactly `--format` — `bundle` mentions the word in
+/// its description and has no such flag.
+fn advertises_format(args: &[&str]) -> bool {
+    help(args).lines().any(|l| {
+        let t = l.trim_start();
+        l.starts_with(' ') && (t.starts_with("--format ") || t.contains(", --format "))
+    })
+}
+
+/// Subcommand names under `group`, or none where it is not a group.
+///
+/// A group's help is clap's, with a `Commands:` block. The top level is not read here: `yidam
+/// --help-all` is [`yidam::help`]'s own template — grouped, with the `{subcommands}` slot
+/// replaced — and has no `Commands:` heading at all, so its reader is
+/// [`common::commands_from_help`]. One parser loose enough to match both would be how this
+/// scan ends up returning the empty set that satisfies every question asked of it.
+fn children(group: &[&str]) -> Vec<String> {
+    let text = help(group);
+    let mut out = Vec::new();
+    let mut inside = false;
+    for line in text.lines() {
+        if line.starts_with("Commands:") {
+            inside = true;
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        // The block ends at the first line that is not an entry.
+        if !line.starts_with("  ") && !line.trim().is_empty() {
+            break;
+        }
+        let Some(rest) = line.strip_prefix("  ") else {
+            continue;
+        };
+        if rest.starts_with(' ') || rest.starts_with('-') {
+            continue; // a continuation line, or an option
+        }
+        let name = rest.split_whitespace().next().unwrap_or_default();
+        if name.is_empty()
+            || name == "help"
+            || !name.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+        {
+            continue;
+        }
+        out.push(name.to_string());
+    }
+    out
+}
+
+/// Every command whose own `--help` offers `--format`, **including under a subcommand group**.
+///
+/// Asked of the built binary rather than of the source, for `cli_reference.rs`'s reason: it
+/// is the same question a consumer asks, answered the same way, and it survives a refactor of
+/// how the clap enum is spelled.
+///
+/// # Why it descends, which it did not
+///
+/// This read the top level only, and clap does not print a group's children's flags. So a
+/// group whose children emit the contract was outside the population entirely — and
+/// `NO_REPORT`'s own staleness check, which requires every exemption to still be in the
+/// population, made *declaring* such a command impossible rather than merely unnecessary.
+/// Eight were outside it when this was written (#893): `kuten check`, `policy`'s four, and
+/// `phase`'s three. `policy`'s four had been emitting `--format json` with no report envelope
+/// at all since RFC-0024, against that RFC's own stated dependency, and nothing was red.
+///
+/// # A group that carries the flag itself is one command, not six
+///
+/// `migrate` declares `--format` on the parent, where it governs all six subcommands. So a
+/// group advertising the flag is a member at its own path and its children are not asked:
+/// there is one flag and one report shape, and six members would demand six registrations for
+/// one thing. A group that does not carry it — `kuten`, `phase`, `policy` — is not itself a
+/// member, and each child is asked separately.
+///
+/// Members are the argv path, space-joined: `lint`, `migrate`, `policy check`.
+fn reporting_commands() -> BTreeSet<String> {
+    let tops = common::commands_from_help();
+
+    let mut reporting = BTreeSet::new();
+    let mut groups = 0usize;
+    for top in &tops {
+        if advertises_format(&[top]) {
+            reporting.insert(top.clone());
+            continue;
+        }
+        let kids = children(&[top]);
+        if kids.is_empty() {
+            continue;
+        }
+        groups += 1;
+        for kid in kids {
+            if advertises_format(&[top, &kid]) {
+                reporting.insert(format!("{top} {kid}"));
+            }
+        }
+    }
+
+    // Two floors, because one of them was the hole. The first is the original: a scan that
+    // returns an empty set satisfies every "is it covered?" question asked of it, which is how
+    // a guard goes green while covering none of its subject. The second says the descent
+    // happened at all — this file's whole population would still look healthy at 35 members
+    // with every group unread, which is exactly what it looked like before #893.
+    assert!(
+        reporting.len() > 40,
+        "only {} command(s) advertise `--format` — the help layout changed and this filter is \
+         no longer matching it: {reporting:?}",
+        reporting.len()
+    );
+    assert!(
+        groups >= 4 && reporting.iter().filter(|c| c.contains(' ')).count() >= 8,
+        "the descent found {groups} group(s) and {} subcommand(s) — it has stopped reading \
+         `Commands:` blocks, and every command under a group is silently unchecked again",
+        reporting.iter().filter(|c| c.contains(' ')).count()
+    );
+    reporting
+}
+
+/// The command path an invocation names, as [`reporting_commands`] spells it.
+///
+/// `COMMANDS` and `LIVE` hold whole argv lines — `["neighbors", "concept/tailwater.yml",
+/// "--depth", "2"]` — and only their leading words are the command. Which leading words is not
+/// something to infer from the shape of the rest: `["kuten", "check"]` is two and
+/// `["diff", "HEAD~1..HEAD"]` is one, and a rule reading "drop anything that looks like an
+/// argument" would have to know that a subcommand and a positional are spelled the same way.
+///
+/// So it asks the population instead. The longest prefix the population names wins, which is
+/// decidable rather than guessed, and a deeper group would surface as an uncovered command
+/// rather than key silently onto its parent.
+fn path_of(args: &[&str], population: &BTreeSet<String>) -> String {
+    if args.len() >= 2 {
+        let two = format!("{} {}", args[0], args[1]);
+        if population.contains(&two) {
+            return two;
+        }
+    }
+    args[0].to_string()
+}
+
+/// Commands in `population` that none of the three rosters covers.
+///
+/// Extracted from the test so it can be **run against a roster with a hole punched in it**.
+/// A guard nobody has watched fail is a guard nobody knows the shape of, and this one had a
+/// hole for as long as it existed (#893) precisely because every input it was ever given was
+/// one that passed. See [`the_roster_goes_red_when_a_command_loses_its_coverage`].
+fn uncovered_against(
+    population: &BTreeSet<String>,
+    commands: &[(&str, &[&str])],
+    live_cmds: &[(&str, &[&str])],
+    exemptions: &[(&str, &str)],
+) -> Vec<String> {
+    let golden: BTreeSet<String> = commands
+        .iter()
+        .map(|(_, args)| path_of(args, population))
+        .collect();
+    let live: BTreeSet<String> = live_cmds
+        .iter()
+        .map(|(_, args)| path_of(args, population))
+        .collect();
+    let exempt: BTreeSet<&str> = exemptions.iter().map(|(name, _)| *name).collect();
+
+    population
+        .iter()
+        .filter(|name| {
+            let n = name.as_str();
+            !golden.contains(n) && !live.contains(n) && !exempt.contains(n)
+        })
+        .cloned()
+        .collect()
+}
+
+/// **The guard, watched failing.** #893's definition of done asks for exactly this.
+///
+/// Take the real rosters, remove one command's coverage, and the check must name it. Run
+/// against three shapes, because the three rosters are reached by different code: a golden
+/// keyed on a two-word path (`kuten check`, the one the issue names — deleting its entry was
+/// green before the descent landed, because `kuten` was not in the population at all), a
+/// golden keyed on one word, and an exemption.
+///
+/// This is the test that would have caught #893 itself. The population is the input it
+/// mutates, so a scan that stopped descending would leave `kuten check` absent from the
+/// population and the first case would fail with *"the population no longer holds it"* rather
+/// than passing quietly.
+#[test]
+fn the_roster_goes_red_when_a_command_loses_its_coverage() {
+    let population = reporting_commands();
+    assert!(
+        uncovered_against(&population, COMMANDS, LIVE, NO_REPORT).is_empty(),
+        "the unmutated rosters must cover everything, or this test proves nothing about the \
+         mutations below"
+    );
+
+    for victim in ["kuten check", "lint"] {
+        assert!(
+            population.contains(victim),
+            "the population no longer holds `{victim}`, so removing its golden proves nothing \
+             — the scan has stopped finding it"
+        );
+        let holed: Vec<(&str, &[&str])> = COMMANDS
+            .iter()
+            .filter(|(_, args)| path_of(args, &population) != victim)
+            .copied()
+            .collect();
+        assert!(
+            holed.len() < COMMANDS.len(),
+            "no COMMANDS entry names `{victim}`, so nothing was removed"
+        );
+        let found = uncovered_against(&population, &holed, LIVE, NO_REPORT);
+        assert_eq!(
+            found,
+            vec![victim.to_string()],
+            "deleting `{victim}`'s golden left the roster green"
+        );
+    }
+
+    // And an exemption is load-bearing the same way: `run` is covered by nothing else.
+    let holed: Vec<(&str, &str)> = NO_REPORT
+        .iter()
+        .filter(|(name, _)| *name != "run")
+        .copied()
+        .collect();
+    assert!(
+        holed.len() < NO_REPORT.len(),
+        "no NO_REPORT entry names `run`"
+    );
+    assert_eq!(
+        uncovered_against(&population, COMMANDS, LIVE, &holed),
+        vec!["run".to_string()],
+        "deleting `run`'s exemption left the roster green"
+    );
+}
+
+/// Every command that emits the report contract has its fields checked somewhere.
+///
+/// The guard over the other two checks. `doctor` and `propose` both emitted top-level fields
+/// `report.schema.json` did not declare, for as long as they did, because the schema check
+/// read only the goldens and neither command has one — a consumer reading the contract was
+/// being told nothing about `failed`, `warned`, or the whole of `propose`. Nothing was red.
+#[test]
+fn every_reporting_command_has_its_fields_checked() {
+    let population = reporting_commands();
+    let uncovered = uncovered_against(&population, COMMANDS, LIVE, NO_REPORT);
+    assert!(
+        uncovered.is_empty(),
+        "these commands emit `--format json` and nothing checks their fields against \
+         report.schema.json: {uncovered:?}\n\nAdd each to COMMANDS (with a golden), to LIVE \
+         (run live, for a report that varies by day), or to NO_REPORT with the reason it \
+         cannot be exercised."
+    );
+
+    // And the exemptions are not stale: a command that no longer exists, or that lost its
+    // `--format`, must not keep a licence to be unchecked.
+    //
+    // Every name in `NO_REPORT` is in the light default build, which is what makes this
+    // symmetric assertion safe. Exempting a **feature-gated** command would fail here on the
+    // light build for the honest-looking wrong reason — the command is absent, not stale —
+    // and the fix is `help.rs`'s: a companion list licensing the absence, not a weakening of
+    // this check.
+    let stale: Vec<&str> = NO_REPORT
+        .iter()
+        .map(|(name, _)| *name)
+        .filter(|n| !population.contains(*n))
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "NO_REPORT names {stale:?}, which no longer emit a report. An exemption is a licence \
+         to go unchecked; delete the ones nothing needs."
+    );
+}
+
+#[test]
+fn text_output_is_byte_identical_to_its_golden() {
+    let tmp = stage();
+    for (name, args) in COMMANDS {
+        let r = run(tmp.path(), args);
+        assert_golden(&format!("{name}.txt"), &r.stdout);
+    }
+}
+
+#[test]
+fn json_output_matches_its_golden() {
+    let tmp = stage();
+    for (name, args) in COMMANDS {
+        let mut a = args.to_vec();
+        a.extend_from_slice(&["--format", "json"]);
+        let r = run(tmp.path(), &a);
+        let parsed: serde_json::Value = serde_json::from_str(&r.stdout).unwrap_or_else(|e| {
+            panic!("{name} --format json is not valid JSON: {e}\n{}", r.stdout)
+        });
+        assert_eq!(parsed["format_version"], "1", "{name} handshake");
+        assert_golden(&format!("{name}.json"), &r.stdout);
+    }
+}
+
+/// The gate must not depend on how the answer was asked for.
+#[test]
+fn exit_codes_are_identical_across_formats() {
+    let tmp = stage();
+    for (name, args) in COMMANDS {
+        let text = run(tmp.path(), args);
+        let mut a = args.to_vec();
+        a.extend_from_slice(&["--format", "json"]);
+        let json = run(tmp.path(), &a);
+        assert_eq!(
+            text.code, json.code,
+            "{name}: text exited {} and json exited {} — a gate that gates differently \
+             depending on the output format is not a gate",
+            text.code, json.code
+        );
+    }
+}
+
+// ── a duplicate key is legal JSON, and the parser hides it ────────────────────
+
+/// Every duplicated key in a JSON document, as the path it sits at.
+///
+/// **A validator cannot find this defect**, which is why it needs its own check.
+/// `serde_json::Value` keeps the last of a duplicated pair and reports nothing, so by the time
+/// any schema check runs, the earlier declaration is already gone. That is how
+/// `report.schema.json` came to declare `positions` twice — once as the integer `status` emits,
+/// once as the array `sangha` does. The parser discarded the first, and its description went on
+/// reading as coverage for a shape nothing checked (#665). The union that replaced them was
+/// found by wiring the validator up and watching a *consequence* fail, not by seeing the
+/// duplication; a third one whose two shapes happened to agree would still be invisible.
+///
+/// So this reads the pairs as the deserializer yields them, before a map can swallow one.
+fn duplicate_keys(text: &str) -> Vec<String> {
+    struct At<'a> {
+        path: String,
+        out: &'a mut Vec<String>,
+    }
+
+    impl<'de> serde::de::DeserializeSeed<'de> for At<'_> {
+        type Value = ();
+        fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<(), D::Error> {
+            d.deserialize_any(self)
+        }
+    }
+
+    impl<'de> serde::de::Visitor<'de> for At<'_> {
+        type Value = ();
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("any JSON value")
+        }
+
+        fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
+            let mut seen = BTreeSet::new();
+            while let Some(key) = map.next_key::<String>()? {
+                let here = format!("{}/{key}", self.path);
+                if !seen.insert(key) {
+                    self.out.push(here.clone());
+                }
+                map.next_value_seed(At {
+                    path: here,
+                    out: self.out,
+                })?;
+            }
+            Ok(())
+        }
+
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<(), A::Error> {
+            let mut i = 0;
+            while seq
+                .next_element_seed(At {
+                    path: format!("{}[{i}]", self.path),
+                    out: self.out,
+                })?
+                .is_some()
+            {
+                i += 1;
+            }
+            Ok(())
+        }
+
+        // A scalar carries no keys. Each is spelled out because serde's defaults reject.
+        fn visit_bool<E>(self, _: bool) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_i64<E>(self, _: i64) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_u64<E>(self, _: u64) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_f64<E>(self, _: f64) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_str<E>(self, _: &str) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_unit<E>(self) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_none<E>(self) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_some<D: serde::Deserializer<'de>>(self, d: D) -> Result<(), D::Error> {
+            d.deserialize_any(self)
+        }
+    }
+
+    let mut out = Vec::new();
+    let mut de = serde_json::Deserializer::from_str(text);
+    serde::de::DeserializeSeed::deserialize(
+        At {
+            path: String::new(),
+            out: &mut out,
+        },
+        &mut de,
+    )
+    .expect("valid JSON");
+    out
+}
+
+/// No contract this repository ships declares the same key twice.
+///
+/// **The set is discovered**, not listed. A hardcoded path would have covered
+/// `report.schema.json` and gone on passing while a golden or a second contract grew the same
+/// defect — which is the shape #661 was, one criterion behind the document it claimed to check.
+#[test]
+fn no_shipped_contract_declares_a_key_twice() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../sdks/parity");
+    let mut checked = 0;
+    let mut found: Vec<String> = Vec::new();
+
+    for entry in walkdir::WalkDir::new(&root)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+    {
+        let text = std::fs::read_to_string(entry.path()).expect("a readable contract");
+        checked += 1;
+        let rel = entry
+            .path()
+            .strip_prefix(&root)
+            .unwrap_or(entry.path())
+            .display()
+            .to_string();
+        found.extend(
+            duplicate_keys(&text)
+                .into_iter()
+                .map(|p| format!("{rel}: {p}")),
+        );
+    }
+
+    // The floor. A walk that finds nothing to read passes exactly like a tree in good order,
+    // and this one is discovered rather than listed, so a moved directory would silence it.
+    assert!(
+        checked >= 20,
+        "read only {checked} contract file(s) under {} — the tree moved and this check is \
+         reading nothing",
+        root.display()
+    );
+    assert!(
+        found.is_empty(),
+        "a key is declared twice, and every JSON parser keeps the last — the earlier \
+         declaration is dead text that reads as coverage:\n  {}",
+        found.join("\n  ")
+    );
+}
+
+/// The committed contract, parsed once.
+fn schema() -> serde_json::Value {
+    serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().parent().unwrap().join("report.schema.json"))
+            .expect("report.schema.json"),
+    )
+    .expect("schema is valid JSON")
+}
+
+/// What one walk found.
+#[derive(Default)]
+struct Contract {
+    /// Deduped as it accumulates. One undeclared field is one problem however many array
+    /// elements or documents carry it: a fixture with two catalog sources reported
+    /// `sources[].artifacts` twice, and an envelope-level field printed once per golden —
+    /// twenty identical lines, which is the failure the dedup was added to prevent and did
+    /// not, because it was per-document while the caller's accumulator was not.
+    problems: BTreeSet<String>,
+    /// Every path that reached a declaration. A *witness* set rather than a count — see
+    /// [`assert_contract`]. A walk that stops descending reports no problems and looks exactly
+    /// like a contract in good order, which is the state this check was in until #645.
+    resolved: BTreeSet<String>,
+}
+
+/// One envelope against the contract: every emitted field declared, **all the way down**.
+///
+/// # Two obligations, and only one of them is JSON Schema's
+///
+/// A validator answers *is this document allowed by the schema* — types, enums, `required`,
+/// bounds. [`schema_violations`] runs one, because this crate already carries `jsonschema` as
+/// an unconditional dev-dependency and this file was hand-checking a subset of what it does.
+/// Everything declared below the envelope's first level — every enum, every
+/// `["boolean","null"]`, every `minimum` — was inert until that was wired up.
+///
+/// This walk answers the *other* question, the one a validator deliberately cannot: **whatever
+/// yidam emits, the contract must describe it.** JSON Schema is permissive by design — an
+/// undeclared field is valid unless `additionalProperties: false` — and this envelope's own
+/// description tells consumers to ignore unknown fields, so demanding that keyword would
+/// contradict the contract it is checking. The obligation runs the other way, and nothing but
+/// this walk carries it.
+///
+/// # It used to compare one level
+///
+/// This walked `doc.as_object()`'s keys against `schema["properties"]` and stopped, so every
+/// nested field in every report was undeclared and passing. The first recursive run found
+/// **seven** the schema did not declare — including `severity` on every lint violation, in the
+/// most-read report in the family.
+///
+/// It was found the way blind spots usually are: by adding `required` to `graph`'s class
+/// properties (#642) and noticing the golden validated *before* the declaration was written.
+/// `every_live_report_field_is_declared_in_the_schema` exists because the golden-reading check
+/// had a blind spot; this was that same shape one level down.
+fn contract_problems(schema: &serde_json::Value, name: &str, doc: &serde_json::Value) -> Contract {
+    let mut out = Contract::default();
+    assert!(doc.is_object(), "{name}: an envelope is an object");
+    walk(schema, &applicable(schema, schema), doc, name, "", &mut out);
+    out
+}
+
+/// Whether a schema node declares a value shape for keys it does not name.
+///
+/// **`true` and `{}` do not count, and that is the whole point of this function.** Both are the
+/// empty schema, both mean "anything may appear here", and honouring either would make
+/// `additionalProperties` a one-line off-switch for every undeclared-field assertion in this
+/// file — while *raising* the resolved count, so a volume floor could not see it either. The
+/// trigger would not even be sabotage: this schema's own description says consumers MUST ignore
+/// unknown fields, so a maintainer codifying that rule in the schema would silently disable the
+/// gate.
+///
+/// What does count is a non-empty object: `replay[].by_class`'s value shape, keyed by class
+/// name, which is a real declaration of what lives under a key the corpus chooses.
+fn value_shape(node: &serde_json::Value) -> Option<&serde_json::Value> {
+    node.get("additionalProperties")
+        .filter(|e| e.as_object().is_some_and(|o| !o.is_empty()))
+}
+
+/// Resolve a local `$ref` against the root schema.
+///
+/// Local pointers only. This contract is one document by construction — `$id` names it and
+/// nothing else is fetched — and honouring a remote `$ref` would mean the gate reads the
+/// network to decide whether a field is declared.
+///
+/// `None` is a pointer that does not resolve, which
+/// [`every_ref_in_the_contract_resolves`] is what makes unreachable. Reported rather than
+/// skipped in both places: a dangling `$ref` silently contributes no declarations, and a walk
+/// that declares nothing looks exactly like a contract in good order.
+fn resolve_ref<'a>(root: &'a serde_json::Value, pointer: &str) -> Option<&'a serde_json::Value> {
+    let mut node = root;
+    for raw in pointer.strip_prefix("#/")?.split('/') {
+        // RFC 6901's escapes, in its order: `~1` before `~0`, or a literal `~1` round-trips
+        // wrong. No segment in this file needs either; doing it right costs one line.
+        node = node.get(raw.replace("~1", "/").replace("~0", "~"))?;
+    }
+    Some(node)
+}
+
+/// Every subschema that applies at one position: the node, plus whatever `$ref`, `allOf`,
+/// `oneOf` and `anyOf` fold into it.
+///
+/// **A set, and the set is the whole design.** The obvious shape — recurse into each branch
+/// with the document and union what comes back — fails in both directions at once, which is
+/// what #658 measured before this existed: walking a `lint` check against `doctor`'s branch
+/// reports five fields as undeclared that the contract declares one branch over, *and* a walk
+/// that stops at a node whose declarations sit under `oneOf` resolves nothing below it, so
+/// `checks[].violations[].severity` goes unreached at the same moment. Fabricating problems
+/// and losing depth are opposite failures and both of them look like the check working.
+///
+/// Carrying the set makes the question asked at each level the right one — *is this field
+/// declared by any subschema that applies here* — and the union is taken again one level
+/// down, so a field declared in one branch and nested under a field declared in another is
+/// still declared.
+///
+/// `anyOf` and `oneOf` are treated identically here. Which branches a document must satisfy
+/// is the validator's question; this walk's question is only what the contract describes.
+fn applicable<'a>(
+    root: &'a serde_json::Value,
+    node: &'a serde_json::Value,
+) -> Vec<&'a serde_json::Value> {
+    let mut out = Vec::new();
+    expand(root, node, &mut out);
+    out
+}
+
+/// [`applicable`] over several nodes at once, deduped across all of them.
+fn all_applicable<'a>(
+    root: &'a serde_json::Value,
+    nodes: &[&'a serde_json::Value],
+) -> Vec<&'a serde_json::Value> {
+    let mut out = Vec::new();
+    for node in nodes {
+        expand(root, node, &mut out);
+    }
+    out
+}
+
+/// **By pointer identity, not by value.** Two `$ref`s to one definition are one subschema, and
+/// a definition that reached itself would otherwise not terminate. Two structurally equal
+/// branches are still two branches, which value equality would collapse.
+fn expand<'a>(
+    root: &'a serde_json::Value,
+    node: &'a serde_json::Value,
+    out: &mut Vec<&'a serde_json::Value>,
+) {
+    if out.iter().any(|seen| std::ptr::eq(*seen, node)) {
+        return;
+    }
+    out.push(node);
+    if let Some(pointer) = node.get("$ref").and_then(|r| r.as_str()) {
+        // A pointer that does not resolve contributes nothing, so every field under it is
+        // reported undeclared by the caller — loudly, and at the path that carries it.
+        if let Some(target) = resolve_ref(root, pointer) {
+            expand(root, target, out);
+        }
+    }
+    for keyword in ["allOf", "oneOf", "anyOf"] {
+        if let Some(branches) = node.get(keyword).and_then(|b| b.as_array()) {
+            for branch in branches {
+                expand(root, branch, out);
+            }
+        }
+    }
+}
+
+fn walk(
+    root: &serde_json::Value,
+    nodes: &[&serde_json::Value],
+    doc: &serde_json::Value,
+    name: &str,
+    path: &str,
+    out: &mut Contract,
+) {
+    match doc {
+        serde_json::Value::Object(obj) => {
+            // `required` presence is the validator's job now. It reads the keyword properly,
+            // including a malformed one, where this file's `.and_then(|r| r.as_array())`
+            // silently skipped a `required` that was misspelled or written as a string.
+            let declared: Vec<_> = nodes
+                .iter()
+                .filter_map(|n| n.get("properties").and_then(|p| p.as_object()))
+                .collect();
+            let extra: Vec<&serde_json::Value> =
+                nodes.iter().filter_map(|n| value_shape(n)).collect();
+
+            for (key, value) in obj {
+                let by_name: Vec<&serde_json::Value> =
+                    declared.iter().filter_map(|d| d.get(key)).collect();
+                // Inside a dynamic map the key belongs to the corpus, not to the contract, so
+                // the path says `*`: one shape to fix rather than one per class.
+                let seg = if by_name.is_empty() && !extra.is_empty() {
+                    "*"
+                } else {
+                    key.as_str()
+                };
+                let here = if path.is_empty() {
+                    seg.to_string()
+                } else {
+                    format!("{path}.{seg}")
+                };
+                let subs = if by_name.is_empty() {
+                    extra.clone()
+                } else {
+                    by_name
+                };
+                match subs.is_empty() {
+                    false => {
+                        out.resolved.insert(here.clone());
+                        walk(root, &all_applicable(root, &subs), value, name, &here, out);
+                    }
+                    true => {
+                        out.problems.insert(format!(
+                            "  {name}: emits `{here}`, which report.schema.json does not declare"
+                        ));
+                    }
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            let here = format!("{path}[]");
+            let subs: Vec<&serde_json::Value> =
+                nodes.iter().filter_map(|n| n.get("items")).collect();
+            match subs.is_empty() {
+                false => {
+                    let expanded = all_applicable(root, &subs);
+                    for value in items {
+                        walk(root, &expanded, value, name, &here, out);
+                    }
+                }
+                // An array declared without `items` is a hole, not a leaf: everything inside it
+                // goes unread. Five top-level arrays were in that state — `nodes`,
+                // `open_questions`, `phases`, `edges`, `findings` — hiding 33 distinct paths,
+                // about 11% of every field emitted. `check-diff.findings[]` was the sharpest:
+                // its declaration described the item shape, `severity` included, in prose.
+                //
+                // Only when the array has something in it. An empty array has nothing
+                // unchecked, which is why `diff`'s `nodes` and `edges` do not force a shape to
+                // be invented for data no fixture has produced — and why this goes red the day
+                // one does.
+                true if !items.is_empty() => {
+                    out.problems.insert(format!(
+                        "  {name}: emits `{here}` with {} element(s) and report.schema.json \
+                         declares no `items` for it",
+                        items.len()
+                    ));
+                }
+                true => {}
+            }
+        }
+        // A scalar meeting an object or array declaration is the validator's to refuse, and it
+        // does. Before one ran, replacing `lint`'s whole `gate` object with `null` — or with the
+        // integer 7 — left this walk green.
+        _ => {}
+    }
+}
+
+/// The contract as a validator reads it.
+///
+/// `jsonschema` is already an unconditional dev-dependency and already compiles *this same
+/// file* in `quality_surface.rs` and `class_schemas.rs`. Hand-rolling a subset of it is how
+/// `positions` came to be declared twice with the second silently winning, and how `status`'s
+/// integer `open_questions` sat under an `array` declaration for as long as the file existed.
+fn schema_violations(
+    validator: &jsonschema::Validator,
+    name: &str,
+    doc: &serde_json::Value,
+) -> Vec<String> {
+    validator
+        .iter_errors(doc)
+        .map(|e| format!("  {name}: at `{}`: {e}", e.instance_path()))
+        .collect()
+}
+
+fn validator(schema: &serde_json::Value) -> jsonschema::Validator {
+    jsonschema::validator_for(schema).expect("report.schema.json compiles as a JSON Schema")
+}
+
+const CONTRACT_ADVICE: &str = "\n\nAdd the field to report.schema.json, or stop emitting it. \
+     A consumer reading a contract that does not describe the data it is sent is the failure \
+     this contract exists to prevent.";
+
+/// Paths the walk must have reached, or it did not descend.
+///
+/// **Witnesses, not a volume floor.** The floor these replaced was calibrated against total
+/// collapse and nothing else: measured over the goldens, a walk capped at depth 2 resolves 843
+/// fields and cleared a 700 floor by 143 while losing every field under
+/// `checks[].violations[]` — `severity`, `age`, `in_baseline`, `span`, the four this change
+/// exists for. Deleting `items` from 39 of the schema's 40 array declarations, one at a time,
+/// left the gate fully green. The live floor was worse: removing the array recursion left 42
+/// against a floor of 40, and an array is how `doctor`'s `checks[]` is reached at all.
+///
+/// A path measures depth directly, needs no revision when a report gains a field, and names
+/// what was lost when it fails.
+const GOLDEN_WITNESSES: &[&str] = &[
+    // Four levels down, through two arrays.
+    "checks[].violations[].severity",
+    // Through a dynamic map's value shape.
+    "replay[].by_class.*.meets_expectation",
+    // Through an array whose item shape was prose until #650.
+    "findings[].nearest.name",
+];
+
+/// `doctor` has no golden, and is reached only through an array.
+const LIVE_WITNESSES: &[&str] = &["checks[].question", "checks[].verdict"];
+
+/// Paths [`declarations`] must have *declared*, or it did not follow the composition keywords.
+///
+/// The mirror of the two rosters above, and it holds the other walk. One path per keyword it
+/// has to follow, each chosen because nothing else in the schema reaches it the same way:
+/// `checks[].violations[].severity` sits two levels inside one `oneOf` branch and one `$ref`
+/// down; `checks[].question` sits in the other branch, so a walk that descends only the first
+/// still fails; `findings[].span.line` is reachable only by resolving a `$ref` to a
+/// definition that is not a leaf, which is the one case a leaf-only `$defs` cannot witness.
+const DECLARATION_WITNESSES: &[&str] = &[
+    "checks[].violations[].severity",
+    "checks[].question",
+    "findings[].span.line",
+];
+
+/// Both tests' shared body: validate, then walk, then witness.
+///
+/// Problems before witnesses. The two fail together — deleting a declaration both raises
+/// `problems` and drops `resolved` — and the accurate message is the one naming the field.
+/// Asserting depth first reported "it has stopped descending" for a schema that was merely
+/// missing a declaration, and `CONTRACT_ADVICE` was never reached.
+fn assert_contract(found: &Contract, invalid: &[String], witnesses: &[&str], label: &str) {
+    assert!(
+        invalid.is_empty(),
+        "{label} do not validate against report.schema.json:\n{}",
+        invalid.join("\n")
+    );
+    assert!(
+        found.problems.is_empty(),
+        "{label} and schema disagree:\n{}{CONTRACT_ADVICE}",
+        found
+            .problems
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    for witness in witnesses {
+        assert!(
+            found.resolved.contains(*witness),
+            "the contract walk never reached `{witness}` in {label} — it has stopped \
+             descending, and a check that looks at nothing reports nothing"
+        );
+    }
+}
+
+#[test]
+fn every_golden_field_is_declared_in_the_schema() {
+    let schema = schema();
+    let validator = validator(&schema);
+    let mut found = Contract::default();
+    let mut invalid = Vec::new();
+    let mut seen = 0;
+    for entry in std::fs::read_dir(fixture_dir().join("expected")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|x| x != "json") {
+            continue;
+        }
+        seen += 1;
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        let doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        invalid.extend(schema_violations(&validator, &name, &doc));
+        let one = contract_problems(&schema, &name, &doc);
+        found.problems.extend(one.problems);
+        found.resolved.extend(one.resolved);
+    }
+
+    assert!(seen > 0, "no JSON goldens found — the scan is broken");
+    assert_contract(&found, &invalid, GOLDEN_WITNESSES, "goldens");
+}
+
+/// The same check for the reports that have no golden to read.
+///
+/// This is the one that was missing. `doctor` shipped `failed` and `warned`, and `propose`
+/// shipped its entire report — six top-level fields — with none of them in
+/// `report.schema.json`, because the check above reads the `expected/` directory and neither
+/// command has a file in it. The contract was wrong about two commands and nothing could say
+/// so.
+///
+/// It found a third the moment it could descend: `doctor` and `lint` both emit a top-level
+/// `checks` array with different item shapes, and the schema described the key as `lint` only.
+#[test]
+fn every_live_report_field_is_declared_in_the_schema() {
+    let schema = schema();
+    let validator = validator(&schema);
+    let tmp = stage();
+    let mut found = Contract::default();
+    let mut invalid = Vec::new();
+    for (name, args) in LIVE {
+        let mut a = args.to_vec();
+        a.extend_from_slice(&["--format", "json"]);
+        let r = run(tmp.path(), &a);
+        let doc: serde_json::Value = serde_json::from_str(&r.stdout).unwrap_or_else(|e| {
+            panic!(
+                "`yidam {}` did not emit JSON: {e}\n{}",
+                a.join(" "),
+                r.stdout
+            )
+        });
+        invalid.extend(schema_violations(&validator, name, &doc));
+        let one = contract_problems(&schema, name, &doc);
+        found.problems.extend(one.problems);
+        found.resolved.extend(one.resolved);
+    }
+    assert_contract(&found, &invalid, LIVE_WITNESSES, "live reports");
+}
+
+/// The `skipped` verdict, against the contract that declares it.
+///
+/// Every run in this file is made against the staged fixture, where the repository check
+/// passes and all fourteen questions are answerable — so `skipped` was declared in
+/// `report.schema.json`, described there as the value a consumer MUST NOT read as `ok`, and
+/// emitted by nothing any gate looked at. Renaming it in the schema moved nothing red (#656).
+///
+/// A directory that is not a derived repository is the arm that emits it, and it is checked
+/// the way [`every_live_report_field_is_declared_in_the_schema`] checks the rest rather than
+/// against a golden: `doctor`'s `build` line carries this binary's version and features in
+/// its `detail`, so a committed golden would drift on a version bump and differ between the
+/// light and `--all-features` builds.
+#[test]
+fn the_skipped_verdict_is_emitted_and_declared() {
+    let schema = schema();
+    let outside = tempfile::tempdir().unwrap();
+    let r = run(outside.path(), &["doctor", "--format", "json"]);
+    let doc: serde_json::Value = serde_json::from_str(&r.stdout)
+        .unwrap_or_else(|e| panic!("doctor did not emit JSON: {e}\n{}", r.stdout));
+
+    let verdicts: BTreeSet<&str> = doc["checks"]
+        .as_array()
+        .expect("checks")
+        .iter()
+        .map(|c| c["verdict"].as_str().expect("a verdict"))
+        .collect();
+    assert!(
+        verdicts.contains("skipped"),
+        "the one run that reaches the unanswerable arm reported no `skipped` check: {verdicts:?}"
+    );
+
+    let invalid = schema_violations(&validator(&schema), "doctor (outside a repository)", &doc);
+    let found = contract_problems(&schema, "doctor (outside a repository)", &doc);
+    assert_contract(
+        &found,
+        &invalid,
+        LIVE_WITNESSES,
+        "doctor outside a repository",
+    );
+}
+
+/// Every `$ref` this contract carries resolves.
+///
+/// A dangling pointer contributes no declarations, so the fields under it are reported
+/// undeclared and the gate does go red — but at the emitting report's path, saying the
+/// schema does not declare a field it declares one line away. This names the actual defect,
+/// and it holds pointers no document happens to reach, which the walk by construction cannot.
+#[test]
+fn every_ref_in_the_contract_resolves() {
+    let schema = schema();
+    let mut refs: Vec<(String, String)> = Vec::new();
+
+    fn find(node: &serde_json::Value, path: &str, out: &mut Vec<(String, String)>) {
+        match node {
+            serde_json::Value::Object(map) => {
+                for (key, child) in map {
+                    if key == "$ref" {
+                        out.push((
+                            path.to_string(),
+                            child.as_str().unwrap_or_default().to_string(),
+                        ));
+                    }
+                    find(child, &format!("{path}/{key}"), out);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for (i, child) in items.iter().enumerate() {
+                    find(child, &format!("{path}/{i}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+    find(&schema, "", &mut refs);
+
+    // A floor, for this file's usual reason: a walk that finds nothing to check passes
+    // exactly like a document in good order. Seven is what #658 introduced — `check_id`
+    // twice, `severity` three times, `commit_kind` three times, less the one the count
+    // below reads from `$defs` itself.
+    assert!(
+        refs.len() >= 7,
+        "found only {} `$ref`(s) — this walk is broken, not the schema",
+        refs.len()
+    );
+
+    let dangling: Vec<String> = refs
+        .iter()
+        .filter(|(_, pointer)| resolve_ref(&schema, pointer).is_none())
+        .map(|(at, pointer)| format!("  at `{at}`: `{pointer}`"))
+        .collect();
+    assert!(
+        dangling.is_empty(),
+        "report.schema.json carries {} `$ref`(s) that do not resolve:\n{}\n\nEverything below \
+         an unresolvable pointer is undeclared, so the failure surfaces as a report emitting \
+         fields the contract 'does not declare' — three levels from the typo that caused it.",
+        dangling.len(),
+        dangling.join("\n")
+    );
+
+    // And every definition is used, from the other side. A `$defs` entry nothing references
+    // is inert in exactly the way #660's stray `state` declaration was.
+    let used: BTreeSet<&str> = refs.iter().map(|(_, p)| p.as_str()).collect();
+    let unused: Vec<&String> = schema["$defs"]
+        .as_object()
+        .expect("$defs")
+        .keys()
+        .filter(|name| !used.contains(format!("#/$defs/{name}").as_str()))
+        .collect();
+    assert!(
+        unused.is_empty(),
+        "report.schema.json defines {unused:?} under `$defs` and nothing references them"
+    );
+}
+
+/// Each branch's `required` list is load-bearing — field by field, and for its own command.
+///
+/// **#658's definition of done asks for a mutation no validator can fail, and measuring it
+/// is how that was found.** Deleting a field from one branch's `required` and re-running
+/// every other gate in this file leaves all of them green, necessarily: loosening `required`
+/// only ever admits *more* documents, and every check already carries every field. A
+/// validator fails a document that is MISSING what `required` names; it has nothing to say
+/// about a contract that stopped asking. Both branches were measured that way, and both
+/// stayed green across the whole file.
+///
+/// So this test holds the lists from two sides that a validator cannot.
+///
+/// **The roster count** is what makes the schema-side mutation red — five fields per branch,
+/// read off the contract. It is a weaker statement than the definition of done imagined: it
+/// says the list is the length it should be, not that each entry is load-bearing, and it
+/// cannot be scoped to one command's report because a `required` list is not a report.
+///
+/// **The document-side drop** is the load-bearing half, and it is also the direction the
+/// failure would actually arrive from — a release stops emitting a field. Drop it from every
+/// check and the gate must name it. *That* one is scoped: the other command's shape must
+/// still validate against the same schema, which is what would break if the two branches
+/// were ever collapsed back into one open declaration.
+#[test]
+fn each_check_shapes_required_list_is_load_bearing() {
+    let schema = schema();
+    let validator = validator(&schema);
+
+    let lint: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().join("expected/lint.json"))
+            .expect("the lint golden"),
+    )
+    .unwrap();
+    let tmp = stage();
+    let doctor: serde_json::Value =
+        serde_json::from_str(&run(tmp.path(), &["doctor", "--format", "json"]).stdout)
+            .expect("doctor emits JSON");
+
+    // Read off the contract rather than restated here: a branch that gains a field is covered
+    // the day it does, which a list written in this file would not be.
+    let required = |title: &str| -> Vec<String> {
+        schema["properties"]["checks"]["items"]["oneOf"]
+            .as_array()
+            .expect("checks[] is a oneOf")
+            .iter()
+            .find(|b| b["title"] == title)
+            .unwrap_or_else(|| panic!("no `{title}` branch"))["required"]
+            .as_array()
+            .expect("required")
+            .iter()
+            .map(|f| f.as_str().expect("a field name").to_string())
+            .collect()
+    };
+
+    let without = |doc: &serde_json::Value, field: &str| -> serde_json::Value {
+        let mut doc = doc.clone();
+        for check in doc["checks"].as_array_mut().expect("checks") {
+            check.as_object_mut().expect("a check").remove(field);
+        }
+        doc
+    };
+
+    // The width each branch is expected to have. Not a restatement of the field names — those
+    // are read off the schema above — but a guard on the loop itself: a `required` emptied or
+    // shortened makes the body below vacuous, and a vacuous mutation test passes. Per branch
+    // because the two are not the same width, which they were until `escalation_eligible`
+    // (#774). A branch that gains a required field is meant to fail this line.
+    for (label, doc, other_label, other, fields, width) in [
+        (
+            "lint",
+            &lint,
+            "doctor",
+            &doctor,
+            required("a lint check"),
+            6,
+        ),
+        (
+            "doctor",
+            &doctor,
+            "lint",
+            &lint,
+            required("a doctor check"),
+            5,
+        ),
+    ] {
+        assert_eq!(fields.len(), width, "{label}'s branch requires {fields:?}");
+        for field in &fields {
+            let mutated = without(doc, field);
+            assert_ne!(&mutated, doc, "`{label}` emits no `{field}` to drop");
+            assert!(
+                !schema_violations(&validator, label, &mutated).is_empty(),
+                "dropping `{field}` from every `{label}` check left the report valid — that \
+                 branch's `required` is not holding it, and the field can go missing in a \
+                 release with nothing to say so"
+            );
+            // Only that command's shape. The other report is untouched by construction here;
+            // what this asserts is that it still validates against the *same* schema, which
+            // is what a collapse back to one open `required` would quietly change.
+            assert!(
+                schema_violations(&validator, other_label, other).is_empty(),
+                "the `{other_label}` report stopped validating while `{label}` was the one \
+                 mutated"
+            );
+        }
+    }
+}
+
+/// The walk's own branches, tested directly.
+///
+/// The two end-to-end tests can only see a branch that wrongly *reports*. A branch that
+/// wrongly **resolves** — counts a field as declared when nothing declared it — produces no
+/// problem and is invisible to both, which is the shape of every defect this section covers.
+/// `docs/contributing.md`: "Prefer testing library functions directly."
+#[cfg(test)]
+mod walk_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn found(schema: serde_json::Value, doc: serde_json::Value) -> Contract {
+        contract_problems(&schema, "fixture", &doc)
+    }
+
+    #[test]
+    fn a_permissive_additional_properties_does_not_declare_anything() {
+        // `true` and `{}` are the same empty schema, and honouring either would make this
+        // keyword a one-line off-switch for the whole file. `false` is the validator's to
+        // enforce and declares no value shape either.
+        for permissive in [json!(true), json!({}), json!(false)] {
+            assert!(
+                value_shape(&json!({ "additionalProperties": permissive })).is_none(),
+                "{permissive} was read as declaring a value shape"
+            );
+        }
+        // A real map declaration is honoured — `replay[].by_class` is the live case.
+        assert!(value_shape(&json!({ "additionalProperties": { "type": "string" } })).is_some());
+    }
+
+    #[test]
+    fn a_permissive_additional_properties_cannot_silence_the_check() {
+        let doc = json!({ "declared": 1, "undeclared": 2 });
+        for permissive in [json!(true), json!({})] {
+            let out = found(
+                json!({
+                    "properties": { "declared": {} },
+                    "additionalProperties": permissive,
+                }),
+                doc.clone(),
+            );
+            assert_eq!(
+                out.problems.len(),
+                1,
+                "additionalProperties: {permissive} hid an undeclared field"
+            );
+            // And it must not inflate the witness set either — that is how the old volume
+            // floor would have read the off-switch as *more* coverage rather than less.
+            assert!(!out.resolved.contains("undeclared"));
+        }
+    }
+
+    #[test]
+    fn a_dynamic_maps_key_belongs_to_the_corpus() {
+        let out = found(
+            json!({
+                "properties": {
+                    "by_class": { "additionalProperties": { "properties": { "nodes": {} } } }
+                }
+            }),
+            json!({ "by_class": { "concept": { "nodes": 3 }, "gauge": { "nodes": 1 } } }),
+        );
+        assert!(out.problems.is_empty(), "{:?}", out.problems);
+        // One shape, not one per class: a reader who has to fix it fixes it once.
+        assert!(out.resolved.contains("by_class.*.nodes"));
+        assert!(!out.resolved.iter().any(|p| p.contains("concept")));
+    }
+
+    #[test]
+    fn an_array_with_elements_and_no_items_is_a_hole() {
+        let out = found(
+            json!({ "properties": { "rows": { "type": "array" } } }),
+            json!({ "rows": [{ "anything": 1 }] }),
+        );
+        assert_eq!(out.problems.len(), 1);
+        assert!(
+            out.problems
+                .iter()
+                .next()
+                .unwrap()
+                .contains("declares no `items`"),
+            "{:?}",
+            out.problems
+        );
+    }
+
+    #[test]
+    fn an_empty_array_has_nothing_unchecked() {
+        // `diff` emits `nodes` and `edges` empty, and no fixture has ever produced an element.
+        // Demanding a shape for data nobody has seen would be inventing the contract.
+        let out = found(
+            json!({ "properties": { "rows": { "type": "array" } } }),
+            json!({ "rows": [] }),
+        );
+        assert!(out.problems.is_empty(), "{:?}", out.problems);
+    }
+
+    #[test]
+    fn an_undeclared_field_is_named_by_its_full_path() {
+        let out = found(
+            json!({
+                "properties": {
+                    "checks": { "items": { "properties": { "id": {} } } }
+                }
+            }),
+            json!({ "checks": [{ "id": "a", "severity": "warn" }] }),
+        );
+        assert_eq!(
+            out.problems.iter().next().unwrap().trim(),
+            "fixture: emits `checks[].severity`, which report.schema.json does not declare"
+        );
+    }
+
+    #[test]
+    fn one_undeclared_field_is_one_problem_however_many_elements_carry_it() {
+        // Two catalog sources reported `sources[].artifacts` twice; a real corpus would report
+        // it hundreds of times, which is a failure nobody reads to the end of.
+        let out = found(
+            json!({ "properties": { "rows": { "items": { "properties": { "id": {} } } } } }),
+            json!({ "rows": [{ "id": 1, "extra": 1 }, { "id": 2, "extra": 2 }] }),
+        );
+        assert_eq!(out.problems.len(), 1, "{:?}", out.problems);
+    }
+
+    #[test]
+    fn a_field_declared_in_any_branch_is_declared() {
+        // The shape #658 measured failing in both directions at once. Descending each branch
+        // with the document fabricates a problem for every field the *other* branch declares;
+        // not descending at all loses everything below. Only the union is right, and the two
+        // documents here are the two check shapes in miniature.
+        let schema = json!({
+            "properties": {
+                "checks": { "items": { "oneOf": [
+                    { "properties": { "id": {}, "severity": {} } },
+                    { "properties": { "id": {}, "verdict": {} } },
+                ] } }
+            }
+        });
+        for doc in [
+            json!({ "checks": [{ "id": "a", "severity": "warn" }] }),
+            json!({ "checks": [{ "id": "a", "verdict": "ok" }] }),
+        ] {
+            let out = found(schema.clone(), doc.clone());
+            assert!(out.problems.is_empty(), "{doc}: {:?}", out.problems);
+        }
+        // And a field in neither branch is still undeclared — the union must not admit
+        // everything, which is how a walk that simply stopped reading would also pass above.
+        let out = found(schema, json!({ "checks": [{ "id": "a", "invented": 1 }] }));
+        assert_eq!(out.problems.len(), 1, "{:?}", out.problems);
+    }
+
+    #[test]
+    fn the_union_is_taken_again_one_level_down() {
+        // The half a per-branch descent gets wrong even when it reports nothing at the top:
+        // `span` is declared in one branch and `age` in the other, and a walk carrying one
+        // branch at a time would report whichever it was not holding.
+        let out = found(
+            json!({
+                "properties": { "v": { "oneOf": [
+                    { "properties": { "at": { "properties": { "span": {} } } } },
+                    { "properties": { "at": { "properties": { "age": {} } } } },
+                ] } }
+            }),
+            json!({ "v": { "at": { "span": 1, "age": 2 } } }),
+        );
+        assert!(out.problems.is_empty(), "{:?}", out.problems);
+        assert!(out.resolved.contains("v.at.span") && out.resolved.contains("v.at.age"));
+    }
+
+    #[test]
+    fn a_ref_declares_what_its_definition_declares() {
+        let out = found(
+            json!({
+                "$defs": { "span": { "properties": { "line": {} } } },
+                "properties": { "span": { "$ref": "#/$defs/span" } }
+            }),
+            json!({ "span": { "line": 7 } }),
+        );
+        assert!(out.problems.is_empty(), "{:?}", out.problems);
+        assert!(out.resolved.contains("span.line"));
+    }
+
+    #[test]
+    fn a_ref_that_does_not_resolve_declares_nothing() {
+        // Silence here is the failure mode: a dangling pointer that contributed its parent's
+        // declarations anyway would make a typo in `$defs` invisible. It goes red at the
+        // emitting path, and `every_ref_in_the_contract_resolves` names the pointer itself.
+        let out = found(
+            json!({
+                "$defs": { "span": { "properties": { "line": {} } } },
+                "properties": { "span": { "$ref": "#/$defs/spam" } }
+            }),
+            json!({ "span": { "line": 7 } }),
+        );
+        assert_eq!(out.problems.len(), 1, "{:?}", out.problems);
+        assert!(!out.resolved.contains("span.line"));
+    }
+
+    #[test]
+    fn a_self_referential_definition_terminates() {
+        // Nothing in the contract is recursive today. The dedup that makes this terminate is
+        // `expand`'s pointer-identity check, and a test that never exercises it would let the
+        // check be deleted as dead weight — leaving the gate to hang rather than fail.
+        let out = found(
+            json!({
+                "$defs": { "node": { "properties": { "child": { "$ref": "#/$defs/node" } } } },
+                "properties": { "tree": { "$ref": "#/$defs/node" } }
+            }),
+            json!({ "tree": { "child": { "child": {} } } }),
+        );
+        assert!(out.problems.is_empty(), "{:?}", out.problems);
+        assert!(out.resolved.contains("tree.child.child"));
+    }
+
+    #[test]
+    fn resolved_records_the_path_a_witness_can_name() {
+        let out = found(
+            json!({
+                "properties": {
+                    "checks": {
+                        "items": {
+                            "properties": {
+                                "violations": { "items": { "properties": { "severity": {} } } }
+                            }
+                        }
+                    }
+                }
+            }),
+            json!({ "checks": [{ "violations": [{ "severity": "error" }] }] }),
+        );
+        assert!(out.problems.is_empty(), "{:?}", out.problems);
+        assert!(out.resolved.contains("checks[].violations[].severity"));
+    }
+}
+
+/// A report run live must still leave the fixture alone.
+///
+/// [`every_live_report_field_is_declared_in_the_schema`] runs four commands against a staged
+/// repository, two of them commands that write in their default mode. If `--check` or
+/// `--dry-run` ever stopped holding, that test would silently start rewriting its own
+/// subject — and the first symptom would be a golden elsewhere drifting for no reason anyone
+/// could trace.
+#[test]
+fn running_the_live_reports_writes_nothing() {
+    let tmp = stage();
+    let before = tree(tmp.path());
+    assert!(!before.is_empty(), "the fixture staged nothing");
+    for (_, args) in LIVE {
+        let mut a = args.to_vec();
+        a.extend_from_slice(&["--format", "json"]);
+        run(tmp.path(), &a);
+    }
+    assert_eq!(
+        tree(tmp.path()),
+        before,
+        "a LIVE invocation wrote to the fixture it was pointed at"
+    );
+}
+
+/// Every file's content, keyed by relative path. `.git/` is excluded — `propose` writes git
+/// objects and a ref by design, and what is asserted here is the working tree.
+fn tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|e| e.file_name() != ".git")
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+        .map(|e| {
+            (
+                e.path().strip_prefix(root).unwrap().to_path_buf(),
+                std::fs::read(e.path()).unwrap(),
+            )
+        })
+        .collect()
+}
+
+/// A real report carries a feature array, and the redaction the goldens rely on finds it.
+///
+/// This replaces `the_light_build_reports_exactly_reports`, which asserted that the light
+/// build names exactly one feature. That was true when `default = ["reports"]`, and it was
+/// kept true afterwards by *retreating*: `tonpa` joined the default set and was added to a
+/// `cfg(not(any(…)))` so the test would stop running, rather than to the expectation. When
+/// `vault-s3` joined, nobody added it — so the test survived by only ever running in builds
+/// no CI compiles, under a name claiming it was about the light one. #482.
+///
+/// What it was for now lives in `light_build.rs`, which holds `report.rs`'s list against the
+/// features Cargo.toml declares and does not retreat when the set grows. What is left here
+/// is the part that belongs beside the goldens: that `redact_features` fires on the real
+/// thing, and not only on the string literal `the_feature_set_is_redacted_whatever_it_holds`
+/// hands it.
+#[test]
+fn the_feature_array_is_redacted_out_of_a_real_report() {
+    let tmp = stage();
+    let r = run(tmp.path(), &["status", "--format", "json"]);
+    // Read from the unredacted process output — `redact` is what this test exists beside.
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(tmp.path())
+        .args(["status", "--format", "json"])
+        .output()
+        .unwrap();
+    let doc: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let named = doc["yidam"]["features"]
+        .as_array()
+        .expect("a report must carry a feature array");
+    assert!(
+        named.iter().any(|f| f == "reports"),
+        "every build carries the base, whatever else it has: {named:?}"
+    );
+    assert!(r.stdout.contains("<FEATURES>"), "{}", r.stdout);
+}
+
+/// Whatever the build, the goldens see the same thing.
+///
+/// The bug this closes was a redaction that covered version and commit and not the third
+/// thing that varies by build. Asserting the collapse directly is cheaper than discovering
+/// the next one on main.
+#[test]
+fn the_feature_set_is_redacted_whatever_it_holds() {
+    let one = redact_features("  \"features\": [\n      \"reports\"\n    ]\n");
+    let many = redact_features(
+        "  \"features\": [\n      \"reports\",\n      \"index\",\n      \"tonpa\"\n    ]\n",
+    );
+    assert_eq!(
+        one, many,
+        "a light and a full build must redact identically"
+    );
+    assert!(one.contains("<FEATURES>"), "{one}");
+}
+
+/// The conditional checks are dropped, and the ids naming them are the ones the roster uses.
+///
+/// Two failures in one test, and the second is the reason it is not just a string comparison. A
+/// typo in `redact_conditional_checks`'s list is invisible in the light build — the id is not in
+/// the report either way — and shows up as a golden mismatch on main, in the `--all-features` job
+/// nothing runs on a pull request. So the ids are asked of the binary that has them.
+#[cfg(feature = "calculators-gluon")]
+#[test]
+fn the_checks_a_build_may_not_carry_are_redacted_out_of_a_real_report() {
+    let tmp = stage();
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(tmp.path())
+        .args(["lint", "--format", "json"])
+        .output()
+        .unwrap();
+    let raw = String::from_utf8_lossy(&out.stdout);
+    let doc: serde_json::Value = serde_json::from_str(&raw).expect("a JSON report");
+    let reported: Vec<&str> = doc["checks"]
+        .as_array()
+        .expect("a checks array")
+        .iter()
+        .filter_map(|c| c["id"].as_str())
+        .collect();
+    for id in ["calculator-scope", "calculator-type"] {
+        assert!(
+            reported.contains(&id),
+            "this build has a typechecker and `{id}` is not in its report, so the redaction              below is about an id the roster no longer uses"
+        );
+    }
+    let redacted = redact(&raw, tmp.path());
+    for id in ["calculator-scope", "calculator-type"] {
+        assert!(
+            !redacted.contains(id),
+            "`{id}` survived redaction, so this golden is the full build's and fails in the              light one:\n{redacted}"
+        );
+    }
+    // And what stayed is still a document, with the array's last element unterminated by a comma.
+    serde_json::from_str::<serde_json::Value>(&redacted)
+        .expect("redaction left the report unparseable — a dropped last element takes a comma");
+    assert!(
+        redacted.contains("calculator-script"),
+        "the unconditional check was redacted too; it is in every report and the golden pins it"
+    );
+}
+
+/// The `state` enum and the states the code can emit must agree, both ways.
+///
+/// `report.schema.json` declares `state` as a **closed enum**, and nothing compared it to
+/// `git::ref_state` until #773 added a fourth state. Every test stayed green through that: the
+/// report golden's fixture holds no phase in the new state, so the enum was never exercised, and
+/// `every_live_report_field_is_declared_in_the_schema` asks about *fields* rather than values.
+///
+/// Both directions matter and they fail differently. A state the code emits and the schema does
+/// not name is a report a validating consumer **rejects** — the report is correct and unusable. A
+/// state the schema names and the code cannot emit is a branch nobody can take, which is the
+/// defect the MCP rejection-code roster was rebuilt around: two lists agreeing about a code
+/// neither side had heard of.
+#[test]
+fn the_state_enum_and_the_states_the_code_emits_are_the_same_set() {
+    let schema = schema();
+
+    // **Every** copy, not the first one found. The schema declared `state` twice until #660 —
+    // structurally under `phases.items`, and again at the envelope level. The first version of
+    // this test returned at the first match and stopped, so widening the enum for #773 fixed one
+    // copy, left the other at three values, and passed. A `phases` report carrying a `rewritten`
+    // row would have been rejected by the schema this repository ships.
+    //
+    // The envelope-level copy is gone, and this walk is why the deletion was safe to make: it
+    // finds a `state` enum wherever one sits, so a copy re-appearing under a new parent is held
+    // by the loop at the bottom rather than by a path this test would have to be taught.
+    fn state_enums(v: &serde_json::Value, path: &str, out: &mut Vec<(String, Vec<String>)>) {
+        match v {
+            serde_json::Value::Object(m) => {
+                for (k, child) in m {
+                    if k == "state" {
+                        if let Some(e) = child.get("enum").and_then(|e| e.as_array()) {
+                            out.push((
+                                format!("{path}/state"),
+                                e.iter()
+                                    .map(|m| {
+                                        m.as_str().expect("enum members are strings").to_string()
+                                    })
+                                    .collect(),
+                            ));
+                        }
+                    }
+                    state_enums(child, &format!("{path}/{k}"), out);
+                }
+            }
+            serde_json::Value::Array(a) => {
+                for (i, child) in a.iter().enumerate() {
+                    state_enums(child, &format!("{path}/{i}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut found: Vec<(String, Vec<String>)> = Vec::new();
+    state_enums(&schema, "", &mut found);
+
+    let mut emitted: Vec<String> = yidam::git::REF_STATES
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    emitted.sort();
+
+    // `state` is not one vocabulary. `due`'s clocks reuse the field name for
+    // `due`/`ok`/`undeclared`/`unmeasurable`, so keying on the name alone compares a clock
+    // against a phase. The discriminator is **overlap**: an enum that names any phase state must
+    // name all of them. That holds a copy wherever it sits, which keying on a path would not.
+    let (phase_states, other): (Vec<_>, Vec<_>) = found
+        .iter()
+        .partition(|(_, members)| members.iter().any(|m| emitted.contains(m)));
+
+    // Exactly one, and the exact count is the assertion rather than a floor. A floor of two was
+    // what this test carried while there *were* two, and it made the second copy look load-bearing
+    // — it was a stray nothing emitted, and this floor is what would have failed if anyone deleted
+    // it (#660). A second copy appearing again is a second place to disagree; zero means the walk
+    // stopped finding anything, which is the failure a floor of one could not tell from health.
+    assert_eq!(
+        phase_states.len(),
+        1,
+        "expected exactly one phase-`state` enum declaration in report.schema.json, found {}: \
+         {:?}\nTwo is how #773's widening half-landed; none means this walk has stopped \
+         descending.",
+        phase_states.len(),
+        phase_states.iter().map(|(p, _)| p).collect::<Vec<_>>()
+    );
+    // And the discriminator must be doing work rather than admitting everything — `clocks.state`
+    // is the enum it has to exclude, and if nothing is excluded this test has stopped
+    // discriminating and would fail on the next unrelated `state` field instead.
+    assert!(
+        !other.is_empty(),
+        "every `state` enum overlapped the phase vocabulary, so the partition is admitting \
+         everything: {:?}",
+        found.iter().map(|(p, _)| p).collect::<Vec<_>>()
+    );
+
+    for (path, members) in &phase_states {
+        let mut declared = members.clone();
+        declared.sort();
+        assert_eq!(
+            &declared, &emitted,
+            "report.schema.json's `state` enum at `{path}` and the states `git::ref_state` can \
+             return disagree.\nA state the code emits and the schema omits is a report a \
+             validating consumer rejects; one the schema names and the code cannot emit is a \
+             branch nobody can take."
+        );
+    }
+}
+
+// ── #822: a closed enum widened on one side only ──────────────────────────────
+
+/// One `$defs` vocabulary, as the schema declares it.
+///
+/// Read at its pointer rather than searched for. #821 factored both of these into `$defs`, so
+/// each is one declaration at one place — which is what makes this a read instead of the walk
+/// `the_state_enum_and_the_states_the_code_emits_are_the_same_set` needs for `state`, whose
+/// members are inlined at every site that uses them.
+///
+/// Absent is a failure, not an empty set: a `$defs` entry renamed or deleted would otherwise
+/// make this test compare two empty vectors and pass.
+fn defs_enum(name: &str) -> Vec<String> {
+    let schema = schema();
+    let members = schema
+        .get("$defs")
+        .and_then(|d| d.get(name))
+        .and_then(|d| d.get("enum"))
+        .and_then(|e| e.as_array())
+        .unwrap_or_else(|| {
+            panic!(
+                "report.schema.json has no `$defs/{name}` with an `enum` — #821 put it there, \
+                    and this test is a read of that pointer"
+            )
+        })
+        .iter()
+        .map(|m| m.as_str().expect("enum members are strings").to_string())
+        .collect::<Vec<_>>();
+    assert!(
+        !members.is_empty(),
+        "`$defs/{name}` declares an empty enum, which every comparison below would satisfy"
+    );
+    members
+}
+
+/// The schema's vocabulary and the code's roster are the same set, in both directions.
+///
+/// `report.schema.json` declares `$defs/severity` and `$defs/commit_kind` as **closed** enums
+/// and nothing compared either to the code. Measured while building #658: adding a fourth
+/// member to `$defs/severity` and re-running this entire suite leaves it **green**. Nine of ten
+/// schema mutations go red; that one does not, and `$defs/commit_kind` behaves the same way.
+///
+/// The rule is already written one enum over, on the `state` test above:
+///
+/// > A state the code emits and the schema does not name is a report a validating consumer
+/// > **rejects** — the report is correct and unusable. A state the schema names and the code
+/// > cannot emit is a branch nobody can take.
+///
+/// Both directions, therefore, and in one assertion — a one-way check is half the contract.
+///
+/// The rosters are `LINT_SEVERITIES` and `COMMIT_KINDS`, each built by walking a wildcard-free
+/// successor `match` into a fixed-width array, so a new variant is a **compile error** rather
+/// than a value that quietly starts appearing in reports. That is deliberately stronger than
+/// `git::REF_STATES`, whose runtime scan `git.rs` documents as the weaker form it settled for:
+/// here the widening cannot reach a report without passing through this test.
+#[test]
+fn the_closed_defs_enums_and_the_values_the_code_emits_are_the_same_sets() {
+    for (def, roster) in [
+        ("severity", yidam::LINT_SEVERITIES.to_vec()),
+        ("commit_kind", yidam::COMMIT_KINDS.to_vec()),
+        ("act_kind", yidam::ACT_KINDS.to_vec()),
+    ] {
+        let mut declared = defs_enum(def);
+        declared.sort();
+        let mut emitted: Vec<String> = roster.iter().map(|s| s.to_string()).collect();
+        emitted.sort();
+
+        assert_eq!(
+            declared, emitted,
+            "report.schema.json's `$defs/{def}` and the values the code can emit disagree.\n\
+             A value the code emits and the schema omits is a report a validating consumer \
+             rejects; one the schema names and the code cannot emit is a branch nobody can take."
+        );
+    }
+}
+
+/// `cycle`'s `next[].source` and the values `cycle` can emit are the same set, in both directions.
+///
+/// This enum is inline, not in `$defs`, so it is read at its one site. It drifted unseen: the
+/// code serialized `"inflight"` against a declared `"in_flight"`, and no golden can reach the
+/// in-flight arm (`UNREACHED` says why). So this roster comparison is the only thing in the suite
+/// that holds the spelling.
+#[test]
+fn the_cycle_source_enum_and_the_sources_cycle_emits_are_the_same_set() {
+    let schema = schema();
+    let mut declared: Vec<String> = schema
+        .pointer("/properties/next/items/properties/source/enum")
+        .and_then(|e| e.as_array())
+        .expect(
+            "report.schema.json has no enum at properties.next.items.properties.source; this \
+             test reads that pointer, so a move must move it too",
+        )
+        .iter()
+        .map(|m| m.as_str().expect("enum members are strings").to_string())
+        .collect();
+    assert!(
+        !declared.is_empty(),
+        "an empty enum would satisfy any comparison"
+    );
+    declared.sort();
+    let mut emitted: Vec<String> = yidam::CYCLE_SOURCES.iter().map(|s| s.to_string()).collect();
+    emitted.sort();
+    assert_eq!(
+        declared, emitted,
+        "report.schema.json's `next[].source` enum and the sources `cycle` can emit disagree.\n\
+         A value the code emits and the schema omits is a report a validating consumer rejects."
+    );
+}
+
+// ── #660: a declaration nothing emits is a hole in the contract ───────────────
+
+/// Every path `report.schema.json` declares, in the shape [`walk`] records a reached one.
+///
+/// Built from the schema rather than from the documents, which is the whole point: the two
+/// contract tests above ask *is everything emitted declared*, and this asks the converse — **is
+/// everything declared emitted by something.** A declaration no document reaches is inert. It can
+/// name a field that does not exist, contradict the Rust struct it claims to describe, or be a
+/// second copy of a declaration one level up, and every test in this file stays green.
+///
+/// That is not hypothetical. `properties.state` was declared at the envelope level in 42354da,
+/// described as `phases` only, and `PhasesReport` had exactly one field — `phases` — on that same
+/// commit and every commit since. It survived a widening for #773 that touched both copies and a
+/// test written to compare both against `git::REF_STATES`, because a stray declaration whose enum
+/// is *correct* looks exactly like a real one. Nothing that reads a document could see it.
+///
+/// **Through the composition keywords, by [`applicable`].** Without that, `checks[].items`
+/// becoming a `oneOf` (#658) would have dropped ten declared paths out of this set silently —
+/// and this test only ever fails for paths that are *in* it, so the whole `checks` family
+/// would have stopped being held from either side while every assertion below stayed green.
+/// `$defs` is not walked from here on purpose: it sits outside `properties`, so a definition
+/// contributes the paths of the sites that `$ref` it and none of its own.
+fn declarations(
+    root: &serde_json::Value,
+    node: &serde_json::Value,
+    path: &str,
+    out: &mut BTreeSet<String>,
+) {
+    for sub in applicable(root, node) {
+        if let Some(props) = sub.get("properties").and_then(|p| p.as_object()) {
+            for (key, child) in props {
+                let here = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
+                out.insert(here.clone());
+                declarations(root, child, &here, out);
+            }
+        }
+        if let Some(items) = sub.get("items") {
+            declarations(root, items, &format!("{path}[]"), out);
+        }
+        if let Some(extra) = value_shape(sub) {
+            let here = format!("{path}.*");
+            out.insert(here.clone());
+            declarations(root, extra, &here, out);
+        }
+    }
+}
+
+/// Declarations this fixture cannot reach, and why — by path prefix, one entry per family.
+///
+/// **An inverted roster, for `NO_REPORT`'s reason.** A list of what *is* covered stops covering
+/// new declarations without ever going red. This lists what is not, so a declaration added
+/// tomorrow is required by default and fails [`every_declaration_is_reached_by_something`] until
+/// somebody decides which of these buckets it belongs in — or makes the fixture reach it.
+///
+/// It is held from both sides. A family that becomes reachable must be *removed* from here, or the
+/// test fails for a stale exemption. So this cannot quietly grow into the hole it documents.
+///
+/// The reasons are load-bearing, and three of them are already written elsewhere in this fixture:
+/// `stage.toml` says why the followable catalog arm and the held kuten arm are covered end-to-end
+/// instead of here, and `NO_REPORT` says why `index-verify` cannot run at all.
+const UNREACHED: &[(&str, &str)] = &[
+    (
+        "asks",
+        "`open-questions` lists an ask only when the repository holds one under \
+         `.yidam/asks/<package>/`, addressed to a dependency `.yidam/tonpa.toml` declares, and \
+         this fixture declares none. Giving it one would move `doctor`, `lint` and `status` for \
+         every SDK runner graded against it. `asks.rs` stages a dependency and two asks and holds \
+         every emitted path, the optional `node` included, against this schema (#1467)",
+    ),
+    (
+        "refs.unread",
+        "`cluster status` reports a remote it cannot read rather than failing, and the reason \
+         is git's own error, whose wording moves between git versions — so a golden of it would \
+         pin the runner's git. `cluster/status/tests.rs` holds the arm",
+    ),
+    (
+        "derivations[]",
+        "`derive check` emits an entry only for an artifact under `[derive] paths`, and this \
+         fixture declares none — the arm every repository is in, which the `derive-check` golden \
+         pins. Staging a dossier here would be a fact thirty goldens and three SDK runners carry. \
+         `derive_check.rs` stages both populated arms and holds every emitted path to this schema",
+    ),
+    (
+        "packs[]",
+        "`source check` lists a pack only when the repository holds one, and this fixture holds \
+         none and pins none — the arm every repository is in until it pins a pack, which the \
+         `source-check` golden pins. A pack here would be a `.yidam/sources/` directory under \
+         thirty goldens. `source_check.rs` stages both origins and holds every emitted path to \
+         this schema",
+    ),
+    (
+        "pack_findings[]",
+        "`source check` finds nothing in a repository with no packs — see `packs[]`",
+    ),
+    (
+        "source_packs[]",
+        "`source list` lists the enabled packs, and this fixture holds none — see `packs[]`. \
+         `source_add.rs` stages one and holds every emitted path to this schema",
+    ),
+    (
+        "search",
+        "`source search` is on NO_REPORT: it needs a pack, and this fixture holds none",
+    ),
+    (
+        "drafts",
+        "`source add` is on NO_REPORT: it commits, and needs a pack this fixture does not hold",
+    ),
+    (
+        "blessed",
+        "`lint --bless` rewrites the baseline, and every invocation in this file is read-only \
+         against a fixture the next test reads",
+    ),
+    (
+        "classes_with_issues",
+        "needs a class file whose bytes do not parse; this fixture's ontology is read by twenty \
+         other goldens, so breaking one would move all of them to reach two declarations",
+    ),
+    (
+        "clocks[].subjects",
+        "the `superseded` clock names its subjects only when `due`, which needs a catalog entry \
+         whose committed history holds two digests from one location and a `[due] \
+         superseded_after` — a second fetch and a config key every other golden would read. \
+         `due/tests.rs` builds that history, and tests/suite/catalog_fetch.rs runs it end to end",
+    ),
+    (
+        "owed[].subjects",
+        "`cycle`'s owed half is `due`'s clocks through `due`'s reader — see `clocks[].subjects`",
+    ),
+    (
+        "extracted[].commit.sha",
+        "the golden is a `--dry-run`, which commits nothing, against the fixture every other \
+         golden reads — the committed arm is tests/suite/catalog_extract.rs, end to end",
+    ),
+    (
+        "extracted[].commit.subject",
+        "the golden is a `--dry-run`, which commits nothing — see `extracted[].commit.sha`",
+    ),
+    (
+        "sources[].artifacts[].readings[]",
+        "the fixture's PDF is the one `catalog-extract`'s dry-run golden lists as still to read, \
+         and recording a reading of it would empty that golden. `catalog-audit` emits \
+         `readings: null` here, and tests/suite/catalog_extract.rs writes a reading end to end",
+    ),
+    (
+        "extracted[].read[].member",
+        "a member is read only from a zip whose location names it under `members:`, and the \
+         fixture every other golden reads has no zip — tests/suite/catalog_extract_members.rs reads \
+         one end to end",
+    ),
+    (
+        "extracted[].skipped",
+        "a PDF is skipped only when a run reads the cache, and a dry run does not, so the golden \
+         does not depend on what the machine running it has fetched — tests/suite/catalog_extract.rs \
+         holds the not-in-cache arm",
+    ),
+    (
+        "fetched",
+        "`catalog-fetch`'s followable arm needs an entry with a `location:`, which would move the \
+         other goldens — covered end to end in tests/fixtures/catalog-fetch/ (see stage.toml)",
+    ),
+    (
+        "sources[].artifacts[].text",
+        "a reading is recorded by `catalog-extract`, which the golden runs as a dry run; giving \
+         the fixture's PDF a recorded reading would move `lint` and `catalog-audit` for every \
+         other golden. The recorded arm is tests/suite/catalog_extract.rs",
+    ),
+    (
+        "findings[].region",
+        "`check-diff` sets it only inside a `generated` or `imported` region, and the fixture's \
+         crate declares none",
+    ),
+    (
+        "in_flight",
+        "`cycle` only, and it needs a phase with commits AHEAD of the baseline. All three of the \
+         fixture's refs are created at HEAD — `stage.toml` says so and says why: a branch with \
+         nothing ahead has nothing in flight, which is the correct reading and what the `phases` \
+         golden and the `due` phases clock are both staged against. Giving one a unique commit \
+         would move both to reach five declarations. The active arm is exercised in \
+         `cmd/cycle/tests.rs`, which can afford to build commits",
+    ),
+    (
+        "clocks[].argv",
+        "`argv` is carried only by a `tool` act, and the fixture owes none: no clock there is due \
+         whose remedy is a command, and it declares no step. `tests/suite/cycle_acts.rs` stages \
+         `examples/streamflow` owing both, and runs every `argv` it is handed rather than \
+         comparing it to a string",
+    ),
+    (
+        "next[].argv",
+        "`argv` is carried only by a `tool` act, and the fixture owes none: no clock there is due \
+         whose remedy is a command, and it declares no step. `tests/suite/cycle_acts.rs` stages \
+         `examples/streamflow` owing both, and runs every `argv` it is handed rather than \
+         comparing it to a string",
+    ),
+    (
+        "owed[].argv",
+        "`argv` is carried only by a `tool` act, and the fixture owes none: no clock there is due \
+         whose remedy is a command, and it declares no step. `tests/suite/cycle_acts.rs` stages \
+         `examples/streamflow` owing both, and runs every `argv` it is handed rather than \
+         comparing it to a string",
+    ),
+    (
+        "since_last",
+        "`cycle --since-last` only, and it needs a round `cycle --record` kept. A golden is one \
+         invocation over a tree, and a delta is two rounds over a tree that moved between them. \
+         `cmd/cycle/round/tests.rs` records one, moves the corpus, and asserts every key of the \
+         serialized delta against these names",
+    ),
+    (
+        "since_last_unread",
+        "`cycle --since-last` only: no golden passes the flag. `cmd/cycle/round/tests.rs` reaches \
+         both of its arms, no record and a record in another format",
+    ),
+    (
+        "stale_steps[]",
+        "`cycle` only, and it needs a `.yidam/capabilities.toml`. The fixture declares none, and \
+         declaring one would move every golden that reads the tree — `lint`, `status`, \
+         `catalog-audit` — to reach three fields. `cmd/cycle/tests.rs` declares a step, and \
+         asserts the serialized item's keys and its `freshness` spelling against these names",
+    ),
+    (
+        "index",
+        "`index-verify` only, which needs a built index and the `vector-read` feature to build one \
+         (see NO_REPORT)",
+    ),
+    ("max_drift", "`index-verify` only — see `index`"),
+    ("model_id", "`index-verify` only — see `index`"),
+    ("probe", "`index-verify` only — see `index`"),
+    ("problems", "`index-verify` only — see `index`"),
+    ("runtime", "`index-verify` only — see `index`"),
+    ("tolerance", "`index-verify` only — see `index`"),
+    ("verdict", "`index-verify` only — see `index`"),
+    (
+        "disallowed_builtins",
+        "`policy check`'s unhealthy arm needs a committed `.yidam/policy/` calling a builtin \
+         this build does not carry. The fixture has none on purpose — `policy-check`'s golden \
+         pins the inherited arm, which is the one every repository is in — and adding one \
+         would flip every row's `origin` to `local` and rewrite that golden to reach two \
+         declarations. The empty list itself IS reached, so the healthy case is pinned; what \
+         is not is a member of it",
+    ),
+    (
+        "phases[].type",
+        "carried only by a ref whose phase record `yidam phase start` wrote, and the three \
+         refs this fixture holds are branches created at HEAD by `stage.toml` \u{2014} giving one a \
+         record would mean running a writing command against the fixture twenty other goldens \
+         read. RFC-0028 \u{a7}3 records that this is the state of every repository that exists: 60 \
+         `phase/*` refs across the eighteen corpora A0 measured, none of them typed. Covered \
+         end to end in `phase_record.rs`, which builds its own corpus and asserts both arms",
+    ),
+    (
+        "kuten.findings",
+        "giving the fixture a kuten would move the other goldens; the held arm is covered by \
+         kuten_cluster.rs against the six shapes that defined the profile (see stage.toml)",
+    ),
+    (
+        "kuten.coupling",
+        "needs `[object] paths`, and declaring an object in this fixture would split its tree \
+         into two registers under every golden that reads a commit or a path. The `null` arm \
+         IS reached — it is what `kuten-check` emits here, and what every repository without an \
+         object emits. The populated arm is covered end to end in `object_coupling.rs`, which \
+         builds the object-coupled shape #577 was measured on and holds every emitted path \
+         against this schema",
+    ),
+    (
+        "consumption.tools[]",
+        "`record` emits a row only for a tool the consumption record names, and the fixture \
+         holds no record — the file is gitignored by construction, so no committed corpus does. \
+         The `record` golden pins that arm. `mcp_serve.rs` runs a recording server, reads what \
+         it wrote with `yidam record --format json`, and holds every emitted path — each row \
+         field included — against this schema (#1019)",
+    ),
+    (
+        "consumption.reach",
+        "populated only over a record whose `retrieve` lines carry `node_ids`, and the fixture \
+         holds no record, so the `record` golden pins the `null` arm. \
+         `a_recorded_session_is_reported_by_yidam_record` in `mcp_serve.rs` emits the object \
+         from a real server's lines and holds each field against this schema (#1020)",
+    ),
+    (
+        "fold",
+        "`record --fold` writes a commit, and the golden fixture runs read-only commands over a \
+         committed corpus that holds no record to fold. \
+         `a_fold_commits_the_record_and_loses_no_line` in `mcp_serve.rs` folds a real server's \
+         lines and holds every emitted path against this schema (#1018)",
+    ),
+    (
+        "reconciled[].commit",
+        "null on `--dry-run` by declaration, and a writing run would corrupt the shared fixture",
+    ),
+    (
+        "score.declared",
+        "needs a committed goal set, and inventing one would measure whoever wrote it — `bench`'s \
+         reason in NO_REPORT",
+    ),
+    (
+        "skipped",
+        "`propose` reports findings it could not draft for — a description that is not a block \
+         scalar, an entry with no closing fence — and this corpus carries none",
+    ),
+    (
+        "unclaimed",
+        "`regen --check` only, and it is non-empty only when the repository holds a REGEN block \
+         naming a generator that does not exist \u{2014} a defect. This fixture is the parity \
+         corpus three SDK runners are graded against and the stage `doctor` reports on here, so \
+         a marker naming nothing would be a fact about a broken repository sitting in the one \
+         that is supposed to be correct, and it would flip `doctor`'s regen check to fail for \
+         every reader of this stage. Covered end to end in `regen_check.rs`, which stages the \
+         block, asserts the text and the JSON, and holds every emitted path \u{2014} both item \
+         fields included \u{2014} against this schema (#1062)",
+    ),
+    (
+        "written",
+        "null on `--dry-run` by declaration: the two states a consumer must not read as a write",
+    ),
+];
+
+/// Which roster entry owns a path, by **index** rather than by its reason. A prefix owns itself
+/// and everything under it.
+///
+/// The index is the identity on purpose. Returning the reason string looked equivalent and was
+/// not: seven entries here share the text `index-verify only — see index`, so comparing reasons
+/// made any one of them count as used when any other was unreached. It also let a mutation past —
+/// a version of this function that ignored the prefix and always returned the first reason
+/// satisfied both assertions below, because every path then appeared to be owned and every entry
+/// to be in use. Comparing indices, that mutation leaves six of the seven owning nothing.
+fn owner(path: &str) -> Option<usize> {
+    UNREACHED.iter().position(|(prefix, _)| {
+        path == *prefix
+            || path
+                .strip_prefix(prefix)
+                .is_some_and(|rest| rest.starts_with('.') || rest.starts_with('['))
+    })
+}
+
+/// The converse of the two checks above: **every declaration is reached by something.**
+///
+/// Reached means a document produced a value at that path — a golden's, or a live run's. The two
+/// sets together are every reporting command, which
+/// [`every_reporting_command_has_its_fields_checked`] is what guarantees.
+///
+/// Measured when this was written: 361 declarations, 316 reached, 44 exempted by [`UNREACHED`],
+/// **one stray** — the envelope-level `state`, deleted in the same change.
+#[test]
+fn every_declaration_is_reached_by_something() {
+    let schema = schema();
+    let mut declared = BTreeSet::new();
+    declarations(&schema, &schema, "", &mut declared);
+    assert!(
+        declared.len() > 300,
+        "only {} declarations found — the schema walk is broken, not the schema",
+        declared.len()
+    );
+    // And it reached the declarations that only exist through a composition keyword. **The
+    // volume floor cannot see this and neither can the assertion below**: this test only ever
+    // fails for a path that is IN `declared`, so a walk that stops at `checks[].items`'s
+    // `oneOf` drops ten paths out of the set and goes green — measured, by making
+    // `declarations` ignore `applicable`. The `checks` family would have stopped being held
+    // from either side with nothing red. Same shape as `GOLDEN_WITNESSES`, same reason.
+    for witness in DECLARATION_WITNESSES {
+        assert!(
+            declared.contains(*witness),
+            "the schema walk never declared `{witness}` — it is not following `$ref` or              `oneOf`, and a declaration it cannot see is one it cannot hold to being reached"
+        );
+    }
+
+    let mut reached: BTreeSet<String> = BTreeSet::new();
+    for entry in std::fs::read_dir(fixture_dir().join("expected")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|x| x != "json") {
+            continue;
+        }
+        let doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        reached.extend(contract_problems(&schema, "golden", &doc).resolved);
+    }
+    let tmp = stage();
+    for (name, args) in LIVE {
+        let mut a = args.to_vec();
+        a.extend_from_slice(&["--format", "json"]);
+        let r = run(tmp.path(), &a);
+        let doc: serde_json::Value = serde_json::from_str(&r.stdout)
+            .unwrap_or_else(|e| panic!("`yidam {}` did not emit JSON: {e}", a.join(" ")));
+        reached.extend(contract_problems(&schema, name, &doc).resolved);
+    }
+    // The walk has to have descended, or everything below the envelope reads as unreached and
+    // the roster would be asked to grow to three hundred entries.
+    for witness in GOLDEN_WITNESSES.iter().chain(LIVE_WITNESSES) {
+        assert!(
+            reached.contains(*witness),
+            "the walk never reached `{witness}`, so `reached` describes the depth it stopped at \
+             rather than the contract"
+        );
+    }
+
+    let unreached: Vec<&String> = declared.difference(&reached).collect();
+    let stray: Vec<&&String> = unreached.iter().filter(|p| owner(p).is_none()).collect();
+    assert!(
+        stray.is_empty(),
+        "report.schema.json declares {} path(s) that no golden and no live report emits:\n{}\n\n\
+         A declaration nothing reaches is inert — it can name a field that does not exist or \
+         contradict the struct it describes, and every other check in this file stays green. \
+         Either make a report emit it (stage.toml is where the fixture is built), or add it to \
+         UNREACHED with the reason it cannot be reached from here.",
+        stray.len(),
+        stray
+            .iter()
+            .map(|p| format!("  {p}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+
+    // And from the other side: an exemption for a family that *is* reached is a stale excuse,
+    // and the next reader would believe it.
+    let owned: BTreeSet<usize> = unreached.iter().filter_map(|p| owner(p)).collect();
+    let stale: Vec<&str> = UNREACHED
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !owned.contains(i))
+        .map(|(_, (prefix, _))| *prefix)
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "UNREACHED exempts {stale:?}, and every declaration under those prefixes is now reached. \
+         Delete the entry: an exemption that no longer applies reads as a reason not to try."
+    );
+}
+
+// ── the flag that selects the format ──────────────────────────────────────────
+
+/// Every command declares `--format` through the shared `FormatArg`, except two that say
+/// something the shared sentence cannot (#927).
+///
+/// The flag was written out thirty-four times, and three of those copies had already drifted
+/// into three different wordings of the same sentence — which is what a duplicated
+/// declaration costs before it costs anything else. A change to the contract that reaches
+/// thirty-two sites and misses two is indistinguishable, from the outside, from one that
+/// meant to leave two alone.
+///
+/// **Set equality, not a count.** A floor ("at least thirty flatten") is cleared by a
+/// scanner that has stopped matching, and a ceiling on the exceptions rots the moment a
+/// thirty-fifth command arrives. The exceptions are named, so a new bespoke declaration is
+/// red on the way in and a stale exemption is red on the way out.
+#[test]
+fn only_the_two_named_commands_declare_their_own_format_flag() {
+    // `pack`'s `text` is the artefact rather than a rendering of it, and `replay`'s `json`
+    // carries rows its prose summarises. A flattened struct has no per-command help, and
+    // inventing one to absorb two exceptions would cost more than the exceptions.
+    const BESPOKE: [&str; 2] = ["Pack", "Replay"];
+
+    let src =
+        std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/main.rs"))
+            .expect("src/main.rs");
+
+    // Comments stripped first. A rule about what the code declares is otherwise satisfied by
+    // prose quoting the declaration — this file's own doc comment above would count.
+    let code: Vec<&str> = src
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect();
+
+    // The enclosing variant of each declaration, discovered by walking down from the last
+    // variant header seen. `FormatArg`'s own declaration sits at four-space indent inside a
+    // struct and never follows a variant header, so it is not one of these.
+    let mut found: BTreeSet<String> = BTreeSet::new();
+    let mut flattened = 0usize;
+    let mut variant = String::new();
+    for line in &code {
+        if let Some(name) = line
+            .strip_prefix("    ")
+            .and_then(|l| l.strip_suffix(" {"))
+            .filter(|n| n.chars().next().is_some_and(char::is_uppercase))
+            .filter(|n| n.chars().all(|c| c.is_alphanumeric()))
+        {
+            variant = name.to_string();
+        }
+        if line.contains("format: FormatArg") {
+            flattened += 1;
+        }
+        if line.contains("default_value_t = yidam::Format::Text") && !variant.is_empty() {
+            found.insert(variant.clone());
+        }
+    }
+
+    assert!(
+        flattened > 25,
+        "only {flattened} command(s) flatten `FormatArg` — either the shared declaration is \
+         gone, or this scan has stopped matching the field and is asserting about nothing"
+    );
+    assert_eq!(
+        found,
+        BESPOKE
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<BTreeSet<_>>(),
+        "the commands declaring their own `--format` are not the two that have a reason to. \
+         A new one belongs in `FormatArg`; a name that has left this set belongs out of \
+         BESPOKE, because an exemption nothing needs reads as a reason not to share."
+    );
+}

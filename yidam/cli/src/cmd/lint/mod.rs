@@ -1414,7 +1414,7 @@ decision := {"allow": true, "deny": []}
         let all = run_checks(tmp.path(), &Options::default());
         let c = all.iter().find(|c| c.id == "policy-override").unwrap();
         assert!(c.violations.is_empty());
-        // `doctor` is the surface that calls it a failure; see `tests/doctor.rs`.
+        // `doctor` is the surface that calls it a failure; see `tests/suite/doctor.rs`.
     }
 
     /// Findings that gate — per violation, because residence time can escalate one

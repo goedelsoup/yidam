@@ -12,7 +12,7 @@
 //! - a range is `^V`, `~V`, `=V` or a bare `V`, where `V` is one, two or three of those
 //!   integers. A bare `V` means `^V`, as it does in a `Cargo.toml`.
 //!
-//! The bounds are cargo's for the same spellings. `tests/task_layer.rs` runs one table of cases
+//! The bounds are cargo's for the same spellings. `tests/suite/task_layer.rs` runs one table of cases
 //! through both implementations.
 
 use std::fmt;
@@ -106,7 +106,7 @@ fn numbers(raw: &str) -> Option<Vec<u64>> {
 
 /// `(version, range, admitted)`, the cases both implementations are held to.
 ///
-/// Public so `tests/task_layer.rs` can run the shell half over the same rows.
+/// Public so `tests/suite/task_layer.rs` can run the shell half over the same rows.
 #[doc(hidden)]
 pub const CASES: &[(&str, &str, bool)] = &[
     ("0.1.0", "^0.1", true),

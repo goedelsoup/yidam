@@ -3,7 +3,7 @@
 //! #929: thirty-eight test binaries under `tests/` wrote their own `Command::new("git")` —
 //! seventy-six invocations, with no agreement on whether a failure reports git's stderr or
 //! merely that a status was not zero. They are collapsed here so the gate in
-//! `tests/git_spawns.rs` can name three files and carry no allowlist beside them.
+//! `tests/suite/git_spawns.rs` can name three files and carry no allowlist beside them.
 //!
 //! **These are fixtures, not [`yidam::git::Git`].** A fixture writes to the repository, has
 //! no revision to separate from a pathspec and no user config to defend against; and running

@@ -211,7 +211,7 @@ That turns a premise held per row into a question an index can be asked once. Tw
 it:
 
 - **`paths::class_of_path` is the one derivation.** `yidam embed` and the query path both call
-  it, so no index this binary builds can disagree with itself. `tests/class_derivation.rs` holds
+  it, so no index this binary builds can disagree with itself. `tests/suite/class_derivation.rs` holds
   it in the *output* as well as in the source — it runs `yidam embed` over all four example
   corpora and checks every record written (45 nodes, 14 classes, measured 2026-09-20) — because
   a shared function says nothing about records already on disk.
@@ -438,7 +438,7 @@ spanning query has never been made.
 | ~~The mirror's delete reaches the service~~ | **Settled live on 2026-09-20, and true.** A key dropped from the local set stops coming back from `QueryVectors`. Deleting the delete loop from `apply_mirror` makes the live test fail and every recorded-transport test still pass, which is the gap this row existed for |
 | ~~`GetIndex`'s response shape~~ | **Settled live on 2026-09-20, and true.** `/index/dimension` and `/index/distanceMetric` are where `response::disagreement` reads them. The served body carries four fields the unit fixture does not (`vectorBucketName`, `indexArn`, `creationTime`, `encryptionConfiguration`); neither pointer moved |
 | ~~A hand-populated index is consumable by Bedrock Knowledge Bases~~ | **Settled against the documentation on 2026-09-20, and false as stated** — see §8.1. A knowledge base embeds the *query* with a model it owns, and yidam's vectors are not in that model's space. §4.2's key set survives, but for the route §8.1 names rather than this one |
-| A spanning query's `$in` on `corpus` is accepted and applied (#835) | **Not settled.** Every query this crate has ever sent filtered `corpus` with `$eq`, and the class filter's `$in` arm was never exercised live either — so what is open is the *operator*, not the idea. `tests/s3vectors_live.rs::a_query_can_ask_across_two_corpora_in_one_index` is written and has not been run: it puts a row in each of two corpora, asks each way, and fails if the foreign row — deliberately the **nearer** vector — comes back from a single-corpus query |
+| A spanning query's `$in` on `corpus` is accepted and applied (#835) | **Not settled.** Every query this crate has ever sent filtered `corpus` with `$eq`, and the class filter's `$in` arm was never exercised live either — so what is open is the *operator*, not the idea. `tests/suite/s3vectors_live.rs::a_query_can_ask_across_two_corpora_in_one_index` is written and has not been run: it puts a row in each of two corpora, asks each way, and fails if the foreign row — deliberately the **nearer** vector — comes back from a single-corpus query |
 | A stored witness refuses a push from another space (#835) | **Not settled.** `witness_agreement` is unit-tested against a `Fetched` this crate built; `a_push_into_another_vector_space_is_refused_against_a_stored_witness` writes the witness through `PutVectors` and reads it back through `GetVectors`, which is where a contract that serialises but does not survive the service's own metadata would hide |
 | ~~The 40 KB metadata ceiling is comfortable for real corpora~~ | **Measured on 2026-09-21 over sixteen derived corpora, and false as stated** — see §8.3. One row in 3,246 is cut, so truncation is not routine; but the largest row that is *not* cut sits **597 bytes** under the ceiling, which is not what "comfortable" claims. Measured by running the functions that compose the text — `yidam embed --dry-run` — over corpora nothing was written into |
 
@@ -489,7 +489,7 @@ Nothing here should be read as having answered them.
 
 ### 8.2 — The live run, and why its green means anything
 
-`tests/s3vectors_live.rs` shipped with #832 and had never been run. It was run on **2026-09-20**
+`tests/suite/s3vectors_live.rs` shipped with #832 and had never been run. It was run on **2026-09-20**
 against a vector bucket created for the purpose in an AWS sandbox account (`us-east-2`, a
 4-dimensional cosine index), and the bucket was deleted afterwards. Six tests, all passing.
 
@@ -800,5 +800,5 @@ shared index's `--dry-run` roster reports keys in the hundreds of thousands.
    carries its path, so only a derivation that differed *between binaries* can produce a
    disagreement, and an index can be asked about that once rather than trusted about it per
    query. §4.5 records the two halves: one derivation, held in the output by
-   `tests/class_derivation.rs`, and a `class_source` claim `index-build` earns by checking
+   `tests/suite/class_derivation.rs`, and a `class_source` claim `index-build` earns by checking
    every record. An index that claims nothing is searched exactly as wide as it was before.

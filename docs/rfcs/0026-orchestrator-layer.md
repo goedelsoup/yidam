@@ -1129,7 +1129,7 @@ Everything after it is generalisation of something that already works.
 
 Two constraints on that first slice, both learned here:
 
-- **The fixture must be git-tracked.** `tests/example_corpus.rs` treats an untracked file under
+- **The fixture must be git-tracked.** `tests/suite/example_corpus.rs` treats an untracked file under
   `examples/*/.yidam/` as ungated — *"nothing here runs against it"*.
 - **streamflow proves the mechanism only.** It is 8 nodes; it could not carry the retrieval claim
   in #264 and it cannot carry a throughput one. No performance claim rests on it.

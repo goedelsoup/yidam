@@ -287,7 +287,7 @@ every corpus metric in every derived repository meaningless.
 > [the investigative journalism walkthrough](walkthroughs/investigative-journalism.md#the-research-this-newsroom-does-not-own).
 > The newsroom's open question is *who owns the terminal site*; the title research that would
 > answer it has an unresolved gap of its own, and the finding stays `[open]` because a local
-> claim may not rest on a foreign node. `yidam/cli/tests/example_corpus.rs` gates it.
+> claim may not rest on a foreign node. `yidam/cli/tests/suite/example_corpus.rs` gates it.
 
 ## The epistemic status of a cross-corpus citation
 

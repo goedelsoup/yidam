@@ -103,7 +103,7 @@ pub mod upstream;
 /// the I/O is behind `s3-vectors`, and only embedding a query is behind `vector-read`.
 pub mod s3vectors;
 /// Source packs (RFC-0048): how an identifier resolves, and the pins a corpus vendors packs
-/// by. Public for the reason [`policy`] is: `tests/task_layer.rs` holds the vendor task's
+/// by. Public for the reason [`policy`] is: `tests/suite/task_layer.rs` holds the vendor task's
 /// shell range check to the one [`sources::version`] implements.
 pub mod sources;
 pub mod vault;
@@ -186,7 +186,7 @@ pub use cmd::serve_mcp_http;
 
 /// The `kind` a samudaya seed file declares, or `None` where it declares none.
 ///
-/// Exposed for `tests/samudaya_examples.rs`, which validates the domain seed sets under
+/// Exposed for `tests/suite/samudaya_examples.rs`, which validates the domain seed sets under
 /// `samudaya/examples/`. `samudaya-audit` deliberately does not read them — it skips
 /// `examples/`, and that skip is the whole reason those sets are inert rather than live
 /// seeds of this repository — so the test is the only thing that can hold them to the

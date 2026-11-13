@@ -3,7 +3,7 @@
 //! Two layers, and the split is #929's: [`run`] owns *how* git is invoked — the directory,
 //! the environment, the pinned config, where a revision may appear — and this module owns
 //! *what is asked*, as functions whose names are questions a corpus has. Nothing outside
-//! [`run`] spawns git, and `tests/git_spawns.rs` holds that.
+//! [`run`] spawns git, and `tests/suite/git_spawns.rs` holds that.
 
 #[cfg(test)]
 pub(crate) mod fixture;

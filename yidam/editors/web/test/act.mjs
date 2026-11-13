@@ -8,7 +8,7 @@
  * `act` states the handshake reported, because those are three different repairs.
  *
  * Everything else — whether the corpus opted in, whether the checkout has an author, what a
- * finding licenses — is the binary's, and `yidam/cli/tests/mcp_act_tier.rs` holds it there.
+ * finding licenses — is the binary's, and `yidam/cli/tests/suite/mcp_act_tier.rs` holds it there.
  * The route's method and origin rule is tested here too, next to the frame it guards, in the
  * same shape `origin.mjs` gave the read rule: a security rule with no test is a coin flip.
  */

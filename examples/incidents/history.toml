@@ -5,7 +5,7 @@
 # walkthrough's replay section would then be a description of a feature rather than a run of
 # it — which is the failure `docs/walkthroughs/` exists to avoid.
 #
-# So this example ships its history. `yidam/cli/tests/example_corpus.rs` replays these commits
+# So this example ships its history. `yidam/cli/tests/suite/example_corpus.rs` replays these commits
 # in order when materialising it; an example with no `history.toml` gets the single genesis
 # commit it always did, so nothing else here changes.
 #

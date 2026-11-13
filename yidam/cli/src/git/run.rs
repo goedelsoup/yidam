@@ -9,9 +9,9 @@
 //! The cost of deciding a thing in fifty places is that a decision made once is made in one
 //! of them. Each of the three below was a defence that existed somewhere and was missing
 //! everywhere else; each is now a property of the invocation rather than of the call site,
-//! and [`tests/git_hygiene.rs`] holds all three from outside the crate.
+//! and [`tests/suite/git_hygiene.rs`] holds all three from outside the crate.
 //!
-//! [`tests/git_hygiene.rs`]: https://github.com/goedelsoup/yidam/blob/main/yidam/cli/tests/git_hygiene.rs
+//! [`tests/suite/git_hygiene.rs`]: https://github.com/goedelsoup/yidam/blob/main/yidam/cli/tests/git_hygiene.rs
 
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
@@ -432,7 +432,7 @@ mod tests {
     ///
     /// The other direction — that an *inherited* one is ignored — is not asserted here.
     /// Proving it requires the variable to be in this process's own environment, and
-    /// `set_var` against a parallel test binary is a race. `tests/git_hygiene.rs` sets it
+    /// `set_var` against a parallel test binary is a race. `tests/suite/git_hygiene.rs` sets it
     /// on a child it spawns, which is both race-free and the situation a user is actually
     /// in.
     #[test]

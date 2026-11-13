@@ -2525,7 +2525,7 @@ module YidamGraph {
   // #1058's clobber in its smallest form, and the model used to commit it — `RegenSpan` was a
   // prefix search of its own, and on this document it answered with the `ab` block. Now it
   // answers with nothing, as `update_regen` does, and rewriting `a` leaves the document alone.
-  // `a_query_that_prefixes_another_does_not_clobber_it` in `tests/count.rs` is the same
+  // `a_query_that_prefixes_another_does_not_clobber_it` in `tests/suite/count.rs` is the same
   // document, run against the code.
   lemma TheLocatorComparesTheWholeCommand()
     ensures var text := "<!-- REGEN: ab -->1<!-- /REGEN -->";

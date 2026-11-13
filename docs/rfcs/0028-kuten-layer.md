@@ -905,7 +905,7 @@ surface-with-no-consumer failure this repository keeps finding.
 > **The slot gained no field.** #577 asked that a kuten be able to *"express what an outward
 > citation looks like."* Measurement answered that instead of a slot: one form is used in
 > every repository, so there was nothing for a profile to choose between. Both surfaces run
-> in the light binary with no feature gate. `yidam/cli/tests/object_coupling.rs` builds
+> in the light binary with no feature gate. `yidam/cli/tests/suite/object_coupling.rs` builds
 > allen-county-ohio's shape — a crate README, Rust doc comments, a TypeScript client, an
 > imported design directory and a generated graph feed — and holds both surfaces against it.
 

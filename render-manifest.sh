@@ -20,7 +20,7 @@
 # A SCRIPT and not a heredoc inside the workflow, for `render-formula.sh`'s reason,
 # which applies here with more force: a manifest that is wrong is discovered by a
 # stranger double-clicking a file, and a workflow step is testable only by cutting
-# a release. This is driven by `yidam/cli/tests/mcpb_bundle.rs`.
+# a release. This is driven by `yidam/cli/tests/suite/mcpb_bundle.rs`.
 #
 # ── what this deliberately does not carry ────────────────────────────────────
 #

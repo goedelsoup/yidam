@@ -25,7 +25,7 @@
 //!
 //! The hand-run touched no working tree, against live repositories somebody was working in.
 //! Every reading here is a `git log`, a `git for-each-ref`, or a walk of committed files;
-//! nothing checks anything out and nothing writes. [`tests/cohort.rs`] asserts it against a
+//! nothing checks anything out and nothing writes. [`tests/suite/cohort.rs`] asserts it against a
 //! dirty tree rather than by inspection, which is the only way that claim is worth making.
 //!
 //! # Two controls, or the clusters are artifacts
@@ -84,7 +84,7 @@ pub mod accretion;
 /// states.** A rule written upstream tomorrow is invisible here until somebody adds a row,
 /// and no discovery closes that — a norm is prose, and which sentences are rules is a
 /// judgement. What *is* closed is the other direction: `statement` is quoted from `document`,
-/// and `tests/cohort.rs` holds every quote to the file it names. A norm edited out of the
+/// and `tests/suite/cohort.rs` holds every quote to the file it names. A norm edited out of the
 /// prelude, or reworded, fails that test rather than quietly measuring a rule nobody states.
 pub struct Norm {
     pub id: &'static str,

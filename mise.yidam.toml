@@ -529,7 +529,7 @@ fi
 # vendors none.
 #
 # No backslashes, for the reason the tools block gives. `satisfies` is the grammar
-# `yidam source check` reads (src/sources/version.rs); tests/task_layer.rs holds the two
+# `yidam source check` reads (src/sources/version.rs); tests/suite/task_layer.rs holds the two
 # to one table.
 # VENDOR-SOURCES BEGIN
 # SATISFIES BEGIN

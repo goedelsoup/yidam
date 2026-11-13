@@ -14,7 +14,7 @@
 //! which write, and it writes nothing.
 //!
 //! Exit 2 is not available and is not borrowed: its only site is clap's pre-dispatch arm for
-//! an unrecognised subcommand, which `tests/binary_pin.rs` pins. A rejection therefore
+//! an unrecognised subcommand, which `tests/suite/binary_pin.rs` pins. A rejection therefore
 //! **emits its report and then fails**, the shape `doctor`, `regen`, `rename` and
 //! `index-verify` already have — propagating an ordinary `Err` instead would print
 //! `Error: {:?}` with no envelope, and every rejection this surface specifies would be
