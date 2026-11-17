@@ -38,6 +38,11 @@ ignore = [
   # `vector-read`. No `tokenizers` release drops it yet. At expiry, check for one before
   # re-dating; fastembed pins its tokenizers major, so a bump there is a fastembed bump too.
   { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained (archived 2024-10); a compile-time proc-macro reached only via tokenizers under fastembed (vector-read), with no tokenizers release that drops it; expires 2027-01-31" },
+  # Unmaintained, not vulnerable, and no safe upgrade exists. `chrono` arrives through
+  # `arrow-array` 60 (under `arrow-ipc`, and so `vector-read`), which takes it unconditionally
+  # for its temporal types, so no feature flag sheds it. At expiry, check whether an arrow
+  # release has moved to `jiff` or `time` before re-dating.
+  { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained; reached only via arrow-array 60 under arrow-ipc (vector-read), which requires it unconditionally, and no arrow release drops it; expires 2027-01-31" },
 ]
 
 # ── licenses ─────────────────────────────────────────────────────────────────
