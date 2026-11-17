@@ -43,7 +43,9 @@ pub(crate) const WHO: crate::cmd::operational::Who<'static> = (AUTHOR_NAME, AUTH
 pub(crate) use extract::extract_in;
 pub use extract::{extract, ExtractOptions};
 pub use fetch::{fetch, FetchOptions};
-pub(crate) use fetch::{fetch_in, render as render_fetched, EntryOutcome};
+pub(crate) use fetch::{
+    fetch_in, render as render_fetched, select as select_entries, EntryOutcome,
+};
 pub use location::parse_binding;
 pub(crate) use reconcile::reconcile_in;
 pub use reconcile::{reconcile, ReconcileOptions};

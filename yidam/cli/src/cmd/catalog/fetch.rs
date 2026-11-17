@@ -175,7 +175,7 @@ fn today_iso() -> String {
 }
 
 /// The entries this run is about.
-pub(super) fn select(catalog: &Path, filter: Option<&str>) -> Result<Vec<PathBuf>> {
+pub(crate) fn select(catalog: &Path, filter: Option<&str>) -> Result<Vec<PathBuf>> {
     let all = walk_md_files(catalog);
     let Some(want) = filter else {
         // README.md is the REGEN target `catalog-audit` writes, not a source. Excluded here

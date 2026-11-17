@@ -145,7 +145,7 @@ fn the_quiet_run_still_says_being_owed_is_not_being_broken() {
 
 // ── it composes, and does not recompute ───────────────────────────────────────
 
-/// The owed half is `due`'s six clocks, by the ids `due` publishes — not a second set
+/// The owed half is `due`'s seven clocks, by the ids `due` publishes — not a second set
 /// measured here.
 #[test]
 fn the_owed_half_is_dues_own_clocks() {
@@ -160,12 +160,13 @@ fn the_owed_half_is_dues_own_clocks() {
             "questions",
             "phases",
             "superseded",
-            "asks"
+            "asks",
+            "coverage"
         ]
     );
 }
 
-/// A due clock contributes the remedy `due` computed, verbatim. Five of the six clocks are
+/// A due clock contributes the remedy `due` computed, verbatim. Six of the seven clocks are
 /// discharged by something that is not a command, and inventing a remedy here would be this
 /// report claiming an agent can do what `due.rs`'s table says it cannot.
 #[test]
@@ -377,7 +378,7 @@ fn a_repository_with_no_kuten_is_told_so_and_keeps_the_rest() {
     assert!(why.contains("supported state"), "{why}");
 
     // The other three halves are unaffected — they need no declaration at all.
-    assert_eq!(r.owed.len(), 6);
+    assert_eq!(r.owed.len(), 7);
     assert!(render(&r, root).contains("in flight"));
     assert!(render(&r, root).contains("blocked"));
 }

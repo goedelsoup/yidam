@@ -138,7 +138,7 @@ a session runs none of them, or one.
 
 | Half | What it reads |
 |---|---|
-| **owed** | `due`'s six clocks, through `due`'s own reader |
+| **owed** | `due`'s seven clocks, through `due`'s own reader |
 | **in flight** | the unsettled inquiry refs `yidam phases` lists — `active`, never a settled phase or a standing position |
 | **blocked** | what `lint`'s baseline ratchet and `graph-check` would fail on **today** |
 | **next** | one act per half, each carrying the finding, clock or declaration behind it |
@@ -321,6 +321,7 @@ corpus said about itself, never a number in the binary. The reasoning is
 | `phases` | How long a bounded inquiry has been in flight | `[due] phases_after` | days |
 | `superseded` | How long a node has cited a source that changed since it was last committed | `[due] superseded_after` | days |
 | `asks` | How long an open question to another corpus has stood against a pin that corpus has since moved from | `[due] asks_after` | days, from the re-pin |
+| `coverage` | Members of a declared universe that no instance carries | `[[due.coverage]]` | members |
 
 The catalog clock reads the interval [where it already lived](configuration.md#catalog-ttl_days)
 rather than restating it under `[due]`. A source's TTL is a statement about the source. Two places
@@ -336,14 +337,14 @@ one. The clock reads `declined`, still prints what it measured, and prints the d
 behind it. The record is required, so a decline is something a corpus wrote down and can be
 asked about.
 
-Four of the six count days and two do not, which is deliberate. How long a question has gone
+Four of the seven count days and three do not, which is deliberate. How long a question has gone
 unanswered is a fact about the repository, so its clock is `HEAD`. A corpus that has not committed
 has not ignored anything. A source's TTL and a phase's time in flight are facts about the world. So are a source's new version and a re-pin of a corpus you asked.
 The world does not stop moving because nobody committed.
 
 ### What discharges a clock
 
-`due` reports; it does not act. Only one of the six clocks is discharged by something
+`due` reports; it does not act. Only one of the seven clocks is discharged by something
 [`propose`](#propose-is-deliberately-small) can draft:
 
 | Clock | What discharges it |
@@ -354,9 +355,29 @@ The world does not stop moving because nobody committed.
 | `phases` | A person. Settling a phase or abandoning it is not a mechanical consequence of a finding |
 | `superseded` | A person re-reading the source, and a commit to each node it lists. Any commit touching the node counts |
 | `asks` | A person reading the far side at its new pin, then marking the ask `answered` (with `answered_at:`) or moving its `pin:` to the new commit |
+| `coverage` | A person adding an instance for each missing member, or narrowing the universe that lists it |
 
 Each clock names its own remedy in the report. The distinction is visible where it matters, not
 only here.
+
+### Coverage: what the corpus lacks
+
+Every other clock asks whether what a corpus holds is fresh. None of them can see what it lacks.
+A corpus that tracks a session's bills can hold 28 of 1,555 and report nothing owed.
+
+A **universe** is a catalog entry whose newest artifact lists identifiers. You declare it under
+[`[[due.coverage]]`](configuration.md#duecoverage). You name the class that should cover it and
+the property that carries the identifier. `due` reads the artifact's bytes from the vault cache.
+It matches each listed member against that property on the class's instances.
+
+Matching ignores case, spaces and punctuation, so `S.B. 214` and `SB214` are one member. The
+text report counts the missing members and names the first twenty. `--format json` names every
+one, under the clock's `subjects`.
+
+A gap is reported whatever the list's age, since a newer list can only add to it. A **zero** gap
+needs a list fit to stand behind it. A list past its TTL, or one with no members, makes a zero
+`unmeasurable` rather than `ok`. Its detail says why: stale coverage, not zero gap. A list whose
+bytes are not in the cache is `unmeasurable` too. Its detail names the fetch or pull that reads them.
 
 ## README blocks
 

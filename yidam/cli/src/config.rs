@@ -588,6 +588,23 @@ pub struct DueConfig {
     /// asks_after = 7
     /// ```
     pub asks_after: Option<u32>,
+    /// The external, listable sets this corpus means to cover, each read against the class
+    /// whose instances should cover it (#1491).
+    ///
+    /// **The declaration is the interval.** Every other clock is an age against a number; this
+    /// one is a gap against a list, and a corpus that names a universe has said it wants every
+    /// member of it. A member with no instance is owed from the day it appears. No universe
+    /// declared leaves the clock undeclared, as an absent `*_after` does.
+    ///
+    /// ```toml
+    /// [[due.coverage]]
+    /// source = "lis-136-legislation-list"
+    /// select = "$.items[*].number"
+    /// class = "bill"
+    /// property = "number"
+    /// ```
+    #[serde(default)]
+    pub coverage: Vec<CoverageConfig>,
     /// Clocks this corpus decided it does not want, each naming the record that argues it.
     ///
     /// **Unset and declined are different states, and only one of them was a choice.** A
@@ -596,8 +613,8 @@ pub struct DueConfig {
     /// second is to declare an interval for work nobody intends — a clock that is
     /// permanently due, which is a clock a reader learns to skip.
     ///
-    /// The key is the clock's `id` — `index`, `catalog`, `questions`, `phases`, `superseded` —
-    /// and the value is a decision record in `.yidam/decisions/`, by its `id:` or its file stem.
+    /// The key is the clock's `id` — `index`, `catalog`, `questions`, `phases`, `superseded`,
+    /// `asks`, `coverage` — and the value is a decision record in `.yidam/decisions/`, by its `id:` or its file stem.
     /// **The record is required**, and that is the whole of what makes this a declaration
     /// rather than a mute button: a decline naming a record this repository does not hold
     /// is not honoured, and `due` says so. It is `.yidam/lint-baseline.yml`'s property —
@@ -610,6 +627,44 @@ pub struct DueConfig {
     /// ```
     #[serde(default)]
     pub declined: BTreeMap<String, String>,
+}
+
+/// One `[[due.coverage]]` table: a list somebody else keeps, and the class meant to cover it
+/// (#1491).
+///
+/// A bill with no node, no catalog entry and no question was invisible to every other clock:
+/// each measures something already in the repository. This names the thing that is not.
+///
+/// **Exactly one of [`Self::select`] and [`Self::column`]**, and which one says how the
+/// artifact is read — JSON or CSV. Both, or neither, is reported by `due` as a universe it
+/// cannot measure rather than refused at load, so one bad table does not take the other clocks
+/// down with the config.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoverageConfig {
+    /// The catalog entry whose newest artifact enumerates the universe, by file stem or
+    /// `name:`.
+    pub source: String,
+    /// Which of the entry's resources, when its records name more than one — compared with an
+    /// artifact record's `resource:` after trimming. Absent reads the newest record whatever
+    /// it names.
+    #[serde(default)]
+    pub resource: Option<String>,
+    /// For a JSON artifact: where the identifiers are, as a path — `$`, `.key`, `['key']`,
+    /// `[n]` and `[*]`. A string or a number there is a member.
+    #[serde(default)]
+    pub select: Option<String>,
+    /// For a CSV artifact: the header of the column holding the identifiers.
+    #[serde(default)]
+    pub column: Option<String>,
+    /// The class whose instances should cover the universe — the directory under
+    /// `.yidam/corpus/`.
+    pub class: String,
+    /// The property on those instances that carries the identifier.
+    ///
+    /// Compared with the listed identifier ignoring case and everything that is not a letter
+    /// or a digit, so `SB 214`, `S.B. 214` and `sb214` are one member.
+    pub property: String,
 }
 
 /// Where the artifact this corpus is about lives, in this repository.

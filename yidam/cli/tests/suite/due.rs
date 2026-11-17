@@ -218,6 +218,7 @@ fn the_json_report_carries_the_envelope_and_every_clock() {
         [
             "asks",
             "catalog",
+            "coverage",
             "index",
             "phases",
             "questions",
@@ -338,7 +339,9 @@ fn a_declined_clock_reaches_the_json_as_its_own_state_and_is_not_owed() {
     // Three clocks remain due, and the declined one is neither owed nor counted as unset.
     assert_eq!(v["due"], 3, "{}", serde_json::to_string_pretty(&v).unwrap());
     assert_eq!(v["declined"], 1);
-    assert_eq!(v["undeclared"], 0);
+    // `coverage` is the one left unset: it is declared by a universe, not an interval, and
+    // this fixture declares none.
+    assert_eq!(v["undeclared"], 1);
     assert_eq!(v["unknown_declines"].as_array().unwrap().len(), 0);
 
     // And `--strict` still reads the decline as settled rather than as something owed.
@@ -349,8 +352,10 @@ fn a_declined_clock_reaches_the_json_as_its_own_state_and_is_not_owed() {
         "{}",
         text.stdout
     );
+    // One clock is unset — `coverage`, which this fixture gives no universe — and the
+    // declined `index` must not be counted beside it.
     assert!(
-        !text.stdout.contains("can never come due"),
+        text.stdout.contains("1 clock(s) have no interval declared"),
         "{}",
         text.stdout
     );
