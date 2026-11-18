@@ -359,10 +359,33 @@ property = "number"
 | `column` | A CSV header naming the column of identifiers |
 | `class` | The class whose instances should cover the list |
 | `property` | The property on those instances that carries the identifier |
+| `matches` | Optional. A regular expression an identifier must match to be a member |
+| `scope` | Optional. An edge a covering instance must carry: `{ relationship, target }` |
 
 Give exactly one of `select` and `column`. A path ending in an array reads its elements, so
 `$.numbers` and `$.numbers[*]` select the same members. Members and properties are compared with
 case, spaces and punctuation removed.
+
+**Narrow a mixed list with `matches`.** A legislation list may hold resolutions this corpus leaves
+out. The pattern is matched against each identifier as the list gives it. The clock's detail
+counts the identifiers it excluded, so a pattern that drops too much shows.
+
+**Scope a class whose identifiers repeat.** Bill numbers restart every assembly. With `scope`,
+only an instance carrying that edge covers a member. Write `target` as a path under
+`.yidam/corpus/`. Declare one table per period:
+
+```toml
+[[due.coverage]]
+source = "lis-136-legislation-list"
+select = "$[*].number"
+matches = '^(HB|SB|HJR|SJR)\b'
+class = "bill"
+property = "number"
+scope = { relationship = "introduced-in", target = "general-assembly/136th-general-assembly.yml" }
+```
+
+A pattern that does not compile reads `unmeasurable`. So does a scope whose target is no node.
+Neither is reported as a gap.
 
 The bytes are read from the vault cache under the artifact's digest. Run
 `yidam catalog-fetch <entry>` to record and cache a new list. A clone without the bytes can run

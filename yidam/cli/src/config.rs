@@ -665,6 +665,40 @@ pub struct CoverageConfig {
     /// Compared with the listed identifier ignoring case and everything that is not a letter
     /// or a digit, so `SB 214`, `S.B. 214` and `sb214` are one member.
     pub property: String,
+    /// A regular expression a selected identifier must match to be a member (#1495).
+    ///
+    /// For a published list that mixes what this corpus covers with what it does not: an
+    /// assembly's legislation list holds bills and joint resolutions beside concurrent and
+    /// simple resolutions. Without it the corpus points the clock at a list its own fetcher
+    /// filtered, and the clock then measures the fetcher, not the list.
+    ///
+    /// Matched against the identifier as the artifact gives it, trimmed, before the comparison
+    /// key is taken, so `^(HB|SB)\b` reads `HB 1` as written. Members it excludes are counted
+    /// in the report, so a pattern that excludes too much is visible rather than a quietly
+    /// smaller universe.
+    #[serde(default)]
+    pub matches: Option<String>,
+    /// An edge the covering instance must carry, for a class whose identifiers repeat across
+    /// periods (#1495).
+    ///
+    /// Bill numbers restart every assembly, so a class-wide match counts the 136th's `HB 1` as
+    /// covering the 137th's. With a scope, only an instance holding this relationship to this
+    /// target covers a member, and one table per period works without a synthetic globally
+    /// unique property.
+    #[serde(default)]
+    pub scope: Option<CoverageScopeConfig>,
+}
+
+/// The edge a [`CoverageConfig::scope`] requires.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoverageScopeConfig {
+    /// The `relationship:` of the `links:` entry, compared after trimming.
+    pub relationship: String,
+    /// The node the edge must reach, as a path under `.yidam/corpus/`:
+    /// `general-assembly/136th-general-assembly.yml`. Compared with each link's target as
+    /// that link resolves from its own node, so a node may write it relatively.
+    pub target: String,
 }
 
 /// Where the artifact this corpus is about lives, in this repository.

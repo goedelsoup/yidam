@@ -370,6 +370,9 @@ A **universe** is a catalog entry whose newest artifact lists identifiers. You d
 the property that carries the identifier. `due` reads the artifact's bytes from the vault cache.
 It matches each listed member against that property on the class's instances.
 
+Two optional keys narrow it. `matches` keeps only the identifiers a pattern accepts, and counts
+the rest. `scope` counts only instances carrying a named edge, such as `introduced-in` an assembly.
+
 Matching ignores case, spaces and punctuation, so `S.B. 214` and `SB214` are one member. The
 text report counts the missing members and names the first twenty. `--format json` names every
 one, under the clock's `subjects`.

@@ -1369,6 +1369,209 @@ fn a_coverage_table_parses_and_refuses_a_typo() {
     assert!(crate::config::load_yidam_config(root).is_err());
 }
 
+// ── narrowing a universe (#1495) ──────────────────────────────────────────────
+
+/// An assembly's list: two bills, a joint resolution, and two resolutions the corpus leaves
+/// out. Its `HB 1` is the 136th's.
+const MIXED_LIST: &[u8] = br#"{"items":[{"number":"HB 1"},{"number":"SB 2"},{"number":"HJR 3"},{"number":"HCR 4"},{"number":"SR 5"}]}"#;
+
+fn universe_matching(pattern: &str) -> crate::config::CoverageConfig {
+    crate::config::CoverageConfig {
+        matches: Some(pattern.into()),
+        ..universe_json()
+    }
+}
+
+/// The first half of #1495: the list itself is the universe, and the resolutions the corpus
+/// leaves out are outside it — counted, so a pattern that drops too much is seen.
+#[test]
+fn matches_puts_identifiers_outside_the_universe_and_counts_them() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let d = cached(cache.path(), MIXED_LIST);
+    lis(root, &[(&d, None)], None);
+    bill(root, "hb-1", "HB 1");
+    bill(root, "sb-2", "SB 2");
+
+    let decl = universe_matching(r"^(HB|SB|HJR|SJR)\b");
+    let c = coverage_clock(root, &[decl.clone()], cache.path());
+    assert_eq!(c.state, State::Due, "{c:?}");
+    assert!(
+        c.detail
+            .contains("2 of 3 covered, 1 missing, 2 listed outside `matches`"),
+        "{c:?}"
+    );
+    assert_eq!(c.subjects.len(), 1, "{c:?}");
+    assert!(c.subjects[0].starts_with("HJR 3 — "), "{c:?}");
+
+    bill(root, "hjr-3", "HJR 3");
+    let c = coverage_clock(root, &[decl], cache.path());
+    assert_eq!(c.state, State::Ok, "{c:?}");
+
+    // The control: without the pattern the two resolutions are owed.
+    let c = coverage_clock(root, &[universe_json()], cache.path());
+    assert_eq!(c.overdue, 2, "{c:?}");
+    assert!(!c.detail.contains("outside `matches`"), "{c:?}");
+}
+
+/// A pattern that excludes every member leaves an empty universe, which is not a covered one;
+/// a pattern that does not compile is reported as itself, not as a gap.
+#[test]
+fn a_pattern_that_excludes_everything_or_does_not_compile_is_unmeasurable() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let d = cached(cache.path(), MIXED_LIST);
+    lis(root, &[(&d, None)], None);
+
+    let c = coverage_clock(root, &[universe_matching("^XX")], cache.path());
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+    assert!(
+        c.detail
+            .contains("puts all 5 of `lis-136-legislation-list`'s identifiers outside"),
+        "{c:?}"
+    );
+
+    let c = coverage_clock(root, &[universe_matching("^(HB")], cache.path());
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+    assert!(c.detail.contains("is not a regular expression"), "{c:?}");
+    assert!(c.subjects.is_empty(), "{c:?}");
+}
+
+fn assembly(root: &Path, stem: &str) {
+    node(
+        root,
+        &format!("general-assembly/{stem}.yml"),
+        &format!("class: general-assembly\nlabel: {stem}\n"),
+    );
+}
+
+/// A bill node introduced in one assembly, linked the way a node writes it: relative to itself.
+fn bill_in(root: &Path, stem: &str, number: &str, assembly: &str) {
+    node(
+        root,
+        &format!("bill/{stem}.yml"),
+        &format!(
+            "class: bill\nlabel: {number}\nproperties:\n  number: \"{number}\"\nlinks:\n  \
+             - target: ../general-assembly/{assembly}.yml\n    relationship: introduced-in\n"
+        ),
+    );
+}
+
+fn universe_in(assembly: &str) -> crate::config::CoverageConfig {
+    crate::config::CoverageConfig {
+        scope: Some(crate::config::CoverageScopeConfig {
+            relationship: "introduced-in".into(),
+            target: format!("general-assembly/{assembly}.yml"),
+        }),
+        ..universe_json()
+    }
+}
+
+/// The second half of #1495: bill numbers restart every assembly, so the 135th's `HB 1` must
+/// not cover the 136th's.
+#[test]
+fn a_scoped_class_is_covered_only_by_instances_carrying_the_edge() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let d = cached(cache.path(), br#"{"items":[{"number":"HB 1"}]}"#);
+    lis(root, &[(&d, None)], None);
+    assembly(root, "135th");
+    assembly(root, "136th");
+    bill_in(root, "hb-1-135", "HB 1", "135th");
+
+    // The control: class-wide, the 135th's bill covers the 136th's member.
+    let c = coverage_clock(root, &[universe_json()], cache.path());
+    assert_eq!(c.state, State::Ok, "{c:?}");
+
+    let c = coverage_clock(root, &[universe_in("136th")], cache.path());
+    assert_eq!(c.state, State::Due, "{c:?}");
+    assert!(
+        c.detail
+            .contains("bill.number with `introduced-in → general-assembly/136th.yml`"),
+        "{c:?}"
+    );
+    assert!(
+        c.subjects[0].contains(
+            "carried by no `bill` with `introduced-in → general-assembly/136th.yml` as `number`"
+        ),
+        "{c:?}"
+    );
+
+    // A bill with the right number and the wrong relationship to the right assembly does not
+    // cover it either.
+    node(
+        root,
+        "bill/hb-1-136-cited.yml",
+        "class: bill\nlabel: HB 1\nproperties:\n  number: \"HB 1\"\nlinks:\n  \
+         - target: ../general-assembly/136th.yml\n    relationship: cites\n",
+    );
+    let c = coverage_clock(root, &[universe_in("136th")], cache.path());
+    assert_eq!(c.state, State::Due, "{c:?}");
+
+    bill_in(root, "hb-1-136", "HB 1", "136th");
+    let c = coverage_clock(
+        root,
+        &[universe_in("136th"), universe_in("135th")],
+        cache.path(),
+    );
+    assert_eq!(c.state, State::Ok, "{c:?}");
+    assert_eq!(c.interval.as_deref(), Some("[[due.coverage]] × 2"));
+}
+
+/// A scope naming no node would read every member as missing; it is reported as what it is.
+#[test]
+fn a_scope_targeting_no_node_is_unmeasurable() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let d = cached(cache.path(), br#"{"items":[{"number":"HB 1"}]}"#);
+    lis(root, &[(&d, None)], None);
+    assembly(root, "136th");
+
+    let c = coverage_clock(root, &[universe_in("137th")], cache.path());
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+    assert!(
+        c.detail
+            .contains("targets `general-assembly/137th.yml`, which is no node"),
+        "{c:?}"
+    );
+    assert!(c.subjects.is_empty(), "{c:?}");
+
+    let mut blank = universe_in("136th");
+    blank.scope.as_mut().unwrap().relationship = " ".into();
+    let c = coverage_clock(root, &[blank], cache.path());
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+    assert!(c.detail.contains("needs both"), "{c:?}");
+}
+
+/// Both keys parse from `.yidam/config.toml`, the scope as an inline table, and a key the
+/// scope does not know is refused there.
+#[test]
+fn matches_and_scope_parse_and_a_scope_typo_is_refused() {
+    let tmp = repo();
+    let root = tmp.path();
+    let table = "[[due.coverage]]\nsource = \"lis\"\nselect = \"$[*].number\"\nclass = \"bill\"\nproperty = \"number\"\nmatches = '^(HB|SB)\\b'\n";
+    config(
+        root,
+        &format!("{table}scope = {{ relationship = \"introduced-in\", target = \"general-assembly/136th.yml\" }}\n"),
+    );
+    let cfg = crate::config::load_yidam_config(root).unwrap();
+    let u = &cfg.due.coverage[0];
+    assert_eq!(u.matches.as_deref(), Some(r"^(HB|SB)\b"));
+    let scope = u.scope.as_ref().unwrap();
+    assert_eq!(scope.relationship, "introduced-in");
+    assert_eq!(scope.target, "general-assembly/136th.yml");
+
+    config(
+        root,
+        &format!("{table}scope = {{ relation = \"introduced-in\", target = \"x.yml\" }}\n"),
+    );
+    assert!(crate::config::load_yidam_config(root).is_err());
+}
+
 /// The text report lists a long gap's first members and says the rest are in JSON.
 #[test]
 fn a_long_subject_list_is_capped_in_text_only() {

@@ -17,6 +17,22 @@
 //! carry each one. A member is covered when some instance of the class holds it under the
 //! property, compared ignoring case and everything that is not a letter or a digit.
 //!
+//! # Narrowing a list, and scoping a class (#1495)
+//!
+//! A published list is often wider than what a corpus covers, and a class often repeats its
+//! identifiers across periods. The first derivation to adopt this clock hit both: an assembly's
+//! legislation list mixes bills with resolutions the corpus leaves out, and bill numbers
+//! restart every assembly. It worked round each locally — a list its own fetcher filtered, and
+//! a synthetic property unique across assemblies — and neither workaround was visible to
+//! anyone else.
+//!
+//! `matches` narrows the members: an identifier that does not match the pattern is outside
+//! the universe. It filters *identifiers*, not the document, so the selector stays a walk and
+//! not a program; and what it excluded is counted in the report, so a pattern that drops too
+//! much is seen. `scope` narrows the instances: only one carrying the named edge to the named
+//! node covers a member. A scope whose target is no node is unmeasurable, not a universe in
+//! which everything is missing.
+//!
 //! # What only a reading of zero has to prove
 //!
 //! **A gap is owed whatever the age of the list that showed it.** A member listed in last
@@ -53,6 +69,9 @@ pub(crate) struct Universe {
     /// The class and property the declaration names, trimmed.
     pub class: String,
     pub property: String,
+    /// The edge a covering instance must carry, as `relationship → target`, when the
+    /// declaration scopes the class.
+    pub scope: Option<String>,
     pub reading: Reading,
 }
 
@@ -64,6 +83,8 @@ pub(crate) enum Reading {
         listed: usize,
         /// Listed members no instance carries, verbatim as the artifact gives them.
         missing: Vec<String>,
+        /// Distinct identifiers the artifact lists that `matches` puts outside the universe.
+        excluded: usize,
         /// Why a gap of zero here would not be a claim of coverage — the source is past its
         /// TTL, or the artifact lists nothing. `None` when the reading is fit to say zero.
         unfit: Option<String>,
@@ -287,20 +308,86 @@ pub(crate) fn read_universe(
     stale: &dyn Fn(&str) -> Option<String>,
     cache: Option<&Cache>,
 ) -> Universe {
-    let label = format!(
-        "{} → {}.{}",
-        decl.source.trim(),
-        decl.class.trim(),
-        decl.property.trim()
-    );
     let class = decl.class.trim().to_string();
     let property = decl.property.trim().to_string();
+    let scope = decl.scope.as_ref().map(|s| {
+        format!(
+            "{} → {}",
+            s.relationship.trim(),
+            s.target.trim().trim_start_matches("./")
+        )
+    });
+    // The scope is part of the name: one table per period shares its source, class and
+    // property with the next, and two lines reading alike would not say which is which.
+    let label = format!(
+        "{} → {}.{}{}",
+        decl.source.trim(),
+        decl.class.trim(),
+        decl.property.trim(),
+        scope
+            .as_ref()
+            .map(|s| format!(" with `{s}`"))
+            .unwrap_or_default()
+    );
     let unread = |entry: String, why: String| Universe {
         label: label.clone(),
         entry,
         class: class.clone(),
         property: property.clone(),
+        scope: scope.clone(),
         reading: Reading::Unread(why),
+    };
+
+    // The two narrowings are checked before the artifact is, so a typo in either is reported
+    // as itself rather than as a gap: a pattern that does not compile, or a scope naming a
+    // node this corpus does not hold, would otherwise read every member as missing.
+    let pattern = match decl.matches.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(p) => match regex::Regex::new(p) {
+            Ok(re) => Some(re),
+            Err(e) => {
+                return unread(
+                    String::new(),
+                    format!("`matches = \"{p}\"` is not a regular expression: {e}"),
+                )
+            }
+        },
+    };
+    let scope_target = match &decl.scope {
+        None => None,
+        Some(s) => {
+            let rel = s.relationship.trim();
+            let target = s.target.trim();
+            if rel.is_empty() || target.is_empty() {
+                return unread(
+                    String::new(),
+                    "`scope` needs both a `relationship` and a `target`".to_string(),
+                );
+            }
+            let at =
+                crate::corpus::edges::normalize(&crate::paths::yidam_corpus_dir(root).join(target));
+            if !instances
+                .iter()
+                .any(|n| crate::corpus::edges::normalize(&n.path) == at)
+            {
+                return unread(
+                    String::new(),
+                    format!("`scope` targets `{target}`, which is no node under .yidam/corpus/"),
+                );
+            }
+            Some((rel, at))
+        }
+    };
+    let in_scope = |n: &Node| -> bool {
+        let Some((rel, at)) = &scope_target else {
+            return true;
+        };
+        n.inst.links.as_deref().unwrap_or_default().iter().any(|l| {
+            l.relationship.as_deref().map(str::trim) == Some(*rel)
+                && l.target
+                    .as_deref()
+                    .is_some_and(|t| crate::corpus::edges::resolve_target(&n.path, t.trim()) == *at)
+        })
     };
 
     let catalog = crate::paths::yidam_catalog_dir(root);
@@ -374,16 +461,22 @@ pub(crate) fn read_universe(
     let covered: HashSet<String> = instances
         .iter()
         .filter(|n| crate::paths::class_of_path(&n.path) == class)
+        .filter(|n| in_scope(n))
         .flat_map(|n| crate::cmd::query::exec::node_scalars(n, &property))
         .filter_map(|v| key(&v))
         .collect();
 
     let mut seen = HashSet::new();
     let mut distinct = 0usize;
+    let mut excluded = 0usize;
     let mut missing = Vec::new();
     for raw in listed {
         let Some(k) = key(&raw) else { continue };
         if !seen.insert(k.clone()) {
+            continue;
+        }
+        if pattern.as_ref().is_some_and(|re| !re.is_match(&raw)) {
+            excluded += 1;
             continue;
         }
         distinct += 1;
@@ -393,6 +486,10 @@ pub(crate) fn read_universe(
     }
 
     let unfit = match (distinct, stale(&rel)) {
+        (0, _) if excluded > 0 => Some(format!(
+            "`matches` puts all {excluded} of `{entry}`'s identifiers outside the universe — \
+             empty is not settled"
+        )),
         (0, _) => Some(format!(
             "`{entry}` (sha256:{short}) lists no members — empty is not settled"
         )),
@@ -404,9 +501,11 @@ pub(crate) fn read_universe(
         entry,
         class,
         property,
+        scope,
         reading: Reading::Measured {
             listed: distinct,
             missing,
+            excluded,
             unfit,
         },
     }
@@ -444,6 +543,7 @@ pub(crate) fn clock(universes: &[Universe]) -> Clock {
             Reading::Measured {
                 listed,
                 missing,
+                excluded,
                 unfit,
             } => {
                 let mut p = format!(
@@ -452,6 +552,9 @@ pub(crate) fn clock(universes: &[Universe]) -> Clock {
                     listed - missing.len(),
                     missing.len()
                 );
+                if *excluded > 0 {
+                    let _ = write!(p, ", {excluded} listed outside `matches`");
+                }
                 if let Some(why) = unfit {
                     // Only a zero needs the list to be fit; see the module header.
                     if missing.is_empty() {
@@ -460,9 +563,14 @@ pub(crate) fn clock(universes: &[Universe]) -> Clock {
                     let _ = write!(p, " ({why})");
                 }
                 parts.push(p);
+                let within = u
+                    .scope
+                    .as_ref()
+                    .map(|s| format!(" with `{s}`"))
+                    .unwrap_or_default();
                 subjects.extend(missing.iter().map(|m| {
                     format!(
-                        "{m} — listed by {}, carried by no `{}` as `{}`",
+                        "{m} — listed by {}, carried by no `{}`{within} as `{}`",
                         u.entry, u.class, u.property
                     )
                 }));
