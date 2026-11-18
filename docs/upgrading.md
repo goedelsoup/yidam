@@ -30,6 +30,54 @@ is to run the filing task and commit.
 
 <!-- file-upgrade-notes: new release sections go below this line -->
 
+## cli/v0.26.0
+
+### `due` reports a seventh clock, for what a corpus lacks
+
+**`yidam due` and `yidam cycle` now report seven clocks (#1491).** The new one is `coverage`. It
+stays `undeclared` until you declare a `[[due.coverage]]` universe, so no exit code changes. A
+consumer that counted the clocks, or listed their ids, sees one more.
+
+**If your corpus tracks a published list, declare it.** A session's bills and a body's meetings
+are lists. Name the catalog entry that holds the list, how to read it, and the class that
+should cover it. `select` takes a JSON path, and `column` takes a CSV header:
+
+```toml
+[[due.coverage]]
+source = "lis-136-legislation-list"
+select = "$.items[*].number"
+class = "bill"
+property = "number"
+```
+
+`due` then counts the members no instance carries, and `--format json` names each one. A list
+past its TTL, or an empty one, cannot vouch for a zero gap. The clock reads `unmeasurable` there,
+not `ok`.
+
+### The MCP `open_questions` tool lists asks
+
+`open_questions` over MCP now returns `asks` beside `open_questions` (#1486).
+It is the same list `open-questions --format json` gives.
+An ask is an open question to a dependency, kept under `.yidam/asks/<package>/`.
+It is never counted among `open_questions`.
+
+The MCP contract is now 0.33.0, and `asks` is required.
+A server that has no asks sends `[]`.
+Treat a missing `asks` as an older server, not as an empty list.
+
+### `due` reports a sixth clock, and questions to another corpus have a home
+
+**`yidam due` and `yidam cycle` now report six clocks (#1467).** The new one is `asks`. It stays
+`undeclared` until you set `[due] asks_after`, so no exit code changes. A consumer that counted
+the clocks, or listed their ids, sees one more.
+
+**A question for a corpus you depend on now goes in `.yidam/asks/<package>/`.** You may have
+kept such questions by hand, as a folder of drafts or a README table. Move each into its own file
+there, with `pin:` and `status:` frontmatter. `lint` checks the header, and `due` tells you when
+the dependency has moved past an open ask's pin. The format is in `agent-conduct.md`, under "When you
+have a question for a corpus you depend on." `open-questions --format json` gains an `asks` array
+beside `open_questions`.
+
 ## cli/v0.25.0
 
 ### A coined property type is now reported

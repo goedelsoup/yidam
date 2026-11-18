@@ -423,7 +423,7 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
-    /// What is due? The six clocks, read together, on a schedule.
+    /// What is due? The seven clocks, read together, on a schedule.
     ///
     /// Index staleness, a catalog entry's TTL, how long a question has gone unanswered,
     /// how long a phase has been in flight, which nodes cite a source that has since
@@ -449,7 +449,7 @@ enum Command {
     },
     /// Where is this repository in its loop, and what is the next act?
     ///
-    /// One report in four halves: what is **owed** (`due`'s six clocks), what is **in
+    /// One report in four halves: what is **owed** (`due`'s seven clocks), what is **in
     /// flight** (the unsettled inquiry refs `phases` lists), what is **blocked** (what
     /// `lint`'s ratchet and `graph-check` would fail on today), and what is **next**.
     ///

@@ -217,7 +217,7 @@ fn a_clock_this_build_cannot_discharge_proposes_no_act() {
         r.next
     );
     // And the row is still there. The owed half is `due`'s clock set, whole.
-    assert_eq!(r.owed.len(), 6);
+    assert_eq!(r.owed.len(), 7);
 }
 
 /// A phase that has already landed is not in flight. `phases` publishes the classification
