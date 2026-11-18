@@ -81,6 +81,7 @@ re-deriving it.
 | [0048](0048-source-packs.md) | I35 | A source is named by what it is, and fetched by something the corpus did not write (source packs) | Implemented |
 | [0049](0049-warehouse-contract.md) | I36 | The ontology is the schema a pipeline loads, and the semantic layer reads (warehouse contract and the `textql` export) | Draft |
 | [0050](0050-list-property-type.md) | G14 | A list property type — scalar items, and records that carry their own standing | Draft |
+| [0051](0051-code-artifact-pin.md) | I37 | A read of code names the commit it was read at, and the repository that commit is in (the code-artifact pin) | Draft |
 
 ## Reading order
 
