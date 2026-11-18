@@ -1016,3 +1016,57 @@ fn a_truncated_page_is_refused_without_a_paginate_declaration() {
         .is_empty());
     assert_eq!(s.commit_count(), before, "nothing was recorded");
 }
+
+/// #1491 end to end: the bytes `catalog-fetch` caches are the universe `due` reads, by the
+/// same digest and the same cache, and a member nothing carries is named.
+#[test]
+fn a_fetched_list_is_a_universe_due_can_measure() {
+    let s = stage();
+    s.run(&["catalog-fetch", "local-registry", "--location", "0"])
+        .ok();
+    let config = s.root().join(".yidam/config.toml");
+    let mut text = std::fs::read_to_string(&config).unwrap();
+    text.push_str(
+        "\n[[due.coverage]]\nsource = \"local-registry\"\ncolumn = \"asset_id\"\n\
+         class = \"hydrant\"\nproperty = \"asset\"\n",
+    );
+    std::fs::write(&config, text).unwrap();
+    let dir = s.root().join(".yidam/corpus/hydrant");
+    std::fs::create_dir_all(&dir).unwrap();
+    for id in ["VC-0001", "vc 0002", "VC0003"] {
+        std::fs::write(
+            dir.join(format!("{}.yml", id.replace(' ', "-").to_lowercase())),
+            format!("class: hydrant\nlabel: {id}\nproperties:\n  asset: \"{id}\"\n"),
+        )
+        .unwrap();
+    }
+
+    let out = s.run(&["due", "--format", "json"]).ok();
+    let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+    let c = v["clocks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "coverage")
+        .expect("a coverage clock");
+    assert_eq!(c["state"], "due", "{c}");
+    assert_eq!(c["overdue"], 1, "{c}");
+    let subjects = c["subjects"].as_array().unwrap();
+    assert_eq!(subjects.len(), 1, "{c}");
+    assert!(
+        subjects[0].as_str().unwrap().starts_with("VC-0004 — "),
+        "{c}"
+    );
+
+    // And with the cache gone, the same declaration cannot be read — never a zero.
+    std::fs::remove_dir_all(s.cache()).unwrap();
+    let out = s.run(&["due", "--format", "json"]).ok();
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let c = v["clocks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "coverage")
+        .unwrap();
+    assert_eq!(c["state"], "unmeasurable", "{c}");
+}

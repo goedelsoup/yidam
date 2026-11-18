@@ -179,6 +179,10 @@ serde = { version = "1", features = ["derive"] }
 # level and not the stack. Replacing that level is the contract change described above.
 serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 serde_json = "1"
+# In every build since `due`'s coverage clock (#1491) reads a universe out of a CSV column as
+# well as a JSON path. Was optional under `source-transforms`; the owner accepted the cost —
+# `csv` and `csv-core`, ~0.12 MB on the release binary (RFC-0024 figures, measured there).
+csv = "1.4"
 sha2 = "0.11"
 hex = "0.4"
 toml = "1.1"
@@ -302,17 +306,18 @@ gluon_codegen = { version = "0.18.4", optional = true }
 # A pack's transforms run in `gluon_arm`'s closed prelude, so this feature implies
 # `calculators-gluon` and costs nothing more for the engine. What it adds is the host side: the
 # response a transform is handed is parsed here and marshalled as a value, never by the script.
-# JSON is `serde_json`, already a dependency. XML and CSV are these two, measured against
+# JSON is `serde_json`, already a dependency. XML and CSV were these two, measured against
 # RFC-0024 on this pin: 3 marginal packages (`quick-xml`, `csv`, `csv-core`) and +0.12 MB on
 # the release binary over `calculators-gluon` alone. `quick-xml` is already a dev-dependency
 # below, which is why its marginal cost is the code and not the lockfile. There was no CSV
 # parser in the closure, whatever RFC-0048 §6 first assumed, so `csv` is the one new name.
+# `csv` has since moved into every build — see its line beside `serde_json` — so this feature
+# now adds `quick-xml` alone.
 #
 # `default-features = false` on `csv` is not available — it has no features — and on
 # `quick-xml` it is the default already: no `serialize`, no `encoding`, so a response that is not
 # UTF-8 is refused by the parser rather than transcoded by a table this build would carry.
 quick-xml = { version = "0.42", optional = true }
-csv = { version = "1.4", optional = true }
 
 # ── `tonpa` — bundle dependency manager (async network fetch). ────────────
 #
@@ -519,7 +524,7 @@ calculators-gluon = ["dep:gluon", "dep:gluon_codegen"]
 # for the reason `calculators-gluon` is, which it implies: without it `source add` writes a draft
 # from the pack's templates alone and names the fields it could not fill, and `catalog-extract`
 # names the readings it skipped. See the dependency note for the measurement.
-source-transforms = ["calculators-gluon", "dep:quick-xml", "dep:csv"]
+source-transforms = ["calculators-gluon", "dep:quick-xml"]
 # `tonpa` bundle dependency manager — async network fetch via reqwest. In the
 # default set; see the note there and on the reqwest dependency above.
 tonpa = ["dep:reqwest", "dep:tokio"]

@@ -338,6 +338,39 @@ An ask whose `pin:` still matches the dependency is owed nothing, however old it
 waiting on the far side, and there is nothing new to read. Marking it `answered`, or moving its
 `pin:` to the new commit after reading, discharges it.
 
+### `[[due.coverage]]`
+
+The universes this corpus means to cover, for `due`'s `coverage` clock. Each one names a list in
+the catalog and the class whose instances should account for every member of it.
+
+```toml
+[[due.coverage]]
+source = "lis-136-legislation-list"
+select = "$.items[*].number"
+class = "bill"
+property = "number"
+```
+
+| Key | Meaning |
+|---|---|
+| `source` | The catalog entry, by file stem or `name:`. Its newest artifact with a digest is the list |
+| `resource` | Optional. Read the newest artifact recorded under this `resource:` instead |
+| `select` | A JSON path to the identifiers: `$`, `.key`, `['key']`, `[n]`, `[*]` and `.*` |
+| `column` | A CSV header naming the column of identifiers |
+| `class` | The class whose instances should cover the list |
+| `property` | The property on those instances that carries the identifier |
+
+Give exactly one of `select` and `column`. A path ending in an array reads its elements, so
+`$.numbers` and `$.numbers[*]` select the same members. Members and properties are compared with
+case, spaces and punctuation removed.
+
+The bytes are read from the vault cache under the artifact's digest. Run
+`yidam catalog-fetch <entry>` to record and cache a new list. A clone without the bytes can run
+`yidam vault pull`.
+
+**A gap is a worklist, not a defect.** The clock never fails a gate. `--strict` treats it like
+any other due clock. Narrow a universe that lists more than this corpus means to hold.
+
 ### `[due.declined]`
 
 Clocks this corpus decided it does not want, each naming the record that argues it.
@@ -347,7 +380,7 @@ Clocks this corpus decided it does not want, each naming the record that argues 
 index = "due-clocks"
 ```
 
-The key is the clock's id: `index`, `catalog`, `questions`, `phases`, `superseded` or `asks`. The value
+The key is the clock's id: `index`, `catalog`, `questions`, `phases`, `superseded`, `asks` or `coverage`. The value
 is a decision record in `.yidam/decisions/`, by its `id:` or its file stem.
 
 **Unset and declined are different states.** Without this key they report the same. A corpus

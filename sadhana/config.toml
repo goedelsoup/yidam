@@ -48,12 +48,24 @@
 # pin in .yidam/tonpa/tonpa.lock; marking the ask answered, or moving its `pin:`, discharges it.
 # asks_after = 7
 
+# A list this corpus means to cover — a session's bills, a body's meetings — and the class
+# whose instances should account for every member of it. `source` is a catalog entry; its
+# newest artifact is read from the vault cache, by a JSON path (`select`) or a CSV header
+# (`column`), and each member is matched against `property` on the class's instances with
+# case and punctuation ignored. A missing member is owed, never a failure. A zero gap over a
+# list past its TTL, or an empty one, reads unmeasurable: stale coverage is not zero gap.
+# [[due.coverage]]
+# source = "lis-136-legislation-list"
+# select = "$.items[*].number"
+# class = "bill"
+# property = "number"
+
 # Clocks this corpus examined and does not want, each naming the record that argues it.
 # Unset and declined are different states and only one of them was a choice: without this,
 # a corpus that considered a vector index and chose against it reports identically to one
 # that has never heard of it, and the only remedy `due` can offer the first is to declare an
 # interval for work nobody intends. The key is the clock's id — `index`, `catalog`,
-# `questions`, `phases`, `superseded`, `asks` — and the value is a record in `.yidam/decisions/`,
+# `questions`, `phases`, `superseded`, `asks`, `coverage` — and the value is a record in `.yidam/decisions/`,
 # by its `id:` or its file stem. The record is required: a decline naming one this repository does not hold
 # is not honoured, and `due` says so rather than going quiet.
 # [due.declined]

@@ -1,4 +1,4 @@
-//! `yidam due` — the six clocks, read together, on a schedule.
+//! `yidam due` — the seven clocks, read together, on a schedule.
 //!
 //! Four clocks existed in a derived repository and nothing read them as a set: index
 //! staleness, a catalog entry's TTL, how long a question has gone unanswered, and how long a
@@ -12,6 +12,11 @@
 //! The sixth is the far side's (#1467): a question this repository put to a corpus it depends
 //! on, asked at a pin that corpus has since moved past. Nothing on this side noticed when the
 //! far side answered, because nothing here recorded what was asked or at which commit.
+//!
+//! The seventh measures no age (#1491): whether every member of a universe the corpus
+//! declared — the bills of a session, a body's meetings — has an instance. A derived corpus
+//! held 28 bills of 1,555 listed and missed one that passed both chambers. Every other clock
+//! asked whether what the corpus *holds* is fresh, and none could see what it lacked.
 //!
 //! A practice is not performed because you suspect something. It is performed because it is
 //! time, and nothing here said it was time.
@@ -31,7 +36,7 @@
 //! So [`State`] is its own enum rather than a reuse of `doctor`'s `Verdict`, and this command
 //! exits zero however much is due unless `--strict` asks otherwise.
 //!
-//! # Intervals are declared, and five of the six were not
+//! # Intervals are declared, and five of the six that count were not
 //!
 //! A clock is an age and an interval, and the interval is never compiled in — the argument is
 //! [`crate::config::LintConfig::escalate_after`]'s and applies unchanged: a number in the
@@ -40,7 +45,8 @@
 //! One of the six already had its interval declared in the right place: a source's TTL, per
 //! entry or as `[catalog] ttl_days`. This command reads it there rather than restating it.
 //! The other five are `[due]` keys, absent by default, and a clock with no interval reports
-//! what it measured and calls nothing due.
+//! what it measured and calls nothing due. The seventh's declaration is not an interval but a
+//! universe — `[[due.coverage]]` — and with none declared it is unset in the same way.
 //!
 //! # What discharges a clock, checked rather than assumed
 //!
@@ -56,8 +62,9 @@
 //! | phases | A person. Merging a phase, or abandoning it, is not a mechanical consequence of a finding. |
 //! | superseded | A person re-reading the source, and committing to the node. Whether a claim survives a new edition is a judgement. |
 //! | asks | A person reading the far side at its new pin, then marking the ask `answered` or moving its `pin:`. Whether a corpus answered a question is a reading of its text. |
+//! | coverage | A person adding an instance per missing member, or narrowing the universe. Whether a listed bill belongs in this corpus is scope, which is a judgement. |
 //!
-//! One of six. That is the honest surface, and the remedy column says so per clock rather
+//! One of seven. That is the honest surface, and the remedy column says so per clock rather
 //! than this command growing a `--propose` that would shell into a command a reader can run.
 
 use anyhow::Result;
@@ -272,6 +279,7 @@ impl Clock {
     const PHASES: &'static str = "phases";
     const SUPERSEDED: &'static str = "superseded";
     const ASKS: &'static str = "asks";
+    const COVERAGE: &'static str = "coverage";
 
     fn new(
         id: &'static str,
@@ -428,7 +436,7 @@ impl DueReport {
     }
 }
 
-// ── the six clocks ────────────────────────────────────────────────────────────
+// ── the seven clocks ──────────────────────────────────────────────────────────
 
 /// Is the index built against the corpus as it stands?
 ///
@@ -1007,12 +1015,55 @@ fn clock_asks(root: &Path, after: Option<u32>, today: i64) -> Clock {
     clock
 }
 
+/// Is every member of a declared universe covered by an instance? See [`coverage`].
+///
+/// The TTL read is the catalog clock's, called rather than restated: a universe's source is
+/// stale exactly when that clock would call it expired, and two answers to "is this entry past
+/// its TTL" would be the same predicate in two places. The walk and the TTL read happen only
+/// when a universe is declared.
+fn clock_coverage(
+    root: &Path,
+    decls: &[crate::config::CoverageConfig],
+    today: i64,
+    cache: Option<&crate::vault::Cache>,
+) -> Clock {
+    if decls.is_empty() {
+        return coverage::clock(&[]);
+    }
+    let dir = yidam_catalog_dir(root);
+    let sources =
+        crate::corpus::load_sources(root, &crate::walk::walk_md_files(&dir), &Default::default());
+    let default_ttl = crate::config::load_yidam_config(root)
+        .map(|c| c.catalog.ttl_days)
+        .unwrap_or_default();
+    let iso = crate::cmd::export::unix_to_iso(today as u64 * 86_400);
+    let ages = crate::cmd::lint::ttl::ages(
+        &sources,
+        &crate::cmd::lint::ttl::committed_dates(root, &dir),
+        default_ttl,
+        iso.split('T').next().unwrap_or_default(),
+    );
+    let stale = |rel: &str| -> Option<String> {
+        let age = ages.iter().find(|a| a.entry == rel)?;
+        let over = age.overdue_days()?;
+        Some(format!(
+            "its source is {over} day(s) past its TTL — stale coverage, not zero gap"
+        ))
+    };
+    let corpus = crate::corpus::Corpus::open(root);
+    let universes: Vec<coverage::Universe> = decls
+        .iter()
+        .map(|d| coverage::read_universe(root, d, corpus.nodes(), &stale, cache))
+        .collect();
+    coverage::clock(&universes)
+}
+
 // ── assembly ──────────────────────────────────────────────────────────────────
 
 /// Read every clock against `root`.
 ///
 /// `today` is passed rather than read, so a report over a fixture is the same report
-/// tomorrow. Two of these clocks count days, and a wall-clock feature whose own tests depend
+/// tomorrow. Four of these clocks count days, and a wall-clock feature whose own tests depend
 /// on the day they run is the failure the argument in `lint::today_iso` describes.
 /// A decline is applied **after** the clock is read, never instead of reading it, so a
 /// declined clock still reports what it measured. That is [`State::Undeclared`]'s rule and it
@@ -1029,6 +1080,17 @@ pub(crate) fn read_clocks(root: &Path, cfg: &crate::config::DueConfig, today: i6
         clock_phases(root, cfg.phases_after, today),
         clock_superseded(root, cfg.superseded_after, today),
         clock_asks(root, cfg.asks_after, today),
+        // The cache is the machine's, resolved from the environment here and passed in, so a
+        // test reads a scratch directory and never a developer's real one. A cache that cannot
+        // be located reads every universe as unfetched, which is what it is.
+        clock_coverage(
+            root,
+            &cfg.coverage,
+            today,
+            crate::vault::Cache::resolve(|k| std::env::var(k).ok())
+                .ok()
+                .as_ref(),
+        ),
     ]
     .into_iter()
     .map(|c| match cfg.declined.get(c.id) {
@@ -1046,6 +1108,9 @@ fn unknown_declines(cfg: &crate::config::DueConfig, clocks: &[Clock]) -> Vec<Str
         .cloned()
         .collect()
 }
+
+/// The most subjects one clock lists in the text report. JSON carries every one.
+pub(crate) const SUBJECTS_SHOWN: usize = 20;
 
 /// `yidam due`. Read-only, offline, and exits zero however much is owed unless `--strict`.
 pub fn due(
@@ -1086,8 +1151,20 @@ pub(crate) fn render(report: &DueReport, root: &Path) -> String {
                 let _ = writeln!(out, "  {:<5} {:<10} → {remedy}", "", "");
             }
         }
-        for subject in &c.subjects {
+        // Capped in text, never in JSON. A coverage gap is counted in the hundreds — the report
+        // that asked for that clock measured 1,530 — and a terminal full of bill numbers buries
+        // the rows beside it. The count is on the row already; the full list is a request.
+        for subject in c.subjects.iter().take(SUBJECTS_SHOWN) {
             let _ = writeln!(out, "  {:<5} {:<10}   {subject}", "", "");
+        }
+        if c.subjects.len() > SUBJECTS_SHOWN {
+            let _ = writeln!(
+                out,
+                "  {:<5} {:<10}   … and {} more (`--format json` lists every one)",
+                "",
+                "",
+                c.subjects.len() - SUBJECTS_SHOWN
+            );
         }
         // A decline prints where to read why. Without it the row says only that somebody
         // switched a clock off, which is the reading this state exists to prevent.
@@ -1152,6 +1229,8 @@ pub(crate) fn render(report: &DueReport, root: &Path) -> String {
     }
     out
 }
+
+mod coverage;
 
 #[cfg(test)]
 mod tests;

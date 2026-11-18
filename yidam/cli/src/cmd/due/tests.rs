@@ -58,7 +58,7 @@ fn find<'a>(clocks: &'a [Clock], id: &str) -> &'a Clock {
 fn a_corpus_that_declared_nothing_is_owed_nothing() {
     let tmp = repo();
     let all = clocks(tmp.path());
-    assert_eq!(all.len(), 6, "six clocks: {all:?}");
+    assert_eq!(all.len(), 7, "seven clocks: {all:?}");
     for c in &all {
         assert_ne!(
             c.state,
@@ -734,7 +734,7 @@ fn a_clock_declined_in_writing_is_not_a_clock_nobody_set() {
     // And it leaves the sentence about unset clocks to the clocks that really are unset.
     let report = DueReport::new(all, false);
     assert_eq!(report.declined, 1);
-    assert_eq!(report.undeclared, 5, "a decline was counted as an absence");
+    assert_eq!(report.undeclared, 6, "a decline was counted as an absence");
     assert_eq!(report.due, 0);
 }
 
@@ -1041,4 +1041,344 @@ fn an_ask_to_a_live_dependency_is_said_to_have_no_pin() {
         "{}",
         c.detail
     );
+}
+
+// ── the coverage clock ────────────────────────────────────────────────────────
+
+/// Bytes filed in a scratch cache under their digest, the way `catalog-fetch` leaves them.
+fn cached(cache: &Path, bytes: &[u8]) -> String {
+    let hash = crate::vault::ContentHash::of_bytes(bytes);
+    let path = crate::vault::Cache::at(cache).path_of(&hash);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, bytes).unwrap();
+    hash.as_str().to_string()
+}
+
+/// A catalog entry `lis` holding one record per digest, oldest first, with an optional TTL and
+/// `resource:` per record.
+fn lis(root: &Path, records: &[(&str, Option<&str>)], ttl: Option<u32>) {
+    use std::fmt::Write as _;
+    let body: String = records
+        .iter()
+        .map(|(d, r)| {
+            let mut s = format!("  - sha256: {d}\n    retrieved: 2026-02-20\n    from: 0\n");
+            if let Some(r) = r {
+                writeln!(s, "    resource: {r}").unwrap();
+            }
+            s
+        })
+        .collect();
+    let ttl = ttl.map(|t| format!("ttl_days: {t}\n")).unwrap_or_default();
+    let dir = root.join(".yidam/catalog");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("lis-136-legislation-list.md"),
+        format!(
+            "---\nid: lis-136-legislation-list\nretrieved: 2026-02-20\n{ttl}location:\n  - kind: url\n    value: https://example.test/lis\nartifacts:\n{body}---\n\nThe session's bill list.\n"
+        ),
+    )
+    .unwrap();
+}
+
+fn bill(root: &Path, stem: &str, number: &str) {
+    node(
+        root,
+        &format!("bill/{stem}.yml"),
+        &format!("class: bill\nlabel: {number}\nproperties:\n  number: \"{number}\"\n"),
+    );
+}
+
+fn universe_json() -> crate::config::CoverageConfig {
+    crate::config::CoverageConfig {
+        source: "lis-136-legislation-list".into(),
+        select: Some("$.items[*].number".into()),
+        class: "bill".into(),
+        property: "number".into(),
+        ..Default::default()
+    }
+}
+
+fn coverage_clock(root: &Path, decls: &[crate::config::CoverageConfig], cache: &Path) -> Clock {
+    clock_coverage(root, decls, today(), Some(&crate::vault::Cache::at(cache)))
+}
+
+const THREE_BILLS: &[u8] =
+    br#"{"items":[{"number":"HB 1"},{"number":"S.B. 214"},{"number":"HJR 2"},{"number":"HB 1"}]}"#;
+
+/// The case #1491 reports: a list in the catalog, a class covering part of it, and the member
+/// nobody held — named, not only counted.
+#[test]
+fn a_listed_member_no_instance_carries_is_due_and_named() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let d = cached(cache.path(), THREE_BILLS);
+    lis(root, &[(&d, None)], None);
+    bill(root, "hb-1", "HB 1");
+    bill(root, "hjr-2", "hjr2");
+
+    let c = coverage_clock(root, &[universe_json()], cache.path());
+    assert_eq!(c.state, State::Due, "{c:?}");
+    // Three distinct members — the repeated `HB 1` is one — and the two held are matched
+    // across case and spacing.
+    assert_eq!(c.overdue, 1, "{c:?}");
+    assert!(c.detail.contains("2 of 3 covered, 1 missing"), "{c:?}");
+    assert_eq!(c.subjects.len(), 1, "{c:?}");
+    assert!(c.subjects[0].starts_with("S.B. 214 — "), "{c:?}");
+    assert_eq!(c.actor, Some(Actor::Person));
+    assert_eq!(c.interval.as_deref(), Some("[[due.coverage]]"));
+}
+
+#[test]
+fn a_universe_every_member_of_which_is_held_is_ok() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let d = cached(cache.path(), THREE_BILLS);
+    lis(root, &[(&d, None)], None);
+    bill(root, "hb-1", "HB 1");
+    bill(root, "sb-214", "SB 214");
+    bill(root, "hjr-2", "HJR 2");
+
+    let c = coverage_clock(root, &[universe_json()], cache.path());
+    assert_eq!(c.state, State::Ok, "{c:?}");
+    assert_eq!(c.overdue, 0);
+    assert!(c.subjects.is_empty());
+}
+
+/// Only the newest record is the universe. An older list that named a bill since withdrawn
+/// is not owed.
+#[test]
+fn the_newest_record_is_the_universe() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let old = cached(cache.path(), br#"{"items":[{"number":"HB 99"}]}"#);
+    let new = cached(cache.path(), br#"{"items":[{"number":"HB 1"}]}"#);
+    lis(root, &[(&old, None), (&new, None)], None);
+    bill(root, "hb-1", "HB 1");
+
+    let c = coverage_clock(root, &[universe_json()], cache.path());
+    assert_eq!(c.state, State::Ok, "{c:?}");
+}
+
+/// A declared resource reads that resource's newest record, not the entry's.
+#[test]
+fn a_declared_resource_picks_its_own_record() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let bills = cached(cache.path(), br#"{"items":[{"number":"HB 1"}]}"#);
+    let other = cached(cache.path(), br#"{"items":[{"number":"MTG 7"}]}"#);
+    lis(
+        root,
+        &[(&bills, Some("bills")), (&other, Some("meetings"))],
+        None,
+    );
+    bill(root, "hb-1", "HB 1");
+
+    let mut u = universe_json();
+    u.resource = Some("bills".into());
+    assert_eq!(coverage_clock(root, &[u], cache.path()).state, State::Ok);
+    // Without it the newest record is the meetings list, and its member is owed.
+    let c = coverage_clock(root, &[universe_json()], cache.path());
+    assert_eq!(c.state, State::Due, "{c:?}");
+}
+
+/// A CSV column is read by its header.
+#[test]
+fn a_csv_universe_is_read_by_column() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let d = cached(
+        cache.path(),
+        b"Bill,Title\nHB 1,An act\n\"SB 214\",\"Another, act\"\n",
+    );
+    lis(root, &[(&d, None)], None);
+    bill(root, "hb-1", "HB 1");
+
+    let u = crate::config::CoverageConfig {
+        select: None,
+        column: Some("Bill".into()),
+        ..universe_json()
+    };
+    let c = coverage_clock(root, &[u.clone()], cache.path());
+    assert_eq!(c.state, State::Due, "{c:?}");
+    assert_eq!(c.subjects.len(), 1);
+    assert!(c.subjects[0].starts_with("SB 214"), "{c:?}");
+
+    let wrong = crate::config::CoverageConfig {
+        column: Some("Number".into()),
+        ..u
+    };
+    let c = coverage_clock(root, &[wrong], cache.path());
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+    assert!(c.detail.contains("no column `Number`"), "{c:?}");
+    assert!(c.detail.contains("`Bill`, `Title`"), "{c:?}");
+}
+
+/// The second instance #1491 reports: a list filed empty under a long TTL. Empty is not
+/// settled, so it is not `ok`.
+#[test]
+fn an_empty_list_is_not_a_covered_universe() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let d = cached(cache.path(), br#"{"items":[]}"#);
+    lis(root, &[(&d, None)], Some(3650));
+
+    let c = coverage_clock(root, &[universe_json()], cache.path());
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+    assert!(c.detail.contains("empty is not settled"), "{c:?}");
+}
+
+/// A source past its TTL makes a zero gap stale coverage — and leaves a real gap owed, since a
+/// newer list can only add to it.
+#[test]
+fn a_stale_source_undermines_only_a_zero() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let d = cached(cache.path(), THREE_BILLS);
+    // Retrieved 2026-02-20, read on 2026-03-01: nine days old against a TTL of one.
+    lis(root, &[(&d, None)], Some(1));
+    bill(root, "hb-1", "HB 1");
+    bill(root, "sb-214", "SB 214");
+    bill(root, "hjr-2", "HJR 2");
+
+    let c = coverage_clock(root, &[universe_json()], cache.path());
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+    assert!(c.detail.contains("stale coverage, not zero gap"), "{c:?}");
+
+    std::fs::remove_file(root.join(".yidam/corpus/bill/sb-214.yml")).unwrap();
+    let c = coverage_clock(root, &[universe_json()], cache.path());
+    assert_eq!(c.state, State::Due, "{c:?}");
+    assert!(c.detail.contains("stale coverage"), "{c:?}");
+}
+
+/// Bytes the cache does not hold are a universe nobody can read here, and the remedy says how
+/// to get them.
+#[test]
+fn bytes_missing_from_the_cache_are_unmeasurable() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let d = crate::vault::ContentHash::of_bytes(THREE_BILLS);
+    lis(root, &[(d.as_str(), None)], None);
+
+    let c = coverage_clock(root, &[universe_json()], cache.path());
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+    assert!(c.detail.contains("`yidam vault pull`"), "{c:?}");
+}
+
+#[test]
+fn a_universe_naming_no_entry_or_no_artifact_is_unmeasurable() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let c = coverage_clock(root, &[universe_json()], cache.path());
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+    assert!(c.detail.contains("names no catalog entry"), "{c:?}");
+
+    lis(root, &[], None);
+    let c = coverage_clock(root, &[universe_json()], cache.path());
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+    assert!(c.detail.contains("records no artifact"), "{c:?}");
+    assert!(c.detail.contains("catalog-fetch"), "{c:?}");
+}
+
+/// Both selectors, or neither, is a declaration that does not say how to read the list.
+#[test]
+fn a_universe_must_say_one_way_to_read_it() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let d = cached(cache.path(), THREE_BILLS);
+    lis(root, &[(&d, None)], None);
+    for (select, column, says) in [
+        (Some("$.items"), Some("Bill"), "both"),
+        (None, None, "neither"),
+    ] {
+        let u = crate::config::CoverageConfig {
+            select: select.map(Into::into),
+            column: column.map(Into::into),
+            ..universe_json()
+        };
+        let c = coverage_clock(root, &[u], cache.path());
+        assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+        assert!(c.detail.contains(says), "{c:?}");
+    }
+}
+
+/// One unreadable universe does not hide another's gap.
+#[test]
+fn a_gap_in_one_universe_is_due_beside_one_that_cannot_be_read() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let d = cached(cache.path(), THREE_BILLS);
+    lis(root, &[(&d, None)], None);
+    let broken = crate::config::CoverageConfig {
+        source: "nowhere".into(),
+        ..universe_json()
+    };
+    let c = coverage_clock(root, &[broken, universe_json()], cache.path());
+    assert_eq!(c.state, State::Due, "{c:?}");
+    assert_eq!(c.overdue, 3);
+    assert!(
+        c.detail.contains("names no catalog entry `nowhere`"),
+        "{c:?}"
+    );
+    assert_eq!(c.interval.as_deref(), Some("[[due.coverage]] × 2"));
+}
+
+/// No universe is an unset clock, read through the config like every other.
+#[test]
+fn an_undeclared_coverage_clock_names_the_table() {
+    let tmp = repo();
+    let all = clocks(tmp.path());
+    let c = find(&all, "coverage");
+    assert_eq!(c.state, State::Undeclared, "{c:?}");
+    assert!(
+        c.remedy
+            .as_deref()
+            .unwrap_or_default()
+            .contains("[[due.coverage]]"),
+        "{c:?}"
+    );
+}
+
+/// The table parses from `.yidam/config.toml`, and a key it does not know is refused there.
+#[test]
+fn a_coverage_table_parses_and_refuses_a_typo() {
+    let tmp = repo();
+    let root = tmp.path();
+    config(
+        root,
+        "[[due.coverage]]\nsource = \"lis\"\nselect = \"$.items[*].number\"\nclass = \"bill\"\nproperty = \"number\"\n",
+    );
+    let cfg = crate::config::load_yidam_config(root).unwrap();
+    assert_eq!(cfg.due.coverage.len(), 1);
+    assert_eq!(cfg.due.coverage[0].class, "bill");
+
+    config(
+        root,
+        "[[due.coverage]]\nsource = \"lis\"\nselct = \"$.items\"\nclass = \"bill\"\nproperty = \"number\"\n",
+    );
+    assert!(crate::config::load_yidam_config(root).is_err());
+}
+
+/// The text report lists a long gap's first members and says the rest are in JSON.
+#[test]
+fn a_long_subject_list_is_capped_in_text_only() {
+    let mut c = Clock::new("coverage", "Q", State::Due, "many").owing(30, "add", Actor::Person);
+    c.subjects = (0..30).map(|i| format!("HB {i}")).collect();
+    let r = DueReport::new(vec![c], false);
+    let out = render(&r, Path::new("/tmp/x"));
+    assert!(out.contains("HB 19"), "{out}");
+    assert!(!out.contains("HB 20\n"), "{out}");
+    assert!(out.contains("… and 10 more"), "{out}");
+    let json = serde_json::to_value(&r).unwrap();
+    assert_eq!(json["clocks"][0]["subjects"].as_array().unwrap().len(), 30);
 }
