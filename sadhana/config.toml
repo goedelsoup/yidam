@@ -59,6 +59,12 @@
 # select = "$.items[*].number"
 # class = "bill"
 # property = "number"
+# A list may mix what this corpus covers with what it does not: `matches` is a regex an
+# identifier must match to be a member, and the members it excludes are counted in the
+# report. Where identifiers restart each period, `scope` names the edge a covering instance
+# must carry, its target a path under .yidam/corpus/ — one table per period.
+# matches = "^(HB|SB|HJR|SJR)\\b"
+# scope = { relationship = "introduced-in", target = "general-assembly/136th-general-assembly.yml" }
 
 # Clocks this corpus examined and does not want, each naming the record that argues it.
 # Unset and declined are different states and only one of them was a choice: without this,
