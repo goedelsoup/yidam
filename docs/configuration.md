@@ -183,7 +183,8 @@ declare its own**. The per-entry `ttl_days:` is the primary form, because a gaug
 statute do not age at the same rate. This key exists for the common case: a corpus whose
 sources mostly do age alike. Adopting a TTL is then one line rather than one line per entry.
 
-Absent means no entry expires unless it says so itself.
+Absent means no entry expires unless it says so itself. An entry whose every location is a pinned
+read (a `file` location with a `commit`) has no TTL. `due` measures it by change instead.
 
 ### `[cluster]`
 

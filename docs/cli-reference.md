@@ -316,7 +316,7 @@ corpus said about itself, never a number in the binary. The reasoning is
 | Clock | Measures | Interval | Unit |
 |---|---|---|---|
 | `index` | Corpus files changed since the index was built | `[due] index_after` | files |
-| `catalog` | How long since a source record was retrieved | `[catalog] ttl_days`, or an entry's own | days |
+| `catalog` | How long since a source record was retrieved, or whether a pinned read's file changed | `[catalog] ttl_days`, or an entry's own; none for a pinned read | days; changed files |
 | `questions` | How long a question has gone unanswered | `[due] questions_after` | corpus commits |
 | `phases` | How long a bounded inquiry has been in flight | `[due] phases_after` | days |
 | `superseded` | How long a node has cited a source that changed since it was last committed | `[due] superseded_after` | days |
@@ -326,6 +326,20 @@ corpus said about itself, never a number in the binary. The reasoning is
 The catalog clock reads the interval [where it already lived](configuration.md#catalog-ttl_days)
 rather than restating it under `[due]`. A source's TTL is a statement about the source. Two places
 to set one number means one of them is wrong.
+
+**A pinned read is measured by change, not by age** (RFC-0051). A `file` location with a `commit`
+is due when its file at the reference revision is a different object. That revision is `HEAD` for
+this repository and the dependency's `rev` for a sibling. So a branch that changes pinned code sees
+the read come due on that branch. A sibling's new commits are owed nothing until its `rev` moves.
+`ttl_days` does not apply, and a read of unchanged code is current however old. The line names the
+change:
+
+```
+game — src/lib.rs changed in 4 commits since 86ba7d0 (now 1d062a6d)
+```
+
+Moving `commit:` is a new edition for the `superseded` clock only when the file's object changed.
+Re-dating a read of unchanged code supersedes nothing.
 
 A clock with no interval reports what it measured and is never due. Its remedy is the key that
 would set it. That is the state of every repository that has not opted in. It is the design, not a
@@ -350,7 +364,7 @@ The world does not stop moving because nobody committed.
 | Clock | What discharges it |
 |---|---|
 | `index` | `yidam index-build`. A build, not a commit |
-| `catalog` | `yidam propose`, which already drafts an `open:` against each expired source |
+| `catalog` | `yidam propose`, which already drafts an `open:` against each expired source. A changed pinned read needs a person to re-read the file and move its `commit:` |
 | `questions` | A person. Deciding a question is answered is a resolution event, and Article V confines those to a sangha |
 | `phases` | A person. Settling a phase or abandoning it is not a mechanical consequence of a finding |
 | `superseded` | A person re-reading the source, and a commit to each node it lists. Any commit touching the node counts |

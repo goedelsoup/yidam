@@ -225,7 +225,7 @@ pub enum ArtifactOrigin {
 }
 
 /// One typed place a catalog source can be reached.
-#[derive(serde::Deserialize, Default, Clone)]
+#[derive(serde::Deserialize, Default, Clone, Debug)]
 pub struct CatalogLocation {
     /// One of [`CATALOG_LOCATION_KINDS`]. The type decides how a reader (or the web export)
     /// should treat the value, so a value contradicting its type renders wrong.

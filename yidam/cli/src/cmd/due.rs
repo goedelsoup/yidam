@@ -565,8 +565,9 @@ fn clock_catalog(root: &Path, today: i64) -> Clock {
         iso.split('T').next().unwrap_or_default(),
     );
 
+    let pins = crate::cmd::lint::pins::staleness(root, &sources);
     let governed = ages.iter().filter(|a| a.ttl_days.is_some()).count();
-    if governed == 0 {
+    if governed == 0 && pins.pinned + pins.unread == 0 {
         return Clock::new(
             Clock::CATALOG,
             Q,
@@ -579,10 +580,17 @@ fn clock_catalog(root: &Path, today: i64) -> Clock {
         );
     }
 
-    let interval = match default_ttl {
-        Some(d) => format!("[catalog] ttl_days = {d}, and each entry's own"),
-        None => "each entry's own `ttl_days:`".to_string(),
+    let mut interval = match (governed, default_ttl) {
+        (0, _) => String::new(),
+        (_, Some(d)) => format!("[catalog] ttl_days = {d}, and each entry's own"),
+        (_, None) => "each entry's own `ttl_days:`".to_string(),
     };
+    if pins.pinned + pins.unread > 0 {
+        if !interval.is_empty() {
+            interval.push_str("; ");
+        }
+        interval.push_str("a pinned read, when its file changes at the reference revision");
+    }
     let expired: Vec<&crate::cmd::lint::ttl::Age> =
         ages.iter().filter(|a| a.overdue_days().is_some()).collect();
     let undatable = ages.iter().filter(|a| a.undatable()).count();
@@ -590,51 +598,77 @@ fn clock_catalog(root: &Path, today: i64) -> Clock {
     // Reported as its own state rather than folded into the expired count. A corpus that
     // asked to be told when a record aged, and cannot be told, has a gap in its bookkeeping
     // and not a stale source — and calling the second one due would assert something nobody
-    // knows.
+    // knows. A pin that cannot be compared is the same gap, measured by change.
     let mut measured = format!("{governed} of {} source(s) under a TTL", ages.len());
     if undatable > 0 {
         let _ = write!(measured, "; {undatable} with no date to measure against");
     }
+    if pins.pinned > 0 {
+        let _ = write!(measured, "; {} pinned read(s) compared", pins.pinned);
+    }
+    if pins.unread > 0 {
+        let _ = write!(
+            measured,
+            "; {} pinned read(s) that cannot be compared",
+            pins.unread
+        );
+    }
 
-    let Some(worst) = expired
+    let worst = expired
         .iter()
-        .max_by_key(|a| a.overdue_days().unwrap_or_default())
-    else {
-        if undatable > 0 {
-            return Clock::new(
-                Clock::CATALOG,
-                Q,
-                State::Unmeasurable,
-                format!("none expired; {measured}"),
-            )
-            .at(interval);
-        }
+        .max_by_key(|a| a.overdue_days().unwrap_or_default());
+    if worst.is_none() && pins.changed.is_empty() {
+        let state = match undatable + pins.unread {
+            0 => State::Ok,
+            _ => State::Unmeasurable,
+        };
         return Clock::new(
             Clock::CATALOG,
             Q,
-            State::Ok,
+            state,
             format!("none expired; {measured}"),
         )
         .at(interval);
-    };
+    }
 
-    Clock::new(
-        Clock::CATALOG,
-        Q,
-        State::Due,
-        format!(
-            "{} expired, worst {} day(s) past ({}); {measured}",
+    let mut said = Vec::new();
+    if let Some(worst) = worst {
+        said.push(format!(
+            "{} expired, worst {} day(s) past ({})",
             expired.len(),
             worst.overdue_days().unwrap_or_default(),
             worst.entry
-        ),
+        ));
+    }
+    if !pins.changed.is_empty() {
+        said.push(format!("{} pinned read(s) changed", pins.changed.len()));
+    }
+    let owed = expired.len() + pins.changed.len();
+    let clock = Clock::new(
+        Clock::CATALOG,
+        Q,
+        State::Due,
+        format!("{}; {measured}", said.join(", ")),
     )
-    .at(interval)
-    .owing(
-        expired.len(),
-        "yidam propose  (drafts an `open:` against each expired source)",
-        Actor::tool(&["yidam", "propose"]),
-    )
+    .at(interval);
+    if pins.changed.is_empty() {
+        return clock.owing(
+            owed,
+            "yidam propose  (drafts an `open:` against each expired source)",
+            Actor::tool(&["yidam", "propose"]),
+        );
+    }
+    // Not `propose`. A changed pin is owed a re-read, and moving `commit:` without one would
+    // discharge it with nobody having read the code.
+    let remedy = if expired.is_empty() {
+        "re-read each file below, and move its `commit:` to the revision you read"
+    } else {
+        "re-read each file below and move its `commit:`; `yidam propose` drafts an `open:` \
+         against each expired source"
+    };
+    let mut clock = clock.owing(owed, remedy, Actor::Person);
+    clock.subjects = pins.changed.iter().map(|c| c.line()).collect();
+    clock
 }
 
 /// How long has a question gone unanswered?
@@ -865,9 +899,8 @@ fn clock_superseded(root: &Path, after: Option<u32>, today: i64) -> Clock {
         .flat_map(|(s, days)| {
             s.nodes.iter().map(move |n| {
                 format!(
-                    "{n} — {} changed {days} day(s) ago, to sha256:{}",
-                    s.entry,
-                    s.digest.get(..12).unwrap_or(&s.digest)
+                    "{n} — {} changed {days} day(s) ago, to {}",
+                    s.entry, s.version
                 )
             })
         })

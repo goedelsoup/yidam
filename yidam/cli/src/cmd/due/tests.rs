@@ -1585,3 +1585,151 @@ fn a_long_subject_list_is_capped_in_text_only() {
     let json = serde_json::to_value(&r).unwrap();
     assert_eq!(json["clocks"][0]["subjects"].as_array().unwrap().len(), 30);
 }
+
+// ── pinned reads (RFC-0051 §4) ────────────────────────────────────────────────
+
+/// Write `src/lib.rs` and commit it on `day`, returning the commit.
+fn code(dir: &Path, day: &str, body: &str) -> String {
+    crate::git::fixture::write(dir, "src/lib.rs", body);
+    commit(dir, day, &format!("establish: code of {day}"));
+    crate::git::fixture::git_out(dir, &["rev-parse", "HEAD"])
+}
+
+/// A catalog entry `game` holding one pinned read of `src/lib.rs`.
+fn pinned_entry(root: &Path, at: &str, repo: Option<&str>) {
+    let repo = repo.map_or(String::new(), |r| format!("    repo: {r}\n"));
+    let dir = root.join(".yidam/catalog");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("game.md"),
+        format!(
+            "---\nid: game\nlocation:\n  - kind: file\n    value: src/lib.rs\n    commit: {at}\n{repo}---\n\nThe game crate.\n"
+        ),
+    )
+    .unwrap();
+}
+
+/// A read of code is current however old it is: a TTL the corpus declared does not reach it,
+/// and an unrelated commit since does not move it.
+#[test]
+fn a_pin_on_unchanged_code_is_never_due_however_old() {
+    let tmp = repo();
+    let root = tmp.path();
+    let at = code(root, "2020-01-01", "pub fn load() {}\n");
+    pinned_entry(root, &at, None);
+    commit(root, "2020-01-02", "cite: the game crate");
+    node(root, "concept/b.yml", "class: concept\nlabel: B\n");
+    commit(root, "2026-02-01", "establish: b");
+    config(root, "[catalog]\nttl_days = 30\n");
+
+    let c = find(&clocks(root), "catalog").clone();
+    assert_eq!(c.state, State::Ok, "{c:?}");
+    assert!(c.detail.contains("1 pinned read(s) compared"), "{c:?}");
+    assert!(c.detail.contains("0 of 1 source(s) under a TTL"), "{c:?}");
+}
+
+/// The branch that changed the code sees the read come due, and the line names the change.
+#[test]
+fn a_branch_that_changes_pinned_code_sees_the_read_come_due() {
+    let tmp = repo();
+    let root = tmp.path();
+    let at = code(root, "2026-01-02", "pub fn load() {}\n");
+    pinned_entry(root, &at, None);
+    commit(root, "2026-01-03", "cite: the game crate");
+    git(root, &["checkout", "-q", "-b", "change"]);
+    let now = code(root, "2026-01-04", "pub fn load() -> u8 { 1 }\n");
+
+    let c = find(&clocks(root), "catalog").clone();
+    assert_eq!(c.state, State::Due, "{c:?}");
+    assert_eq!(c.overdue, 1);
+    assert_eq!(
+        c.subjects,
+        vec![format!(
+            "game — src/lib.rs changed in 1 commit since {} (now {})",
+            &at[..7],
+            &now[..8]
+        )]
+    );
+    assert!(
+        !c.remedy.as_deref().unwrap_or_default().contains("propose"),
+        "{c:?}"
+    );
+
+    // Back on the branch that did not change it, nothing is owed.
+    git(root, &["checkout", "-q", "-"]);
+    assert_eq!(find(&clocks(root), "catalog").state, State::Ok);
+}
+
+/// Moving `commit:` across commits that left the file alone is a re-date, not a new edition,
+/// and asks nothing of the nodes citing the entry. Moving it onto changed code does.
+#[test]
+fn re_dating_a_read_of_unchanged_code_supersedes_nothing() {
+    let tmp = repo();
+    let root = tmp.path();
+    let first = code(root, "2026-01-02", "pub fn load() {}\n");
+    pinned_entry(root, &first, None);
+    node(
+        root,
+        "concept/reader.yml",
+        "class: concept\nlabel: Reader\nlinks:\n  - target: ../../catalog/game.md\n    relationship: sourced-from\n",
+    );
+    commit(root, "2026-01-03", "cite: the game crate");
+    node(root, "concept/b.yml", "class: concept\nlabel: B\n");
+    commit(root, "2026-01-04", "establish: b");
+    let same = crate::git::fixture::git_out(root, &["rev-parse", "HEAD"]);
+    pinned_entry(root, &same, None);
+    commit(root, "2026-01-05", "revise: re-read the game crate");
+    config(root, "[due]\nsuperseded_after = 1\n");
+
+    let c = find(&clocks(root), "superseded").clone();
+    assert_eq!(c.state, State::Ok, "{c:?}");
+    assert!(c.subjects.is_empty(), "{c:?}");
+
+    let changed = code(root, "2026-01-06", "pub fn load() -> u8 { 1 }\n");
+    pinned_entry(root, &changed, None);
+    commit(root, "2026-01-07", "revise: re-read the changed game crate");
+    let c = find(&clocks(root), "superseded").clone();
+    assert_eq!(c.state, State::Due, "{c:?}");
+    assert_eq!(c.subjects.len(), 1, "{c:?}");
+    assert!(
+        c.subjects[0].contains(&format!("to `src/lib.rs` at {}", &changed[..8])),
+        "{c:?}"
+    );
+}
+
+/// A sibling's new commits are owed nothing until the corpus agrees to read them by moving
+/// `rev`.
+#[test]
+fn a_dependencys_new_commits_make_nothing_due_until_its_rev_moves() {
+    let outer = tempfile::TempDir::new().unwrap();
+    let root = outer.path().join("corpus");
+    let sib = outer.path().join("sib");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&sib).unwrap();
+    init(&sib);
+    let at = code(&sib, "2026-01-01", "pub fn load() {}\n");
+
+    init(&root);
+    node(&root, "concept/a.yml", "class: concept\nlabel: A\n");
+    pinned_entry(&root, &at, Some("sib"));
+    let tonpa = |rev: &str| {
+        std::fs::write(
+            root.join(".yidam/tonpa.toml"),
+            format!("[dependencies.sib]\npath = \"../sib\"\nrev = \"{rev}\"\n"),
+        )
+        .unwrap();
+    };
+    tonpa(&at);
+    commit(&root, "2026-01-02", "cite: the sibling's game crate");
+
+    let later = code(&sib, "2026-01-03", "pub fn load() -> u8 { 1 }\n");
+    assert_eq!(find(&clocks(&root), "catalog").state, State::Ok);
+
+    tonpa(&later);
+    let c = find(&clocks(&root), "catalog").clone();
+    assert_eq!(c.state, State::Due, "{c:?}");
+    assert!(
+        c.subjects[0].starts_with("game — sib:src/lib.rs changed in 1 commit since"),
+        "{c:?}"
+    );
+}
