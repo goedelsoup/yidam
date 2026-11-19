@@ -462,6 +462,46 @@
       "violations": []
     },
     {
+      "id": "catalog-pin-unresolved",
+      "title": "Pinned read names a commit, repository or path that is not there",
+      "severity": "error",
+      "rationale": "A `file` location with a `commit` is a read of that file at that commit, in the repository `repo` names, or in this repository when `repo` is absent. A commit the repository does not have, a `repo` that `.yidam/tonpa.toml` does not declare, or a path that does not exist at the commit is a read of nothing, and every claim resting on it rests on nothing. The pin's fields belong to a `file` location only, `repo` and `symbol` need a `commit`, and the path is read from the repository's top level, so it cannot be absolute or climb out with `..`.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "catalog-pin-ambiguous",
+      "title": "Pinned commit is an abbreviation that matches more than one commit",
+      "severity": "error",
+      "rationale": "An abbreviated commit names a read only while its prefix is unique. Once two commits share it, the pin names neither, and which one a reader lands on depends on the clone. Write the commit in full.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "catalog-pin-abbreviated",
+      "title": "Pinned commit is abbreviated",
+      "severity": "info",
+      "rationale": "A prefix unique today can stop being unique as history grows, and the pin then names nothing. An abbreviation of at least 7 digits still resolves; the finding gives the full 40-digit commit to write in its place.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "catalog-pin-symbol-missing",
+      "title": "Pinned symbol does not occur in the file at the commit",
+      "severity": "warn",
+      "rationale": "`symbol` says which part of the file was read. Its last segment, split on `::` and `.`, should occur as a whole word in the file at `commit`; when it does not, the symbol was renamed before the read, misspelled, or belongs to another file. The check is a presence check and needs no parser.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "catalog-pin-unchecked",
+      "title": "Pinned read cannot be checked in this clone",
+      "severity": "info",
+      "rationale": "A shallow clone that cannot see a commit has not shown that the commit is missing, and a `url` or `github` dependency has no checkout here to look in. These pins are reported apart from the error, so a CI checkout with shallow history does not fail on reads that a full clone would resolve.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "catalog-type-unknown",
       "title": "Catalog type outside the closed set",
       "severity": "warn",

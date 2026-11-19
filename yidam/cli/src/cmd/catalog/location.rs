@@ -403,6 +403,9 @@ mod tests {
     fn loc(kind: &str, value: &str) -> CatalogLocation {
         CatalogLocation {
             members: None,
+            commit: None,
+            repo: None,
+            symbol: None,
             kind: Some(kind.to_string()),
             value: Some(value.to_string()),
             description: None,

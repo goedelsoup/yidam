@@ -640,6 +640,9 @@ extract = "transforms/body.glu"
     fn identifier(value: &str) -> CatalogLocation {
         CatalogLocation {
             members: None,
+            commit: None,
+            repo: None,
+            symbol: None,
             kind: Some("identifier".into()),
             value: Some(value.into()),
             description: None,
@@ -661,6 +664,9 @@ extract = "transforms/body.glu"
         let locations = [
             CatalogLocation {
                 members: None,
+                commit: None,
+                repo: None,
+                symbol: None,
                 kind: Some("url".into()),
                 value: Some("https://example.org".into()),
                 description: None,
@@ -749,6 +755,9 @@ extract = "transforms/body.glu"
             value: Some("https://example.org/oh2010.sf1.zip".into()),
             description: None,
             members: members.map(|m| m.into_iter().map(String::from).collect()),
+            commit: None,
+            repo: None,
+            symbol: None,
         }
     }
 

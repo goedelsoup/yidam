@@ -409,6 +409,9 @@ fn capture_date(ts: &str) -> String {
 fn archived_location(index: usize, url: &str, ts: &str) -> CatalogLocation {
     CatalogLocation {
         members: None,
+        commit: None,
+        repo: None,
+        symbol: None,
         kind: Some("identifier".into()),
         value: Some(format!("{WAYBACK}:{ts}/{url}")),
         description: Some(format!(
@@ -967,6 +970,9 @@ mod tests {
     fn loc(kind: &str, value: &str) -> CatalogLocation {
         CatalogLocation {
             members: None,
+            commit: None,
+            repo: None,
+            symbol: None,
             kind: Some(kind.into()),
             value: Some(value.into()),
             description: None,

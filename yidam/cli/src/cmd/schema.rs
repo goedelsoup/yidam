@@ -610,7 +610,28 @@ pub fn catalog_entry_schema() -> Value {
                             "enum": crate::parse::CATALOG_LOCATION_KINDS
                         },
                         "value": non_empty_string(),
-                        "description": { "type": "string" }
+                        "description": { "type": "string" },
+                        "commit": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{7,40}$",
+                            "description": "Optional, on a `file` location. The commit the file \
+                                            was read at, in full (40 hex digits); `value` is \
+                                            then a path from the repository's top level. \
+                                            RFC-0051."
+                        },
+                        "repo": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Optional, with `commit`. A dependency name in \
+                                            `.yidam/tonpa.toml`; absent means this repository."
+                        },
+                        "symbol": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Optional, with `commit`. A `::`- or `.`-separated \
+                                            path whose last segment must occur as a word in \
+                                            the file at `commit`."
+                        }
                     },
                     "required": ["kind", "value"],
                     "additionalProperties": false

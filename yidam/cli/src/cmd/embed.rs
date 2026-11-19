@@ -602,6 +602,9 @@ mod tests {
     fn loc(desc: Option<&str>) -> CatalogLocation {
         CatalogLocation {
             members: None,
+            commit: None,
+            repo: None,
+            symbol: None,
             kind: Some("url".into()),
             value: Some("https://example.com/x".into()),
             description: desc.map(str::to_string),

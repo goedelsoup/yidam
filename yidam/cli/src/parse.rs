@@ -239,6 +239,28 @@ pub struct CatalogLocation {
     /// a fetch reads, and a member is not fetched (RFC-0048 decision 9).
     #[serde(default)]
     pub members: Option<Vec<String>>,
+    /// The commit a `file` location was read at, which makes it a pinned read (RFC-0051 §2).
+    /// Written in full; an abbreviation of at least 7 digits resolves and is reported.
+    ///
+    /// These three fields are additive because this struct does not deny unknown fields: a
+    /// binary that predates them reads a pinned entry and ignores the pin.
+    #[serde(default)]
+    pub commit: Option<String>,
+    /// The tonpa dependency `commit` is in. Absent means the repository the corpus lives in —
+    /// git's top level, not the corpus root.
+    #[serde(default)]
+    pub repo: Option<String>,
+    /// A `::`- or `.`-separated path whose last segment `lint` looks for in `value` at
+    /// `commit`.
+    #[serde(default)]
+    pub symbol: Option<String>,
+}
+
+impl CatalogLocation {
+    /// Whether any of RFC-0051's pin fields is written.
+    pub fn is_pinned(&self) -> bool {
+        self.commit.is_some() || self.repo.is_some() || self.symbol.is_some()
+    }
 }
 
 /// The location kinds a catalog entry may declare.

@@ -257,6 +257,10 @@ artifacts:                     # optional; what was actually obtained
 - **`kind: identifier`** takes `scheme:local-id`, such as `pmc:PMC6753881`, and the source pack
   declaring that scheme fetches it. `yidam migrate locations` rewrites an older `kind: doi` or
   `kind: pmc`.
+- **A `file` location with `commit:` is a pinned read of code**: `value` at that commit, a path
+  from the repository's top level, and a directory pins a tree. Write all 40 digits. `repo:`
+  names a `.yidam/tonpa.toml` dependency and is absent for this repository. `symbol:`, such as
+  `game::Defaults::load`, must occur at `commit` by its last segment. `lint` resolves every pin.
 
 - **`obtained: false`** declares a source registered ahead of the extraction that will use it.
   It exempts the entry from `catalog-uncited` — which is the honest reason for a source nothing
