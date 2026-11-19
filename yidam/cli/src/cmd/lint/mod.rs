@@ -26,6 +26,7 @@ pub(crate) mod lineage;
 pub(crate) mod local_citations;
 pub(crate) mod model;
 pub(crate) mod pins;
+pub(crate) mod prose_commits;
 pub(crate) mod quotations;
 pub(crate) mod refusals;
 pub(crate) mod scope;
@@ -586,6 +587,11 @@ const ROSTER: &[Entry] = &[
         id: pins::UNCHECKED,
         asked: Asked::Always,
         run: |i| i.pin_checks()[4].clone(),
+    },
+    Entry {
+        id: prose_commits::ID,
+        asked: Asked::Always,
+        run: |i| prose_commits::check(i.root(), i.nodes(), i.sources()),
     },
     Entry {
         id: "catalog-type-unknown",

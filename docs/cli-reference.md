@@ -1289,6 +1289,11 @@ Every pin in one repository goes to one `git cat-file` process.
 | `catalog-pin-symbol-missing` | Warn | A `symbol` whose last segment is not a word in the file |
 | `catalog-pin-unchecked` | Info | A shallow clone without the commit, or a dependency with no checkout |
 
+`prose-commit-unpinned` (Warn) reads node and catalog prose under `.yidam/` for "at <hex>". It
+reports a commit that this repository does not have, and names the `path` dependency it resolves
+in. A commit in this repository is left alone, and `docs/` is not read. Move the read into a
+`file` location with `commit` and `repo`.
+
 ### Where a fetch stops
 
 **At the record, and at the local cache.** Two boundaries, each closing a shortcut.
