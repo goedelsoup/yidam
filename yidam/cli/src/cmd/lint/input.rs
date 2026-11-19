@@ -95,6 +95,7 @@ pub(crate) struct Input<'a> {
     lineage_checks: OnceLock<[Check; 3]>,
     commitment_checks: OnceLock<[Check; 4]>,
     calculator_checks: OnceLock<[Check; 3]>,
+    pin_checks: OnceLock<[Check; 5]>,
 }
 
 impl<'a> Input<'a> {
@@ -153,6 +154,7 @@ impl<'a> Input<'a> {
             lineage_checks: OnceLock::new(),
             commitment_checks: OnceLock::new(),
             calculator_checks: OnceLock::new(),
+            pin_checks: OnceLock::new(),
         }
     }
 
@@ -740,6 +742,13 @@ impl<'a> Input<'a> {
     /// machine's vault cache has. The cache is resolved from the environment exactly as
     /// `catalog fetch` resolves it, and a machine with none has every quotation unchecked
     /// rather than a lint run that fails.
+    /// The code-artifact pin checks (RFC-0051 §3): one `git cat-file` per repository the
+    /// catalog pins into, shared by all five.
+    pub(crate) fn pin_checks(&self) -> &[Check; 5] {
+        self.pin_checks
+            .get_or_init(|| super::pins::checks(self.root(), self.sources()))
+    }
+
     pub(crate) fn quotation_checks(&self) -> &[Check; 3] {
         self.quotation_checks.get_or_init(|| {
             let cache = crate::vault::Cache::resolve(|k| std::env::var(k).ok()).ok();

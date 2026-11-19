@@ -1278,6 +1278,17 @@ names that file. To read one file inside a zip, list it under `members:`. See
 `kind: doi` and `kind: pmc` were written before `identifier` existed. The finding for either names
 `yidam migrate locations`, which rewrites it. See [`migrate` subcommands](#migrate-subcommands).
 
+A `file` location with a `commit` is a pinned read of code (RFC-0051). Five checks resolve it.
+Every pin in one repository goes to one `git cat-file` process.
+
+| Check | Severity | Reports |
+|---|---|---|
+| `catalog-pin-unresolved` | Error | A commit, `repo` or path that is not there, or a malformed pin |
+| `catalog-pin-ambiguous` | Error | An abbreviated commit that matches more than one commit |
+| `catalog-pin-abbreviated` | Info | A commit shorter than 40 digits; the finding gives the full one |
+| `catalog-pin-symbol-missing` | Warn | A `symbol` whose last segment is not a word in the file |
+| `catalog-pin-unchecked` | Info | A shallow clone without the commit, or a dependency with no checkout |
+
 ### Where a fetch stops
 
 **At the record, and at the local cache.** Two boundaries, each closing a shortcut.

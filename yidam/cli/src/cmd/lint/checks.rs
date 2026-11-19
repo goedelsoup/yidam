@@ -6316,6 +6316,9 @@ mod tests {
         let mut s = with_artifacts("pearl-2009", &format!("- sha256: {GOOD}\n  from: 2\n"));
         s.locations = vec![crate::parse::CatalogLocation {
             members: None,
+            commit: None,
+            repo: None,
+            symbol: None,
             kind: Some("url".into()),
             value: Some("https://example.org".into()),
             description: None,
@@ -6865,6 +6868,9 @@ mod tests {
         let mut s = source("src", true, None);
         s.locations = vec![crate::parse::CatalogLocation {
             members: None,
+            commit: None,
+            repo: None,
+            symbol: None,
             kind: Some("url".into()),
             value: Some("see the reading room".into()),
             description: None,
@@ -6882,6 +6888,9 @@ mod tests {
         let mut s = source("src", true, None);
         s.locations = vec![crate::parse::CatalogLocation {
             members: None,
+            commit: None,
+            repo: None,
+            symbol: None,
             kind: Some("url".into()),
             value: Some("https://example.org/x".into()),
             description: None,
@@ -6937,6 +6946,9 @@ mod tests {
         let mut s = source("src", true, None);
         s.locations = vec![crate::parse::CatalogLocation {
             members: None,
+            commit: None,
+            repo: None,
+            symbol: None,
             kind: Some(kind.into()),
             value: Some(value.into()),
             description: None,

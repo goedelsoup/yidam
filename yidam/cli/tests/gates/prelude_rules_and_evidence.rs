@@ -237,13 +237,17 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// both routes, when the class contract named `property-type-unknown` (#1391).** The delta is
 /// **17 words in `GRAPH.md`**: one row of the class-contract table. All four moved by the same
 /// 17, so nothing else did.
+///
+/// **Raised by 60 on *Before a claim crosses a corpus boundary*, on both routes, when
+/// `directories.md` documented the code-artifact pin (#1521).** The delta is **60 words in
+/// `directories.md`**: one bullet naming `commit`, `repo` and `symbol` on a `file` location.
 const READ_CEILING: &[(&str, &str, usize)] = &[
     ("AGENTS.md", "Before you write or revise a node", 6_759),
     ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
-        4_539,
+        4_599,
     ),
     ("AGENTS.md", "Before you change a class", 5_081),
     ("AGENTS.md", "Before you retrieve", 2_989),
@@ -256,7 +260,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
     (
         "sadhana/root/AGENTS.md",
         "Before a claim crosses a corpus boundary",
-        5_516,
+        5_576,
     ),
     ("sadhana/root/AGENTS.md", "Before you change a class", 6_058),
     ("sadhana/root/AGENTS.md", "Before you retrieve", 3_966),

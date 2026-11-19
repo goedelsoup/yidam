@@ -591,6 +591,9 @@ mod tests {
                 .iter()
                 .map(|(kind, value)| CatalogLocation {
                     members: None,
+                    commit: None,
+                    repo: None,
+                    symbol: None,
                     kind: Some(kind.to_string()),
                     value: Some(value.to_string()),
                     description: None,

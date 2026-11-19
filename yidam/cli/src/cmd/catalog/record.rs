@@ -563,6 +563,9 @@ The system of record. **Parameter 00060** is discharge.
     fn wayback(ts: &str) -> CatalogLocation {
         CatalogLocation {
             members: None,
+            commit: None,
+            repo: None,
+            symbol: None,
             kind: Some("identifier".into()),
             value: Some(format!("wayback:{ts}/https://x/?sites=09380000")),
             description: Some(format!(

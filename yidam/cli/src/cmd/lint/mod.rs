@@ -25,6 +25,7 @@ pub(crate) mod line_citations;
 pub(crate) mod lineage;
 pub(crate) mod local_citations;
 pub(crate) mod model;
+pub(crate) mod pins;
 pub(crate) mod quotations;
 pub(crate) mod refusals;
 pub(crate) mod scope;
@@ -560,6 +561,31 @@ const ROSTER: &[Entry] = &[
         id: "catalog-location-malformed",
         asked: Asked::Always,
         run: |i| checks::catalog_location_malformed(i.sources(), i.packs()),
+    },
+    Entry {
+        id: pins::UNRESOLVED,
+        asked: Asked::Always,
+        run: |i| i.pin_checks()[0].clone(),
+    },
+    Entry {
+        id: pins::AMBIGUOUS,
+        asked: Asked::Always,
+        run: |i| i.pin_checks()[1].clone(),
+    },
+    Entry {
+        id: pins::ABBREVIATED,
+        asked: Asked::Always,
+        run: |i| i.pin_checks()[2].clone(),
+    },
+    Entry {
+        id: pins::SYMBOL_MISSING,
+        asked: Asked::Always,
+        run: |i| i.pin_checks()[3].clone(),
+    },
+    Entry {
+        id: pins::UNCHECKED,
+        asked: Asked::Always,
+        run: |i| i.pin_checks()[4].clone(),
     },
     Entry {
         id: "catalog-type-unknown",
