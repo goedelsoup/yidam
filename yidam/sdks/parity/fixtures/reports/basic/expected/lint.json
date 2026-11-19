@@ -502,6 +502,14 @@
       "violations": []
     },
     {
+      "id": "prose-commit-unpinned",
+      "title": "Prose names a commit that is not in this repository",
+      "severity": "warn",
+      "rationale": "\"At <commit>\" in a node or catalog entry dates a read, and a reader can follow it only in the repository that has the commit. A commit in this repository is unambiguous and left alone. One that is not, usually a sibling's, reads as a dead reference here; the finding names the `path` dependency it resolves in, so the read can move into a catalog location pinned with `commit` and `repo`. Only `.yidam/` is read: `docs/` is the project's own prose.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "catalog-type-unknown",
       "title": "Catalog type outside the closed set",
       "severity": "warn",

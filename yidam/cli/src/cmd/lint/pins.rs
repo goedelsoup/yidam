@@ -81,22 +81,6 @@ pub(crate) fn resolve(dir: &Path, queries: &[Query]) -> Option<Vec<Answer>> {
 /// Each line is `<oid> <type> <size>`, `<name> missing` or `<name> ambiguous`; a found
 /// `contents` request is followed by `<size>` bytes and a newline.
 fn parse(mut out: &[u8], queries: &[Query]) -> Option<Vec<Answer>> {
-    let header = |out: &mut &[u8]| -> Option<(Lookup, usize)> {
-        let end = out.iter().position(|b| *b == b'\n')?;
-        let line = String::from_utf8_lossy(&out[..end]).into_owned();
-        *out = &out[end + 1..];
-        if line.ends_with(" missing") {
-            return Some((Lookup::Missing, 0));
-        }
-        if line.ends_with(" ambiguous") {
-            return Some((Lookup::Ambiguous, 0));
-        }
-        let mut parts = line.split(' ');
-        let oid = parts.next()?.to_string();
-        let kind = parts.next()?.to_string();
-        let size = parts.next()?.parse().ok()?;
-        Some((Lookup::Found { oid, kind }, size))
-    };
     let mut answers = Vec::with_capacity(queries.len());
     for q in queries {
         let (commit, _) = header(&mut out)?;
@@ -114,6 +98,52 @@ fn parse(mut out: &[u8], queries: &[Query]) -> Option<Vec<Answer>> {
         });
     }
     Some(answers)
+}
+
+/// Read one `--batch-command` header line off the front of `out`, with the size of the body
+/// that follows it when the request was `contents`.
+fn header(out: &mut &[u8]) -> Option<(Lookup, usize)> {
+    let end = out.iter().position(|b| *b == b'\n')?;
+    let line = String::from_utf8_lossy(&out[..end]).into_owned();
+    *out = &out[end + 1..];
+    if line.ends_with(" missing") {
+        return Some((Lookup::Missing, 0));
+    }
+    if line.ends_with(" ambiguous") {
+        return Some((Lookup::Ambiguous, 0));
+    }
+    let mut parts = line.split(' ');
+    let oid = parts.next()?.to_string();
+    let kind = parts.next()?.to_string();
+    let size = parts.next()?.parse().ok()?;
+    Some((Lookup::Found { oid, kind }, size))
+}
+
+/// Look every commit up in the repository containing `dir`, with one git process and no
+/// path: the lookup `prose-commit-unpinned` needs, where prose names a commit and no file.
+///
+/// `None` when git could not run there at all, as for [`resolve`].
+pub(crate) fn resolve_commits(dir: &Path, commits: &[String]) -> Option<Vec<Lookup>> {
+    if commits.is_empty() {
+        return Some(Vec::new());
+    }
+    let input: String = commits
+        .iter()
+        .map(|c| format!("info {c}^{{commit}}\n"))
+        .collect();
+    let out = crate::git::Git::new(dir)
+        .args(["cat-file", "--batch-command"])
+        .stdin(input)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let mut rest = out.stdout.as_slice();
+    commits
+        .iter()
+        .map(|_| header(&mut rest).map(|(lookup, _)| lookup))
+        .collect()
 }
 
 // ── the checks ──────────────────────────────────────────────────────────────────
