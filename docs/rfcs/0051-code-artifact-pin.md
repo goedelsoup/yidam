@@ -61,7 +61,7 @@ location:
 
 A typical citation in a node takes the catalog link and dates it again:
 
-> Source: [the binding crate](../../catalog/ce-binding.md), read at 5d50eabf.
+> Source: the binding crate (`../../catalog/ce-binding.md`), read at 5d50eabf.
 
 ### 1.2 What the prose cannot say
 
