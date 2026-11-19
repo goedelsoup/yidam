@@ -1,6 +1,6 @@
 # RFC-0051 — A read of code names the commit it was read at, and the repository that commit is in (the code-artifact pin)
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Commands:** `migrate pins`
 - **Track:** I37
 - **Relates to:**
@@ -10,7 +10,7 @@
   - RFC-0035 and #1491/#1495 (the coverage clock, which §6 extends to a registry kept as code)
   - RFC-0046 (the quotation's optional `sha256` pin, the other place a read is dated by its bytes)
   - RFC-0048 (the closed location-kind set, which this keeps closed)
-- **Versioning layers touched:** template (`guidelines/directories.md` documents the three new fields on a `file` location) / tooling (a pinned read in the catalog clock and the superseded clock, five lint checks, `[[due.coverage]]` reads TOML and gains `orphans`, one migration). No MCP change. No SDK parity change: the SDKs read catalog frontmatter as a mapping and carry the new keys through untouched.
+- **Versioning layers touched:** template (`guidelines/directories.md` documents the three new fields on a `file` location) / tooling (a pinned read in the catalog clock and the superseded clock, six lint checks, `[[due.coverage]]` reads TOML and gains `orphans`, one migration). No MCP change. No SDK parity change: the SDKs read catalog frontmatter as a mapping and carry the new keys through untouched. One non-default feature, `symbol-pins` (§4.1), carries the only native dependency.
 - **Downstream reference case:** city-engine, a game engine whose corpus lives in its own `.yidam/` and reads six sibling corpora as tonpa dependencies. Measured read-only on 2026-11-18 at its v0.15.0 pin. Parent epic #1513.
 
 ## Summary
@@ -112,20 +112,23 @@ only one direction: it does not report a node whose key the registry no longer h
 location:
   - kind: file
     value: crates/game/src/lib.rs
-    commit: 86ba7d0f3c...        # the read; full or abbreviated (≥ 7), resolved by lint
+    commit: 86ba7d0f3c...        # the read; 40 hex digits (abbreviations warn, §3)
     repo: traffic-design          # optional; a tonpa dependency name; absent = this repository
     symbol: game::MicroDefaults::load   # optional; checked to exist in the file at `commit`
 ```
 
 - **`commit`** makes the location a pinned read. Without it, a `file` location means what it
-  means today.
+  means today. It is written in full, 40 hex digits. An abbreviation of at least 7 still
+  resolves, but `lint` asks for it to be expanded (§3), because a prefix that is unique today can
+  stop being unique as history grows.
 - **`repo`** names a key of `[dependencies]` in `.yidam/tonpa.toml`. When it is absent, the
   repository is the one the corpus lives in, which is git's own top level and not the corpus
   root. That matters because city-engine's corpus is `.yidam/` inside the engine repository, so
   `crates/` is outside the corpus root but inside the repository.
-- **`symbol`** is a `::`- or `.`-separated path. The check looks for its last segment as a whole
-  word in the file at `commit`, which is what `label_symbols` checks at HEAD. It is a presence
-  check and claims nothing about the symbol's meaning.
+- **`symbol`** is a `::`- or `.`-separated path. `lint` looks for its last segment as a whole
+  word in the file at `commit`, which is what `label_symbols` checks at HEAD. That presence check
+  needs no parser and runs in every build. Where the file's language can be parsed, the symbol
+  also narrows what counts as a change to the read (§4.1).
 - **`value` may name a directory.** Its object is then a git tree, and a change to any file
   under it is a change to the read.
 
@@ -139,15 +142,18 @@ and a stored copy could only disagree with it.
 |---|---|---|
 | `catalog-pin-unresolved` | error | `commit` is not a commit in `repo`; or `repo` is not a dependency name; or `value` does not exist at `commit` |
 | `catalog-pin-ambiguous` | error | an abbreviated `commit` matches more than one object in `repo` |
+| `catalog-pin-abbreviated` | info | `commit` is shorter than 40 digits; the finding gives the full commit to write |
 | `catalog-pin-symbol-missing` | warning | `symbol`'s last segment does not occur as a word in `value` at `commit` |
 | `catalog-pin-unchecked` | info | the pin cannot be checked here: a shallow clone without the commit, or a `url`/`github` dependency with no local checkout |
-| `prose-commit-unpinned` | warning | node or catalog prose says "at &lt;hex&gt;" (7–40 digits) for a commit that is not in this repository; the finding names the dependency it does resolve in, if any |
+| `prose-commit-unpinned` | warning | node or catalog prose under `.yidam/` says "at &lt;hex&gt;" (7–40 digits) for a commit that is not in this repository; the finding names the dependency it does resolve in, if any |
 
 `catalog-pin-unchecked` is separate from `-unresolved` for the same reason the superseded clock
 counts `unread` apart (`clock_superseded`): a clone that cannot see a commit has not shown that
 the commit is missing. CI checkouts are often shallow.
 
-`prose-commit-unpinned` is the migration's lever and not a permanent rule about prose. A commit
+`prose-commit-unpinned` is the migration's lever and not a permanent rule about prose. It reads
+only `.yidam/`, where all of the reference data is. A derived repository's `docs/` is the
+project's prose, not the corpus's, and `lint`'s only opinion on it stays the line citations. A commit
 in this repository named in prose is left alone, because it is unambiguous. The check fires only
 on the case the reference data shows to be unreadable, a commit that belongs to someone else, and
 it lands with a baseline (`.yidam/lint-baseline.yml`), so existing prose costs nothing until it is
@@ -161,7 +167,9 @@ All resolution goes through one `git cat-file --batch-check` process per reposit
 **The catalog clock** measures a pinned location by change instead of by age. A pinned entry is
 due when the object at `commit` differs from the object at the **reference revision**:
 
-- for this repository, `HEAD`;
+- for this repository, `HEAD`. A branch that changes pinned code sees those reads come due on
+  that branch. The branch did change what was read, so the re-read belongs in the same change
+  and lands with it, not after a merge.
 - for a dependency, its `rev` in `tonpa.toml`. That is the revision the corpus has agreed to
   read, so a sibling's new commits are owed nothing until the pin moves.
 
@@ -186,6 +194,32 @@ This is what replaces the hand-written `refresh:`. The person still re-reads, bu
 names an entry whose code changed. When they do, the nodes that rest on that entry are listed
 for them.
 
+#### 4.1 A pinned symbol narrows the change, where its language can be parsed
+
+A pin on `crates/game/src/lib.rs` with `symbol: game::MicroDefaults::load` is a read of one
+function, not of the whole file. Where the file's language can be parsed, "the object changed"
+narrows to "the symbol's text changed". The text is the byte span of the symbol's item at each
+revision, and two spans that differ only in leading whitespace are the same read.
+
+- **The parser is tree-sitter, behind a non-default feature, `symbol-pins`.** The light build
+  carries no native library and no code parser. `check-diff` is line-based on purpose
+  (`cmd/check_diff/extract.rs`), and this RFC does not change that. The feature ships grammars
+  for Rust, Python and TypeScript, the three languages the SDKs are written in. A grammar is
+  chosen by file extension.
+- **Every other case falls back to file grain.** That covers a build without the feature, a
+  language with no grammar, a symbol the parser cannot find at either revision, and a pin
+  with no `symbol`. In each of these the read is due exactly as in §4. Falling back can only
+  report more reads due, never fewer, so a build without the feature is stricter and never
+  wrong.
+- **The clock says which grain it measured.** A line reads `symbol unchanged`, `symbol changed`
+  or `file changed (no parser for .toml)`. A reader can then tell a narrowed result from a
+  fallback.
+- **The superseded clock uses the same comparison.** A re-read whose symbol text is unchanged
+  supersedes nothing, even when the file around it changed.
+
+A symbol the parser finds at `commit` but not at the reference revision makes the read due, and
+the line says `symbol gone`. A rename is a change to what was read.
+
 ### 5. A citation in a node
 
 A node already cites a catalog entry structurally, through an edge's `source:` and through a
@@ -206,6 +240,7 @@ select   = "$.entry[*].id"          # the existing JSON-path selector, now also 
 class    = "engine-choice"
 property = "key"
 orphans  = true                     # new: also report instances whose key no member names
+except   = { field = "label", matches = "\\(retired\\)$" }   # new: instances orphans leaves out
 ```
 
 - **A pinned source needs no fetch.** The universe is read from the file at the pin's `commit`,
@@ -218,8 +253,14 @@ orphans  = true                     # new: also report instances whose key no me
 - **`orphans = true`** adds the reverse direction: an instance of `class` whose `property` names
   no member. It respects `scope` and `matches` (#1495). Against city-engine it would report the
   10 keys with no node and, in the same report, the nodes whose keys the registry has dropped.
-  yidam has no retired standing, and city-engine marks a retired choice only in its label, so
-  how an orphan that was retired on purpose is told apart is open question 5.
+- **`except`** leaves out instances that are kept on purpose after their key was removed. It is
+  one table, or a list of them, each naming a `field` and a regular expression in `matches`.
+  `field` is a property name, or `label`. An instance that matches any of them is not an
+  orphan. It is still a member's cover, if it covers one. yidam has no retired standing, and
+  this RFC does not add one: the corpus says what "retired" means for it, in the declaration
+  that needs to know. city-engine marks a retired choice only in its label, which is why
+  `label` is a valid `field`. Each excluded instance is counted in the report, as `matches`
+  already counts excluded members (#1495), so an `except` that hides too much can be seen.
 
 ### 7. `yidam migrate pins`
 
@@ -229,7 +270,7 @@ The migration writes the pins that 108 of city-engine's entries already state in
 1. Find the *last* "read at (commit) &lt;hex&gt;" or "read again at &lt;hex&gt;" in the entry's body.
 2. Keep it only if the commit resolves in this repository (or in exactly one dependency, which
    then becomes `repo`) and `value` exists at it.
-3. Write `commit:` (and `repo:`), and change nothing in the prose.
+3. Write `commit:` expanded to all 40 digits (and `repo:`), and change nothing in the prose.
 
 Like the other `migrate` subcommands, `yidam migrate --dry-run pins` prints what it would write
 and changes nothing. A body that names no commit, or one that resolves nowhere, is listed and left
@@ -282,24 +323,44 @@ already hashed them. A tree object also gives a directory read for free.
 a node against the entry's history, and a per-edge pin would put 2,144 copies of the entry's
 commit into nodes.
 
+**File-grained staleness only.** This needs no parser, and city-engine re-reads at file grain
+already. But a pin that names one function in a large file would come due on every unrelated
+edit, which is the false re-read this RFC exists to remove. §4.1 narrows where it can and
+falls back to file grain where it cannot.
+
+**`syn`, or tree-sitter in the light build.** `syn` reads only Rust, and city-engine's sibling
+corpora pin Python too. Either would put a parser into the build that `cargo install yidam`
+resolves, which `check-diff` declined for the same reason. A non-default feature keeps the light
+build as it is, and a build without the feature is stricter, never wrong.
+
+**A retired standing for `orphans`.** It would be reusable, but it is a node-model change, and it
+would need its own RFC and its own migration. `except` is local to the one declaration that needs
+it.
+
 **A registry class.** The issue suggested a class that names a keyed registry as its object.
 The coverage clock already holds the class, the property and the universe. What it lacked was a
 TOML reader and a second direction, and §6 adds only those.
 
+## Decisions
+
+The five questions the draft left open were settled on 2026-11-19, on review of #1514.
+
+1. **Staleness is symbol-scoped where the language can be parsed, and file-grained otherwise**
+   (§4.1). tree-sitter lives behind the non-default `symbol-pins` feature, with grammars for Rust,
+   Python and TypeScript. The fallback only ever reports more reads due.
+2. **The reference revision for this repository is `HEAD`** (§4). A branch that changes pinned
+   code owes its re-reads in the same change. A dependency's reference stays its tonpa `rev`.
+3. **`prose-commit-unpinned` reads `.yidam/` only** (§3). A derived repository's `docs/` is the
+   project's prose, and `lint` keeps to line citations there.
+4. **`commit:` is written in full.** `migrate pins` writes 40 digits. An abbreviation of at
+   least 7 still resolves, and `catalog-pin-abbreviated` (info) gives the full commit to write
+   (§3).
+5. **A deliberate orphan is excluded by `except`** on the `[[due.coverage]]` declaration (§6):
+   a property or `label`, and a regular expression. Exclusions are counted in the report. No
+   retired standing is added.
+
 ## Open questions
 
-1. **Symbol-scoped staleness.** A pin on `crates/game/src/lib.rs` goes stale on any change to the
-   file, including one far from the symbol read. Narrowing staleness to a symbol needs a language
-   parser. Is a file-grained clock good enough, given that city-engine re-reads at file grain
-   already?
-2. **The reference revision for this repository.** `HEAD` makes a feature branch's code changes
-   show as due on that branch. Is that right (the branch changed the code), or should it be the
-   default branch?
-3. **`prose-commit-unpinned` in non-corpus prose.** `docs/` in a derived repository cites
-   commits too. Scan it or not? The reference data is all in `.yidam/`.
-4. **Abbreviated commits.** Should `commit:` require the full 40 digits once written by
-   `migrate pins`, so that an abbreviation can never become ambiguous as history grows?
-5. **A deliberate orphan.** `orphans` needs a way to leave out an instance that stays in the
-   corpus after its key was removed on purpose, like city-engine's "(retired)" engine choices.
-   One option is an `except` filter on a property value. Another is a standing that yidam does
-   not have yet. Which one?
+None block implementation. The one decision to revisit with evidence is §4.1's grammar set: add a
+grammar once a derived repository pins a language that has none, and measure how often its pins
+fell back to file grain first.
