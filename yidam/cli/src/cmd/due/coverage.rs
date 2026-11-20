@@ -17,6 +17,13 @@
 //! carry each one. A member is covered when some instance of the class holds it under the
 //! property, compared ignoring case and everything that is not a letter or a digit.
 //!
+//! # A registry kept as code (RFC-0051 §6)
+//!
+//! A path walks TOML as it walks JSON, when the name the bytes were read under ends in
+//! `.toml`. An entry with a pinned `file` location is read from that file at the pin's
+//! `commit`, from git and not the cache, so nothing is fetched. Such an entry has no TTL. It
+//! is stale when its file changed after the read, the comparison the catalog clock makes.
+//!
 //! # Narrowing a list, and scoping a class (#1495)
 //!
 //! A published list is often wider than what a corpus covers, and a class often repeats its
@@ -56,7 +63,7 @@ use std::path::Path;
 use super::{Actor, Clock, State};
 use crate::config::CoverageConfig;
 use crate::corpus::Node;
-use crate::parse::{parse_frontmatter, CatalogArtifact};
+use crate::parse::{parse_frontmatter, ArtifactOrigin, CatalogArtifact, CatalogLocation};
 use crate::vault::{Cache, ContentHash};
 
 /// What one universe read as.
@@ -254,19 +261,55 @@ fn select_csv(bytes: &[u8], column: &str) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+/// How a universe's bytes are parsed when `select` walks them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Format {
+    Json,
+    Toml,
+}
+
+impl Format {
+    /// TOML when the name the bytes were read under ends in `.toml`, JSON otherwise (RFC-0051
+    /// §6). No selector field says which: the file's own name already does.
+    fn of(names: &[Option<&str>]) -> Self {
+        let toml = names.iter().flatten().any(|n| {
+            let n = n.trim();
+            let n = n.split(['?', '#']).next().unwrap_or(n);
+            n.to_ascii_lowercase().ends_with(".toml")
+        });
+        if toml {
+            Self::Toml
+        } else {
+            Self::Json
+        }
+    }
+}
+
 /// The members a universe's artifact lists, from its bytes.
-fn members(bytes: &[u8], decl: &CoverageConfig) -> Result<Vec<String>, String> {
+fn members(bytes: &[u8], decl: &CoverageConfig, format: Format) -> Result<Vec<String>, String> {
     match (decl.select.as_deref(), decl.column.as_deref()) {
         (Some(_), Some(_)) => Err("declares both `select` and `column`; a universe is read \
-                                   one way — `select` for JSON, `column` for CSV"
+                                   one way — `select` for JSON or TOML, `column` for CSV"
             .to_string()),
-        (None, None) => Err("declares neither `select` (JSON) nor `column` (CSV), so \
+        (None, None) => Err(
+            "declares neither `select` (JSON or TOML) nor `column` (CSV), so \
                              nothing says where its members are"
-            .to_string()),
+                .to_string(),
+        ),
         (Some(path), None) => {
             let steps = parse_path(path)?;
-            let doc: serde_json::Value =
-                serde_json::from_slice(bytes).map_err(|e| format!("does not read as JSON: {e}"))?;
+            let doc: serde_json::Value = match format {
+                Format::Json => serde_json::from_slice(bytes)
+                    .map_err(|e| format!("does not read as JSON: {e}"))?,
+                Format::Toml => {
+                    let text = std::str::from_utf8(bytes)
+                        .map_err(|e| format!("does not read as TOML: {e}"))?;
+                    let table: toml::Table = toml::from_str(text)
+                        .map_err(|e| format!("does not read as TOML: {}", e.message()))?;
+                    serde_json::to_value(table)
+                        .map_err(|e| format!("does not read as TOML: {e}"))?
+                }
+            };
             Ok(select_json(&doc, &steps))
         }
         (None, Some(column)) => select_csv(bytes, column),
@@ -294,6 +337,111 @@ fn newest<'a>(
             .filter(|r| !r.is_empty());
         has_digest && (want.is_none() || named == want)
     })
+}
+
+/// The pinned `file` location a universe reads, when its entry has one: the one whose path is
+/// the declaration's `resource` when it names one, else the first.
+fn pinned<'a>(
+    locations: &'a [CatalogLocation],
+    resource: Option<&str>,
+) -> Option<&'a CatalogLocation> {
+    let mut pins = locations
+        .iter()
+        .filter(|l| l.is_pinned() && l.kind.as_deref() == Some("file"));
+    match resource.map(str::trim).filter(|r| !r.is_empty()) {
+        None => pins.next(),
+        Some(r) => {
+            let r = r.strip_prefix("./").unwrap_or(r);
+            pins.find(|l| {
+                let v = l.value.as_deref().unwrap_or_default().trim();
+                v.strip_prefix("./").unwrap_or(v) == r
+            })
+        }
+    }
+}
+
+/// What a universe read: its bytes, how a reader names them, and how they parse.
+type Read = (Vec<u8>, String, Format);
+
+/// Read a pinned registry from its file at the pin's `commit` (RFC-0051 §6). Nothing is
+/// fetched or cached: the commit is the read, so the figure and the catalog clock describe
+/// the same bytes.
+fn read_pin(root: &Path, entry: &str, loc: &CatalogLocation) -> Result<Read, String> {
+    use crate::cmd::lint::pins;
+    let (commit, file) = pins::shape(loc).map_err(|why| format!("`{entry}`'s pin: {why}"))?;
+    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
+    let dir = match pins::place(root, loc.repo.as_deref(), &config) {
+        pins::Place::Dir(d) => d,
+        pins::Place::Unchecked(why) | pins::Place::Unresolved(why) => {
+            return Err(format!("`{entry}`'s pin cannot be read: {why}"))
+        }
+    };
+    let short = commit.get(..7).unwrap_or(&commit);
+    let what = match loc.repo.as_deref() {
+        Some(r) => format!("{r}:{file} at {short}"),
+        None => format!("{file} at {short}"),
+    };
+    let query = pins::Query {
+        commit: commit.clone(),
+        path: file.clone(),
+        contents: true,
+    };
+    let answer = pins::resolve(&dir, &[query])
+        .and_then(|a| a.into_iter().next())
+        .ok_or_else(|| format!("`{entry}`'s pin ({what}) could not be read: git did not run"))?;
+    let Some(text) = answer.text else {
+        return Err(format!(
+            "`{entry}`'s pin names {what}, which git does not hold; `yidam lint` says why"
+        ));
+    };
+    Ok((text.into_bytes(), what, Format::of(&[Some(&file)])))
+}
+
+/// Read a universe from its entry's newest cached artifact.
+fn read_artifact(
+    entry: &str,
+    fm: &crate::parse::Frontmatter,
+    locations: &[CatalogLocation],
+    resource: Option<&str>,
+    cache: Option<&Cache>,
+) -> Result<Read, String> {
+    let Some(record) = newest(fm.artifacts.as_deref().unwrap_or_default(), resource) else {
+        let which = match resource {
+            Some(r) => format!(" for resource `{}`", r.trim()),
+            None => String::new(),
+        };
+        return Err(format!(
+            "`{entry}` records no artifact{which}; `yidam catalog-fetch {entry}` obtains one"
+        ));
+    };
+    let digest = record.sha256.as_deref().unwrap_or_default().trim();
+    let short = digest.get(..12).unwrap_or(digest);
+    let Ok(hash) = ContentHash::parse(digest) else {
+        return Err(format!(
+            "`{entry}`'s newest artifact carries `{short}`, which is not a sha256"
+        ));
+    };
+    let bytes = cache
+        .map(|c| c.path_of(&hash))
+        .and_then(|p| std::fs::read(p).ok());
+    let Some(bytes) = bytes else {
+        return Err(format!(
+            "the bytes of `{entry}` (sha256:{short}) are not in the local cache; \
+             `yidam vault pull` or `yidam catalog-fetch {entry}` fetches them"
+        ));
+    };
+    let origin = match &record.from {
+        Some(ArtifactOrigin::Location(i)) => locations.get(*i).and_then(|l| l.value.as_deref()),
+        Some(ArtifactOrigin::Url(u)) => Some(u.as_str()),
+        None => None,
+    };
+    let media = record
+        .media_type
+        .as_deref()
+        .filter(|m| m.to_ascii_lowercase().contains("toml"))
+        .map(|_| ".toml");
+    let format = Format::of(&[record.resource.as_deref(), origin, media]);
+    Ok((bytes, format!("sha256:{short}"), format))
 }
 
 /// Read one universe against the corpus.
@@ -417,45 +565,19 @@ pub(crate) fn read_universe(
 
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     let fm = parse_frontmatter(&text);
-    let Some(record) = newest(
-        fm.artifacts.as_deref().unwrap_or_default(),
-        decl.resource.as_deref(),
-    ) else {
-        let which = match decl.resource.as_deref() {
-            Some(r) => format!(" for resource `{}`", r.trim()),
-            None => String::new(),
-        };
-        return unread(
-            entry.clone(),
-            format!(
-                "`{entry}` records no artifact{which}; `yidam catalog-fetch {entry}` obtains one"
-            ),
-        );
+    let locations = fm.location.as_deref().unwrap_or_default();
+    let read = match pinned(locations, decl.resource.as_deref()) {
+        Some(loc) => read_pin(root, &entry, loc),
+        None => read_artifact(&entry, &fm, locations, decl.resource.as_deref(), cache),
     };
-    let digest = record.sha256.as_deref().unwrap_or_default().trim();
-    let short = digest.get(..12).unwrap_or(digest);
-    let Ok(hash) = ContentHash::parse(digest) else {
-        return unread(
-            entry.clone(),
-            format!("`{entry}`'s newest artifact carries `{short}`, which is not a sha256"),
-        );
-    };
-    let bytes = cache
-        .map(|c| c.path_of(&hash))
-        .and_then(|p| std::fs::read(p).ok());
-    let Some(bytes) = bytes else {
-        return unread(
-            entry.clone(),
-            format!(
-                "the bytes of `{entry}` (sha256:{short}) are not in the local cache; \
-                 `yidam vault pull` or `yidam catalog-fetch {entry}` fetches them"
-            ),
-        );
+    let (bytes, what, format) = match read {
+        Ok(r) => r,
+        Err(why) => return unread(entry.clone(), why),
     };
 
-    let listed = match members(&bytes, decl) {
+    let listed = match members(&bytes, decl, format) {
         Ok(m) => m,
-        Err(why) => return unread(entry.clone(), format!("`{entry}` (sha256:{short}) {why}")),
+        Err(why) => return unread(entry.clone(), format!("`{entry}` ({what}) {why}")),
     };
 
     let covered: HashSet<String> = instances
@@ -491,7 +613,7 @@ pub(crate) fn read_universe(
              empty is not settled"
         )),
         (0, _) => Some(format!(
-            "`{entry}` (sha256:{short}) lists no members — empty is not settled"
+            "`{entry}` ({what}) lists no members — empty is not settled"
         )),
         (_, Some(why)) => Some(why),
         _ => None,
@@ -641,6 +763,37 @@ mod tests {
             let err = parse_path(path).unwrap_err();
             assert!(err.contains(says), "{path}: {err}");
         }
+    }
+
+    /// city-engine's registry shape: `[[entry]]` tables, walked with the path JSON uses.
+    #[test]
+    fn a_path_walks_a_toml_registry() {
+        let decl = CoverageConfig {
+            select: Some("$.entry[*].id".into()),
+            ..Default::default()
+        };
+        let toml = b"[[entry]]\nid = \"build-period\"\nvalue = 3\n\n[[entry]]\nid = \"cap-rate\"\n";
+        assert_eq!(
+            members(toml, &decl, Format::Toml).unwrap(),
+            ["build-period", "cap-rate"]
+        );
+        let err = members(b"{not toml", &decl, Format::Toml).unwrap_err();
+        assert!(err.starts_with("does not read as TOML"), "{err}");
+        // Bytes named as JSON are still read as JSON.
+        assert!(members(toml, &decl, Format::Json)
+            .unwrap_err()
+            .contains("JSON"));
+    }
+
+    #[test]
+    fn a_name_ending_in_toml_reads_as_toml() {
+        assert_eq!(Format::of(&[Some("crates/x/defaults.TOML")]), Format::Toml);
+        assert_eq!(
+            Format::of(&[None, Some("https://x.test/a.toml?raw=1")]),
+            Format::Toml
+        );
+        assert_eq!(Format::of(&[Some("list.json"), None]), Format::Json);
+        assert_eq!(Format::of(&[]), Format::Json);
     }
 
     #[test]

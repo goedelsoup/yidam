@@ -636,7 +636,7 @@ pub struct DueConfig {
 /// each measures something already in the repository. This names the thing that is not.
 ///
 /// **Exactly one of [`Self::select`] and [`Self::column`]**, and which one says how the
-/// artifact is read — JSON or CSV. Both, or neither, is reported by `due` as a universe it
+/// artifact is read — JSON or TOML, or CSV. Both, or neither, is reported by `due` as a universe it
 /// cannot measure rather than refused at load, so one bad table does not take the other clocks
 /// down with the config.
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -650,8 +650,9 @@ pub struct CoverageConfig {
     /// it names.
     #[serde(default)]
     pub resource: Option<String>,
-    /// For a JSON artifact: where the identifiers are, as a path — `$`, `.key`, `['key']`,
-    /// `[n]` and `[*]`. A string or a number there is a member.
+    /// For a JSON or TOML artifact: where the identifiers are, as a path — `$`, `.key`,
+    /// `['key']`, `[n]` and `[*]`. A string or a number there is a member. The bytes are TOML
+    /// when the name they were read under ends in `.toml` (RFC-0051 §6).
     #[serde(default)]
     pub select: Option<String>,
     /// For a CSV artifact: the header of the column holding the identifiers.
