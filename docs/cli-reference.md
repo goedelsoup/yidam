@@ -647,6 +647,7 @@ record of what they touched.
 | `routes` | Put the `yidam routes` block into `AGENTS.md`, in place of its whole-file reading list |
 | `scaffold` | Mark the part of `ci.yml` and `CLAUDE.md` that a re-vendor updates |
 | `locations` | Rewrite every catalog location of kind `doi` or `pmc` as `kind: identifier` |
+| `pins` | Pin each `file` location to the commit its entry's prose dates a read at |
 
 `retype` converts an instance value where the two types differ only in how the value is
 written. A `number` is an unquoted YAML number. So retyping to `number` unquotes `"24"`, and
@@ -660,7 +661,7 @@ rewrites the item on the declaration and the value on every instance holding it,
 The quoting follows what was written. A value outside the set is refused. So is a rename onto a
 value the set already holds, which would merge two.
 
-`references`, `findings` and `locations` migrate data rather than the ontology over it.
+`references`, `findings`, `locations` and `pins` migrate data rather than the ontology over it.
 
 A detail reading `[verified — #362]` names an issue no consumer can follow. The migration writes
 `issue/362` to the node. Where the detail was the reference and nothing else, the tag then
@@ -713,6 +714,20 @@ Taking a link apart to find one is a reading of it, and that reading is yours. R
 `kind: url`, or as `kind: identifier` with the id the link holds. A block-scalar value or a flow
 mapping is reported too. So is a rewrite that does not read back as written. Each leftover is
 still a `catalog-location-malformed` finding, and the report lists it.
+
+`pins` writes `commit:` on each `file` location that has none. It takes the last read the
+entry's body dates: "read at commit 3f2a9c1", or "read again at 3f2a9c1". The commit is
+written with all 40 digits. A commit found in one `path` dependency, and not here,
+gains `repo:` too. The prose is not changed. Run it with `--dry-run` first:
+
+```sh
+yidam migrate --dry-run pins   # each pin, and each location it leaves
+yidam migrate pins
+```
+
+**A read it cannot place is listed, not guessed.** That covers a body that dates no read, and
+a commit that resolves nowhere. It covers a commit two dependencies share, and one at which
+the file did not exist. Each is listed with its reason. A second run pins nothing new.
 
 ### `propose` is deliberately small
 

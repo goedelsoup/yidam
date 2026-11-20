@@ -1,6 +1,6 @@
 # RFC-0051 — A read of code names the commit it was read at, and the repository that commit is in (the code-artifact pin)
 
-- **Status:** Accepted
+- **Status:** Implemented
 - **Commands:** `migrate pins`
 - **Track:** I37
 - **Relates to:**
@@ -298,8 +298,8 @@ lists those sentences, and rewriting them is an author's edit, not a mechanical 
   reads them, and lose nothing but the checks.
 - **No existing entry changes meaning.** A `file` location without `commit` is resolved,
   fetched and aged exactly as today.
-- **`migrate pins`** is opt-in, and its dry run is the measurement: run against city-engine, it
-  should pin at most the 108 dated entries.
+- **`migrate pins`** is opt-in, and its dry run is the measurement: against city-engine at d3e466cb
+  it pins 193 locations across 192 entries, more than the 108 the census above counted.
 - **Template.** `guidelines/directories.md` documents the three fields beside the location
   kinds, and says that a code read is dated by `commit`, not by a sentence.
 

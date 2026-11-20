@@ -1204,3 +1204,99 @@ fn migrate_locations_leaves_the_corpus_passing_its_own_gate() {
     assert!(out.contains("Nothing to migrate"), "{out}");
     assert!(!c.dirty(), "a no-op run wrote to the tree");
 }
+
+// ── commit pins ───────────────────────────────────────────────────────────────
+
+const GAGE: &str = ".yidam/corpus/gage/canyon-outlet.yml";
+
+/// The streamflow entry with a `file` location its body dates a read of (RFC-0051 §7), the
+/// way the measured corpora wrote reads before `commit` existed. Returns the full commit.
+fn with_a_dated_read(c: &Corpus) -> String {
+    let full = common::git::out(c.path(), &["rev-parse", "HEAD"]);
+    let full = full.trim().to_string();
+    let text = c
+        .read(ENTRY)
+        .replace(
+            "used-by:",
+            &format!(
+                "  - kind: file\n    value: {GAGE}\n    description: the gage it shapes\nused-by:"
+            ),
+        )
+        .replace(
+            "# USGS NWIS\n",
+            &format!(
+                "# USGS NWIS\n\nThe gage node was read at commit {}.\n",
+                &full[..8]
+            ),
+        );
+    std::fs::write(c.path().join(ENTRY), text).unwrap();
+    c.git(&["commit", "-q", "-am", "catalog: a dated read"]);
+    full
+}
+
+#[test]
+fn a_dry_run_of_migrate_pins_names_the_full_commit_and_changes_nothing() {
+    let c = Corpus::new();
+    let full = with_a_dated_read(&c);
+    let (ok, out) = c.run(&["migrate", "--dry-run", "pins"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("1 location(s) across 1 entr(ies)"), "{out}");
+    assert!(out.contains(&format!("commit: {full}")), "{out}");
+    assert!(!c.dirty(), "a dry run wrote to the tree");
+}
+
+#[test]
+fn migrate_pins_writes_the_pin_below_its_value_and_leaves_the_prose() {
+    let c = Corpus::new();
+    let full = with_a_dated_read(&c);
+    let before = c.read(ENTRY);
+    let (ok, out) = c.run(&["migrate", "pins"]);
+    assert!(ok, "{out}");
+    let text = c.read(ENTRY);
+    assert!(
+        text.contains(&format!(
+            "    value: {GAGE}\n    commit: {full}\n    description:"
+        )),
+        "{text}"
+    );
+    assert_eq!(
+        text.replace(&format!("    commit: {full}\n"), ""),
+        before,
+        "the pin is the only change"
+    );
+    assert!(c.gate_is_clean(), "the pinned corpus does not gate clean");
+    assert!(
+        out.contains("commit: migrate: reads dated in catalog prose into commit pins (1 pin(s) across 1 file(s))"),
+        "{out}"
+    );
+
+    // Idempotent: the pinned location is no longer a candidate, and no second record.
+    c.git(&["add", "-A"]);
+    c.git(&["commit", "-q", "-m", "migrate: pins"]);
+    let (ok, out) = c.run(&["migrate", "pins"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Nothing to migrate"), "{out}");
+    assert!(!c.dirty(), "a no-op run wrote to the tree");
+}
+
+#[test]
+fn a_read_dated_at_a_commit_that_lacks_the_file_is_listed_and_not_pinned() {
+    let c = Corpus::new();
+    let full = with_a_dated_read(&c);
+    // The read is dated before the file it names existed.
+    let text = c
+        .read(ENTRY)
+        .replace(&format!("    value: {GAGE}\n"), "    value: later.txt\n");
+    std::fs::write(c.path().join(ENTRY), text).unwrap();
+    std::fs::write(c.path().join("later.txt"), "x\n").unwrap();
+    c.git(&["add", "-A"]);
+    c.git(&["commit", "-q", "-m", "catalog: a file added later"]);
+    let (ok, out) = c.run(&["migrate", "pins"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Nothing to migrate"), "{out}");
+    assert!(
+        out.contains(&format!("not in this repository at {}", &full[..8])),
+        "{out}"
+    );
+    assert!(!c.dirty(), "an unpinnable read wrote to the tree");
+}
