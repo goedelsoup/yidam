@@ -688,6 +688,46 @@ pub struct CoverageConfig {
     /// unique property.
     #[serde(default)]
     pub scope: Option<CoverageScopeConfig>,
+    /// Also report the reverse direction: an instance of the class whose property names no
+    /// member (RFC-0051 §6, #1526). A registry that drops a key leaves the node that carried
+    /// it, and nothing else notices. It respects [`Self::scope`] and [`Self::matches`].
+    #[serde(default)]
+    pub orphans: bool,
+    /// Instances [`Self::orphans`] leaves out, because they are kept on purpose after their
+    /// key was removed. One table, or a list of them; an instance matching any is no orphan.
+    ///
+    /// yidam has no retired standing: the corpus says what "retired" means for it here, in
+    /// the declaration that needs to know. Each instance left out is counted in the report.
+    #[serde(default)]
+    pub except: Option<CoverageExcept>,
+}
+
+/// One [`CoverageConfig::except`] table, or a list of them.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum CoverageExcept {
+    One(CoverageExceptConfig),
+    Many(Vec<CoverageExceptConfig>),
+}
+
+impl CoverageExcept {
+    /// The tables, however many were written.
+    pub fn tables(&self) -> &[CoverageExceptConfig] {
+        match self {
+            Self::One(t) => std::slice::from_ref(t),
+            Self::Many(ts) => ts,
+        }
+    }
+}
+
+/// An instance [`CoverageConfig::orphans`] leaves out: one whose `field` matches `matches`.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoverageExceptConfig {
+    /// A property name, or `label`.
+    pub field: String,
+    /// A regular expression, matched against each value of `field`.
+    pub matches: String,
 }
 
 /// The edge a [`CoverageConfig::scope`] requires.

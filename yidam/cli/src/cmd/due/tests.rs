@@ -1572,6 +1572,153 @@ fn matches_and_scope_parse_and_a_scope_typo_is_refused() {
     assert!(crate::config::load_yidam_config(root).is_err());
 }
 
+// ── orphans and except (RFC-0051 §6, #1526) ──────────────────────────────────
+
+fn universe_orphans() -> crate::config::CoverageConfig {
+    crate::config::CoverageConfig {
+        orphans: true,
+        ..universe_json()
+    }
+}
+
+/// One report names both directions: the member no node carries, and the node whose key the
+/// list no longer holds.
+#[test]
+fn orphans_names_a_node_whose_key_no_member_names() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let d = cached(cache.path(), THREE_BILLS);
+    lis(root, &[(&d, None)], None);
+    bill(root, "hb-1", "HB 1");
+    bill(root, "hjr-2", "HJR 2");
+    bill(root, "hb-9", "HB 9");
+    node(root, "bill/untitled.yml", "class: bill\nlabel: Untitled\n");
+
+    let c = coverage_clock(root, &[universe_orphans()], cache.path());
+    assert_eq!(c.state, State::Due, "{c:?}");
+    assert_eq!(c.overdue, 2, "{c:?}");
+    assert!(
+        c.detail.contains("2 of 3 covered, 1 missing, 1 orphan(s)"),
+        "{c:?}"
+    );
+    assert!(c.subjects[0].starts_with("S.B. 214 — "), "{c:?}");
+    // A node carrying no key names nothing, so it is no orphan.
+    assert_eq!(
+        c.subjects[1],
+        "bill/hb-9.yml — its `number` `HB 9` is no member of lis-136-legislation-list"
+    );
+    assert!(c.remedy.as_deref().unwrap().contains("except"), "{c:?}");
+
+    // Without `orphans`, the report is what it was.
+    let c = coverage_clock(root, &[universe_json()], cache.path());
+    assert_eq!(c.overdue, 1, "{c:?}");
+    assert!(!c.detail.contains("orphan"), "{c:?}");
+    assert!(!c.remedy.as_deref().unwrap().contains("except"), "{c:?}");
+}
+
+/// `except` leaves a retired instance out and counts it; it still covers a member it holds.
+/// `matches` keeps an identifier the list was narrowed away from out of the orphans.
+#[test]
+fn except_keeps_a_retired_instance_and_counts_it() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let d = cached(cache.path(), THREE_BILLS);
+    lis(root, &[(&d, None)], None);
+    node(
+        root,
+        "bill/hb-1.yml",
+        "class: bill\nlabel: HB 1 (retired)\nproperties:\n  number: HB 1\n",
+    );
+    bill(root, "hjr-2", "HJR 2");
+    bill(root, "sb-214", "SB 214");
+    node(
+        root,
+        "bill/hb-7.yml",
+        "class: bill\nlabel: HB 7 (retired)\nproperties:\n  number: HB 7\n",
+    );
+    bill(root, "hcr-3", "HCR 3");
+
+    let mut u = universe_orphans();
+    u.matches = Some(r"^(HB|SB|HJR|S\.B\.)".into());
+    u.except = Some(crate::config::CoverageExcept::One(
+        crate::config::CoverageExceptConfig {
+            field: "label".into(),
+            matches: r"\(retired\)$".into(),
+        },
+    ));
+    let c = coverage_clock(root, &[u.clone()], cache.path());
+    assert_eq!(c.state, State::Ok, "{c:?}");
+    assert!(
+        c.detail
+            .contains("3 of 3 covered, 0 missing, 0 orphan(s), 1 kept by `except`"),
+        "{c:?}"
+    );
+
+    // An `except` on a property, as a list, and one that does not compile.
+    u.except = Some(crate::config::CoverageExcept::Many(vec![
+        crate::config::CoverageExceptConfig {
+            field: "number".into(),
+            matches: "^HB 7$".into(),
+        },
+    ]));
+    assert_eq!(
+        coverage_clock(root, &[u.clone()], cache.path()).state,
+        State::Ok
+    );
+    u.except = Some(crate::config::CoverageExcept::Many(vec![
+        crate::config::CoverageExceptConfig {
+            field: "label".into(),
+            matches: "(".into(),
+        },
+    ]));
+    let c = coverage_clock(root, &[u], cache.path());
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+    assert!(c.detail.contains("not a regular expression"), "{c:?}");
+}
+
+/// A stale list may predate a key, so it does not call that key's node an orphan.
+#[test]
+fn a_stale_list_reads_no_orphans() {
+    let tmp = repo();
+    let root = tmp.path();
+    let cache = tempfile::TempDir::new().unwrap();
+    let d = cached(cache.path(), THREE_BILLS);
+    lis(root, &[(&d, None)], Some(1));
+    bill(root, "hb-1", "HB 1");
+    bill(root, "sb-214", "SB 214");
+    bill(root, "hjr-2", "HJR 2");
+    bill(root, "hb-9", "HB 9");
+
+    let c = coverage_clock(root, &[universe_orphans()], cache.path());
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+    assert!(c.detail.contains("orphans not read"), "{c:?}");
+    assert!(c.subjects.is_empty(), "{c:?}");
+}
+
+/// `except` reads one table or a list of them from config.
+#[test]
+fn except_reads_one_table_or_a_list() {
+    for table in [
+        "except = { field = \"label\", matches = \"x\" }\n",
+        "except = [{ field = \"label\", matches = \"x\" }, { field = \"n\", matches = \"y\" }]\n",
+    ] {
+        let tmp = repo();
+        let root = tmp.path();
+        config(
+            root,
+            &format!(
+                "[[due.coverage]]\nsource = \"s\"\nselect = \"$\"\nclass = \"c\"\nproperty = \"p\"\norphans = true\n{table}"
+            ),
+        );
+        let cfg = crate::config::load_yidam_config(root).unwrap();
+        let u = &cfg.due.coverage[0];
+        assert!(u.orphans);
+        assert!(!u.except.as_ref().unwrap().tables().is_empty());
+    }
+}
+
 /// The text report lists a long gap's first members and says the rest are in JSON.
 #[test]
 fn a_long_subject_list_is_capped_in_text_only() {
