@@ -1733,3 +1733,97 @@ fn a_dependencys_new_commits_make_nothing_due_until_its_rev_moves() {
         "{c:?}"
     );
 }
+
+/// A catalog entry `game` holding one pinned read of `symbol` in `src/lib.rs`.
+fn symbol_entry(root: &Path, at: &str, symbol: &str) {
+    let dir = root.join(".yidam/catalog");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("game.md"),
+        format!(
+            "---\nid: game\nlocation:\n  - kind: file\n    value: src/lib.rs\n    commit: {at}\n    symbol: {symbol}\n---\n\nThe game crate.\n"
+        ),
+    )
+    .unwrap();
+}
+
+const TWO_FNS: &str = "pub fn load() -> u8 {\n    1\n}\n\npub fn other() -> u8 {\n    2\n}\n";
+
+/// RFC-0051 §4.1 on the clock. Built with `symbol-pins`, an edit elsewhere in the file owes
+/// nothing, an edit inside the symbol does, and a symbol that disappears is `symbol gone`.
+/// Built without it, the same three commits owe a re-read every time: never fewer.
+#[test]
+fn a_symbol_pin_is_due_at_the_grain_the_build_can_read() {
+    let tmp = repo();
+    let root = tmp.path();
+    let at = code(root, "2026-01-02", TWO_FNS);
+    symbol_entry(root, &at, "load");
+    commit(root, "2026-01-03", "cite: the game crate");
+    let symbols = cfg!(feature = "symbol-pins");
+    let line = |now: &str, grain: &str, n: u8| {
+        let s = if n == 1 { "" } else { "s" };
+        format!(
+            "game — src/lib.rs `load`: {grain}, in {n} commit{s} since {} (now {})",
+            &at[..7],
+            &now[..8]
+        )
+    };
+    let fallback = "file changed (built without `symbol-pins`)";
+
+    // An edit elsewhere in the file.
+    let now = code(root, "2026-01-04", &TWO_FNS.replace("    2\n", "    3\n"));
+    let c = find(&clocks(root), "catalog").clone();
+    if symbols {
+        assert_eq!(c.state, State::Ok, "{c:?}");
+        assert!(
+            c.detail
+                .contains("1 pinned symbol(s) unchanged in a changed file"),
+            "{c:?}"
+        );
+    } else {
+        assert_eq!(c.state, State::Due, "{c:?}");
+        assert_eq!(c.subjects, vec![line(&now, fallback, 1)]);
+    }
+
+    // An edit inside it.
+    let now = code(root, "2026-01-05", &TWO_FNS.replace("    1\n", "    10\n"));
+    let c = find(&clocks(root), "catalog").clone();
+    assert_eq!(c.state, State::Due, "{c:?}");
+    let grain = if symbols { "symbol changed" } else { fallback };
+    assert_eq!(c.subjects, vec![line(&now, grain, 2)]);
+
+    // It disappears.
+    let now = code(root, "2026-01-06", "pub fn other() -> u8 {\n    2\n}\n");
+    let c = find(&clocks(root), "catalog").clone();
+    assert_eq!(c.state, State::Due, "{c:?}");
+    let grain = if symbols { "symbol gone" } else { fallback };
+    assert_eq!(c.subjects, vec![line(&now, grain, 3)]);
+}
+
+/// The superseded clock compares a symbol pin's move as the catalog clock does: moving
+/// `commit:` across an edit elsewhere in the file is a re-date, built with `symbol-pins`.
+#[test]
+fn moving_a_symbol_pin_across_an_edit_elsewhere_is_a_re_date_when_symbols_are_read() {
+    let tmp = repo();
+    let root = tmp.path();
+    let first = code(root, "2026-01-02", TWO_FNS);
+    symbol_entry(root, &first, "load");
+    node(
+        root,
+        "concept/reader.yml",
+        "class: concept\nlabel: Reader\nlinks:\n  - target: ../../catalog/game.md\n    relationship: sourced-from\n",
+    );
+    commit(root, "2026-01-03", "cite: the game crate");
+    let elsewhere = code(root, "2026-01-04", &TWO_FNS.replace("    2\n", "    3\n"));
+    symbol_entry(root, &elsewhere, "load");
+    commit(root, "2026-01-05", "revise: re-read the game crate");
+    config(root, "[due]\nsuperseded_after = 1\n");
+
+    let c = find(&clocks(root), "superseded").clone();
+    let expected = if cfg!(feature = "symbol-pins") {
+        State::Ok
+    } else {
+        State::Due
+    };
+    assert_eq!(c.state, expected, "{c:?}");
+}

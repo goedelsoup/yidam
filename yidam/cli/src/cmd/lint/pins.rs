@@ -362,6 +362,8 @@ pub(crate) struct Changed {
     pub commits: Option<u64>,
     /// The file is absent at the reference revision.
     pub gone: bool,
+    /// The pinned symbol and what it did, when the pin names one and its file is still there.
+    pub symbol: Option<(String, super::symbols::Grain)>,
 }
 
 impl Changed {
@@ -376,12 +378,17 @@ impl Changed {
         };
         let since = self.commit.get(..7).unwrap_or(&self.commit);
         let now = self.now.get(..8).unwrap_or(&self.now);
-        let what = match (self.gone, self.commits) {
-            (true, _) => "is gone".to_string(),
-            (false, Some(n)) => format!("changed in {n} commit{}", if n == 1 { "" } else { "s" }),
-            (false, None) => "changed".to_string(),
+        let commits = |n: u64| format!("{n} commit{}", if n == 1 { "" } else { "s" });
+        let what = match (self.gone, &self.symbol, self.commits) {
+            (true, _, _) => format!("{path} is gone"),
+            (false, Some((symbol, grain)), Some(n)) => {
+                format!("{path} `{symbol}`: {}, in {}", grain.said(), commits(n))
+            }
+            (false, Some((symbol, grain)), None) => format!("{path} `{symbol}`: {}", grain.said()),
+            (false, None, Some(n)) => format!("{path} changed in {}", commits(n)),
+            (false, None, None) => format!("{path} changed"),
         };
-        format!("{stem} — {path} {what} since {since} (now {now})")
+        format!("{stem} — {what} since {since} (now {now})")
     }
 }
 
@@ -391,6 +398,8 @@ pub(crate) struct Staleness {
     /// Pins whose object was compared.
     pub pinned: usize,
     pub changed: Vec<Changed>,
+    /// Symbol pins whose file changed and whose symbol did not, so they are not due.
+    pub unchanged: usize,
     /// Pins that could not be compared: a bad shape, a missing commit or path, a shallow
     /// clone, or a dependency with no checkout. Lint names each one; this only counts them.
     pub unread: usize,
@@ -407,19 +416,30 @@ fn reference(repo: Option<&str>, config: &crate::deps::TonpaConfig) -> String {
         .to_string()
 }
 
+/// One well-shaped pin, waiting for its repository's batch.
+struct Pin<'a> {
+    rel: &'a str,
+    commit: String,
+    path: String,
+    symbol: Option<&'a str>,
+}
+
 /// Compare every pinned read with its file at the reference revision, with one git process
-/// per repository and one more per changed pin to count the commits.
+/// per repository and one more per changed pin to count the commits. A pin naming a `symbol`
+/// is then measured at the grain [`super::symbols::compare`] decides.
 pub(crate) fn staleness(root: &Path, sources: &[Source]) -> Staleness {
     let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
     let mut out = Staleness::default();
-    let mut by_repo: BTreeMap<Option<String>, Vec<(&str, String, String)>> = BTreeMap::new();
+    let mut by_repo: BTreeMap<Option<String>, Vec<Pin<'_>>> = BTreeMap::new();
     for s in sources {
         for loc in s.locations.iter().filter(|l| l.is_pinned()) {
             match shape(loc) {
-                Ok((commit, path)) => by_repo
-                    .entry(loc.repo.clone())
-                    .or_default()
-                    .push((&s.rel, commit, path)),
+                Ok((commit, path)) => by_repo.entry(loc.repo.clone()).or_default().push(Pin {
+                    rel: &s.rel,
+                    commit,
+                    path,
+                    symbol: loc.symbol.as_deref(),
+                }),
                 Err(_) => out.unread += 1,
             }
         }
@@ -432,11 +452,11 @@ pub(crate) fn staleness(root: &Path, sources: &[Source]) -> Staleness {
         let at = reference(repo.as_deref(), &config);
         let queries: Vec<Query> = pins
             .iter()
-            .flat_map(|(_, commit, path)| {
-                [commit.clone(), at.clone()].map(|commit| Query {
+            .flat_map(|p| {
+                [p.commit.clone(), at.clone()].map(|commit| Query {
                     commit,
-                    path: path.clone(),
-                    contents: false,
+                    path: p.path.clone(),
+                    contents: p.symbol.is_some(),
                 })
             })
             .collect();
@@ -444,7 +464,13 @@ pub(crate) fn staleness(root: &Path, sources: &[Source]) -> Staleness {
             out.unread += pins.len();
             continue;
         };
-        for ((rel, commit, path), pair) in pins.iter().zip(answers.chunks(2)) {
+        for (pin, pair) in pins.iter().zip(answers.chunks(2)) {
+            let Pin {
+                rel,
+                commit,
+                path,
+                symbol,
+            } = pin;
             let [read, current] = pair else {
                 out.unread += 1;
                 continue;
@@ -462,6 +488,22 @@ pub(crate) fn staleness(root: &Path, sources: &[Source]) -> Staleness {
                     continue;
                 }
             }
+            let symbol = match symbol {
+                Some(symbol) if !gone => {
+                    let grain = super::symbols::compare(
+                        path,
+                        symbol,
+                        read.text.as_deref(),
+                        current.text.as_deref(),
+                    );
+                    if !grain.due() {
+                        out.unchanged += 1;
+                        continue;
+                    }
+                    Some((symbol.to_string(), grain))
+                }
+                _ => None,
+            };
             let commits = crate::git::Git::new(&dir)
                 .args(["rev-list", "--count"])
                 .rev(format!("{commit}..{now}"))
@@ -476,6 +518,7 @@ pub(crate) fn staleness(root: &Path, sources: &[Source]) -> Staleness {
                 now: now.clone(),
                 commits,
                 gone,
+                symbol,
             });
         }
     }

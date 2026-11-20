@@ -64,6 +64,7 @@ mod quality_surface;
 mod recorded_output;
 mod repo_walks;
 mod scaffolded_config;
+mod symbol_pins;
 mod template_pin;
 mod test_binaries;
 mod toolchain_pins;

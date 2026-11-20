@@ -301,6 +301,23 @@ pdf-extract = { version = "=0.12.1", optional = true }
 gluon = { version = "0.18.4", default-features = false, optional = true }
 gluon_codegen = { version = "0.18.4", optional = true }
 
+# ── optional: `symbol-pins` — symbol-grained staleness of a pinned read (RFC-0051 §4.1). ───
+#
+# A pin with a `symbol` is due when that item's span changes, not when anything in its file
+# does. Measured against RFC-0024 on this pin: **6 marginal packages** (these four,
+# `tree-sitter-language` and `streaming-iterator`) and **+4.6 MB** on the release binary
+# (56,713,600 → 61,339,120 bytes, +8.2%, aarch64-apple-darwin), most of it grammar tables. Every
+# crate is MIT, and each grammar is generated C that `cc` compiles at build time, which is the
+# cost that keeps this out of the default set. The grammars depend on `tree-sitter-language`
+# rather than on `tree-sitter`, so their versions move apart from the runtime's.
+#
+# `tree-sitter` 0.27 and `tree-sitter-language` 0.1.9 need Rust 1.90; the lockfile holds 0.26
+# and 0.1.7 for the 1.88 pin.
+tree-sitter = { version = "0.26", optional = true }
+tree-sitter-rust = { version = "0.24", optional = true }
+tree-sitter-python = { version = "0.25", optional = true }
+tree-sitter-typescript = { version = "0.23", optional = true }
+
 # ── optional: `source-transforms` — a source pack's describe/extract (RFC-0048 §6). ───
 #
 # A pack's transforms run in `gluon_arm`'s closed prelude, so this feature implies
@@ -525,6 +542,12 @@ calculators-gluon = ["dep:gluon", "dep:gluon_codegen"]
 # from the pack's templates alone and names the fields it could not fill, and `catalog-extract`
 # names the readings it skipped. See the dependency note for the measurement.
 source-transforms = ["calculators-gluon", "dep:quick-xml"]
+# Symbol-grained staleness of a pinned read (RFC-0051 §4.1, #1524): a pin naming a `symbol`
+# in a Rust, Python or TypeScript file is due when that item changes, not when its file does.
+# **Outside the default set**: tree-sitter and its grammars are C compiled at build time.
+# Without it a symbol pin is read at file grain, which can only report more reads due, and the
+# clock line says so.
+symbol-pins = ["dep:tree-sitter", "dep:tree-sitter-rust", "dep:tree-sitter-python", "dep:tree-sitter-typescript"]
 # `tonpa` bundle dependency manager — async network fetch via reqwest. In the
 # default set; see the note there and on the reqwest dependency above.
 tonpa = ["dep:reqwest", "dep:tokio"]
@@ -619,6 +642,7 @@ full = [
   "reports",
   "calculators-gluon",
   "source-transforms",
+  "symbol-pins",
   "index",
   "export-sqlite",
   "export-graph",

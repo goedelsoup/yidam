@@ -341,6 +341,22 @@ game — src/lib.rs changed in 4 commits since 86ba7d0 (now 1d062a6d)
 Moving `commit:` is a new edition for the `superseded` clock only when the file's object changed.
 Re-dating a read of unchanged code supersedes nothing.
 
+**A pin with a `symbol` is measured at the symbol** in a build with the `symbol-pins` feature
+(RFC-0051 §4.1). Rust, Python and TypeScript files are parsed, and the grammar follows the
+extension. The read is due when the named item's text changes. An edit elsewhere in the file owes
+nothing, and neither does re-indenting the item. The clock's detail counts those reads as
+`pinned symbol(s) unchanged in a changed file`. Three cases fall back to file grain. The build
+lacks the feature, the file has no grammar, or the symbol is not found at the read. File grain
+can only report more reads due. The line says which grain it used:
+
+```
+game — src/lib.rs `MicroDefaults::load`: symbol changed, in 2 commits since 86ba7d0 (now 1d062a6d)
+game — src/lib.rs `MicroDefaults::load`: symbol gone, in 3 commits since 86ba7d0 (now 5f0c11e2)
+game — Cargo.toml `package`: file changed (no parser for .toml), in 1 commit since 86ba7d0 (now 1d062a6d)
+```
+
+The `superseded` clock compares a symbol pin's move the same way.
+
 A clock with no interval reports what it measured and is never due. Its remedy is the key that
 would set it. That is the state of every repository that has not opted in. It is the design, not a
 degraded mode.

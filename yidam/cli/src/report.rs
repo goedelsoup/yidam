@@ -83,6 +83,11 @@ impl YidamBlock {
         if cfg!(feature = "source-transforms") {
             features.push("source-transforms".to_string());
         }
+        // Not a subcommand gate: `due` runs in every build, and this says whether a pin naming a
+        // `symbol` is measured by that item's span or by its whole file.
+        if cfg!(feature = "symbol-pins") {
+            features.push("symbol-pins".to_string());
+        }
         if cfg!(feature = "tonpa") {
             features.push("tonpa".to_string());
         }

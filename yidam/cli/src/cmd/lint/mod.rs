@@ -31,6 +31,7 @@ pub(crate) mod quotations;
 pub(crate) mod refusals;
 pub(crate) mod scope;
 pub(crate) mod skills;
+pub(crate) mod symbols;
 pub(crate) mod ttl;
 pub(crate) mod uncited;
 

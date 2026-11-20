@@ -589,7 +589,8 @@ fn clock_catalog(root: &Path, today: i64) -> Clock {
         if !interval.is_empty() {
             interval.push_str("; ");
         }
-        interval.push_str("a pinned read, when its file changes at the reference revision");
+        interval.push_str("a pinned read, when its file (or its `symbol`, built with `symbol-pins`) changes at the \
+             reference revision");
     }
     let expired: Vec<&crate::cmd::lint::ttl::Age> =
         ages.iter().filter(|a| a.overdue_days().is_some()).collect();
@@ -605,6 +606,13 @@ fn clock_catalog(root: &Path, today: i64) -> Clock {
     }
     if pins.pinned > 0 {
         let _ = write!(measured, "; {} pinned read(s) compared", pins.pinned);
+    }
+    if pins.unchanged > 0 {
+        let _ = write!(
+            measured,
+            "; {} pinned symbol(s) unchanged in a changed file",
+            pins.unchanged
+        );
     }
     if pins.unread > 0 {
         let _ = write!(
