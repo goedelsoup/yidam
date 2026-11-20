@@ -1609,6 +1609,119 @@ fn pinned_entry(root: &Path, at: &str, repo: Option<&str>) {
     .unwrap();
 }
 
+/// A registry kept as TOML in the corpus's own repository, read by a pin (RFC-0051 §6).
+fn registry(dir: &Path, day: &str, ids: &[&str]) -> String {
+    let body: String = ids
+        .iter()
+        .map(|id| format!("[[entry]]\nid = \"{id}\"\n\n"))
+        .collect();
+    crate::git::fixture::write(dir, "game/defaults.toml", &body);
+    commit(dir, day, &format!("establish: registry of {day}"));
+    crate::git::fixture::git_out(dir, &["rev-parse", "HEAD"])
+}
+
+fn pinned_registry(root: &Path, at: &str) {
+    let dir = root.join(".yidam/catalog");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("ce-gameplay-defaults.md"),
+        format!(
+            "---\nid: ce-gameplay-defaults\nlocation:\n  - kind: file\n    value: game/defaults.toml\n    commit: {at}\n---\n\nThe defaults registry.\n"
+        ),
+    )
+    .unwrap();
+}
+
+fn choice(root: &Path, key: &str) {
+    node(
+        root,
+        &format!("engine-choice/{key}.yml"),
+        &format!("class: engine-choice\nlabel: {key}\nproperties:\n  key: {key}\n"),
+    );
+}
+
+fn universe_registry() -> crate::config::CoverageConfig {
+    crate::config::CoverageConfig {
+        source: "ce-gameplay-defaults".into(),
+        select: Some("$.entry[*].id".into()),
+        class: "engine-choice".into(),
+        property: "key".into(),
+        ..Default::default()
+    }
+}
+
+/// A pinned TOML registry needs no fetch and no cache: its keys with no node are named.
+#[test]
+fn a_pinned_toml_registry_is_a_universe_without_a_fetch() {
+    let tmp = repo();
+    let root = tmp.path();
+    let at = registry(
+        root,
+        "2026-01-02",
+        &["build-period", "cap-rate", "pro-forma"],
+    );
+    pinned_registry(root, &at);
+    choice(root, "build-period");
+    commit(root, "2026-01-03", "cite: the registry");
+
+    let c = clock_coverage(root, &[universe_registry()], today(), None);
+    assert_eq!(c.state, State::Due, "{c:?}");
+    assert!(c.detail.contains("1 of 3 covered, 2 missing"), "{c:?}");
+    assert!(c.subjects[0].starts_with("cap-rate — "), "{c:?}");
+    assert!(c.subjects[1].starts_with("pro-forma — "), "{c:?}");
+
+    // The universe is the file at the pin, not the file now: a key added since is not listed.
+    registry(
+        root,
+        "2026-01-04",
+        &["build-period", "cap-rate", "pro-forma", "new"],
+    );
+    let c = clock_coverage(root, &[universe_registry()], today(), None);
+    assert!(c.detail.contains("1 of 3 covered, 2 missing"), "{c:?}");
+}
+
+/// A registry that changed after its read makes a zero gap stale coverage, not zero, and
+/// leaves a non-zero gap owed.
+#[test]
+fn a_pinned_registry_that_changed_is_stale_coverage() {
+    let tmp = repo();
+    let root = tmp.path();
+    let at = registry(root, "2026-01-02", &["build-period"]);
+    pinned_registry(root, &at);
+    choice(root, "build-period");
+    commit(root, "2026-01-03", "cite: the registry");
+    assert_eq!(
+        clock_coverage(root, &[universe_registry()], today(), None).state,
+        State::Ok
+    );
+
+    registry(root, "2026-01-04", &["build-period", "cap-rate"]);
+    let c = clock_coverage(root, &[universe_registry()], today(), None);
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+    assert!(
+        c.detail
+            .contains("game/defaults.toml changed in 1 commit since"),
+        "{c:?}"
+    );
+    assert!(c.detail.contains("stale coverage, not zero gap"), "{c:?}");
+
+    // A gap read at the pin is owed whatever has changed since.
+    std::fs::remove_file(root.join(".yidam/corpus/engine-choice/build-period.yml")).unwrap();
+    let c = clock_coverage(root, &[universe_registry()], today(), None);
+    assert_eq!(c.state, State::Due, "{c:?}");
+}
+
+/// A pin git cannot read is unmeasurable, and says so, rather than every member missing.
+#[test]
+fn a_pin_git_does_not_hold_is_unread() {
+    let tmp = repo();
+    let root = tmp.path();
+    pinned_registry(root, "0123456789abcdef0123456789abcdef01234567");
+    let c = clock_coverage(root, &[universe_registry()], today(), None);
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+    assert!(c.detail.contains("which git does not hold"), "{c:?}");
+}
+
 /// A read of code is current however old it is: a TTL the corpus declared does not reach it,
 /// and an unrelated commit since does not move it.
 #[test]

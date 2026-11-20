@@ -354,9 +354,9 @@ property = "number"
 
 | Key | Meaning |
 |---|---|
-| `source` | The catalog entry, by file stem or `name:`. Its newest artifact with a digest is the list |
-| `resource` | Optional. Read the newest artifact recorded under this `resource:` instead |
-| `select` | A JSON path to the identifiers: `$`, `.key`, `['key']`, `[n]`, `[*]` and `.*` |
+| `source` | The catalog entry, by file stem or `name:`. Its pinned file, or its newest artifact with a digest, is the list |
+| `resource` | Optional. Read the newest artifact recorded under this `resource:`, or the pin with this path |
+| `select` | A path to the identifiers in JSON or TOML: `$`, `.key`, `['key']`, `[n]`, `[*]` and `.*` |
 | `column` | A CSV header naming the column of identifiers |
 | `class` | The class whose instances should cover the list |
 | `property` | The property on those instances that carries the identifier |
@@ -391,6 +391,21 @@ Neither is reported as a gap.
 The bytes are read from the vault cache under the artifact's digest. Run
 `yidam catalog-fetch <entry>` to record and cache a new list. A clone without the bytes can run
 `yidam vault pull`.
+
+**A registry kept as code needs no fetch.** Give the entry a pinned `file` location, and the list
+is that file at the pin's `commit`. A path ending in `.toml` is read as TOML. So is an artifact
+whose `resource:`, origin or media type names TOML. `select` walks TOML the way it walks JSON:
+
+```toml
+[[due.coverage]]
+source = "ce-gameplay-defaults"
+select = "$.entry[*].id"
+class = "engine-choice"
+property = "key"
+```
+
+A pinned registry has no TTL. When its file changes after the read, a zero gap reads as stale
+coverage. A gap found at the pin is still due.
 
 **A gap is a worklist, not a defect.** The clock never fails a gate. `--strict` treats it like
 any other due clock. Narrow a universe that lists more than this corpus means to hold.

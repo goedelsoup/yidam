@@ -1084,7 +1084,13 @@ fn clock_coverage(
         default_ttl,
         iso.split('T').next().unwrap_or_default(),
     );
+    // A pinned registry has no TTL: it is stale when its file changed after the read
+    // (RFC-0051 §6), which is the catalog clock's §4 comparison, called rather than restated.
+    let pins = crate::cmd::lint::pins::staleness(root, &sources);
     let stale = |rel: &str| -> Option<String> {
+        if let Some(changed) = pins.changed.iter().find(|c| c.entry == rel) {
+            return Some(format!("{} — stale coverage, not zero gap", changed.line()));
+        }
         let age = ages.iter().find(|a| a.entry == rel)?;
         let over = age.overdue_days()?;
         Some(format!(
