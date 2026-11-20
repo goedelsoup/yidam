@@ -96,8 +96,10 @@ So city-engine shows none of #1497's receipt-only commits, and the reason is tha
 changes on every run. 79% of its `compute:` commits record that the calculator looked again and
 found the same answer. A fix keyed on byte-identical outputs would not change any of them.
 cellular-automata's 117 recomputes after its cli/v0.24.0 re-vendor, none of which changed a
-value, are the same shape. The stamp also adds nothing. The receipt beside the output already
-records `input.commit`, and the commit that lands them both is itself dated and addressed.
+value, are the same shape. Nothing yidam reads needs the stamp in the output. The receipt beside
+the output already records `input.commit`, and the commit that lands them both is itself dated
+and addressed. A consumer of the corpus may read it there, which is why §2.6 warns rather than
+fails.
 
 ## Proposal
 
@@ -170,24 +172,41 @@ something is fresh that is not, which is the direction `freshness` already choos
 cannot read. `doctor` on such a clone reports the step stale, which is today's answer.
 
 `yidam run` pushes nothing today, and does not start pushing here. Sharing the notes ref between
-clones and CI is a refspec the corpus adds (`+refs/notes/yidam-runs:refs/notes/yidam-runs`), and
-`doctor` says so once per repository when it reads a receipt whose step has re-run with no note.
-See Open questions.
+clones and CI is a refspec the corpus adds (`+refs/notes/yidam-runs:refs/notes/yidam-runs`). A
+missing note leaves no trace, so `doctor` cannot tell that a clone lacks one. What it can see is
+a local `refs/notes/yidam-runs` with no remote fetch refspec covering it, and it warns about that
+once per repository. See Open questions.
 
 ### 2.5 The proposal route
 
-On a proposal, #1162 already lands nothing when the tree is the one proposed. This RFC leaves
-that route alone. A note records a re-validation of what the branch holds, and a pending proposal
-is not on the branch.
+A proposal-route step has two cases.
+
+- **No pending proposal.** The parent is HEAD. Today a step whose outputs match HEAD opens a
+  proposal that changes only its receipt, and a person has to merge a change with nothing in it
+  to review. Under this RFC the step writes a note on HEAD's receipt instead, as §2.2 does, and
+  opens no proposal.
+- **A pending proposal.** The parent is the proposal's tip. #1162 already lands nothing when the
+  tree is the one proposed, and this RFC leaves that alone. The pending proposal is the answer
+  until a person acts on it, and a note on its receipt would vouch for a tree the branch does not
+  hold.
+
+### 2.5.1 The cluster path
+
+`cluster step` decides freshness through the same `plan_and_write` dry run, so it reads the note
+wherever the pod's clone has one. But a pod builds its commit with `build_commit` and hands it to
+the lander, and the bundle a pod receives carries no notes. Until the lander question in Open
+questions is settled, a cluster run behaves as it does today. It re-runs a step that a local run
+would have found fresh by its note, and it lands the receipt-only commit.
 
 ### 2.6 A doctor check: an output that stamps its own input commit
 
 A new doctor check, `run-output-stamps-input-commit`, reads each step's committed receipt and its
-committed outputs. It reports an output whose bytes contain the receipt's full `input.commit`.
+committed outputs. It reports `warn`, never `fail`, for an output whose bytes contain the
+receipt's full `input.commit`.
 Its rationale is §1.4: the stamp makes every run's output new, it hides whether the answer moved,
 and the receipt already records it.
 
-The check is advisory. `YIDAM_INPUT_COMMIT` is still exported, because a step may need the commit
+`YIDAM_INPUT_COMMIT` is still exported, because a step may need the commit
 to read history or to name what it measured. `guidelines/directories.md` gains one sentence on what
 the variable is for, and on not echoing it into an output.
 
@@ -200,7 +219,10 @@ the variable is for, and on not echoing it into an output.
 - **Batching.** One commit per whole-manifest run is #1536. The two compose. A batched run whose
   every step reproduced its outputs would write notes and no commit.
 - **The cluster lander.** RFC-0026 §7 separates building a commit from moving a ref. How the
-  lander is granted the notes ref is an open question, not decided here.
+  lander is granted the notes ref is an open question, not decided here (§2.5.1).
+- **Gather receipts.** `.yidam/runs/gather/<name>/<peer>.yml` records what a peer answered. A
+  gather is not a manifest step and `freshness` never reads its receipts. It keeps its own rule
+  for writing nothing when the branch already holds the answer.
 
 ## Migration & compatibility
 
@@ -224,9 +246,10 @@ the variable is for, and on not echoing it into an output.
   Output digests are only known afterwards. Reading them would mean running every step to decide
   whether to run it.
 - **A local record under the git directory** (`.git/yidam/revalidated`). Simpler than a note, but
-  it is not an object. It cannot be fetched, a person can edit its date, and two worktrees of one
-  repository would need a shared path. A notes ref has none of those problems and degrades to the
-  same behaviour where it is not shared (§2.4).
+  it is not an object, so it cannot be fetched. Its date would be a field in the file or the
+  file's mtime: the second copy of a date that the receipt's "No clock" section refuses. Two
+  worktrees of one repository would also need a shared path, where a ref is already shared. A
+  notes ref has none of these problems, and where it is not shared it behaves the same way (§2.4).
 - **No record at all.** Skip the commit and let the step re-run on every call. §1.2 explains why
   that fails: `doctor` would never report the step fresh again, and `run` would never stop
   invoking it.
