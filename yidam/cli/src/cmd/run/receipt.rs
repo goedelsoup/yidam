@@ -22,6 +22,12 @@
 //! the only copy anyone could forge. It also makes a receipt a pure function of its input
 //! state — which is what lets a re-run against an unchanged corpus produce a byte-identical
 //! tree and therefore no commit at all, rather than an empty one per invocation.
+//!
+//! That is the general rule and not a special case (RFC-0052): a re-run against an unchanged
+//! corpus lands no commit, and neither does a re-run against a changed one that produces the
+//! same bytes. The second records itself in a note on the committed receipt — see
+//! [`super::notes`] — whose date is a notes commit's, so no date is written into a file there
+//! either.
 
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -307,6 +313,35 @@ impl Receipt {
         serde_yaml::from_str::<Landed>(text).ok()
     }
 
+    /// Whether this receipt says what `committed` says, in every field a re-run may not move.
+    ///
+    /// RFC-0052 §2.2's third test. The fields left out are `input_state` and `input`: the
+    /// input state, the head, and the digests of what was read, which are what a re-validation
+    /// is expected to move. Everything else — `format_version`, `outputs`, `version`, `model`,
+    /// `config`, `image_digest`, and the declaration — records what produced the output and
+    /// which files it wrote, and a change to any of them is a receipt that is no longer true.
+    ///
+    /// Compared as parsed YAML, so that a key order or a quoting choice is not a difference.
+    /// A committed receipt that does not parse answers `false`, which commits, as now.
+    pub fn reproduces(&self, committed: &str) -> bool {
+        fn outside_input(mut v: serde_yaml::Value) -> Option<serde_yaml::Value> {
+            let m = v.as_mapping_mut()?;
+            m.remove("input_state");
+            m.remove("input");
+            Some(v)
+        }
+        let Ok(ours) = serde_yaml::to_value(self) else {
+            return false;
+        };
+        let Ok(theirs) = serde_yaml::from_str::<serde_yaml::Value>(committed) else {
+            return false;
+        };
+        match (outside_input(ours), outside_input(theirs)) {
+            (Some(a), Some(b)) => a == b,
+            _ => false,
+        }
+    }
+
     pub fn to_yaml(&self) -> Result<String> {
         serde_yaml::to_string(self).context("serializing the receipt")
     }
@@ -321,6 +356,17 @@ pub struct Landed {
     /// What the step produced, by digest.
     #[serde(default)]
     pub outputs: Vec<File>,
+    /// The part of [`Input`] a reader asks about: which commit the inputs came from.
+    #[serde(default)]
+    pub input: Option<LandedInput>,
+}
+
+/// A committed receipt's `input`, as far as a reader needs it. See [`Landed`].
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct LandedInput {
+    /// The full sha the step's inputs were materialized from.
+    #[serde(default)]
+    pub commit: Option<String>,
 }
 
 /// The digest every field above is written in.

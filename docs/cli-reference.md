@@ -866,6 +866,14 @@ node is handed no `$YIDAM_GRAPH`. The name is removed from the environment rathe
 so a script can test for it. What the step wrote lands as one commit on the current branch. A receipt lands with it, at
 `.yidam/runs/<step>.yml`, naming the input commit and every digest.
 
+A re-run can write the outputs it already committed. Then its receipt differs only in its input,
+and it lands no commit. It adds a line to a note on the committed receipt, in
+`refs/notes/yidam-runs`. The next run reads that note. A step whose input moved and whose answer
+did not is fresh. The JSON
+report names the note under `noted`. Notes are not fetched or pushed by default. `yidam doctor`
+warns when a clone holds them and no remote fetches them. It also warns about an output that
+contains its own input commit.
+
 Both declarations are load-bearing. The step sees what `reads` resolves to and nothing else. It
 cannot quietly depend on a file it did not name. A step that writes outside `writes` is refused,
 with nothing committed.
