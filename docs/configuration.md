@@ -362,6 +362,8 @@ property = "number"
 | `property` | The property on those instances that carries the identifier |
 | `matches` | Optional. A regular expression an identifier must match to be a member |
 | `scope` | Optional. An edge a covering instance must carry: `{ relationship, target }` |
+| `orphans` | Optional. Also report each instance whose property names no member |
+| `except` | Optional. Instances `orphans` leaves out: `{ field, matches }`, or a list of them |
 
 Give exactly one of `select` and `column`. A path ending in an array reads its elements, so
 `$.numbers` and `$.numbers[*]` select the same members. Members and properties are compared with
@@ -406,6 +408,26 @@ property = "key"
 
 A pinned registry has no TTL. When its file changes after the read, a zero gap reads as stale
 coverage. A gap found at the pin is still due.
+
+**Ask the other direction with `orphans`.** A registry that drops a key leaves the node that
+carried it. With `orphans = true`, each instance whose key no member names is listed beside the
+missing members. It respects `scope` and `matches`. A stale or empty list reads its orphans as
+not read, because it may simply predate the key.
+
+`except` leaves out instances kept on purpose. Its `field` is a property name, or `label`. An
+instance whose `field` matches is no orphan, and the detail counts it:
+
+```toml
+[[due.coverage]]
+source = "ce-gameplay-defaults"
+select = "$.entry[*].id"
+class = "engine-choice"
+property = "key"
+orphans = true
+except = { field = "label", matches = '\(retired\)$' }
+```
+
+yidam has no retired standing. The corpus says what retired means in the declaration itself.
 
 **A gap is a worklist, not a defect.** The clock never fails a gate. `--strict` treats it like
 any other due clock. Narrow a universe that lists more than this corpus means to hold.

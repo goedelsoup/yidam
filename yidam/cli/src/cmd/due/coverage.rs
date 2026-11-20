@@ -24,6 +24,12 @@
 //! `commit`, from git and not the cache, so nothing is fetched. Such an entry has no TTL. It
 //! is stale when its file changed after the read, the comparison the catalog clock makes.
 //!
+//! `orphans = true` asks the other direction too: an instance whose key no member names,
+//! left behind when the registry dropped it. Only a fit list can say that. A stale list may
+//! simply predate the key, and an empty one would make every instance an orphan, so an unfit
+//! reading reports its orphans as not read. `except` leaves out instances kept on purpose,
+//! and counts them.
+//!
 //! # Narrowing a list, and scoping a class (#1495)
 //!
 //! A published list is often wider than what a corpus covers, and a class often repeats its
@@ -95,9 +101,26 @@ pub(crate) enum Reading {
         /// Why a gap of zero here would not be a claim of coverage — the source is past its
         /// TTL, or the artifact lists nothing. `None` when the reading is fit to say zero.
         unfit: Option<String>,
+        /// The reverse direction, when the declaration asks for it.
+        orphans: Orphans,
     },
     /// Nothing could be compared, and why.
     Unread(String),
+}
+
+/// Instances of the class whose property names no member (RFC-0051 §6, #1526).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Orphans {
+    /// The declaration does not set `orphans = true`.
+    Undeclared,
+    /// The list is unfit to say what it no longer holds; see the module header.
+    Unread,
+    Found {
+        /// One line per orphan: the node and the identifier it carries.
+        nodes: Vec<String>,
+        /// Orphans `except` left out, counted so an `except` that hides too much is seen.
+        kept: usize,
+    },
 }
 
 /// The key a member is compared under: lowercase letters and digits, nothing else.
@@ -526,6 +549,29 @@ pub(crate) fn read_universe(
             Some((rel, at))
         }
     };
+    let mut except = Vec::new();
+    for t in decl.except.iter().flat_map(|e| e.tables()) {
+        let field = t.field.trim();
+        if field.is_empty() {
+            return unread(
+                String::new(),
+                "an `except` table needs a `field`: a property name, or `label`".to_string(),
+            );
+        }
+        match regex::Regex::new(t.matches.trim()) {
+            Ok(re) => except.push((field.to_string(), re)),
+            Err(e) => {
+                return unread(
+                    String::new(),
+                    format!(
+                        "`except` on `{field}` has `matches = \"{}\"`, which is not a regular \
+                         expression: {e}",
+                        t.matches.trim()
+                    ),
+                )
+            }
+        }
+    }
     let in_scope = |n: &Node| -> bool {
         let Some((rel, at)) = &scope_target else {
             return true;
@@ -580,10 +626,13 @@ pub(crate) fn read_universe(
         Err(why) => return unread(entry.clone(), format!("`{entry}` ({what}) {why}")),
     };
 
-    let covered: HashSet<String> = instances
+    let candidates: Vec<&Node> = instances
         .iter()
         .filter(|n| crate::paths::class_of_path(&n.path) == class)
         .filter(|n| in_scope(n))
+        .collect();
+    let covered: HashSet<String> = candidates
+        .iter()
         .flat_map(|n| crate::cmd::query::exec::node_scalars(n, &property))
         .filter_map(|v| key(&v))
         .collect();
@@ -592,6 +641,7 @@ pub(crate) fn read_universe(
     let mut distinct = 0usize;
     let mut excluded = 0usize;
     let mut missing = Vec::new();
+    let mut universe = HashSet::new();
     for raw in listed {
         let Some(k) = key(&raw) else { continue };
         if !seen.insert(k.clone()) {
@@ -602,6 +652,7 @@ pub(crate) fn read_universe(
             continue;
         }
         distinct += 1;
+        universe.insert(k.clone());
         if !covered.contains(&k) {
             missing.push(raw);
         }
@@ -618,6 +669,42 @@ pub(crate) fn read_universe(
         (_, Some(why)) => Some(why),
         _ => None,
     };
+    let orphans = match (decl.orphans, &unfit) {
+        (false, _) => Orphans::Undeclared,
+        (true, Some(_)) => Orphans::Unread,
+        (true, None) => {
+            let mut nodes = Vec::new();
+            let mut kept = 0usize;
+            for n in &candidates {
+                let values = crate::cmd::query::exec::node_scalars(n, &property);
+                // A value `matches` puts outside the universe names nothing the list could
+                // hold, so its instance is not an orphan of this list.
+                let named: Vec<&String> = values
+                    .iter()
+                    .filter(|v| key(v).is_some())
+                    .filter(|v| pattern.as_ref().is_none_or(|re| re.is_match(v.trim())))
+                    .collect();
+                let Some(first) = named.first() else { continue };
+                if named
+                    .iter()
+                    .any(|v| key(v).is_some_and(|k| universe.contains(&k)))
+                {
+                    continue;
+                }
+                if except.iter().any(|(field, re)| excepted(n, field, re)) {
+                    kept += 1;
+                    continue;
+                }
+                let at = n.rel.replace('\\', "/");
+                let at = at.strip_prefix(".yidam/corpus/").unwrap_or(&at).to_string();
+                nodes.push(format!(
+                    "{at} — its `{property}` `{}` is no member of {entry}",
+                    first.trim()
+                ));
+            }
+            Orphans::Found { nodes, kept }
+        }
+    };
     Universe {
         label,
         entry,
@@ -629,8 +716,24 @@ pub(crate) fn read_universe(
             missing,
             excluded,
             unfit,
+            orphans,
         },
     }
+}
+
+/// Whether an `except` table leaves `n` out: some value of `field` matches. `label` is the
+/// node's label, because a corpus may mark a retired instance nowhere else.
+fn excepted(n: &Node, field: &str, re: &regex::Regex) -> bool {
+    if field == "label" {
+        return n
+            .inst
+            .label
+            .as_deref()
+            .is_some_and(|l| re.is_match(l.trim()));
+    }
+    crate::cmd::query::exec::node_scalars(n, field)
+        .iter()
+        .any(|v| re.is_match(v.trim()))
 }
 
 /// Fold every universe into the one clock.
@@ -656,6 +759,7 @@ pub(crate) fn clock(universes: &[Universe]) -> Clock {
     let mut parts = Vec::new();
     let mut subjects = Vec::new();
     let mut unmeasured = 0usize;
+    let mut orphaned = 0usize;
     for u in universes {
         match &u.reading {
             Reading::Unread(why) => {
@@ -667,6 +771,7 @@ pub(crate) fn clock(universes: &[Universe]) -> Clock {
                 missing,
                 excluded,
                 unfit,
+                orphans,
             } => {
                 let mut p = format!(
                     "{}: {} of {listed} covered, {} missing",
@@ -676,6 +781,17 @@ pub(crate) fn clock(universes: &[Universe]) -> Clock {
                 );
                 if *excluded > 0 {
                     let _ = write!(p, ", {excluded} listed outside `matches`");
+                }
+                match orphans {
+                    Orphans::Undeclared => {}
+                    Orphans::Unread => p.push_str(", orphans not read"),
+                    Orphans::Found { nodes, kept } => {
+                        let _ = write!(p, ", {} orphan(s)", nodes.len());
+                        if *kept > 0 {
+                            let _ = write!(p, ", {kept} kept by `except`");
+                        }
+                        orphaned += nodes.len();
+                    }
                 }
                 if let Some(why) = unfit {
                     // Only a zero needs the list to be fit; see the module header.
@@ -696,23 +812,29 @@ pub(crate) fn clock(universes: &[Universe]) -> Clock {
                         u.entry, u.class, u.property
                     )
                 }));
+                if let Orphans::Found { nodes, .. } = orphans {
+                    subjects.extend(nodes.iter().cloned());
+                }
             }
         }
     }
     let detail = parts.join("; ");
 
     if !subjects.is_empty() {
+        let remedy = if orphaned == 0 {
+            "add an instance for each member below, or narrow the `[[due.coverage]]` that \
+             lists it — the gap is a worklist, not a defect"
+        } else {
+            "add an instance for each member below, re-key or name in `except` each node whose \
+             key no member names, or narrow the `[[due.coverage]]` — the gap is a worklist, \
+             not a defect"
+        };
         let mut clock = Clock::new(Clock::COVERAGE, Q, State::Due, detail)
             .at(interval)
             // Not `propose`. Whether a listed member earns a node — and what it says — is the
             // judgement; a drafted stub per member would discharge the clock with nothing
             // read. A corpus that means to cover less narrows the declaration instead.
-            .owing(
-                subjects.len(),
-                "add an instance for each member below, or narrow the `[[due.coverage]]` that \
-                 lists it — the gap is a worklist, not a defect",
-                Actor::Person,
-            );
+            .owing(subjects.len(), remedy, Actor::Person);
         clock.subjects = subjects;
         return clock;
     }
