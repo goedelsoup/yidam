@@ -149,7 +149,7 @@ pub(crate) fn resolve_commits(dir: &Path, commits: &[String]) -> Option<Vec<Look
 // ── the checks ──────────────────────────────────────────────────────────────────
 
 /// Where a pin's repository is, or why it cannot be looked in.
-enum Place {
+pub(crate) enum Place {
     Dir(PathBuf),
     Unchecked(String),
     Unresolved(String),
@@ -344,8 +344,148 @@ pub(crate) fn checks(root: &Path, sources: &[Source]) -> [Check; 5] {
     ]
 }
 
+// ── whether a read is still current (RFC-0051 §4) ──────────────────────────────
+
+/// One pinned read whose file at the reference revision is not the object it was read at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Changed {
+    /// Repo-relative path of the catalog entry.
+    pub entry: String,
+    /// The dependency the pin is in, or `None` for this repository.
+    pub repo: Option<String>,
+    pub path: String,
+    /// The commit the read names, as written.
+    pub commit: String,
+    /// The reference revision's commit, in full.
+    pub now: String,
+    /// Commits between the two that touched `path`, when git could count them.
+    pub commits: Option<u64>,
+    /// The file is absent at the reference revision.
+    pub gone: bool,
+}
+
+impl Changed {
+    /// The catalog clock's line: what changed and since when, never how long ago.
+    pub(crate) fn line(&self) -> String {
+        let stem = Path::new(&self.entry)
+            .file_stem()
+            .map_or_else(|| self.entry.clone(), |s| s.to_string_lossy().into_owned());
+        let path = match &self.repo {
+            Some(r) => format!("{r}:{}", self.path),
+            None => self.path.clone(),
+        };
+        let since = self.commit.get(..7).unwrap_or(&self.commit);
+        let now = self.now.get(..8).unwrap_or(&self.now);
+        let what = match (self.gone, self.commits) {
+            (true, _) => "is gone".to_string(),
+            (false, Some(n)) => format!("changed in {n} commit{}", if n == 1 { "" } else { "s" }),
+            (false, None) => "changed".to_string(),
+        };
+        format!("{stem} — {path} {what} since {since} (now {now})")
+    }
+}
+
+/// Every pinned read in `sources`, measured against its reference revision.
+#[derive(Debug, Default)]
+pub(crate) struct Staleness {
+    /// Pins whose object was compared.
+    pub pinned: usize,
+    pub changed: Vec<Changed>,
+    /// Pins that could not be compared: a bad shape, a missing commit or path, a shallow
+    /// clone, or a dependency with no checkout. Lint names each one; this only counts them.
+    pub unread: usize,
+}
+
+/// The revision a pin in `repo` is read against: `HEAD` for this repository, the tonpa `rev`
+/// for a dependency, and that checkout's `HEAD` when the dependency pins no `rev`.
+fn reference(repo: Option<&str>, config: &crate::deps::TonpaConfig) -> String {
+    repo.and_then(|r| config.dependencies.get(r))
+        .and_then(|d| d.rev.as_deref())
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
+        .unwrap_or("HEAD")
+        .to_string()
+}
+
+/// Compare every pinned read with its file at the reference revision, with one git process
+/// per repository and one more per changed pin to count the commits.
+pub(crate) fn staleness(root: &Path, sources: &[Source]) -> Staleness {
+    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
+    let mut out = Staleness::default();
+    let mut by_repo: BTreeMap<Option<String>, Vec<(&str, String, String)>> = BTreeMap::new();
+    for s in sources {
+        for loc in s.locations.iter().filter(|l| l.is_pinned()) {
+            match shape(loc) {
+                Ok((commit, path)) => by_repo
+                    .entry(loc.repo.clone())
+                    .or_default()
+                    .push((&s.rel, commit, path)),
+                Err(_) => out.unread += 1,
+            }
+        }
+    }
+    for (repo, pins) in by_repo {
+        let Place::Dir(dir) = place(root, repo.as_deref(), &config) else {
+            out.unread += pins.len();
+            continue;
+        };
+        let at = reference(repo.as_deref(), &config);
+        let queries: Vec<Query> = pins
+            .iter()
+            .flat_map(|(_, commit, path)| {
+                [commit.clone(), at.clone()].map(|commit| Query {
+                    commit,
+                    path: path.clone(),
+                    contents: false,
+                })
+            })
+            .collect();
+        let Some(answers) = resolve(&dir, &queries) else {
+            out.unread += pins.len();
+            continue;
+        };
+        for ((rel, commit, path), pair) in pins.iter().zip(answers.chunks(2)) {
+            let [read, current] = pair else {
+                out.unread += 1;
+                continue;
+            };
+            let (Lookup::Found { oid: was, .. }, Lookup::Found { oid: now, .. }) =
+                (&read.object, &current.commit)
+            else {
+                out.unread += 1;
+                continue;
+            };
+            out.pinned += 1;
+            let gone = !matches!(current.object, Lookup::Found { .. });
+            if let Lookup::Found { oid, .. } = &current.object {
+                if oid == was {
+                    continue;
+                }
+            }
+            let commits = crate::git::Git::new(&dir)
+                .args(["rev-list", "--count"])
+                .rev(format!("{commit}..{now}"))
+                .paths([path])
+                .try_run()
+                .and_then(|n| n.trim().parse().ok());
+            out.changed.push(Changed {
+                entry: rel.to_string(),
+                repo: repo.clone(),
+                path: path.clone(),
+                commit: commit.clone(),
+                now: now.clone(),
+                commits,
+                gone,
+            });
+        }
+    }
+    out.changed
+        .sort_by(|a, b| (&a.entry, &a.repo, &a.path).cmp(&(&b.entry, &b.repo, &b.path)));
+    out
+}
+
 /// The commit and the normalized path of a pin, or why its shape is wrong.
-fn shape(loc: &CatalogLocation) -> Result<(String, String), String> {
+pub(crate) fn shape(loc: &CatalogLocation) -> Result<(String, String), String> {
     let kind = loc.kind.as_deref().unwrap_or("");
     if kind != "file" {
         return Err(format!(
@@ -385,7 +525,7 @@ fn shape(loc: &CatalogLocation) -> Result<(String, String), String> {
 }
 
 /// Where the repository a pin names lives.
-fn place(root: &Path, repo: Option<&str>, config: &crate::deps::TonpaConfig) -> Place {
+pub(crate) fn place(root: &Path, repo: Option<&str>, config: &crate::deps::TonpaConfig) -> Place {
     let Some(name) = repo else {
         return Place::Dir(root.to_path_buf());
     };

@@ -161,10 +161,19 @@ pub fn ages(
                 retrieved,
                 dated,
                 age_days,
-                ttl_days: s.ttl_days.or(default_ttl),
+                // A pinned read is measured by change (RFC-0051 §4), so an entry whose every
+                // location is pinned has no TTL: unchanged code is current however old.
+                ttl_days: (!pinned_only(s))
+                    .then(|| s.ttl_days.or(default_ttl))
+                    .flatten(),
             }
         })
         .collect()
+}
+
+/// Whether every location `s` declares is a pinned read, so none of it ages.
+pub(crate) fn pinned_only(s: &crate::corpus::Source) -> bool {
+    !s.locations.is_empty() && s.locations.iter().all(|l| l.is_pinned())
 }
 
 #[cfg(test)]
@@ -242,6 +251,32 @@ mod tests {
         );
         assert_eq!(a[0].overdue_days(), None);
         assert!(!a[0].undatable());
+    }
+
+    /// A read of code is measured by change, so no TTL reaches an entry that only pins.
+    #[test]
+    fn a_pinned_only_entry_has_no_ttl() {
+        let committed = HashMap::from([("a.md".to_string(), "1999-01-01".to_string())]);
+        let pin = crate::parse::CatalogLocation {
+            kind: Some("file".into()),
+            value: Some("src/lib.rs".into()),
+            commit: Some("86ba7d0".into()),
+            ..Default::default()
+        };
+        let mut s = source("a.md", None, Some(30));
+        s.locations = vec![pin];
+        let a = ages(std::slice::from_ref(&s), &committed, Some(30), "2026-08-26");
+        assert_eq!(a[0].ttl_days, None);
+        assert_eq!(a[0].overdue_days(), None);
+
+        // One unpinned location still ages, so the entry keeps its TTL.
+        s.locations.push(crate::parse::CatalogLocation {
+            kind: Some("url".into()),
+            value: Some("https://example.org".into()),
+            ..Default::default()
+        });
+        let a = ages(&[s], &committed, Some(30), "2026-08-26");
+        assert_eq!(a[0].ttl_days, Some(30));
     }
 
     /// The entry's own TTL beats the corpus default: a statute and a gauge record do not age

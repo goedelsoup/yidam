@@ -55,7 +55,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::corpus::{normalize, Corpus};
-use crate::parse::{parse_frontmatter, CatalogArtifact};
+use crate::parse::{parse_frontmatter, CatalogArtifact, CatalogLocation};
 use crate::paths::yidam_catalog_dir;
 use crate::walk::walk_md_files;
 
@@ -64,8 +64,9 @@ use crate::walk::walk_md_files;
 pub(crate) struct Superseded {
     /// The catalog entry's file stem.
     pub entry: String,
-    /// The digest the superseding commit recorded.
-    pub digest: String,
+    /// What the superseding commit recorded, for display: `sha256:<12 digits>` for a new
+    /// digest, or `` `path` at <8 digits> `` for a pinned read moved onto changed code.
+    pub version: String,
     /// The commit that recorded it.
     pub commit: String,
     /// Its commit date, as days since the epoch.
@@ -79,8 +80,8 @@ pub(crate) struct Superseded {
 pub(crate) struct Reading {
     /// Entries owed a re-read, with at least one node each.
     pub superseded: Vec<Superseded>,
-    /// Entries whose working tree holds more than one version of some origin — the ones whose
-    /// history was read.
+    /// Entries whose working tree holds more than one version of some origin, or a pinned
+    /// read — the ones whose history was read.
     pub versioned: usize,
     /// Of those, the entries whose history could not be read.
     pub unread: usize,
@@ -143,6 +144,104 @@ pub(crate) struct Revision {
     pub commit: String,
     pub day: i64,
     pub artifacts: Vec<CatalogArtifact>,
+    pub locations: Vec<CatalogLocation>,
+}
+
+/// A pinned read whose `commit` moved between two revisions of an entry (RFC-0051 §4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Move {
+    /// The index in the history of the revision that moved it.
+    pub at: usize,
+    pub repo: Option<String>,
+    pub path: String,
+    pub from: String,
+    pub to: String,
+}
+
+/// Every move of a pinned read's `commit`, oldest first.
+///
+/// A pin is one read of one file in one repository, so it is matched across revisions by
+/// `repo` and path. A pin seen for the first time is a first read and moves nothing, and a
+/// pin whose shape lint rejects is not a read at all.
+pub(crate) fn pin_moves(history: &[Revision]) -> Vec<Move> {
+    let mut last: HashMap<(Option<String>, String), String> = HashMap::new();
+    let mut moves = Vec::new();
+    for (at, rev) in history.iter().enumerate() {
+        for loc in &rev.locations {
+            let Ok((commit, path)) = crate::cmd::lint::pins::shape(loc) else {
+                continue;
+            };
+            let key = (loc.repo.clone(), path.clone());
+            if let Some(from) = last.get(&key).filter(|from| **from != commit) {
+                moves.push(Move {
+                    at,
+                    repo: loc.repo.clone(),
+                    path,
+                    from: from.clone(),
+                    to: commit.clone(),
+                });
+            }
+            last.insert(key, commit);
+        }
+    }
+    moves
+}
+
+/// The latest move whose two commits hold different objects, which is the only move that is
+/// a new edition: re-dating a read of unchanged code supersedes nothing.
+///
+/// `Err` when some later move could not be compared, because a clone that cannot see a
+/// commit has not shown the code is unchanged.
+fn latest_changed_move<'a>(
+    root: &Path,
+    moves: &'a [Move],
+    config: &crate::deps::TonpaConfig,
+) -> Result<Option<&'a Move>, ()> {
+    use crate::cmd::lint::pins::{place, resolve, Lookup, Place, Query};
+    let mut objects: HashMap<(Option<String>, String, String), Option<String>> = HashMap::new();
+    let mut by_repo: HashMap<Option<String>, Vec<&Move>> = HashMap::new();
+    for m in moves {
+        by_repo.entry(m.repo.clone()).or_default().push(m);
+    }
+    for (repo, ms) in by_repo {
+        let Place::Dir(dir) = place(root, repo.as_deref(), config) else {
+            continue;
+        };
+        let queries: Vec<Query> = ms
+            .iter()
+            .flat_map(|m| {
+                [&m.from, &m.to].map(|c| Query {
+                    commit: c.clone(),
+                    path: m.path.clone(),
+                    contents: false,
+                })
+            })
+            .collect();
+        let Some(answers) = resolve(&dir, &queries) else {
+            continue;
+        };
+        for (q, a) in queries.iter().zip(answers) {
+            let oid = match a.object {
+                Lookup::Found { oid, .. } => Some(oid),
+                _ => None,
+            };
+            objects.insert((repo.clone(), q.commit.clone(), q.path.clone()), oid);
+        }
+    }
+    let object = |m: &Move, c: &String| {
+        objects
+            .get(&(m.repo.clone(), c.clone(), m.path.clone()))
+            .cloned()
+            .flatten()
+    };
+    for m in moves.iter().rev() {
+        match (object(m, &m.from), object(m, &m.to)) {
+            (Some(a), Some(b)) if a == b => continue,
+            (Some(_), Some(_)) => return Ok(Some(m)),
+            _ => return Err(()),
+        }
+    }
+    Ok(None)
 }
 
 /// The latest commit that recorded a new version, and the digest it recorded.
@@ -182,6 +281,9 @@ pub(crate) fn latest_supersession(history: &[Revision]) -> Option<(&Revision, St
 /// the one that deleted it — contributes nothing rather than an empty set, which would read
 /// a later restore as every digest arriving at once.
 ///
+/// Each revision's text is read in one `cat-file` process for the whole history, not one
+/// `git show` per commit.
+///
 /// `None` when git cannot answer at all.
 fn history(root: &Path, rel: &str) -> Option<Vec<Revision>> {
     let text = crate::git::Git::new(root)
@@ -209,18 +311,26 @@ fn history(root: &Path, rel: &str) -> Option<Vec<Revision>> {
         }
     }
     touched.reverse();
+    let queries: Vec<crate::cmd::lint::pins::Query> = touched
+        .iter()
+        .map(|(commit, _, path)| crate::cmd::lint::pins::Query {
+            commit: commit.clone(),
+            path: path.clone(),
+            contents: true,
+        })
+        .collect();
+    let answers = crate::cmd::lint::pins::resolve(root, &queries)?;
     Some(
         touched
             .into_iter()
-            .filter_map(|(commit, day, path)| {
-                let text = crate::git::Git::new(root)
-                    .arg("show")
-                    .rev(format!("{commit}:{path}"))
-                    .try_run()?;
+            .zip(answers)
+            .filter_map(|((commit, day, _), a)| {
+                let fm = parse_frontmatter(&a.text?);
                 Some(Revision {
                     commit,
                     day,
-                    artifacts: parse_frontmatter(&text).artifacts.unwrap_or_default(),
+                    artifacts: fm.artifacts.unwrap_or_default(),
+                    locations: fm.location.unwrap_or_default(),
                 })
             })
             .collect(),
@@ -269,8 +379,14 @@ pub(crate) fn read(root: &Path) -> Reading {
         .filter(|p| p.file_name().is_some_and(|n| n != "README.md"))
         .filter_map(|p| {
             let text = std::fs::read_to_string(&p).ok()?;
-            let held = parse_frontmatter(&text).artifacts.unwrap_or_default();
-            has_versions(&held).then_some((p, held))
+            let fm = parse_frontmatter(&text);
+            let held = fm.artifacts.unwrap_or_default();
+            let pinned = fm
+                .location
+                .unwrap_or_default()
+                .iter()
+                .any(|l| l.is_pinned());
+            (has_versions(&held) || pinned).then_some((p, held))
         })
         .collect();
 
@@ -282,6 +398,7 @@ pub(crate) fn read(root: &Path) -> Reading {
         return out;
     }
     let citing = citing_nodes(root);
+    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
 
     for (path, _) in entries {
         let rel = path
@@ -295,7 +412,37 @@ pub(crate) fn read(root: &Path) -> Reading {
         };
         // Held in the working tree and in no commit: not yet a version anything was read
         // against, and a `refresh:` commit is what makes it one.
-        let Some((rev, digest)) = latest_supersession(&history) else {
+        let digested = latest_supersession(&history).map(|(rev, digest)| {
+            let at = history
+                .iter()
+                .position(|r| std::ptr::eq(r, rev))
+                .unwrap_or_default();
+            (
+                at,
+                format!("sha256:{}", digest.get(..12).unwrap_or(&digest)),
+            )
+        });
+        let moves = pin_moves(&history);
+        let Ok(moved) = latest_changed_move(root, &moves, &config) else {
+            out.unread += 1;
+            continue;
+        };
+        let moved = moved.map(|m| {
+            let path = match &m.repo {
+                Some(r) => format!("{r}:{}", m.path),
+                None => m.path.clone(),
+            };
+            (
+                m.at,
+                format!("`{path}` at {}", m.to.get(..8).unwrap_or(&m.to)),
+            )
+        });
+        // The later of the two events, so a node touched after the last one owes nothing.
+        let Some((at, version)) = digested.into_iter().chain(moved).max_by_key(|(at, _)| *at)
+        else {
+            continue;
+        };
+        let Some(rev) = history.get(at) else {
             continue;
         };
         let nodes = citing.get(&normalize(&path)).cloned().unwrap_or_default();
@@ -314,7 +461,7 @@ pub(crate) fn read(root: &Path) -> Reading {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string(),
-            digest,
+            version,
             commit: rev.commit.clone(),
             day: rev.day,
             nodes: owed,
@@ -349,6 +496,7 @@ mod tests {
             commit: commit.to_string(),
             day: 0,
             artifacts,
+            locations: Vec::new(),
         }
     }
 
