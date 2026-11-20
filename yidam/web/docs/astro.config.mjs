@@ -189,6 +189,7 @@ const sidebar = [
       { slug: 'rfcs/0049-warehouse-contract', label: '0049 · Warehouse contract' },
       { slug: 'rfcs/0050-list-property-type', label: '0050 · A list property type' },
       { slug: 'rfcs/0051-code-artifact-pin', label: '0051 · The code-artifact pin' },
+      { slug: 'rfcs/0052-receipt-revalidation', label: '0052 · Receipt re-validation' },
     ],
   },
   {
