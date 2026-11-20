@@ -131,6 +131,12 @@ pub enum Operation {
     /// Migrates data, as [`Self::References`] does, and for the same reason. See
     /// [`crate::cmd::migrate_locations`].
     Locations,
+    /// Every unpinned `file` location whose entry dates its read in prose gains `commit:`, and
+    /// `repo:` for a sibling's commit (RFC-0051 §7).
+    ///
+    /// Migrates data, as [`Self::Locations`] does, and for the same reason. See
+    /// [`crate::cmd::migrate_pins`].
+    Pins,
 }
 
 impl Operation {
@@ -147,6 +153,7 @@ impl Operation {
             Self::Routes => "routes",
             Self::Scaffold => "scaffold",
             Self::Locations => "locations",
+            Self::Pins => "pins",
         }
     }
 
@@ -189,6 +196,8 @@ impl Operation {
                 .to_string(),
             // A stable form that does not begin with the operation's own name, as above.
             Self::Locations => "doi and pmc catalog locations into identifiers".to_string(),
+            // A stable form that does not begin with the operation's own name, as above.
+            Self::Pins => "reads dated in catalog prose into commit pins".to_string(),
         }
     }
 }
@@ -275,7 +284,7 @@ fn slash(p: &Path) -> String {
 }
 
 impl MigrateReport {
-    fn new(root: &Path, corpus: &Path, op: &Operation) -> Self {
+    pub(super) fn new(root: &Path, corpus: &Path, op: &Operation) -> Self {
         Self {
             corpus_dir: slash(corpus.strip_prefix(root).unwrap_or(corpus)),
             operation: op.kind(),
@@ -516,6 +525,7 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
             report.summary = super::migrate_scaffold::summary(&report);
         }
         Operation::Locations => super::migrate_locations::plan(root, &mut report),
+        Operation::Pins => super::migrate_pins::plan(root, &mut report),
     }
     if report.blocked.is_empty() {
         // A reference lift's unit of work is a reference and not an edit: only the tags it
@@ -558,6 +568,19 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
             (
                 super::migrate_locations::rewritten(&report),
                 "location",
+                report
+                    .edits
+                    .iter()
+                    .map(|e| e.file.as_str())
+                    .collect::<BTreeSet<_>>()
+                    .len(),
+            )
+        } else if matches!(op, Operation::Pins) {
+            // One or two inserted lines per location: counting them would report a number that
+            // means neither.
+            (
+                super::migrate_pins::pinned(&report),
+                "pin",
                 report
                     .edits
                     .iter()
@@ -1460,6 +1483,15 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
         let written = super::migrate_scaffold::apply(root, report)?;
         return write_record(root, op, report, written);
     }
+    // A pin inserts lines below a `value:`, which a one-for-one line edit cannot express: the
+    // same escape as the routes migration's. Nothing to pin writes no record, as below.
+    if matches!(op, Operation::Pins) {
+        if report.edits.is_empty() {
+            return Ok(());
+        }
+        let written = super::migrate_pins::apply(root, report)?;
+        return write_record(root, op, report, written);
+    }
     // Nothing to rewrite writes no record: run twice, the second run is a no-op, not an event.
     if matches!(op, Operation::Locations) && report.edits.is_empty() {
         return Ok(());
@@ -1627,6 +1659,9 @@ pub(crate) fn render_migrate(r: &MigrateReport) -> String {
     if matches!(r.operation, "locations") {
         return render_locations(r);
     }
+    if matches!(r.operation, "pins") {
+        return render_pins(r);
+    }
     let mut out = format!(
         "{} {}\n{} edit(s) across {} file(s)\n",
         if r.applied {
@@ -1722,6 +1757,62 @@ fn render_locations(r: &MigrateReport) -> String {
             out,
             "\n{} location(s) NOT rewritten — `catalog-location-malformed` still reports \
              these:\n",
+            r.unhandled.len()
+        );
+        for u in &r.unhandled {
+            let _ = writeln!(out, "  {}:{}  {}", u.file, u.line, u.text);
+        }
+    }
+    if n == 0 {
+        return out.trim_end().to_string();
+    }
+    if !r.record.is_empty() {
+        let _ = write!(out, "\nrecord: {}", r.record);
+    }
+    let _ = write!(out, "\ncommit: {}", r.commit_subject);
+    out.trim_end().to_string()
+}
+
+/// A pins migration, one line per location rather than one per inserted line.
+fn render_pins(r: &MigrateReport) -> String {
+    let n = super::migrate_pins::pinned(r);
+    let mut out = if n == 0 {
+        // Not "would migrate 0": this ran, and found nothing to pin.
+        "Nothing to migrate — no unpinned `file` location has a read its entry dates at a \
+         commit that resolves.\n"
+            .to_string()
+    } else {
+        format!(
+            "{} {}\n{n} location(s) across {} entr(ies)\n",
+            if r.applied {
+                "Migrated"
+            } else {
+                "Would migrate"
+            },
+            r.summary,
+            r.edits
+                .iter()
+                .map(|e| e.file.as_str())
+                .collect::<BTreeSet<_>>()
+                .len()
+        )
+    };
+    let mut lines: Vec<(&str, usize, String)> = Vec::new();
+    for e in &r.edits {
+        match lines.last_mut() {
+            Some((f, l, text)) if *f == e.file && *l == e.line && e.to.starts_with("repo: ") => {
+                let _ = write!(text, ", {}", e.to);
+            }
+            _ => lines.push((&e.file, e.line, e.to.clone())),
+        }
+    }
+    for (file, line, text) in lines {
+        let _ = writeln!(out, "  {file}:{line}  {text}");
+    }
+    if !r.unhandled.is_empty() {
+        let _ = write!(
+            out,
+            "\n{} location(s) left unpinned — the reason is on each:\n",
             r.unhandled.len()
         );
         for u in &r.unhandled {

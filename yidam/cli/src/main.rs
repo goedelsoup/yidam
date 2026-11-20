@@ -1494,6 +1494,15 @@ enum MigrateCommand {
     /// location written as a flow mapping, is reported and left as written. Idempotent; run it
     /// with `--dry-run` first.
     Locations,
+    /// Pin every catalog read of code that its entry dates in prose, as `commit:` and `repo:`
+    ///
+    /// RFC-0051 gave a `file` location a `commit` to be read at. For each one without it, the
+    /// last "read at <commit>" or "read again at <commit>" in the entry's body is written as
+    /// `commit:`, in full, if it resolves here, or as `commit:` and `repo:` if it resolves in
+    /// exactly one `path` dependency, and only if `value` exists at it. The prose is left as
+    /// written. An entry that dates nothing, or a commit that resolves nowhere, is listed with
+    /// the reason. Idempotent; run it with `--dry-run` first.
+    Pins,
     /// Point a declared relationship at a different class, at both ends
     Edge {
         /// The class that declares it
@@ -1537,6 +1546,7 @@ impl From<MigrateCommand> for yidam::MigrateOperation {
             MigrateCommand::Routes => Self::Routes,
             MigrateCommand::Scaffold => Self::Scaffold,
             MigrateCommand::Locations => Self::Locations,
+            MigrateCommand::Pins => Self::Pins,
             MigrateCommand::Edge {
                 class,
                 relationship,
