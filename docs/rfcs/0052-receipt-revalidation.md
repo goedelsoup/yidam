@@ -106,15 +106,18 @@ fails.
 ### 2.1 The record: a note on the committed receipt
 
 A re-validation is written to the notes ref `refs/notes/yidam-runs`. The note is attached to the
-object id of the committed receipt blob, the one at `<parent>:.yidam/runs/<step>.yml`, and holds
-YAML:
+object id of the committed receipt blob, the one at `<parent>:.yidam/runs/<step>.yml`. It holds
+one line per entry:
 
-```yaml
-format_version: 1
-reproduced:
-  - input_state: 9f2c…   # the state that was run
-    input_commit: c96a1dd…  # the head it was run at
+```text
+format_version 1
+reproduced 9f2c… c96a1dd…
 ```
+
+Each `reproduced` line names the input state that was run, then the head it was run at. The
+format is lines, not YAML, so that two copies of a note merge by sorting their lines and
+dropping duplicates (§2.4). `format_version` sorts ahead of `reproduced`, so a merged note still
+opens with it.
 
 A note is attached to the blob, not to a commit, for three reasons:
 
@@ -133,11 +136,26 @@ date, written by git, which is the date §2.3 reads.
 
 ### 2.2 What `run` does
 
-When a step that is not fresh runs and `outputs_already_committed` is true, and the route is the
-branch (not a proposal, §2.5), `run`:
+A step that is not fresh runs. It reproduced the committed receipt when all three of these hold:
+
+- the parent holds a receipt for the step;
+- `outputs_already_committed` is true, so every file it produced is the parent's bytes;
+- the receipt it would write equals the parent's receipt in every field outside `input_state`
+  and `input`.
+
+The third test is the one that matters. Identical bytes are not enough. A receipt also records
+what produced the output and which files it wrote: `format_version`, `outputs`, `version`,
+`model`, `config` and `image_digest`. None of these is in the input state. After a CLI upgrade,
+a gluon step's `version` moves while its bytes stay the same. A step that wrote three files and
+now writes two passes `outputs_already_committed`, because both files match, but its `outputs`
+list changed. In either case the committed receipt would no longer be true, so the run commits
+it, as now. The fields this test leaves out are the ones a re-validation is expected to move:
+the input state, the head, and the digests of what was read.
+
+When the step reproduced the receipt, and the route is the branch (not a proposal, §2.5), `run`:
 
 1. writes no commit to the branch;
-2. appends `{input_state, input_commit}` to the note on the parent's receipt blob, as one commit
+2. appends a `reproduced` line to the note on the parent's receipt blob, as one commit
    to `refs/notes/yidam-runs`, with the same compare-and-swap on the notes ref that `commit` uses
    on the branch;
 3. reports the step as `Ran`, `unchanged_outputs: true`, `committed: None`, and names the note.
@@ -145,7 +163,9 @@ branch (not a proposal, §2.5), `run`:
 The summary line counts it as a step that ran with no commit written, which is the shape #1162
 gave a proposal that reproduced itself.
 
-When any output differs, nothing changes: the outputs and the receipt land as one commit, as now.
+When any of the three fails, nothing changes: the outputs and the receipt land as one commit, as
+now. That includes a parent with outputs but no receipt, where there is no blob to attach a note
+to.
 
 ### 2.3 What freshness reads
 
@@ -172,9 +192,29 @@ something is fresh that is not, which is the direction `freshness` already choos
 cannot read. `doctor` on such a clone reports the step stale, which is today's answer.
 
 `yidam run` pushes nothing today, and does not start pushing here. Sharing the notes ref between
-clones and CI is a refspec the corpus adds (`+refs/notes/yidam-runs:refs/notes/yidam-runs`). A
-missing note leaves no trace, so `doctor` cannot tell that a clone lacks one. What it can see is
-a local `refs/notes/yidam-runs` with no remote fetch refspec covering it, and it warns about that
+clones and CI is something the corpus sets up. Two clones that each re-run a step write two notes
+commits on two histories, so the ref diverges as soon as it is shared. Fetching straight into
+`refs/notes/yidam-runs` cannot work. A forced refspec replaces the local ref and loses the local
+entries. An unforced one is refused as non-fast-forward. So the corpus fetches into a ref of its
+own and merges:
+
+```sh
+git fetch origin refs/notes/yidam-runs:refs/notes-remote/origin/yidam-runs
+git notes --ref=yidam-runs merge -s cat_sort_uniq refs/notes-remote/origin/yidam-runs
+git push origin refs/notes/yidam-runs
+```
+
+`cat_sort_uniq` joins the two copies of a note, sorts the lines and drops repeated ones. This is
+why §2.1 writes a note as lines. A push that is refused because the remote moved is the same
+fetch and merge, then the push again. Merging keeps every entry from both sides, and an entry
+only ever says that a state reproduced a receipt, so the union is as true as either side.
+
+The merge is itself a notes commit, dated when the merge ran, not when the run did. `aged`
+therefore reads the date from the latest notes commit that is not a merge (`git log --no-merges`).
+The remote's own commits arrive as the merge's parents, with their own dates.
+
+A missing note leaves no trace, so `doctor` cannot tell that a clone lacks one. What it can see is
+a local `refs/notes/yidam-runs` that no remote fetch refspec reads from, and it warns about that
 once per repository. See Open questions.
 
 ### 2.5 The proposal route
@@ -269,5 +309,7 @@ the variable is for, and on not echoing it into an output.
   entry for the lander to append.
 - **Pruning.** A note grows by one entry per reproduced run, and stops growing when an output
   changes. Is that small enough to leave unbounded, or should a note keep only its latest entries?
+  A merged note is sorted, not in the order its entries were written, so "latest" would have to
+  be read from the dates of the commits each entry names.
 - **The doctor check's reach.** Matching the full 40-character commit is exact but misses a short
   stamp. Is a short sha worth the false matches?
