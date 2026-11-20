@@ -746,6 +746,10 @@ and `$YIDAM_INPUT_COMMIT` — and, when its `reads` admit any corpus node, a fif
 names a file holding the corpus as `yidam` itself parsed it. Node classes, labels and properties,
 and every link with its target already resolved to a repository-relative path.
 
+`$YIDAM_INPUT_COMMIT` is for a step that reads history or names what it measured. Do not write it
+into an output: the receipt already records it, and an output that carries it is new at every run,
+so a re-run can never show that the answer held.
+
 **A step that is handed bytes parses them, and a second parser is a second answer.** The reason
 this is in the contract rather than left to each calculator is that the alternative is not
 hypothetical: `travel-tier` used to carry a regex over node YAML and an awk re-implementation of

@@ -169,6 +169,7 @@ impl Check {
     const SCAFFOLD: &'static str = "scaffold";
     const CI: &'static str = "ci";
     const COMPUTED: &'static str = "computed";
+    const STAMPS: &'static str = "run-output-stamps-input-commit";
     const BUILD: &'static str = "build";
     const CATALOG: &'static str = "catalog";
     const CORPORA: &'static str = "corpora";
@@ -709,6 +710,23 @@ fn check_computed(root: &Path) -> Answer {
         return Answer::warn(enumerate(&stale, "step"), Some(RUN));
     }
 
+    // Last, so it never hides a finding about the answers themselves: it is about whether
+    // another clone can see that they were re-checked (RFC-0052 §2.4).
+    if crate::cmd::run::notes::unshared(root) {
+        return Answer::warn(
+            format!(
+                "{} holds re-runs that reproduced their receipts, and no remote's fetch refspec \
+                 reads it, so another clone re-runs those steps",
+                crate::cmd::run::notes::REF
+            ),
+            Some(
+                "git fetch origin refs/notes/yidam-runs:refs/notes-remote/origin/yidam-runs, \
+                 then git notes --ref=yidam-runs merge -s cat_sort_uniq \
+                 refs/notes-remote/origin/yidam-runs, then git push origin refs/notes/yidam-runs",
+            ),
+        );
+    }
+
     Answer::ok(format!(
         "{} file(s) carry {} signal(s) on {} node(s); {} step(s) fresh{}",
         signals.files.len(),
@@ -720,6 +738,32 @@ fn check_computed(root: &Path) -> Answer {
             false => format!(" — {}", signals.names().join(", ")),
         }
     ))
+}
+
+/// Does any committed output stamp the commit its inputs came from? (RFC-0052 §2.6)
+///
+/// `warn` and never `fail`: the stamp is not wrong, it is costly. An output that contains its
+/// receipt's `input.commit` is new bytes at every run, so a re-run can never reproduce its
+/// receipt, every re-check lands a commit, and a reader cannot tell from the log whether the
+/// answer moved. The receipt already records the commit. `YIDAM_INPUT_COMMIT` is exported for a
+/// step that needs to read history or name what it measured, not to be echoed into an output.
+fn check_stamps(root: &Path) -> Answer {
+    match crate::cmd::run::stamped(root) {
+        Ok(found) if found.is_empty() => {
+            Answer::ok("no committed output contains the commit its receipt was computed from")
+        }
+        Ok(found) => Answer::warn(
+            format!(
+                "{} — each contains its receipt's `input.commit`, so every run of it is new \
+                 bytes and none can reproduce its receipt",
+                enumerate(&found, "output")
+            ),
+            Some("stop writing YIDAM_INPUT_COMMIT into the output; the receipt already records it"),
+        ),
+        Err(e) => Answer::skipped(format!(
+            "the capability manifest could not be read, so no receipt was found to compare: {e:#}"
+        )),
+    }
 }
 
 /// `n thing(s): a, b, c` with the tail elided, for a detail line that has to stay one line.
@@ -1179,6 +1223,12 @@ const ROSTER: &[Question] = &[
         text: "What has this corpus computed about itself, and does it still stand?",
         asked: Asked::OfARepository,
         answer: |s| check_computed(&s.root),
+    },
+    Question {
+        id: Check::STAMPS,
+        text: "Does any committed output stamp the commit its inputs came from?",
+        asked: Asked::OfARepository,
+        answer: |s| check_stamps(&s.root),
     },
     Question {
         id: Check::REGEN,

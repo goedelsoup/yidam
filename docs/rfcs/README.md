@@ -82,7 +82,7 @@ re-deriving it.
 | [0049](0049-warehouse-contract.md) | I36 | The ontology is the schema a pipeline loads, and the semantic layer reads (warehouse contract and the `textql` export) | Draft |
 | [0050](0050-list-property-type.md) | G14 | A list property type — scalar items, and records that carry their own standing | Draft |
 | [0051](0051-code-artifact-pin.md) | I37 | A read of code names the commit it was read at, and the repository that commit is in (the code-artifact pin) | Implemented |
-| [0052](0052-receipt-revalidation.md) | I38 | A re-run that reproduces its outputs is recorded, not committed (receipt re-validation) | Draft |
+| [0052](0052-receipt-revalidation.md) | I38 | A re-run that reproduces its outputs is recorded, not committed (receipt re-validation) | Implemented |
 
 ## Reading order
 

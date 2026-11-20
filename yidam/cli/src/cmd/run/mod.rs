@@ -66,6 +66,7 @@
 
 pub mod exec;
 pub mod manifest;
+pub mod notes;
 pub mod receipt;
 /// The resolved corpus a step is handed beside its bytes (#1080).
 pub mod resolved;
@@ -178,17 +179,21 @@ pub struct StepReport {
     pub receipt: String,
     /// The ref that moved, and the commit written — absent when the step changed nothing.
     pub committed: Option<Committed>,
+    /// The note written in place of a commit, where the step reproduced its committed receipt
+    /// (RFC-0052). `None` for every other step, including one that committed.
+    pub noted: Option<notes::Noted>,
     /// Whether the step ran and produced the bytes that were already committed.
     ///
     /// The ordinary result of an ageing rule firing over something whose answer had not moved,
-    /// and a materially different event from a step that recomputed and found a change. On the
-    /// branch, the commit that lands carries a new receipt and the same outputs, which is the
-    /// record of *having looked*. On a proposal it is not recorded (#1162). The receipt names
-    /// the head the inputs came from, which has not moved, so it reproduces the proposal
-    /// already there and no commit lands. `cmd/due.rs` draws the same distinction about a
-    /// source's TTL — *"An expiry does not claim the upstream changed. It claims nobody has
-    /// looked."* A report
-    /// that said `wrote` here would be claiming the first thing while recording the second.
+    /// or of an input moving without effect, and a materially different event from a step that
+    /// recomputed and found a change. Where the receipt it would write says what the committed
+    /// one says outside the input state, no commit lands: the re-run is a line in the note on
+    /// the committed receipt, which is the record of *having looked* ([`Self::noted`]). On a
+    /// pending proposal it is not recorded (#1162): the receipt names the head the inputs came
+    /// from, which has not moved, so it reproduces the proposal already there and no commit
+    /// lands. `cmd/due.rs` draws the same distinction about a source's TTL — *"An expiry does
+    /// not claim the upstream changed. It claims nobody has looked."* A report that said
+    /// `wrote` here would be claiming the first thing while recording the second.
     pub unchanged_outputs: bool,
     /// Anything the step said on stderr, kept because a calculator's own account of what it
     /// did is evidence and the commit does not carry it.
@@ -206,10 +211,9 @@ pub struct RunReport {
     pub steps: Vec<StepReport>,
     pub ran: usize,
     pub skipped: usize,
-    /// How many steps landed a commit. Never more than `ran`, and fewer when an epistemic
-    /// step re-run under an ageing rule reproduced the proposal already on `propose/<head>`.
-    /// On the branch an aged re-run lands: the last run's own commit is now the head, so the
-    /// new receipt names a different commit from the old one.
+    /// How many steps landed a commit. Never more than `ran`, and fewer when a step reproduced
+    /// its committed receipt and wrote a note instead (RFC-0052), or when an epistemic step
+    /// reproduced the proposal already on `propose/<head>` (#1162).
     pub committed: usize,
 }
 
@@ -359,6 +363,7 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
                 outputs: Vec::new(),
                 receipt: receipt_path,
                 committed: None,
+                noted: None,
                 unchanged_outputs: false,
                 step_stderr: None,
             });
@@ -392,6 +397,7 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
             outputs: Vec::new(),
             receipt: receipt_path.clone(),
             committed: None,
+            noted: None,
             unchanged_outputs: false,
             step_stderr: None,
         };
@@ -448,13 +454,35 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
             image_digest: None,
         };
 
-        let mut landing: Vec<(String, Vec<u8>)> = produced.outputs.clone();
-        landing.push((receipt_path.clone(), receipt.to_yaml()?.into_bytes()));
-
         report.outcome = Outcome::Ran;
         report.outputs = produced.outputs.iter().map(|(p, _)| p.clone()).collect();
         report.unchanged_outputs = outputs_already_committed(root, &parent, &produced.outputs);
         report.step_stderr = (!produced.stderr.is_empty()).then_some(produced.stderr);
+
+        // RFC-0052 §2.2: a run that reproduced its committed receipt writes a note on it, not a
+        // commit. On the branch, and on the proposal route only with no pending proposal, where
+        // the parent is HEAD (§2.5). A pending proposal keeps #1162's behaviour: a note on its
+        // receipt would vouch for a tree the branch does not hold.
+        let may_note = route == Route::Branch || existing.is_none();
+        if may_note && report.unchanged_outputs {
+            if let Some(blob) = notes::receipt_blob(root, &parent, &receipt_path) {
+                let committed = git(root, None, &["cat-file", "blob", &blob], None)?;
+                if receipt.reproduces(&committed) {
+                    report.noted = Some(notes::append(
+                        root,
+                        &blob,
+                        &receipt.input_state,
+                        &full,
+                        (AUTHOR_NAME, AUTHOR_EMAIL),
+                    )?);
+                    steps.push(report);
+                    continue;
+                }
+            }
+        }
+
+        let mut landing: Vec<(String, Vec<u8>)> = produced.outputs.clone();
+        landing.push((receipt_path.clone(), receipt.to_yaml()?.into_bytes()));
         report.committed = commit(
             root,
             &Landing {
@@ -541,18 +569,44 @@ pub(crate) fn freshness(
     ) else {
         return Verdict::Stale("it has never run against this corpus".to_string());
     };
-    if Receipt::committed_state(&landed).as_deref() != Some(input_state) {
+    let basis = if Receipt::committed_state(&landed).as_deref() == Some(input_state) {
+        Basis::Receipt
+    } else if notes::receipt_blob(root, parent, receipt_path)
+        .is_some_and(|blob| notes::lists(root, &blob, input_state))
+    {
+        Basis::Note
+    } else {
         return Verdict::Stale(
             "the input state moved — what it reads, or what it declares, is not what the \
              committed receipt was computed from"
                 .to_string(),
         );
-    }
+    };
 
     // The conservative direction, which is `cmd/due.rs`'s rule for a clock it cannot read: a
     // corpus that asked to be told when this aged out and cannot be told is owed the run, not
     // reassured. Reporting it fresh would be the flattering direction to be wrong in.
-    aged(root, cap, parent, receipt_path, today)
+    aged(root, cap, parent, receipt_path, today, basis)
+}
+
+/// Why the input state stands: it is the committed receipt's own, or it is one the note on that
+/// receipt lists as having reproduced it (RFC-0052 §2.3).
+#[derive(Clone, Copy)]
+pub(crate) enum Basis {
+    Receipt,
+    Note,
+}
+
+impl Basis {
+    fn because(self) -> &'static str {
+        match self {
+            Self::Receipt => "the input state is unchanged",
+            Self::Note => {
+                "the input state moved, and a re-run against it reproduced the committed receipt \
+                 (noted in refs/notes/yidam-runs)"
+            }
+        }
+    }
 }
 
 /// How many days ago this step's receipt was last committed.
@@ -673,11 +727,19 @@ pub(crate) fn standing(root: &Path) -> Result<Vec<Standing>> {
                     .to_string(),
             ),
             None => Verdict::Stale("it has never run against this corpus".to_string()),
-            Some(l) if l.input_state.as_deref() != Some(input_state.as_str()) => Verdict::Stale(
+            Some(l) if l.input_state.as_deref() == Some(input_state.as_str()) => {
+                aged(root, cap, "HEAD", &receipt_path, today, Basis::Receipt)
+            }
+            Some(_)
+                if notes::receipt_blob(root, "HEAD", &receipt_path)
+                    .is_some_and(|blob| notes::lists(root, &blob, &input_state)) =>
+            {
+                aged(root, cap, "HEAD", &receipt_path, today, Basis::Note)
+            }
+            Some(_) => Verdict::Stale(
                 "what it reads, or what it declares, is not what its receipt was computed from"
                     .to_string(),
             ),
-            Some(_) => aged(root, cap, "HEAD", &receipt_path, today),
         };
 
         let outputs = landed
@@ -701,6 +763,47 @@ pub(crate) fn standing(root: &Path) -> Result<Vec<Standing>> {
             because: verdict.because().to_string(),
             outputs,
         });
+    }
+    Ok(out)
+}
+
+/// Every committed output whose bytes contain its receipt's full `input.commit` (RFC-0052 §2.6).
+///
+/// Read from HEAD on both sides, because the question is about what was committed: an output
+/// that stamps the commit it was computed from is new at every run, so it hides whether the
+/// answer moved and defeats the note a run writes when it reproduced its receipt. The receipt
+/// already records the commit, and that is where a reader should find it.
+///
+/// Returned as `step: path`. Empty for a repository that declares no capabilities.
+pub(crate) fn stamped(root: &Path) -> Result<Vec<String>> {
+    if !root.join(manifest::MANIFEST).exists() {
+        return Ok(Vec::new());
+    }
+    let m = Manifest::load(root)?;
+    let mut out = Vec::new();
+    for name in m.plan(None)? {
+        let receipt_path = Receipt::path(name);
+        let Some(landed) = git(root, None, &["show", &format!("HEAD:{receipt_path}")], None)
+            .ok()
+            .as_deref()
+            .and_then(Receipt::landed)
+        else {
+            continue;
+        };
+        // The full sha only: an abbreviation is short enough to occur by chance in a digest.
+        let Some(commit) = landed
+            .input
+            .and_then(|i| i.commit)
+            .filter(|c| c.len() >= 40)
+        else {
+            continue;
+        };
+        for f in &landed.outputs {
+            let held = git(root, None, &["show", &format!("HEAD:{}", f.path)], None);
+            if held.is_ok_and(|text| text.contains(&commit)) {
+                out.push(format!("{name}: {}", f.path));
+            }
+        }
     }
     Ok(out)
 }
@@ -764,15 +867,28 @@ fn resolve_reads(root: &Path, cap: &Capability, tracked: &[String]) -> Vec<File>
 /// The `ageing_days` arm of [`freshness`], asked of a receipt whose input state already matched.
 ///
 /// Split out so [`standing`] and [`freshness`] share it rather than each having a reading of
-/// the declaration. The age is still the committer date of the commit that last touched the
-/// receipt — an uncommitted receipt has no date, and the conservative answer is the run.
-fn aged(root: &Path, cap: &Capability, parent: &str, receipt_path: &str, today: i64) -> Verdict {
+/// the declaration. The age is measured from the later of two dates git wrote: the commit that
+/// last touched the receipt, and the notes commit that last appended to the note on it
+/// (RFC-0052 §2.3) — an uncommitted receipt has no date, and the conservative answer is the run.
+fn aged(
+    root: &Path,
+    cap: &Capability,
+    parent: &str,
+    receipt_path: &str,
+    today: i64,
+    basis: Basis,
+) -> Verdict {
+    let unchanged = basis.because();
     let Some(ageing) = cap.ageing_days else {
-        return Verdict::Fresh(
-            "the input state is unchanged, and it declares no `ageing_days`".to_string(),
-        );
+        return Verdict::Fresh(format!("{unchanged}, and it declares no `ageing_days`"));
     };
-    let Some(age) = receipt_age(root, parent, receipt_path, today) else {
+    let noted = notes::receipt_blob(root, parent, receipt_path)
+        .and_then(|blob| notes::age(root, &blob, today));
+    let Some(age) = [receipt_age(root, parent, receipt_path, today), noted]
+        .into_iter()
+        .flatten()
+        .min()
+    else {
         return Verdict::Stale(format!(
             "it declares `ageing_days = {ageing}` and its receipt carries no committed date \
              to measure against"
@@ -780,12 +896,10 @@ fn aged(root: &Path, cap: &Capability, parent: &str, receipt_path: &str, today: 
     };
     match age >= i64::from(ageing) {
         true => Verdict::Stale(format!(
-            "the input state is unchanged, and it last ran {age} day(s) ago — past \
-             `ageing_days = {ageing}`"
+            "{unchanged}, and it last ran {age} day(s) ago — past `ageing_days = {ageing}`"
         )),
         false => Verdict::Fresh(format!(
-            "the input state is unchanged, and it last ran {age} day(s) ago of \
-             `ageing_days = {ageing}`"
+            "{unchanged}, and it last ran {age} day(s) ago of `ageing_days = {ageing}`"
         )),
     }
 }
@@ -813,11 +927,12 @@ struct Landing<'a> {
 /// blank line identical — and `hash-object` is the identity the commit will be built from
 /// anyway.
 ///
-/// This decides what the report says, never whether the commit is written. [`commit`] decides
-/// that from the tree. On the branch, a step that ran because its corpus asked to be re-checked
-/// lands a receipt naming the new head, so the check is recorded whether or not the answer
-/// moved. On a proposal the head has not moved, the tree is the one already proposed, and
-/// nothing lands (#1162). The pending proposal is the answer until a person acts on it.
+/// This is the first of RFC-0052 §2.2's tests, and alone it is not enough to skip a commit: the
+/// receipt the run would write must also say what the committed one says outside the input
+/// state ([`Receipt::reproduces`]). Where both hold, the re-run is a note on the committed
+/// receipt, so the check is recorded without a commit whose only news is the head. On a pending
+/// proposal the head has not moved, the tree is the one already proposed, and nothing lands
+/// (#1162). The pending proposal is the answer until a person acts on it.
 pub(crate) fn outputs_already_committed(
     root: &Path,
     parent: &str,
@@ -1066,8 +1181,8 @@ fn render(r: &RunReport) -> String {
                 if s.unchanged_outputs {
                     let _ = writeln!(
                         out,
-                        "           the answer had not moved; the commit records that it was \
-                         checked"
+                        "           the outputs had not moved and the receipt did, so the receipt \
+                         was committed"
                     );
                 }
                 let _ = writeln!(out, "           {}  {}", c.commit, c.subject);
@@ -1079,6 +1194,19 @@ fn render(r: &RunReport) -> String {
             // Named by where the tree was compared, which is not the same commit on both routes
             // (#1162). An epistemic step lands on top of the proposal it already made, so what it
             // reproduced is that proposal's tip, not the head its inputs came from.
+            None if s.noted.is_some() => {
+                if let Some(n) = &s.noted {
+                    let _ = writeln!(
+                        out,
+                        "           it reproduced its committed receipt, so no commit was written"
+                    );
+                    let _ = writeln!(
+                        out,
+                        "           noted on receipt {} in {} ({})",
+                        n.receipt_blob, n.notes_ref, n.commit
+                    );
+                }
+            }
             None if s.outcome == Outcome::Ran => {
                 let short = s.input_commit.as_deref().unwrap_or("HEAD");
                 let _ = match s.route == Route::Proposal.as_str() {
@@ -1186,10 +1314,17 @@ fn summary(r: &RunReport) -> String {
     if r.ran > 0 && r.committed < r.ran {
         let _ = write!(
             out,
-            "\n{} step(s) ran and computed what was already committed, so nothing was written \
+            "\n{} step(s) ran and computed what was already committed, so no commit was written \
              for them — an\nempty commit per invocation would record how often you ran the \
-             command rather than what changed.",
-            r.ran - r.committed
+             command rather than what changed.{}",
+            r.ran - r.committed,
+            match r.steps.iter().filter(|s| s.noted.is_some()).count() {
+                0 => String::new(),
+                n => format!(
+                    "\n{n} of them reproduced a committed receipt, and that is noted in {}.",
+                    notes::REF
+                ),
+            }
         );
     }
     out
@@ -1273,6 +1408,7 @@ mod tests {
                 commit: "def5678".into(),
                 subject: format!("{verb}: {name} — 2 files at abc1234"),
             }),
+            noted: None,
             unchanged_outputs: false,
             step_stderr: None,
         }
@@ -1472,10 +1608,11 @@ mod tests {
             out.contains("it reproduced what propose/abc1234 already proposes, so no commit"),
             "{out}"
         );
-        assert!(!out.contains("records that it was checked"), "{out}");
+        assert!(!out.contains("so the receipt was committed"), "{out}");
         assert!(!out.contains("already at abc1234"), "{out}");
+        assert!(!out.contains("noted on receipt"), "{out}");
 
-        // And the branch, where the look does land, still says so.
+        // The branch, where the receipt itself moved outside its input state, says it landed.
         let mut landed = step(
             "tier",
             Route::Branch,
@@ -1486,9 +1623,42 @@ mod tests {
         landed.unchanged_outputs = true;
         let out = render(&plan(false, vec![landed]));
         assert!(
-            out.contains("the answer had not moved; the commit records that it was checked"),
+            out.contains(
+                "the outputs had not moved and the receipt did, so the receipt was committed"
+            ),
             "{out}"
         );
+
+        // And the branch, where the look is a note and not a commit (RFC-0052), names the note.
+        let mut noted = step(
+            "tier",
+            Route::Branch,
+            "compute",
+            Outcome::Ran,
+            Freshness::Stale,
+        );
+        noted.committed = None;
+        noted.unchanged_outputs = true;
+        noted.noted = Some(notes::Noted {
+            notes_ref: notes::REF.into(),
+            receipt_blob: "0a1b2c3".into(),
+            commit: "4d5e6f7".into(),
+        });
+        let out = render(&plan(false, vec![noted]));
+        assert!(
+            out.contains("it reproduced its committed receipt, so no commit was written"),
+            "{out}"
+        );
+        assert!(
+            out.contains("noted on receipt 0a1b2c3 in refs/notes/yidam-runs (4d5e6f7)"),
+            "{out}"
+        );
+        assert!(
+            out.contains("1 of them reproduced a committed receipt, and that is noted in refs/notes/yidam-runs."),
+            "{out}"
+        );
+        assert!(!out.contains("already at abc1234"), "{out}");
+        assert!(!out.contains("git restore"), "{out}");
     }
 
     /// A step that ran and landed nothing says so rather than leaving a reader to subtract.

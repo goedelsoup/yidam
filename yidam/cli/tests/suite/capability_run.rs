@@ -1059,13 +1059,30 @@ fn entry<'a>(report: &'a serde_json::Value, step: &str) -> &'a serde_json::Value
         .unwrap_or_else(|| panic!("`{step}` is not in the plan:\n{report}"))
 }
 
-/// RFC-0026 §6 on the branch: an aged re-run whose answer had not moved still lands a commit.
+/// The note on a step's committed receipt (RFC-0052 §2.1), or `None` where it has none.
+fn note_on(e: &Example, step: &str) -> Option<String> {
+    let out = common::git::raw(
+        &e.path(),
+        &[
+            "notes",
+            "--ref=refs/notes/yidam-runs",
+            "show",
+            &format!("HEAD:.yidam/runs/{step}.yml"),
+        ],
+    );
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// RFC-0052 §2.2 on the branch: an aged re-run whose answer had not moved writes a note on the
+/// committed receipt, and no commit.
 ///
-/// The receipt names the head it was computed from, and that head is the commit the last run
-/// landed, so the receipt differs and the commit is the record that somebody looked. Its
-/// outputs are byte-identical, so the only path the commit changes is the receipt.
+/// The receipt it would write differs from the committed one only in the head and the input
+/// state, so a commit would record nothing a reviewer reads. The note is the record that
+/// somebody looked, and the branch does not move.
 #[test]
-fn an_aged_step_on_the_branch_lands_a_commit_that_records_the_check() {
+fn an_aged_step_on_the_branch_writes_a_note_and_no_commit() {
     for (example, step) in every_terminal_capability() {
         let e = Example::materialize_runnable(&example);
         with_ageing(&e, &step, 0);
@@ -1079,20 +1096,210 @@ fn an_aged_step_on_the_branch_lands_a_commit_that_records_the_check() {
         assert_eq!(s["freshness"], "stale", "{out}");
         assert_eq!(s["outcome"], "ran", "{out}");
         assert_eq!(s["unchanged_outputs"], true, "{out}");
-        assert!(
-            s["committed"]["commit"].is_string(),
-            "an aged re-run of `{step}` in {example} landed nothing on the branch, so the check \
-             it made is recorded nowhere:\n{out}"
-        );
+        assert!(s["committed"].is_null(), "{out}");
+        assert_eq!(s["noted"]["notes_ref"], "refs/notes/yidam-runs", "{out}");
+        assert_eq!(report["committed"], 0, "{out}");
 
-        assert_eq!(git(&e.path(), &["rev-parse", "HEAD~1"]), before);
-        let changed = git(&e.path(), &["diff", "--name-only", &before, "HEAD"]);
         assert_eq!(
-            changed,
-            format!(".yidam/runs/{step}.yml"),
-            "the answer had not moved, so the receipt is the only thing that should have"
+            git(&e.path(), &["rev-parse", "HEAD"]),
+            before,
+            "an aged re-run of `{step}` in {example} that reproduced its receipt moved the branch"
+        );
+        let note = note_on(&e, &step)
+            .unwrap_or_else(|| panic!("no note on `{step}`'s receipt in {example}:\n{out}"));
+        assert!(note.starts_with("format_version 1\n"), "{note}");
+        assert!(
+            note.lines()
+                .any(|l| l.starts_with("reproduced ") && l.ends_with(&before)),
+            "the note names no run at {before}:\n{note}"
         );
     }
+}
+
+/// RFC-0052 §2.3: an input that moved without effect is fresh on the next run, by its note.
+///
+/// Editing the manifest moves every step's input state, because the manifest's digest is in it.
+/// A step whose outputs and receipt are otherwise unchanged reproduces its receipt, writes a note
+/// for the new state, and the run after it finds that state listed and runs nothing.
+#[test]
+fn a_moved_input_that_reproduced_the_receipt_is_fresh_by_its_note() {
+    for (example, step) in every_terminal_capability() {
+        let e = Example::materialize_runnable(&example);
+        settle(&e);
+        with_ageing(&e, &step, 9_999);
+        let before = git(&e.path(), &["rev-parse", "HEAD"]);
+
+        let (out, err, code) = e.run(&["run", &step, "--format", "json"]);
+        assert_eq!(code, 0, "{example}:\n{out}{err}");
+        let report: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let s = entry(&report, &step);
+        assert_eq!(
+            s["freshness"], "stale",
+            "the manifest edit moved nothing:\n{out}"
+        );
+        assert!(s["noted"].is_object(), "{out}");
+        assert_eq!(git(&e.path(), &["rev-parse", "HEAD"]), before, "{out}");
+
+        let (out, err, code) = e.run(&["run", &step, "--format", "json"]);
+        assert_eq!(code, 0, "{example}:\n{out}{err}");
+        let report: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let s = entry(&report, &step);
+        assert_eq!(
+            s["freshness"], "fresh",
+            "the note lists this input state, so `{step}` in {example} is owed nothing:\n{out}"
+        );
+        assert!(
+            s["because"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("refs/notes/yidam-runs"),
+            "{out}"
+        );
+        assert_eq!(report["ran"], 0, "{out}");
+    }
+}
+
+/// Bring `.yidam/` in the index and the checkout up to HEAD.
+///
+/// A run commits without touching either, so a commit made from the index afterwards would
+/// revert everything the run landed, and `doctor` would report the outputs missing from the
+/// checkout before it reached the finding under test.
+fn sync_to_head(e: &Example) {
+    git(
+        &e.path(),
+        &[
+            "restore",
+            "--source=HEAD",
+            "--worktree",
+            "--staged",
+            "--",
+            ".yidam/",
+        ],
+    );
+}
+
+/// One check's entry in a JSON `doctor` report.
+fn doctor_check(e: &Example, id: &str) -> serde_json::Value {
+    let (out, err, _) = e.run(&["doctor", "--format", "json"]);
+    let v: serde_json::Value =
+        serde_json::from_str(&out).unwrap_or_else(|x| panic!("not JSON: {x}\n{out}{err}"));
+    v["checks"]
+        .as_array()
+        .expect("checks")
+        .iter()
+        .find(|c| c["id"] == id)
+        .cloned()
+        .unwrap_or_else(|| panic!("`doctor` asks no `{id}`:\n{out}"))
+}
+
+/// RFC-0052 §2.6: `doctor` warns about a committed output that contains its receipt's
+/// `input.commit`, and says nothing about one that does not.
+///
+/// The stamp is written into the output by hand and committed, rather than by a step that
+/// echoes `YIDAM_INPUT_COMMIT`: the check reads what is committed, and how it got there is not
+/// its business.
+#[test]
+fn doctor_warns_about_an_output_that_stamps_its_input_commit() {
+    for (example, step) in every_terminal_capability() {
+        let e = Example::materialize_runnable(&example);
+        settle(&e);
+        let id = "run-output-stamps-input-commit";
+        assert_eq!(doctor_check(&e, id)["verdict"], "ok", "{example}");
+
+        let receipt = git(
+            &e.path(),
+            &["show", &format!("HEAD:.yidam/runs/{step}.yml")],
+        );
+        let commit = receipt
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("commit: "))
+            .map(|c| c.trim().trim_matches('\'').to_string())
+            .unwrap_or_else(|| panic!("`{step}`'s receipt names no commit:\n{receipt}"));
+        let output = receipt
+            .lines()
+            .skip_while(|l| !l.starts_with("outputs:"))
+            .find_map(|l| l.trim().strip_prefix("- path: "))
+            .map(|p| p.trim().trim_matches('\'').to_string())
+            .unwrap_or_else(|| panic!("`{step}`'s receipt lists no output:\n{receipt}"));
+
+        sync_to_head(&e);
+        let file = e.path().join(&output);
+        let text = std::fs::read_to_string(&file).unwrap();
+        let text = format!("{text}\n# computed at {commit}\n");
+        std::fs::write(&file, text).unwrap();
+        git(&e.path(), &["add", "--", &output]);
+        git(
+            &e.path(),
+            &["commit", "-q", "-m", "record: stamp an output"],
+        );
+
+        let c = doctor_check(&e, id);
+        assert_eq!(c["verdict"], "warn", "{example}: {c}");
+        assert!(
+            c["detail"].as_str().unwrap_or_default().contains(&output),
+            "the warning does not name {output}: {c}"
+        );
+    }
+}
+
+/// RFC-0052 §2.4: a notes ref that no remote fetches is a warning, and a fetch refspec that
+/// names it clears the warning.
+#[test]
+fn doctor_warns_about_a_notes_ref_no_remote_fetches() {
+    let Some((example, step)) = every_terminal_capability().into_iter().next() else {
+        return;
+    };
+    let e = Example::materialize_runnable(&example);
+    settle(&e);
+    sync_to_head(&e);
+    // An edit that moves every step's input state and none of their answers, committed so
+    // that syncing `.yidam/` to HEAD below keeps the declaration the runs used.
+    with_ageing(&e, &step, 9_999);
+    git(&e.path(), &["add", "--", ".yidam/capabilities.toml"]);
+    git(&e.path(), &["commit", "-q", "-m", "record: age a step"]);
+    let (out, err, code) = e.run(&["run"]);
+    assert_eq!(code, 0, "{out}{err}");
+    assert!(
+        note_on(&e, &step).is_some(),
+        "the re-run wrote no note:\n{out}"
+    );
+    sync_to_head(&e);
+
+    assert!(
+        !doctor_check(&e, "computed")["detail"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("refs/notes/yidam-runs"),
+        "a clone with no remote has nothing to share its notes with"
+    );
+
+    let _ = common::git::raw(&e.path(), &["remote", "add", "shared", "/nowhere"]);
+    let c = doctor_check(&e, "computed");
+    assert_eq!(c["verdict"], "warn", "{c}");
+    assert!(
+        c["detail"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("refs/notes/yidam-runs"),
+        "{c}"
+    );
+
+    git(
+        &e.path(),
+        &[
+            "config",
+            "--add",
+            "remote.shared.fetch",
+            "+refs/notes/*:refs/notes/*",
+        ],
+    );
+    assert!(
+        !doctor_check(&e, "computed")["detail"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("refs/notes/yidam-runs"),
+        "a fetch refspec reads the notes ref, and the warning stayed"
+    );
 }
 
 /// RFC-0026 §6 on a proposal: an aged re-run that reproduces the pending proposal lands
@@ -1137,7 +1344,7 @@ fn an_aged_step_on_a_proposal_reproduces_it_and_lands_nothing() {
             text.contains(&format!("it reproduced what {proposal} already proposes")),
             "{text}"
         );
-        assert!(!text.contains("records that it was checked"), "{text}");
+        assert!(!text.contains("noted on receipt"), "{text}");
     }
 }
 
