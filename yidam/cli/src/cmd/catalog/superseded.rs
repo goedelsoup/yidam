@@ -156,6 +156,8 @@ pub(crate) struct Move {
     pub path: String,
     pub from: String,
     pub to: String,
+    /// The `symbol` the later revision names, which is the read the move made.
+    pub symbol: Option<String>,
 }
 
 /// Every move of a pinned read's `commit`, oldest first.
@@ -179,6 +181,7 @@ pub(crate) fn pin_moves(history: &[Revision]) -> Vec<Move> {
                     path,
                     from: from.clone(),
                     to: commit.clone(),
+                    symbol: loc.symbol.clone(),
                 });
             }
             last.insert(key, commit);
@@ -188,7 +191,9 @@ pub(crate) fn pin_moves(history: &[Revision]) -> Vec<Move> {
 }
 
 /// The latest move whose two commits hold different objects, which is the only move that is
-/// a new edition: re-dating a read of unchanged code supersedes nothing.
+/// a new edition: re-dating a read of unchanged code supersedes nothing. A move of a pin
+/// naming a `symbol` is compared as the catalog clock compares it, so a move across edits
+/// elsewhere in the file supersedes nothing either.
 ///
 /// `Err` when some later move could not be compared, because a clone that cannot see a
 /// commit has not shown the code is unchanged.
@@ -198,7 +203,8 @@ fn latest_changed_move<'a>(
     config: &crate::deps::TonpaConfig,
 ) -> Result<Option<&'a Move>, ()> {
     use crate::cmd::lint::pins::{place, resolve, Lookup, Place, Query};
-    let mut objects: HashMap<(Option<String>, String, String), Option<String>> = HashMap::new();
+    type Object = Option<(String, Option<String>)>;
+    let mut objects: HashMap<(Option<String>, String, String), Object> = HashMap::new();
     let mut by_repo: HashMap<Option<String>, Vec<&Move>> = HashMap::new();
     for m in moves {
         by_repo.entry(m.repo.clone()).or_default().push(m);
@@ -213,7 +219,7 @@ fn latest_changed_move<'a>(
                 [&m.from, &m.to].map(|c| Query {
                     commit: c.clone(),
                     path: m.path.clone(),
-                    contents: false,
+                    contents: m.symbol.is_some(),
                 })
             })
             .collect();
@@ -222,7 +228,7 @@ fn latest_changed_move<'a>(
         };
         for (q, a) in queries.iter().zip(answers) {
             let oid = match a.object {
-                Lookup::Found { oid, .. } => Some(oid),
+                Lookup::Found { oid, .. } => Some((oid, a.text)),
                 _ => None,
             };
             objects.insert((repo.clone(), q.commit.clone(), q.path.clone()), oid);
@@ -236,8 +242,21 @@ fn latest_changed_move<'a>(
     };
     for m in moves.iter().rev() {
         match (object(m, &m.from), object(m, &m.to)) {
-            (Some(a), Some(b)) if a == b => continue,
-            (Some(_), Some(_)) => return Ok(Some(m)),
+            (Some((a, _)), Some((b, _))) if a == b => continue,
+            (Some((_, was)), Some((_, now))) => match &m.symbol {
+                Some(symbol)
+                    if !crate::cmd::lint::symbols::compare(
+                        &m.path,
+                        symbol,
+                        was.as_deref(),
+                        now.as_deref(),
+                    )
+                    .due() =>
+                {
+                    continue
+                }
+                _ => return Ok(Some(m)),
+            },
             _ => return Err(()),
         }
     }
