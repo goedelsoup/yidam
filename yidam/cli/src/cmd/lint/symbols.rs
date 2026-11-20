@@ -9,15 +9,18 @@
 //!
 //! The grammar is picked by extension: `.rs` is Rust, `.py`/`.pyi` Python, `.ts`/`.mts`/`.cts`
 //! TypeScript and `.tsx` TSX. A symbol path is matched by its last segment, split on `::` or
-//! `.`, against the name of a definition. When several definitions share that name, the one
-//! inside a definition named by the previous segment is taken (`MicroDefaults::load` is the
-//! `load` in `impl MicroDefaults`), and the first in the file otherwise.
+//! `.`, against the name of a definition. When the previous segment names a definition that
+//! holds one of them, the read is every such one inside it (`MicroDefaults::load` is the `load`
+//! in `impl MicroDefaults`); otherwise it is every definition of that name in the file, in
+//! order, so a field and a function sharing a name are read together. A read found inside its
+//! parent is gone when nothing of that name is inside the parent any longer, whatever else in
+//! the file shares the name.
 
 /// What the pinned symbol did between the read and the reference revision.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(not(feature = "symbol-pins"), allow(dead_code))]
 pub(crate) enum Grain {
-    /// The item's span is the same read, up to leading whitespace. Not due.
+    /// The item's span is the same read, up to re-indenting the whole item. Not due.
     Unchanged,
     /// The item's span changed.
     Changed,
@@ -56,13 +59,24 @@ pub(crate) fn compare(path: &str, symbol: &str, was: Option<&str>, now: Option<&
         let (Some(was), Some(now)) = (was, now) else {
             return Grain::File("the file could not be read".into());
         };
-        let Some(read) = grammar::span(&lang, symbol, was) else {
+        use grammar::Found;
+        let Some(read) = grammar::find(&lang, symbol, was) else {
             return Grain::File("symbol not found at the read".into());
         };
-        match grammar::span(&lang, symbol, now) {
-            Some(current) if same_read(&read, &current) => Grain::Unchanged,
-            Some(_) => Grain::Changed,
-            None => Grain::Gone,
+        match (read, grammar::find(&lang, symbol, now)) {
+            (Found::Scoped(a), Some(Found::Scoped(b)))
+            | (Found::Named(a), Some(Found::Named(b))) => {
+                if same_read(&a, &b) {
+                    Grain::Unchanged
+                } else {
+                    Grain::Changed
+                }
+            }
+            // Read inside its parent, and nothing of that name is inside it now: another
+            // definition elsewhere sharing the name is not the item that was read.
+            (Found::Scoped(_), _) | (Found::Named(_), None) => Grain::Gone,
+            // Its parent now holds one, so the read now resolves to another item.
+            (Found::Named(_), Some(Found::Scoped(_))) => Grain::Changed,
         }
     }
     #[cfg(not(feature = "symbol-pins"))]
@@ -83,16 +97,38 @@ fn extension(path: &str) -> String {
     }
 }
 
-/// Two spans are the same read when they differ only in leading whitespace on each line, so
-/// re-indenting an item (moving it into a module, say) does not make its read due.
+/// Two spans are the same read when they differ only by re-indenting the whole item, so
+/// moving it into a module, say, does not make its read due. Only the indentation every line
+/// shares is set aside: a line indented apart from its neighbours is a change, which in Python
+/// moves a statement into or out of a block.
 #[cfg_attr(not(feature = "symbol-pins"), allow(dead_code))]
 fn same_read(a: &str, b: &str) -> bool {
-    let lines = |s: &str| {
-        s.lines()
-            .map(|l| l.trim_start().to_string())
-            .collect::<Vec<_>>()
-    };
-    lines(a) == lines(b)
+    dedent(a) == dedent(b)
+}
+
+/// The span's lines with the indentation its later lines share removed. The first line starts
+/// at the item, so its own indentation is not in the span; blank lines are empty.
+#[cfg_attr(not(feature = "symbol-pins"), allow(dead_code))]
+fn dedent(s: &str) -> Vec<&str> {
+    let mut lines = s.lines();
+    let first = lines.next().map(str::trim_start);
+    let rest: Vec<&str> = lines.collect();
+    let indent = rest
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.len() - l.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    first
+        .into_iter()
+        .chain(rest.iter().map(|l| {
+            if l.trim().is_empty() {
+                ""
+            } else {
+                l.get(indent..).unwrap_or(l)
+            }
+        }))
+        .collect()
 }
 
 #[cfg(feature = "symbol-pins")]
@@ -137,8 +173,19 @@ mod grammar {
         Some(s.split('<').next().unwrap_or(s).trim())
     }
 
-    /// The text of the item `symbol` names in `text`, or `None` when nothing defines it.
-    pub(super) fn span(lang: &Language, symbol: &str, text: &str) -> Option<String> {
+    /// What `symbol` names in one revision's text: every definition of its last segment, in
+    /// file order, joined as one read.
+    #[derive(Debug, PartialEq, Eq)]
+    pub(super) enum Found {
+        /// Inside a definition named by the symbol's previous segment.
+        Scoped(String),
+        /// By its last segment alone: it has no previous segment, or no definition of that
+        /// name holds one.
+        Named(String),
+    }
+
+    /// What `symbol` names in `text`, or `None` when nothing defines it.
+    pub(super) fn find(lang: &Language, symbol: &str, text: &str) -> Option<Found> {
         let segments: Vec<&str> = {
             let s = symbol.trim();
             let s = s.split('(').next().unwrap_or(s);
@@ -175,16 +222,35 @@ mod grammar {
             }
             false
         };
-        let pick = parents
-            .last()
-            .and_then(|parent| found.iter().find(|n| inside(n, parent)))
-            .or_else(|| found.first())?;
-        // A decorator is part of what a Python definition says.
-        let node = match pick.parent() {
-            Some(p) if p.kind() == "decorated_definition" => p,
-            _ => *pick,
+        let scoped: Vec<Node<'_>> = match parents.last() {
+            Some(parent) => found
+                .iter()
+                .filter(|n| inside(n, parent))
+                .copied()
+                .collect(),
+            None => Vec::new(),
         };
-        text.get(node.byte_range()).map(str::to_string)
+        let read = |nodes: &[Node<'_>]| -> Option<String> {
+            let mut taken: Vec<std::ops::Range<usize>> = Vec::new();
+            for n in nodes {
+                // A decorator is part of what a Python definition says.
+                let n = match n.parent() {
+                    Some(p) if p.kind() == "decorated_definition" => p,
+                    _ => *n,
+                };
+                let r = n.byte_range();
+                if !taken.iter().any(|t| t.start <= r.start && r.end <= t.end) {
+                    taken.push(r);
+                }
+            }
+            let parts: Option<Vec<&str>> = taken.into_iter().map(|r| text.get(r)).collect();
+            parts.filter(|p| !p.is_empty()).map(|p| p.join("\n"))
+        };
+        if scoped.is_empty() {
+            read(&found).map(Found::Named)
+        } else {
+            read(&scoped).map(Found::Scoped)
+        }
     }
 }
 
@@ -199,6 +265,17 @@ mod tests {
             "    fn a() {\n        x\n    }"
         ));
         assert!(!same_read("fn a() {\n    x\n}", "fn a() {\n    y\n}"));
+    }
+
+    /// Moving one statement into a block changes what a Python function does, and only the
+    /// indentation of that one line says so.
+    #[test]
+    fn re_indenting_one_line_is_a_change() {
+        let was = "def f():\n    if x:\n        a()\n    b()";
+        let now = "def f():\n    if x:\n        a()\n        b()";
+        assert!(!same_read(was, now));
+        let moved = "def f():\n        if x:\n            a()\n        b()";
+        assert!(same_read(was, moved));
     }
 
     #[test]
@@ -261,7 +338,7 @@ mod tests {
             assert_eq!(
                 compare("src/lib.rs", "load", Some(RUST), Some(&now)),
                 Grain::Changed,
-                "with no parent the first `load` in the file is taken"
+                "with no parent every `load` in the file is read"
             );
             let now = RUST.replace("    2\n", "    20\n");
             assert_eq!(
@@ -276,6 +353,56 @@ mod tests {
             assert_eq!(
                 compare("src/lib.rs", "MicroDefaults::load", Some(RUST), Some(now)),
                 Grain::Gone
+            );
+        }
+
+        /// The method was read inside its `impl`. Deleting it leaves a free `fn load` with the
+        /// same text, which is another item, not the read.
+        #[test]
+        fn a_method_gone_from_its_parent_is_gone_while_a_namesake_remains() {
+            let was = "struct MicroDefaults;\nimpl MicroDefaults {\n    fn load() -> u8 { 2 }\n}\n\
+                fn load() -> u8 { 2 }\n";
+            let now = "struct MicroDefaults;\nimpl MicroDefaults {}\nfn load() -> u8 { 2 }\n";
+            assert_eq!(
+                compare("src/lib.rs", "MicroDefaults::load", Some(was), Some(now)),
+                Grain::Gone
+            );
+            let none = "fn load() -> u8 { 2 }\n";
+            assert_eq!(
+                compare("src/lib.rs", "MicroDefaults::load", Some(was), Some(none)),
+                Grain::Gone
+            );
+        }
+
+        /// A field declared above a function of the same name does not stand in for it.
+        #[test]
+        fn a_namesake_earlier_in_the_file_does_not_hide_an_edit() {
+            let was = "struct Cfg {\n    load: u8,\n}\nfn load() -> u8 {\n    1\n}\n";
+            let now = was.replace("    1\n", "    10\n");
+            assert_eq!(
+                compare("src/lib.rs", "load", Some(was), Some(&now)),
+                Grain::Changed
+            );
+        }
+
+        /// A path qualifier naming no definition in the file, such as a module, is read as
+        /// the bare name.
+        #[test]
+        fn a_module_path_is_read_by_its_last_segment() {
+            let now = RUST.replace("    2\n", "    20\n");
+            assert_eq!(
+                compare("src/lib.rs", "crate::game::load", Some(RUST), Some(&now)),
+                Grain::Changed
+            );
+            let elsewhere = format!("{RUST}\nfn unrelated() {{}}\n");
+            assert_eq!(
+                compare(
+                    "src/lib.rs",
+                    "crate::game::load",
+                    Some(RUST),
+                    Some(&elsewhere)
+                ),
+                Grain::Unchanged
             );
         }
 

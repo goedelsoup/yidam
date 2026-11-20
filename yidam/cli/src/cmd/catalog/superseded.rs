@@ -158,33 +158,71 @@ pub(crate) struct Move {
     pub to: String,
     /// The `symbol` the later revision names, which is the read the move made.
     pub symbol: Option<String>,
+    /// The `symbol` the earlier revision named.
+    pub from_symbol: Option<String>,
+}
+
+impl Move {
+    /// The symbol to compare the move at: one only when both revisions name the same one.
+    /// A read that narrowed to a symbol, widened to its file or turned to another item is
+    /// compared by its file, as a pin without a symbol is.
+    pub(crate) fn same_symbol(&self) -> Option<&str> {
+        self.symbol
+            .as_deref()
+            .filter(|_| self.symbol == self.from_symbol)
+    }
 }
 
 /// Every move of a pinned read's `commit`, oldest first.
 ///
 /// A pin is one read of one file in one repository, so it is matched across revisions by
-/// `repo` and path. A pin seen for the first time is a first read and moves nothing, and a
-/// pin whose shape lint rejects is not a read at all.
+/// `repo` and path, and by `symbol` among several pins of one file. A later pin that is an
+/// earlier pin unchanged moved nothing. Otherwise it takes the earlier pin naming the same
+/// symbol, or the one earlier pin of its file when the file had and has exactly one. A pin
+/// seen for the first time is a first read and moves nothing, and a pin whose shape lint
+/// rejects is not a read at all.
 pub(crate) fn pin_moves(history: &[Revision]) -> Vec<Move> {
-    let mut last: HashMap<(Option<String>, String), String> = HashMap::new();
+    type Key = (Option<String>, String);
+    type Pins = Vec<(Option<String>, String)>;
+    let mut last: HashMap<Key, Pins> = HashMap::new();
     let mut moves = Vec::new();
     for (at, rev) in history.iter().enumerate() {
+        let mut now: Vec<(Key, Pins)> = Vec::new();
         for loc in &rev.locations {
             let Ok((commit, path)) = crate::cmd::lint::pins::shape(loc) else {
                 continue;
             };
-            let key = (loc.repo.clone(), path.clone());
-            if let Some(from) = last.get(&key).filter(|from| **from != commit) {
-                moves.push(Move {
-                    at,
-                    repo: loc.repo.clone(),
-                    path,
-                    from: from.clone(),
-                    to: commit.clone(),
-                    symbol: loc.symbol.clone(),
-                });
+            let key = (loc.repo.clone(), path);
+            let pin = (loc.symbol.clone(), commit);
+            match now.iter_mut().find(|(k, _)| *k == key) {
+                Some((_, pins)) => pins.push(pin),
+                None => now.push((key, vec![pin])),
             }
-            last.insert(key, commit);
+        }
+        for (key, pins) in now {
+            if let Some(before) = last.get(&key) {
+                for pin @ (symbol, commit) in &pins {
+                    if before.contains(pin) {
+                        continue;
+                    }
+                    let from = before
+                        .iter()
+                        .find(|(s, _)| s == symbol)
+                        .or_else(|| (before.len() == 1 && pins.len() == 1).then(|| &before[0]));
+                    if let Some((from_symbol, from)) = from.filter(|(_, c)| c != commit) {
+                        moves.push(Move {
+                            at,
+                            repo: key.0.clone(),
+                            path: key.1.clone(),
+                            from: from.clone(),
+                            to: commit.clone(),
+                            symbol: symbol.clone(),
+                            from_symbol: from_symbol.clone(),
+                        });
+                    }
+                }
+            }
+            last.insert(key, pins);
         }
     }
     moves
@@ -192,8 +230,8 @@ pub(crate) fn pin_moves(history: &[Revision]) -> Vec<Move> {
 
 /// The latest move whose two commits hold different objects, which is the only move that is
 /// a new edition: re-dating a read of unchanged code supersedes nothing. A move of a pin
-/// naming a `symbol` is compared as the catalog clock compares it, so a move across edits
-/// elsewhere in the file supersedes nothing either.
+/// naming the same `symbol` on both sides is compared as the catalog clock compares it, so a
+/// move across edits elsewhere in the file supersedes nothing either.
 ///
 /// `Err` when some later move could not be compared, because a clone that cannot see a
 /// commit has not shown the code is unchanged.
@@ -219,7 +257,7 @@ fn latest_changed_move<'a>(
                 [&m.from, &m.to].map(|c| Query {
                     commit: c.clone(),
                     path: m.path.clone(),
-                    contents: m.symbol.is_some(),
+                    contents: m.same_symbol().is_some(),
                 })
             })
             .collect();
@@ -243,7 +281,7 @@ fn latest_changed_move<'a>(
     for m in moves.iter().rev() {
         match (object(m, &m.from), object(m, &m.to)) {
             (Some((a, _)), Some((b, _))) if a == b => continue,
-            (Some((_, was)), Some((_, now))) => match &m.symbol {
+            (Some((_, was)), Some((_, now))) => match m.same_symbol() {
                 Some(symbol)
                     if !crate::cmd::lint::symbols::compare(
                         &m.path,
@@ -671,5 +709,56 @@ mod tests {
             rev("c4", vec![rec("aa", Some(0)), rec("bb", Some(0))]),
         ];
         assert_eq!(latest_supersession(&history).unwrap().0.commit, "c2");
+    }
+
+    fn pin(commit: &str, symbol: Option<&str>) -> CatalogLocation {
+        CatalogLocation {
+            kind: Some("file".into()),
+            value: Some("src/lib.rs".into()),
+            commit: Some(commit.into()),
+            symbol: symbol.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    fn pinned(locations: Vec<CatalogLocation>) -> Revision {
+        Revision {
+            locations,
+            ..rev("c", Vec::new())
+        }
+    }
+
+    const A: &str = "aaaaaaa";
+    const B: &str = "bbbbbbb";
+    const C: &str = "ccccccc";
+
+    #[test]
+    fn two_symbol_pins_of_one_file_are_two_reads() {
+        let both = || pinned(vec![pin(A, Some("load")), pin(B, Some("save"))]);
+        assert_eq!(pin_moves(&[both(), both()]), Vec::new());
+
+        let moved = pinned(vec![pin(A, Some("load")), pin(C, Some("save"))]);
+        let moves = pin_moves(&[both(), moved]);
+        assert_eq!(moves.len(), 1, "{moves:?}");
+        assert_eq!((moves[0].from.as_str(), moves[0].to.as_str()), (B, C));
+        assert_eq!(moves[0].same_symbol(), Some("save"));
+    }
+
+    #[test]
+    fn a_move_that_changes_the_symbol_is_compared_by_its_file() {
+        for (was, now) in [
+            (None, Some("load")),
+            (Some("load"), None),
+            (Some("load"), Some("save")),
+        ] {
+            let moves = pin_moves(&[pinned(vec![pin(A, was)]), pinned(vec![pin(B, now)])]);
+            assert_eq!(moves.len(), 1, "{was:?} -> {now:?}: {moves:?}");
+            assert_eq!(moves[0].same_symbol(), None, "{was:?} -> {now:?}");
+        }
+        let moves = pin_moves(&[
+            pinned(vec![pin(A, Some("load"))]),
+            pinned(vec![pin(B, Some("load"))]),
+        ]);
+        assert_eq!(moves[0].same_symbol(), Some("load"));
     }
 }
