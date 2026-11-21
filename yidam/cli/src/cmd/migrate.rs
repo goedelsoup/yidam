@@ -137,6 +137,12 @@ pub enum Operation {
     /// Migrates data, as [`Self::Locations`] does, and for the same reason. See
     /// [`crate::cmd::migrate_pins`].
     Pins,
+    /// Every catalog entry's `used-by:` block is deleted; the citations are the record
+    /// (RFC-0053 §2.2).
+    ///
+    /// Migrates data, as [`Self::Locations`] does, and for the same reason. See
+    /// [`crate::cmd::migrate_used_by`].
+    UsedBy,
 }
 
 impl Operation {
@@ -154,6 +160,7 @@ impl Operation {
             Self::Scaffold => "scaffold",
             Self::Locations => "locations",
             Self::Pins => "pins",
+            Self::UsedBy => "used-by",
         }
     }
 
@@ -198,6 +205,8 @@ impl Operation {
             Self::Locations => "doi and pmc catalog locations into identifiers".to_string(),
             // A stable form that does not begin with the operation's own name, as above.
             Self::Pins => "reads dated in catalog prose into commit pins".to_string(),
+            // A stable form that does not begin with the operation's own name, as above.
+            Self::UsedBy => "stored citer lists out of the catalog".to_string(),
         }
     }
 }
@@ -263,6 +272,10 @@ pub struct MigrateReport {
     /// every other operation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scaffold: Option<super::migrate_scaffold::Scaffold>,
+    /// Names a deleted `used-by` list claimed that carry no citation to the entry. Empty for
+    /// every other operation.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub claimed: Vec<super::migrate_used_by::Claimed>,
     /// Why this cannot proceed. Non-empty means nothing was touched.
     pub blocked: Vec<String>,
     /// Where the migration record was written, once applied.
@@ -301,6 +314,7 @@ impl MigrateReport {
             prose_findings: 0,
             routes: None,
             scaffold: None,
+            claimed: vec![],
             blocked: vec![],
             record: String::new(),
             commit_subject: String::new(),
@@ -526,6 +540,7 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
         }
         Operation::Locations => super::migrate_locations::plan(root, &mut report),
         Operation::Pins => super::migrate_pins::plan(root, &mut report),
+        Operation::UsedBy => super::migrate_used_by::plan(root, &mut report),
     }
     if report.blocked.is_empty() {
         // A reference lift's unit of work is a reference and not an edit: only the tags it
@@ -588,6 +603,10 @@ pub(crate) fn plan(root: &Path, corpus: &Path, op: &Operation) -> MigrateReport 
                     .collect::<BTreeSet<_>>()
                     .len(),
             )
+        } else if matches!(op, Operation::UsedBy) {
+            // One edit per deleted line: the unit is the list, one per entry.
+            let n = super::migrate_used_by::deleted(&report);
+            (n, "list", n)
         } else if let Some(scaffold) = &report.scaffold {
             // Nor a scaffold migration: its unit is a file given a region.
             let n = scaffold.files.iter().filter(|f| f.to_write()).count();
@@ -1388,6 +1407,10 @@ pub struct MigrationRecord {
     /// of this file is the person who has to deal with them.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub violations: Vec<String>,
+    /// For `used-by`: each entry's names the deleted list claimed and nothing cites. Kept
+    /// because the deleted lines are the one thing that migration loses (RFC-0053 §2.2).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub claimed_not_citing: BTreeMap<String, Vec<String>>,
 }
 
 const RECORD_HEADER: &str = "\
@@ -1490,6 +1513,15 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
             return Ok(());
         }
         let written = super::migrate_pins::apply(root, report)?;
+        return write_record(root, op, report, written);
+    }
+    // A deletion removes lines, which a one-for-one line edit cannot express either. Nothing
+    // to delete writes no record, as below.
+    if matches!(op, Operation::UsedBy) {
+        if report.edits.is_empty() {
+            return Ok(());
+        }
+        let written = super::migrate_used_by::apply(root, report)?;
         return write_record(root, op, report, written);
     }
     // Nothing to rewrite writes no record: run twice, the second run is a no-op, not an event.
@@ -1620,6 +1652,11 @@ fn write_record(
             .iter()
             .map(|v| format!("{}: {}", v.node, v.detail))
             .collect(),
+        claimed_not_citing: report
+            .claimed
+            .iter()
+            .map(|c| (c.entry.clone(), c.names.clone()))
+            .collect(),
     };
     // `op.summary()` and not the report's: they are the same string for every ontology
     // operation, and a reference lift recomputes its summary from what it found — which would
@@ -1661,6 +1698,9 @@ pub(crate) fn render_migrate(r: &MigrateReport) -> String {
     }
     if matches!(r.operation, "pins") {
         return render_pins(r);
+    }
+    if matches!(r.operation, "used-by") {
+        return render_used_by(r);
     }
     let mut out = format!(
         "{} {}\n{} edit(s) across {} file(s)\n",
@@ -1757,6 +1797,66 @@ fn render_locations(r: &MigrateReport) -> String {
             out,
             "\n{} location(s) NOT rewritten — `catalog-location-malformed` still reports \
              these:\n",
+            r.unhandled.len()
+        );
+        for u in &r.unhandled {
+            let _ = writeln!(out, "  {}:{}  {}", u.file, u.line, u.text);
+        }
+    }
+    if n == 0 {
+        return out.trim_end().to_string();
+    }
+    if !r.record.is_empty() {
+        let _ = write!(out, "\nrecord: {}", r.record);
+    }
+    let _ = write!(out, "\ncommit: {}", r.commit_subject);
+    out.trim_end().to_string()
+}
+
+/// A used-by migration, one line per entry rather than one per deleted line.
+fn render_used_by(r: &MigrateReport) -> String {
+    let n = super::migrate_used_by::deleted(r);
+    if n == 0 && r.unhandled.is_empty() {
+        // Not "would migrate 0": this ran, and found nothing to delete.
+        return "Nothing to migrate — no catalog entry declares `used-by:`.".to_string();
+    }
+    let mut out = String::new();
+    if n > 0 {
+        let _ = writeln!(
+            out,
+            "{} {}\n{n} list(s)",
+            if r.applied {
+                "Migrated"
+            } else {
+                "Would migrate"
+            },
+            r.summary,
+        );
+        let mut seen = BTreeSet::new();
+        for e in &r.edits {
+            if seen.insert(e.file.as_str()) {
+                let _ = writeln!(out, "  {}:{}", e.file, e.line);
+            }
+        }
+    }
+    if !r.claimed.is_empty() {
+        let _ = write!(
+            out,
+            "\n{} entr(ies) listed a file that does not cite them. Either the list was \
+             stale or the file should cite the entry; add the link if it should:\n",
+            r.claimed.len()
+        );
+        for c in &r.claimed {
+            let _ = writeln!(out, "  {}", c.entry);
+            for name in &c.names {
+                let _ = writeln!(out, "    - {name}");
+            }
+        }
+    }
+    if !r.unhandled.is_empty() {
+        let _ = write!(
+            out,
+            "\n{} entr(ies) left as written — the reason is on each:\n",
             r.unhandled.len()
         );
         for u in &r.unhandled {

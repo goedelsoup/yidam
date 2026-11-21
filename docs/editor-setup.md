@@ -154,9 +154,8 @@ leaving the view. Sources now hang under the node that cites them, and clicking 
 catalog entry. Only nodes that cite something get children.
 
 The edge comes from the CLI: `catalog-audit` gained `cited_by`, naming the corpus instances
-that link to each entry — resolved by the same function `catalog-uncited` gates on — plus the
-entry's declared `used-by` and a `drift` field computed by the same function
-`catalog-used-by-drift` reports. The editor inverts source → nodes into node → sources, which
+that link to each entry — resolved by the same function `catalog-uncited` gates on. Its
+`used-by` and `drift` fields are kept for compatibility, and `drift` is now always null. The editor inverts source → nodes into node → sources, which
 is a re-index of what the report said rather than a second opinion about what a citation is.
 
 An unretrieved source says `not obtained` and is not reddened, and drift is a tooltip: both

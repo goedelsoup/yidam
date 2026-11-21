@@ -57,6 +57,7 @@ pub(crate) mod migrate_pins;
 pub(crate) mod migrate_references;
 pub(crate) mod migrate_routes;
 pub(crate) mod migrate_scaffold;
+pub(crate) mod migrate_used_by;
 pub(crate) mod operational;
 mod overlay;
 pub(crate) mod pack;

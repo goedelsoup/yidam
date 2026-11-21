@@ -1148,13 +1148,20 @@ fn migrate_scaffold_refuses_an_owner_section_inside_the_template_s() {
 
 const ENTRY: &str = ".yidam/catalog/usgs-nwis.md";
 
+/// The entry's last location line: a test adds a location by writing below it.
+const LAST_LOCATION: &str =
+    "    description: Instantaneous-values service; parameter 00060 is discharge.\n";
+
 /// The streamflow entry with a `doi` and a `pmc` location added, as the measured corpora wrote
 /// them before `identifier` existed (RFC-0048 §2).
 fn with_retired_locations(c: &Corpus) {
     let text = c.read(ENTRY).replace(
-        "used-by:",
-        "  - kind: doi\n    value: 10.1167/tvst.8.5.14\n    description: publisher\n  \
-         - kind: pmc\n    value: PMC6753881\n    description: full text\nused-by:",
+        LAST_LOCATION,
+        &format!(
+            "{LAST_LOCATION}  - kind: doi\n    value: 10.1167/tvst.8.5.14\n    \
+             description: publisher\n  - kind: pmc\n    value: PMC6753881\n    \
+             description: full text\n"
+        ),
     );
     std::fs::write(c.path().join(ENTRY), text).unwrap();
     c.git(&["commit", "-q", "-am", "catalog: a doi and a pmc"]);
@@ -1217,9 +1224,10 @@ fn with_a_dated_read(c: &Corpus) -> String {
     let text = c
         .read(ENTRY)
         .replace(
-            "used-by:",
+            LAST_LOCATION,
             &format!(
-                "  - kind: file\n    value: {GAGE}\n    description: the gage it shapes\nused-by:"
+                "{LAST_LOCATION}  - kind: file\n    value: {GAGE}\n    \
+                 description: the gage it shapes\n"
             ),
         )
         .replace(

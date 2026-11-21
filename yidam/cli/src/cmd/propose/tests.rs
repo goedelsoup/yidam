@@ -308,10 +308,11 @@ fn a_threshold_above_the_residence_time_withdraws_nothing() {
     );
 }
 
-/// A withdrawal takes the node out of any catalog that listed it, in the same commit —
-/// otherwise it trades one finding for a `catalog-used-by-drift`.
+/// A withdrawal removes the node and edits no catalog entry, even one still declaring a
+/// `used-by:` list that names it (RFC-0053 §2.5). The entry does not store what cites it, so
+/// there is nothing to keep in step; the stale list is `catalog-used-by-declared`'s finding.
 #[test]
-fn a_withdrawal_also_edits_the_catalog_that_listed_the_node() {
+fn a_withdrawal_edits_no_catalog_entry() {
     let dir = repo();
     let root = dir.path();
     std::fs::write(
@@ -329,16 +330,7 @@ fn a_withdrawal_also_edits_the_catalog_that_listed_the_node() {
         .find(|p| p.verb == Verb::Withdraw)
         .expect("a withdrawal");
     let paths: Vec<&str> = w.changes.iter().map(|c| c.path()).collect();
-    assert!(paths.contains(&".yidam/catalog/source.md"), "{paths:?}");
-    let Some(Change::Write { content, .. }) = w
-        .changes
-        .iter()
-        .find(|c| c.path() == ".yidam/catalog/source.md")
-    else {
-        panic!("the catalog is rewritten")
-    };
-    assert!(!content.contains("lonely.yml"));
-    assert!(content.contains("cited.yml"), "the other citation stays");
+    assert_eq!(paths, [".yidam/corpus/concept/lonely.yml"]);
 }
 
 /// A whole class of refusal that the record removed.

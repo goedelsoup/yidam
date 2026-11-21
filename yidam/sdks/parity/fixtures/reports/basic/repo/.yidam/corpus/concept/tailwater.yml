@@ -6,8 +6,7 @@ description: >-
   written `[verified]` against this node. Both are mentions because the sentences negate and
   report them, not because they are in code — the backticks decide nothing, and the counted
   claim on [the gauge](../gauge/riffle-station.yml) is backticked too. It draws on
-  [the stage–discharge relation](../../catalog/stage-discharge.md), which is a citation
-  that entry's `used-by` list omits.
+  [the stage–discharge relation](../../catalog/stage-discharge.md).
 # Carried: this is the control node, and a `required: true` it omitted would make it gate.
 properties:
   datum: navd88

@@ -10,10 +10,6 @@ location:
   - kind: url
     value: https://cloud.google.com/asset-inventory/docs/supported-asset-types
     description: The asset types, and the API resource each one's `resource.data` follows.
-used-by:
-  - ../corpus/account/platform-prod.yml
-  - ../corpus/network/platform-default.yml
-  - ../corpus/compute-instance/build-runner.yml
 ---
 
 # Cloud Asset Inventory

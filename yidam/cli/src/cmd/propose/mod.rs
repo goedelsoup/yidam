@@ -97,18 +97,6 @@ fn rel(root: &Path, p: &Path) -> String {
         .replace('\\', "/")
 }
 
-/// Every catalog entry as `(repo-relative path, text)`, for a withdrawal to edit `used-by:`.
-fn catalogs(root: &Path) -> Vec<(String, String)> {
-    crate::walk::walk_md_files(&yidam_catalog_dir(root))
-        .iter()
-        .map(|p| {
-            let r = rel(root, p);
-            let text = read(root, &r);
-            (r, text)
-        })
-        .collect()
-}
-
 /// The `(check, node)` pairs the gate is failing on right now.
 ///
 /// Introduced *and* expired, because both fail the gate and both are somebody's outstanding
@@ -160,11 +148,10 @@ fn plan(
     let mut skipped = Vec::new();
 
     // ── withdraw ────────────────────────────────────────────────────────────
-    let cats = catalogs(root);
     let mut withdrawn: BTreeSet<String> = BTreeSet::new();
     if let Some(limit) = threshold {
         for e in draft::uncited(checks) {
-            if let Some(p) = draft::withdraw_proposal(head, &e, limit, &cats) {
+            if let Some(p) = draft::withdraw_proposal(head, &e, limit) {
                 withdrawn.insert(e.node.clone());
                 proposals.push(p);
             }

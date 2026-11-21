@@ -555,9 +555,9 @@ const ROSTER: &[Entry] = &[
         run: |i| checks::claim_tag_malformed(i.tag_prose()),
     },
     Entry {
-        id: "catalog-used-by-drift",
+        id: "catalog-used-by-declared",
         asked: Asked::Always,
-        run: |i| checks::catalog_used_by_drift(i.sources(), i.cites()),
+        run: |i| checks::catalog_used_by_declared(i.sources()),
     },
     Entry {
         id: "catalog-location-malformed",
@@ -891,10 +891,10 @@ const ROSTER: &[Entry] = &[
 /// unreadable file's own entries changes.
 ///
 /// **What still gets through, and should.** A check whose subject is a different file is left
-/// alone even when the unreadable one is why it fired. Breaking one instance in
-/// `examples/streamflow` leaves `catalog-used-by-drift` reporting that `usgs-nwis.md` claims a
-/// node that does not cite it — because the citation is a `links:` entry, and while the file
-/// does not parse there is no reading under which it does cite. That is a true statement about
+/// alone even when the unreadable one is why it fired. Breaking the one instance citing a
+/// catalog entry leaves `catalog-uncited` reporting that nothing draws on that entry — because
+/// the citation is a `links:` entry, and while the file does not parse there is no reading
+/// under which it does cite. That is a true statement about
 /// what the corpus can be shown to say, it is a Warn and does not gate, and it goes away when
 /// the quote is closed. Suppressing it would mean deciding that an unreadable file is evidence
 /// for the claims made about it, which is the whole mistake #676 is about.
@@ -1576,7 +1576,7 @@ decision := {"allow": true, "deny": []}
         assert_eq!(all.len(), clean_ids.len(), "a check id was reported twice");
         let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
         assert!(ids.contains("dangling-edge"));
-        assert!(ids.contains("catalog-used-by-drift"));
+        assert!(ids.contains("catalog-used-by-declared"));
         assert!(ids.contains("class-asserts-purpose"));
         // Reported in a repository that has overridden nothing, which is every corpus until
         // somebody writes a rule — the same reason every other check here reports when it

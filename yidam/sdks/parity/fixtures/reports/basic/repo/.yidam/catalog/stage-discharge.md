@@ -2,9 +2,6 @@
 name: Stage–discharge relation
 description: A rating-curve derivation, obtained and drawn on by two nodes.
 type: paper
-used-by:
-  - mixing-zone.yml
-  - low-flow.yml
 artifacts:
   - sha256: 419d61a7674cb5452c1bc6ba3f2f77cb45efb05bd2fc9ae0167c84ed586020a0
     bytes: 182391
@@ -14,11 +11,11 @@ artifacts:
 ---
 
 The second entry, and the one with citations. `gauge-record.md` pins the arm where no node
-draws on a source; this pins the arm where two do — and its `used-by` list is deliberately
-wrong in **both** directions, so `catalog-used-by-drift` and the `drift` field in
-`catalog-audit` are each exercised on a real report rather than only in a unit test.
+draws on a source; this pins the arm where two do. It does not list them: an entry does not
+store what cites it, and `catalog-audit` reports both from their citations.
 
-It claims `mixing-zone.yml`, which cites nothing, and omits `tailwater.yml`, which cites it.
+Its prose names low-flow.yml without linking it. That is the reference `rename` reports and
+leaves, so the rename golden pins the arm where a mention is not rewritten.
 
 It is also the entry that carries an **artifact record**, so the goldens exercise a populated
 `Artifacts` cell rather than only the empty one `gauge-record.md` gives them. The record is

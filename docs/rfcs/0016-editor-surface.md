@@ -103,7 +103,7 @@ is quiet and delayed: the edit works locally, survives review, and disappears at
 ### The one editor integration that exists is a copy-paste
 
 `yidam schema --settings` prints a `yaml.schemas` mapping for the user to paste into
-`.vscode/settings.json` ([`editor_settings_for`](../../yidam/cli/src/cmd/schema.rs#L854)).
+`.vscode/settings.json` ([`editor_settings_for`](../../yidam/cli/src/cmd/schema.rs#L848)).
 It works, and it is the whole of the editor story. It requires a third-party extension, a manual
 step at genesis, and a second manual step whenever the schema set changes. The doc comment on
 `editor_settings` names Neovim and Helix as targets too — a signal worth keeping (see Phase 3).

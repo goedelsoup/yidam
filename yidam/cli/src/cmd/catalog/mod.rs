@@ -1,15 +1,15 @@
 //! The catalog: what a corpus draws on, where it can be reached, and what it has obtained.
 //!
-//! Three surfaces over one set of files.
+//! Surfaces over one set of files.
 //!
 //! - [`audit`] reports what the catalog holds and who cites it. It reads and writes a REGEN
 //!   block, and is the oldest of the three.
 //! - [`fetch`] follows a declared address, files the bytes under their digest, and records
 //!   what it kept — the `extract:`/`refresh:` row of #460's table.
-//! - [`reconcile`] brings a hand-maintained `used-by` list back into agreement with the
-//!   citations, which are authoritative — the `reconcile:` row of the same table.
+//! - [`reconcile`] is retired and writes nothing (RFC-0053 §2.4). It rewrote the `used-by`
+//!   list an entry no longer stores, and stays one release because derived guards call it.
 //!
-//! The last two write commits, which nothing under `cmd/` but `propose` did before. What
+//! Fetch and extract write commits, which nothing under `cmd/` but `propose` did before. What
 //! licenses them to is RFC-0026's invariant, and [`crate::cmd::operational::author`] enforces it against
 //! `classify_commit` rather than trusting the call sites: **a run authors operational commits
 //! directly, and every epistemic commit it produces goes to a proposal branch.**
@@ -21,7 +21,7 @@ pub(crate) mod location;
 pub(crate) mod member;
 pub(crate) mod paging;
 mod reconcile;
-mod record;
+pub(crate) mod record;
 pub(crate) mod superseded;
 pub(crate) mod transport;
 
@@ -47,5 +47,4 @@ pub(crate) use fetch::{
     fetch_in, render as render_fetched, select as select_entries, EntryOutcome,
 };
 pub use location::parse_binding;
-pub(crate) use reconcile::reconcile_in;
 pub use reconcile::{reconcile, ReconcileOptions};

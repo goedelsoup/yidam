@@ -8,11 +8,6 @@ location:
   - kind: url_template
     value: https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=10-K
     description: Company filing index by registrant identifier.
-used-by:
-  - ../corpus/entity/ostreza-freight.yml
-  - ../corpus/entity/lorne-vasquez.yml
-  - ../corpus/document/annual-report-item-3.yml
-  - ../corpus/finding/undisclosed-consent-order.yml
 artifacts:
   - sha256: b5f2d0bd4006ce7893b3c11d52291c2fa578e75bc7ce9616de189dcef3744862
     bytes: 30

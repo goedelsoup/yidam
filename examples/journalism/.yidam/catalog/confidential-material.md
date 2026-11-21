@@ -8,8 +8,6 @@ location:
   - kind: address
     value: Provided directly to the newsroom
     description: Terms recorded at the time of receipt; not obtained from a published location.
-used-by:
-  - ../corpus/document/maintenance-memo.yml
 artifacts:
   - sha256: ff40055a0b9a10eef324dc61916f7825703ef2932cfb0d53995217b81c3dc2b3
     bytes: 25

@@ -38,7 +38,7 @@ operational events, not epistemic events.
 - One file per data source
 - Filename: `author-year.md` for papers, `slug.md` for datasets/APIs
 - Content: source name, type, location, one-sentence description, access constraints
-- Optional: `used-by` list of corpus node links for reverse traversal
+- No list of what cites it: `yidam catalog-audit` derives that from the citations
 
 ### Ontology class definitions
 

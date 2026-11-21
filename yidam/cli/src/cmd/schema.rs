@@ -637,12 +637,6 @@ pub fn catalog_entry_schema() -> Value {
                     "additionalProperties": false
                 }
             },
-            "used-by": {
-                "type": "array",
-                "description": "Optional. Corpus nodes known to draw on this source. Declaring \
-                                one asserts it is current; the citations are authoritative.",
-                "items": non_empty_string()
-            },
             "artifacts": {
                 "type": "array",
                 "description": "Optional. What this entry has actually obtained, by content \

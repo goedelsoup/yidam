@@ -317,20 +317,17 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
-    /// Bring a catalog entry's `used-by` list back into agreement with the citations.
+    /// Retired: writes nothing, and the next release removes it.
     ///
-    /// The citations are authoritative — they cannot drift from the corpus and a
-    /// hand-maintained list can — so this is a substitution, and it commits as `reconcile:`.
-    ///
-    /// An entry declaring no `used-by` is left alone: absence is not drift, and writing one
-    /// would be this command deciding an entry should make a claim it never made. An explicit
-    /// `used-by: []` is repaired — an empty sequence is a claim that nothing cites the entry,
-    /// and it is false when nodes do.
+    /// It rewrote a catalog entry's `used-by` list to match the citations. An entry no longer
+    /// stores what cites it: `yidam catalog-audit` reports that from the citations, and
+    /// `yidam migrate used-by` deletes the stored lists. It exits 0 with an empty
+    /// `reconciled`, and says on stderr when an entry still declares a list.
     #[command(name = "catalog-reconcile")]
     CatalogReconcile {
-        /// One entry, by file stem or `name:`. Absent means every entry that declares a list.
+        /// One entry, by file stem or `name:`. A name matching no entry is refused.
         entry: Option<String>,
-        /// Report the substitution and write nothing.
+        /// Accepted for the guards that pass it. Nothing is written either way.
         #[arg(long)]
         dry_run: bool,
         #[command(flatten)]
@@ -1503,6 +1500,14 @@ enum MigrateCommand {
     /// written. An entry that dates nothing, or a commit that resolves nowhere, is listed with
     /// the reason. Idempotent; run it with `--dry-run` first.
     Pins,
+    /// Delete every catalog entry's `used-by:` list; the citations are the record
+    ///
+    /// RFC-0053 stopped storing what cites an entry: `yidam catalog-audit` reports it from the
+    /// citations. This deletes each `used-by:` block, `used-by: []` included, and edits no other
+    /// file. A name the list claimed that carries no citation to the entry is listed, and kept
+    /// in the migration record, so the author can add the link if the file should cite it.
+    /// Idempotent; run it with `--dry-run` first.
+    UsedBy,
     /// Point a declared relationship at a different class, at both ends
     Edge {
         /// The class that declares it
@@ -1547,6 +1552,7 @@ impl From<MigrateCommand> for yidam::MigrateOperation {
             MigrateCommand::Scaffold => Self::Scaffold,
             MigrateCommand::Locations => Self::Locations,
             MigrateCommand::Pins => Self::Pins,
+            MigrateCommand::UsedBy => Self::UsedBy,
             MigrateCommand::Edge {
                 class,
                 relationship,

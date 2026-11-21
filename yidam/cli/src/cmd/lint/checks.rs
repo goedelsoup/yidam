@@ -3116,7 +3116,7 @@ pub fn citations(
 /// > prevent.
 ///
 /// `catalog/` exists to record provenance, and the three checks that read it
-/// (`catalog-uncited`, `catalog-unobtained-but-cited`, `catalog-used-by-drift`) check the
+/// (`catalog-uncited`, `catalog-unobtained-but-cited`, `catalog-used-by-declared`) check the
 /// catalog's own bookkeeping — whether entries and citations agree with each other. None of
 /// them asks the question the vocabulary is *for*: whether a claim asserted at the strongest
 /// standing rests on anything at all.
@@ -3400,18 +3400,16 @@ pub struct UsedByDrift {
 /// reason this takes an `Option` rather than a slice.
 ///
 /// **An empty list is a declaration, not an absence.** `used-by: []` is a value an author
-/// typed, or one [`set_used_by`](crate::cmd::catalog::record::set_used_by) wrote on purpose
-/// so that an entry which claimed something and now claims nothing still says so; either way
-/// it asserts that nothing cites the entry, and an assertion is checkable. It was collapsed
+/// typed, or one the retired `catalog-reconcile` wrote on purpose so that an entry which
+/// claimed something and now claims nothing still said so; either way it asserts that nothing
+/// cites the entry, and an assertion is checkable. It was collapsed
 /// into absence for as long as this took a slice, which made `[]` a silent opt-out of the
 /// check — and the default state of a hand-authored entry, so the check was weakest exactly
 /// where new material enters.
 ///
-/// One function because three consumers ask the same question and must not answer it
-/// differently: `catalog-used-by-drift` renders it as a gated violation, `catalog-audit`
-/// reports it as a field an editor navigates by, and `catalog-reconcile` repairs what it
-/// names. A second copy is exactly how the two counts in this file's own history came to
-/// disagree.
+/// `yidam migrate used-by` asks it what a deleted list claimed that nothing cites
+/// (RFC-0053 §2.2). It used to be shared by the retired drift check, `catalog-audit`'s `drift`
+/// field and `catalog-reconcile`; one function is what kept them from answering differently.
 pub fn used_by_drift(used_by: Option<&[String]>, citing: &[String]) -> Option<UsedByDrift> {
     let used_by = used_by?;
     let claimed: HashSet<&str> = used_by.iter().map(|u| basename(u)).collect();
@@ -3432,44 +3430,40 @@ pub fn used_by_drift(used_by: Option<&[String]>, citing: &[String]) -> Option<Us
     })
 }
 
-pub fn catalog_used_by_drift(sources: &[Source], cites: &[Vec<String>]) -> Check {
-    let mut violations = Vec::new();
-    for (s, actual) in sources.iter().zip(cites) {
-        // `None` is the optional list being absent, which is not drift. An empty one is a
-        // declaration that nothing cites the entry, and is compared like any other value.
-        let Some(drift) = used_by_drift(s.used_by.as_deref(), actual) else {
-            continue;
-        };
-        let mut detail = Vec::new();
-        if !drift.claimed_not_citing.is_empty() {
-            detail.push(format!(
-                "claims {} that do not cite it",
-                drift.claimed_not_citing.join(", ")
-            ));
-        }
-        if !drift.citing_not_claimed.is_empty() {
-            detail.push(format!(
-                "omits {} that do",
-                drift.citing_not_claimed.join(", ")
-            ));
-        }
-        if !detail.is_empty() {
-            violations.push(Violation::new(&s.rel, detail.join("; ")));
-        }
-    }
+/// A catalog entry that still stores what cites it (RFC-0053 §2.3).
+///
+/// The citations are the record, and `yidam catalog-audit` reports them as `cited_by`. A stored
+/// list beside them could only drift, and every repair of it was a commit. Any `used-by:` key
+/// is reported, whatever its value — `used-by: []` too, since that was a claim as well.
+///
+/// Warn and not Error, so upgrading does not fail a repository's gate before it has run the
+/// migration. A lint check and not a parse failure, so the entry's other fields are still read.
+pub fn catalog_used_by_declared(sources: &[Source]) -> Check {
+    let violations = sources
+        .iter()
+        .filter(|s| s.used_by.is_some())
+        .map(|s| {
+            Violation::new(
+                &s.rel,
+                "declares `used-by:`; `yidam migrate used-by` deletes it and lists any file it \
+                 named that does not cite the entry"
+                    .to_string(),
+            )
+        })
+        .collect();
     Check::new(
-        "catalog-used-by-drift",
-        "`used-by` list disagreeing with the citations",
+        "catalog-used-by-declared",
+        "Catalog entry storing what cites it",
         Severity::Warn,
-        "The citations are authoritative — they cannot drift from the corpus, and a \
-         hand-maintained list can. Both are kept so the disagreement is visible rather than \
-         averaged away. The list is optional; an entry that declares one is asserting it is \
-         current, and `used-by: []` declares one — it asserts that nothing cites the entry.",
+        "The citations are the record of what draws on an entry, and `yidam catalog-audit` \
+         reports them as `cited_by`. A `used-by:` list stored beside them can only drift from \
+         them, and keeping it current cost a commit per entry per new citation. An entry does \
+         not list what cites it.",
         violations,
     )
 }
 
-fn basename(p: &str) -> &str {
+pub(crate) fn basename(p: &str) -> &str {
     p.rsplit('/').next().unwrap_or(p)
 }
 
@@ -6789,49 +6783,28 @@ mod tests {
     }
 
     #[test]
-    fn used_by_drift_reports_both_directions() {
-        let s = vec![source("src", true, Some(&["../corpus/a/one.yml"]))];
-        let c = catalog_used_by_drift(&s, &[vec!["corpus/a/two.yml".to_string()]]);
-        assert_eq!(c.violations.len(), 1);
-        let d = &c.violations[0].detail;
-        assert!(d.contains("one.yml"), "should name the stale claim: {d}");
-        assert!(d.contains("two.yml"), "should name the omitted citer: {d}");
+    fn a_declared_used_by_list_is_reported_whatever_its_value() {
+        let s = vec![
+            source("listed", true, Some(&["../corpus/a/one.yml"])),
+            source("empty", true, Some(&[])),
+            source("absent", true, None),
+        ];
+        let c = catalog_used_by_declared(&s);
+        assert_eq!(c.severity, Severity::Warn);
+        let named: Vec<&str> = c.violations.iter().map(|v| v.node.as_str()).collect();
+        assert_eq!(named.len(), 2, "{named:?}");
+        assert!(named.iter().any(|n| n.contains("listed")), "{named:?}");
+        assert!(named.iter().any(|n| n.contains("empty")), "{named:?}");
+        assert!(
+            c.violations[0].detail.contains("yidam migrate used-by"),
+            "the message names the fix: {}",
+            c.violations[0].detail
+        );
     }
 
-    #[test]
-    fn an_absent_used_by_list_is_not_drift() {
-        let s = vec![source("src", true, None)];
-        assert!(catalog_used_by_drift(&s, &[vec!["corpus/a/x.yml".to_string()]]).passed());
-    }
-
-    /// The gate's half of `an_empty_used_by_list_is_a_claim_and_an_absent_one_is_not`,
-    /// against a `Source` built by hand. It does not reach `load_sources` — see
-    /// `the_loader_keeps_an_empty_used_by_apart_from_an_absent_one` for that half, which is
-    /// where the collapse actually lived.
-    #[test]
-    fn an_empty_used_by_list_is_drift_when_something_cites_the_entry() {
-        let s = vec![source("src", true, Some(&[]))];
-        let c = catalog_used_by_drift(&s, &[vec!["corpus/a/x.yml".to_string()]]);
-        assert_eq!(c.violations.len(), 1);
-        let d = &c.violations[0].detail;
-        assert!(d.contains("omits x.yml"), "should name the citer: {d}");
-    }
-
-    /// And silent when nothing does, which is what keeps the change from being a new finding
-    /// on every entry a corpus has correctly emptied.
-    #[test]
-    fn an_empty_used_by_list_agreeing_with_no_citations_is_not_drift() {
-        let s = vec![source("src", true, Some(&[]))];
-        assert!(catalog_used_by_drift(&s, &[vec![]]).passed());
-    }
-
-    /// The half the fixtures above cannot reach. `used_by_drift` reading `Some(&[])`
-    /// correctly buys nothing if the loader flattens `used-by: []` to an absent key before
-    /// the check ever sees it — which is precisely where this defect lived, and a mutation
-    /// restoring the flatten passes every hand-built `Source` in this file.
-    ///
-    /// Through `Overlay` rather than a temp directory: the loader reads catalog text through
-    /// it, so the two entries below are parsed by the same path a real file takes.
+    /// `used-by: []` is a key the check has to see, so the loader must not flatten it to an
+    /// absent one. Through `Overlay` rather than a temp directory: the loader reads catalog
+    /// text through it, so the two entries below are parsed by the same path a real file takes.
     #[test]
     fn the_loader_keeps_an_empty_used_by_apart_from_an_absent_one() {
         let root = Path::new("/repo");
@@ -6849,16 +6822,11 @@ mod tests {
         assert_eq!(sources[0].used_by, Some(vec![]), "`[]` is a declared list");
         assert_eq!(sources[1].used_by, None, "no key is no list");
 
-        // And the gate reached through the loader answers differently for the two.
-        let cites = vec![
-            vec!["corpus/a/x.yml".to_string()],
-            vec!["corpus/a/x.yml".to_string()],
-        ];
-        let c = catalog_used_by_drift(&sources, &cites);
+        let c = catalog_used_by_declared(&sources);
         assert_eq!(
             c.violations.len(),
             1,
-            "only the declared-empty entry drifts"
+            "only the declared-empty entry is reported"
         );
         assert!(c.violations[0].node.contains("declared-empty"));
     }

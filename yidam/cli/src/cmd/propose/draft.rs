@@ -385,24 +385,6 @@ pub fn open_source_proposal(head: &str, e: &Eligible, text: &str) -> Option<Prop
     })
 }
 
-/// Drop `node` from a catalog entry's `used-by:` list.
-///
-/// A withdrawal that left the node listed would trade one finding for a
-/// `catalog-used-by-drift`, which is not a proposal, it is a swap.
-pub fn drop_used_by(text: &str, node: &str) -> Option<String> {
-    let target = stem(node);
-    let lines: Vec<&str> = text.split('\n').collect();
-    let keep: Vec<&str> = lines
-        .iter()
-        .copied()
-        .filter(|l| {
-            let t = l.trim();
-            !(t.starts_with("- ") && stem(t.trim_start_matches("- ").trim()) == target)
-        })
-        .collect();
-    (keep.len() != lines.len()).then(|| keep.join("\n"))
-}
-
 /// The `open:` proposal for one gating finding, or `None` when the node cannot take one.
 ///
 /// `None` is the node whose `description:` is a plain scalar. It is a refusal and not a
@@ -443,30 +425,16 @@ pub fn open_proposal(head: &str, e: &Eligible, text: &str) -> Option<Proposal> {
 
 /// The `withdraw:` proposal for an uncited node past the corpus's declared threshold.
 ///
-/// `catalogs` is every catalog entry as `(repo-relative path, text)`; an entry listing this
-/// node in `used-by:` is rewritten in the same commit.
-pub fn withdraw_proposal(
-    head: &str,
-    e: &Eligible,
-    threshold: usize,
-    catalogs: &[(String, String)],
-) -> Option<Proposal> {
+/// It removes the node and edits nothing else. A catalog entry does not list what cites it
+/// (RFC-0053), so the citation leaves with the node.
+pub fn withdraw_proposal(head: &str, e: &Eligible, threshold: usize) -> Option<Proposal> {
     let age = e.age.as_ref()?;
     if age.commits < threshold {
         return None;
     }
-    let mut changes = vec![Change::Remove {
+    let changes = vec![Change::Remove {
         path: e.node.clone(),
     }];
-    for (path, text) in catalogs {
-        if let Some(content) = drop_used_by(text, &e.node) {
-            changes.push(Change::Write {
-                path: path.clone(),
-                content,
-            });
-        }
-    }
-    changes.sort_by(|a, b| a.path().cmp(b.path()));
     let _ = head;
     let subject = format!(
         "{} — uncited for {} corpus commit(s)",
@@ -686,18 +654,6 @@ mod tests {
         assert_eq!(found[1].check, "dangling-edge");
         // Removing the second restores the first exactly.
         assert_eq!(strip(&two, &found[1]), one);
-    }
-
-    #[test]
-    fn a_withdrawn_node_leaves_the_catalog_that_listed_it() {
-        let cat = "---\nname: usgs\nused-by:\n  - ../corpus/gage/a.yml\n  - ../corpus/gage/b.yml\n---\n\n# USGS\n";
-        let out = drop_used_by(cat, ".yidam/corpus/gage/a.yml").expect("a listed node");
-        assert!(!out.contains("gage/a.yml"));
-        assert!(out.contains("gage/b.yml"), "and the others stay");
-        assert!(
-            drop_used_by(cat, ".yidam/corpus/gage/z.yml").is_none(),
-            "unlisted is no change"
-        );
     }
 
     #[test]

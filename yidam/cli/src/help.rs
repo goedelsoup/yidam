@@ -274,9 +274,8 @@ pub const GROUPS: &[Group] = &[
         // entry's address, files what comes back under its digest, and records that. Its
         // nearest neighbour is `vault`, which is where those bytes then live.
         //
-        // `catalog-reconcile` sits beside it because the pair is the point — one keeps what a
-        // source gave, the other keeps what the corpus says about it — and separating them
-        // would put the two halves of `catalog:`'s row in #460's table in different groups.
+        // `catalog-reconcile` stays beside them for the one release it survives. It is retired
+        // and writes nothing (RFC-0053 §2.4), so it is marked as a reader.
         //
         // `catalog-extract` follows `catalog-fetch` for the reason `catalog-fetch` follows
         // `vault`: it takes bytes already held, files new ones under their digest, and records
@@ -285,7 +284,7 @@ pub const GROUPS: &[Group] = &[
             w("vault"),
             w("catalog-fetch"),
             w("catalog-extract"),
-            w("catalog-reconcile"),
+            r("catalog-reconcile"),
             // `source` beside the commands that follow an entry's address, because a pack is
             // how an identifier becomes one (RFC-0048). `w` because `source add` (#1316)
             // writes a catalog entry; `check`, `list` and `search` write nothing.
