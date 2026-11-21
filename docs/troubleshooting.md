@@ -21,6 +21,7 @@ yidam doctor — /home/you/my-domain
   warn  index        no /home/you/my-domain/.yidam/index
                      → yidam index-build (needs the `index` feature)
   ok    computed     this corpus computes nothing about itself, and declares no calculator
+  ok    run-output-stamps-input-commit no committed output contains the commit its receipt was computed from
   ok    regen        every REGEN block holds what its generator produces
   warn  routes       `AGENTS.md` has no `yidam routes` block, so no re-vendor reaches its reading list
                      → mise run yidam-vendor-update, then yidam migrate routes
@@ -58,6 +59,7 @@ exit code unless you pass `--strict`, which is the reading a CI job wants.
 | `prelude` | How stale is the vendored prelude? |
 | `index` | Is the index built, and is it current? |
 | `computed` | What has this corpus computed about itself, and does it still stand? |
+| `run-output-stamps-input-commit` | Does any committed output stamp the commit its inputs came from? |
 | `regen` | Are the REGEN blocks current? |
 | `routes` | Does `AGENTS.md` carry the reading routes a re-vendor updates? |
 | `scaffold` | Do `ci.yml` and `CLAUDE.md` mark the part a re-vendor updates? |
