@@ -83,6 +83,7 @@ re-deriving it.
 | [0050](0050-list-property-type.md) | G14 | A list property type — scalar items, and records that carry their own standing | Draft |
 | [0051](0051-code-artifact-pin.md) | I37 | A read of code names the commit it was read at, and the repository that commit is in (the code-artifact pin) | Implemented |
 | [0052](0052-receipt-revalidation.md) | I38 | A re-run that reproduces its outputs is recorded, not committed (receipt re-validation) | Implemented |
+| [0053](0053-derived-used-by.md) | I38 | `used-by` is derived from the citations, not stored beside them | Draft |
 
 ## Reading order
 
