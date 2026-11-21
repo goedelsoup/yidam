@@ -1161,13 +1161,11 @@ test('every view builds from the real binary’s own JSON', async (t) => {
   assert.equal(cited.cited_by.length, cited.nodes, 'the count is the list’s length')
   const uncited = catalog.sources.find((s) => s.cited_by?.length === 0)
   assert.ok(uncited, 'and one no node draws on, which is the other arm')
-  assert.equal(uncited.drift, null, 'an entry declaring no `used-by` list has not drifted')
-
-  // Both drift arms, from the report rather than from a literal. One arm alone cannot tell
-  // an implementation reading both from one reading either.
-  assert.ok(cited.drift, 'the cited entry declares a `used-by` list')
-  assert.equal(cited.drift.claimed_not_citing.length, 1, 'it claims a node that does not cite it')
-  assert.equal(cited.drift.citing_not_claimed.length, 1, 'and omits one that does')
+  // `drift` is retained for compatibility and null on every row (RFC-0053 §2.6): an entry no
+  // longer stores what cites it, so there is nothing to compare. The tooltip stays silent.
+  for (const s of catalog.sources) {
+    assert.equal(s.drift, null, `${s.entry}: drift is null`)
+  }
 
   const sourced = corpusTree(index, open, undefined, null, catalog)
   const placed = sourced

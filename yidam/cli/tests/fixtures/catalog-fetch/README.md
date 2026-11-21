@@ -1,7 +1,7 @@
 # The catalog-fetch fixture corpus
 
-A corpus whose catalog entry can actually be followed, so that `catalog-fetch` and
-`catalog-reconcile` have something to run against end to end.
+A corpus whose catalog entry can actually be followed, so that `catalog-fetch` has something
+to run against end to end.
 
 ## Why it is a directory here rather than heredocs in the test
 
@@ -35,12 +35,7 @@ needs no network had no fixture anywhere in the repository, which is most of why
 | `location[0]` — `file` | The whole path with no network: address → bytes → cache → record → `refresh:` |
 | `location[1]` — `url_template` | A slot nothing binds. Refused by name, and the refusal says `--bind year=` |
 | `location[2]` — `address` | Followable by nothing. Passed over in silence beside a location that is |
-| `used-by` | Drifted **in both directions** — see below |
 | `.yidam/config.toml` | One vault claiming `catalog`, so the push route is a real answer |
-
-The `used-by` list claims `withdrawn-survey.yml`, which no longer exists, and omits
-`hydrant-count.yml`, which cites the entry. Both directions, because `UsedByDrift` reports
-them separately and a fixture with only one would leave half of `reconcile` unexercised.
 
 The vault URL is a `file://` path that does not exist, and that is deliberate: a fetch lands
 bytes in the local **cache** and never in a store — uploading is `yidam vault push` — so a

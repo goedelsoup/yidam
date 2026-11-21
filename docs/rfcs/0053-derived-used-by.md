@@ -1,6 +1,6 @@
 # RFC-0053 — `used-by` is derived from the citations, not stored beside them
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I38
 - **Relates to:**
   - #829 (absent versus `used-by: []`, the distinction this RFC makes unnecessary)

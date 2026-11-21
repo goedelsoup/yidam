@@ -8,10 +8,6 @@ location:
   - kind: address
     value: State Transport Board, records office
     description: Request filed and answered by post; the response letter enumerates the withholdings.
-used-by:
-  - ../corpus/entity/state-transport-board.yml
-  - ../corpus/document/inspection-file-response.yml
-  - ../corpus/finding/undisclosed-consent-order.yml
 artifacts:
   - sha256: 576345cde063d82ba9a1e0c3b8e6563a0f72a8fe3052f70a2187c8b4cdf2788d
     bytes: 20

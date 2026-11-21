@@ -1,15 +1,14 @@
 //! The steps every corpus's workflow runs and no manifest declares: the catalog's connectors.
 //!
-//! `catalog-fetch`, `catalog-extract` and `catalog-reconcile` are operational — `refresh:`,
-//! `extract:`, `reconcile:` — and until now they ran only on a laptop, committing on the
-//! current branch. #475's 2026-09-30 amendment puts them in the workflow, so a catalog clock
+//! `catalog-fetch` and `catalog-extract` are operational — `refresh:` and `extract:` — and
+//! until now they ran only on a laptop, committing on the current branch. #475's 2026-09-30 amendment puts them in the workflow, so a catalog clock
 //! that `due` finds overdue is one the cluster that admitted the run also acts on.
 //!
 //! # Why a frozen set, and not manifest entries
 //!
 //! #460 decision 9: connectors stay unrunnable in `run`. A manifest that declared
 //! `kind = "connector"` would be asking this binary to invoke an argv that reads the world,
-//! and `Kind::unrunnable_because` refuses that everywhere it is asked. These three are not
+//! and `Kind::unrunnable_because` refuses that everywhere it is asked. These two are not
 //! declared, they are compiled in: the binary invokes its own code, in-process, through
 //! [`crate::cmd::catalog`]'s detached writer. So the refusal stands for every connector a
 //! corpus could write, and the only connectors a pod runs are the ones this constant names.
@@ -18,7 +17,7 @@
 //!
 //! [`BUILTINS`] is the whole set. `cluster workflow` emits a step for each, in this order,
 //! ahead of the manifest's plan; `cluster step` and `cluster land` resolve a name here before
-//! they ask the manifest. The tests derive from it too, so a fourth built-in added here is a
+//! they ask the manifest. The tests derive from it too, so a third built-in added here is a
 //! step generated, runnable and landable without a list elsewhere to extend.
 //!
 //! # A built-in is a capability like any other, to everything after the invocation
@@ -40,7 +39,6 @@ use crate::cmd::run::manifest::{Capability, Kind, Manifest, Run};
 pub enum Op {
     Fetch,
     Extract,
-    Reconcile,
 }
 
 /// One compiled-in step.
@@ -61,10 +59,12 @@ const CATALOG: &str = ".yidam/catalog/**";
 
 /// The built-in steps, in the order a workflow runs them.
 ///
-/// Fetch first, because the other two read what it records. Extract reads the PDFs a fetch
-/// recorded — from this machine's vault cache, which on a pod is only what that pod fetched,
-/// so on a cluster it records what it can and skips the rest, saying why. Reconcile last:
-/// it compares `used-by` against the corpus's citations, and nothing before it writes those.
+/// Fetch first, because extract reads what it records: the PDFs a fetch recorded, from this
+/// machine's vault cache, which on a pod is only what that pod fetched, so on a cluster it
+/// records what it can and skips the rest, saying why.
+///
+/// `catalog-reconcile` was a third, and left when an entry stopped storing what cites it
+/// (RFC-0053 §2.4): with no list there is nothing for it to commit.
 pub const BUILTINS: &[Builtin] = &[
     Builtin {
         name: "catalog-fetch",
@@ -78,23 +78,17 @@ pub const BUILTINS: &[Builtin] = &[
         reads: &[CATALOG],
         op: Op::Extract,
     },
-    Builtin {
-        name: "catalog-reconcile",
-        verb: "reconcile",
-        reads: &[CATALOG, ".yidam/corpus/**"],
-        op: Op::Reconcile,
-    },
 ];
 
 impl Op {
     /// Whether the step reads from outside the corpus, so its pod needs the internet (#1232).
     ///
     /// Fetch reads each entry's source wherever it is. Extract reads only the vault cache
-    /// on its own pod, and reconcile reads the clone, so both reach the vault and no further.
+    /// on its own pod, so it reaches the vault and no further.
     pub fn reaches_the_world(self) -> bool {
         match self {
             Self::Fetch => true,
-            Self::Extract | Self::Reconcile => false,
+            Self::Extract => false,
         }
     }
 }
@@ -155,16 +149,6 @@ impl Builtin {
             Op::Extract => catalog::extract_in(
                 root,
                 &catalog::ExtractOptions {
-                    entry: None,
-                    dry_run: false,
-                    format,
-                },
-                writer,
-            )
-            .map(drop),
-            Op::Reconcile => catalog::reconcile_in(
-                root,
-                &catalog::ReconcileOptions {
                     entry: None,
                     dry_run: false,
                     format,

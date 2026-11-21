@@ -8,20 +8,6 @@ location:
   - kind: address
     value: Internal incident record
     description: The system of record for declarations, timelines and reviews.
-used-by:
-  - ../corpus/service/checkout-api.yml
-  - ../corpus/service/session-store.yml
-  - ../corpus/service/image-resize.yml
-  - ../corpus/incident/2026-03-checkout-saturation.yml
-  - ../corpus/incident/2026-05-session-store-eviction.yml
-  - ../corpus/incident/2026-06-resize-queue-memory.yml
-  - ../corpus/incident/2026-07-partial-checkout-degradation.yml
-  - ../corpus/contributing-factor/unbounded-retry.yml
-  - ../corpus/contributing-factor/cache-stampede.yml
-  - ../corpus/contributing-factor/no-backpressure.yml
-  - ../corpus/remediation/request-coalescing.yml
-  - ../corpus/remediation/retry-budget.yml
-  - ../corpus/remediation/load-shed.yml
 ---
 
 # The incident record

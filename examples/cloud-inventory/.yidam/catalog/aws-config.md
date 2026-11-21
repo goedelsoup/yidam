@@ -10,10 +10,6 @@ location:
   - kind: url
     value: https://docs.aws.amazon.com/config/latest/APIReference/API_ConfigurationItem.html
     description: The configuration item, the record each row of the landing table holds.
-used-by:
-  - ../corpus/account/workloads-prod.yml
-  - ../corpus/network/workloads-main.yml
-  - ../corpus/compute-instance/api-host.yml
 ---
 
 # AWS Config

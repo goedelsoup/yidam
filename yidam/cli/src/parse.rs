@@ -51,11 +51,11 @@ pub struct Frontmatter {
     /// Catalog entries only. Where the source can be reached.
     #[serde(default)]
     pub location: Option<Vec<CatalogLocation>>,
-    /// Catalog entries only. Corpus nodes known to draw on this source.
+    /// Catalog entries only. A hand-maintained list of what cites the entry, which an entry
+    /// no longer stores (RFC-0053): the citations are the record.
     ///
-    /// Hand-maintained, and therefore able to drift from the edges — which are
-    /// authoritative. Both are kept so the disagreement is visible rather than averaged
-    /// away; see `catalog-used-by-drift`.
+    /// Still read, so `catalog-used-by-declared` can report an entry that declares one and
+    /// `yidam migrate used-by` can delete it.
     #[serde(default, rename = "used-by")]
     pub used_by: Option<Vec<String>>,
     /// Catalog entries only. What this entry has actually obtained, by content address.

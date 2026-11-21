@@ -11,8 +11,7 @@ pod that computes holds no credential that could.**
 ## What runs where
 
 A workflow is a pin, then a step and a landing for each capability, in dependency order.
-The catalog's own steps come first in every workflow: `catalog-fetch`, `catalog-extract` and
-`catalog-reconcile`.
+The catalog's own steps come first in every workflow: `catalog-fetch` and `catalog-extract`.
 
 Every object a workflow names is its corpus's own. The table shortens `yidam-<corpus>-git-read`
 to `…-git-read`.
@@ -399,7 +398,7 @@ The workflow labels every pod with its corpus, `yidam.dev/corpus`, and its kind,
 | Kind | Pods | Reaches |
 |---|---|---|
 | `remote` | `admit`, `pin`, `land-*` | the remote |
-| `vault` | `step-*`, `survey-*`, `gather-*`, `catalog-extract`, `catalog-reconcile` | the vault |
+| `vault` | `step-*`, `survey-*`, `gather-*`, `catalog-extract` | the vault |
 | `internet` | `catalog-fetch`, `ask-*` | anywhere but the remote |
 
 Every pod also reaches DNS and the API server. Argo's `wait` sidecar shares the pod's network

@@ -23,4 +23,4 @@ yidam-streamflow-manual-x7k2p  Error  2026-09-29T14:00:00Z
   gather levels        refused: the commit carries no receipt at .yidam/runs/gather/levels.yml; a commit without one is not a run's, and is not landed
     gauges: answered
 
-refs on .: main at 999ae28aaf, 0 proposal branches open
+refs on .: main at 83d2e7ea9d, 0 proposal branches open

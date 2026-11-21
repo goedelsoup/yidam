@@ -1,4 +1,5 @@
-//! `yidam catalog-fetch` and `catalog-reconcile` through the binary (#720).
+//! `yidam catalog-fetch`, the retired `catalog-reconcile`, and `migrate used-by`, through the
+//! binary (#720, RFC-0053).
 //!
 //! Integration tests rather than unit tests, because what matters is what a repository looks
 //! like afterwards: which bytes are in the cache, what the entry says, what commit exists and
@@ -9,8 +10,9 @@
 //!   an address nothing has followed
 //!     → fetch → bytes under their digest, a record in the entry, a `refresh:` commit
 //!     → fetch again → nothing, because nothing changed
-//!   a `used-by` that drifted
-//!     → reconcile → a `reconcile:` commit, and the gate's own drift function reports none
+//!   a `used-by` list an entry still declares
+//!     → reconcile → nothing written, exit 0, a note naming the migration
+//!     → migrate used-by → the list deleted, the stale claim recorded, a `migrate:` subject
 //! ```
 //!
 //! # The cache is redirected, always
@@ -534,113 +536,146 @@ fn an_unknown_entry_says_where_to_look() {
     assert!(run.stderr.contains("catalog-audit"), "{}", run.stderr);
 }
 
-// ── reconcile ─────────────────────────────────────────────────────────────────
+// ── reconcile, retired, and the migration that replaces it ────────────────────
 
-/// The `reconcile:` row of #460's table: catalog and corpus brought back into agreement.
+/// Give the staged entry a `used-by:` list, as an unmigrated repository's would, and commit it.
 ///
-/// The fixture drifts in both directions — it claims a node that no longer exists and omits
-/// one that cites it — because `UsedByDrift` reports the two separately and a fixture with
-/// only one would leave half the repair unexercised.
-#[test]
-fn a_drifted_used_by_is_reconciled_and_committed() {
-    let s = stage();
-    let before = s.commit_count();
-
-    let out = s.run(&["catalog-reconcile", "local-registry"]).ok();
-    assert!(out.contains("+ hydrant-count.yml"), "{out}");
-    assert!(out.contains("- withdrawn-survey.yml"), "{out}");
-
+/// Wrong in both directions: it claims `withdrawn-survey.yml`, which no longer exists, and
+/// omits `hydrant-count.yml`, which cites the entry. Only the first is a claim the migration
+/// records — the citation is the record, so an omission loses nothing.
+fn declare_used_by(s: &Staged) {
     let text = s.entry_text();
-    assert!(
-        text.contains("../corpus/record/hydrant-count.yml"),
-        "written in the form entries are written in:\n{text}"
+    let at = text.find("\n---\n").expect("a closing fence") + 1;
+    let mut out = text.clone();
+    out.insert_str(at, "used-by:\n  - ../corpus/record/withdrawn-survey.yml\n");
+    std::fs::write(s.entry(), out).unwrap();
+    git(s.root(), &["add", "-A"]);
+    git(
+        s.root(),
+        &["commit", "-q", "-m", "catalog: an unmigrated list"],
     );
-    assert!(!text.contains("withdrawn-survey"), "{text}");
-    assert!(
-        text.contains("# The county hydrant registry"),
-        "prose survives"
-    );
-
-    assert_eq!(s.commit_count(), before + 1);
-    let subject = s.head_subject();
-    assert!(
-        subject.starts_with("reconcile: local-registry"),
-        "{subject}"
-    );
-    assert_eq!(
-        yidam_core::git::classify_commit("", &subject).kind,
-        yidam_core::git::CommitKind::Operational
-    );
-
-    // The body says which way each name moved — the diff alone cannot.
-    let body = git(s.root(), &["log", "-1", "--format=%b"]);
-    assert!(body.contains("added 1"), "{body}");
-    assert!(body.contains("removed 1"), "{body}");
 }
 
-/// A second reconcile has nothing to do, which is what a repair that actually converged looks
-/// like. If the two lists were compared in different forms this would loop forever.
+/// `catalog-reconcile` writes nothing and exits 0, with or without `--dry-run`, on an entry
+/// that still declares a list (RFC-0053 §2.4). It says so on stderr, naming the migration,
+/// and its report is the shape a guard reads, with nothing in it.
 #[test]
-fn reconciling_twice_is_a_no_op_the_second_time() {
+fn a_retired_reconcile_writes_nothing_and_names_the_migration() {
     let s = stage();
-    s.run(&["catalog-reconcile", "local-registry"]).ok();
-    let after = s.commit_count();
-    let text = s.entry_text();
+    declare_used_by(&s);
+    let before = (s.commit_count(), s.entry_text());
 
-    let out = s.run(&["catalog-reconcile", "local-registry"]).ok();
-    assert_eq!(s.commit_count(), after, "converged");
-    assert_eq!(s.entry_text(), text);
-    assert!(out.contains("agrees with the citations"), "{out}");
+    for args in [
+        &["catalog-reconcile", "--format", "json"][..],
+        &["catalog-reconcile", "--dry-run", "--format", "json"][..],
+        &["catalog-reconcile", "local-registry", "--format", "json"][..],
+    ] {
+        let run = s.run(args);
+        assert!(run.ok, "{args:?} exits 0:\n{}", run.stderr);
+        assert!(
+            run.stderr.contains("yidam migrate used-by"),
+            "{}",
+            run.stderr
+        );
+        let v: serde_json::Value = serde_json::from_str(&run.stdout).unwrap();
+        assert_eq!(v["reconciled"], serde_json::json!([]), "{}", run.stdout);
+        assert_eq!(
+            (s.commit_count(), s.entry_text()),
+            before,
+            "{args:?} wrote nothing"
+        );
+    }
 }
 
-/// The repair has to leave the gate green. `lint` is the arbiter, not this test's own reading
-/// of the drift — a repair that agreed with itself and not with the gate would pass a test and
-/// fail a build.
+/// On an entry that declares no list there is nothing to say, so the note is not printed.
 #[test]
-fn reconciling_clears_the_gate_finding_it_was_written_for() {
+fn a_retired_reconcile_on_a_migrated_corpus_is_silent() {
     let s = stage();
-    let before = s.run(&["lint", "--format", "json"]).ok();
-    assert!(
-        before.contains("catalog-used-by-drift"),
-        "the fixture must actually drift, or this asserts nothing"
-    );
-    let drifting: serde_json::Value = serde_json::from_str(&before).unwrap();
-    // `checks` sits at the top of the RFC-0016 envelope, beside `gate` and `root` — not under
-    // a `report` key. Reading the wrong path here would make this test pass by finding zero
-    // violations both times, which is the one way it could assert nothing while looking green.
-    let violations = |v: &serde_json::Value| -> usize {
+    let run = s.run(&["catalog-reconcile"]);
+    assert!(run.ok, "{}", run.stderr);
+    assert!(!run.stderr.contains("used-by"), "{}", run.stderr);
+    assert_eq!(s.commit_count(), 1);
+}
+
+/// A name matching no entry is still refused: a typo in a guard should not read as a clean
+/// catalog.
+#[test]
+fn a_retired_reconcile_still_refuses_an_unknown_entry() {
+    let s = stage();
+    let run = s.run(&["catalog-reconcile", "no-such-source"]);
+    assert!(!run.ok);
+    assert!(run.stderr.contains("catalog-audit"), "{}", run.stderr);
+}
+
+/// The migration's dry run names the list and the stale claim, and writes nothing.
+#[test]
+fn a_used_by_migration_dry_run_writes_nothing() {
+    let s = stage();
+    declare_used_by(&s);
+    let before = (s.commit_count(), s.entry_text());
+    let out = s.run(&["migrate", "--dry-run", "used-by"]).ok();
+    assert!(out.contains("local-registry.md"), "{out}");
+    assert!(out.contains("withdrawn-survey.yml"), "{out}");
+    assert_eq!((s.commit_count(), s.entry_text()), before);
+}
+
+/// The migration deletes the list and nothing else, writes the stale claim into its record,
+/// and names the `migrate:` subject to commit under — it commits nothing itself, as no
+/// `migrate` operation does. `catalog-used-by-declared` is left with nothing to report, and a
+/// second run has nothing to do.
+#[test]
+fn a_used_by_migration_deletes_the_list_and_records_what_it_claimed() {
+    let s = stage();
+    let pristine = s.entry_text();
+    declare_used_by(&s);
+    let lint = |s: &Staged| -> usize {
+        let v: serde_json::Value =
+            serde_json::from_str(&s.run(&["lint", "--format", "json"]).stdout).unwrap();
         v["checks"]
             .as_array()
             .map(|cs| {
                 cs.iter()
-                    .filter(|c| c["id"] == "catalog-used-by-drift")
+                    .filter(|c| c["id"] == "catalog-used-by-declared")
                     .map(|c| c["violations"].as_array().map_or(0, Vec::len))
                     .sum()
             })
             .unwrap_or(0)
     };
-    assert_eq!(violations(&drifting), 1, "one drifted entry to start");
-
-    s.run(&["catalog-reconcile", "local-registry"]).ok();
-
-    let after: serde_json::Value =
-        serde_json::from_str(&s.run(&["lint", "--format", "json"]).ok()).unwrap();
     assert_eq!(
-        violations(&after),
-        0,
-        "the gate the repair was written for is clear"
+        lint(&s),
+        1,
+        "the declared list is reported before the migration"
     );
-}
 
-/// `--dry-run` reports the substitution and writes nothing.
-#[test]
-fn a_reconcile_dry_run_writes_nothing() {
-    let s = stage();
-    let before = s.entry_text();
-    let out = s.run(&["catalog-reconcile", "--dry-run"]).ok();
-    assert!(out.contains("+ hydrant-count.yml"), "{out}");
-    assert_eq!(s.entry_text(), before);
-    assert_eq!(s.commit_count(), 1);
+    let before = s.commit_count();
+    let out = s.run(&["migrate", "used-by"]).ok();
+    assert_eq!(
+        s.entry_text(),
+        pristine,
+        "only the list's lines are deleted"
+    );
+    assert_eq!(
+        s.commit_count(),
+        before,
+        "the author commits, not the migration"
+    );
+    assert!(out.contains("commit: migrate:"), "{out}");
+
+    let record = out
+        .lines()
+        .find_map(|l| l.strip_prefix("record: "))
+        .unwrap_or_else(|| panic!("a migration record:\n{out}"));
+    let text = std::fs::read_to_string(s.root().join(record)).unwrap();
+    assert!(text.contains("claimed_not_citing"), "{text}");
+    assert!(text.contains("withdrawn-survey.yml"), "{text}");
+    assert!(
+        !text.contains("hydrant-count"),
+        "an omission is not recorded:\n{text}"
+    );
+
+    assert_eq!(lint(&s), 0, "nothing declares a list afterwards");
+    let again = s.run(&["migrate", "used-by"]).ok();
+    assert!(again.contains("Nothing to migrate"), "{again}");
 }
 
 // ── identifiers, through a source pack (RFC-0048 §5) ──────────────────────────

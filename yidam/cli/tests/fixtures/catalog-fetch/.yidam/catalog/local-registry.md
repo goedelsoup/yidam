@@ -15,8 +15,6 @@ location:
   - kind: address
     value: Vantry County Clerk, 14 Court Street, Room 208
     description: Where the paper originals are held. Nothing fetches this.
-used-by:
-  - ../corpus/record/withdrawn-survey.yml
 ---
 
 # The county hydrant registry

@@ -92,9 +92,8 @@ fn key_name(line: &str) -> Option<&str> {
 /// The half-open line range a top-level key occupies, including its block.
 ///
 /// Matched on the key *name* rather than on the line text, because a key and its block can
-/// share a line: `used-by: []` is the empty list this module writes when a reconcile removes
-/// every citation, and a scan looking for a bare `used-by:` would miss it and report the
-/// entry as declaring no list at all — which is the one distinction `used_by_drift` turns on.
+/// share a line: `used-by: []` is a declared list, and a scan looking for a bare `used-by:`
+/// would miss it and leave it behind when `yidam migrate used-by` deletes the others.
 fn block_of(lines: &[&str], key: &str) -> Option<std::ops::Range<usize>> {
     let start = lines.iter().position(|l| key_name(l) == Some(key))?;
     let mut end = start + 1;
@@ -472,54 +471,24 @@ pub fn add_reading(text: &str, of: &str, reading: &ArtifactReading) -> Result<Op
     Ok(Some(rebuilt))
 }
 
-/// Replace an entry's `used-by:` list with the paths that actually cite it.
+/// The 1-based file lines an entry's `used-by` block occupies, or `None` when it declares none.
 ///
-/// The citations are authoritative — `catalog-used-by-drift` says so in the words this
-/// reuses: *"they cannot drift from the corpus, and a hand-maintained list can."* So
-/// reconciling is a substitution and not a merge: whatever the list claimed that no node
-/// carries is wrong by construction, and keeping it would be keeping the drift.
-///
-/// An entry that declares no list gets none. Absence is not drift — `used_by_drift` returns
-/// `None` for it and the gate stays silent — so writing one would be this command deciding an
-/// entry should make a claim it never made. `used-by: []` is a declared list and is rewritten
-/// like any other: [`block_of`] matches on the key name so that the form this function emits
-/// is one it can also find again.
-pub fn set_used_by(text: &str, citing: &[String]) -> Result<Option<String>> {
+/// For `yidam migrate used-by`, which deletes exactly these lines (RFC-0053 §2.2). Found by
+/// [`block_of`], so `used-by: []` is found as well as a list, and narrowed past trailing blank
+/// lines: they separate keys, and deleting them would put a whitespace change nobody asked for
+/// into the migration's diff.
+pub fn used_by_lines(text: &str) -> Result<Option<std::ops::Range<usize>>> {
     let split = split(text)?;
     let lines: Vec<&str> = split.front.split('\n').collect();
     let Some(range) = block_of(&lines, "used-by") else {
         return Ok(None);
     };
-
-    let mut block = vec!["used-by:".to_string()];
-    block.extend(citing.iter().map(|p| format!("  - {}", quote_if_needed(p))));
-    // A list reconciled to nothing is `used-by:` with no items, which YAML reads as null and
-    // `used_by_drift` reads as "declares no list" — the entry would stop being checked. Emit
-    // an explicit empty sequence so an entry that claimed something and now claims nothing
-    // still says so.
-    if citing.is_empty() {
-        block = vec!["used-by: []".to_string()];
-    }
-
-    let mut out: Vec<String> = lines.iter().map(|s| (*s).to_string()).collect();
-    // Narrow the range to stop short of trailing blank lines, and leave them where they are.
-    // They separate keys in several entries, and absorbing them would put an unrelated
-    // whitespace change in a `reconcile:` commit whose value is being reviewable at a glance.
-    //
-    // Left in place rather than re-emitted: they sit *outside* the spliced range, so they
-    // survive untouched. Adding them to the replacement block as well duplicated every one —
-    // caught by `a_blank_line_after_the_list_survives_the_substitution`, which is the only
-    // reason that test exists as an equality rather than a `contains`.
     let mut end = range.end;
-    while end > range.start + 1 && out[end - 1].trim().is_empty() {
+    while end > range.start + 1 && lines[end - 1].trim().is_empty() {
         end -= 1;
     }
-    out.splice(range.start..end, block);
-    let rebuilt = rejoin(&split, &out.join("\n"));
-    if rebuilt == text {
-        return Ok(None);
-    }
-    Ok(Some(rebuilt))
+    // Frontmatter line `i` is file line `i + 2`: line 1 is the opening `---`.
+    Ok(Some(range.start + 2..end + 2))
 }
 
 #[cfg(test)]
@@ -749,93 +718,27 @@ The system of record. **Parameter 00060** is discharge.
     }
 
     #[test]
-    fn reconciling_used_by_substitutes_the_authoritative_list() {
-        let out = set_used_by(
-            ENTRY,
-            &[
-                "../corpus/gage/canyon-outlet.yml".into(),
-                "../corpus/gage/valley-bridge.yml".into(),
-            ],
-        )
-        .unwrap()
-        .unwrap();
-        assert!(out.contains(
-            "used-by:\n  - ../corpus/gage/canyon-outlet.yml\n  - ../corpus/gage/valley-bridge.yml\n"
-        ));
-        assert!(out.contains("# USGS NWIS"));
-        assert!(out.contains("obtained: true"));
-        assert_eq!(
-            crate::parse::parse_frontmatter(&out).used_by.unwrap().len(),
-            2
-        );
-    }
-
-    /// Absence is not drift. An entry that never claimed a `used-by` must not acquire one,
-    /// because that would be this command deciding it should make a claim it never made.
-    #[test]
-    fn an_entry_declaring_no_list_is_left_alone() {
+    fn the_used_by_block_is_found_by_its_file_lines() {
+        // `ENTRY`'s list is lines 10 and 11: the opening `---` is line 1.
+        assert_eq!(used_by_lines(ENTRY).unwrap(), Some(10..12));
         let no_list = ENTRY.replace("used-by:\n  - ../corpus/gage/canyon-outlet.yml\n", "");
-        assert_eq!(set_used_by(&no_list, &["a.yml".into()]).unwrap(), None);
+        assert_eq!(used_by_lines(&no_list).unwrap(), None);
     }
 
-    /// A list already in agreement produces no edit, so `reconcile` on a clean corpus writes
-    /// no commit.
+    /// `used-by: []` puts the key and its value on one line, which a scan for a bare
+    /// `used-by:` would miss — and the migration has to delete that form too.
     #[test]
-    fn a_list_already_in_agreement_reports_no_change() {
-        assert_eq!(
-            set_used_by(ENTRY, &["../corpus/gage/canyon-outlet.yml".into()]).unwrap(),
-            None
-        );
+    fn an_empty_list_is_still_found() {
+        let entry = "---\nname: s\nused-by: []\ntype: paper\n---\n";
+        assert_eq!(used_by_lines(entry).unwrap(), Some(3..4));
     }
 
-    /// Reconciling to nothing must stay a declared empty list. Emitting a bare `used-by:`
-    /// would parse as null, `used_by_drift` would read that as "declares no list", and the
-    /// entry would silently stop being checked.
+    /// The blank lines that separate keys are not part of the block, so deleting it leaves
+    /// them where they were.
     #[test]
-    fn reconciling_to_nothing_writes_an_explicit_empty_list() {
-        let out = set_used_by(ENTRY, &[]).unwrap().unwrap();
-        assert!(out.contains("used-by: []"), "{out}");
-        let parsed = crate::parse::parse_frontmatter(&out);
-        assert_eq!(parsed.used_by, Some(vec![]));
-        assert!(out.contains("# USGS NWIS"));
-    }
-
-    /// A blank line separating keys is the document's, not the list's. Absorbing it would put
-    /// an unrelated whitespace change in a `reconcile:` commit whose whole value is being
-    /// reviewable at a glance.
-    #[test]
-    fn a_blank_line_after_the_list_survives_the_substitution() {
+    fn a_blank_line_after_the_list_is_not_part_of_it() {
         let spaced = "---\nname: s\nused-by:\n  - ../corpus/a.yml\n\ntype: paper\n---\n\n# S\n";
-        let out = set_used_by(spaced, &["../corpus/b.yml".into()])
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            out, "---\nname: s\nused-by:\n  - ../corpus/b.yml\n\ntype: paper\n---\n\n# S\n",
-            "{out}"
-        );
-    }
-
-    /// An entry emptied by one reconcile must still be *found* by the next one. `used-by: []`
-    /// puts the key and its value on one line, which a scan for a bare `used-by:` would miss —
-    /// and missing it would report the entry as declaring no list, which is the one state that
-    /// means "never check this again".
-    #[test]
-    fn an_emptied_list_is_still_found_and_can_be_refilled() {
-        let emptied = set_used_by(ENTRY, &[]).unwrap().unwrap();
-        assert!(emptied.contains("used-by: []"));
-
-        let refilled = set_used_by(&emptied, &["../corpus/record/back.yml".into()])
-            .unwrap()
-            .unwrap();
-        assert!(
-            refilled.contains("used-by:\n  - ../corpus/record/back.yml"),
-            "{refilled}"
-        );
-        assert!(!refilled.contains("[]"), "{refilled}");
-        assert!(
-            refilled.contains("# USGS NWIS"),
-            "prose survives both passes"
-        );
+        assert_eq!(used_by_lines(spaced).unwrap(), Some(3..5));
     }
 
     fn reading() -> ArtifactReading {

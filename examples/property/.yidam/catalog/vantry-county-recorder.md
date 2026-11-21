@@ -9,18 +9,6 @@ location:
     description: |
       Consulted in person. The grantor-grantee index and the deed books are both here and
       are not the same source: the index is a name index, the books hold the instruments.
-used-by:
-  - ../corpus/party/ada-renwick.yml
-  - ../corpus/party/thomas-calloway.yml
-  - ../corpus/party/ruth-calloway.yml
-  - ../corpus/party/harlan-voss.yml
-  - ../corpus/party/brightwater-holdings.yml
-  - ../corpus/parcel/lot-14-brightwater.yml
-  - ../corpus/instrument/1948-warranty-deed.yml
-  - ../corpus/instrument/1961-indexed-conveyance.yml
-  - ../corpus/instrument/1974-quitclaim-deed.yml
-  - ../corpus/instrument/1993-warranty-deed.yml
-  - ../corpus/instrument/2014-warranty-deed.yml
 ---
 
 # Vantry County Recorder of Deeds

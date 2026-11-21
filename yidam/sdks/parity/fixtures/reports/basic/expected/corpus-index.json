@@ -21,7 +21,7 @@
       "edge_claims_verified": 0,
       "edge_claims_inference": 0,
       "edge_claims_open": 0,
-      "lines": 10
+      "lines": 9
     },
     {
       "node": "concept/mixing-zone.yml",
@@ -47,7 +47,7 @@
       "edge_claims_verified": 0,
       "edge_claims_inference": 0,
       "edge_claims_open": 0,
-      "lines": 20
+      "lines": 19
     },
     {
       "node": "gauge/riffle-station.yml",

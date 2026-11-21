@@ -233,8 +233,6 @@ location:
     description: publisher's copy   # required only when there are several locations
   - kind: identifier         # scheme:local-id
     value: doi:10.1167/tvst.8.5.14
-used-by:
-  - ../corpus/concept/confounding.yml
 artifacts:                     # optional; what was actually obtained
   - sha256: 9f2c8e…            # 64 lowercase hex — the content address
     bytes: 4194304
@@ -283,16 +281,7 @@ artifacts:                     # optional; what was actually obtained
   lint` says which of the two it used, every time. **Expiry is reported, never enforced**, and it
   does not claim the source changed: it claims nobody has looked.
   [why](directories.evidence.md#ttl-days-days-not-commits)
-- **`used-by`** is optional and hand-maintained, so it can drift; the citations cannot. Both are
-  kept so the disagreement is visible rather than averaged away (`catalog-used-by-drift`).
-  Declaring a list asserts it is current.
-
-  **Omitting the key and writing `used-by: []` are different declarations.** No key at all says
-  nothing about what cites the entry, and nothing checks it — that is the honest state for an
-  entry whose list you do not intend to maintain. An empty sequence says *nothing cites this*,
-  which is a claim, and it is checked like any other: once a node cites the entry, the claim is
-  false and `catalog-used-by-drift` reports it. `catalog-reconcile` repairs an empty list for
-  the same reason it repairs a wrong one, and still leaves an absent key alone.
+- **An entry does not list what cites it**; `yidam catalog-audit` reports that from the citations.
 
 - **`artifacts`** is what makes `obtained: true` *demonstrable*: the flag says a source was
   fetched, and a digest is what makes the claim checkable.

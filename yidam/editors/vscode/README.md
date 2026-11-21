@@ -122,9 +122,9 @@ Two things the row deliberately does **not** say:
   description. A node citing one is `catalog-unobtained-but-cited`, which is Error severity
   and already reaches the editor as a diagnostic and a Health row; a second red mark here
   would be the tree rendering a verdict it did not compute.
-- **`used-by` drift is a tooltip.** The entry's hand-written list disagreeing with the
-  citations is `catalog-used-by-drift`, and the report now carries the disagreement as a
-  `drift` field so the two cannot diverge — but the *verdict* stays where verdicts are.
+- **`used-by` drift is a tooltip, and now a silent one.** An older CLI reported an entry's
+  hand-written list disagreeing with the citations as a `drift` field. An entry no longer
+  stores that list, so the CLI sends `drift: null` and the tooltip says nothing.
 
 The filter narrows nodes, and a kept node keeps its sources. A term matching a source name
 keeps nothing: both filtered views are indexed by node, and a filter that sometimes meant

@@ -21,8 +21,7 @@
 //!
 //! The first two are claims resting on a source. The third names two records to say they are
 //! **out** of scope. So neither summing them nor dropping them is right, and the resolution
-//! is the one `catalog_used_by_drift` already uses for its own two numbers: *both are kept so
-//! the disagreement is visible rather than averaged away.*
+//! is to keep both, *so the disagreement is visible rather than averaged away.*
 //!
 //! **Every gate reads [`Counts::nodes`]**, which is what `catalog-uncited` has always meant
 //! when it says *"no corpus node draws on this source"*. The wording was precise; the
@@ -51,15 +50,15 @@ use crate::walk::walk_md_files;
 /// file, so one file linking to the same entry twice is one citation and always was. The
 /// counts are `len()` of these, which is what keeps the two from ever disagreeing.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(super) struct Cited {
+pub(crate) struct Cited {
     /// Corpus instances that cite this entry, by a link, an edge `source:` or a quotation's
     /// `of:`. **The list every gate's count reads.**
-    pub(super) nodes: Vec<String>,
+    pub(crate) nodes: Vec<String>,
     /// Other files under `.yidam/corpus/` that link here — class definitions and READMEs.
     ///
     /// Reported beside [`Self::nodes`] and never added to it. A claim resting on a source and
     /// a page linking to one are different things, and only the first is evidence.
-    elsewhere: Vec<String>,
+    pub(crate) elsewhere: Vec<String>,
 }
 
 impl Cited {
@@ -115,13 +114,11 @@ struct SourceRow {
     /// view to sit under — listing those paths would be a field with no reader, and the
     /// count already tells you they exist.
     cited_by: Vec<String>,
-    /// The entry's declared `used-by`, verbatim. Empty when it declares none.
+    /// The entry's declared `used-by`, verbatim. Empty when it declares none — which, once
+    /// `yidam migrate used-by` has run, is every entry (RFC-0053 §2.6).
     used_by: Vec<String>,
-    /// How that list disagrees with the citations, or `null` when no list is declared.
-    ///
-    /// Null and an empty drift are different answers — the first is an entry that never
-    /// claimed anything, the second is one whose claim holds — and `catalog-used-by-drift`
-    /// draws the same distinction from the same function.
+    /// Always `null`. It compared that list to the citations; with the citations the only
+    /// record there is nothing to compare. Kept so a reader of the report keeps parsing.
     drift: Option<crate::cmd::lint::checks::UsedByDrift>,
     /// What the entry says it has obtained, verbatim. Empty when it says nothing.
     ///
@@ -151,7 +148,7 @@ struct CatalogReport {
 ///
 /// Keyed by every link target, not only catalog entries. Filtering to the catalog would mean
 /// deciding here what a catalog path looks like, and the caller already holds the entries.
-pub(super) fn draws_on(read: &Corpus) -> HashMap<PathBuf, Cited> {
+pub(crate) fn draws_on(read: &Corpus) -> HashMap<PathBuf, Cited> {
     let root = read.root();
     let corpus = read.dir();
     // Membership is the corpus's own answer (#925) rather than a walk repeated here and a
@@ -289,14 +286,6 @@ pub fn catalog_audit(root: Option<&std::path::Path>, format: crate::report::Form
             let counts = cited.counts();
             let artifacts = fm.artifacts.unwrap_or_default();
             let artifacts_cell = artifact_cell(&artifacts);
-            // Against `cited.nodes` and not `cited.total()`: `catalog-used-by-drift` compares
-            // the list to the citations *the gate reads*, and a report disagreeing with the
-            // gate about which entries have drifted is the one defect the shared function
-            // above exists to make impossible. The `Option` is passed through for the same
-            // reason: flattening it here would make this row silent about a `used-by: []`
-            // the gate reports.
-            let drift =
-                crate::cmd::lint::checks::used_by_drift(fm.used_by.as_deref(), &cited.nodes);
             let used_by = fm.used_by.unwrap_or_default();
             source_rows.push(SourceRow {
                 entry: filename.to_string(),
@@ -307,7 +296,7 @@ pub fn catalog_audit(root: Option<&std::path::Path>, format: crate::report::Form
                 counts,
                 cited_by: cited.nodes,
                 used_by,
-                drift,
+                drift: None,
                 artifacts,
             });
             rows.push(format!(

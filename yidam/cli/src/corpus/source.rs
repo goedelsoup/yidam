@@ -12,9 +12,8 @@ pub struct Source {
     pub obtained: bool,
     /// The declared `type:`, verbatim. See [`crate::parse::CATALOG_TYPES`].
     pub r#type: Option<String>,
-    /// The declared list, or `None` where the key is absent. Not flattened to a `Vec`: an
-    /// absent key and `used-by: []` are different claims and [`crate::cmd::lint::checks::used_by_drift`] turns on the
-    /// difference.
+    /// The declared list, or `None` where the key is absent. Not flattened to a `Vec`:
+    /// `used-by: []` is a declared key, and `catalog-used-by-declared` reports it as one.
     pub used_by: Option<Vec<String>>,
     pub locations: Vec<crate::parse::CatalogLocation>,
     /// When the entry says it was last fetched, verbatim. See [`crate::cmd::lint::ttl`].

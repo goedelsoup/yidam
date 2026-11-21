@@ -2653,7 +2653,35 @@ const UNREACHED: &[(&str, &str)] = &[
     ),
     (
         "reconciled[].commit",
-        "null on `--dry-run` by declaration, and a writing run would corrupt the shared fixture",
+        "`catalog-reconcile` is retired and `reconciled` is always empty (RFC-0053 §2.4), so no \
+         row reaches it; the row shape is kept one release for the guards that read it",
+    ),
+    (
+        "reconciled[].drift",
+        "`catalog-reconcile` is retired and `reconciled` is always empty (RFC-0053 §2.4), so no \
+         row reaches it; the row shape is kept one release for the guards that read it",
+    ),
+    (
+        "reconciled[].entry",
+        "`catalog-reconcile` is retired and `reconciled` is always empty (RFC-0053 §2.4), so no \
+         row reaches it; the row shape is kept one release for the guards that read it",
+    ),
+    (
+        "reconciled[].used_by",
+        "`catalog-reconcile` is retired and `reconciled` is always empty (RFC-0053 §2.4), so no \
+         row reaches it; the row shape is kept one release for the guards that read it",
+    ),
+    (
+        "sources[].drift.citing_not_claimed",
+        "`catalog-audit` reports `drift` as null on every row since an entry stopped storing \
+         what cites it (RFC-0053 §2.6); the object's shape is kept for the editor builds that \
+         still read it",
+    ),
+    (
+        "sources[].drift.claimed_not_citing",
+        "`catalog-audit` reports `drift` as null on every row since an entry stopped storing \
+         what cites it (RFC-0053 §2.6); the object's shape is kept for the editor builds that \
+         still read it",
     ),
     (
         "score.declared",

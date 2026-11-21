@@ -29,7 +29,7 @@
     },
     {
       "file": ".yidam/corpus/concept/tailwater.yml",
-      "line": 15,
+      "line": 14,
       "from": "../concept/low-flow.yml",
       "to": "../concept/base-flow.yml"
     },
@@ -42,15 +42,15 @@
   ],
   "moved_from": {
     "file": ".yidam/corpus/concept/base-flow.yml",
-    "line": 11,
+    "line": 10,
     "from": "",
     "to": "../concept/low-flow.yml"
   },
   "unhandled": [
     {
       "file": ".yidam/catalog/stage-discharge.md",
-      "line": 7,
-      "text": "- low-flow.yml"
+      "line": 17,
+      "text": "Its prose names low-flow.yml without linking it. That is the reference `rename` reports and"
     }
   ],
   "blocked": [],

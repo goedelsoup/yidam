@@ -648,6 +648,7 @@ record of what they touched.
 | `scaffold` | Mark the part of `ci.yml` and `CLAUDE.md` that a re-vendor updates |
 | `locations` | Rewrite every catalog location of kind `doi` or `pmc` as `kind: identifier` |
 | `pins` | Pin each `file` location to the commit its entry's prose dates a read at |
+| `used-by` | Delete every catalog entry's `used-by:` list, and record what it named that cites nothing |
 
 `retype` converts an instance value where the two types differ only in how the value is
 written. A `number` is an unquoted YAML number. So retyping to `number` unquotes `"24"`, and
@@ -661,7 +662,7 @@ rewrites the item on the declaration and the value on every instance holding it,
 The quoting follows what was written. A value outside the set is refused. So is a rename onto a
 value the set already holds, which would merge two.
 
-`references`, `findings`, `locations` and `pins` migrate data rather than the ontology over it.
+`references`, `findings`, `locations`, `pins` and `used-by` migrate data rather than the ontology over it.
 
 A detail reading `[verified — #362]` names an issue no consumer can follow. The migration writes
 `issue/362` to the node. Where the detail was the reference and nothing else, the tag then
@@ -728,6 +729,18 @@ yidam migrate pins
 **A read it cannot place is listed, not guessed.** That covers a body that dates no read, and
 a commit that resolves nowhere. It covers a commit two dependencies share, and one at which
 the file did not exist. Each is listed with its reason. A second run pins nothing new.
+
+`used-by` deletes each catalog entry's `used-by:` block. The citations are the record, and
+`catalog-audit` reports them as `cited_by`. No other file is edited. Run it with `--dry-run` first:
+
+```sh
+yidam migrate --dry-run used-by   # each block, and what each list named that cites nothing
+yidam migrate used-by
+```
+
+**A name the list held and nothing cites is kept.** The list was stale, or that file should cite
+the entry and does not. The migration cannot tell which. It prints those names and writes them
+into the migration record.
 
 ### `propose` is deliberately small
 
@@ -1249,7 +1262,7 @@ knowledge claim, only the time to re-fetch.
 | `vault-status` * | Writes the `<!-- REGEN: yidam vault-status -->` block in README.md. Committed files only — never the cache, never the network. `yidam vault status`, a hyphen apart, is the read-only report; `yidam regen` runs this one with the rest |
 | `catalog-fetch [entry]` * | Follow a catalog entry's declared address, cache the bytes under their digest, record them in `artifacts:`, and commit it as `refresh:`. `--location` narrows to one address; `--bind name=value` fills a `url_template` slot; `--archive` adds the nearest Wayback capture of each identifier whose pack allows it; `--dry-run` resolves and writes nothing. Exits nonzero if a publisher refused a location |
 | `catalog-extract [entry]` * | Take each reading an artifact lacks — a PDF's text, a [source pack](#source-packs)'s `extract`, or a zip member its location lists under `members:` — file it in the cache, record it under the artifact in `readings:`, and commit it as `extract:`. `--dry-run` reports and reads nothing |
-| `catalog-reconcile [entry]` * | Rewrite a drifted `used-by` list to the citations, which are authoritative, and commit it as `reconcile:`. `--dry-run` reports and writes nothing |
+| `catalog-reconcile [entry]` | Retired: writes nothing and exits 0, and the next release removes it. An entry no longer stores what cites it; `yidam migrate used-by` deletes the stored list |
 | `source check` | Hold every [source pack](#source-packs) and every `prelude_sources` pin to the pack format, offline, and run each transform over its fixtures. Exits nonzero on an error |
 | `source list` | Print each enabled pack, its schemes, and what its transport needs: `YIDAM_CONTACT` and any auth variables, each marked set or not. Never prints a value |
 | `source search <pack> <query>` | Ask the pack's `[search]` endpoint and print the identifiers it answers with. `--limit` caps them; `--offline` answers from the pack's fixtures. Writes nothing |
@@ -1562,23 +1575,17 @@ still read.
 A scanned page has no text layer. The command refuses a reading with no letters or digits. It
 reports that PDF as skipped.
 
-### Reconciling a `used-by` list
+### An entry does not list what cites it
 
-`catalog-audit` reports the disagreement between an entry's hand-maintained `used-by` and the
-nodes that actually cite it. It reconciles none of it. `catalog-reconcile` is the other half.
+`catalog-audit` reports what cites each entry as `cited_by`. It reads the citations, so it cannot
+drift from them. An entry used to keep a second copy under `used-by:`, and that copy drifted.
 
-It can be mechanical because one of the two lists cannot be wrong. `catalog-used-by-drift` says
-so of itself: *the citations are authoritative — they cannot drift from the corpus, and a
-hand-maintained list can.* So this is a substitution, not a merge.
+`yidam migrate used-by` deletes that copy from every entry, `used-by: []` included. See
+[`migrate` subcommands](#migrate-subcommands). An entry still declaring one draws a
+`catalog-used-by-declared` warning.
 
-An entry declaring no `used-by` is left alone. Absence is not drift, and the gate stays silent
-about it. Writing one would be a command deciding an entry should make a claim it never made.
-
-An explicit `used-by: []` is a different state, and both the gate and this command read it as
-one. An empty sequence is something an author typed — it asserts that nothing cites the entry.
-When nodes do cite it, that assertion is false, so `catalog-used-by-drift` reports it and
-`catalog-reconcile` substitutes the citations for it. An entry genuinely cited by nothing
-agrees with its own empty list and produces no finding.
+`catalog-reconcile` used to rewrite the copy. It is retired. It writes nothing and exits 0, and the
+next release removes it.
 
 Every artifact is named by the SHA-256 of its bytes, in lowercase hex. The cache is
 **machine-wide** — `$XDG_CACHE_HOME/yidam/vault`, or `YIDAM_VAULT_CACHE` — so two repositories

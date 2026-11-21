@@ -303,18 +303,16 @@ export interface SourceRow {
    */
   cited_by?: string[]
   /**
-   * The entry's declared `used-by`, verbatim. Empty both when it declares none and when it
-   * declares `used-by: []`; `drift` is what separates those — null for the first, an object
-   * for the second.
+   * The entry's declared `used-by`, verbatim — retained for compatibility. An entry no longer
+   * stores what cites it (RFC-0053), so this is empty once `yidam migrate used-by` has run.
+   * `cited_by` is the field to read.
    */
   used_by?: string[]
   /**
-   * How that list disagrees with the citations, or null when no `used-by:` key is declared.
-   *
-   * Null and an empty drift are different answers. An explicit `used-by: []` declares that
-   * nothing cites the entry, so it reports as an object naming every citer it omits, not as
-   * null. **Computed by the CLI**, from the same function `catalog-used-by-drift` gates on —
-   * recomputing it here would be the editor forming a second opinion about a verdict.
+   * How that list disagreed with the citations — retained for compatibility, and null on every
+   * row from the CLI that retired the stored list (RFC-0053 §2.6). An older CLI still sends an
+   * object, so the tooltip still reads it. **Computed by the CLI** — recomputing it here would
+   * be the editor forming a second opinion about a verdict.
    *
    * Absent is a third answer, and it means the CLI predates the field — see `cited_by`.
    */

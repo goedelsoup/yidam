@@ -92,7 +92,7 @@ pub enum ClusterCommand {
     /// Write the Argo Workflow that runs this corpus's capability manifest on a cluster
     ///
     /// One `pin`, then a `step` and a `land` for each built-in catalog step (`catalog-fetch`,
-    /// `catalog-extract`, `catalog-reconcile`) and each capability in dependency order. A
+    /// `catalog-extract`) and each capability in dependency order. A
     /// chain rather than a wider DAG because a run is a chain: each step is invoked against
     /// the commit the one before it landed. `--cron` writes a `CronWorkflow` whose first
     /// task is `admit`, and nothing below it runs unless admission says so. `--on-push` writes

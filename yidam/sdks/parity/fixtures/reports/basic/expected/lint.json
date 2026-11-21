@@ -80,7 +80,7 @@
           "severity": "error",
           "in_baseline": true,
           "span": {
-            "line": 9
+            "line": 8
           }
         }
       ]
@@ -239,7 +239,7 @@
           "severity": "error",
           "in_baseline": false,
           "span": {
-            "line": 16
+            "line": 15
           }
         }
       ]
@@ -439,19 +439,12 @@
       "violations": []
     },
     {
-      "id": "catalog-used-by-drift",
-      "title": "`used-by` list disagreeing with the citations",
+      "id": "catalog-used-by-declared",
+      "title": "Catalog entry storing what cites it",
       "severity": "warn",
-      "rationale": "The citations are authoritative — they cannot drift from the corpus, and a hand-maintained list can. Both are kept so the disagreement is visible rather than averaged away. The list is optional; an entry that declares one is asserting it is current, and `used-by: []` declares one — it asserts that nothing cites the entry.",
+      "rationale": "The citations are the record of what draws on an entry, and `yidam catalog-audit` reports them as `cited_by`. A `used-by:` list stored beside them can only drift from them, and keeping it current cost a commit per entry per new citation. An entry does not list what cites it.",
       "escalation_eligible": false,
-      "violations": [
-        {
-          "node": ".yidam/catalog/stage-discharge.md",
-          "detail": "claims mixing-zone.yml that do not cite it; omits tailwater.yml that do",
-          "severity": "warn",
-          "in_baseline": false
-        }
-      ]
+      "violations": []
     },
     {
       "id": "catalog-location-malformed",
