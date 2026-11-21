@@ -7,7 +7,7 @@
   - #172 (three implementations of "does this node cite that source", since reduced to one)
   - #1499 (fold derived updates into the commit that caused them; this RFC removes one kind instead of folding it)
   - #1498 (the evidence this answers), parent epic #1513
-- **Versioning layers touched:** template (`guidelines/directories.md` stops describing a hand-kept list) / tooling (one `migrate` operation, one lint check replaced, `catalog-reconcile` retired from the workflow, `propose`'s withdrawal stops editing the catalog). Report contract stays at 1: two `catalog-audit` fields keep their shape and go quiet. No MCP contract change. No SDK parity change.
+- **Versioning layers touched:** template (`guidelines/directories.md` stops describing a hand-kept list) / tooling (one `migrate` operation, one lint check replaced, `catalog-reconcile` retired from the workflow, `propose`'s withdrawal stops editing the catalog). Report contract stays at 1: two `catalog-audit` fields keep their shape and go quiet. No MCP contract change. No SDK code change, but the parity fixture `reports/basic` loses its `used-by` list, so its `catalog-audit`, `catalog-reconcile`, `lint` and `rename` goldens are regenerated (§2.7).
 - **Downstream reference cases:** ohio-education-funding, measured read-only on 2026-11-21 at `origin/main`, and allen-county-ohio-democratic-party, whose counts are quoted from #1498 because no clone of it is on the measuring machine.
 
 ## Summary
@@ -77,7 +77,9 @@ nowhere else:
 
 No MCP tool's input or response carries it. No SDK, in Rust, Python or TypeScript, reads it. The
 web editor mentions it only in comments. The warehouse derives an entry's citers from link
-targets, not from the list. So the copy serves no reader that could not compute the original.
+targets, not from the list. Downstream, ohio-education-funding's web build reads `used-by` into
+`Source.usedBy`, only so a test can hold it against the `citedBy` it computes from prose. So the
+copy serves no reader that could not compute the original.
 
 ### 1.4 The absent-versus-empty distinction is a cost of storing it
 
@@ -95,25 +97,35 @@ corpus instances whose citations resolve to it, which is what `catalog-audit` al
 as `cited_by`, and what `catalog-uncited` and `catalog-unobtained-but-cited` already read.
 
 **No new implementation of citation is written.** #172 found three predicates for "does this
-node cite that source", and they were reduced to `linked_paths`. Two walkers call it today: lint's
-`citations`, over nodes, and the audit's `draws_on`, which also reads corpus READMEs and counts
-them as `elsewhere`. `cited_by` is the instances half, the same set the drift check compares
-against. This RFC reads that set and adds nothing beside it.
+node cite that source", and they were reduced to `linked_paths`. Three walkers call it today:
+lint's `citations`, over nodes; the audit's `draws_on`, which also reads corpus READMEs and class
+definitions and counts them as `elsewhere`; and `serve`, which computes each node's cited entries
+for the server. `cited_by` is the instances half of `draws_on`, the same set the drift check
+compares against. This RFC reads those sets and adds nothing beside them.
 
 ### 2.2 `yidam migrate used-by`
 
-A new `migrate` operation, beside `locations`, `pins`, `routes` and `scaffold`. It deletes the
-`used-by:` block from every catalog entry that declares one, by a line edit, as every migrate
-rewrite is. It deletes `used-by: []` too.
+A new `migrate` operation, beside the eleven that exist, `locations` and `pins` among them. It
+deletes the `used-by:` block from every catalog entry that declares one, by a line edit, as every
+migrate rewrite is. It deletes `used-by: []` too.
 
-It writes nothing else. For each entry, the plan reports what the deleted list said that the
-citations do not, from the same `used_by_drift` function the gate uses today:
+It edits no other file in the catalog or the corpus. For each entry, the plan reports what the
+deleted list said that the citations do not, from the same `used_by_drift` function the gate uses
+today. The plan compares the list with everything `draws_on` finds for the entry, the instances
+in `cited_by` and the READMEs and class definitions in `elsewhere`. The gate compared instances
+only, because its question was whether the list matched `cited_by`. The plan's question is
+whether a citation is missing, and a README that links the entry is not missing one.
 
-- **Claimed but not citing.** The list named a node that carries no citation to the entry.
-  Either the list was stale, or the node should cite the entry and does not. The migration
-  cannot tell which. It names the node and leaves the decision to the author, who can add the
+- **Claimed but not citing.** The list named a file that carries no citation to the entry.
+  Either the list was stale, or the file should cite the entry and does not. The migration
+  cannot tell which. It names the file and leaves the decision to the author, who can add the
   link in a knowledge commit.
 - **Citing but not claimed.** Nothing is lost. The citation is the record.
+
+The deleted lines are the only thing the migration loses, so it keeps the part of them that
+matters. The record every migration writes under `.yidam/migrations/` lists each entry's
+"claimed but not citing" names. The `migrate:` commit carries them as a file, so an author who
+skips the dry run can still find them.
 
 `--dry-run` prints the plan and writes nothing. The operation is idempotent: run against a
 catalog with no lists, it reports nothing to do.
@@ -138,10 +150,13 @@ disappear. That is a ratchet moving in the allowed direction.
 `streamflow-on-push`, drops its step and landing.
 
 The command stays for one minor release, because derived guards call it.
-ohio-education-funding's `[graph-lint]` runs `catalog-reconcile --dry-run`. In this release it
-writes nothing. It reports each entry that still declares a list, as `catalog-used-by-declared`
-does, and exits non-zero when there is one, so a guard that called it to detect drift now
-detects an unmigrated catalog instead. The release after removes it.
+ohio-education-funding's `[graph-lint]` runs `catalog-reconcile --dry-run --format json` and
+fails when the report's `reconciled` names an entry. In this release the command writes nothing,
+with or without `--dry-run`, and exits 0 as it does today. Its `reconciled` is always empty. When
+an entry still declares a list, it prints a note naming `yidam migrate used-by`, as
+`catalog-used-by-declared` does, and changes neither the exit code nor the report. A guard or
+script that calls it keeps passing, whether or not the catalog is migrated. The release after
+removes it.
 
 ### 2.5 `propose` stops editing the catalog on withdrawal
 
@@ -154,13 +169,15 @@ the node, so `cited_by` is correct without a write.
 
 ### 2.6 The report contract does not change
 
-`catalog-audit`'s `used_by` is a required array and `drift` is nullable. After migration every
-entry declares no list, so `used_by` is `[]` and `drift` is null on every row. Both shapes are
-valid at report contract 1. A consumer written against contract 1 keeps working, and the vscode
-tooltip goes silent because `drift` is null.
+`catalog-audit`'s `used_by` is a required array and `drift` is nullable. From this release,
+`drift` is null on every row, migrated or not. A drift nothing will repair is not worth
+reporting, and the drift check that read it is gone. `used_by` still echoes a list an
+unmigrated entry declares; after migration it is `[]` on every row. Both shapes are valid at
+report contract 1. A consumer written against contract 1 keeps working, and the vscode tooltip
+goes silent in every repository, because `drift` is null.
 
-The schema's descriptions of both fields say they are retained for compatibility and empty
-after `migrate used-by`. The next report contract bump removes them. `catalog-reconcile`'s own
+The schema's descriptions of both fields say they are retained for compatibility: `drift` is
+always null, and `used_by` is empty after `migrate used-by`. The next report contract bump removes them. `catalog-reconcile`'s own
 report keeps its shape for the release it survives, with `reconciled` always empty.
 
 `cited_by` is the field a consumer reads. Its description already says it is computed and
@@ -193,16 +210,20 @@ plan, then `yidam migrate used-by`. The upgrade note says to read the "claimed b
 names before committing, because each is either a stale entry or a missing citation.
 
 A repository that upgrades and does not migrate keeps working. Its lists are read by nothing
-but `catalog-used-by-declared`, which warns, and the workflow no longer commits reconciles.
+but `catalog-used-by-declared`, which warns, and `catalog-audit`'s `used_by`, which echoes them.
+The workflow no longer commits reconciles, and a direct call to `catalog-reconcile` writes
+nothing and exits 0 (§2.4).
 
 A repository pinned to an older yidam that reads a migrated catalog sees entries with no
 `used-by:` key. Since #829 that is the unchecked state, so the old `catalog-used-by-drift`
 reports nothing and the old `catalog-reconcile` leaves the entries alone. Older readers need no
 change.
 
-A guard written against `catalog-reconcile --dry-run`'s old exit code passed when every list
-agreed. After this release it passes when no list exists. A guard that wants to fail on an
-unmigrated catalog can call `yidam lint` and read `catalog-used-by-declared`.
+A guard cannot have relied on `catalog-reconcile --dry-run`'s exit code, which is 0 whether or
+not it would rewrite (§1.2). ohio-education-funding's guard reads the report's `reconciled`
+instead, and failed when it named an entry. After this release `reconciled` is always empty, so
+the guard passes, migrated or not. A guard that wants to fail on an unmigrated catalog reads
+`catalog-used-by-declared` from `yidam lint --format json`.
 
 ## Alternatives considered
 
