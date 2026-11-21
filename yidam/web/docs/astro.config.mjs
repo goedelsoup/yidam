@@ -191,6 +191,7 @@ const sidebar = [
       { slug: 'rfcs/0051-code-artifact-pin', label: '0051 · The code-artifact pin' },
       { slug: 'rfcs/0052-receipt-revalidation', label: '0052 · Receipt re-validation' },
       { slug: 'rfcs/0053-derived-used-by', label: '0053 · Derived used-by' },
+      { slug: 'rfcs/0054-fold-derived-commits', label: '0054 · Folding derived commits' },
     ],
   },
   {
