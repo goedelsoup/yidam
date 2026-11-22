@@ -86,6 +86,7 @@ re-deriving it.
 | [0053](0053-derived-used-by.md) | I38 | `used-by` is derived from the citations, not stored beside them | Implemented |
 | [0054](0054-fold-derived-commits.md) | I38 | A derived update rides in the commit that caused it | Implemented |
 | [0055](0055-watch-ledger-off-main.md) | I38 | The watch ledger lives on its own branch | Implemented |
+| [0056](0056-calculator-kit.md) | I39 | A calculator reads the graph yidam wrote, and writes a file yidam has already read | Draft |
 
 ## Reading order
 
