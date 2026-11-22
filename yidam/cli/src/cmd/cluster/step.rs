@@ -184,7 +184,7 @@ pub(super) fn step_in(
     let mut landing: Vec<(String, Vec<u8>)> = produced.outputs.clone();
     landing.push((receipt_path.clone(), receipt.to_yaml()?.into_bytes()));
 
-    let Some(built) = build_commit(root, input, cap, name, &landing, &short, route)? else {
+    let Some(built) = build_commit(root, input, cap, name, &landing, &short, route, false)? else {
         return Ok(StepOutput {
             format_version: CONTRACT_VERSION,
             step: name.to_string(),

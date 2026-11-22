@@ -419,7 +419,7 @@ That is their purpose, and it is why every one carries a `*`.
 
 | Command | Block content |
 |---|---|
-| `regen` * | Refresh every REGEN block in one pass. `--check` reports staleness and writes nothing; `--commit` authors the `regen:` commit for exactly the files that changed |
+| `regen` * | Refresh every REGEN block in one pass. `--check` reports staleness and writes nothing; `--commit` authors the `regen:` commit for exactly the files that changed; `--fold` amends them into an unpushed HEAD |
 | `status` * | Repository overview: nodes, open questions, catalog, index freshness, genesis |
 | `open-questions` * | Unresolved questions, newest first |
 | `corpus-index` * | Every corpus node by class, with label and link count |
@@ -444,6 +444,15 @@ without gating says so.
 
 In a derived repository a stale REGEN block is a failing build. Run `mise run regen` before
 committing; `yidam regen --check` is what CI runs.
+
+**A refresh rides in the commit that caused it** ([RFC-0054](rfcs/0054-fold-derived-commits.md)).
+`yidam regen --fold` amends the refreshed blocks into HEAD. The author, the date and the subject
+stay. The body gains a `Regen:` trailer naming the generators. It refuses a merge, a commit another
+ref holds, and a block file with uncommitted edits. A pushed commit gets `--commit` instead.
+`yidam run` folds on its own: each `compute:` commit carries the blocks it made stale.
+
+The practice block reads the history before the commit that carries it. Folded into HEAD, it reads
+HEAD's parents. Written but not committed, it reads HEAD.
 
 **A block naming a generator that does not exist is a failing build too.** No generator
 answers for it, so `yidam regen` never writes it and it keeps whatever it holds. A typo in a
@@ -1060,8 +1069,9 @@ merge subject. **Without a flag it commits nothing.** `phase:` is an epistemic v
 states who decides a phase is done: *a person.* *Merging a phase, or abandoning it, is not a
 mechanical consequence of a finding.* So `settle` validates and hands back the commands to run.
 
-**`settle --merge`** writes them, once you have decided. The `regen:` commit and the `--no-ff`
-merge are authored by `yidam phase`, with you as committer. Then it switches to the baseline
+**`settle --merge`** writes them, once you have decided. The `--no-ff` merge is authored by
+`yidam phase`, with you as committer. It carries the refreshed blocks itself, so no `regen:`
+commit comes before it. Then it switches to the baseline
 and deletes the phase branch. `--summary "<text>"` replaces the drafted tally in the subject.
 Nothing is pushed.
 
@@ -1072,8 +1082,8 @@ be checked out in another worktree. Each refusal says *Nothing was merged.* It n
 licence.
 
 The REGEN step is `regen --check`, then `regen`, then `regen --check` again. A stale block is
-refreshed and staged. The printed sequence then opens with the `regen:` commit, because
-`git merge --no-ff` refuses a dirty index. A block still stale after the refresh, or one no
+refreshed and staged. `--merge` writes them into the merge. The printed sequence opens with the
+`regen:` commit instead, because `git merge --no-ff` refuses a dirty index. A block still stale after the refresh, or one no
 generator writes, is *not ready*, with the remedy `regen --check` prints. Nothing is refreshed
 from a checkout that differs from `HEAD`. A block generated from that tree would not hold
 against the commit. `settle` names the files and the sync instead.

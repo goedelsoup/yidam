@@ -17,11 +17,17 @@
 //!
 //! # The fixed point
 //!
-//! A history-derived committed document would make its own gate unwinnable — the `regen:`
-//! commit that carries it changes the history it derives from, so `regen --check` would
-//! always find it one commit stale. The population is therefore authored commits whose base
-//! verb is not `regen`: the commit that carries this document can never be in the
-//! population the document measures, and regeneration converges.
+//! A history-derived committed document would make its own gate unwinnable — the commit
+//! that carries it changes the history it derives from, so `regen --check` would always find
+//! it one commit stale. So the block in a carrier `C` reads `C`'s **strict ancestors** (`C^@`,
+//! RFC-0054 §2.4): the carrier is never in the population it measures, whichever verb it
+//! carries. That is what lets an authored commit carry its own refresh — `yidam run`'s
+//! `compute:`, an amend by `regen --fold`, the merge `phase settle --merge` writes — instead
+//! of a `regen:` commit after it. [`crate::regen::Carrier`] says which commit `C` is.
+//!
+//! `regen:` commits stay outside the population too. The hand-merge route still commits one
+//! before `git merge`, and the merge's strict ancestors then hold the `regen:` and the phase
+//! tip: excluding the first is what keeps that merge's block current.
 //!
 //! # A merge is counted and is never a point
 //!
@@ -30,14 +36,11 @@
 //! needs, because `phase settle --merge` settles a phase *with* a `--no-ff` merge whose
 //! subject is `phase:`; leave such merges out and the share reads 0 forever.
 //!
-//! A counted merge must still never be a sampled point (#1392). `settle` can only commit the
-//! `regen:` *before* the merge, on the phase branch, because `git merge --no-ff` refuses a dirty
-//! index. So the merge is a commit no `regen:` can follow. If it landed on a checkpoint it would
-//! leave main's block stale, and the gate red, until someone committed a `regen:` on main.
-//! So the merge counts in the shares, and checkpoints fall only on commits with one parent.
-//! When main has not moved since the branch, merging leaves every sampled sha and every
-//! reading as they were, and the document is the same, byte for byte, as the one the branch's
-//! `regen:` committed.
+//! A counted merge is never a sampled point either (#1392). Strict ancestry already keeps a
+//! merge out of its own block; the rule stays so that a merge's block reads the same points as
+//! the phase branch it closes, and settling a phase moves no reading. When main has not moved
+//! since the branch, the document a merge carries is the one the branch's tip derived, byte
+//! for byte.
 
 use anyhow::Result;
 use std::fmt::Write as _;
@@ -172,7 +175,10 @@ fn sample_indices(len: usize, max: usize) -> Vec<usize> {
 /// The positions come from the population's single-parent commits, so a merge can neither
 /// be a point nor shift the stride. [`point`] still counts the merges behind each point.
 fn series(root: &Path) -> Result<Vec<Point>> {
-    let subjects = commits::read_subjects(root, None);
+    let Some(rev) = population_rev(root) else {
+        return Ok(Vec::new());
+    };
+    let subjects = commits::read_subjects(root, Some(rev));
     // Newest first from the reader; a conduct series reads forward.
     let mut candidates: Vec<&Subject> = subjects
         .iter()
@@ -183,6 +189,32 @@ fn series(root: &Path) -> Result<Vec<Point>> {
         .into_iter()
         .map(|i| point(root, &candidates[i].hash))
         .collect()
+}
+
+/// The revision whose ancestry is the population: the carrier's strict ancestors.
+///
+/// `HEAD` when the block is for the commit about to be made, whose one parent is `HEAD`.
+/// `HEAD^@` when `HEAD` itself carries it, and `None` when `HEAD` is a root commit with no
+/// parents to read — `git log` given nothing would read `HEAD` instead, and count the carrier.
+fn population_rev(root: &Path) -> Option<&'static str> {
+    use crate::regen::Carrier;
+    let head_carries = match crate::regen::carrier() {
+        Carrier::Next => false,
+        Carrier::Head => true,
+        // `diff --quiet HEAD` covers the index and the working tree in one read, and it fails
+        // where there is no `HEAD`, which reads as *not yet committed* — the next commit.
+        Carrier::Checked => crate::git::Git::new(root)
+            .args(["diff", "--quiet", "HEAD", "--", FILE])
+            .succeeded(),
+    };
+    if !head_carries {
+        return Some("HEAD");
+    }
+    let parents = crate::git::Git::new(root)
+        .args(["rev-parse", "HEAD^@"])
+        .try_run()
+        .unwrap_or_default();
+    (!parents.trim().is_empty()).then_some("HEAD^@")
 }
 
 /// Read one point: the measurement up to `sha`, against the baseline `sha`'s tree vendored.

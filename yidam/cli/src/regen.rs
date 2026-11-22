@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Mutex;
 
 /// A REGEN block whose committed content is not what its generator produces.
@@ -161,6 +161,57 @@ pub fn end_quiet() {
 
 fn quiet() -> bool {
     QUIET.load(Ordering::SeqCst)
+}
+
+/// Which commit will carry the blocks being generated (RFC-0054 §2.4).
+///
+/// Only the practice generator asks. Its population is history, and the commit that holds a
+/// block must never be counted in it, or no block could ever be current in its own commit.
+/// So the block in a carrier `C` reads `C`'s strict ancestors, and a generator has to know
+/// which commit `C` is before it can read them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Carrier {
+    /// The commit about to be made, whose parent is `HEAD`: plain `regen`, `--commit`,
+    /// `phase settle` and the fold `yidam run` makes. The population is `HEAD` and its
+    /// ancestors.
+    Next,
+    /// `HEAD` itself: `regen --fold`, which amends it. The population is `HEAD^@`.
+    Head,
+    /// What `--check` and `doctor` ask about: `HEAD` when a block's file is unchanged since
+    /// `HEAD`, and the next commit when it holds an uncommitted refresh. A refreshed and not
+    /// yet committed block is current for the commit that will carry it, not for the one it
+    /// replaces.
+    Checked,
+}
+
+/// The carrier, as a process-global for the reason [`CHECK`] gives. [`Carrier::Next`] when
+/// nothing set it.
+static CARRIER: AtomicU8 = AtomicU8::new(0);
+
+fn carrier_code(c: Carrier) -> u8 {
+    match c {
+        Carrier::Next => 0,
+        Carrier::Head => 1,
+        Carrier::Checked => 2,
+    }
+}
+
+/// Run `f` with the generators told which commit carries their blocks, then restore the
+/// previous carrier — on an error as well, so the next caller does not inherit it.
+pub fn with_carrier<T>(c: Carrier, f: impl FnOnce() -> T) -> T {
+    let previous = CARRIER.swap(carrier_code(c), Ordering::SeqCst);
+    let out = f();
+    CARRIER.store(previous, Ordering::SeqCst);
+    out
+}
+
+/// The carrier the generators are writing for.
+pub fn carrier() -> Carrier {
+    match CARRIER.load(Ordering::SeqCst) {
+        1 => Carrier::Head,
+        2 => Carrier::Checked,
+        _ => Carrier::Next,
+    }
 }
 
 /// Print a generator's rendered block, unless we are only checking — or refreshing quietly.

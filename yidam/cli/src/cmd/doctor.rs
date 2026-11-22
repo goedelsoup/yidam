@@ -827,7 +827,7 @@ fn check_regen(root: &std::path::Path) -> Answer {
             ),
         );
     }
-    match crate::cmd::stale_blocks(Some(root)) {
+    match crate::cmd::stale_blocks(Some(root), crate::regen::Carrier::Checked) {
         Err(e) => Answer::fail(format!("could not be computed: {e:#}"), None),
         Ok(stale) if stale.is_empty() => {
             Answer::ok("every REGEN block holds what its generator produces")

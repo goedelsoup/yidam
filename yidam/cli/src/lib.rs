@@ -137,6 +137,8 @@ pub use cmd::regen_generator_names;
 #[cfg(feature = "tonpa")]
 #[doc(hidden)]
 pub use cmd::tonpa;
+#[doc(hidden)]
+pub use cmd::RegenMode;
 /// The steps every cluster workflow runs ahead of the manifest's. Public so the suite that
 /// drives a workflow's pods derives the steps it runs from the set the binary runs, rather
 /// than from a list of names that stops covering a fourth built-in without going red.

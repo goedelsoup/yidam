@@ -517,6 +517,11 @@ enum Command {
         /// Refuses if one of those files has uncommitted edits.
         #[arg(long, conflicts_with = "check")]
         commit: bool,
+        /// Refresh the blocks into HEAD by amending it, keeping its author and subject and
+        /// adding a `Regen:` trailer. Refuses a merge, a commit any other ref holds, or a block
+        /// file with uncommitted edits.
+        #[arg(long, conflicts_with_all = ["check", "commit"])]
+        fold: bool,
         #[command(flatten)]
         format: FormatArg,
     },
@@ -1745,8 +1750,18 @@ fn run() -> Result<()> {
             root,
             check,
             commit,
+            fold,
             format,
-        } => yidam::regen(root.as_deref(), check, commit, format.value),
+        } => yidam::regen(
+            root.as_deref(),
+            match (check, commit, fold) {
+                (true, _, _) => yidam::RegenMode::Check,
+                (_, true, _) => yidam::RegenMode::Commit,
+                (_, _, true) => yidam::RegenMode::Fold,
+                _ => yidam::RegenMode::Write,
+            },
+            format.value,
+        ),
         Command::Cohort {
             root,
             repos,

@@ -166,7 +166,8 @@ pub(crate) fn render_regen_check(r: &RegenReport) -> String {
             let _ = writeln!(out, "  {}  ({})", s.file, s.generator);
         }
         out.push_str(
-            "\nRun `yidam regen --commit` to refresh them and author the `regen:` commit.\n",
+            "\nRun `yidam regen --commit` to refresh them and author the `regen:` commit, or \
+             `yidam regen --fold` to refresh them into HEAD while it is unpushed.\n",
         );
     }
     if !r.unclaimed.is_empty() {
@@ -205,18 +206,26 @@ pub(crate) fn render_regen_check(r: &RegenReport) -> String {
 ///
 /// [`crate::regen::begin_check`] is process-global, so this is not reentrant. Nothing calls
 /// it concurrently: both callers are a single command's single pass.
-pub(crate) fn stale_blocks(root: Option<&std::path::Path>) -> Result<Vec<crate::regen::Stale>> {
-    crate::regen::begin_check();
-    for (name, run) in GENERATORS {
-        let outcome = run(root).with_context(|| format!("running {name}"));
-        if outcome.is_err() {
-            // Leave check mode before propagating, or the next caller inherits a
-            // half-finished check and a write path that silently records instead of writes.
-            crate::regen::end_check();
+///
+/// `carrier` is the commit the blocks are asked about (RFC-0054 §2.4): `--check` and
+/// `doctor` ask about the one in the checkout, a writer about the commit it is about to make.
+pub(crate) fn stale_blocks(
+    root: Option<&std::path::Path>,
+    carrier: crate::regen::Carrier,
+) -> Result<Vec<crate::regen::Stale>> {
+    crate::regen::with_carrier(carrier, || {
+        crate::regen::begin_check();
+        for (name, run) in GENERATORS {
+            let outcome = run(root).with_context(|| format!("running {name}"));
+            if outcome.is_err() {
+                // Leave check mode before propagating, or the next caller inherits a
+                // half-finished check and a write path that silently records instead of writes.
+                crate::regen::end_check();
+            }
+            outcome?;
         }
-        outcome?;
-    }
-    Ok(crate::regen::end_check())
+        Ok(crate::regen::end_check())
+    })
 }
 
 /// Refresh every REGEN block and say nothing on stdout.
@@ -229,12 +238,18 @@ pub(crate) fn stale_blocks(root: Option<&std::path::Path>) -> Result<Vec<crate::
 ///
 /// [`require_whole_history`] applies, for the reason given there: a block generated from a
 /// truncated history holds a date the clone invented, and staging it would commit it.
+///
+/// For the commit about to be made — [`crate::regen::Carrier::Next`] — which is the only
+/// carrier its callers write for: `settle`'s merge and `yidam run`'s `compute:` both have
+/// `HEAD` as a parent.
 pub(crate) fn refresh_quietly(root: &std::path::Path) -> Result<()> {
     require_whole_history(root)?;
     crate::regen::begin_quiet();
-    let outcome = GENERATORS
-        .iter()
-        .try_for_each(|(name, run)| run(Some(root)).with_context(|| format!("running {name}")));
+    let outcome = crate::regen::with_carrier(crate::regen::Carrier::Next, || {
+        GENERATORS
+            .iter()
+            .try_for_each(|(name, run)| run(Some(root)).with_context(|| format!("running {name}")))
+    });
     crate::regen::end_quiet();
     outcome
 }
@@ -285,28 +300,42 @@ pub(crate) fn unclaimed_blocks(root: &std::path::Path) -> Result<Vec<crate::rege
     Ok(found)
 }
 
+/// What `yidam regen` was asked to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Refresh every block in the working tree.
+    Write,
+    /// Report which blocks are stale and write nothing.
+    Check,
+    /// Refresh them and author the `regen:` commit.
+    Commit,
+    /// Refresh them into `HEAD` by amending it (RFC-0054 §2.3).
+    Fold,
+}
+
 /// Refresh every REGEN block, or — with `check` — report which ones would change, or — with
-/// `commit` — refresh them and author the `regen:` commit.
+/// `commit` — refresh them and author the `regen:` commit, or — with `fold` — amend them into
+/// `HEAD`.
 ///
 /// `--check` runs the same [`GENERATORS`] list, which is the whole point: a check that
 /// walked its own list would be the third list this command exists to have prevented.
 pub fn regen(
     root: Option<&std::path::Path>,
-    check: bool,
-    commit: bool,
+    mode: Mode,
     format: crate::report::Format,
 ) -> Result<()> {
     let resolved = crate::paths::resolve_root(root)?;
     require_whole_history(&resolved)?;
-    if check {
-        let stale = stale_blocks(root)?;
-        let unclaimed = unclaimed_blocks(&resolved)?;
-        return report_check(&resolved, stale, unclaimed, format);
+    match mode {
+        Mode::Check => {
+            let stale = stale_blocks(root, crate::regen::Carrier::Checked)?;
+            let unclaimed = unclaimed_blocks(&resolved)?;
+            report_check(&resolved, stale, unclaimed, format)
+        }
+        Mode::Commit => refresh_and_commit(root, &resolved),
+        Mode::Fold => fold(root, &resolved),
+        Mode::Write => run_all(root),
     }
-    if commit {
-        return refresh_and_commit(root, &resolved);
-    }
-    run_all(root)
 }
 
 fn run_all(root: Option<&std::path::Path>) -> Result<()> {
@@ -333,7 +362,7 @@ const WHO: crate::cmd::operational::Who<'static> = ("yidam regen", "regen@yidam"
 /// stages them. Without `--merge` a person commits them, which
 /// `settle_authors_no_commit_and_moves_no_ref` pins; with it, `settle` commits them itself.
 fn refresh_and_commit(root: Option<&std::path::Path>, resolved: &std::path::Path) -> Result<()> {
-    let stale = stale_blocks(root)?;
+    let stale = stale_blocks(root, crate::regen::Carrier::Next)?;
     let paths = repository_paths(resolved, &stale)?;
     crate::cmd::operational::require_clean(resolved, &paths)?;
     run_all(root)?;
@@ -350,18 +379,214 @@ fn refresh_and_commit(root: Option<&std::path::Path>, resolved: &std::path::Path
     Ok(())
 }
 
-/// The subject a `regen:` commit carries: which generators' blocks moved.
+/// `regen --fold`: refresh the blocks `HEAD` should carry and amend them into it (RFC-0054 §2.3).
 ///
-/// Named up to three, because a subject that says `status, corpus-index` tells a reader of
-/// `git log --oneline` which reports changed. Past three the list stops being readable in a
-/// subject line, and the body names every one.
-fn commit_subject(stale: &[crate::regen::Stale]) -> String {
+/// **Only a commit nobody else has.** An amend rewrites `HEAD`, which is harmless while the
+/// commit is this branch's alone and a rewritten history once anything else points at it — a
+/// remote-tracking ref after a push, another branch, a tag. So `HEAD` must be reachable from
+/// no ref but the branch checked out. A merge is refused too: amending one rewrites a commit
+/// two histories share, and the merge `phase settle --merge` writes carries its blocks already.
+///
+/// **Exactly the block files.** The same [`require_clean`](crate::cmd::operational::require_clean)
+/// as `--commit`, asked before the write, so a hand edit to a block file is refused rather than
+/// folded. The amend's pathspec is those files, so whatever else is staged stays staged.
+///
+/// The author, the author date and the subject stay; the body gains one `Regen:` trailer naming
+/// the generators whose blocks moved. The blocks are generated for `HEAD` as the carrier, so
+/// the practice block reads `HEAD`'s parents and `regen --check` passes on the amended commit.
+fn fold(root: Option<&std::path::Path>, resolved: &std::path::Path) -> Result<()> {
+    let git = |args: &[&str]| crate::git::Git::new(resolved).args(args.iter().copied());
+    if git(&["rev-parse", "--verify", "--quiet", "HEAD^2"]).succeeded() {
+        anyhow::bail!(
+            "HEAD is a merge, and `--fold` amends only a commit with one parent.\n  \
+             Run `yidam regen --commit` to refresh the blocks in a `regen:` commit of their own."
+        );
+    }
+    let branch = git(&["symbolic-ref", "--quiet", "HEAD"])
+        .try_run()
+        .map(|r| r.trim().to_string());
+    let holders: Vec<String> = git(&["for-each-ref", "--contains", "HEAD", "--format=%(refname)"])
+        .try_run()
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        // A stash is built on top of `HEAD`, and applies as well to the amended commit.
+        .filter(|r| !r.is_empty() && *r != "refs/stash" && Some(*r) != branch.as_deref())
+        .map(str::to_string)
+        .collect();
+    if !holders.is_empty() {
+        anyhow::bail!(
+            "HEAD is reachable from {}, so amending it would rewrite a commit that is not this \
+             branch's alone:\n{}\n  \
+             Run `yidam regen --commit` to refresh the blocks in a `regen:` commit instead.",
+            if holders.len() == 1 {
+                "another ref"
+            } else {
+                "other refs"
+            },
+            holders
+                .iter()
+                .map(|h| format!("    {h}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+
+    let stale = stale_blocks(root, crate::regen::Carrier::Head)?;
+    if stale.is_empty() {
+        println!("Every REGEN block is current for HEAD. Nothing to fold.");
+        return Ok(());
+    }
+    let paths = repository_paths(resolved, &stale)?;
+    crate::cmd::operational::require_clean(resolved, &paths)?;
+    crate::regen::with_carrier(crate::regen::Carrier::Head, || run_all(root))?;
+
+    let mut add = vec!["add", "--"];
+    add.extend(paths.iter().map(String::as_str));
+    git(&add)
+        .run()
+        .context("staging the refreshed REGEN blocks")?;
+    let trailer = format!("Regen: {}", generators_of(&stale).join(", "));
+    let mut amend = vec![
+        "commit",
+        "--amend",
+        "--no-edit",
+        "--no-verify",
+        "--quiet",
+        "--trailer",
+        &trailer,
+        "--",
+    ];
+    amend.extend(paths.iter().map(String::as_str));
+    git(&amend)
+        .run()
+        .context("amending HEAD with the refreshed blocks")?;
+    let head = git(&["log", "-1", "--format=%h %s"]).run()?;
+    println!("\nfolded into {}  ({trailer})", head.trim());
+    Ok(())
+}
+
+/// The REGEN blocks a commit about to be built on `parent` should carry, for `yidam run` to
+/// fold into its `compute:` commit (RFC-0054 §2.2).
+///
+/// **Generated in a checkout of its own.** `run` touches neither the working tree nor the
+/// index (RFC-0026 §5), so the person's checkout is not the tree the commit will hold, and a
+/// block generated from it would describe something else. A detached worktree at `parent`
+/// with `landing` written into it *is* that tree, with `parent` as `HEAD` — the next-commit
+/// carrier, so the practice block reads the commit's strict ancestors. It is also the fresh
+/// checkout `regen --check` runs on in CI. The worktree is removed before this returns.
+///
+/// `None` where no block can be generated: a shallow clone, which [`require_whole_history`]
+/// refuses for the reason given there. Nothing stale is `Some` of an empty fold. A
+/// repository that tracks no block at `parent` is answered without a checkout.
+pub(crate) fn fold_for(
+    root: &std::path::Path,
+    parent: &str,
+    landing: &[(String, Vec<u8>)],
+) -> Result<Option<Fold>> {
+    if crate::git::is_shallow(root) {
+        return Ok(None);
+    }
+    let carries_a_block = crate::git::Git::new(root)
+        .args([
+            "grep",
+            "-q",
+            "--fixed-strings",
+            "<!-- REGEN:",
+            parent,
+            "--",
+            "*.md",
+        ])
+        .succeeded();
+    if !carries_a_block {
+        return Ok(Some(Fold::default()));
+    }
+
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let git_dir = crate::git::Git::new(root)
+        .args(["rev-parse", "--absolute-git-dir"])
+        .run()
+        .context("finding the git directory for the REGEN fold's scratch checkout")?;
+    let tree =
+        std::path::Path::new(git_dir.trim()).join(format!("yidam-fold-{}-{n}", std::process::id()));
+    let tree_arg = tree.to_string_lossy().to_string();
+    // A leftover from an interrupted run would make `worktree add` refuse the path.
+    let _ = crate::git::Git::new(root)
+        .args(["worktree", "remove", "--force", &tree_arg])
+        .run();
+    let _ = std::fs::remove_dir_all(&tree);
+    crate::git::Git::new(root)
+        // A checkout runs `post-checkout`, and a hook is the person's, for their checkouts.
+        .config("core.hooksPath", "/dev/null")
+        .args(["worktree", "add", "--detach", "--quiet", &tree_arg, parent])
+        .run()
+        .context("checking out the commit's parent to generate its REGEN blocks")?;
+    let outcome = generate_fold(&tree, landing);
+    let _ = crate::git::Git::new(root)
+        .args(["worktree", "remove", "--force", &tree_arg])
+        .run();
+    let _ = crate::git::Git::new(root).args(["worktree", "prune"]).run();
+    outcome.map(Some)
+}
+
+/// [`fold_for`]'s half that runs inside the scratch checkout.
+fn generate_fold(tree: &std::path::Path, landing: &[(String, Vec<u8>)]) -> Result<Fold> {
+    for (rel, bytes) in landing {
+        let path = tree.join(rel);
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+        }
+        std::fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
+    }
+    let stale = stale_blocks(Some(tree), crate::regen::Carrier::Next)?;
+    if stale.is_empty() {
+        return Ok(Fold::default());
+    }
+    let paths = repository_paths(tree, &stale)?;
+    // Named relative to the repository, not to this scratch checkout, which is gone by the
+    // time anybody reads the commit.
+    let mut lines = Vec::new();
+    for s in &stale {
+        for rel in repository_paths(tree, std::slice::from_ref(s))? {
+            lines.push(format!("{rel}  (yidam {})", s.generator));
+        }
+    }
+    refresh_quietly(tree)?;
+    let mut files = Vec::new();
+    for rel in paths {
+        let bytes = std::fs::read(tree.join(&rel)).with_context(|| format!("reading {rel}"))?;
+        files.push((rel, bytes));
+    }
+    Ok(Fold { files, lines })
+}
+
+/// What [`fold_for`] refreshed: each block file's new bytes, and one line per block in the
+/// shape a `regen:` commit's body uses.
+#[derive(Debug, Default)]
+pub(crate) struct Fold {
+    pub files: Vec<(String, Vec<u8>)>,
+    pub lines: Vec<String>,
+}
+
+/// The generators whose blocks moved, each named once, in the order they ran.
+fn generators_of(stale: &[crate::regen::Stale]) -> Vec<&str> {
     let mut generators: Vec<&str> = Vec::new();
     for s in stale {
         if !generators.contains(&s.generator.as_str()) {
             generators.push(&s.generator);
         }
     }
+    generators
+}
+
+/// The subject a `regen:` commit carries: which generators' blocks moved.
+///
+/// Named up to three, because a subject that says `status, corpus-index` tells a reader of
+/// `git log --oneline` which reports changed. Past three the list stops being readable in a
+/// subject line, and the body names every one.
+fn commit_subject(stale: &[crate::regen::Stale]) -> String {
+    let generators = generators_of(stale);
     if generators.len() <= 3 {
         format!("regen: refresh {}", generators.join(", "))
     } else {

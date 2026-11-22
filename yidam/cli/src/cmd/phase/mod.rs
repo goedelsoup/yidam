@@ -13,15 +13,15 @@
 //! | `start` | opens `phase/<slug>` and snapshots the input state | one `scaffold:` commit |
 //! | `run` | invokes the manifest's plan, recording steps as they complete | one `scaffold:` commit per step, plus whatever the step itself lands |
 //! | `settle` | refreshes the REGEN blocks, checks the phase produced outputs and drafts the merge subject | **no commit** — it stages the refreshed blocks and moves no ref |
-//! | `settle --merge` | the same, then writes what it drafted | a `regen:` commit when blocks were stale, and the `--no-ff` merge, both under `yidam phase` |
+//! | `settle --merge` | the same, then writes what it drafted | the `--no-ff` merge under `yidam phase`, carrying the refreshed blocks |
 //!
 //! # `settle` prepares; `--merge` writes only what it checked
 //!
 //! `phase:` is an **epistemic** verb. Deciding that a phase is finished is a person's act, and
 //! `settle` without a flag hands that decision back. `--merge` is the owner's decision on
 //! #1438: once a person has decided, the tool may write the merge. [`write_merge`] holds the
-//! licence to commits that introduce nothing — see its doc, and PHASES.md for the Article V
-//! check.
+//! licence to a merge that introduces nothing but what `regen` derives from the tip — see its
+//! doc, and PHASES.md for the Article V check.
 //!
 //! # `settle` runs `regen`, stages the result, and refuses to close over a stale block
 //!
@@ -33,12 +33,12 @@
 //! block no generator writes, is *not ready* with the remedy `regen --check` would have
 //! printed, rather than a merge that fails its first build.
 //!
-//! **Staged, not committed.** `regen:` is operational and this module already authors
-//! operational commits, so the limit is not the vocabulary's; it is that `git merge --no-ff`
-//! refuses a dirty index, so the refresh has to be committed *before* the merge and on the
-//! phase branch — which is the sequence `settle` prints, one line longer than it was. The
-//! commit is the person's, beside the merge that is theirs already, and the invariant
-//! `settle_authors_no_commit_and_moves_no_ref` pins stays exactly what it says.
+//! **Staged, not committed.** Without `--merge`, a person writes the merge, and `git merge
+//! --no-ff` refuses a dirty index, so by hand the refresh is committed *before* the merge and
+//! on the phase branch — the sequence `settle` prints. The commit is the person's, beside the
+//! merge that is theirs already, and the invariant `settle_authors_no_commit_and_moves_no_ref`
+//! pins stays exactly what it says. With `--merge` there is no such commit: [`write_merge`]
+//! builds the merge from the index, so the refresh rides in the merge (RFC-0054 §2.1).
 //!
 //! **Only from a checkout that is the commit.** A block is generated from the tree, and
 //! `--check` in CI reads the commit's tree; a refresh from a working tree that differs from
@@ -1034,7 +1034,9 @@ fn render_upstream(u: &UpstreamAsk) -> String {
 /// What `settle --merge` wrote, in the order it wrote it.
 #[derive(Debug, serde::Serialize)]
 struct Merged {
-    /// The `regen:` commit written on the phase branch for the staged blocks, or null.
+    /// Always null. The merge carries the blocks `settle` refreshed (RFC-0054 §2.1), so no
+    /// `regen:` commit is written before it; the field stays so a reader of the JSON that
+    /// asked for it is not broken.
     regen: Option<String>,
     /// The `--no-ff` merge commit now at the tip of the baseline.
     merge: String,
@@ -1108,10 +1110,12 @@ fn settle(merge: Option<Option<String>>, format: Format) -> Result<()> {
     .collect();
 
     let regen = settle_regen(&root)?;
-    // The merge carries the `regen:` commit the sequence opens with, so the tally and the
-    // outputs count it — the draft describes the merge a person is about to write, not the
-    // branch as it stood before this step staged anything.
-    let commits = commits + usize::from(!regen.staged.is_empty());
+    // By hand, the merge carries the `regen:` commit the sequence opens with, so the tally
+    // counts it — the draft describes the merge a person is about to write, not the branch as
+    // it stood before this step staged anything. `--merge` writes the refresh into the merge
+    // itself (RFC-0054 §2.1), so there is no such commit to count. The outputs count the
+    // refreshed files either way: the merge holds them.
+    let commits = commits + usize::from(merge.is_none() && !regen.staged.is_empty());
     let mut outputs = outputs;
     for file in &regen.staged {
         if !outputs.contains(file) {
@@ -1173,12 +1177,14 @@ fn settle(merge: Option<Option<String>>, format: Format) -> Result<()> {
 /// `phase settle` may write the merge of a phase ref, under this module's author — phase refs
 /// only, never `propose/*`, never `rigpa/*`, and nothing else merges itself. Article V binds
 /// a resolution to what the participating positions hold, *synthesis, not generation*, and a
-/// tool-written merge keeps to it only where it introduces nothing. So every refusal below is
-/// a case where the merge would have to introduce something:
+/// tool-written merge keeps to it only where it introduces nothing but what `regen` derives
+/// from the tip (RFC-0054 §2.1) — a REGEN block is a function of the tree and its history, so
+/// deriving it decides nothing. So every refusal below is a case where the merge would have to
+/// introduce something else:
 ///
 /// - **The baseline must be an ancestor of the phase.** Then the merge's tree is the phase
-///   tip's tree, byte for byte — the tree this command just checked — and there is nothing to
-///   resolve. A baseline that moved on is refused rather than merged: bringing it into the
+///   tip's tree, byte for byte, but for the blocks `settle` refreshed — the tree this command
+///   just checked — and there is nothing to resolve. A baseline that moved on is refused rather than merged: bringing it into the
 ///   phase is a merge with conflicts a person may have to decide, and a git-generated one.
 /// - **The checkout must be the commit**, but for the REGEN blocks `settle` staged. Anything
 ///   else staged or edited is somebody's work, and the switch at the end would carry it.
@@ -1250,26 +1256,25 @@ fn write_merge(root: &Path, r: &SettleReport, summary: Option<&str>) -> Result<M
         );
     }
 
-    let who = (AUTHOR_NAME, AUTHOR_EMAIL);
-    let regen = if r.regen.staged.is_empty() {
-        None
-    } else {
-        crate::cmd::operational::author(
-            root,
-            who,
-            &regen_subject(&r.phase),
-            "Staged by `yidam phase settle`, so the merge that follows holds current blocks.",
-            &r.regen.staged,
-        )?
-        .map(|c| c.sha)
-    };
-
+    // The index, not the tip: the tip's tree plus the blocks `settle` refreshed and staged,
+    // and nothing else, which the check above established (RFC-0054 §2.1). They were
+    // generated for this merge as their carrier — its parents are the baseline and the tip,
+    // and the baseline is the tip's ancestor — so the merge holds current blocks and no
+    // `regen:` commit lands on the phase branch before it.
     let tip = git(root, None, &["rev-parse", "HEAD"], None)?;
-    let tree = git(root, None, &["rev-parse", &format!("{tip}^{{tree}}")], None)?;
+    let tree = git(root, None, &["write-tree"], None)?;
+    let refreshed = if r.regen.staged.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " It carries the REGEN blocks settle refreshed in {}.",
+            r.regen.staged.join(", ")
+        )
+    };
     let message = format!(
         "{subject}\n\n\
          Written by `yidam phase settle --merge`. {} was an ancestor of {}, so this tree is the \
-         phase's tip as settle checked it, and nothing was resolved.\n",
+         phase's tip as settle checked it, and nothing was resolved.{refreshed}\n",
         r.baseline, r.branch
     );
     let sha = crate::git::Git::new(root)
@@ -1301,13 +1306,14 @@ fn write_merge(root: &Path, r: &SettleReport, summary: Option<&str>) -> Result<M
             .succeeded();
 
     // No REGEN refresh after the merge, and none is needed. Every block is a function of the
-    // tree (#647's contract), and this merge's tree is the tree `settle` just checked. The
+    // tree and the carrier's ancestry (#647's contract, RFC-0054 §2.4), and this merge's tree
+    // holds the blocks `settle` generated for it. The
     // rework a hand merge left behind — a `regen` on the baseline straight after it — came
     // from merging onto a baseline that had moved on, which the ancestor check refuses.
     // `settle_merge_leaves_the_baseline_passing_regen_check` holds it.
 
     Ok(Merged {
-        regen,
+        regen: None,
         merge: short_of(root, &sha),
         subject,
         switched,
@@ -1323,7 +1329,7 @@ fn write_merge(root: &Path, r: &SettleReport, summary: Option<&str>) -> Result<M
 /// generator added there and not here is a block this step calls current and CI calls stale.
 fn settle_regen(root: &Path) -> Result<RegenSettle> {
     let unclaimed = crate::cmd::unclaimed_blocks(root)?;
-    let mut stale = crate::cmd::stale_blocks(Some(root))?;
+    let mut stale = crate::cmd::stale_blocks(Some(root), crate::regen::Carrier::Next)?;
     let mut dirty = Vec::new();
     if !stale.is_empty() {
         // Tracked files that differ from `HEAD`, staged or not. `diff --name-only HEAD` is
@@ -1339,7 +1345,7 @@ fn settle_regen(root: &Path) -> Result<RegenSettle> {
             // Asked again rather than assumed. A generator that reads outside the tree
             // writes a block that is stale the moment it is written — #895's defect — and
             // the only way to know is to look.
-            stale = crate::cmd::stale_blocks(Some(root))?;
+            stale = crate::cmd::stale_blocks(Some(root), crate::regen::Carrier::Next)?;
         }
     }
 
@@ -1464,8 +1470,9 @@ fn render_settle(r: &SettleReport) -> String {
     );
     if !r.regen.staged.is_empty() {
         out.push_str(
-            "\nThe refreshed blocks are staged and not committed: `git merge --no-ff` refuses a\n\
-             dirty index, so the `regen:` commit goes first and lands on the phase branch.\n",
+            "\nThe refreshed blocks are staged and not committed. `--merge` writes them into the\n\
+             merge itself, one commit. By hand, `git merge --no-ff` refuses a dirty index, so the\n\
+             `regen:` commit goes first and lands on the phase branch.\n",
         );
     }
     out.push_str(&render_upstream(&r.upstream));
@@ -1474,9 +1481,6 @@ fn render_settle(r: &SettleReport) -> String {
 
 /// What `--merge` wrote, and what is left for a person.
 fn render_merged(r: &SettleReport, m: &Merged, mut out: String) -> String {
-    if let Some(sha) = &m.regen {
-        let _ = writeln!(out, "  {sha} {}", regen_subject(&r.phase));
-    }
     let _ = writeln!(out, "  {} {}  (onto {})", m.merge, m.subject, r.baseline);
     out.push('\n');
     match (m.switched, m.deleted) {
