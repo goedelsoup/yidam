@@ -573,7 +573,9 @@ fn round_job(dir: &Path, last: &str, between: &str) -> Output {
             script.push_str(between);
             script.push('\n');
         }
-        script.push_str(&format!("( {} )\n", run_of("watch.yml", "round", name)));
+        script.push_str("( ");
+        script.push_str(&run_of("watch.yml", "round", name));
+        script.push_str(" )\n");
         if name == last {
             break;
         }
