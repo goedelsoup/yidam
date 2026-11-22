@@ -908,6 +908,8 @@ fn settle_asks_nothing_of_a_phase_that_added_only_laid_out_paths() {
 
 /// A README carrying one REGEN block with its placeholder, committed on the baseline before
 /// the phase opens — the state every scaffolded block is in until something refreshes it.
+/// A `phase run` folds the block into its `compute:` commit (RFC-0054 §2.2), so a test that
+/// needs it stale at `settle` puts the placeholder back afterwards with [`stale_again`].
 fn with_block(f: &Fixture, command: &str) {
     std::fs::write(
         f.root().join("README.md"),
@@ -929,6 +931,17 @@ fn with_block(f: &Fixture, command: &str) {
     );
 }
 
+/// The placeholder recommitted on the phase branch after a `phase run`, which refreshed the
+/// block in its own commit. What a hand edit to a block file leaves behind.
+fn stale_again(f: &Fixture, command: &str) {
+    let readme = std::fs::read_to_string(f.root().join("README.md")).unwrap();
+    assert!(
+        !readme.contains("_Run `yidam regen` to populate._"),
+        "the run did not fold the block it made stale:\n{readme}"
+    );
+    with_block(f, command);
+}
+
 /// **#1066.** Closing a phase requires the blocks to be current, and `settle` never touched
 /// them, so every repository ran `regen` by hand one commit before the phase commit — 101 of
 /// 118 phase commits in the reporting corpus. Now `settle` refreshes what is stale, stages
@@ -941,6 +954,7 @@ fn settle_refreshes_a_stale_block_stages_it_and_writes_no_commit() {
     open_and_switch(&f);
     f.ok(&["phase", "run"]);
     f.resync();
+    stale_again(&f, "status");
 
     // The block is stale before settle, or nothing below measures anything.
     let (_, _, current) = f.run(&["regen", "--check"]);
@@ -1014,6 +1028,7 @@ fn settle_keeps_printing_the_regen_commit_while_it_is_staged() {
     open_and_switch(&f);
     f.ok(&["phase", "run"]);
     f.resync();
+    stale_again(&f, "status");
     f.ok(&["phase", "settle"]);
 
     let report = f.json(&["phase", "settle"]);
@@ -1035,6 +1050,11 @@ fn settle_refuses_to_refresh_over_a_checkout_that_is_not_the_commit() {
     with_block(&f, "status");
     open_and_switch(&f);
     f.ok(&["phase", "run"]);
+    f.resync();
+    stale_again(&f, "status");
+    // A checkout that is not the commit, as `phase run` leaves one behind.
+    let readme = std::fs::read_to_string(f.root().join("README.md")).unwrap();
+    std::fs::write(f.root().join("README.md"), format!("{readme}\nMid-edit.\n")).unwrap();
 
     let report = f.json(&["phase", "settle"]);
     assert_eq!(report["ready"], false, "{report}");
@@ -1245,10 +1265,9 @@ fn settle_merge_writes_the_merge_under_the_phase_author() {
 }
 
 /// **The rework #1438 set out to remove.** After a hand merge, a `regen` on the baseline
-/// followed about twice a round. `--merge` commits the staged refresh on the phase branch and
-/// merges a tree equal to the phase tip's, and every block is a function of the tree (#647),
-/// so `regen --check` holds on the baseline with nothing left to do and no commit after the
-/// merge.
+/// followed about twice a round. `--merge` writes the merge from the index — the phase tip's
+/// tree plus the blocks `settle` refreshed (RFC-0054 §2.1) — so `regen --check` holds on the
+/// baseline, no `regen:` commit lands on the phase branch, and nothing follows the merge.
 #[test]
 fn settle_merge_leaves_the_baseline_passing_regen_check() {
     let f = corpus();
@@ -1256,10 +1275,12 @@ fn settle_merge_leaves_the_baseline_passing_regen_check() {
     open_and_switch(&f);
     f.ok(&["phase", "run"]);
     f.resync();
+    stale_again(&f, "status");
+    let tip = git(&f.root(), &["rev-parse", "HEAD"]);
 
     let report = f.json(&["phase", "settle", "--merge"]);
     let merged = &report["merged"];
-    assert!(merged["regen"].is_string(), "{report}");
+    assert!(merged["regen"].is_null(), "{report}");
 
     let root = f.root();
     let (stdout, stderr, current) = f.run(&["regen", "--check"]);
@@ -1269,11 +1290,17 @@ fn settle_merge_leaves_the_baseline_passing_regen_check() {
     );
     assert!(git(&root, &["status", "--porcelain"]).is_empty());
 
-    // The `regen:` commit is on the phase side of the merge, under the same author.
-    let second_parent = git(&root, &["log", "-1", "--format=%s|%an", "main^2"]);
+    // One commit: the phase side of the merge is the tip settle checked, and the merge holds
+    // the refresh and nothing else.
     assert_eq!(
-        second_parent,
-        "regen: REGEN blocks refreshed to settle outcome-axis|yidam phase"
+        git(&root, &["rev-parse", "main^2"]),
+        tip,
+        "a commit landed on the phase branch before the merge"
+    );
+    assert_eq!(
+        git(&root, &["diff", "--name-only", &tip, "main"]),
+        "README.md",
+        "the merge carries something besides the refreshed block"
     );
     assert_eq!(
         git(&root, &["log", "-1", "--format=%s", "main"]),

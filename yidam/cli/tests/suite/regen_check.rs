@@ -237,6 +237,160 @@ fn regen_commit_leaves_work_staged_elsewhere_alone() {
     );
 }
 
+// ── `regen --fold`: the blocks ride in HEAD (RFC-0054 §2.3) ───────────────────
+
+fn stderr_of(root: &Path, args: &[&str]) -> (i32, String) {
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(root)
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stderr).to_string(),
+    )
+}
+
+/// **The fold is the commit, refreshed.** Author, author date and subject stay; the body gains
+/// a `Regen:` trailer; no commit is added; and the gate passes on the amended `HEAD`.
+#[test]
+fn regen_fold_amends_head_and_leaves_the_gate_passing() {
+    let tmp = stage();
+    let root = tmp.path();
+    std::fs::write(root.join("notes.md"), "A note.\n").unwrap();
+    common::git::git(root, &["add", "notes.md"]);
+    common::git::git_at(
+        root,
+        &["commit", "-q", "-m", "work: a note"],
+        common::git::FIXTURE_DATE,
+    );
+    let before = git_out(root, &["log", "-1", "--format=%an <%ae>|%ad|%s|%P"]);
+    let count = git_out(root, &["rev-list", "--count", "HEAD"]);
+
+    let r = run(root, &["regen", "--fold"]);
+    assert_eq!(r.code, 0, "{}", r.stdout);
+    assert!(r.stdout.contains("folded into"), "{}", r.stdout);
+
+    assert_eq!(
+        git_out(root, &["log", "-1", "--format=%an <%ae>|%ad|%s|%P"]),
+        before,
+        "the fold keeps the author, the date, the subject and the parent"
+    );
+    assert_eq!(git_out(root, &["rev-list", "--count", "HEAD"]), count);
+    let trailers = git_out(
+        root,
+        &["log", "-1", "--format=%(trailers:key=Regen,valueonly)"],
+    );
+    assert!(trailers.contains("status"), "a Regen trailer: {trailers}");
+    let files = git_out(root, &["show", "--name-only", "--format=", "HEAD"]);
+    assert!(
+        files.contains("notes.md") && files.contains("README.md"),
+        "{files}"
+    );
+    assert!(git_out(root, &["status", "--porcelain"]).is_empty());
+    assert_eq!(run(root, &["regen", "--check"]).code, 0);
+
+    // Current blocks are nothing to fold, and that is not a failure.
+    let head = git_out(root, &["rev-parse", "HEAD"]);
+    let again = run(root, &["regen", "--fold"]);
+    assert_eq!(again.code, 0, "{}", again.stdout);
+    assert!(again.stdout.contains("Nothing to fold"), "{}", again.stdout);
+    assert_eq!(git_out(root, &["rev-parse", "HEAD"]), head);
+}
+
+/// **The practice block converges when it rides in the commit it describes** (RFC-0054 §2.4).
+///
+/// Folded into `HEAD`, the block reads `HEAD`'s parents, so `--check` passes on the amended
+/// commit. Written but not committed, it reads `HEAD` itself, the parent of the commit it will
+/// ride in, so `regen` then `--check` passes on the dirty tree as well.
+#[test]
+fn the_practice_block_reads_the_strict_ancestors_of_its_carrier() {
+    let tmp = stage();
+    let root = tmp.path();
+    let block = "# Practice\n\n<!-- REGEN: yidam practice\n-->\n_placeholder_\n<!-- /REGEN -->\n";
+    std::fs::write(root.join("PRACTICE.md"), block).unwrap();
+    common::git::git(root, &["add", "PRACTICE.md"]);
+    common::git::git_at(
+        root,
+        &["commit", "-q", "-m", "docs: a practice block"],
+        common::git::FIXTURE_DATE,
+    );
+
+    // Written, not committed: the carrier is the next commit.
+    let wrote = run(root, &["regen"]);
+    assert_eq!(wrote.code, 0, "{}", wrote.stdout);
+    assert_eq!(
+        run(root, &["regen", "--check"]).code,
+        0,
+        "dirty, after regen"
+    );
+    common::git::git(root, &["checkout", "--", "."]);
+
+    // Folded: the carrier is HEAD, and the block does not count it.
+    let folded = run(root, &["regen", "--fold"]);
+    assert_eq!(folded.code, 0, "{}", folded.stdout);
+    let files = git_out(root, &["show", "--name-only", "--format=", "HEAD"]);
+    assert!(files.lines().any(|f| f == "PRACTICE.md"), "{files}");
+    let check = run(root, &["regen", "--check"]);
+    assert_eq!(
+        check.code, 0,
+        "the fold did not converge:\n{}",
+        check.stdout
+    );
+    let again = run(root, &["regen", "--fold"]);
+    assert!(again.stdout.contains("Nothing to fold"), "{}", again.stdout);
+}
+
+/// A commit another ref holds is not this branch's to rewrite.
+#[test]
+fn regen_fold_refuses_a_commit_another_ref_holds() {
+    let tmp = stage();
+    let root = tmp.path();
+    common::git::git(root, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let head = git_out(root, &["rev-parse", "HEAD"]);
+    let (code, said) = stderr_of(root, &["regen", "--fold"]);
+    assert_ne!(code, 0, "a pushed commit has to refuse");
+    assert!(said.contains("refs/remotes/origin/main"), "{said}");
+    assert!(
+        said.contains("regen --commit"),
+        "names the other route: {said}"
+    );
+    assert_eq!(git_out(root, &["rev-parse", "HEAD"]), head);
+}
+
+/// A merge has two parents, and an amend would be a different merge.
+#[test]
+fn regen_fold_refuses_a_merge() {
+    let tmp = stage();
+    let root = tmp.path();
+    let git = |args: &[&str]| common::git::git_at(root, args, common::git::FIXTURE_DATE);
+    git(&["switch", "-q", "-c", "side"]);
+    std::fs::write(root.join("side.md"), "side\n").unwrap();
+    git(&["add", "side.md"]);
+    git(&["commit", "-q", "-m", "work: side"]);
+    git(&["switch", "-q", "main"]);
+    git(&["merge", "-q", "--no-ff", "-m", "merge side", "side"]);
+    git(&["branch", "-q", "-D", "side"]);
+    let (code, said) = stderr_of(root, &["regen", "--fold"]);
+    assert_ne!(code, 0);
+    assert!(said.contains("HEAD is a merge"), "{said}");
+}
+
+/// A hand edit to a block file is refused before anything is written, as `--commit` does.
+#[test]
+fn regen_fold_refuses_a_hand_edited_block_file() {
+    let tmp = stage();
+    let root = tmp.path();
+    let edited = format!("{}\nA note nobody has committed.\n", readme(root));
+    std::fs::write(root.join("README.md"), &edited).unwrap();
+    let head = git_out(root, &["rev-parse", "HEAD"]);
+    let (code, said) = stderr_of(root, &["regen", "--fold"]);
+    assert_ne!(code, 0);
+    assert!(said.contains("uncommitted changes"), "{said}");
+    assert_eq!(git_out(root, &["rev-parse", "HEAD"]), head);
+    assert_eq!(readme(root), edited, "no block was written");
+}
+
 /// A `vault-status` block is one this gate reports, which it was not until #831.
 ///
 /// The block sat outside the generator list, so `yidam regen` did not populate it and

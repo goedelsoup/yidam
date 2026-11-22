@@ -982,6 +982,12 @@ pub(crate) struct Built {
 /// unchanged input state produces byte-identical bytes — the receipt carries no clock, which
 /// is what makes that true — and an empty commit per invocation would turn the log into a
 /// record of how often somebody ran the command rather than of what changed.
+///
+/// With `fold`, a commit that does change the tree also carries the REGEN blocks it makes
+/// stale, refreshed (RFC-0054 §2.2), so no `regen:` commit has to follow it. A fold that
+/// cannot be made — a shallow clone, a generator that fails — lands the step without it and
+/// says so: a step that computed correctly is not lost to a README.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_commit(
     root: &Path,
     parent: &str,
@@ -990,6 +996,7 @@ pub(crate) fn build_commit(
     landing: &[(String, Vec<u8>)],
     short_input: &str,
     route: Route,
+    fold: bool,
 ) -> Result<Option<Built>> {
     let scratch = TempIndex::new(root, "run")?;
     let index = scratch.path().to_path_buf();
@@ -1029,10 +1036,84 @@ pub(crate) fn build_commit(
         return Ok(None);
     }
 
+    let folded = if fold {
+        fold_blocks(root, &index, parent, landing)?
+    } else {
+        Vec::new()
+    };
+    let tree = if folded.is_empty() {
+        tree
+    } else {
+        git(root, Some(&index), &["write-tree"], None)?
+    };
+
     let subject = subject(&cap.verb, step, landing.len(), short_input);
-    let message = message(&subject, cap, step, landing, short_input, route);
+    let mut message = message(&subject, cap, step, landing, short_input, route);
+    if !folded.is_empty() {
+        let _ = write!(
+            message,
+            "\nREGEN blocks this commit made stale, refreshed in it:\n\n{}\n",
+            folded
+                .iter()
+                .map(|l| format!("  {l}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
     let sha = commit_tree(root, &tree, parent, &message, (AUTHOR_NAME, AUTHOR_EMAIL))?;
     Ok(Some(Built { sha, subject }))
+}
+
+/// Refresh the REGEN blocks `landing` makes stale into `index`, and return one line per block.
+///
+/// Empty when nothing is stale, and when no fold can be made — which is said on stderr with
+/// the command that makes it afterwards, because stdout may be a JSON report.
+fn fold_blocks(
+    root: &Path,
+    index: &Path,
+    parent: &str,
+    landing: &[(String, Vec<u8>)],
+) -> Result<Vec<String>> {
+    let fold = match crate::cmd::fold_for(root, parent, landing) {
+        Ok(Some(fold)) => fold,
+        Ok(None) => {
+            eprintln!(
+                "note: a shallow clone cannot generate REGEN blocks, so this step landed without \
+                 them. After `git fetch --unshallow`, sync the checkout and run \
+                 `yidam regen --fold`."
+            );
+            return Ok(Vec::new());
+        }
+        Err(e) => {
+            eprintln!(
+                "note: the REGEN blocks could not be refreshed for this step ({e:#}), so it \
+                 landed without them. Sync the checkout and run `yidam regen --fold`."
+            );
+            return Ok(Vec::new());
+        }
+    };
+    for (path, bytes) in &fold.files {
+        let content = String::from_utf8(bytes.clone())
+            .with_context(|| format!("`{path}` holds a REGEN block and is not text"))?;
+        let blob = git(
+            root,
+            Some(index),
+            &["hash-object", "-w", "--stdin"],
+            Some(&content),
+        )?;
+        git(
+            root,
+            Some(index),
+            &[
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                &format!("100644,{blob},{path}"),
+            ],
+            None,
+        )?;
+    }
+    Ok(fold.lines)
 }
 
 /// Land the outputs and the receipt as one commit on `branch`.
@@ -1053,6 +1134,7 @@ fn commit(
         landing,
         at.short_input,
         at.route,
+        true,
     )?
     else {
         return Ok(None);

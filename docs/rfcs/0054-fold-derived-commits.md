@@ -1,6 +1,6 @@
 # RFC-0054 — A derived update rides in the commit that caused it
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I38
 - **Relates to:**
   - #1499 (derived updates are their own commits; the evidence this answers), parent epic #1513
@@ -124,39 +124,42 @@ an ancestor of the tip, so every block the merge carries is a function of a hist
 contains no commit the phase did not see.
 
 `settle` without `--merge` stages the blocks and moves no ref, as
-`settle_authors_no_commit_and_moves_no_ref` pins. Its printed sequence changes from "commit
-the `regen:`, then merge" to:
+`settle_authors_no_commit_and_moves_no_ref` pins. Its printed sequence keeps the `regen:`
+commit before the merge.
 
-```
-yidam regen --fold
-git switch <baseline> && git merge --no-ff phase/<slug>
-```
-
-On the hand route the blocks ride in the phase's last commit, not the merge, because
-`git merge` will not take them. That is the route city-engine uses, and it removes the same
-commit.
+*Revised in implementation.* The draft printed `yidam regen --fold` in place of that commit,
+so the blocks would ride in the phase's last commit. That fold goes stale under §2.4. The
+folded tip is an authored commit, so it is a practice checkpoint of its own. The merge's
+practice block reads both parents, the tip among them, and the block folded into the tip did
+not. Each checkpoint would leave the merge one reading behind. A `regen:` commit is not a
+checkpoint, so the hand route's separate commit stays current, and it stays. The printed
+paragraph says `--merge` writes the same refresh into the merge as one commit.
 
 The `merged.regen` field in `settle --format json` is kept, and is always null. A field with
 nothing to report is a report-contract change at 1 that no consumer breaks on.
 
 ### 2.2 `yidam run` folds its refresh into the `compute:` commit
 
-`run` writes the step's outputs to the working tree and commits them under a pathspec through
-`operational::author` (`Writer::WorkingTree`). Before that commit it asks the same two
-questions `settle` asks: which blocks are stale with the outputs written, and are they still
-stale after a quiet refresh? It refreshes them and adds their files to the pathspec. The
-subject is unchanged. The body gets one line per refreshed block, in the shape
+*Revised in implementation.* The draft said `run` writes its outputs to the working tree and
+commits through `operational::author`. It does neither. `run` builds its commit on a temporary
+index and moves the ref by compare-and-swap, so the working tree is never touched (RFC-0026
+§5). The fold keeps that property.
+
+Once the step's tree differs from its parent's, `run` checks the parent out into a scratch,
+detached worktree inside the git directory. It writes the landing into it and asks which
+blocks are stale there, with the next commit as the carrier (§2.4). It refreshes them, adds
+the block files to the temporary index, and writes the tree again. The scratch worktree is
+removed. The subject is unchanged. The body gets one line per refreshed block, in the shape
 `regen --commit`'s body already uses.
 
-`require_clean` is asked about the block files as well as the outputs, before anything is
-written. That is the same refusal for the same reason: afterwards a hand edit and a refreshed
-block are the same diff. When a block file is dirty, `run` lands the step without the fold
-and prints `regen --fold` as the next step. It does not refuse the step, because a step that
-computed correctly should not be lost to a README somebody is editing.
+Because nothing is written to the person's checkout, a dirty block file there does not block
+the fold, and there is no `require_clean` to ask. A hand edit stays where it was. It now
+differs from a newer HEAD, as every file a run lands does.
 
 A shallow clone cannot generate a block (`require_whole_history`). There `run` lands without
-the fold and says so. That covers `Writer::Detached` on a cluster today. Whether the lander
-should fold is §6's first question.
+the fold and says so on stderr, naming `regen --fold`. So does any error from the fold
+itself: a step that computed correctly is not lost to a README. `cluster run`'s lander does
+not fold. Whether it should is §6's first question.
 
 Both commits are operational and tool-authored. Nothing about the `compute:` commit's licence
 changes. Its body already says nothing was synthesized, and a regenerated block is not
@@ -221,7 +224,14 @@ So:
   ceremony, and dropping it would move every existing document.
 - **A merge can carry it.** A merge's strict ancestors are both parents. A merge is still
   never a sampled point (#1392). But the reason #1392 gives, that no `regen:` can follow a
-  merge, is gone. With §2.1, the merge carries the block itself.
+  merge, is gone. With §2.1, the merge carries the block itself. Keeping a merge out of the
+  points keeps every existing reading where it is.
+
+Which commit is the carrier depends on who asks. Every writer, `regen`, `--commit`, `settle`
+and `run`, generates for the next commit, so it reads HEAD. `--fold` generates for HEAD, so it
+reads `HEAD^@`. `regen --check` and `doctor` cannot know which is meant. They take HEAD as the
+carrier when PRACTICE.md matches HEAD, and the next commit when it differs. So `regen` then
+`--check` passes on a dirty tree, and `--check` passes on a folded commit.
 
 The document lags its carrier by one commit. That is the only reading that can be committed
 in the commit it describes, and `kuten check`, which writes nothing, still reads the newest.
@@ -230,9 +240,8 @@ Every existing PRACTICE.md block is stale by at most one checkpoint after this c
 first fold or `regen --commit` after an upgrade refreshes it. §5 says so in the upgrade note.
 
 No other generator reads commit history. `status` reads the tree. `genesis` reads the first
-commit, which no amend can change. The implementation keeps that true with a test, not with
-this sentence: each generator runs against a commit and its amend, and their blocks must be
-byte-identical.
+commit, which no amend can change. The tests hold it by asking `regen --check` of the
+amended commit, over every block the fixture carries, and of a `compute:` commit's fold.
 
 ## What this does not touch
 
@@ -248,9 +257,10 @@ byte-identical.
 
 - **There is no `migrate` operation.** History is not rewritten. Old `regen:` commits stay
   where they are, and the new shape starts at the next phase.
-- **An upgrade note under `.changes/upgrading/`** names the new printed `settle` sequence,
-  `regen --fold`, and the one-commit staleness of PRACTICE.md from §2.4.
-- **`PHASES.md`'s closing sequence** in the prelude changes to §2.1's two lines.
+- **An upgrade note under `.changes/upgrading/`** names the one-commit `settle --merge`,
+  the `run` fold, `regen --fold`, and the one-commit staleness of PRACTICE.md from §2.4.
+- **`PHASES.md`'s closing sequence** in the prelude says `--merge` needs no `regen:` commit.
+  The hand route's four lines stay, for the reason §2.1's revision gives.
 - **The parity fixtures carry no practice block.** No SDK golden moves. The CLI's practice
   goldens are regenerated for §2.4.
 

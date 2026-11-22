@@ -151,6 +151,7 @@ pub use propose::{propose, Options as ProposeOptions};
 pub use query::paths::paths as query_paths;
 pub use query::query;
 pub use regen::regen;
+pub use regen::Mode as RegenMode;
 // For `help.rs`'s guard that every generator carries the write marker — see
 // `regen::generator_names`.
 pub use regen::generator_names as regen_generator_names;
@@ -158,7 +159,7 @@ pub use regen::generator_names as regen_generator_names;
 pub use migrate::{migrate, Operation as MigrateOperation};
 pub use policy::{run as run_policy, PolicyCommand};
 pub use record::{fold::fold as record_fold, record};
-pub(crate) use regen::{refresh_quietly, stale_blocks, unclaimed_blocks};
+pub(crate) use regen::{fold_for, refresh_quietly, stale_blocks, unclaimed_blocks};
 pub use registry::{agents_index, skills_index};
 pub use rename::rename;
 pub use replay::replay;

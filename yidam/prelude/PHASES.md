@@ -111,9 +111,9 @@ and the table saying how many rows are an inference.
   `yidam phase settle` drafts that subject and prints those three lines — four, when it
   refreshed a REGEN block: the `regen:` commit goes first, on the phase branch, because a
   `--no-ff` merge refuses a dirty index. A person decides a phase is finished, then runs
-  them or has `--merge` write them under the `yidam phase` author. So the merge introduces
-  nothing, as [Article V](CONSTITUTION.md) asks, it takes a ready `phase/*` ref only, onto a
-  baseline the phase descends from, from a checkout that is the commit.
+  them or has `--merge` write one merge, blocks included, under the `yidam phase` author.
+  So the merge introduces nothing, as [Article V](CONSTITUTION.md) asks, it takes a ready
+  `phase/*` ref only, onto a baseline the phase descends from, from a checkout that is the commit.
 
   **If you settle through a pull request, check which merge button your repository uses.**
   *Rebase and merge* and *Squash and merge* both write a single-parent commit onto the baseline

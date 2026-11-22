@@ -2153,3 +2153,67 @@ fn an_epistemic_run_at_the_proposal_cap_opens_no_new_branch() {
         "the refused run left a head"
     );
 }
+
+/// **A `compute:` commit carries the REGEN blocks it makes stale** (RFC-0054 §2.2), so no
+/// `regen:` commit has to follow it, and `regen --check` passes on the commit the run landed.
+///
+/// No example ships a block, so one is added: the practice block, whose content is a function
+/// of history, so the commit a run lands moves it.
+#[test]
+fn a_compute_commit_carries_the_blocks_it_made_stale() {
+    let (example, step) = every_capability()
+        .into_iter()
+        .next()
+        .expect("a capability to run");
+    let e = Example::materialize(&example);
+    let root = e.path();
+    std::fs::write(
+        root.join("PRACTICE.md"),
+        "# Practice\n\n<!-- REGEN: yidam practice\n-->\n_placeholder_\n<!-- /REGEN -->\n",
+    )
+    .unwrap();
+    common::git::git(&root, &["add", "PRACTICE.md"]);
+    common::git::git(&root, &["commit", "-q", "-m", "docs: a status block"]);
+    let (out, err, code) = e.run(&["regen", "--commit"]);
+    assert_eq!(code, 0, "{out}{err}");
+    let before = git(&root, &["rev-parse", "HEAD"]);
+
+    let (out, err, code) = e.run(&["run", &step]);
+    assert_eq!(
+        code, 0,
+        "`yidam run {step}` failed in {example}:\n{out}{err}"
+    );
+    assert!(
+        !err.contains("landed without"),
+        "the fold was skipped: {err}"
+    );
+
+    let landed = git(&root, &["rev-list", &format!("{before}..HEAD")]);
+    let subjects = git(&root, &["log", "--format=%s", &format!("{before}..HEAD")]);
+    assert!(
+        !subjects.lines().any(|s| s.starts_with("regen:")),
+        "a run authored a `regen:` commit:\n{subjects}"
+    );
+    assert!(!landed.is_empty(), "`{step}` landed nothing");
+    let files = git(&root, &["show", "--name-only", "--format=", "HEAD"]);
+    assert!(
+        files.lines().any(|f| f == "PRACTICE.md"),
+        "the compute commit does not carry the practice block:\n{files}"
+    );
+    let body = git(&root, &["log", "-1", "--format=%b"]);
+    assert!(body.contains("PRACTICE.md  (yidam practice)"), "{body}");
+
+    git(
+        &root,
+        &[
+            "restore",
+            "--source=HEAD",
+            "--worktree",
+            "--staged",
+            "--",
+            ".",
+        ],
+    );
+    let (out, err, code) = e.run(&["regen", "--check"]);
+    assert_eq!(code, 0, "stale after the run:\n{out}{err}");
+}
