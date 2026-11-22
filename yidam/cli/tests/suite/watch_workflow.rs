@@ -1,8 +1,9 @@
 //! A scheduled watch must not read an unreachable source as an unchanged one.
 //!
 //! `sadhana/github/workflows/watch.yml` runs a derived repository's own round of checking and
-//! appends one row to `.github/watch/heartbeats.tsv`; the `watch` job in `ci.yml` reads that
-//! ledger and fails on silence or blindness. A derived repository ran the first half without
+//! appends one row to `.github/watch/heartbeats.tsv` on the `yidam/watch` branch; the `watch`
+//! job in `ci.yml` fetches that ledger and fails on silence or blindness. The ledger has its
+//! own branch so the default branch gets no commit from the watch (RFC-0055). A derived repository ran the first half without
 //! the second for twenty-four rounds: its source was unreachable, the job saw no diff, and the
 //! build stayed green.
 //!
@@ -15,6 +16,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const LEDGER: &str = ".github/watch/heartbeats.tsv";
+const BRANCH: &str = "yidam/watch";
+
+/// Git with no user or system config, so a fixture repository means the same thing on every
+/// machine. Prefixed to each script that builds one.
+const ISOLATED: &str = "set -e\n\
+    export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1\n\
+    export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t\n";
 
 fn workflow(name: &str) -> serde_yaml::Value {
     let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -198,8 +206,9 @@ fn the_guard_stands_between_the_append_and_the_commit() {
     assert!(at("Guard — nothing but the ledger changed") < at("Commit the row"));
 }
 
-/// The guard passes a tree whose only change is the ledger, and refuses a modified file or an
-/// untracked one beside it.
+/// The guard passes a clean checkout beside a ledger tree whose only change is the ledger. It
+/// refuses any change in the checkout, the ledger's old path included, and a second change in
+/// the ledger tree.
 #[test]
 fn the_watch_may_write_only_its_ledger() {
     let guard = run_of(
@@ -208,45 +217,73 @@ fn the_watch_may_write_only_its_ledger() {
         "Guard — nothing but the ledger changed",
     );
     let dir = tempfile::tempdir().unwrap();
+    let checkout = dir.path().join("checkout");
+    let temp = dir.path().join("runner-temp");
     let setup = format!(
-        "set -e\n\
+        "{ISOLATED}\
+         mkdir checkout runner-temp\n\
+         cd checkout\n\
          git init -q .\n\
-         mkdir -p .github/watch\n\
-         printf '# armed: 2026-01-01\\n' > {LEDGER}\n\
          echo corpus > node.yml\n\
          git add -A\n\
-         git -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qm genesis\n"
+         git commit -qm genesis\n\
+         git worktree add -q --orphan -b {BRANCH} ../runner-temp/ledger\n\
+         cd ../runner-temp/ledger\n\
+         mkdir -p .github/watch\n\
+         printf '# armed: 2026-01-01\\n' > {LEDGER}\n\
+         git add -A\n\
+         git commit -qm armed\n"
     );
-    assert!(bash(&setup, dir.path(), &[]).status.success());
+    let out = bash(&setup, dir.path(), &[]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let guarded = |extra: &str| {
+        let reset = format!(
+            "{ISOLATED}git checkout -q . && git clean -qfd\n\
+             git -C \"$RUNNER_TEMP/ledger\" checkout -q . && git -C \"$RUNNER_TEMP/ledger\" clean -qfd\n\
+             printf '2026-01-02\\tunchanged\\t\\n' >> \"$RUNNER_TEMP/ledger/{LEDGER}\"\n"
+        );
         bash(
-            &format!("{extra}\n{guard}"),
-            dir.path(),
-            &[("LEDGER", LEDGER)],
+            &format!("{reset}{extra}\n{guard}"),
+            &checkout,
+            &[
+                ("LEDGER", LEDGER),
+                ("LEDGER_BRANCH", BRANCH),
+                ("RUNNER_TEMP", temp.to_str().unwrap()),
+            ],
         )
         .status
         .success()
     };
     assert!(
-        guarded(&format!(
-            "printf '2026-01-02\\tunchanged\\t\\n' >> {LEDGER}"
-        )),
-        "a tree changing only the ledger passes"
+        guarded(""),
+        "a clean checkout and a ledger-only change pass"
     );
     assert!(
         !guarded("echo claim >> node.yml"),
         "a modified corpus file is refused"
     );
     assert!(
-        !guarded("git checkout -q node.yml; touch fetched.json"),
+        !guarded("touch fetched.json"),
         "an untracked file is refused"
+    );
+    assert!(
+        !guarded(&format!("mkdir -p .github/watch && echo row > {LEDGER}")),
+        "the ledger's old path in the checkout is refused"
+    );
+    assert!(
+        !guarded("echo note > \"$RUNNER_TEMP/ledger/notes.md\""),
+        "a second file in the ledger tree is refused"
     );
 }
 
 fn gate(ledger: &str, today: &str) -> (bool, String) {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(dir.path().join(".github/watch")).unwrap();
-    std::fs::write(dir.path().join(LEDGER), ledger).unwrap();
+    let file = dir.path().join("heartbeats.tsv");
+    std::fs::write(&file, ledger).unwrap();
     let job = &workflow("ci.yml")["jobs"]["watch"];
     let max_blind = job["env"]["MAX_BLIND_ROUNDS"].as_u64().unwrap().to_string();
     let max_silence = job["env"]["MAX_SILENCE_DAYS"].as_u64().unwrap().to_string();
@@ -257,6 +294,7 @@ fn gate(ledger: &str, today: &str) -> (bool, String) {
             ("WATCH_TODAY", today),
             ("MAX_BLIND_ROUNDS", &max_blind),
             ("MAX_SILENCE_DAYS", &max_silence),
+            ("LEDGER_FILE", file.to_str().unwrap()),
         ],
     );
     let text = format!(
@@ -433,23 +471,230 @@ fn the_gate_reads_what_the_round_writes() {
     assert!(!ok && text.contains("NEVER SEEN: 8 rounds"), "{text}");
 }
 
-/// The gate runs only where a ledger exists, and the two workflows name the same one.
+/// The gate runs only where the ledger branch exists, and the two workflows name the same
+/// branch and the same file on it.
 #[test]
 fn the_gate_is_armed_by_the_ledger_both_workflows_name() {
     let ci = workflow("ci.yml");
     let detect = serde_yaml::to_string(&ci["jobs"]["detect"]).unwrap();
     assert!(
-        detect.contains(&format!("test -f {LEDGER}")) && detect.contains("watch=true"),
-        "detect must arm the gate on the ledger existing:\n{detect}"
+        detect.contains(&format!(
+            "git ls-remote -q --exit-code --heads origin {BRANCH}"
+        )) && detect.contains("watch=true"),
+        "detect must arm the gate on the ledger branch existing:\n{detect}"
     );
     assert_eq!(
         ci["jobs"]["watch"]["if"].as_str(),
         Some("needs.detect.outputs.watch == 'true'")
     );
-    assert!(run_of("ci.yml", "watch", "The ledger says the watch runs and sees").contains(LEDGER));
+    assert!(
+        run_of("ci.yml", "watch", "The ledger says the watch runs and sees")
+            .contains("\"$LEDGER_FILE\""),
+        "the gate reads the fetched ledger"
+    );
+    for (name, env) in [
+        ("ci.yml", &ci["jobs"]["watch"]["env"]),
+        ("watch.yml", &workflow("watch.yml")["env"]),
+    ] {
+        assert_eq!(env["LEDGER"].as_str(), Some(LEDGER), "{name}");
+        assert_eq!(env["LEDGER_BRANCH"].as_str(), Some(BRANCH), "{name}");
+    }
+}
+
+/// A ledger left on the default branch fails the gate with the move, whether or not the branch
+/// exists. Nothing appends to that copy, so it would read as silent within a week.
+#[test]
+fn a_ledger_left_on_the_default_branch_fails_with_the_move() {
+    let refuse = run_of("ci.yml", "watch", "The ledger is not on this branch");
+    let env = [("LEDGER", LEDGER), ("LEDGER_BRANCH", BRANCH)];
+    let dir = tempfile::tempdir().unwrap();
+    assert!(
+        bash(&refuse, dir.path(), &env).status.success(),
+        "a checkout without the ledger passes"
+    );
+    std::fs::create_dir_all(dir.path().join(".github/watch")).unwrap();
+    std::fs::write(dir.path().join(LEDGER), HEAD).unwrap();
+    let out = bash(&refuse, dir.path(), &env);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "{text}");
+    assert!(
+        text.contains(&format!("git switch --orphan {BRANCH}"))
+            && text.contains(&format!("git rm {LEDGER}")),
+        "the failure prints the move:\n{text}"
+    );
+}
+
+/// A repository with an origin holding `main` and an armed `yidam/watch`, cloned to
+/// `checkout`, and a round on `main` with this body.
+fn armed(dir: &Path, body: &str) {
+    let script = format!(
+        "{ISOLATED}\
+         git init -q --bare -b main origin.git\n\
+         git clone -q origin.git seed 2>/dev/null\n\
+         cd seed\n\
+         git switch -q -c main\n\
+         mkdir -p .github/watch\n\
+         printf '#!/usr/bin/env bash\\n%s\\n' '{body}' > .github/watch/round\n\
+         chmod +x .github/watch/round\n\
+         echo corpus > node.yml\n\
+         git add -A\n\
+         git commit -qm genesis\n\
+         git push -q origin main\n\
+         git switch -q --orphan {BRANCH}\n\
+         mkdir -p .github/watch\n\
+         printf '# armed: 2026-01-01\\ndate\\toutcome\\tdetail\\n' > {LEDGER}\n\
+         git add {LEDGER}\n\
+         git commit -qm 'establish: the watch ledger'\n\
+         git push -q origin {BRANCH}\n\
+         cd ..\n\
+         git clone -q --depth=1 -b main origin.git checkout 2>/dev/null\n\
+         mkdir runner-temp\n"
+    );
+    let out = bash(&script, dir, &[]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Run the round job's steps in order, up to and including `last`, in `dir/checkout`.
+fn round_job(dir: &Path, last: &str, between: &str) -> Output {
+    let steps = [
+        "The watch is armed",
+        "Run one round",
+        "Append the row",
+        "Guard — nothing but the ledger changed",
+        "Commit the row",
+    ];
+    let mut script = String::from(ISOLATED);
+    for name in steps {
+        if name == "Commit the row" {
+            script.push_str(between);
+            script.push('\n');
+        }
+        script.push_str(&format!("( {} )\n", run_of("watch.yml", "round", name)));
+        if name == last {
+            break;
+        }
+    }
+    let temp = dir.join("runner-temp");
+    let output = dir.join("github-output");
+    bash(
+        &script,
+        &dir.join("checkout"),
+        &[
+            ("ROUND", ".github/watch/round"),
+            ("LEDGER", LEDGER),
+            ("LEDGER_BRANCH", BRANCH),
+            ("RUNNER_TEMP", temp.to_str().unwrap()),
+            ("GITHUB_OUTPUT", output.to_str().unwrap()),
+        ],
+    )
+}
+
+fn origin(dir: &Path, args: &str) -> String {
+    let out = bash(
+        &format!("{ISOLATED}git {args}"),
+        &dir.join("origin.git"),
+        &[],
+    );
+    assert!(
+        out.status.success(),
+        "{args}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// **The point of RFC-0055.** A round's commit lands on `yidam/watch`, carrying the row, and
+/// the default branch does not move.
+#[test]
+fn a_round_commits_to_the_ledger_branch_and_never_the_default_branch() {
+    let dir = tempfile::tempdir().unwrap();
+    armed(dir.path(), "echo unchanged");
+    let main = origin(dir.path(), "rev-parse main");
+    let out = round_job(dir.path(), "Commit the row", "");
+    assert!(
+        out.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert_eq!(
-        workflow("watch.yml")["env"]["LEDGER"].as_str(),
-        Some(LEDGER)
+        origin(dir.path(), "rev-parse main"),
+        main,
+        "main must not move"
+    );
+    let log = origin(dir.path(), &format!("log --format=%s {BRANCH}"));
+    let subjects: Vec<&str> = log.lines().collect();
+    assert_eq!(subjects.len(), 2, "{log}");
+    assert!(
+        subjects[0].starts_with("refresh: watch round ") && subjects[0].ends_with(" — unchanged"),
+        "{log}"
+    );
+    let ledger = origin(dir.path(), &format!("show {BRANCH}:{LEDGER}"));
+    let (gated, text) = gate(
+        &format!("{ledger}\n"),
+        &ledger.lines().last().unwrap()[..10],
+    );
+    assert!(gated, "the gate reads the branch's ledger:\n{text}");
+    assert!(text.contains("watch ok: 1 rounds"), "{text}");
+}
+
+/// A person who annotates the ledger mid-round costs the round one retry, and neither the note
+/// nor the row is lost.
+#[test]
+fn a_round_that_loses_the_race_keeps_both_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    armed(dir.path(), "echo unchanged");
+    let note = format!(
+        "( cd ../seed && echo '# a waiver, by hand' >> {LEDGER} && git commit -qam 'note: a waiver' && git push -q origin {BRANCH} )"
+    );
+    let out = round_job(dir.path(), "Commit the row", &note);
+    assert!(
+        out.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let ledger = origin(dir.path(), &format!("show {BRANCH}:{LEDGER}"));
+    assert!(ledger.contains("# a waiver, by hand"), "{ledger}");
+    assert!(
+        ledger.lines().last().unwrap().ends_with("\tunchanged"),
+        "{ledger}"
+    );
+}
+
+/// A checkout still carrying the ledger is refused before a round runs, and an unarmed
+/// repository says what arming needs.
+#[test]
+fn the_round_refuses_a_leftover_ledger_and_an_unarmed_repository() {
+    let dir = tempfile::tempdir().unwrap();
+    armed(dir.path(), "echo unchanged");
+    let leftover = bash(
+        &format!("{ISOLATED}mkdir -p .github/watch && echo x > {LEDGER} && git add {LEDGER} && git commit -qm leftover"),
+        &dir.path().join("checkout"),
+        &[],
+    );
+    assert!(leftover.status.success());
+    let out = round_job(dir.path(), "The watch is armed", "");
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains(&format!("now lives on {BRANCH}")),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    armed(dir.path(), "echo unchanged");
+    origin(dir.path(), &format!("branch -D {BRANCH}"));
+    let out = round_job(dir.path(), "The watch is armed", "");
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("The watch is not armed"),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
     );
 }
 

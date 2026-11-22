@@ -1,6 +1,6 @@
 # RFC-0055 — The watch ledger lives on its own branch
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I38
 - **Relates to:**
   - #1500 (the watch commits an `unchanged` heartbeat on every run; the evidence this answers), parent epic #1513
@@ -117,7 +117,8 @@ The round job checks out the default branch as today, for `.github/watch/round`.
    outside the checkout, so the default branch's working tree is never the place a row is
    written.
 2. **The armed check** becomes: the fetch succeeded, the ledger exists in the worktree, and
-   `.github/watch/round` is executable.
+   `.github/watch/round` is executable. A ledger still tracked on the default branch fails
+   it first, naming the move in §3.
 3. **The round runs** exactly as today, and the row is built exactly as today.
 4. **The row is appended** to the ledger in the worktree.
 5. **The guard checks both trees.** The default branch's checkout must be clean, with nothing
@@ -125,9 +126,11 @@ The round job checks out the default branch as today, for `.github/watch/round`.
    alone. The first half is stronger than today's rule. Today the ledger is the one file the
    checkout may change. After this RFC there is no file the round may change there.
 6. **The commit** is made in the ledger worktree and pushed to `yidam/watch`. The subject
-   stays `refresh: watch round <date> — <verdict>`. On a non-fast-forward the step fetches,
-   rebases and pushes once more. The `concurrency` group already serialises rounds, so a
-   retry only covers a person who annotated the ledger by hand mid-round.
+   stays `refresh: watch round <date> — <verdict>`. On a non-fast-forward the step fetches
+   the new tip, appends the row to it again, and pushes once more. It does not rebase,
+   because the fetch is shallow and the row is one line. The `concurrency` group already
+   serialises rounds, so a retry only covers a person who annotated the ledger by hand
+   mid-round.
 7. **The issue on `changed`** is opened exactly as today.
 
 Nothing is pushed to the default branch. The job's `contents: write` permission is unchanged,

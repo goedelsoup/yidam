@@ -85,7 +85,7 @@ re-deriving it.
 | [0052](0052-receipt-revalidation.md) | I38 | A re-run that reproduces its outputs is recorded, not committed (receipt re-validation) | Implemented |
 | [0053](0053-derived-used-by.md) | I38 | `used-by` is derived from the citations, not stored beside them | Implemented |
 | [0054](0054-fold-derived-commits.md) | I38 | A derived update rides in the commit that caused it | Implemented |
-| [0055](0055-watch-ledger-off-main.md) | I38 | The watch ledger lives on its own branch | Draft |
+| [0055](0055-watch-ledger-off-main.md) | I38 | The watch ledger lives on its own branch | Implemented |
 
 ## Reading order
 
