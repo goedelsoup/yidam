@@ -556,13 +556,17 @@ jobs:
           test -f crates/Cargo.toml     && echo "crates=true"   >> "$GITHUB_OUTPUT" || echo "crates=false"   >> "$GITHUB_OUTPUT"
           test -f packages/pyproject.toml && echo "packages=true" >> "$GITHUB_OUTPUT" || echo "packages=false" >> "$GITHUB_OUTPUT"
           test -f web/package.json      && echo "web=true"      >> "$GITHUB_OUTPUT" || echo "web=false"      >> "$GITHUB_OUTPUT"
-          test -f .github/watch/heartbeats.tsv && echo "watch=true" >> "$GITHUB_OUTPUT" || echo "watch=false" >> "$GITHUB_OUTPUT"
+          # Armed by the ledger branch, or by a ledger left here, which the gate refuses.
+          { git ls-remote -q --exit-code --heads origin yidam/watch > /dev/null || test -f .github/watch/heartbeats.tsv; } && echo "watch=true" >> "$GITHUB_OUTPUT" || echo "watch=false" >> "$GITHUB_OUTPUT"
 
   # ── The scheduled watch: it runs, and it can see ───────────────────────────
   #
-  # Only once `.github/watch/heartbeats.tsv` exists; `watch.yml` explains arming.
-  # The ledger is written by that workflow and read here, because a gate that
-  # lives in the job it watches cannot report that the job stopped running.
+  # Only once the `yidam/watch` branch exists; `watch.yml` explains arming.
+  # The ledger, `.github/watch/heartbeats.tsv` on that branch, is written by that
+  # workflow and read here, because a gate that lives in the job it watches
+  # cannot report that the job stopped running. It is fetched rather than checked
+  # out: the branch holds the ledger alone, so no reader of this branch's history
+  # counts a round (RFC-0055).
   #
   # Two questions, and a green answer to one says nothing about the other:
   #
@@ -588,11 +592,41 @@ jobs:
     env:
       MAX_BLIND_ROUNDS: 7
       MAX_SILENCE_DAYS: 7
+      LEDGER: .github/watch/heartbeats.tsv
+      LEDGER_BRANCH: yidam/watch
     steps:
       - uses: actions/checkout@v4
+      # Nothing writes a ledger here any more, so one left here would read as
+      # silent within a week. Failing on the first build says why instead.
+      - name: The ledger is not on this branch
+        run: |
+          set -euo pipefail
+          if [ -f "$LEDGER" ]; then
+            echo "$LEDGER is on this branch. The ledger lives on $LEDGER_BRANCH, so nothing here appends to this copy."
+            echo "Move it, rows intact, and commit the deletion with the new workflows:"
+            echo
+            echo "  git show HEAD:$LEDGER > \"\$TMPDIR/heartbeats.tsv\""
+            echo "  git switch --orphan $LEDGER_BRANCH"
+            echo "  mkdir -p .github/watch && cp \"\$TMPDIR/heartbeats.tsv\" $LEDGER"
+            echo "  git add $LEDGER"
+            echo "  git commit -m \"establish: the watch ledger, moved off main\""
+            echo "  git push origin $LEDGER_BRANCH"
+            echo "  git switch -"
+            echo "  git rm $LEDGER"
+            exit 1
+          fi
+      - name: Fetch the ledger
+        env:
+          LEDGER_FILE: ${{ runner.temp }}/heartbeats.tsv
+        run: |
+          set -euo pipefail
+          git fetch -q --depth=1 origin "$LEDGER_BRANCH"
+          git show "FETCH_HEAD:$LEDGER" > "$LEDGER_FILE"
       # `WATCH_TODAY` exists so this script can be run against a fixed day; CI
       # never sets it.
       - name: The ledger says the watch runs and sees
+        env:
+          LEDGER_FILE: ${{ runner.temp }}/heartbeats.tsv
         run: |
           set -euo pipefail
           today="${WATCH_TODAY:-$(date -u +%F)}"
@@ -646,7 +680,7 @@ jobs:
               if (!fail) printf "watch ok: %d rounds, newest %s, %d day(s) ago; %d unreachable in a row.\n", rows, since, silent, run
               exit fail
             }
-          ' .github/watch/heartbeats.tsv
+          ' "$LEDGER_FILE"
 
   crates:
     name: crates (domain computer)

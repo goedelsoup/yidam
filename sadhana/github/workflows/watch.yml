@@ -16,9 +16,14 @@
 #
 # 1. IT WRITES ONLY ITS LEDGER. A monitor that writes to the corpus writes
 #    untagged claims at 3am, and every safeguard here rests on a person deciding
-#    a tag. The one file this job may commit is `.github/watch/heartbeats.tsv`,
-#    and the guard step fails the run if the working tree carries anything else.
-#    A change goes to an issue.
+#    a tag. The one file this job may commit is `.github/watch/heartbeats.tsv`
+#    on the `yidam/watch` branch, and the guard step fails the run if the
+#    checkout carries any change at all. A change goes to an issue.
+#
+#    The ledger has its own branch because a row is liveness, not knowledge.
+#    Committed to the default branch, a quiet month was thirty heartbeats in a
+#    history every reader counts (RFC-0055). The default branch gets no commit
+#    from this workflow.
 #
 # 2. UNREACHABLE IS NOT UNCHANGED. Every round appends one row, whatever it
 #    found. A round that could not reach its source is filed `unreachable`, and
@@ -33,17 +38,27 @@
 #
 # ── Arming it ────────────────────────────────────────────────────────────────
 #
-# Commit two files:
+# Push the ledger to an orphan branch of its own. It holds a header and an
+# arming date, and nothing else:
 #
-#   .github/watch/round           executable; does one round of checking
-#   .github/watch/heartbeats.tsv  the ledger, holding a header and an arming date:
-#
-#       # armed: 2026-01-31
-#       date	outcome	detail
+#   git switch --orphan yidam/watch
+#   mkdir -p .github/watch
+#   printf '# armed: %s\ndate\toutcome\tdetail\n' "$(date -u +%F)" > .github/watch/heartbeats.tsv
+#   git add .github/watch/heartbeats.tsv
+#   git commit -m "establish: the watch ledger"
+#   git push origin yidam/watch
+#   git switch -
 #
 # The arming date is a comment and not a row, so the ledger never claims a
 # round that did not run. The gate measures silence from it, so a watch that is
 # armed and never scheduled goes red on the same schedule as one that stops.
+#
+# Then commit an executable `.github/watch/round` on the default branch. It is
+# code, so it changes through review like any other code.
+#
+# A note in the ledger, such as a waiver or why the watch was blind, is an
+# ordinary commit to `yidam/watch`. `git log origin/yidam/watch` is the
+# ledger's history.
 #
 # Then uncomment the `schedule` below.
 #
@@ -87,6 +102,7 @@ concurrency:
 env:
   ROUND: .github/watch/round
   LEDGER: .github/watch/heartbeats.tsv
+  LEDGER_BRANCH: yidam/watch
 
 jobs:
   round:
@@ -95,11 +111,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The ledger is checked out beside the repository, under `$RUNNER_TEMP`, so
+      # the default branch's working tree is never where a row is written.
       - name: The watch is armed
         run: |
           set -euo pipefail
-          if [ ! -f "$LEDGER" ] || [ ! -x "$ROUND" ]; then
-            echo "::error::The watch is not armed: it needs an executable $ROUND and a $LEDGER."
+          if git ls-files --error-unmatch "$LEDGER" > /dev/null 2>&1; then
+            echo "::error::$LEDGER is on this branch. The ledger now lives on $LEDGER_BRANCH."
+            echo "::error::Move it with the commands under \"The watch ledger moves\" in docs/upgrading.md."
+            exit 1
+          fi
+          if ! git fetch -q --depth=1 origin "$LEDGER_BRANCH"; then
+            echo "::error::The watch is not armed: there is no $LEDGER_BRANCH branch holding $LEDGER."
+            echo "::error::See the header of .github/workflows/watch.yml for how to arm it."
+            exit 1
+          fi
+          git worktree add -q --detach "$RUNNER_TEMP/ledger" FETCH_HEAD
+          if [ ! -f "$RUNNER_TEMP/ledger/$LEDGER" ] || [ ! -x "$ROUND" ]; then
+            echo "::error::The watch is not armed: it needs an executable $ROUND and $LEDGER on $LEDGER_BRANCH."
             echo "::error::See the header of .github/workflows/watch.yml for both."
             exit 1
           fi
@@ -146,27 +175,48 @@ jobs:
           cat "$RUNNER_TEMP/round.err" 2>/dev/null || echo "(none)"
 
       - name: Append the row
-        run: cat "$RUNNER_TEMP/row.tsv" >> "$LEDGER"
+        run: cat "$RUNNER_TEMP/row.tsv" >> "$RUNNER_TEMP/ledger/$LEDGER"
 
+      # Two trees, two rules. The checkout may hold no change at all: not the
+      # ledger, which no longer lives there, and not a scratch file. The ledger
+      # tree may hold one change, to the ledger.
       - name: Guard — nothing but the ledger changed
         run: |
           set -euo pipefail
           changed=$(git status --porcelain --untracked-files=all)
+          if [ -n "$changed" ]; then
+            echo "::error::The watch may write only $LEDGER on $LEDGER_BRANCH. The checkout holds:"
+            printf '%s\n' "$changed"
+            exit 1
+          fi
+          changed=$(git -C "$RUNNER_TEMP/ledger" status --porcelain --untracked-files=all)
           if [ "$changed" != " M $LEDGER" ]; then
-            echo "::error::The watch may write only $LEDGER. The working tree holds:"
+            echo "::error::The watch may write only $LEDGER on $LEDGER_BRANCH. The ledger tree holds:"
             printf '%s\n' "$changed"
             exit 1
           fi
 
+      # One retry, and it re-appends rather than rebases: the fetch is shallow,
+      # so there is no history to rebase across, and the row is one line. The
+      # concurrency group serialises rounds, so a lost race is a person who
+      # annotated the ledger mid-round.
       - name: Commit the row
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$LEDGER"
-          git commit -q -m "refresh: watch round $(cut -f1 "$RUNNER_TEMP/row.tsv") — $(cut -f2 "$RUNNER_TEMP/row.tsv")"
-          git pull -q --rebase origin "$GITHUB_REF_NAME"
-          git push -q origin "HEAD:$GITHUB_REF_NAME"
+          tree="$RUNNER_TEMP/ledger"
+          subject="refresh: watch round $(cut -f1 "$RUNNER_TEMP/row.tsv") — $(cut -f2 "$RUNNER_TEMP/row.tsv")"
+          git -C "$tree" config user.name "github-actions[bot]"
+          git -C "$tree" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "$tree" add "$LEDGER"
+          git -C "$tree" commit -q -m "$subject"
+          if ! git -C "$tree" push -q origin "HEAD:refs/heads/$LEDGER_BRANCH"; then
+            git -C "$tree" fetch -q --depth=1 origin "$LEDGER_BRANCH"
+            git -C "$tree" reset -q --hard FETCH_HEAD
+            cat "$RUNNER_TEMP/row.tsv" >> "$tree/$LEDGER"
+            git -C "$tree" add "$LEDGER"
+            git -C "$tree" commit -q -m "$subject"
+            git -C "$tree" push -q origin "HEAD:refs/heads/$LEDGER_BRANCH"
+          fi
 
       # EXACT EQUALITY, NEVER `contains`. `unchanged` contains `changed`. The
       # derived repository this came from tested the whole row with `contains`,
