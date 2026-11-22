@@ -84,6 +84,7 @@ mod report_goldens;
 mod retrieve_cli;
 mod rfc_status;
 mod root_flag;
+mod run_outputs;
 mod run_route_claims;
 mod s3vectors_live;
 mod samudaya_examples;

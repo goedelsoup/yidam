@@ -217,6 +217,22 @@ fn every_declared_capability_resolves_to_something_this_repository_holds() {
     }
 }
 
+/// Whether `path` is a byte-for-byte copy of a file in the calculator kit (RFC-0056 §2.3).
+///
+/// A vendored kit is a library a capability imports, not a capability: nothing runs it, and a
+/// reader finding it beside the script it serves is not misled. Only an exact copy is exempt,
+/// so a kit edited in place is still a file nothing declares.
+fn is_vendored_kit(root: &Path, path: &str) -> bool {
+    let Some(name) = path.rsplit('/').next() else {
+        return false;
+    };
+    let kit = common::repo_root().join("yidam/prelude/kit").join(name);
+    match (std::fs::read(&kit), std::fs::read(root.join(path))) {
+        (Ok(theirs), Ok(ours)) => theirs == ours,
+        _ => false,
+    }
+}
+
 /// Nothing implemented is undeclared: every file beside a capability's implementation is one.
 ///
 /// The directories are **discovered**, not named: each is the parent of a path some
@@ -254,6 +270,7 @@ fn every_implementation_in_a_capability_directory_is_declared() {
                 dirs.iter()
                     .any(|d| p.starts_with(&format!("{d}/")) && !named.contains(p.as_str()))
             })
+            .filter(|p| !is_vendored_kit(&e.path(), p))
             .collect();
         assert!(
             undeclared.is_empty(),

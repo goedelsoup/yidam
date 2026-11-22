@@ -140,6 +140,12 @@ pub struct Signals {
     /// [`crate::cmd::run::receipt::Receipt::committed_state`] makes about a receipt that does
     /// not parse — and it is exactly what `doctor` exists to say out loud.
     pub problems: Vec<String>,
+    /// The repository-relative paths each of [`Self::problems`] is about, index for index.
+    ///
+    /// Beside the sentence rather than inside it, so a caller asking *is this problem about a
+    /// file I wrote* reads a list instead of parsing prose (RFC-0056 §2.1). A collision names
+    /// both files; the manifest's own refusal names the manifest.
+    pub named: Vec<Vec<String>>,
 }
 
 /// One file, parsed as much as this module reads of it.
@@ -199,6 +205,26 @@ impl Signals {
         Self::read(root, Tree::Corpus)
     }
 
+    /// Record a problem and the paths it is about. The one way into [`Self::problems`], so the
+    /// two lists cannot fall out of step.
+    fn problem(&mut self, paths: &[impl AsRef<str>], message: String) {
+        self.problems.push(message);
+        self.named
+            .push(paths.iter().map(|p| p.as_ref().to_string()).collect());
+    }
+
+    /// The problems that name any of `paths`, in the order they were found.
+    ///
+    /// What `yidam run` refuses a step for: a problem about a file the step wrote is the step's
+    /// to fix, and one about only its neighbours is `doctor`'s to report (RFC-0056 §2.1).
+    pub fn problems_naming<'a>(&'a self, paths: &'a [String]) -> impl Iterator<Item = &'a str> {
+        self.problems
+            .iter()
+            .zip(&self.named)
+            .filter(move |(_, named)| named.iter().any(|n| paths.contains(n)))
+            .map(|(p, _)| p.as_str())
+    }
+
     /// Read the computed files a step's `reads` put in the tree it stands in.
     ///
     /// Every refusal that is about a computed file, and none of the two that are about a corpus
@@ -235,10 +261,13 @@ impl Signals {
                     .map(|(name, cap)| (name.clone(), cap.writes.clone()))
                     .collect(),
                 Err(e) => {
-                    out.problems.push(format!(
-                        "{MANIFEST} does not parse, so no computed file can be attributed to \
+                    out.problem(
+                        &[MANIFEST],
+                        format!(
+                            "{MANIFEST} does not parse, so no computed file can be attributed to \
                          the capability that wrote it: {e}"
-                    ));
+                        ),
+                    );
                     BTreeMap::new()
                 }
             },
@@ -256,10 +285,13 @@ impl Signals {
                 .map(|(name, _)| name.clone())
                 .collect();
             if declared_by.is_empty() && tree == Tree::Corpus {
-                out.problems.push(format!(
-                    "{rel} is not covered by any capability's `writes`, so nothing in \
+                out.problem(
+                    &[&rel],
+                    format!(
+                        "{rel} is not covered by any capability's `writes`, so nothing in \
                      {MANIFEST} is accountable for it"
-                ));
+                    ),
+                );
             }
 
             let mut file = ComputedFile {
@@ -272,7 +304,7 @@ impl Signals {
             let text = match String::from_utf8(bytes) {
                 Ok(t) => t,
                 Err(_) => {
-                    out.problems.push(format!("{rel} is not UTF-8"));
+                    out.problem(&[&rel], format!("{rel} is not UTF-8"));
                     out.files.push(file);
                     continue;
                 }
@@ -280,8 +312,7 @@ impl Signals {
             let table: Table = match serde_yaml::from_str(&text) {
                 Ok(t) => t,
                 Err(e) => {
-                    out.problems
-                        .push(format!("{rel} does not parse as YAML: {e}"));
+                    out.problem(&[&rel], format!("{rel} does not parse as YAML: {e}"));
                     out.files.push(file);
                     continue;
                 }
@@ -294,18 +325,24 @@ impl Signals {
             match table.format_version {
                 Some(FORMAT_VERSION) => {}
                 Some(v) => {
-                    out.problems.push(format!(
-                        "{rel} declares `format_version: {v}` and this yidam reads \
+                    out.problem(
+                        &[&rel],
+                        format!(
+                            "{rel} declares `format_version: {v}` and this yidam reads \
                          {FORMAT_VERSION}, so its signals were not read"
-                    ));
+                        ),
+                    );
                     out.files.push(file);
                     continue;
                 }
                 None => {
-                    out.problems.push(format!(
-                        "{rel} carries `signals:` and no `format_version`, so a later reader \
+                    out.problem(
+                        &[&rel],
+                        format!(
+                            "{rel} carries `signals:` and no `format_version`, so a later reader \
                          could not tell which contract it was written against"
-                    ));
+                        ),
+                    );
                     out.files.push(file);
                     continue;
                 }
@@ -319,27 +356,36 @@ impl Signals {
                 std::collections::BTreeSet::new();
             for (i, row) in rows.iter().enumerate() {
                 let Some(node) = row.get(NODE_KEY).and_then(scalar_str) else {
-                    out.problems.push(format!(
-                        "{rel} row {} declares no `{NODE_KEY}`, so there is no node it is \
+                    out.problem(
+                        &[&rel],
+                        format!(
+                            "{rel} row {} declares no `{NODE_KEY}`, so there is no node it is \
                          about",
-                        i + 1
-                    ));
+                            i + 1
+                        ),
+                    );
                     continue;
                 };
                 let Some(reference) = node_reference(&node) else {
-                    out.problems.push(format!(
-                        "{rel} row {} keys on `{node}`, which is not a node in this corpus in \
+                    out.problem(
+                        &[&rel],
+                        format!(
+                            "{rel} row {} keys on `{node}`, which is not a node in this corpus in \
                          RFC-0032's grammar",
-                        i + 1
-                    ));
+                            i + 1
+                        ),
+                    );
                     continue;
                 };
                 let node_path = node_file(&reference);
                 if tree == Tree::Corpus && !root.join(&node_path).is_file() {
-                    out.problems.push(format!(
-                        "{rel} row {} keys on `{node}`, and this corpus holds no {node_path}",
-                        i + 1
-                    ));
+                    out.problem(
+                        &[&rel],
+                        format!(
+                            "{rel} row {} keys on `{node}`, and this corpus holds no {node_path}",
+                            i + 1
+                        ),
+                    );
                     continue;
                 }
                 file.rows += 1;
@@ -352,20 +398,26 @@ impl Signals {
                     names.insert(name.to_string());
                     if RESERVED.contains(&name) {
                         if reported.insert(name.to_string()) {
-                            out.problems.push(format!(
-                                "{rel} declares a signal called `{name}`, which is a field a \
+                            out.problem(
+                                &[&rel],
+                                format!(
+                                    "{rel} declares a signal called `{name}`, which is a field a \
                                  record already carries"
-                            ));
+                                ),
+                            );
                         }
                         continue;
                     }
                     match claimed.get(name) {
                         Some(first) if first != &rel => {
                             if reported.insert(name.to_string()) {
-                                out.problems.push(format!(
-                                    "`{name}` is declared by both {first} and {rel}; a signal \
+                                out.problem(
+                                    &[first, &rel],
+                                    format!(
+                                        "`{name}` is declared by both {first} and {rel}; a signal \
                                      name is corpus-wide, so one of the two has to change"
-                                ));
+                                    ),
+                                );
                             }
                             continue;
                         }
@@ -373,10 +425,13 @@ impl Signals {
                     }
                     let Some(value) = scalar(v) else {
                         if reported.insert(name.to_string()) {
-                            out.problems.push(format!(
-                                "{rel} declares `{name}` as a list or a mapping; a signal is \
+                            out.problem(
+                                &[&rel],
+                                format!(
+                                    "{rel} declares `{name}` as a list or a mapping; a signal is \
                                  one value about one node"
-                            ));
+                                ),
+                            );
                         }
                         continue;
                     };

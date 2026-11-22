@@ -65,8 +65,11 @@
 //! command that syncs it.
 
 pub mod exec;
+#[cfg(test)]
+mod kit;
 pub mod manifest;
 pub mod notes;
+pub mod outputs;
 pub mod receipt;
 /// The resolved corpus a step is handed beside its bytes (#1080).
 pub mod resolved;
@@ -422,6 +425,7 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
         }
         let produced = exec::invoke(cap, &inputs, name, &full)?;
         exec::check_declared(cap, &produced.outputs)?;
+        outputs::check_readable(root, &parent, &produced.outputs)?;
 
         let receipt = Receipt {
             format_version: receipt::FORMAT_VERSION,

@@ -44,9 +44,13 @@ impl Cluster {
     /// reads it, so it is not part of the chain these tests walk, and a light build refuses
     /// a plan holding it. Whether a pod runs it is its own pair of tests, one per build,
     /// under "the typed arm" below.
+    ///
+    /// `travel-support`, the kit example (RFC-0056 §2.3), is dropped for the first reason:
+    /// it declares no `after` and nothing reads it, so it would stay owed after every walk
+    /// these tests make by hand.
     fn new() -> Self {
         let c = Self::as_declared();
-        c.drop_typed_steps();
+        c.drop_steps_off_the_chain();
         c
     }
 
@@ -74,11 +78,12 @@ impl Cluster {
         Self { e, work, app: None }
     }
 
-    /// Remove every capability whose `run` is a table (the typed arm), commit, and push.
+    /// Remove every capability whose `run` is a table (the typed arm), and the kit example,
+    /// then commit and push.
     ///
     /// Cut out of the text by section rather than re-serialized, so every other line of the
     /// manifest stays byte-for-byte what the tests below edit by string replacement.
-    fn drop_typed_steps(&self) {
+    fn drop_steps_off_the_chain(&self) {
         let path = self.e.path().join(".yidam/capabilities.toml");
         let text = std::fs::read_to_string(&path).unwrap();
         let manifest: toml::Table = toml::from_str(&text).unwrap();
@@ -86,7 +91,9 @@ impl Cluster {
             .as_table()
             .unwrap()
             .iter()
-            .filter(|(_, c)| matches!(c.get("run"), Some(toml::Value::Table(_))))
+            .filter(|(name, c)| {
+                matches!(c.get("run"), Some(toml::Value::Table(_))) || *name == "travel-support"
+            })
             .map(|(name, _)| format!("[capability.{name}]"))
             .collect();
         assert!(
@@ -108,7 +115,7 @@ impl Cluster {
         assert_eq!(
             narrowed["capability"].as_table().unwrap().len(),
             manifest["capability"].as_table().unwrap().len() - typed.len(),
-            "the cut removed exactly the typed sections"
+            "the cut removed exactly the sections off the chain"
         );
         std::fs::write(&path, kept).unwrap();
         git(
@@ -116,7 +123,7 @@ impl Cluster {
             &[
                 "commit",
                 "-qam",
-                "chore: drop the typed step this build cannot run",
+                "chore: drop the steps off the chain these tests walk",
             ],
         );
         git(

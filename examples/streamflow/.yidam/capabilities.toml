@@ -55,7 +55,25 @@ writes = [".yidam/computed/**"]
 verb   = "compute"
 after  = ["travel-tier"]
 
-# The third entry is the same rule as the first, in the other arm. `travel-tier-typed` is
+# The third entry is the example of a calculator that uses the kit (RFC-0056 §2.3).
+# `travel-support` is Python, and it has no parser or YAML writer of its own: it reads
+# `$YIDAM_GRAPH` and writes its table through `yidam_kit.py`. The kit is a file the step reads, so
+# a kit update makes this step stale. In a derived repository it is vendored, and the step adds
+# `.yidam/.vendor/prelude/kit/**` to `reads`. This example vendors no prelude, so its copy sits
+# beside the script. `-I` keeps whatever is installed on the machine out of the step: the kit is
+# standard library only.
+#
+# Its signals are what the chain rule's minimum is taken over, which neither of the other two
+# arms commits: `supporting_nodes`, how many corpus nodes sit beneath a node, and
+# `off_corpus_links`, how many of its links reach something the rule cannot rank.
+[capability.travel-support]
+kind   = "calculator"
+run    = ["python3", "-I", ".yidam/capabilities/travel-support.py"]
+reads  = [".yidam/corpus/**", ".yidam/capabilities/**"]
+writes = [".yidam/computed/**"]
+verb   = "compute"
+
+# The last entry is the same rule as the first, in the other arm. `travel-tier-typed` is
 # RFC-0042's downstream reference case: a calculator declared `run = { gluon = … }`, whose
 # purity is a closed prelude and a typecheck against `Corpus -> Computed` rather than a norm the
 # executor enforces on the way out.

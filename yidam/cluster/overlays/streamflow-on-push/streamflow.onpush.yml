@@ -18,7 +18,7 @@
 # does anything. The lander's own push is a push too: the run it submits finds
 # nothing owed and stops at `admit`.
 #
-# steps: catalog-fetch → catalog-extract → travel-tier → disclosure-envelope → travel-tier-typed
+# steps: catalog-fetch → catalog-extract → travel-tier → disclosure-envelope → travel-support → travel-tier-typed
 apiVersion: argoproj.io/v1alpha1
 kind: EventSource
 metadata:
@@ -238,15 +238,31 @@ spec:
                             parameters:
                               - name: step-output
                                 value: "{{tasks.step-disclosure-envelope.outputs.parameters.output}}"
-                        - name: step-travel-tier-typed
+                        - name: step-travel-support
                           template: step
                           depends: land-disclosure-envelope.Succeeded
                           arguments:
                             parameters:
                               - name: step
-                                value: "travel-tier-typed"
+                                value: "travel-support"
                               - name: bundle
                                 value: "{{=jsonpath(tasks['land-disclosure-envelope'].outputs.parameters.output, '$.next.bundle')}}"
+                        - name: land-travel-support
+                          template: land
+                          depends: step-travel-support.Succeeded
+                          arguments:
+                            parameters:
+                              - name: step-output
+                                value: "{{tasks.step-travel-support.outputs.parameters.output}}"
+                        - name: step-travel-tier-typed
+                          template: step
+                          depends: land-travel-support.Succeeded
+                          arguments:
+                            parameters:
+                              - name: step
+                                value: "travel-tier-typed"
+                              - name: bundle
+                                value: "{{=jsonpath(tasks['land-travel-support'].outputs.parameters.output, '$.next.bundle')}}"
                         - name: land-travel-tier-typed
                           template: land
                           depends: step-travel-tier-typed.Succeeded
