@@ -37,7 +37,7 @@ and `link` records, with `\\ \t \n \r` escapes. It has been in a release since c
 per-field rows for a list of records (`<key>[<i>].<field>`) arrived in cli/v0.25.0, and no
 corpus with a built calculator pins that release yet.
 
-Two independent parsers of it exist, and one of them has six copies:
+The measured repositories hold two independent parsers of it, and one of them has six copies:
 
 | Reader | Lines | What it reads |
 |---|---:|---|
@@ -105,17 +105,28 @@ produced. It reads each one by its extension, the way the next reader will:
 | `*.yml`, `*.yaml`, anywhere | parse as YAML |
 | `*.json`, anywhere | parse as JSON |
 | `.yidam/computed/*.yml` | also pass every `Signals` rule, read over the tree the commit would have |
+| `.yidam/computed/*.yaml` | not be written |
 | anything else | be UTF-8, as today |
 
 The last row is unchanged, so a report artifact keeps every form it has today. `graph.tsv` and
 `probe.txt` stay legal. So does a `-report.yml` with no `signals:`, which `Signals` already
 reads as a report.
 
+`Signals` lists `.yidam/computed/` for `.yml` only. A `.yaml` there is read by no later reader,
+so a signal table under that name would be lost without a word. The refusal names the `.yml`
+spelling.
+
 The signal-table rules are `Signals::read` applied to a tree, not a second implementation.
-`run` overlays the step's outputs on `HEAD` and reads `.yidam/computed/` from that. A collision
-with a file the step did not write is the step's problem, because the step is what introduced
-it. A problem that names only files the step did not write is not the step's, and is left to
-`doctor`. A step is not refused for a neighbour already being broken.
+`Signals::read` reads a directory on disk. So `run` checks out `HEAD`'s `.yidam/` and
+`.yidam/computed/` into a scratch directory, writes the step's outputs over it, and reads that.
+The corpus nodes come from the same tree. A collision with a file the step did not write is the
+step's problem, because the step is what introduced it. A problem that names only files the
+step did not write is not the step's, and is left to `doctor`. A step is not refused for a
+neighbour already being broken.
+
+To tell the two apart, `Signals` reports each problem with the paths it names, beside its
+message. Today a problem is a string, and a collision names two files in its text. The run
+refuses a problem whose paths include one the step wrote. It does not parse the message.
 
 A refusal reads like `check_declared`'s: *nothing was committed*. It names the file, the
 parser's line and column, and that line of the output. Nothing is written to the checkout and no
@@ -143,11 +154,24 @@ know, as the format requires. A list of records comes back as a list of mappings
 carries the `<key>[<i>].<field>` rows, and as the flat rows when it does not.
 
 **The writer** emits block YAML from a value tree of mappings, lists and scalars. Every string is
-written double-quoted, with JSON's escapes, which are a subset of YAML's. So `00:00`, `yes`,
-`a: b`, `#x`, a leading space and a newline each come back as the string they were. A float is
-written in its shortest round-trip form. A non-finite float is refused, because neither format
-has one. A key is written bare when it is `[A-Za-z_][A-Za-z0-9_-]*` and refused otherwise. A
-signal table is one call:
+written double-quoted. So `00:00`, `yes`, `a: b`, `#x`, a leading space and a newline each come
+back as the string they were. The writer escapes `"`, `\`, every C0 control, DEL and every C1
+control, using `\xNN`. Every other character is written as itself, including a character
+outside the Basic Multilingual Plane. That is not JSON's rule. JSON writes such a character as a
+surrogate pair, which a YAML reader refuses. JSON also leaves DEL and C1 controls raw, and YAML
+does not allow them raw.
+
+A float always carries a `.`, and an exponent when it has one, as in `12.0` and `1.0e+16`. The
+digits are the shortest that round-trip. Without the `.`, Rust writes `12.0` as `12`, which reads
+back as an int, and PyYAML reads `1e+16` as a string. A non-finite float is refused. YAML can
+spell one, as `.inf` or `.nan`, but JSON cannot, and a reader that loads a signal into a JSON
+value would lose it. A calculator that means an unbounded value writes a string for it.
+
+A key is written bare when it matches `[A-Za-z_][A-Za-z0-9_-]*` and is not a word any YAML schema
+reads as something else: `true`, `false`, `null`, `yes`, `no`, `on`, `off`, `y`, `n`, in any
+case. Every other key is written double-quoted, like a string.
+
+A signal table is one call:
 `signals(rows, method=…)`, which adds `format_version: 1` and requires `node:` on every row.
 
 The kit does not copy `Signals`' rules. It does not know the reserved names, and it does not know
@@ -180,7 +204,7 @@ which `$YIDAM_GRAPH` does not carry. That is the SDKs' job, and the open questio
 - **The run refuses each failure shape it can see.** A step writing each of these is refused,
   and nothing is committed: travel-demand's line 105; a misindented flow mapping; `signals:` with
   no `format_version`; a row keyed on a node the corpus does not hold; a name another committed
-  file declares; invalid JSON. A step writing a TSV, a `.txt`, or a report `.yml` with no
+  file declares; invalid JSON; a `.yidam/computed/*.yaml`. A step writing a TSV, a `.txt`, or a report `.yml` with no
   `signals:` commits as before.
 - **A neighbour's problem is not the step's.** A corpus whose committed computed file collides
   with itself still lets an unrelated step land.
@@ -189,8 +213,10 @@ which `$YIDAM_GRAPH` does not carry. That is the SDKs' job, and the open questio
   node, a list of records and an unknown record kind. It runs both kits over it and compares
   their parse with the corpus yidam parsed.
 - **The writer's output reads.** Hostile strings, every scalar type and a nested report are
-  written by both kits and read back by `Signals::read` and by `serde_yaml`. The results must equal
-  the input and report no problems.
+  written by both kits and read back by `Signals::read`, by `serde_yaml` and by PyYAML. The
+  results must equal the input, type for type, and report no problems. The hostile set includes
+  the keys `true`, `null`, `on` and `N`; a string with an emoji, DEL and U+0085; and the floats
+  `12.0`, `1e16` and `-0.0`.
 - **The kit is standard library only.** The Python kit runs under `python3 -I` with an empty
   `PYTHONPATH`. The Rust kit compiles in a crate with no dependencies.
 
@@ -248,7 +274,7 @@ guarantee.
 Rejected in §2.4. A registry dependency is outside the step's input state, and the run could not
 say whether an answer still stands.
 
-## 5. Why the run refuses rather than warns
+## Why the run refuses rather than warns
 
 A warning on a run that then commits is the state §1.2 measured. The step lands, its receipt
 says its outputs stand, and a re-run with unchanged inputs writes nothing. So the next chance to
