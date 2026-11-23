@@ -104,7 +104,8 @@ pub struct Input {
     /// like any other.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script_sha256: Option<String>,
-    /// The digest of the `$YIDAM_TABLES` document, where the step reads a declared table
+    /// The digest of the `$YIDAM_TABLES` document and of the declarations of the tables the step
+    /// writes, where it reads or writes a declared table — see [`crate::table::input_digest`]
     /// (RFC-0059 §2.4).
     ///
     /// In the input state because the declarations are read from the catalog, which a step's

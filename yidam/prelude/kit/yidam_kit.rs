@@ -669,6 +669,8 @@ fn csv_rows(text: &str) -> Vec<Vec<String>> {
 
 /// The rows of a table file, the header first, read as `yidam`'s own reader reads them.
 fn table_lines(text: &str, format: &str) -> Vec<Vec<String>> {
+    // A leading byte-order mark is not part of the first cell, to `yidam` either.
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     if format == "csv" {
         return csv_rows(text);
     }

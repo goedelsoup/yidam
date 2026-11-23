@@ -376,7 +376,7 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
         let inputs = exec::materialize(root, &full, cap)?;
         let resolved_digest = inputs.resolved.as_ref().map(|r| r.sha256.clone());
         let script_digest = Receipt::script_sha256(cap, &inputs.files);
-        let tables_digest = inputs.tables_file.as_ref().map(|t| t.sha256.clone());
+        let tables_digest = inputs.tables_sha256.clone();
         let input_state = Receipt::input_state(
             cap,
             &manifest_sha256,
@@ -730,9 +730,10 @@ pub(crate) fn standing(root: &Path) -> Result<Vec<Standing>> {
             &files,
             resolved_digest.as_deref(),
             Receipt::script_sha256(cap, &files).as_deref(),
-            crate::table::document(&declared, &|p| files.iter().any(|f| f.path == p))
-                .map(|text| sha256(text.as_bytes()))
-                .as_deref(),
+            crate::table::input_digest(&declared, &|p| files.iter().any(|f| f.path == p), &|p| {
+                cap.writes.iter().any(|g| crate::kuten::glob_covers(g, p))
+            })
+            .as_deref(),
         )?;
 
         let verdict = match &landed {

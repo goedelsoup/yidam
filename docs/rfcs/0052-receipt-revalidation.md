@@ -33,7 +33,7 @@ input commit.
 
 ### 1.1 Why a step re-runs, and why a re-run commits
 
-[`Receipt::input_state`](../../yidam/cli/src/cmd/run/receipt.rs#L250) hashes
+[`Receipt::input_state`](../../yidam/cli/src/cmd/run/receipt.rs#L251) hashes
 what a step declares and reads: its kind, verb and run, the manifest and config digests, its
 declared reads and the digest of each file they match, the resolved graph, the script, and its
 declared writes. It does not hash `input.commit`. A head that moves without touching anything
@@ -49,7 +49,7 @@ alone, and the tree differs by the receipt. So `b634a8f compute: seat-coverage â
 c96a1dd` lands, changing one file under `.yidam/runs/`.
 
 The run already knows. It sets [`unchanged_outputs`](../../yidam/cli/src/cmd/run/mod.rs#L468) from
-[`outputs_already_committed`](../../yidam/cli/src/cmd/run/mod.rs#L951), which
+[`outputs_already_committed`](../../yidam/cli/src/cmd/run/mod.rs#L952), which
 compares object ids. That function's own doc says the commit is written anyway, *"so the check is
 recorded whether or not the answer moved."* The commit is the record of having looked. It is
 the only record there is.
@@ -70,7 +70,7 @@ lives, if not in the branch's history.
 ### 1.3 Ageing
 
 A step with `ageing_days` re-runs once its receipt is old enough, even with no input change
-([`aged`](../../yidam/cli/src/cmd/run/mod.rs#L888)). The age is the committer date
+([`aged`](../../yidam/cli/src/cmd/run/mod.rs#L889)). The age is the committer date
 of the commit that last touched the receipt ([`receipt_age`](../../yidam/cli/src/cmd/run/mod.rs#L627)). The receipt carries no date of its own,
 and the module doc's "No clock" section says why
 ([`receipt.rs:18-24`](../../yidam/cli/src/cmd/run/receipt.rs#L18-L24)): *"a second date written
@@ -81,7 +81,7 @@ be a field a person can write.
 
 ### 1.4 An output that stamps its own input commit
 
-The step's environment carries [`YIDAM_INPUT_COMMIT`](../../yidam/cli/src/cmd/run/exec.rs#L468), the commit the step read. city-engine's
+The step's environment carries [`YIDAM_INPUT_COMMIT`](../../yidam/cli/src/cmd/run/exec.rs#L470), the commit the step read. city-engine's
 `engine-state` calculator writes it into the output it produces, as `input_commit:`. Measured
 over the whole of city-engine's history on 2026-11-20:
 

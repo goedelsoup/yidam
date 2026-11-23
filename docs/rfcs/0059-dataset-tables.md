@@ -239,7 +239,7 @@ not imposed on every TSV.
 `yidam run` writes the declarations of the tables a capability reads to one JSON file, and
 names it in `$YIDAM_TABLES`. Each entry carries the path, the catalog name, the key and the
 columns. The file is written beside `$YIDAM_GRAPH`, and the receipt hashes it with the other
-inputs.
+inputs and the declarations of the tables the capability writes, which §2.3 checks its output by.
 
 The kit gains `table(path)` in Python and Rust. It reads the file with the same grammar `lint`
 uses and returns rows keyed by column name. A `number` cell is a float and an empty cell is

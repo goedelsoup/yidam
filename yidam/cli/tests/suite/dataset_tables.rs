@@ -170,6 +170,42 @@ fn a_declaration_it_cannot_be_held_to_is_reported_on_the_entry() {
 }
 
 #[test]
+fn a_table_that_is_not_text_is_a_departure_and_not_a_missing_file() {
+    let e = with_table(GOOD, &[]);
+    let root = e.path();
+    std::fs::write(root.join("data/gage-readings.tsv"), b"reading\t\xff\n").unwrap();
+    let doc = lint(&e);
+    let invalid = findings(&doc, "table-declaration-invalid");
+    assert!(invalid.is_empty(), "{invalid:?}");
+    let shape = findings(&doc, "table-shape");
+    assert_eq!(
+        shape,
+        vec!["data/gage-readings.tsv: \"is not UTF-8\"".to_string()],
+        "no `line 0`"
+    );
+}
+
+#[test]
+fn a_file_location_written_with_a_dot_segment_is_still_checked() {
+    let e = with_table(
+        "reading\tgage\tdischarge\nR1\tgage/canyon-outlet\tlots\n",
+        &[],
+    );
+    let root = e.path();
+    let entry = root.join(".yidam/catalog/gage-readings.md");
+    let text = std::fs::read_to_string(&entry).unwrap();
+    std::fs::write(&entry, text.replace("value: data/", "value: ./data/")).unwrap();
+    let doc = lint(&e);
+    let shape = findings(&doc, "table-shape");
+    assert!(
+        shape
+            .iter()
+            .any(|f| f.starts_with("data/gage-readings.tsv: ")),
+        "{shape:?}"
+    );
+}
+
+#[test]
 fn a_row_link_resolves_and_a_key_no_row_holds_is_a_broken_link() {
     let e = with_table(GOOD, &[]);
     let node = e.path().join(".yidam/corpus/gage/valley-bridge.yml");

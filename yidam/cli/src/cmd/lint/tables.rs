@@ -72,9 +72,21 @@ pub(crate) fn declared(
                 why,
             },
             Ok(decl) => {
-                let text = read(&root.join(&decl.path));
+                let file = root.join(&decl.path);
+                let text = read(&file);
                 let tracked = listed.as_ref().is_none_or(|l| l.contains(&decl.path));
+                let unreadable = |detail: String| Table::Read {
+                    departures: vec![table::Departure {
+                        line: 0,
+                        column: None,
+                        detail,
+                    }],
+                    rows: Rows::default(),
+                    decl: decl.clone(),
+                };
                 match text {
+                    // There, but not text: the same departure `yidam run` reports.
+                    None if tracked && file.is_file() => unreadable("is not UTF-8".to_string()),
                     None => Table::Invalid {
                         entry_rel: s.rel.clone(),
                         why: vec![format!("names `{}`, which does not exist", decl.path)],
@@ -88,15 +100,9 @@ pub(crate) fn declared(
                         )],
                     },
                     Some(text) => match table::read(&text, decl.format) {
-                        Err(e) => Table::Read {
-                            departures: vec![table::Departure {
-                                line: 0,
-                                column: None,
-                                detail: format!("is not readable as {:?}: {e}", decl.format),
-                            }],
-                            decl,
-                            rows: Rows::default(),
-                        },
+                        Err(e) => {
+                            unreadable(format!("is not readable as {}: {e}", decl.format.name()))
+                        }
                         Ok(rows) => {
                             let departures = table::shape(&decl, &rows);
                             Table::Read {

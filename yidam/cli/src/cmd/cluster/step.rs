@@ -135,7 +135,7 @@ pub(super) fn step_in(
     let inputs = exec::materialize(root, input, cap)?;
     let resolved_digest = inputs.resolved.as_ref().map(|r| r.sha256.clone());
     let script_digest = Receipt::script_sha256(cap, &inputs.files);
-    let tables_digest = inputs.tables_file.as_ref().map(|t| t.sha256.clone());
+    let tables_digest = inputs.tables_sha256.clone();
     let input_state = Receipt::input_state(
         cap,
         &manifest_sha256,

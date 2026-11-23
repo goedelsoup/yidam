@@ -32,6 +32,14 @@ pub(crate) enum Format {
 }
 
 impl Format {
+    /// The format's name as an extension writes it.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Tsv => "tsv",
+            Self::Csv => "csv",
+        }
+    }
+
     pub(crate) fn of(path: &str) -> Option<Self> {
         let lower = path.to_ascii_lowercase();
         if lower.ends_with(".tsv") {
@@ -151,7 +159,16 @@ pub(crate) fn declaration(source: &Source) -> Option<Result<Declaration, Vec<Str
         .filter_map(|l| l.value.as_deref())
         .collect();
     let path = match files.as_slice() {
-        [one] => Some(one.trim().to_string()),
+        [one] => match canonical(one) {
+            Some(p) => Some(p),
+            None => {
+                why.push(format!(
+                    "`{}` is not a path inside the repository",
+                    one.trim()
+                ));
+                None
+            }
+        },
         [] => {
             why.push("has no `file` location naming the table".to_string());
             None
@@ -191,6 +208,24 @@ pub(crate) fn declaration(source: &Source) -> Option<Result<Declaration, Vec<Str
         columns: parsed,
         key,
     }))
+}
+
+/// `path` as the repository's file list writes it: no `./` segment, no doubled `/`. `None` for
+/// an absolute path or one that climbs out with `..`, which no tracked file matches.
+fn canonical(path: &str) -> Option<String> {
+    let path = path.trim();
+    if path.starts_with('/') {
+        return None;
+    }
+    let mut parts = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => return None,
+            p => parts.push(p),
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
 }
 
 fn stem(rel: &str) -> String {
@@ -284,8 +319,10 @@ pub(crate) struct Rows {
 ///
 /// TSV is plain tab-separated text with no quoting: a line is a row and a tab ends a cell. CSV
 /// is RFC 4180, so a quoted cell may hold a comma. A trailing newline ends the last row rather
-/// than starting an empty one. `Err` names the line a CSV reader could not read past.
+/// than starting an empty one. A leading byte-order mark is not part of the first cell, in either
+/// format. `Err` names the line a CSV reader could not read past.
 pub(crate) fn read(text: &str, format: Format) -> Result<Rows, String> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut lines: Vec<(usize, Vec<String>)> = Vec::new();
     match format {
         Format::Tsv => {
@@ -335,9 +372,10 @@ pub(crate) struct Departure {
 
 impl std::fmt::Display for Departure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.column {
-            Some(c) => write!(f, "line {}, column `{c}`: {}", self.line, self.detail),
-            None => write!(f, "line {}: {}", self.line, self.detail),
+        match (&self.column, self.line) {
+            (_, 0) => write!(f, "{}", self.detail),
+            (Some(c), line) => write!(f, "line {line}, column `{c}`: {}", self.detail),
+            (None, line) => write!(f, "line {line}: {}", self.detail),
         }
     }
 }
@@ -393,7 +431,7 @@ pub(crate) fn shape(decl: &Declaration, rows: &Rows) -> Vec<Departure> {
             }
         }
         if !key.is_empty() {
-            let k: Vec<&str> = key.iter().map(|&i| row.cells[i].as_str()).collect();
+            let k: Vec<&str> = key.iter().map(|&i| row.cells[i].trim()).collect();
             if k.iter().all(|v| !v.is_empty()) {
                 if let Some(first) = seen.get(&k) {
                     out.push(Departure {
@@ -508,7 +546,7 @@ pub(crate) fn departures(decl: &Declaration, bytes: &[u8]) -> Vec<Departure> {
     };
     match read(text, decl.format) {
         Ok(rows) => shape(decl, &rows),
-        Err(e) => whole(format!("is not readable as {:?}: {e}", decl.format)),
+        Err(e) => whole(format!("is not readable as {}: {e}", decl.format.name())),
     }
 }
 
@@ -524,6 +562,31 @@ pub(crate) fn document(decls: &[Declaration], covered: &dyn Fn(&str) -> bool) ->
     }
     read.sort_by(|a, b| a.path.cmp(&b.path));
     serde_json::to_string_pretty(&read).ok().map(|s| s + "\n")
+}
+
+/// The digest the input state records for a step's declarations (RFC-0059 §2.4).
+///
+/// The `$YIDAM_TABLES` document, and after it the declarations of the tables the step writes
+/// and does not read. Those are not handed to the step, but its output is held to them after it
+/// exits, so an edited `columns:` on a written table changes what the step must produce and has
+/// to stale it. `None` where the step reads and writes no declared table, and the bare document's
+/// digest where it writes none, so a step that only reads keeps the input state it had.
+pub(crate) fn input_digest(
+    decls: &[Declaration],
+    reads: &dyn Fn(&str) -> bool,
+    writes: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    let read = document(decls, reads);
+    let written = document(decls, &|p| writes(p) && !reads(p));
+    if read.is_none() && written.is_none() {
+        return None;
+    }
+    let mut text = read.unwrap_or_default();
+    if let Some(w) = written {
+        text.push_str("writes\n");
+        text.push_str(&w);
+    }
+    Some(crate::cmd::run::receipt::sha256(text.as_bytes()))
 }
 
 /// The key values a `#row=` fragment names, or `None` when the fragment is not one.
@@ -709,6 +772,77 @@ mod tests {
             ],
             "`24` passes as a number, and `3` and `3.0` are two keys"
         );
+    }
+
+    #[test]
+    fn a_file_location_is_read_as_the_file_list_writes_it() {
+        for (file, want) in [
+            ("./data/r.tsv", "data/r.tsv"),
+            ("data//r.tsv", "data/r.tsv"),
+            (" data/./r.tsv ", "data/r.tsv"),
+        ] {
+            let d = declaration(&source(COLS, None, file)).unwrap().unwrap();
+            assert_eq!(d.path, want);
+        }
+        for file in ["/etc/r.tsv", "../r.tsv", "data/../../r.tsv"] {
+            let got = declaration(&source(COLS, None, file)).unwrap().unwrap_err();
+            assert!(
+                got.iter().any(|w| w.contains("not a path inside")),
+                "{file}: {got:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_byte_order_mark_is_not_part_of_the_header() {
+        for (text, format) in [
+            ("\u{feff}a\tb\n1\tx\n", Format::Tsv),
+            ("\u{feff}a,b\n1,x\n", Format::Csv),
+        ] {
+            assert_eq!(read(text, format).unwrap().header, vec!["a", "b"]);
+        }
+    }
+
+    #[test]
+    fn a_key_is_compared_trimmed_as_a_citation_reads_it() {
+        let d = decl();
+        let text = "filing_id\tline\tkind\treceived\nA\t3\tcash\t\nA \t3\tcash\t\n";
+        let got: Vec<String> = shape(&d, &read(text, Format::Tsv).unwrap())
+            .iter()
+            .map(|x| x.to_string())
+            .collect();
+        assert_eq!(
+            got,
+            vec!["line 3: repeats the key `A,3` first held on line 2"]
+        );
+    }
+
+    #[test]
+    fn an_unreadable_file_is_one_departure_with_no_line() {
+        assert_eq!(
+            departures(&decl(), b"\xff\xfe")[0].to_string(),
+            "is not UTF-8"
+        );
+        assert_eq!(Format::Csv.name(), "csv");
+    }
+
+    #[test]
+    fn the_digest_moves_with_a_written_table_s_declaration() {
+        let mut other = decl();
+        other.path = "data/out.tsv".to_string();
+        let reads = |p: &str| p == "data/r.tsv";
+        let writes = |p: &str| p == "data/out.tsv";
+        let none = |_: &str| false;
+        let before = input_digest(&[decl(), other.clone()], &reads, &writes).unwrap();
+        assert_eq!(
+            input_digest(&[decl(), other.clone()], &reads, &none),
+            document(&[decl()], &reads).map(|t| crate::cmd::run::receipt::sha256(t.as_bytes())),
+            "a step that writes no table keeps the document's digest"
+        );
+        other.columns[1].r#type = "string".to_string();
+        let after = input_digest(&[decl(), other.clone()], &reads, &writes).unwrap();
+        assert_ne!(before, after);
+        assert!(input_digest(&[decl(), other], &none, &none).is_none());
     }
 
     #[test]

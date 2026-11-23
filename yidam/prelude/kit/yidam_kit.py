@@ -329,9 +329,18 @@ def read(path=None):
 
 def _table_lines(text, fmt):
     """The rows of a table file, the header first, read as `yidam`'s own reader reads them."""
+    # A leading byte-order mark is not part of the first cell, to `yidam` either.
+    if text.startswith("\ufeff"):
+        text = text[1:]
     if fmt == "csv":
+        # `yidam`'s reader has no cap on a cell, and Python's is 128 KiB unless raised.
+        if csv.field_size_limit() <= len(text):
+            csv.field_size_limit(min(len(text) + 1, 2**31 - 1))
         # A blank line is no record, as it is to `yidam`'s reader.
-        return [r for r in csv.reader(io.StringIO(text, newline="")) if r]
+        try:
+            return [r for r in csv.reader(io.StringIO(text, newline="")) if r]
+        except csv.Error as e:
+            raise KitError("not readable as csv: %s" % e) from None
     rows = text.split("\n")
     if text.endswith("\n"):
         rows.pop()

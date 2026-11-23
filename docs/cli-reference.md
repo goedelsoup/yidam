@@ -889,9 +889,10 @@ That file is sliced to what the step reads. Its digest is part of the input stat
 `yidam` resolves a link therefore makes every calculator's step stale. A step that reads no corpus
 node is handed no `$YIDAM_GRAPH`. The name is removed from the environment rather than left empty,
 so a script can test for it. A step whose `reads` cover a table a `dataset` entry declares gets
-`$YIDAM_TABLES`. It names a JSON file holding those declarations, and its digest is part of the
-input state. Each declared table the step reads is checked as `lint` checks it, before the step
-starts. Each one it writes is checked after, and a failure commits nothing.
+`$YIDAM_TABLES`. It names a JSON file holding those declarations. Its digest, with the declarations
+of the tables the step writes, is part of the input state. Each table the step reads is checked as
+`lint` checks it, before the step starts. Each one it writes is checked after, and a failure
+commits nothing.
 What the step wrote lands as one commit on the current branch. A receipt lands with it, at
 `.yidam/runs/<step>.yml`, naming the input commit and every digest.
 

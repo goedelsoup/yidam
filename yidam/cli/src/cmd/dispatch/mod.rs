@@ -630,7 +630,7 @@ fn build_receipt(
             .as_bytes(),
     );
     let resolved = inputs.resolved.as_ref().map(|r| r.sha256.as_str());
-    let tables = inputs.tables_file.as_ref().map(|t| t.sha256.as_str());
+    let tables = inputs.tables_sha256.as_deref();
     let input_state = Receipt::input_state(
         cap,
         &manifest_sha256,

@@ -627,6 +627,35 @@ fn both_kits_read_a_declared_table_alike_and_as_yidam_holds_it() {
     assert_eq!(rows[1][2], json!(["note", "two\nlines"]));
 }
 
+/// A file that starts with a byte-order mark, as a spreadsheet saves one, and a CSV cell larger
+/// than Python's default field limit read in both kits as they do in `yidam`.
+#[test]
+fn both_kits_read_a_byte_order_mark_and_a_large_cell_as_yidam_does() {
+    let big = "x".repeat(200 * 1024);
+    let cases = [
+        (
+            "data/receipts.tsv",
+            "\u{feff}id\tamount\tnote\nA\t1\tx\n".to_string(),
+        ),
+        (
+            "data/receipts.csv",
+            "\u{feff}id,amount,note\r\nA,1,x\r\n".to_string(),
+        ),
+        (
+            "data/receipts.csv",
+            format!("id,amount,note\nA,1,\"{big}\"\n"),
+        ),
+    ];
+    for (path, text) in &cases {
+        let (decl, doc) = tables_document(path);
+        let held = crate::table::read(text, decl.format).expect("yidam reads it");
+        assert!(crate::table::shape(&decl, &held).is_empty(), "{path}");
+        let rust = rust_table(&doc, path, text);
+        assert_eq!(rust, python_table(&doc, path, text), "{path}");
+        assert_eq!(rust[0][0], json!(["id", "A"]), "{path}");
+    }
+}
+
 /// A file no declaration names, a header the declaration does not describe, a short row and a
 /// cell that is not a number are refused by both kits, in the same words.
 #[test]

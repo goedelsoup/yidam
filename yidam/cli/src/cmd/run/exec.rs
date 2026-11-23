@@ -111,6 +111,10 @@ pub struct Inputs {
     /// Its own scratch directory, for the reason [`Self::resolved`] gives. `None` where `reads`
     /// cover no declared table, and the variable is then removed rather than left to inherit.
     pub tables_file: Option<DeclaredTables>,
+    /// The declarations' digest for the input state, see [`table::input_digest`]. Taken over
+    /// the tables the step writes as well as those it reads, so it can be `Some` where
+    /// [`Self::tables_file`] is `None`.
+    pub tables_sha256: Option<String>,
 }
 
 /// The `$YIDAM_TABLES` document as it was handed over.
@@ -118,9 +122,6 @@ pub struct DeclaredTables {
     /// A lifetime and not a value, as [`ResolvedCorpus`]'s is.
     _dir: Scratch,
     pub path: PathBuf,
-    /// In the input state, so an edited declaration moves it even where the catalog is not
-    /// among `reads` — see [`super::receipt::Input::tables_sha256`].
-    pub sha256: String,
 }
 
 impl DeclaredTables {
@@ -132,11 +133,7 @@ impl DeclaredTables {
         let path = dir.path().join("tables.json");
         std::fs::write(&path, text.as_bytes())
             .with_context(|| format!("writing the table declarations to {}", path.display()))?;
-        Ok(Some(Self {
-            _dir: dir,
-            path,
-            sha256: sha256(text.as_bytes()),
-        }))
+        Ok(Some(Self { _dir: dir, path }))
     }
 }
 
@@ -349,7 +346,11 @@ pub fn materialize(root: &Path, commit: &str, cap: &Capability) -> Result<Inputs
     )?;
 
     let tables = declarations_at(root, &index, &tracked)?;
-    let tables_file = DeclaredTables::build(&tables, &|p| wanted.iter().any(|w| w == p))?;
+    let reads = |p: &str| wanted.iter().any(|w| w == p);
+    let tables_file = DeclaredTables::build(&tables, &reads)?;
+    let tables_sha256 = table::input_digest(&tables, &reads, &|p| {
+        cap.writes.iter().any(|g| glob_covers(g, p))
+    });
 
     let mut files = Vec::new();
     for path in wanted {
@@ -386,6 +387,7 @@ pub fn materialize(root: &Path, commit: &str, cap: &Capability) -> Result<Inputs
         script,
         tables,
         tables_file,
+        tables_sha256,
     })
 }
 
