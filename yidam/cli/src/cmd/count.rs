@@ -143,7 +143,7 @@ impl Block {
     }
 }
 
-/// Every `count` block in the tracked markdown set.
+/// Every `count` block in the tracked markdown set and node files.
 ///
 /// **The tracked set, and markdown within it** — [`crate::cmd::tracked::list`], for the reason
 /// [`crate::cmd::regen::unclaimed_blocks`] gives at length. This generator discovers its own
@@ -152,7 +152,9 @@ impl Block {
 fn blocks(root: &Path) -> Result<Vec<Block>> {
     let mut found = Vec::new();
     for rel in super::tracked::list(root)? {
-        if !rel.ends_with(".md") {
+        // Markdown and node files, by the predicate `signal` and `unclaimed` share: a reader
+        // that skipped node files would leave a block there claimed and never refreshed.
+        if !crate::regen::reads_regen(&rel) {
             continue;
         }
         let path = root.join(&rel);
@@ -163,7 +165,7 @@ fn blocks(root: &Path) -> Result<Vec<Block>> {
         }
         let text = std::fs::read_to_string(&path).with_context(|| format!("reading {rel}"))?;
         found.extend(
-            in_document(&text)
+            in_document(&text, crate::regen::is_node_file(&rel))
                 .into_iter()
                 .map(|(argument, query)| Block {
                     file: rel.clone(),
@@ -190,18 +192,15 @@ fn blocks(root: &Path) -> Result<Vec<Block>> {
 /// A bare `<!-- REGEN: yidam count -->` is not one of these. The scanner trims the command, so
 /// such a block's command is `yidam count` — it does not carry [`COMMAND_PREFIX`] at all, and
 /// naming no query it is `unclaimed`'s to report rather than this generator's to guess at.
-fn in_document(text: &str) -> Vec<(String, String)> {
-    let mut found = Vec::new();
-    for marker in yidam_core::markers::parse_markers(&crate::markdown::mask_code(text)) {
-        let yidam_core::markers::Marker::Regen { command, .. } = marker else {
-            continue;
-        };
-        let Some(argument) = command.strip_prefix(COMMAND_PREFIX) else {
-            continue;
-        };
-        found.push((argument.to_string(), argument.trim().to_string()));
-    }
-    found
+fn in_document(text: &str, node_file: bool) -> Vec<(String, String)> {
+    // Inline blocks only in a node file, as `signal` and `unclaimed` read one (RFC-0058 §2.3).
+    crate::regen::block_commands(text, node_file)
+        .into_iter()
+        .filter_map(|command| {
+            let argument = command.strip_prefix(COMMAND_PREFIX)?;
+            Some((argument.to_string(), argument.trim().to_string()))
+        })
+        .collect()
 }
 
 /// Refresh every `count` block in the repository.
@@ -296,7 +295,7 @@ mod tests {
             .collect();
         assert_eq!(scanned, ["yidam count  district"]);
 
-        let found = in_document(text);
+        let found = in_document(text, false);
         assert_eq!(found, [(" district".to_string(), "district".to_string())]);
         let b = Block {
             file: "x.md".into(),
@@ -313,10 +312,10 @@ mod tests {
     #[test]
     fn a_block_shown_in_a_fence_or_a_span_is_not_a_block() {
         let fenced = "```md\n<!-- REGEN: yidam count district -->44<!-- /REGEN -->\n```\n";
-        assert!(in_document(fenced).is_empty(), "{fenced}");
+        assert!(in_document(fenced, false).is_empty(), "{fenced}");
         let spanned =
             "See `<!-- REGEN: yidam count district -->44<!-- /REGEN -->` for the shape.\n";
-        assert!(in_document(spanned).is_empty(), "{spanned}");
+        assert!(in_document(spanned, false).is_empty(), "{spanned}");
     }
 
     /// The trailing space in [`COMMAND_PREFIX`] is what stops a longer command reading as this
@@ -324,7 +323,7 @@ mod tests {
     #[test]
     fn a_command_that_merely_begins_with_count_is_not_one() {
         let text = "<!-- REGEN: yidam counterexamples -->\n1\n<!-- /REGEN -->\n";
-        assert!(in_document(text).is_empty(), "{text}");
+        assert!(in_document(text, false).is_empty(), "{text}");
     }
 
     /// A `count` block naming no query is not this generator's, in either marker form.
@@ -341,7 +340,7 @@ mod tests {
             "<!-- REGEN: yidam count   -->\n1\n<!-- /REGEN -->\n",
             "x <!-- REGEN: yidam count -->1<!-- /REGEN --> y\n",
         ] {
-            assert!(in_document(text).is_empty(), "{text}");
+            assert!(in_document(text, false).is_empty(), "{text}");
         }
     }
 
@@ -351,7 +350,7 @@ mod tests {
                     \n\
                     <!-- REGEN: yidam count person -->\n2\n<!-- /REGEN -->\n";
         assert_eq!(
-            in_document(text),
+            in_document(text, false),
             [
                 ("district".to_string(), "district".to_string()),
                 ("person".to_string(), "person".to_string()),

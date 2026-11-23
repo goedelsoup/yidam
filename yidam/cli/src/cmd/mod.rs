@@ -7,9 +7,10 @@ pub(crate) mod check_diff;
 mod clone;
 pub(crate) mod cohort;
 pub(crate) mod corpus;
-// `pub(crate)` so `regen.rs` can name `count::NAME` and `count::COMMAND_PREFIX`. The generator
-// is the only one whose command carries an argument, and both facts about that shape — the
-// name `PARAMETERISED` holds and the prefix `unclaimed_in` matches — are spelled there once.
+// `pub(crate)` so `regen.rs` can name `count::NAME` and `count::COMMAND_PREFIX`. The two
+// generators whose command carries an argument are this one and `signal`, and both facts about
+// that shape — the name `PARAMETERISED` holds and the prefix `unclaimed_in` matches — are
+// spelled there once.
 pub(crate) mod count;
 pub(crate) mod cycle;
 pub(crate) mod decisions;
@@ -80,6 +81,7 @@ mod sangha;
 mod schema;
 pub(crate) mod score;
 pub(crate) mod serve;
+pub(crate) mod signal;
 pub(crate) mod source;
 pub(crate) mod status;
 #[cfg(feature = "tonpa")]
@@ -172,6 +174,7 @@ pub use score::score as run_score;
 pub use serve::serve_mcp;
 #[cfg(feature = "serve-http")]
 pub use serve::serve_mcp_http;
+pub use signal::signal;
 pub use source::{run as run_source, SourceCommand};
 pub(crate) use status::index_status_data;
 pub use status::{index_status, status};

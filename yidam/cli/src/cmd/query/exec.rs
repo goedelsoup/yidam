@@ -491,6 +491,7 @@ mod tests {
             // does not go through `Node::parse`, and it is why the field is not private: a
             // fixture that states its instance in Rust has no bytes to be malformed.
             malformed: None,
+            stripped: None,
         }
     }
 

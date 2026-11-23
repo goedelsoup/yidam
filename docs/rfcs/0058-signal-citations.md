@@ -1,6 +1,6 @@
 # RFC-0058 — A signal quoted in prose is a block that `regen` refreshes
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I41
 - **Relates to:**
   - #1503 (computed figures pasted into prose go stale unchecked; the evidence this answers), parent epic #1513

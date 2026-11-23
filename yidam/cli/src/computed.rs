@@ -146,6 +146,13 @@ pub struct Signals {
     /// file I wrote* reads a list instead of parsing prose (RFC-0056 §2.1). A collision names
     /// both files; the manifest's own refusal names the manifest.
     pub named: Vec<Vec<String>>,
+    /// Each name refused corpus-wide, with the sentence that refused it.
+    ///
+    /// A collision keeps the first file's rows in [`Self::by_reference`], which is right for
+    /// `embed`: something is indexed, and `doctor` says what. It is wrong for a figure. A
+    /// `signal` block quoting a collided name would print one file's value with the other file
+    /// still claiming it, so [`Self::value`] reads this first and refuses (RFC-0058 §2.1).
+    refused: BTreeMap<String, String>,
 }
 
 /// One file, parsed as much as this module reads of it.
@@ -203,6 +210,15 @@ impl Signals {
     /// caller gets both the signals that *did* read and the account of the ones that did not.
     pub fn load(root: &Path) -> Self {
         Self::read(root, Tree::Corpus)
+    }
+
+    /// Refuse a signal name corpus-wide: a problem for `doctor`, and a refusal for
+    /// [`Self::value`] to give.
+    fn refuse_name(&mut self, name: &str, paths: &[impl AsRef<str>], message: String) {
+        self.refused
+            .entry(name.to_string())
+            .or_insert_with(|| message.clone());
+        self.problem(paths, message);
     }
 
     /// Record a problem and the paths it is about. The one way into [`Self::problems`], so the
@@ -398,7 +414,8 @@ impl Signals {
                     names.insert(name.to_string());
                     if RESERVED.contains(&name) {
                         if reported.insert(name.to_string()) {
-                            out.problem(
+                            out.refuse_name(
+                                name,
                                 &[&rel],
                                 format!(
                                     "{rel} declares a signal called `{name}`, which is a field a \
@@ -411,7 +428,8 @@ impl Signals {
                     match claimed.get(name) {
                         Some(first) if first != &rel => {
                             if reported.insert(name.to_string()) {
-                                out.problem(
+                                out.refuse_name(
+                                    name,
                                     &[first, &rel],
                                     format!(
                                         "`{name}` is declared by both {first} and {rel}; a signal \
@@ -425,7 +443,8 @@ impl Signals {
                     }
                     let Some(value) = scalar(v) else {
                         if reported.insert(name.to_string()) {
-                            out.problem(
+                            out.refuse_name(
+                                name,
                                 &[&rel],
                                 format!(
                                     "{rel} declares `{name}` as a list or a mapping; a signal is \
@@ -473,6 +492,34 @@ impl Signals {
         self.by_reference.iter().map(|(k, v)| (k.as_str(), v))
     }
 
+    /// The value of signal `name` on the node `reference` (`<class>/<name>`), or why there is
+    /// none (RFC-0058 §2.1).
+    ///
+    /// A refused name is refused here too, even where a row survived. Where no row is found
+    /// the answer says whether the node exists. It also names any computed file that was not
+    /// read, because an unknown `format_version` reads as a missing row from the outside.
+    pub fn value(&self, root: &Path, reference: &str, name: &str) -> Result<&Value, String> {
+        if let Some(why) = self.refused.get(name) {
+            return Err(why.clone());
+        }
+        if let Some(v) = self.by_reference.get(reference).and_then(|m| m.get(name)) {
+            return Ok(v);
+        }
+        let file = node_file(reference);
+        let mut why = if !root.join(&file).is_file() {
+            format!("`{reference}` names no node in this corpus ({file} does not exist)")
+        } else if self.names().iter().any(|n| n == name) {
+            format!("`{reference}` has no `{name}` row in any computed file")
+        } else {
+            format!("no computed file declares a signal called `{name}`")
+        };
+        if !self.problems.is_empty() {
+            why.push_str("; computed files that could not be read in full: ");
+            why.push_str(&self.problems.join("; "));
+        }
+        Err(why)
+    }
+
     /// How many nodes carry at least one signal.
     pub fn nodes(&self) -> usize {
         self.by_reference.len()
@@ -499,7 +546,7 @@ impl Signals {
 /// revision pin: `x@abc` and `x` denote the same node in two states (RFC-0032 §4.3), and a
 /// signal keyed at a past commit would be attached to the node as it stands now — which is the
 /// one reading that is certainly wrong.
-fn node_reference(reference: &str) -> Option<String> {
+pub(crate) fn node_reference(reference: &str) -> Option<String> {
     let r = yidam_core::uri::parse_reference(reference)?;
     if r.kind != yidam_core::uri::Kind::Node || r.corpus.is_some() || r.rev.is_some() {
         return None;
@@ -522,7 +569,7 @@ fn node_file(reference: &str) -> String {
 
 /// The node reference a repository-relative corpus file is written as, or `None` for a path that
 /// is not one.
-fn node_id(rel: &str) -> Option<&str> {
+pub(crate) fn node_id(rel: &str) -> Option<&str> {
     rel.strip_prefix(".yidam/corpus/")?.strip_suffix(".yml")
 }
 
@@ -869,6 +916,55 @@ verb   = "compute"
 
     /// A corpus with nothing computed is the common case and answers empty rather than
     /// reporting an absence nobody asked about.
+    /// `value` answers a block, and each way it does not answer names why (RFC-0058 §2.1).
+    #[test]
+    fn value_answers_a_row_and_names_each_way_it_does_not() {
+        let other =
+            "format_version: 1\nsignals:\n  - node: gage/canyon-outlet\n    travels_as: open\n";
+        let dir = corpus(
+            &[("travel-tier.yml", TRAVEL_TIER), ("other.yml", other)],
+            Some(MANIFEST_ONE_STEP),
+        );
+        let root = dir.path();
+        let s = Signals::load(root);
+        assert_eq!(
+            s.value(root, "gage/canyon-outlet", "downgraded"),
+            Ok(&Value::Bool(false))
+        );
+        let collided = s
+            .value(root, "gage/canyon-outlet", "travels_as")
+            .unwrap_err();
+        assert!(
+            collided.contains("other.yml") && collided.contains("travel-tier.yml"),
+            "{collided}"
+        );
+        let unknown = s.value(root, "gage/canyon-outlet", "nosuch").unwrap_err();
+        assert!(unknown.contains("no computed file declares"), "{unknown}");
+        let missing = s.value(root, "gage/nowhere", "downgraded").unwrap_err();
+        assert!(missing.contains("does not exist"), "{missing}");
+        std::fs::write(
+            root.join(".yidam/corpus/gage/dry-fork.yml"),
+            "label: Dry Fork\n",
+        )
+        .unwrap();
+        let s = Signals::load(root);
+        let no_row = s.value(root, "gage/dry-fork", "downgraded").unwrap_err();
+        assert!(no_row.contains("has no `downgraded` row"), "{no_row}");
+    }
+
+    /// A table this yidam cannot read is named by the block that needed it, because from the
+    /// outside it looks like a missing row.
+    #[test]
+    fn value_names_a_file_it_could_not_read() {
+        let future = "format_version: 99\nsignals:\n  - node: gage/canyon-outlet\n    q95: 1\n";
+        let dir = corpus(&[("future.yml", future)], Some(MANIFEST_ONE_STEP));
+        let s = Signals::load(dir.path());
+        let why = s
+            .value(dir.path(), "gage/canyon-outlet", "q95")
+            .unwrap_err();
+        assert!(why.contains("future.yml"), "{why}");
+    }
+
     #[test]
     fn a_corpus_with_no_computed_directory_answers_empty() {
         let dir = tempfile::tempdir().unwrap();

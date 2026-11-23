@@ -436,7 +436,8 @@ That is their purpose, and it is why every one carries a `*`.
 
 Four more generators are filed by what they report, not by the fact that they generate.
 They are [`vault-status`](#artifacts), [`decisions-log`](#the-corpus-and-its-history),
-[`kuten`](#the-practice) and [`practice`](#the-practice). `yidam regen` runs all sixteen.
+[`kuten`](#the-practice) and [`practice`](#the-practice). `yidam regen` runs all sixteen, and
+[`count`](#the-corpus-and-its-history) and [`signal`](#the-corpus-and-its-history) beside them.
 
 `gates` reads the workflow and nothing else. A derived repository's README used to say in a
 sentence which checks CI runs. The sentence could not follow the workflow. The table can.
@@ -502,6 +503,7 @@ the read-only overview.
 | `pack <query>` | A query's full answer filled to a token budget, with an account of what did not fit |
 | `estimate <query>` | What a query would cost before you run it |
 | `count [query]` * | How many nodes a query matches. With no query, refreshes every `<!-- REGEN: yidam count <query> -->` block in the tracked markdown set — the form `regen` runs ([RFC-0043](rfcs/0043-inline-regen-and-count.md)) |
+| `signal [<node-ref> <name>]` * | A computed signal's value. `percent`, `places=N`, `grouped` follow the name. With nothing, refreshes every `<!-- REGEN: yidam signal … -->` block in the tracked markdown and node files — the form `regen` runs ([RFC-0058](rfcs/0058-signal-citations.md)) |
 | `diff <range>` | Node and edge changes between two git refs |
 | `check-diff [range]` | What a code diff names that the ontology does not ([RFC-0021](rfcs/0021-diff-alignment.md)). The ontology includes every installed dependency's classes. Defaults to the merge-base with `main` — this branch's work. An `unmodelled-concept` row may carry a `nearest` declared name: one whose `-`-separated word shares a root of at least five characters with a word of the type's name, the two words' lengths within three. A word that ends three or more of the report's type names and appears nowhere else in them, such as `error` in `FetchError`, is the code's suffix and is not compared. More shared words win, then the longer root, then the name. It is a lead to check, not a match — no model reads either name |
 | `log [range]` | Commit history classified as testimony or pipeline work. `--epistemic`, `--operational` |

@@ -88,7 +88,7 @@ re-deriving it.
 | [0055](0055-watch-ledger-off-main.md) | I38 | The watch ledger lives on its own branch | Implemented |
 | [0056](0056-calculator-kit.md) | I39 | A calculator reads the graph yidam wrote, and writes a file yidam has already read | Implemented |
 | [0057](0057-claim-provenance.md) | I40 | A refusal is read without an argument, and a ruled non-refusal is declared once | Implemented |
-| [0058](0058-signal-citations.md) | I41 | A signal quoted in prose is a block that `regen` refreshes | Draft |
+| [0058](0058-signal-citations.md) | I41 | A signal quoted in prose is a block that `regen` refreshes | Implemented |
 
 ## Reading order
 

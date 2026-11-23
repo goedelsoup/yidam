@@ -51,7 +51,7 @@ pub fn prose_views<'a>(nodes: &'a [Node], classes: &'a [Class]) -> Vec<ProseView
         .iter()
         .map(|n| ProseView {
             rel: &n.rel,
-            text: &n.text,
+            text: n.prose(),
         })
         .chain(classes.iter().map(|c| ProseView {
             rel: &c.rel,
