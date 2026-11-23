@@ -713,6 +713,22 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
+    /// Quote a computed signal in prose and keep it current — `signal finding/x share`
+    ///
+    /// A calculator writes a value to `.yidam/computed/`, and a sentence quotes it. With a node
+    /// reference and a signal name, this prints the value the computed file holds. With
+    /// nothing, it refreshes every `<!-- REGEN: yidam signal … -->0.75<!-- /REGEN -->` block in
+    /// the tracked markdown and node files — the form `yidam regen` runs (RFC-0058). In a node
+    /// file a block may name the signal alone, and reads the node's own row.
+    ///
+    /// The modifiers `percent`, `places=N` and `grouped` follow the name. A block that does not
+    /// resolve keeps what it holds, is named, and exits 1.
+    Signal {
+        #[command(flatten)]
+        root: RootArg,
+        /// `<node-ref> <name> [modifiers]`. Omit them to refresh every `signal` block instead
+        words: Vec<String>,
+    },
     /// Report the corpus graph: nodes, resolved edges, and the classes that license them
     Graph {
         #[command(flatten)]
@@ -1922,6 +1938,7 @@ fn run() -> Result<()> {
             query,
             format,
         } => yidam::count(root.as_deref(), query.as_deref(), format.value),
+        Command::Signal { root, words } => yidam::signal(root.as_deref(), &words),
         Command::Graph { root, format } => yidam::graph(root.as_deref(), format.value),
         Command::Neighbors {
             root,

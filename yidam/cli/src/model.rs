@@ -513,7 +513,9 @@ pub fn corpus_nodes(model: &DomainModel) -> Vec<NodeView> {
         .instances
         .iter()
         .map(|inst| {
-            let content = String::from_utf8_lossy(&inst.content).into_owned();
+            let content = String::from_utf8_lossy(&inst.content);
+            // A reader of a node sees its prose, not the tags of a block in it (RFC-0058 §2.5).
+            let content = crate::regen::strip_markers(&content).into_owned();
             let (parsed, _malformed): (crate::parse::CorpusInstance, _) =
                 crate::corpus::parse_or_default(&content);
             let name = file_stem(&inst.filename);
@@ -619,6 +621,7 @@ pub fn dependency_nodes(root: &Path, package: &str) -> Vec<NodeView> {
             let Ok(content) = std::fs::read_to_string(&path) else {
                 continue;
             };
+            let content = crate::regen::strip_markers(&content).into_owned();
             let (parsed, _malformed): (crate::parse::CorpusInstance, _) =
                 crate::corpus::parse_or_default(&content);
             let name = file_stem(&f.file_name().to_string_lossy());

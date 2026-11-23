@@ -91,6 +91,7 @@ mod samudaya_examples;
 mod schema_ownership;
 mod score_range;
 mod serve_http;
+mod signal;
 mod source_add;
 mod source_check;
 mod task_layer;

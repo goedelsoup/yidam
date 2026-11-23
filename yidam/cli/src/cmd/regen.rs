@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 /// Every generator takes the corpus rather than resolving one, because `regen --root` has to
 /// mean the same thing as running each of these commands with `--root` (#918). A generator
 /// that resolved its own root would refresh *this* repository's blocks while the reader had
-/// named another — and the seventeen would not even agree with each other about which.
+/// named another — and the eighteen would not even agree with each other about which.
 type Generator = (&'static str, fn(Option<&std::path::Path>) -> Result<()>);
 
 /// Every generator that writes a REGEN block.
@@ -74,16 +74,19 @@ const GENERATORS: &[Generator] = &[
     // than authored (#287). A repository keeping no `PRACTICE.md` has opted out, and the
     // generator is its own no-op there, before `update_file_regen`'s.
     ("practice", super::practice::block),
-    // The one generator that is not handed its file. The other sixteen write a block at a
-    // path they know; this one reads the tracked markdown set for blocks whose command is
-    // `yidam count <query>` and answers each with a number (RFC-0043). A repository with no
-    // such block is its own no-op, which is every repository the day this lands.
+    // One of the two generators that are not handed their file. The other sixteen write a
+    // block at a path they know; this one reads the tracked markdown set for blocks whose
+    // command is `yidam count <query>` and answers each with a number (RFC-0043). A repository
+    // with no such block is its own no-op, which is every repository the day this lands.
     (super::count::NAME, super::count::block),
+    // The other: blocks whose command is `yidam signal …`, in markdown and in node files,
+    // answered from the signal tables in `.yidam/computed/` (RFC-0058).
+    (super::signal::NAME, super::signal::block),
 ];
 
 /// The generators whose command carries an argument, and what the argument is called.
 ///
-/// One entry, and the shape is general because the reason is. Every other generator's command
+/// Two entries, and the shape is general because the reason is. Every other generator's command
 /// is its name and nothing else, so `unclaimed_in` can ask whether a block's command *is* a
 /// generator. `count`'s is `count <query>`: the bare name writes nothing, and the name plus an
 /// argument writes the block. Both halves matter.
@@ -97,7 +100,10 @@ const GENERATORS: &[Generator] = &[
 /// The label is for the reader of a failed `--check`: [`render_regen_check`] prints the
 /// generators as `count <query>`, so a bare block's remedy is visible in the list rather than
 /// described in a sentence.
-const PARAMETERISED: &[(&str, &str)] = &[(super::count::NAME, "<query>")];
+const PARAMETERISED: &[(&str, &str)] = &[
+    (super::count::NAME, "<query>"),
+    (super::signal::NAME, "[<node-ref>] <name> [modifiers]"),
+];
 
 /// The generator names `unclaimed_in` matches whole, and the prefixes it matches with an
 /// argument. See [`PARAMETERISED`].
@@ -278,7 +284,7 @@ pub(crate) fn unclaimed_blocks(root: &std::path::Path) -> Result<Vec<crate::rege
     let (known, parameterised) = claimable();
     let mut found = Vec::new();
     for rel in super::tracked::list(root)? {
-        if !rel.ends_with(".md") {
+        if !crate::regen::reads_regen(&rel) {
             continue;
         }
         let path = root.join(&rel);
@@ -288,8 +294,15 @@ pub(crate) fn unclaimed_blocks(root: &std::path::Path) -> Result<Vec<crate::rege
             continue;
         }
         let text = std::fs::read_to_string(&path).with_context(|| format!("reading {rel}"))?;
-        found.extend(
+        // A node file holds inline blocks only (RFC-0058 §2.3): its prose is a YAML scalar.
+        let unclaimed = if crate::regen::is_node_file(&rel) {
+            let inline = crate::regen::block_commands(&text, true);
+            crate::regen::unclaimed_among(inline, &known, &parameterised)
+        } else {
             crate::regen::unclaimed_in(&text, &known, &parameterised)
+        };
+        found.extend(
+            unclaimed
                 .into_iter()
                 .map(|generator| crate::regen::Unclaimed {
                     file: rel.clone(),
@@ -496,6 +509,7 @@ pub(crate) fn fold_for(
             parent,
             "--",
             "*.md",
+            ".yidam/corpus/*.yml",
         ])
         .succeeded();
     if !carries_a_block {
@@ -859,6 +873,8 @@ mod tests {
              generator that cannot write one"
         );
         assert!(prefixes.contains(&super::super::count::NAME));
+        assert!(!whole.contains(&super::super::signal::NAME));
+        assert!(prefixes.contains(&super::super::signal::NAME));
     }
 
     /// The remedy names the argument a parameterised generator needs.

@@ -198,6 +198,7 @@ pub const GROUPS: &[Group] = &[
             // default form — `yidam count`, no query — is the refresh: with a query it reads
             // and prints, which is the arm its long help leads with.
             w("count"),
+            w("signal"),
             r("diff"),
             // Beside `diff` rather than with the gates: it reads a code diff the way `diff`
             // reads a corpus one, and it cannot fail. A command filed under "exit nonzero on

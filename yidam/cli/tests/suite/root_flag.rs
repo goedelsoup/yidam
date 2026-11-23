@@ -53,7 +53,7 @@ enum Tell {
     Writes(&'static str),
     /// The command names the directory it was pointed at, in its output.
     ///
-    /// For the five that neither emit an envelope nor write a block. Each of them refuses, or
+    /// For the six that neither emit an envelope nor write a block. Each of them refuses, or
     /// reports a missing input, in a message that quotes the resolved path — so pointing them
     /// at a directory holding no corpus is what makes them speak. It is a *second* such
     /// directory, not the one they are run from: pointed at their own working directory a
@@ -148,7 +148,7 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
     ("query", &["low-flow", "--format", "json"], Tell::Envelope),
     ("record", &["--format", "json"], Tell::Envelope),
     // `--check`, so this reads the blocks rather than rewriting the ones the `Writes` rows
-    // seeded. The writing mode runs the same seventeen generators through the same list.
+    // seeded. The writing mode runs the same eighteen generators through the same list.
     ("regen", &["--check", "--format", "json"], Tell::Envelope),
     ("replay", &["--format", "json"], Tell::Envelope),
     (
@@ -167,6 +167,7 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
     // with no corpus it refuses before serving, which is the behaviour quickstart §5 promises
     // a client configured to launch it from the wrong place.
     ("serve", &["--mcp"], Tell::Names),
+    ("signal", &["finding/x", "share"], Tell::Names),
     ("skills-index", &[], Tell::Writes(".yidam/skills/README.md")),
     ("source", &["check", "--format", "json"], Tell::Envelope),
     ("status", &["--format", "json"], Tell::Envelope),
@@ -381,7 +382,7 @@ fn every_rooted_command_reads_the_corpus_it_is_given() {
     let mut failures: Vec<String> = Vec::new();
     for (command, args, tell) in INVOCATIONS {
         // A `Names` row is pointed at the directory with no corpus: the refusal that quotes a
-        // path is the only place these five say which one they resolved.
+        // path is the only place these six say which one they resolved.
         let named: &Path = match tell {
             Tell::Names => rootless.path(),
             _ => &corpus,

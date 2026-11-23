@@ -870,6 +870,18 @@ calculators both emitting `tier` is one name meaning two things, and a reader th
 winner would make the other silently absent. `yidam doctor` reports the collision and names both
 files. [why](directories.evidence.md#computed-signal-names-are-repository-wide)
 
+**Prose that quotes a signal holds it in a block, not a copy.** A copied figure still reads as
+current after a recompute moves it. In a node file the block names a signal from that node's own
+row. Anywhere else it names the node first:
+
+```yaml
+description: |
+  Travels as <!-- REGEN: yidam signal travels_as -->open<!-- /REGEN --> below the impoundment.
+```
+
+`yidam run` refreshes every block in its `compute:` commit, and `yidam regen --check` reports a
+stale one.
+
 **A run refuses a table a later reader would refuse.** `yidam run` reads each output before it
 lands, so a misindented block or a row keyed on a missing node is never committed. The kit in
 `.vendor/prelude/kit/` writes a table that passes, from Python or from Rust.
