@@ -7,7 +7,7 @@
   - RFC-0043 (the inline REGEN block and the `count` generator, whose shape this reuses)
   - RFC-0054 §2.2 (`yidam run` folds its REGEN refresh into the `compute:` commit)
   - #1028 (`.yidam/computed/` read back as signal tables, the reader this cites through)
-- **Versioning layers touched:** CLI and prelude. `regen` gains one parameterised generator, `signal`, beside `count`. REGEN blocks are read in node files under `.yidam/corpus/` as well as in tracked markdown. `malformed-regen-block`, `unclaimed` and the two parameterised generators read node files too. `embed` and `export llms` read node prose with REGEN markers removed and bodies kept. `prelude/guidelines/directories.md` gains one paragraph. The REGEN marker format is unchanged, so the template bump is minor. No report schema, MCP contract or SDK change.
+- **Versioning layers touched:** CLI and prelude. `regen` gains one parameterised generator, `signal`, beside `count`. REGEN blocks are read in node files under `.yidam/corpus/` as well as in tracked markdown. `malformed-regen-block`, `unclaimed` and the two parameterised generators read node files too. `run`'s fold looks for blocks in node files too. Every reader that takes node prose as text reads it with REGEN markers removed and bodies kept. `prelude/guidelines/directories.md` gains one paragraph. The REGEN marker format is unchanged, but the template bump is major, because an old binary would index a node's markers as prose (§"Migration"). No report schema, MCP contract or SDK change.
 - **Downstream reference cases:** measured read-only on 2026-11-23 at `origin/main` of every derived repository on the measuring machine. That is 21 repositories, 20 of them with a corpus. The figures come from traffic-design (8b1529df), ohio-campaign-finance-2025-2026 (e91e01c), land-use-activity (8200c8d), travel-demand (2699f7a), civic-infrastructure (f680bfe) and city-engine (c5236c66). allen-county-ohio-democratic-party and cellular-automata are not checked out there. The issue's figures for them are cited, not re-measured.
 
 ## Summary
@@ -145,13 +145,16 @@ The body is the value, written as follows.
 - A boolean is written as `true` or `false`.
 - A null, list or map is refused. None of them is a figure.
 
-Three modifiers may follow the name, in any order:
+Three modifiers may follow the name. They may be written in any order, and they always apply
+in this one:
 
-- `places=N` writes a number with exactly N decimals;
-- `percent` multiplies by 100 and appends `%`;
-- `grouped` separates thousands in the integer part with `,`.
+1. `percent` multiplies by 100;
+2. `places=N` rounds to exactly N decimals;
+3. `grouped` separates thousands in the integer part with `,`;
+4. then `percent` appends `%`.
 
-So `yidam signal share_of_receipts places=1 percent` writes `18.2%` for `0.18234`.
+So `yidam signal share_of_receipts places=1 percent` and `yidam signal share_of_receipts
+percent places=1` both write `18.2%` for `0.18234`. A modifier given twice is refused.
 
 A modifier on a value that is not a number is refused. RFC-0043 left grouping open for `count`.
 This RFC gives `signal` the modifiers because a computed float rarely has the precision prose
@@ -163,11 +166,16 @@ The tracked set REGEN is read over gains node files: tracked `*.yml` under `.yid
 Ontology files are excluded. Only inline blocks are read there. A block in a node has its
 open tag, body and close tag on one line.
 
-Four readers widen together, so that none of them sees a block another misses:
+Five readers widen together, so that none of them sees a block another misses:
 
 - `count` and `signal` refresh blocks there;
 - `unclaimed` reports a block there whose command no generator writes;
-- `malformed-regen-block` reports a broken block there.
+- `malformed-regen-block` reports a broken block there;
+- `fold_for`, which builds `yidam run`'s fold, looks for blocks there before it answers. It
+  currently runs `git grep` for `<!-- REGEN:` over `*.md` only, and if that finds nothing it
+  returns an empty fold without generating anything. Left as it is, a corpus whose blocks are
+  all in nodes would never have them folded, and §2.4's promise would fail with no error. The
+  pathspec gains `.yidam/corpus/*.yml`.
 
 The non-parameterised generators are unchanged. Each writes a named block in a named document,
 and none of those documents is a node.
@@ -198,14 +206,21 @@ option. A person who recomputes outside `yidam run` uses `yidam regen --fold`.
 
 ### 2.5 Readers that are not markdown
 
-A rendered node hides an HTML comment, so the block shows only its value. Two readers take node
-prose as text, and both will strip the markers and keep the body:
+A rendered node hides an HTML comment, so the block shows only its value. Other readers take
+node prose as text, and every one of them strips the markers and keeps the body:
 
 - `embed`, so an embedding reads `0.75 s`, not the open tag;
-- `export llms`, so the export reads as prose.
+- the exports that carry prose: `export llms`, and the `description` that `export rdf` and
+  `export graphml` emit;
+- `lint`'s prose checks, which read every node through `prose_views`. Examples are the claim-tag
+  checks, `refusal-undeclared` and `node-too-long`. A marker's command words would otherwise
+  be read as the node's argument, and its length counted against the node;
+- `serve`, so an MCP client is given claim and node text with no markers in it.
 
-The stripping is one function over `parse_markers`. A marker with no matching close tag is left
-as it is, for `malformed-regen-block` to report.
+The stripping is one function over `parse_markers`, applied where a node's prose is loaded, so
+a new reader gets it without having to ask for it. Only three things read the raw text:
+`regen`, `malformed-regen-block` and `fold_for`. A marker with no matching close tag is left as
+it is, for `malformed-regen-block` to report.
 
 ### 2.6 Why `lint` gains nothing
 
@@ -226,15 +241,18 @@ the paragraph's word count.
   because a markdown file has no row of its own.
 - A node-ref block resolves both reference spellings.
 - `places`, `percent` and `grouped` each write their documented form. Each is refused on a
-  string.
+  string. `places=1 percent` and `percent places=1` write the same body, and a repeated
+  modifier is refused.
 - An unknown name, a node with no row and a colliding name each fail the run. Each failure names
   its block, and the other blocks are still refreshed.
 - A string value holding `"` is refused in a node file and written in a markdown file.
 - `regen --check` reports a stale block in a node file. `unclaimed` reports `yidam signl x`
   there. `malformed-regen-block` reports a block with no close tag there.
 - `yidam run` folds a moved signal into its `compute:` commit, and the node's block holds the
-  new value.
-- `embed` and `export llms` emit the body without the markers.
+  new value. This holds in a repository whose only block is in a node file, with no tracked
+  `.md` carrying one.
+- `embed`, `export llms`, `export rdf`, `export graphml`, `lint`'s prose checks and `serve`
+  each read the body without the markers.
 - The `PARAMETERISED` and `GENERATORS` guards list `signal`, and
   `every_generator_in_the_crate_is_listed` passes with its call site.
 
@@ -257,10 +275,19 @@ in more files.
 until a block names `signal`. No node file holds a REGEN block today (§1.1), so widening the scan
 changes no output.
 
-**Why the bump is minor.** RFC-0043's bump was major because an old reader destroyed the new
-form. Here an old binary does not scan node files, so it ignores a block there. In markdown, an
-old binary reports a `signal` block as `unclaimed`, and `regen --check` fails on a stale pin. That
-is a pin too old to read a block, said plainly, and it writes nothing.
+**Why the bump is major.** The tempting argument is that it is minor. An old binary does not
+scan node files, so it leaves a block there alone. In markdown it reports a `signal` block as
+`unclaimed`, so `regen --check` fails loudly on a pin that is too old, and it writes nothing.
+`regen` takes no harm.
+
+The readers in §2.5 do. An old binary has no stripping, so once a corpus adopts the block, its
+`embed` indexes `<!-- REGEN: yidam signal … -->` as node prose. `export llms` hands the tag to
+a model, and `lint`'s prose checks read the command words as the node's argument. None of these
+fails, so it is the leak §1.5 describes, happening without anyone noticing, against the
+corpus's own index. RFC-0043 gives the rule for this case: a new producer has stranded an old
+consumer, and the honest bump is the one that makes the pin say so. So the template takes a
+major bump, and the prelude paragraph in §2.7, which is what tells an author to write the block,
+ships in the same release as the binary that strips it.
 
 **Adopting it.** A corpus replaces a quoted value with a block whose body is the same value. The
 first `regen --check` passes, because nothing moved. §1.3's 403 own-row quotes are the
@@ -308,8 +335,9 @@ issue describes.
 ## Open questions
 
 1. **Modifiers on `count`.** `places`, `percent` and `grouped` are written for `signal`.
-   RFC-0043's open question asks the same of `count`, with `roadmap.rs`'s `grouped()` as
-   evidence. Sharing one modifier parser is cheap. Whether `,` is the author's separator or a
+   RFC-0043's open question asks the same of `count`. The thousands-grouping helper it cited as
+   evidence is no longer in the tree, so `signal`'s `grouped` would be the first. Sharing one
+   modifier parser is cheap. Whether `,` is the author's separator or a
    corpus declaration is still unanswered.
 2. **A block that writes a table.** A row per node and a column per signal is the shape
    allen-county-ohio-democratic-party writes by hand 17 times. It would be a block-form
