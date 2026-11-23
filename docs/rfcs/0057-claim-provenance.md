@@ -7,7 +7,7 @@
   - RFC-0045 (`derive check`, `refuses:` and `refusal-span-drift`, which this keeps and gives a second reader)
   - #1067 (edge `source:` resolved against the catalog, closed 2026-09-29)
   - #1382 and #1391 (a nested `claim_tag` misread, and a per-entry standing read by nothing; both closed)
-- **Versioning layers touched:** CLI, prelude and the Rust SDK. `lint` gains one check, `refusal-undeclared`. It is Info, and it runs only where `universal.yml` asks for it. A node gains `not_refusals:`, beside `refuses:`. `refusal-span-drift` and `derive check` read it. `yidam-core` gains one public field, so it takes a minor bump. No change to the edge keys, the claim grammar or the node-level standing. No report or MCP contract change.
+- **Versioning layers touched:** CLI, prelude and all three SDKs. `lint` gains one check, `refusal-undeclared`. It is Info, and it runs only where `universal.yml` asks for it. A node gains `not_refusals:`, beside `refuses:`. `refusal-span-drift` and `derive check` read it. `refuses:` is a named field in the Rust, Python and TypeScript SDKs, so `not_refusals:` is named in all three, with a `parse_instance` parity fixture beside `refusals-are-declared-on-the-node.toml`. `yidam-core` gains one public field, so it takes a minor bump. No change to the edge keys, the claim grammar or the node-level standing. No report or MCP contract change.
 - **Downstream reference cases:** measured read-only on 2026-11-22 at `origin/main` of every derived repository on the measuring machine (§1). That is 21 repositories, 20 of them with a corpus. These include ohio-campaign-finance-2025-2026 (e91e01c), matt-huffman (7fcec05) and allen-county-ohio (7193553). allen-county-ohio-democratic-party and cellular-automata are not checked out there. The issue's figures for them are cited, not re-measured.
 
 ## Summary
@@ -20,7 +20,7 @@ them shipped before the issue was filed, and the measurement says how each one i
 spellings. The issue reads ohio-campaign-finance's 2,319 tagged links as invented fields. They are
 the recognised keys, on a pin that reads them. This RFC adds nothing to edges.
 
-**A sentence-level claim is not a shape the corpora write.** Of 48,821 `[verified]` tags, 7.7%
+**A sentence-level claim is not a shape the corpora write.** Of 48,820 `[verified]` tags, 7.7%
 cite a catalog entry in their own sentence. 78% cite one somewhere in the same field. One corpus
 in twenty writes the tag-then-source shape. A span list would duplicate 72,000 tags of prose, so
 this RFC adds no claim shape (§2.1).
@@ -28,7 +28,7 @@ this RFC adds no claim shape (§2.1).
 **Refusals shipped and are read by nothing.** `refuses:` has existed since 2026-09-29, and 0 of
 20 corpora declare one. Its only reader is `derive check`, and 0 of 21 repositories set
 `[derive] paths`. Meanwhile matt-huffman keeps its own recogniser and a 65-row ledger of rulings
-outside the graph. Half of those rulings say a paragraph is *not* a refusal. yidam has no place to
+outside the graph. 28 of those rulings say a paragraph is *not* a refusal. yidam has no place to
 write that down.
 
 This RFC gives `refuses:` a reader that needs no argument (§2.2). It adds `not_refusals:`, so a
@@ -109,8 +109,13 @@ It is a template field with no consumer.
 
 `derive`'s proposer, `proposes_refusal`, flags a paragraph that holds `[inference]` or `[open]`
 and a negation. It runs only over paragraphs an argument cites. Run over every paragraph, it
-flags 8,780 of 135,200, in 3,994 nodes. RFC-0045 measured its precision at 0.593, so about 5,200
-of those are refusals. None is declared.
+flags 8,780 of 135,200, in 3,994 nodes. None is declared.
+
+How many of the 8,780 are refusals is an estimate, not a measurement. RFC-0045 measured the
+proposer's precision at 0.593, against corpus A's 62 ruled paragraphs. Those paragraphs are one
+corpus's, picked by that corpus's own recogniser. At that precision about 5,200 would be
+refusals. Precision over the other nineteen corpora's paragraphs has not been measured, and
+could be lower.
 
 ### 1.6 What a corpus that needed this built
 
@@ -135,10 +140,14 @@ same false positives on every run. That is the reason a corpus keeps its ledger 
 The issue asks for "a sentence or span with its own tag and source". The measurement says three
 things against it.
 
-- **The unit is wrong.** A sentence often holds two standings (§1.3). `derive check` already
-  refuses a span in a paragraph with mixed tags, because that paragraph has no single standing.
-- **The corpora source at the field and the node.** A sentence-level `claim-unsourced` would fire
-  on about 45,000 tags that are sourced, just not adjacently.
+- **The unit is wrong.** A sentence often holds two standings (§1.3). `derive check` does not
+  read a sentence's standing either. It grades a cited span at the weakest tag the span
+  overlaps, and it refuses a span that crosses a blank line. The paragraph bounds a citation,
+  and the tags inside it set the grade.
+- **The corpora source at the field and the node.** 38,288 tags have a catalog link in their
+  field, and 3,769 of those have it in their sentence. A sentence-level `claim-unsourced` would
+  therefore fire on at least 34,500 tags that are sourced in the same field, just not
+  adjacently. Tags sourced only through `links:` would add to that.
 - **A span list duplicates prose.** `refuses:` is that design, and it went unadopted. A `claims:`
   list would quote 72,000 tags back out of the prose they sit in, and drift from all of them.
 
@@ -167,8 +176,8 @@ Then `lint` runs `proposes_refusal` over every paragraph of every node. It uses 
 |---|---|---|
 | `refusal-undeclared` | a paragraph the proposer flags that no `refuses:` or `not_refusals:` span rules on | no — Info |
 
-**Opt-in, because the default cannot be otherwise.** 8,780 findings on upgrade, four in ten of
-them wrong, is the gate arriving in a corpus that never agreed to it. `edge_claims: required:`
+**Opt-in, because the default cannot be otherwise.** 8,780 findings on upgrade, perhaps four in
+ten of them wrong (§1.5), is the gate arriving in a corpus that never agreed to it. `edge_claims: required:`
 is opt-in for the same reason.
 
 **Info, never more.** The proposer's precision is 0.593. Deciding which paragraphs refuse is a
@@ -194,8 +203,16 @@ honour it:
 - `derive check` does not raise `derive-refusal-candidate` over it;
 - `refusal-span-drift` holds it to the prose, as it holds a `refuses:` span.
 
-A span on both lists is an Error under `refusal-span-drift`. One paragraph cannot be ruled both
-ways.
+**A ruling is per paragraph, so its span sits in one paragraph.** A span on either list that
+crosses a blank line is an Error under `refusal-span-drift`. Today that check matches a span
+against the whole field, so such a span passes, but it silences no paragraph. `refusal-undeclared`
+would go on flagging its paragraph with nothing to say why. No corpus declares a refusal yet
+(§1.1), so tightening the check for `refuses:` fails no repository.
+
+**One paragraph cannot be ruled both ways.** A paragraph that holds a span from each list is an
+Error under `refusal-span-drift`, whether the spans are the same text or two different sentences
+of it. Comparing spans alone would let one paragraph be a refusal that `derive check` must answer
+and a non-refusal that the proposer skips, with no finding.
 
 **A separate key, not a field on `refuses:`.** A `refuses:` entry is something an argument must
 answer. A ruled non-refusal is the opposite, and `derive check` reads the list by name. One list
@@ -222,10 +239,17 @@ Lib tests on `refusal-undeclared`:
 - a `refuses:` span or a `not_refusals:` span silences its paragraph;
 - a paragraph without `[inference]` or `[open]` is never a finding.
 
-On `refusal-span-drift`, a drifted `not_refusals:` span is an Error, and so is a span on both
-lists. On `derive check`, a `not_refusals:` span suppresses `derive-refusal-candidate`.
+On `refusal-span-drift`, each of these is an Error:
 
-The new check goes through the usual registrations, the lint golden among them.
+- a drifted `not_refusals:` span;
+- a span on either list that crosses a blank line;
+- one paragraph holding a span from each list, with the same text and with two different
+  sentences.
+
+On `derive check`, a `not_refusals:` span suppresses `derive-refusal-candidate`.
+
+A `parse_instance` parity fixture pins `not_refusals:` as a named field in all three SDKs. The new
+check goes through the usual registrations, the lint golden among them.
 
 ## What this does not touch
 
@@ -237,9 +261,20 @@ The new check goes through the usual registrations, the lint golden among them.
 
 ## Migration & compatibility
 
-Nothing changes for a corpus that does not opt in. `not_refusals:` already survives as an
-unknown top-level key, so an old CLI reads a new node unchanged. A pin that predates this RFC
-ignores the key and the `refusals:` block in `universal.yml`.
+Nothing changes for a corpus that does not opt in. A pin that predates this RFC ignores the
+`refusals:` block in `universal.yml`.
+
+An old pin parses a node with `not_refusals:`, but it does not read it unchanged. Its `NOT_PROSE`
+holds only `refuses` and `cites`, so it reads the `not_refusals:` strings as the node's prose.
+That has three effects:
+
+- old `refusal-span-drift` passes a `refuses:` span whose text is gone from the prose but still
+  quoted under `not_refusals:`;
+- old `derive check` accepts a citation whose span appears only in that declaration;
+- old `derive check` may propose a declared non-refusal as `derive-refusal-candidate`.
+
+None of these fails a gate that passed before, and all three end at the corpus's next template
+update. A corpus that declares `not_refusals:` should update its pin in the same commit.
 
 A corpus with a ledger moves it into its nodes. Each `refusal` row becomes a `refuses:` entry,
 and each `not-a-refusal` row becomes a `not_refusals:` entry. That is the corpus's commit, and
@@ -260,7 +295,8 @@ serves one corpus in twenty. The broken-link checks already fail a link that res
 
 ### 4.3 Turn `refusal-undeclared` on by default
 
-That is 8,780 Info findings across these corpora, 3,600 of them wrong. A corpus would learn to
+That is 8,780 Info findings across these corpora. At corpus A's precision about 3,600 of them
+would be wrong (§1.5). A corpus would learn to
 ignore the check before it learned the key.
 
 ### 4.4 A ruling field on each `refuses:` entry
