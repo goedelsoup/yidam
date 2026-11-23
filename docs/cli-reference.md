@@ -900,6 +900,22 @@ Both declarations are load-bearing. The step sees what `reads` resolves to and n
 cannot quietly depend on a file it did not name. A step that writes outside `writes` is refused,
 with nothing committed.
 
+**What a step writes must read.** Every `.yml` and `.yaml` output must parse as YAML, and every
+`.json` as JSON. A refusal quotes the line the parser stopped at. A file directly under
+`.yidam/computed/` is held to the signal-table rules `yidam doctor` applies. They are checked over
+the tree the commit would have. So a row keyed on a missing node is refused, and so is a name
+another committed table claims. A computed `.yaml` is refused, because the reader lists `.yml`
+only. A defect in a file this step did not write does not block it. Anything else, such as a
+TSV or a nested report, has to be UTF-8 and nothing more.
+
+**The calculator kit reads the graph and writes the table.** `yidam/prelude/kit/` holds it twice.
+`yidam_kit.py` is Python 3.9 or later. `yidam_kit.rs` is one Rust file to include by path. Both
+use only their standard library. A derived repository vendors them under
+`.yidam/.vendor/prelude/kit/`, so a step lists that path in its `reads`. `read()` parses
+`$YIDAM_GRAPH`, and `signals(rows, method=…)` writes a table every reader reads back as given.
+`yidam`'s tests hold both kits to its own reader and writer. `examples/streamflow` runs one as
+`travel-support`.
+
 **The verb decides the destination.** An operational verb advances the current branch. An
 **epistemic** verb — `establish`, `revise`, `resolve` — loads and runs just the same. But its
 commit lands on `propose/<head>`, and the branch does not move. A person merges that branch to

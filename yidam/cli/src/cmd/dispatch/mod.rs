@@ -546,6 +546,11 @@ fn run(
     if let Err(e) = exec::check_declared(&cap, &produced.outputs) {
         return report.failed(format!("{e:#}"));
     }
+    // A position is landed on `tip`, so that is the tree its outputs are read against
+    // (RFC-0056 §2.1).
+    if let Err(e) = crate::cmd::run::outputs::check_readable(root, tip, &produced.outputs) {
+        return report.failed(format!("{e:#}"));
+    }
     if !produced.outputs.iter().any(|(p, _)| p == &position) {
         return report.failed(format!(
             "the elector exited 0 and wrote no `{position}` — `$YIDAM_POSITION` names where its \

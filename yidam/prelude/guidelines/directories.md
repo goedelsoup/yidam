@@ -870,6 +870,10 @@ calculators both emitting `tier` is one name meaning two things, and a reader th
 winner would make the other silently absent. `yidam doctor` reports the collision and names both
 files. [why](directories.evidence.md#computed-signal-names-are-repository-wide)
 
+**A run refuses a table a later reader would refuse.** `yidam run` reads each output before it
+lands, so a misindented block or a row keyed on a missing node is never committed. The kit in
+`.vendor/prelude/kit/` writes a table that passes, from Python or from Rust.
+
 **Nothing creates this directory.** A repository declaring no calculator has nothing to put in
 it, and a run is the only thing that writes here. `yidam doctor` asks what is in it and whether
 it still stands — a computed file whose inputs have moved, or whose bytes are not the ones its

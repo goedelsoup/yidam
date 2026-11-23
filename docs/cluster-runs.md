@@ -95,8 +95,9 @@ The exit code is zero either way. A corpus with nothing owed is its ordinary sta
 ## The image
 
 Each `cli/v*` release publishes `ghcr.io/goedelsoup/yidam-cluster:<version>` for `linux/amd64`
-and `linux/arm64`. The image is the `yidam` binary of that release, git and an SSH client on a
-slim Debian base. Nothing else runs in a pod.
+and `linux/arm64`. The image is the `yidam` binary of that release on a slim Debian base. It
+also holds git, an SSH client, and Python 3 for a calculator that uses the kit. Nothing else
+runs in a pod.
 
 Pass `--image` by digest to record which image ran. Each step receipt then carries
 `image_digest`. A tag can move, so a tag records nothing. Read the digest from the registry:

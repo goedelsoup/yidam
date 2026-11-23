@@ -1,4 +1,5 @@
-# The image every pod of a generated workflow runs: the `yidam` binary, git, and an SSH client.
+# The image every pod of a generated workflow runs: the `yidam` binary, git, an SSH client, and
+# Python.
 #
 # Nothing else. A pod clones a bundle into scratch, does one act, and exits — there is no
 # checkout to keep warm and no daemon to run. The build stage is the CLI crate alone, so the
@@ -31,8 +32,12 @@ RUN cargo build --release --locked --manifest-path yidam/cli/Cargo.toml --bin yi
       --features calculators-gluon,catalog-fetch
 
 FROM debian:trixie-slim
+# `python3` for the reason the build takes `calculators-gluon`: a pod runs whatever arm the
+# manifest declares, and the calculator kit's Python half is the arm a kit step runs under
+# `python3 -I` (RFC-0056 §2.3). The kit is standard library only, so nothing is installed
+# beyond the interpreter and its library; `python3-minimal` lacks `json`.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git openssh-client ca-certificates \
+ && apt-get install -y --no-install-recommends git openssh-client ca-certificates python3 \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/yidam/cli/target/release/yidam /usr/local/bin/yidam
 # The records pods write for each other, and the scratch every pod clones into.

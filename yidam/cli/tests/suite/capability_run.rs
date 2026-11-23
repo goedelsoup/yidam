@@ -883,6 +883,36 @@ fn with_verb(e: &Example, step: &str, verb: &str) {
     .unwrap();
 }
 
+/// `text` with `step`'s own table passed through `edit`, and everything around it as it was.
+///
+/// Scoped to the table because two steps can declare the same line: a `replacen` over the
+/// whole manifest edits whichever comes first, which may not be the step under test.
+fn in_table(text: &str, step: &str, edit: impl Fn(&str) -> String) -> String {
+    let head = format!("[capability.{step}]");
+    let at = text
+        .find(&head)
+        .unwrap_or_else(|| panic!("the manifest declares no `{step}`"));
+    let rest = &text[at + head.len()..];
+    // A table ends at the next header, or at the blank line before that header's comment.
+    let end = at
+        + head.len()
+        + ["\n[", "\n\n"]
+            .iter()
+            .filter_map(|sep| rest.find(sep))
+            .min()
+            .unwrap_or(rest.len());
+    format!("{}{}{}", &text[..at], edit(&text[at..end]), &text[end..])
+}
+
+/// A table with its `run` line, whatever it invokes, replaced by `run`.
+fn with_run(table: &str, run: &str) -> String {
+    table
+        .lines()
+        .map(|l| if l.starts_with("run ") { run } else { l })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Run everything the manifest declares, so the next run has only the epistemic step to do.
 ///
 /// Called **after** the verb is re-declared and not before, because the edit is what makes
@@ -1447,10 +1477,9 @@ fn a_step_is_handed_the_resolved_corpus_it_would_otherwise_re_derive() {
         // Asserted rather than assumed. A replacement that matched nothing leaves the step running
         // its own script, and every assertion below then reads as the probe having been handed
         // nothing — which is the reverse of what happened.
-        let rewritten = text.replace(
-            &format!("run    = [\"sh\", \".yidam/capabilities/{step}.sh\"]"),
-            &format!("run    = [\"sh\", \"{copy}\"]"),
-        );
+        let rewritten = in_table(&text, &step, |t| {
+            with_run(t, &format!("run    = [\"sh\", \"{copy}\"]"))
+        });
         assert_ne!(
             rewritten, text,
             "`{step}` in {example} does not spell its `run` the way this mutation looks for, so \
@@ -1546,15 +1575,17 @@ fn a_step_that_reads_no_corpus_is_handed_no_resolved_corpus() {
     let text = std::fs::read_to_string(&manifest).expect("the manifest");
     std::fs::write(
         &manifest,
-        text.replace(
-            &format!("run    = [\"sh\", \".yidam/capabilities/{step}.sh\"]"),
-            &format!("run    = [\"sh\", \"{probe}\"]"),
-        )
-        .replacen(
-            "reads  = [\".yidam/corpus/**\", \".yidam/capabilities/**\"]",
-            "reads  = [\".yidam/capabilities/**\"]",
-            1,
-        ),
+        in_table(&text, &step, |t| {
+            let edited = with_run(t, &format!("run    = [\"sh\", \"{probe}\"]")).replace(
+                "reads  = [\".yidam/corpus/**\", \".yidam/capabilities/**\"]",
+                "reads  = [\".yidam/capabilities/**\"]",
+            );
+            assert!(
+                !edited.contains(".yidam/corpus"),
+                "`{step}` still reads the corpus after the rewrite:\n{edited}"
+            );
+            edited
+        }),
     )
     .expect("rewriting the manifest");
     git(&e.path(), &["add", "-A"]);

@@ -146,6 +146,9 @@ pub(super) fn step_in(
 
     let produced = exec::invoke(cap, &inputs, name, input)?;
     exec::check_declared(cap, &produced.outputs)?;
+    // The same reading `yidam run` gives a step's outputs, against the commit this one is
+    // built on, so a pod lands nothing a local run would refuse (RFC-0056 §2.1).
+    crate::cmd::run::outputs::check_readable(root, input, &produced.outputs)?;
     if !produced.stderr.is_empty() {
         // Passed through, not recorded: a pod's log is not provenance, and the receipt is.
         eprint!("{}", produced.stderr);

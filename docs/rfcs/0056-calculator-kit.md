@@ -1,6 +1,6 @@
 # RFC-0056 — A calculator reads the graph yidam wrote, and writes a file yidam has already read
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I39
 - **Relates to:**
   - #1501 (five derived repos wrote their own `$YIDAM_GRAPH` reader or output writer; the evidence this answers), parent epic #1513
@@ -77,6 +77,12 @@ The issue adds cellular-automata: 120 f-string calculators run under `python3 -I
 So the failures come from one kind of writer: a string format that has to get YAML's scalar
 rules right at every call site. The writers that got it right each wrote a quoting function.
 They wrote three.
+
+Not all nine fail the same reader. `yidam` reads YAML 1.2 with `serde_yaml`, which refuses seven:
+idm-ring's and the six ngsim-arterial blobs. travel-demand's two are valid YAML 1.2, where
+`00:00` is a string. PyYAML reads YAML 1.1, where it is a sexagesimal int, and refuses the flow
+sequence. So a run check with `yidam`'s reader catches seven of the nine. The other two are a
+writer's failure that only a writer can prevent, and the kit's writer quotes every string.
 
 ### 1.3 What the template checks, and when
 
@@ -156,16 +162,18 @@ carries the `<key>[<i>].<field>` rows, and as the flat rows when it does not.
 **The writer** emits block YAML from a value tree of mappings, lists and scalars. Every string is
 written double-quoted. So `00:00`, `yes`, `a: b`, `#x`, a leading space and a newline each come
 back as the string they were. The writer escapes `"`, `\`, every C0 control, DEL and every C1
-control, using `\xNN`. Every other character is written as itself, including a character
-outside the Basic Multilingual Plane. That is not JSON's rule. JSON writes such a character as a
+control, using `\xNN`. It escapes U+2028, U+2029, U+FFFE and U+FFFF as `\uXXXX`: no reader
+accepts the last two raw, and YAML 1.1 folds the first two to a space. Every other character is
+written as itself, including a character outside the Basic Multilingual Plane. That is not JSON's rule. JSON writes such a character as a
 surrogate pair, which a YAML reader refuses. JSON also leaves DEL and C1 controls raw, and YAML
-does not allow them raw.
+does not allow them raw. A lone surrogate is refused, because it is not text.
 
 A float always carries a `.`, and an exponent when it has one, as in `12.0` and `1.0e+16`. The
 digits are the shortest that round-trip. Without the `.`, Rust writes `12.0` as `12`, which reads
 back as an int, and PyYAML reads `1e+16` as a string. A non-finite float is refused. YAML can
 spell one, as `.inf` or `.nan`, but JSON cannot, and a reader that loads a signal into a JSON
-value would lose it. A calculator that means an unbounded value writes a string for it.
+value would lose it. A calculator that means an unbounded value writes a string for it. An int outside the 64-bit
+range `serde_yaml` reads, `i64::MIN` to `u64::MAX`, is refused too.
 
 A key is written bare when it matches `[A-Za-z_][A-Za-z0-9_-]*` and is not a word any YAML schema
 reads as something else: `true`, `false`, `null`, `yes`, `no`, `on`, `off`, `y`, `n`, in any
@@ -181,9 +189,13 @@ be a second list to keep in step (§4.3).
 ### 2.3 The template's own calculators
 
 `examples/streamflow`'s `travel-tier.sh` is sh and awk over `$YIDAM_GRAPH`, and stays so. It is
-the example of a step that needs no kit. A Python calculator, `travel-tier.py`, is added beside it
-and uses the kit for both directions. It shows the `reads` line that makes a kit update a reason
-to re-run.
+the example of a step that needs no kit. A Python calculator, `travel-support.py`, is added beside
+it and uses the kit for both directions. For each node, it counts the corpus nodes its links rest
+on, and the links that reach no node.
+
+The example vendors no prelude, so its copy of the kit sits beside the script, under
+`.yidam/capabilities/`, which the step already reads. A partial `.yidam/.vendor/prelude/` would
+change what `doctor` says about the prelude pin. A test holds the copy byte-equal to the kit.
 
 ### 2.4 What the SDKs are for
 
@@ -202,10 +214,11 @@ which `$YIDAM_GRAPH` does not carry. That is the SDKs' job, and the open questio
 ### 2.5 Tests
 
 - **The run refuses each failure shape it can see.** A step writing each of these is refused,
-  and nothing is committed: travel-demand's line 105; a misindented flow mapping; `signals:` with
+  and nothing is committed: a misindented flow mapping; `signals:` with
   no `format_version`; a row keyed on a node the corpus does not hold; a name another committed
   file declares; invalid JSON; a `.yidam/computed/*.yaml`. A step writing a TSV, a `.txt`, or a report `.yml` with no
   `signals:` commits as before.
+  travel-demand's line 105 parses for `yidam`, and a unit test says so (§1.2).
 - **A neighbour's problem is not the step's.** A corpus whose committed computed file collides
   with itself still lets an unrelated step land.
 - **The reader agrees with the writer of the format.** The template's test renders the graph of
@@ -219,6 +232,12 @@ which `$YIDAM_GRAPH` does not carry. That is the SDKs' job, and the open questio
   `12.0`, `1e16` and `-0.0`.
 - **The kit is standard library only.** The Python kit runs under `python3 -I` with an empty
   `PYTHONPATH`. The Rust kit compiles in a crate with no dependencies.
+
+The run's refusals are suite tests in `yidam/cli/tests/suite/run_outputs.rs`. The kit's are unit
+tests in `yidam/cli/src/cmd/run/kit.rs`, because the graph renderer and the corpus reader they
+compare against are private to the crate. The hostile set is
+`yidam/cli/tests/fixtures/calculator-kit/hostile.json`. The PyYAML reading is
+`yidam/sdks/python/tests/test_calculator_kit.py`, where PyYAML is already a dependency.
 
 ## What this does not touch
 
