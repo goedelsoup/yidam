@@ -352,7 +352,7 @@ every class in the same way.
 #### Property names, and predicates by operator
 
 A property name must be declared by the class, or matched by `.yidam/corpus/universal.yml` —
-by exact name or by pattern ([`universal.rs:57-69`](../../yidam/cli/src/universal.rs#L57-L69)),
+by exact name or by pattern ([`UniversalProperty`](../../yidam/cli/src/universal.rs#L66-L84)),
 so `seeded_because` and `fy2024_profile` are queryable without being declared on sixteen
 classes. An undeclared name is **rejected** with the class's declared list.
 

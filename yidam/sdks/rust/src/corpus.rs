@@ -117,9 +117,24 @@ pub struct Refusal {
 /// **Its own list, not a flag on [`Refusal`].** A `refuses:` entry is one an artifact citing
 /// the node must answer. A ruled non-refusal is the opposite, and a reader that wants one
 /// list should not have to filter the other out of it.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
 pub struct NotRefusal {
     pub span: Option<String>,
+}
+
+/// Read leniently, as the Python and TypeScript readers read it: an entry that is not a mapping,
+/// or a `span` that is not a string, is an entry with no span. A derived reader refused the
+/// whole node over one stray `- some text`, so the node came back empty here while the other
+/// two kept every field it held. `refusal-span-drift` reports the spanless entry instead.
+impl<'de> Deserialize<'de> for NotRefusal {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let entry = serde_yaml::Value::deserialize(d)?;
+        let span = entry
+            .get("span")
+            .and_then(serde_yaml::Value::as_str)
+            .map(str::to_string);
+        Ok(Self { span })
+    }
 }
 
 /// A corpus node: `.yidam/corpus/<class>/<name>.yml`.

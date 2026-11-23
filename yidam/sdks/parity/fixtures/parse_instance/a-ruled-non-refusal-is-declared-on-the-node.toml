@@ -1,5 +1,5 @@
 function = "parse_instance"
-description = "RFC-0057: `not_refusals:` is where a node declares a paragraph a person ruled is not a refusal — a verbatim span per entry, read as a named field beside `refuses:` rather than left in `extra`, so the ruling is not proposed again"
+description = "RFC-0057: `not_refusals:` is where a node declares a paragraph a person ruled is not a refusal — a verbatim span per entry, read as a named field beside `refuses:` rather than left in `extra`, so the ruling is not proposed again. An entry that is not a mapping, or a span that is not a string, is an entry with no span, never an unreadable node"
 
 [input]
 content = """
@@ -15,6 +15,8 @@ refuses:
 not_refusals:
   - span: The publisher does not label the motions; the Journal does.
   - {}
+  - The publisher does not label the motions.
+  - span: 2024
 """
 
 [expected]
@@ -31,6 +33,8 @@ instance = """
   ],
   "not_refusals": [
     { "span": "The publisher does not label the motions; the Journal does." },
+    { "span": null },
+    { "span": null },
     { "span": null }
   ],
   "cites": null,

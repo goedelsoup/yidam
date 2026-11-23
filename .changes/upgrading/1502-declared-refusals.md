@@ -9,7 +9,7 @@ Neither list is read as the node's prose.
 **`refusal-span-drift` now reports three more errors.**
 
 It fails a drifted `not_refusals:` span, as it fails a drifted `refuses:` span.
-It fails a span on either list that crosses a blank line.
+It fails a span on either list that crosses a blank line, or that is found in more than one paragraph.
 It fails a paragraph that holds a span from each list.
 No corpus declared a refusal when this shipped, so no existing corpus should see these.
 

@@ -139,6 +139,22 @@ pub(crate) fn paragraphs_holding(fields: &[Field], span: &str) -> Vec<String> {
         .collect()
 }
 
+/// The one paragraph a declared span rules on, flattened — `None` when the span sits in none,
+/// or in more than one distinct paragraph.
+///
+/// A ruling is per paragraph (RFC-0057), so a span that names several names none: read as
+/// "every paragraph containing these words", a three-word `not_refusals:` span silences every
+/// paragraph that happens to repeat it, refusals included. `refusal-span-drift` reports the
+/// ambiguous span, and until it is lengthened it rules on nothing.
+pub(crate) fn ruled_paragraph(fields: &[Field], span: &str) -> Option<String> {
+    let held: BTreeSet<String> = paragraphs_holding(fields, span).into_iter().collect();
+    let mut held = held.into_iter();
+    match (held.next(), held.next()) {
+        (Some(p), None) => Some(p),
+        _ => None,
+    }
+}
+
 /// A node's `refuses:` spans, as written, blank ones dropped.
 pub(crate) fn refusal_spans(node: &Node) -> Vec<&str> {
     let declared = node.inst.refuses.as_deref().unwrap_or_default();
@@ -512,8 +528,12 @@ pub(crate) fn check_artifact(rel: &str, text: &str, cited: &Cited) -> Option<Der
 
         // ── the refusals in the paragraphs this span sits in ──
         let refusals = refusal_spans(node);
-        // A paragraph a person ruled is not a refusal is not proposed again (RFC-0057 §2.3).
-        let ruled: Vec<String> = not_refusal_spans(node).into_iter().map(flatten).collect();
+        // A paragraph a person ruled is not a refusal is not proposed again (RFC-0057 §2.3) —
+        // the one paragraph each span names, not every paragraph repeating its words.
+        let ruled: BTreeSet<String> = not_refusal_spans(node)
+            .into_iter()
+            .filter_map(|s| ruled_paragraph(&fields, s))
+            .collect();
         let quoted = flatten(span);
         for paragraph in &paragraphs {
             let mut declared_here = false;
@@ -530,8 +550,7 @@ pub(crate) fn check_artifact(rel: &str, text: &str, cited: &Cited) -> Option<Der
                     owed.push((id.0, id.1, refusal.trim().to_string()));
                 }
             }
-            let ruled_here = ruled.iter().any(|r| paragraph.contains(r.as_str()));
-            if !declared_here && !ruled_here && proposes_refusal(paragraph) {
+            if !declared_here && !ruled.contains(paragraph) && proposes_refusal(paragraph) {
                 candidates.insert((key.to_string(), paragraph.clone()));
             }
         }

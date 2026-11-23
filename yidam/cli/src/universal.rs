@@ -155,7 +155,11 @@ struct File {
     refusals: DeclaredRefusals,
 }
 
+/// Closed, unlike its neighbours: the block holds one switch, and a misspelt `proposes: true`
+/// read as "absent means no" would leave the check silently off in a corpus that asked for it.
+/// An unknown key fails the parse, and `malformed-yaml` names the file.
 #[derive(Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DeclaredRefusals {
     #[serde(default)]
     propose: bool,
@@ -483,6 +487,14 @@ properties:
         let u = Universal::parse("refusals:\n  propose: true\n");
         assert!(u.propose_refusals());
         assert!(!u.is_empty(), "the file said something");
+    }
+
+    /// A misspelt switch is a malformed file, not a corpus that said no.
+    #[test]
+    fn a_misspelt_refusals_key_is_reported_not_ignored() {
+        let u = Universal::parse("refusals:\n  proposes: true\n");
+        assert!(!u.propose_refusals());
+        assert!(u.malformed().is_some(), "the typo must be named");
     }
 
     // ── the parse outcome (#1081) ─────────────────────────────────────────────

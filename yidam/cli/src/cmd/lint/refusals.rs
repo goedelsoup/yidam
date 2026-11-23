@@ -9,7 +9,7 @@
 //!
 //! `not_refusals:` is the other direction of a ruling: a paragraph a person read and ruled
 //! declines nothing. The same check holds it to the prose. A ruling is per paragraph, so a span on
-//! either list must sit inside one, and one paragraph cannot be ruled both ways.
+//! either list must sit inside exactly one, and one paragraph cannot be ruled both ways.
 //!
 //! `refusal-undeclared` runs `derive`'s proposer over every paragraph of every node, not only the
 //! cited ones, and names each flagged paragraph that neither list rules on. It is Info and opt-in:
@@ -22,7 +22,7 @@ use crate::cmd::lint::model::{Check, Severity, Violation};
 use crate::corpus::Node;
 use crate::derive::{
     in_prose, not_refusal_spans, paragraphs_holding, proposes_refusal, prose_fields, refusal_spans,
-    Field,
+    ruled_paragraph, Field,
 };
 use crate::universal::Universal;
 
@@ -57,13 +57,20 @@ fn span_problem(fields: &[Field], span: Option<&str>, list: &str) -> Option<Stri
             ),
         });
     }
-    paragraphs_holding(fields, span).is_empty().then(|| {
-        format!(
+    let held: BTreeSet<String> = paragraphs_holding(fields, span).into_iter().collect();
+    match held.len() {
+        0 => Some(format!(
             "quotes a `{list}:` span that crosses a blank line — a ruling is per paragraph, so \
              quote a sentence inside one. Span: {}",
             truncate(span)
-        )
-    })
+        )),
+        1 => None,
+        n => Some(format!(
+            "quotes a `{list}:` span found in {n} paragraphs — a ruling is per paragraph, so \
+             quote enough of the sentence to name one; until then it rules on none. Span: {}",
+            truncate(span)
+        )),
+    }
 }
 
 /// Every declared span on either list that is absent, gone from the prose, or across a blank
@@ -89,13 +96,15 @@ pub fn refusal_span_drift(nodes: &[Node]) -> Check {
                 .flatten()
                 .map(|detail| Violation::new(&n.rel, detail))
                 .collect();
+            // Each span's one paragraph: an ambiguous span is reported above and rules on none,
+            // so a short span repeated elsewhere is not read as a second ruling there.
             let refused: BTreeSet<String> = refusal_spans(n)
                 .into_iter()
-                .flat_map(|s| paragraphs_holding(&fields, s))
+                .filter_map(|s| ruled_paragraph(&fields, s))
                 .collect();
             let both: BTreeSet<String> = not_refusal_spans(n)
                 .into_iter()
-                .flat_map(|s| paragraphs_holding(&fields, s))
+                .filter_map(|s| ruled_paragraph(&fields, s))
                 .filter(|p| refused.contains(p))
                 .collect();
             out.extend(both.iter().map(|p| {
@@ -122,8 +131,8 @@ pub fn refusal_span_drift(nodes: &[Node]) -> Check {
          prose no longer contains governs nothing, and every argument resting on that paragraph \
          is released from it with no finding anywhere. A `not_refusals:` span is held the same \
          way, because a ruling that quotes nothing silences nothing and the paragraph is proposed \
-         again. A ruling is per paragraph, so a span across a blank line, or one paragraph ruled \
-         both ways, is reported too (RFC-0057). Error, under the baseline ratchet: the repair is \
+         again. A ruling is per paragraph, so a span across a blank line, a span found in more \
+         than one paragraph, or one paragraph ruled both ways, is reported too (RFC-0057). Error, under the baseline ratchet: the repair is \
          in this corpus and is one edit. Whitespace is normalized and nothing else is, which is \
          `local-citation-span-drift`'s comparison. The population is empty in a corpus that \
          declares neither list, so this cannot fail a repository that predates it.",
@@ -138,17 +147,23 @@ pub fn refusal_undeclared(nodes: &[Node], universal: &Universal) -> Check {
         nodes
             .iter()
             .flat_map(|n| {
-                let declared: Vec<String> = refusal_spans(n)
+                let fields = prose_fields(&n.text);
+                // The one paragraph each span names, not every paragraph repeating its words.
+                let ruled: BTreeSet<String> = refusal_spans(n)
                     .into_iter()
                     .chain(not_refusal_spans(n))
-                    .map(flatten)
+                    .filter_map(|s| ruled_paragraph(&fields, s))
                     .collect();
-                prose_fields(&n.text)
-                    .into_iter()
-                    .flat_map(|f| f.paragraphs)
-                    .map(|p| flatten(&p))
-                    .filter(|p| !declared.iter().any(|d| p.contains(d.as_str())))
+                // A paragraph written twice — a coined `summary:` repeating the description's
+                // first paragraph — is one paragraph to rule on, so it is named once.
+                let mut seen = BTreeSet::new();
+                fields
+                    .iter()
+                    .flat_map(|f| f.paragraphs.iter())
+                    .map(|p| flatten(p))
+                    .filter(|p| !ruled.contains(p))
                     .filter(|p| proposes_refusal(p))
+                    .filter(|p| seen.insert(p.clone()))
                     .map(|p| {
                         Violation::new(
                             &n.rel,
@@ -311,6 +326,30 @@ not_refusals:
         }
     }
 
+    /// A short `refuses:` span whose words recur in the paragraph a `not_refusals:` span rules
+    /// is ambiguous, and is reported as that — not as one paragraph ruled both ways.
+    #[test]
+    fn a_span_in_two_paragraphs_is_ambiguous_not_a_conflict() {
+        let text = "\
+class: claim
+description: |
+  [inference] The survey does not say who owns it; the deed does.
+
+  [open] The survey does not say.
+refuses:
+  - span: The survey does not say
+not_refusals:
+  - span: who owns it; the deed does.
+";
+        let check = refusal_span_drift(&[node(text)]);
+        assert_eq!(check.violations.len(), 1, "{:?}", check.violations);
+        assert!(
+            check.violations[0].detail.contains("found in 2 paragraphs"),
+            "{:?}",
+            check.violations
+        );
+    }
+
     #[test]
     fn rulings_on_two_paragraphs_do_not_conflict() {
         let text = format!(
@@ -355,6 +394,27 @@ description: |
         );
         let check = refusal_undeclared(&[node(&text)], &asked());
         assert!(check.violations.is_empty(), "{:?}", check.violations);
+    }
+
+    /// A span that names no single paragraph silences none — a two-word ruling does not
+    /// switch the proposer off for every paragraph that repeats it.
+    #[test]
+    fn an_ambiguous_span_silences_nothing() {
+        let text = format!("{UNRULED}not_refusals:\n  - span: does not\n");
+        let check = refusal_undeclared(&[node(&text)], &asked());
+        assert_eq!(check.violations.len(), 2, "{:?}", check.violations);
+    }
+
+    #[test]
+    fn a_paragraph_written_twice_is_named_once() {
+        let text = "\
+class: claim
+description: |
+  [inference] The publisher does not label the motions.
+summary: \"[inference] The publisher does not label the motions.\"
+";
+        let check = refusal_undeclared(&[node(text)], &asked());
+        assert_eq!(check.violations.len(), 1, "{:?}", check.violations);
     }
 
     #[test]
