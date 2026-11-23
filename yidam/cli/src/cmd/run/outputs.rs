@@ -93,7 +93,10 @@ fn parse_problem(path: &str, bytes: &[u8]) -> Option<String> {
     // Not UTF-8 is `build_commit`'s refusal, and it says so in its own words.
     let text = std::str::from_utf8(bytes).ok()?;
     let (what, message, line) = if yaml {
-        let e = serde_yaml::from_str::<serde_yaml::Value>(text).err()?;
+        // Every document of a multi-document stream, as a report artifact may be one. A
+        // computed table is still one document: `Signals` refuses the stream itself.
+        let e = serde_yaml::Deserializer::from_str(text)
+            .find_map(|doc| <serde_yaml::Value as serde::Deserialize>::deserialize(doc).err())?;
         let line = e.location().map(|l| l.line());
         ("YAML", e.to_string(), line)
     } else {
@@ -114,9 +117,10 @@ fn parse_problem(path: &str, bytes: &[u8]) -> Option<String> {
 /// over it.
 ///
 /// `Signals` reads three things: the manifest, the top-level computed files, and whether a node
-/// file exists. So the manifest and the computed files are checked out, and each corpus file is
-/// written empty: the reader asks only that it is there. A step that writes a node and a row
-/// keyed on it in one landing sees both.
+/// file exists. The computed files are checked out of `parent`, and each corpus file is written
+/// empty: the reader asks only that it is there. The manifest is the working tree's, because
+/// that is the one the run planned from and `check_declared` read; the parent's may name other
+/// outputs. A step that writes a node and a row keyed on it in one landing sees both.
 fn overlay(root: &Path, parent: &str, produced: &[(String, Vec<u8>)]) -> Result<Scratch> {
     let index = TempIndex::new(root, "outputs")?;
     let index_path = index.path().to_path_buf();
@@ -131,7 +135,7 @@ fn overlay(root: &Path, parent: &str, produced: &[(String, Vec<u8>)]) -> Result<
 
     let mut wanted: Vec<&str> = Vec::new();
     for path in listed.split('\0').filter(|p| !p.is_empty()) {
-        if path == crate::cmd::run::manifest::MANIFEST || top_level_computed(path, ".yml") {
+        if top_level_computed(path, ".yml") {
             wanted.push(path);
         } else if path.starts_with(".yidam/corpus/") && path.ends_with(".yml") {
             write(tree.path(), path, b"")?;
@@ -145,6 +149,10 @@ fn overlay(root: &Path, parent: &str, produced: &[(String, Vec<u8>)]) -> Result<
             &["checkout-index", "-f", "--stdin", "-z", "--prefix", &prefix],
             Some(&wanted.join("\0")),
         )?;
+    }
+    let manifest = crate::cmd::run::manifest::MANIFEST;
+    if let Ok(bytes) = std::fs::read(root.join(manifest)) {
+        write(tree.path(), manifest, &bytes)?;
     }
     for (path, bytes) in produced {
         write(tree.path(), path, bytes)?;
@@ -196,5 +204,12 @@ mod tests {
         assert!(parse_problem("a.json", b"{\"a\": 1}").is_none());
         assert!(parse_problem("graph.tsv", b"- [00:00").is_none());
         assert!(parse_problem("a.yml", b"a: [1, 2]\n").is_none());
+    }
+
+    #[test]
+    fn a_multi_document_report_reads_and_a_bad_document_in_it_is_named() {
+        assert!(parse_problem("r.yml", b"a: 1\n---\nb: 2\n").is_none());
+        let p = parse_problem("r.yml", b"a: 1\n---\nb: [1\n").expect("refused");
+        assert!(p.contains("does not parse as YAML"), "{p}");
     }
 }

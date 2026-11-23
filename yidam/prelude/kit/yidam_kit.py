@@ -203,7 +203,7 @@ def _scalar(kind, raw, where):
     return Opaque(kind)
 
 
-_ITEM = re.compile(r"\[(\d+)\](?:\.(.*))?\Z", re.S)
+_ITEM = re.compile(r"\[([0-9]+)\](?:\.(.*))?\Z", re.S)
 
 
 def _ref(corpus_dir, id_):
@@ -286,6 +286,10 @@ def parse(text):
             if n is not None:
                 _add_prop(n, fields[2], fields[3], fields[4])
         elif kind == "link" and len(fields) >= 7:
+            # Checked before the node is looked up, as the Rust kit does, and as ASCII digits:
+            # `int` alone takes `" 1"`, `"1_0"` and other scripts' digits.
+            if not re.fullmatch(r"[0-9]+", fields[2]):
+                raise KitError("line %d: a link index is %r" % (number, fields[2]))
             n = graph._by.get(fields[1])
             if n is not None:
                 n.links.append(

@@ -634,7 +634,10 @@ pub fn signals(
     }
     table.push(("signals".into(), Value::List(rows)));
     for (k, v) in fields {
-        if table.iter().any(|(t, _)| *t == k) {
+        // Every name signals() owns, whether or not it wrote that one this time: a `method`
+        // passed as a field would read as the method this table was computed by.
+        let owned = ["format_version", "method", "signals"].contains(&k.as_str());
+        if owned || table.iter().any(|(t, _)| *t == k) {
             return fail(format!("`{k}` is written by signals() itself"));
         }
         table.push((k, v));
