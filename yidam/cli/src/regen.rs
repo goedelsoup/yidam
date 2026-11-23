@@ -175,15 +175,10 @@ pub fn block_commands(text: &str, inline_only: bool) -> Vec<String> {
 /// `malformed-regen-block` to report. Lines are preserved, because an inline block holds no
 /// newline.
 pub fn strip_markers(text: &str) -> std::borrow::Cow<'_, str> {
-    const CLOSE: &str = "<!-- /REGEN -->";
     if !text.contains("<!-- REGEN:") {
         return std::borrow::Cow::Borrowed(text);
     }
-    let spans: Vec<_> = yidam_core::markers::scan_markers(&crate::markdown::mask_code(text))
-        .regen
-        .into_iter()
-        .filter(|span| span.inline && text[span.close..].starts_with(CLOSE))
-        .collect();
+    let spans = inline_spans(text);
     if spans.is_empty() {
         return std::borrow::Cow::Borrowed(text);
     }
@@ -196,6 +191,55 @@ pub fn strip_markers(text: &str) -> std::borrow::Cow<'_, str> {
     }
     out.push_str(&text[cursor..]);
     std::borrow::Cow::Owned(out)
+}
+
+const CLOSE: &str = "<!-- /REGEN -->";
+
+/// The inline REGEN blocks a node file holds: masked first, so a block shown in a code span is
+/// not one, and closed, so an unclosed one is left for `malformed-regen-block`.
+fn inline_spans(text: &str) -> Vec<yidam_core::markers::RegenSpan> {
+    yidam_core::markers::scan_markers(&crate::markdown::mask_code(text))
+        .regen
+        .into_iter()
+        .filter(|span| span.inline && text[span.close..].starts_with(CLOSE))
+        .collect()
+}
+
+/// Whether `path`, as a generator was handed it, is a node file — [`is_node_file`] over the
+/// part from the last `.yidam/corpus/` on.
+fn is_node_path(path: &Path) -> bool {
+    let path = path.to_string_lossy();
+    path.rmatch_indices(".yidam/corpus/")
+        .find(|(at, _)| *at == 0 || path[..*at].ends_with('/'))
+        .is_some_and(|(at, _)| is_node_file(&path[at..]))
+}
+
+/// [`update_regen`] over the blocks a node file's readers read, and no others.
+///
+/// `update_regen` scans the raw text and rewrites every block with the command, in any form.
+/// In a node file that would reach a block shown in a code span, and a line-shaped block whose
+/// multi-line body ends the YAML scalar it sits in — the two that [`block_commands`] and
+/// [`strip_markers`] deliberately leave as text. So here: inline blocks only, masked first, and
+/// a value of more than one line writes nothing.
+pub fn update_inline_regen(text: &str, command: &str, new_content: &str) -> String {
+    if new_content.contains('\n') {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0;
+    for span in inline_spans(text)
+        .into_iter()
+        .filter(|span| span.command == command)
+    {
+        out.push_str(&text[cursor..span.body]);
+        out.push_str(new_content);
+        cursor = span.close;
+    }
+    if cursor == 0 {
+        return text.to_string();
+    }
+    out.push_str(&text[cursor..]);
+    out
 }
 
 /// Check mode, and what it found.
@@ -360,9 +404,25 @@ pub fn update_file_regen(path: &Path, command: &str, new_content: &str) -> Resul
     }
     let original =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let updated = update_regen(&original, command, new_content);
+    let node = is_node_path(path);
+    let updated = if node {
+        update_inline_regen(&original, command, new_content)
+    } else {
+        update_regen(&original, command, new_content)
+    };
     if updated == original {
         return Ok(());
+    }
+    // A node file is YAML before it is prose. A body that would leave a parsed node unparsed is
+    // refused at the one write point, so no generator can land one (RFC-0058 §2.3).
+    if node
+        && serde_yaml::from_str::<serde_yaml::Value>(&original).is_ok()
+        && serde_yaml::from_str::<serde_yaml::Value>(&updated).is_err()
+    {
+        anyhow::bail!(
+            "writing `{new_content}` into {} would leave it unreadable as YAML",
+            path.display()
+        );
     }
     // The single write point, which is what makes `--check` a flag rather than a second
     // implementation of the same ten generators.
@@ -622,5 +682,27 @@ Fields: node count, open questions.\n\
         assert!(!is_node_file(".yidam/computed/x.yml"));
         assert!(reads_regen("README.md") && reads_regen(".yidam/corpus/gage/x.yml"));
         assert!(!reads_regen("mise.toml"));
+        assert!(is_node_path(Path::new("/r/.yidam/corpus/gage/x.yml")));
+        assert!(is_node_path(Path::new(".yidam/corpus/gage/x.yml")));
+        assert!(!is_node_path(Path::new("/r/.yidam/corpus/gage.ont.yml")));
+        assert!(!is_node_path(Path::new("/r/a.yidam/corpus/gage/x.yml")));
+        assert!(!is_node_path(Path::new("/r/README.md")));
+    }
+
+    /// A node file's write reaches the inline blocks its readers read: not a line-shaped
+    /// block, whose body would end the YAML scalar, and not one shown in a code span.
+    #[test]
+    fn a_node_write_reaches_inline_blocks_only() {
+        let text = "description: |\n  \
+                    Up to <!-- REGEN: yidam signal a -->1<!-- /REGEN --> s.\n  \
+                    Shown `<!-- REGEN: yidam signal a -->1<!-- /REGEN -->`.\n  \
+                    <!-- REGEN: yidam signal a -->\n  1\n  <!-- /REGEN -->\n";
+        let updated = update_inline_regen(text, "yidam signal a", "2");
+        assert_eq!(
+            updated,
+            text.replacen("-->1<!-- /REGEN --> s.", "-->2<!-- /REGEN --> s.", 1)
+        );
+        assert_eq!(update_inline_regen(text, "yidam signal a", "x\ny"), text);
+        assert_eq!(update_inline_regen(text, "yidam signal b", "2"), text);
     }
 }

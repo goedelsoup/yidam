@@ -146,6 +146,10 @@ fn render(value: &serde_json::Value, m: &Modifiers) -> std::result::Result<Strin
             }
             match m.places {
                 Some(p) => format!("{f:.p$}"),
+                // `serde_json` writes a very large or very small float with an exponent, which
+                // `grouped` would put commas into. Grouping asks for positional digits, and
+                // `Display` writes the same shortest value without one.
+                None if m.grouped && f.is_finite() => format!("{f}"),
                 None => serde_json::Number::from_f64(f)
                     .map(|n| n.to_string())
                     .ok_or_else(|| format!("`{number}` is not a finite number"))?,
@@ -186,13 +190,17 @@ fn grouped(decimal: &str) -> String {
 /// Why a body may not be written into a node file, or `None` where it may (RFC-0058 §2.3).
 ///
 /// A block in a node sits inside a YAML scalar. In a quoted scalar, a `"`, `'` or `\` would
-/// change what the scalar means, and a newline would end the line the block has to sit on.
-/// Every number qualifies.
+/// change what the scalar means, and a newline would end the line the block has to sit on. In a
+/// plain scalar, `: ` makes a mapping and ` #` starts a comment — the second still parses, and
+/// silently drops the rest of the line. Every number qualifies. The write point re-parses a node
+/// as well, for whatever this list does not name.
 fn unsafe_in_yaml(body: &str) -> Option<&'static str> {
     if body.contains('\n') {
         Some("it is more than one line")
     } else if body.contains(['"', '\'', '\\']) {
         Some("it holds a quote or a backslash, which would change the YAML scalar it sits in")
+    } else if body.contains(": ") || body.contains(" #") {
+        Some("it holds `: ` or ` #`, which would change a plain YAML scalar it sits in")
     } else {
         None
     }
@@ -330,11 +338,15 @@ pub fn block(root: Option<&Path>) -> Result<()> {
         };
         // The command is rebuilt with the literal at the call site, so `generators_in_source`
         // can attribute it — see `count::block`.
-        crate::regen::update_file_regen(
+        // A write the node's YAML would not survive is refused there, and is this block's
+        // refusal rather than the end of the run.
+        if let Err(e) = crate::regen::update_file_regen(
             &resolved.join(&b.file),
             &format!("yidam signal {}", b.argument),
             &body,
-        )?;
+        ) {
+            refused.push((b, format!("{e:#}")));
+        }
     }
 
     if refused.is_empty() {
@@ -453,6 +465,15 @@ mod tests {
             render(&json!(123.456), &m(true, Some(0), true)).unwrap(),
             "12,346%"
         );
+        // Grouping never meets an exponent.
+        assert_eq!(
+            render(&json!(1.5e21), &m(false, None, true)).unwrap(),
+            "1,500,000,000,000,000,000,000"
+        );
+        assert_eq!(
+            render(&json!(1e-7), &m(false, None, true)).unwrap(),
+            "0.0000001"
+        );
     }
 
     #[test]
@@ -470,7 +491,14 @@ mod tests {
     fn a_value_that_would_change_its_yaml_scalar_is_refused_in_a_node() {
         assert!(unsafe_in_yaml("0.75").is_none());
         assert!(unsafe_in_yaml("1,234.5%").is_none());
-        for bad in ["say \"hi\"", "it's", "a\\b", "two\nlines"] {
+        for bad in [
+            "say \"hi\"",
+            "it's",
+            "a\\b",
+            "two\nlines",
+            "high: see note",
+            "high #1",
+        ] {
             assert!(unsafe_in_yaml(bad).is_some(), "{bad}");
         }
     }

@@ -253,6 +253,50 @@ fn a_quote_is_refused_in_a_node_and_written_in_markdown() {
     assert!(read(dir.path(), "NOTES.md").contains("-->say \"hi\"<!--"));
 }
 
+/// A string that would turn a plain scalar into a mapping, or cut it at a comment, is refused
+/// in a node and leaves the node as it was.
+#[test]
+fn a_plain_scalar_breaker_is_refused_in_a_node() {
+    let original = std::fs::read_to_string(repo_root().join(EXAMPLE).join(NODE)).unwrap();
+    let node =
+        format!("{original}notes: Level <!-- REGEN: yidam signal noted -->x<!-- /REGEN -->.\n");
+    let figures =
+        "format_version: 1\nsignals:\n  - node: gage/canyon-outlet\n    noted: 'high: see #1'\n";
+    let dir = stage(&[
+        (".yidam/computed/figures.yml", figures),
+        (NODE, node.as_str()),
+    ]);
+    let r = run(dir.path(), &["signal"]);
+    assert_eq!(r.code, 1, "{}", r.both());
+    assert!(r.stderr.contains("plain YAML scalar"), "{}", r.stderr);
+    assert_eq!(read(dir.path(), NODE), node);
+}
+
+/// `count` reads node files as `signal` does: a block there is refreshed, and the line-shaped
+/// one beside it, which no reader reads in a node, is left as written.
+#[test]
+fn a_count_block_in_a_node_is_refreshed_and_a_line_shaped_one_is_not() {
+    let dir = with_node_block(
+        "Of <!-- REGEN: yidam count concept -->99<!-- /REGEN --> concepts.\n  \
+         <!-- REGEN: yidam count concept -->\n  99\n  <!-- /REGEN -->",
+        &[],
+    );
+    let r = run(dir.path(), &["regen", "--check"]);
+    assert_ne!(r.code, 0, "{}", r.both());
+    assert!(r.both().contains(NODE), "{}", r.both());
+    let r = run(dir.path(), &["count"]);
+    assert_eq!(r.code, 0, "{}", r.both());
+    let after = read(dir.path(), NODE);
+    assert!(
+        after.contains("Of <!-- REGEN: yidam count concept -->4<!-- /REGEN --> concepts."),
+        "{after}"
+    );
+    assert!(
+        after.contains("<!-- REGEN: yidam count concept -->\n  99\n  <!-- /REGEN -->"),
+        "{after}"
+    );
+}
+
 #[test]
 fn the_gates_read_blocks_in_node_files() {
     // Stale: `regen --check` reports the node, and `regen` refreshes it.
