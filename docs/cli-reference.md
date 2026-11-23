@@ -888,7 +888,12 @@ keyed `<key>[<i>].<field>`.
 That file is sliced to what the step reads. Its digest is part of the input state. Changing how
 `yidam` resolves a link therefore makes every calculator's step stale. A step that reads no corpus
 node is handed no `$YIDAM_GRAPH`. The name is removed from the environment rather than left empty,
-so a script can test for it. What the step wrote lands as one commit on the current branch. A receipt lands with it, at
+so a script can test for it. A step whose `reads` cover a table a `dataset` entry declares gets
+`$YIDAM_TABLES`. It names a JSON file holding those declarations. Its digest, with the declarations
+of the tables the step writes, is part of the input state. Each table the step reads is checked as
+`lint` checks it, before the step starts. Each one it writes is checked after, and a failure
+commits nothing.
+What the step wrote lands as one commit on the current branch. A receipt lands with it, at
 `.yidam/runs/<step>.yml`, naming the input commit and every digest.
 
 A re-run can write the outputs it already committed. Then its receipt differs only in its input,
@@ -916,6 +921,7 @@ TSV or a nested report, has to be UTF-8 and nothing more.
 use only their standard library. A derived repository vendors them under
 `.yidam/.vendor/prelude/kit/`, so a step lists that path in its `reads`. `read()` parses
 `$YIDAM_GRAPH`, and `signals(rows, method=…)` writes a table every reader reads back as given.
+`table(path)` reads a declared table into rows typed by its columns, from `$YIDAM_TABLES`.
 `yidam`'s tests hold both kits to its own reader and writer. `examples/streamflow` runs one as
 `travel-support`.
 

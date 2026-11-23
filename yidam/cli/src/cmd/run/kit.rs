@@ -516,3 +516,212 @@ fn the_example_s_copy_of_the_kit_is_the_kit() {
         copy.display()
     );
 }
+
+// ── declared tables (RFC-0059 §2.4) ─────────────────────────────────────────────────────
+
+fn column(name: &str, r#type: &str) -> crate::table::Column {
+    crate::table::Column {
+        name: name.into(),
+        r#type: r#type.into(),
+        required: false,
+        unit: None,
+        values: None,
+    }
+}
+
+/// One declaration of `id`, `amount` (a number) and `note`, at `path`, as `yidam run` writes it.
+fn tables_document(path: &str) -> (crate::table::Declaration, String) {
+    let decl = crate::table::Declaration {
+        entry: "receipts".into(),
+        entry_rel: ".yidam/catalog/receipts.md".into(),
+        path: path.into(),
+        format: crate::table::Format::of(path).expect("a table path"),
+        columns: vec![
+            column("id", "string"),
+            column("amount", "number"),
+            column("note", "string"),
+        ],
+        key: vec!["id".into()],
+    };
+    let doc = crate::table::document(std::slice::from_ref(&decl), &|_| true).expect("covered");
+    (decl, doc)
+}
+
+const PY_TABLE: &str = r#"
+import json, math, sys
+sys.path.insert(0, sys.argv[1])
+import yidam_kit as k
+
+def enc(v):
+    if v is None or isinstance(v, str):
+        return v
+    return {"float": k.dump(v).strip()}
+
+with open(sys.argv[2], encoding="utf-8") as f:
+    doc = f.read()
+with open(sys.argv[4], encoding="utf-8", newline="") as f:
+    text = f.read()
+try:
+    rows = k.parse_table(doc, sys.argv[3], text)
+    print(json.dumps([[[a, enc(b)] for a, b in r.items()] for r in rows]))
+except k.KitError as e:
+    print(json.dumps({"error": str(e)}))
+"#;
+
+/// The Rust kit's reading of `text` at `path`, in the Python probe's encoding.
+fn rust_table(doc: &str, path: &str, text: &str) -> Json {
+    match yidam_kit::parse_table(doc, path, text) {
+        Ok(rows) => Json::Array(rows.iter().map(enc).collect()),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+/// The Python kit's reading of `text` at `path`.
+fn python_table(doc: &str, path: &str, text: &str) -> Json {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (d, t) = (dir.path().join("tables.json"), dir.path().join("table"));
+    std::fs::write(&d, doc).expect("write the document");
+    std::fs::write(&t, text).expect("write the table");
+    let out = python(PY_TABLE, &[&d, Path::new(path), &t]);
+    serde_json::from_str(&out).expect("the probe prints JSON")
+}
+
+/// Both kits read a table as `yidam` holds it: the file `lint` finds nothing wrong with reads,
+/// in both, as the same typed rows.
+#[test]
+fn both_kits_read_a_declared_table_alike_and_as_yidam_holds_it() {
+    let cases = [
+        (
+            "data/receipts.tsv",
+            "id\tamount\tnote\nA\t12.50\t paid \nB\t\t\nC\t-3e2\tlate\n",
+        ),
+        (
+            "data/receipts.csv",
+            "id,amount,note\r\nA,12.50,\"paid, in full\"\r\n\r\nB,,\"two\nlines\"\r\nC,-3e2,\"a \"\"quoted\"\" word\"",
+        ),
+    ];
+    for (path, text) in cases {
+        let (decl, doc) = tables_document(path);
+        let held = crate::table::read(text, decl.format).expect("yidam reads it");
+        assert!(crate::table::shape(&decl, &held).is_empty(), "{path}");
+        let rust = rust_table(&doc, path, text);
+        assert_eq!(rust, python_table(&doc, path, text), "{path}");
+        let rows = rust.as_array().expect("rows");
+        assert_eq!(rows.len(), held.rows.len(), "{path}");
+        assert_eq!(rows[0][1], json!(["amount", { "float": "12.5" }]), "{path}");
+        assert_eq!(
+            rows[1][1],
+            json!(["amount", null]),
+            "{path}: an empty cell is null"
+        );
+        assert_eq!(
+            rows[2][1],
+            json!(["amount", { "float": "-300.0" }]),
+            "{path}"
+        );
+    }
+    let (_, doc) = tables_document("data/receipts.csv");
+    let text = "id,amount,note\nA,1,\"paid, in full\"\nB,2,\"two\nlines\"\n";
+    let rows = rust_table(&doc, "data/receipts.csv", text);
+    assert_eq!(rows[0][2], json!(["note", "paid, in full"]));
+    assert_eq!(rows[1][2], json!(["note", "two\nlines"]));
+}
+
+/// A file that starts with a byte-order mark, as a spreadsheet saves one, and a CSV cell larger
+/// than Python's default field limit read in both kits as they do in `yidam`.
+#[test]
+fn both_kits_read_a_byte_order_mark_and_a_large_cell_as_yidam_does() {
+    let big = "x".repeat(200 * 1024);
+    let cases = [
+        (
+            "data/receipts.tsv",
+            "\u{feff}id\tamount\tnote\nA\t1\tx\n".to_string(),
+        ),
+        (
+            "data/receipts.csv",
+            "\u{feff}id,amount,note\r\nA,1,x\r\n".to_string(),
+        ),
+        (
+            "data/receipts.csv",
+            format!("id,amount,note\nA,1,\"{big}\"\n"),
+        ),
+    ];
+    for (path, text) in &cases {
+        let (decl, doc) = tables_document(path);
+        let held = crate::table::read(text, decl.format).expect("yidam reads it");
+        assert!(crate::table::shape(&decl, &held).is_empty(), "{path}");
+        let rust = rust_table(&doc, path, text);
+        assert_eq!(rust, python_table(&doc, path, text), "{path}");
+        assert_eq!(rust[0][0], json!(["id", "A"]), "{path}");
+    }
+}
+
+/// A file no declaration names, a header the declaration does not describe, a short row and a
+/// cell that is not a number are refused by both kits, in the same words.
+#[test]
+fn both_kits_refuse_what_the_declaration_does_not_describe() {
+    let (_, doc) = tables_document("data/receipts.tsv");
+    let cases = [
+        (
+            "data/other.tsv",
+            "id\tamount\tnote\n",
+            "no table declaration",
+        ),
+        (
+            "data/receipts.tsv",
+            "id\tamt\tnote\n",
+            "the header reads `id amt note`",
+        ),
+        (
+            "data/receipts.tsv",
+            "id\tamount\tnote\nA\t1\n",
+            "row 2 has 2 cells",
+        ),
+        (
+            "data/receipts.tsv",
+            "id\tamount\tnote\nA\tten\tx\n",
+            "is not a number",
+        ),
+        (
+            "data/receipts.tsv",
+            "id\tamount\tnote\nA\t1_000\tx\n",
+            "is not a number",
+        ),
+        (
+            "data/receipts.tsv",
+            "id\tamount\tnote\nA\tinf\tx\n",
+            "is not a number",
+        ),
+    ];
+    for (path, text, said) in cases {
+        let rust = rust_table(&doc, path, text);
+        assert_eq!(rust, python_table(&doc, path, text), "{text:?}");
+        let error = rust["error"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{text:?} is refused"));
+        assert!(error.contains(said), "{error}");
+    }
+}
+
+/// `table()` outside a step that reads a declared table says why, rather than reading the file
+/// untyped.
+#[test]
+fn both_kits_refuse_a_table_read_with_no_declarations() {
+    std::env::remove_var("YIDAM_TABLES");
+    let rust = yidam_kit::table("data/receipts.tsv").expect_err("no document");
+    assert!(
+        rust.to_string().contains("$YIDAM_TABLES is unset"),
+        "{rust}"
+    );
+    let probe = r#"
+import os, sys
+sys.path.insert(0, sys.argv[1])
+import yidam_kit as k
+os.environ.pop("YIDAM_TABLES", None)
+try:
+    k.table("data/receipts.tsv")
+except k.KitError as e:
+    print(e)
+"#;
+    assert!(python(probe, &[]).contains("$YIDAM_TABLES is unset"));
+}

@@ -503,6 +503,30 @@
       "violations": []
     },
     {
+      "id": "table-declaration-invalid",
+      "title": "A dataset entry's `columns:` declares a table it can be held to",
+      "severity": "error",
+      "rationale": "An entry that carries `columns:` either declares a table or is reported. A declaration with a refused column type, a duplicate column, a key naming no column, or a file that is not one tracked `.tsv` or `.csv` cannot be checked against, so it is reported here and its file is not read against it (RFC-0059 §2.2).",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "table-shape",
+      "title": "A declared table holds the rows its declaration describes",
+      "severity": "error",
+      "rationale": "A table its declaration does not describe is read by a calculator as if it did. The header, each row's width, each required cell, each cell's type, each closed value and each key are held to the declaration, by the reader `yidam run` and the `#row=` citation share. One file reports twenty findings, then a count (RFC-0059 §2.2).",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
+      "id": "table-ref-unresolved",
+      "title": "A table's `ref` cell names a node the corpus holds",
+      "severity": "warn",
+      "rationale": "A `ref` cell names a node in RFC-0032's reference grammar. A warning and not an error, because an extract may run ahead of the corpus and the cell is still a fact about the source (RFC-0059 §2.2).",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "prose-commit-unpinned",
       "title": "Prose names a commit that is not in this repository",
       "severity": "warn",

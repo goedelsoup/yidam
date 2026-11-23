@@ -65,6 +65,18 @@ pub struct Frontmatter {
     /// build — which is why the checks that read it fire only on entries that declare it.
     #[serde(default)]
     pub artifacts: Option<Vec<CatalogArtifact>>,
+    /// Dataset entries only. The columns of the table the entry's `file` location names
+    /// (RFC-0059). Read by [`crate::table::declaration`], and only on a `type: dataset` entry.
+    ///
+    /// **A YAML value and not a typed list**, for the reason `status` is one: this struct is
+    /// every frontmatter's, and a skill or another catalog entry may already carry a
+    /// `columns:` of its own, which a typed field would refuse along with the whole header.
+    #[serde(default)]
+    pub columns: Option<serde_yaml::Value>,
+    /// Dataset entries only. The column, or list of columns, that names a row (RFC-0059).
+    /// A YAML value for the reason `columns` is one.
+    #[serde(default)]
+    pub key: Option<serde_yaml::Value>,
 }
 
 /// One artifact a catalog entry has actually obtained.

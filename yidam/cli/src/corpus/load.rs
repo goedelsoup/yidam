@@ -46,6 +46,8 @@ pub fn load_sources(root: &Path, paths: &[PathBuf], overlay: &Overlay) -> Vec<So
                 retrieved: fm.retrieved,
                 ttl_days: fm.ttl_days,
                 artifacts: fm.artifacts.unwrap_or_default(),
+                columns: fm.columns,
+                key: fm.key,
                 text,
                 malformed,
             }

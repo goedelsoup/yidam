@@ -839,6 +839,7 @@ mod tests {
                 files: vec![file()],
                 resolved_graph_sha256: Some("g".repeat(64)),
                 script_sha256: Some("h".repeat(64)),
+                tables_sha256: None,
             },
             writes: vec![".yidam/computed/**".into()],
             outputs: vec![file()],

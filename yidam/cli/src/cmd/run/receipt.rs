@@ -104,6 +104,16 @@ pub struct Input {
     /// like any other.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script_sha256: Option<String>,
+    /// The digest of the `$YIDAM_TABLES` document and of the declarations of the tables the step
+    /// writes, where it reads or writes a declared table — see [`crate::table::input_digest`]
+    /// (RFC-0059 §2.4).
+    ///
+    /// In the input state because the declarations are read from the catalog, which a step's
+    /// `reads` rarely cover: without it, an edited `columns:` would leave the receipt looking
+    /// fresh while the types the step was handed had moved. Skipped when absent, so a step that
+    /// reads no declared table keeps the input state it had before the field existed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tables_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -214,6 +224,9 @@ struct Identity<'a> {
     /// The program, for the arm whose program is not in `run`. See [`Input::script_sha256`].
     #[serde(skip_serializing_if = "Option::is_none")]
     script_sha256: Option<&'a str>,
+    /// The table declarations the step was handed. See [`Input::tables_sha256`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tables_sha256: Option<&'a str>,
     writes: &'a [String],
 }
 
@@ -242,6 +255,7 @@ impl Receipt {
         files: &[File],
         resolved_graph_sha256: Option<&str>,
         script_sha256: Option<&str>,
+        tables_sha256: Option<&str>,
     ) -> Result<String> {
         let id = Identity {
             kind: cap.kind.as_str(),
@@ -253,6 +267,7 @@ impl Receipt {
             files,
             resolved_graph_sha256,
             script_sha256,
+            tables_sha256,
             writes: &cap.writes,
         };
         Ok(sha256(
@@ -411,6 +426,7 @@ mod tests {
                 }],
                 Some(&sha256(b"graph")),
                 None,
+                None,
             )
             .unwrap(),
             input: Input {
@@ -424,6 +440,7 @@ mod tests {
                 }],
                 resolved_graph_sha256: Some(sha256(b"graph")),
                 script_sha256: None,
+                tables_sha256: None,
             },
             writes: vec![".yidam/computed/**".into()],
             outputs: vec![File {
@@ -544,6 +561,7 @@ mod tests {
             &edited.input.files,
             edited.input.resolved_graph_sha256.as_deref(),
             edited.input.script_sha256.as_deref(),
+            None,
         )
         .unwrap();
         assert_ne!(receipt().input_state, restated);
@@ -622,6 +640,7 @@ mod tests {
             &files,
             None,
             Receipt::script_sha256(&cap, &files).as_deref(),
+            None,
         )
         .unwrap();
         // Only the digest, and not the file list, so this asserts about the field rather than about
@@ -633,6 +652,7 @@ mod tests {
             &files,
             None,
             Some(&sha256(b"the script, revised")),
+            None,
         )
         .unwrap();
         assert_ne!(before, after);
@@ -655,6 +675,7 @@ mod tests {
             &sha256(b""),
             &files,
             Some(&sha256(b"graph")),
+            None,
             None,
         )
         .unwrap();

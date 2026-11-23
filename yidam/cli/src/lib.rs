@@ -106,6 +106,7 @@ pub mod s3vectors;
 /// by. Public for the reason [`policy`] is: `tests/suite/task_layer.rs` holds the vendor task's
 /// shell range check to the one [`sources::version`] implements.
 pub mod sources;
+mod table;
 pub mod vault;
 mod walk;
 mod warehouse;

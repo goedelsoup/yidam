@@ -333,6 +333,17 @@ rather than embedding a full citation.
 `links:` target. Naming the slug in a sentence is not one, and the checks agree with that.
 [why](directories.evidence.md#a-citation-is-a-link)
 
+**A table the corpus draws on is declared by a `dataset` entry.** The entry's one `file`
+location names a tracked `.tsv` or `.csv`. Its `columns:` list each column's `name` and `type`
+(`string`, `number`, `date` or `ref`), with `required`, `unit` and `values` as a list property's
+`fields:` take them. Its `key:` names the columns a row is cited by, as
+`sos-receipts.md#row=OH-2025-88412,3`. `table-declaration-invalid` reports a declaration that
+cannot be held to, `table-shape` a file that departs from it, and `table-ref-unresolved` a `ref`
+cell naming no node. `yidam run` refuses a step that reads or writes such a file, and the kit's
+`table()` reads one with the declared types. Records alike enough to template are rows of one
+table, not a node each. A figure computed over a table reaches prose as a signal a calculator
+wrote.
+
 ---
 
 ## `.yidam/corpus/`

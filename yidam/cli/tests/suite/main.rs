@@ -42,6 +42,7 @@ mod count;
 mod crates_index;
 mod cycle_acts;
 mod cycle_rounds;
+mod dataset_tables;
 mod dependency_corpora;
 mod derive_check;
 mod derived_ci_binary;

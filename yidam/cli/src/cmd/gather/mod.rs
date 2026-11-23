@@ -990,7 +990,8 @@ fn peer_receipt(
         });
     }
     let config_sha256 = receipt::sha256(b"");
-    let input_state = Receipt::input_state(&cap, &spec.digest, &config_sha256, &files, None, None)?;
+    let input_state =
+        Receipt::input_state(&cap, &spec.digest, &config_sha256, &files, None, None, None)?;
     let step = receipt_step(name, peer);
     let r = Receipt {
         format_version: receipt::FORMAT_VERSION,
@@ -1007,6 +1008,7 @@ fn peer_receipt(
             files,
             resolved_graph_sha256: None,
             script_sha256: None,
+            tables_sha256: None,
         },
         writes: cap.writes.clone(),
         outputs: outputs

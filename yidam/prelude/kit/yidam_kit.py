@@ -22,10 +22,16 @@ The kit does not know `yidam`'s rules for a signal table: which names are reserv
 nodes exist. `yidam run` checks those against the corpus before it commits, and refuses the
 step with nothing committed if a row breaks one.
 
+A step that reads a table a catalog entry declares reads it with `table(path)`, which types its
+cells by the declaration `yidam run` names in `$YIDAM_TABLES` (RFC-0059 §2.4).
+
 `yidam_kit.rs` is the same kit in Rust. The two are held to one another's output by the
 template's tests, byte for byte on the writer's side.
 """
 
+import csv
+import io
+import json
 import math
 import os
 import re
@@ -316,6 +322,109 @@ def read(path=None):
             )
     with open(path, encoding="utf-8") as f:
         return parse(f.read())
+
+
+# -- tables ----------------------------------------------------------------------------------
+
+
+def _table_lines(text, fmt):
+    """The rows of a table file, the header first, read as `yidam`'s own reader reads them."""
+    # A leading byte-order mark is not part of the first cell, to `yidam` either.
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    if fmt == "csv":
+        # `yidam`'s reader has no cap on a cell, and Python's is 128 KiB unless raised.
+        if csv.field_size_limit() <= len(text):
+            csv.field_size_limit(min(len(text) + 1, 2**31 - 1))
+        # A blank line is no record, as it is to `yidam`'s reader.
+        try:
+            return [r for r in csv.reader(io.StringIO(text, newline="")) if r]
+        except csv.Error as e:
+            raise KitError("not readable as csv: %s" % e) from None
+    rows = text.split("\n")
+    if text.endswith("\n"):
+        rows.pop()
+    return [(r[:-1] if r.endswith("\r") else r).split("\t") for r in rows]
+
+
+def _table_number(v):
+    # `yidam`'s rule: a finite decimal, as Rust reads one. Python's float() also reads `1_000`
+    # and non-ASCII digits, which `yidam lint` would report, so neither is a number here.
+    if not v.isascii() or "_" in v:
+        return None
+    try:
+        x = float(v)
+    except ValueError:
+        return None
+    return x if math.isfinite(x) else None
+
+
+def parse_table(declarations, path, text):
+    """Read one table's text by its declaration in `declarations`, the `$YIDAM_TABLES` document.
+
+    A list of rows, each a dict in the declaration's column order. A `number` cell is a float,
+    an empty cell is `None`, and every other cell is its text, trimmed. A path no declaration
+    names is refused, so an undeclared file is not read as if it were typed.
+    """
+    decl = next((d for d in json.loads(declarations) if d["path"] == path), None)
+    if decl is None:
+        raise KitError(
+            "%s: no table declaration in $YIDAM_TABLES names it. Does a catalog entry declare "
+            "its `columns:`, and does this step's `reads` cover the file?" % path
+        )
+    columns = decl["columns"]
+    names = [c["name"] for c in columns]
+    lines = _table_lines(text, decl["format"])
+    header = [h.strip() for h in lines[0]] if lines else []
+    if header != names:
+        raise KitError(
+            "%s: the header reads `%s`, and `%s` declares `%s`"
+            % (path, " ".join(header), decl["entry"], " ".join(names))
+        )
+    rows = []
+    for number, cells in enumerate(lines[1:], 2):
+        if len(cells) != len(columns):
+            raise KitError(
+                "%s: row %d has %d cells, and `%s` declares %d columns"
+                % (path, number, len(cells), decl["entry"], len(columns))
+            )
+        row = {}
+        for col, cell in zip(columns, cells):
+            v = cell.strip()
+            if v == "":
+                row[col["name"]] = None
+            elif col["type"] == "number":
+                row[col["name"]] = _table_number(v)
+                if row[col["name"]] is None:
+                    raise KitError(
+                        "%s: row %d, column `%s`: `%s` is not a number"
+                        % (path, number, col["name"], v)
+                    )
+            else:
+                row[col["name"]] = v
+        rows.append(row)
+    return rows
+
+
+def table(path, tables=None, root=None):
+    """Read the declared table at `path`, repository-relative as its entry's `file` location.
+
+    `tables` defaults to `$YIDAM_TABLES` and `root` to `$YIDAM_IN`, which `yidam run` sets. See
+    `parse_table` for what a row is.
+    """
+    if tables is None:
+        tables = os.environ.get("YIDAM_TABLES")
+        if not tables:
+            raise KitError(
+                "no table declarations: $YIDAM_TABLES is unset. Does this step's `reads` cover "
+                "a table a catalog entry declares?"
+            )
+    if root is None:
+        root = os.environ.get("YIDAM_IN", ".")
+    with open(tables, encoding="utf-8") as f:
+        declarations = f.read()
+    with open(os.path.join(root, path), encoding="utf-8", newline="") as f:
+        return parse_table(declarations, path, f.read())
 
 
 # -- writing ---------------------------------------------------------------------------------
