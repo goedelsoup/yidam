@@ -194,6 +194,7 @@ const sidebar = [
       { slug: 'rfcs/0054-fold-derived-commits', label: '0054 · Folding derived commits' },
       { slug: 'rfcs/0055-watch-ledger-off-main', label: '0055 · The watch ledger off main' },
       { slug: 'rfcs/0056-calculator-kit', label: '0056 · The calculator kit' },
+      { slug: 'rfcs/0057-claim-provenance', label: '0057 · Declared refusals' },
     ],
   },
   {
