@@ -196,6 +196,7 @@ const sidebar = [
       { slug: 'rfcs/0056-calculator-kit', label: '0056 · The calculator kit' },
       { slug: 'rfcs/0057-claim-provenance', label: '0057 · Declared refusals' },
       { slug: 'rfcs/0058-signal-citations', label: '0058 · Signal citations' },
+      { slug: 'rfcs/0059-dataset-tables', label: '0059 · Dataset tables' },
     ],
   },
   {
