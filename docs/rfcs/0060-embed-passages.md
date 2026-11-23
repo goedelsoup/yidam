@@ -1,6 +1,6 @@
 # RFC-0060 — A node is embedded as passages, and scored by its best one
 
-- **Status:** Proposed
+- **Status:** Draft
 - **Track:** I43
 - **Relates to:**
   - #1505 (a node grew to 209,000 characters and nothing warned; the evidence this answers),
@@ -132,7 +132,7 @@ The four largest files are:
 | affordability | `mechanism/appraisal-gap-blocks-rehab.yml` | 240,578 |
 | city-engine | `engine-choice/meso-walker-holds.yml` | 142,087 |
 | hb-96 | `bill-version/as-reported-by-conference-committee.yml` | 139,296 |
-| affordability | `tax-reduction-factors-shift-burden.yml` | 91,629 |
+| affordability | `mechanism/tax-reduction-factors-shift-burden.yml` | 91,629 |
 
 They are not what #1505 describes. Its 209,000-character node was a central-committee entity
 in allen-county-ohio-democratic-party, which is not checked out on the measuring machine. That
@@ -141,6 +141,8 @@ decision `plan-class.yml` records why. The four above are arguments that kept gr
 
 - appraisal-gap holds an `account`, a `counter_account` and a `not_examined` property, which
   together run to some 2,700 lines;
+- tax-reduction-factors has the same three properties, which run to some 1,090 lines, about
+  810 of them its `account`;
 - meso-walker-holds holds a 1,500-line description of seeded measurements;
 - the conference report holds a description and an `examined_not_used` record that cover 58
   sections.
@@ -154,7 +156,7 @@ class that declares none. None of these classes declares one.
 
 A warning at the true window would fire on 50–95% of most corpora's nodes. That is not a
 finding, and it would be disabled. A warning at the remote ceiling would fire on about nine
-nodes across seven corpora, and would leave the median node's second half unindexed. The
+nodes, on three of the seven corpora measured, and would leave the median node's second half unindexed. The
 defect is in how the index reads a node, not in how authors write one.
 
 ## Proposal
@@ -164,19 +166,30 @@ defect is in how the index reads a node, not in how authors write one.
 `yidam_core::embed::split_passages(label, text, max_chars) -> Vec<String>` is a parity function
 beside `compose_embed_text`. It takes the composed text unchanged and works as follows:
 
-1. **Short text.** If the whole text is at most `max_chars` characters, it returns the text as
+1. **No label.** `compose_embed_text` leaves the label out when a node has none or it is
+   empty. The splitter is then called with `""`, each passage is its lines alone with no
+   leading space, and the steps below read "the label and its space" as nothing.
+2. **Short text.** If the whole text is at most `max_chars` characters, it returns the text as
    the only passage. A node under the budget composes exactly as it does today, and its vector
    is unchanged.
-2. **The body.** Otherwise it takes the body: the text with its leading `label` and the
+3. **The body.** Otherwise it takes the body: the text with its leading `label` and the
    separating space removed. `compose_embed_text` puts the label first.
-3. **Packing.** It splits the body on `\n` and packs whole lines greedily into passages. Each
+4. **Packing.** It splits the body on `\n` and packs whole lines greedily into passages. Each
    passage is `"{label} {lines joined by \n}"`, and it stays at most `max_chars`, label
    included.
-4. **A long line.** A line that alone exceeds the room left after the label is cut at the last
+5. **A long line.** A line that alone exceeds the room left after the label is cut at the last
    whitespace before that room. If there is no whitespace, it is cut at the character boundary.
    The remainder carries on into the next passage.
-5. **Related.** The `Related: …` sentence that `compose_embed_text` appends is a line of the
-   body, like any other line.
+6. **Related.** `compose_embed_text` joins its parts with a space, not a newline, so the
+   `Related: …` sentence ends the body's last line rather than starting a line of its own. The
+   splitter first cuts the body at its last occurrence of `" Related: "` and treats that
+   sentence, without the leading space, as a line of its own, so it packs whole like any other
+   line. It finds the sentence only when the node has links; a node without them has no such
+   cut.
+7. **A long label.** A label that leaves less than half of `max_chars` for the body is cut to
+   its first `max_chars / 2` characters, at the last whitespace before that point, in every
+   passage of that node. A passage therefore always has room for body text, and the packing
+   always makes progress.
 
 Every passage leads with the label, so a passage cut from paragraph six still says which node
 it is part of. "Characters" means Unicode scalar values in all three SDKs. TypeScript counts by
@@ -206,11 +219,15 @@ to parity. Overlap is §6's first question.
 
 **Cost.** The rows grow to at least the composed total divided by the budget:
 
-- affordability goes from 1,599 node rows to between 4,220 and 5,819;
-- campaign-finance goes from 1,067 to between 1,620 and 2,687.
+- affordability goes from 1,599 node rows to at least 4,220;
+- campaign-finance goes from 1,067 to at least 1,620.
 
-At 384 dimensions a row is 1.5 KB of vector. The largest corpus's `corpus.arrow` grows by about
-6 MB, and `index-build` time grows with the row count. The implementing PR reports both.
+Those are floors. Greedy packing of whole lines leaves part of a passage empty, and every
+passage repeats the label. So the real counts are higher by an amount only the splitter can
+tell. The implementing PR runs it over both corpora and reports the counts.
+
+At 384 dimensions a row is 1.5 KB of vector. The largest corpus's `corpus.arrow` grows by at least
+3.9 MB of vectors, and `index-build` time grows with the row count. The implementing PR reports both.
 
 ### 2.3 Scoring a node by its best passage
 
@@ -218,8 +235,11 @@ Every reader that returns hits groups rows by `path`, keeps each path's best-sco
 cuts to `k` after grouping.
 
 - **Local search** (`retrieval/vector.rs`) already scores every row, so the grouping is exact.
-- **Remote search** already over-fetches eight times `k`. `wants_more` now counts distinct
-  paths, not rows, and keeps paging until it has `k` paths or reaches `MAX_TOP_K`.
+- **Remote search** over-fetches eight times `k` today only when a residual filter is set.
+  `top_k_request` asks for exactly `k` rows otherwise, and `k` rows can be fewer than `k`
+  nodes. So `top_k_request` over-fetches by `OVERFETCH` on every query against a passage
+  index. `wants_more` now counts distinct paths, not rows, and keeps paging until it has `k`
+  paths or reaches `MAX_TOP_K`.
 - **`retrieve` (MCP), `query --anchor`, `export web`'s `main.js`.** Each returns one entry per
   node. A hit's `text` is the best passage, which is the text that was scored. A hit gains
   `passage`, its ordinal. The `retrieve` contract change is additive.
@@ -304,14 +324,18 @@ The paragraph is on a read route, so both `READ_CEILING` entries rise by its exa
   - lines packed at the exact boundary;
   - a long line cut at whitespace;
   - a long line with no whitespace;
-  - a label longer than half the budget;
+  - a label longer than half the budget, cut;
+  - a label longer than the whole budget, cut;
+  - a node with no label;
+  - a `Related: …` sentence after a full last line;
   - a non-BMP character;
   - an empty body.
 - **Index build.** A record of three passages writes three rows with ordinals 0, 1 and 2, and
   the schema test reads the new `COLUMNS`.
 - **Search.** Two passages of one node both score above a third node. Search returns the node
   once, with the better passage's text and ordinal, and still returns `k` distinct nodes.
-- **Remote.** A key with `#3` round-trips to its path. `plan_mirror` deletes passage keys a
+- **Remote.** A query with no residual filter, whose first `k` rows are passages of fewer
+  than `k` nodes, still returns `k` nodes. A key with `#3` round-trips to its path. `plan_mirror` deletes passage keys a
   shrinking node no longer has.
 - **The witness.** An index with `format_version: "3"` is refused by name. One with another
   `max_chars` is a space mismatch.
@@ -369,7 +393,7 @@ now, outside the vector. It is kept for the outliers as §2.6, and declined as t
 Models such as `nomic-embed-text-v1.5` and `bge-m3` read 8,192 tokens. Adopting one would:
 
 - change the vector space of every corpus at once;
-- double the dimension to 768;
+- raise the dimension from 384 to 768 for nomic, or to 1,024 for bge-m3;
 - slow `index-build` by the square of the window in attention.
 
 It also still averages a node's topics into one point. A 30,000-character node about five
