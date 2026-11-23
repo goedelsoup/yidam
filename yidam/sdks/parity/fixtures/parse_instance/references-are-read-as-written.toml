@@ -27,6 +27,7 @@ instance = """
     "not a reference at all"
   ],
   "refuses": null,
+  "not_refusals": null,
   "cites": null,
   "extra": {}
 }

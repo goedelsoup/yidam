@@ -211,6 +211,24 @@ pub fn corpus_ontology_schema() -> Value {
                 "required": ["ontology", "type"],
                 "additionalProperties": false
             },
+            "refusals": {
+                "type": "object",
+                "description": "What this corpus has said about proposing refusals in its own \
+                                prose (RFC-0057). Absent is the common case and nothing is \
+                                proposed.",
+                "properties": {
+                    "propose": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Whether `refusal-undeclared` names, at Info, each \
+                                        paragraph that reads like a refusal and holds no \
+                                        `refuses:` or `not_refusals:` span. Absent means \
+                                        false: the proposer is wrong four times in ten, so \
+                                        it runs only where a corpus asked for it."
+                    }
+                },
+                "additionalProperties": false
+            },
             "properties": {
                 "type": "array",
                 "default": [],

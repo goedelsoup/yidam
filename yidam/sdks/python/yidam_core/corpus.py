@@ -19,6 +19,7 @@ import yaml
 
 _DECLARED = {
     "class", "label", "description", "properties", "links", "cites", "references", "refuses",
+    "not_refusals",
 }
 
 _TIMESTAMP = "tag:yaml.org,2002:timestamp"
@@ -85,6 +86,18 @@ class Refusal:
 
 
 @dataclass
+class NotRefusal:
+    """A paragraph of the node's prose a person ruled is not a refusal (RFC-0057).
+
+    The other direction of a ruling. ``span`` quotes the prose as a :class:`Refusal`'s does.
+    Its own list rather than a flag on :class:`Refusal`, because a ``refuses:`` entry is one an
+    artifact must answer and a ruled non-refusal is the opposite.
+    """
+
+    span: str | None = None
+
+
+@dataclass
 class CorpusInstance:
     """A corpus node: ``.yidam/corpus/<class>/<name>.yml``."""
 
@@ -102,6 +115,8 @@ class CorpusInstance:
     #: The refusals this node's prose makes, each quoted verbatim (RFC-0045). Named for
     #: ``references``' reason: a field that is named is one a check can read.
     refuses: list[Refusal] | None = None
+    #: The paragraphs a person ruled are not refusals, each quoted verbatim (RFC-0057).
+    not_refusals: list[NotRefusal] | None = None
     cites: list[ExternalCitation] | None = None
     #: Every other top-level key, kept rather than dropped.
     extra: dict[str, Any] = field(default_factory=dict)
@@ -169,6 +184,13 @@ def parse_instance(text: str) -> CorpusInstance:
             m = item if isinstance(item, dict) else {}
             refuses.append(Refusal(span=_str(m.get("span")), inference=_str(m.get("inference"))))
 
+    not_refusals = None
+    if isinstance(doc.get("not_refusals"), list):
+        not_refusals = []
+        for item in doc["not_refusals"]:
+            m = item if isinstance(item, dict) else {}
+            not_refusals.append(NotRefusal(span=_str(m.get("span"))))
+
     props = doc.get("properties")
     return CorpusInstance(
         cls=_str(doc.get("class")),
@@ -178,6 +200,7 @@ def parse_instance(text: str) -> CorpusInstance:
         links=links,
         references=references,
         refuses=refuses,
+        not_refusals=not_refusals,
         cites=cites,
         extra={k: v for k, v in doc.items() if k not in _DECLARED},
     )
@@ -216,6 +239,11 @@ def instance_to_json(inst: CorpusInstance) -> dict[str, Any]:
             None
             if inst.refuses is None
             else [{"span": r.span, "inference": r.inference} for r in inst.refuses]
+        ),
+        "not_refusals": (
+            None
+            if inst.not_refusals is None
+            else [{"span": r.span} for r in inst.not_refusals]
         ),
         "cites": (
             None

@@ -28,6 +28,7 @@ instance = """
     { "span": "It does not establish that the decline has ended.", "inference": "the decline has ended" },
     { "span": "a refusal declared with no inference", "inference": null }
   ],
+  "not_refusals": null,
   "cites": null,
   "extra": {}
 }

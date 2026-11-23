@@ -29,6 +29,7 @@ instance = """
   ],
   "references": null,
   "refuses": null,
+  "not_refusals": null,
   "cites": [
     {
       "package": "allen-county-ohio",

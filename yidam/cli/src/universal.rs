@@ -29,6 +29,13 @@
 //! naming three structural verbs is exempting them; it is not asking to have every other edge
 //! in the corpus reported. `required: true` is the ask, written once and on purpose.
 //!
+//! # The same file says whether to propose refusals
+//!
+//! `refusals: propose: true` asks `refusal-undeclared` to name every paragraph that reads like a
+//! refusal and declares neither `refuses:` nor `not_refusals:` (RFC-0057). It is an ask for the
+//! same reason `edge_claims: required:` is one: the proposer's precision is 0.593, so a corpus
+//! that never agreed to it would open with thousands of findings it did not request.
+//!
 //! # Not a way to stop declaring things
 //!
 //! This is deliberately *not* `property_policy: characteristic`, the property-side twin of
@@ -89,6 +96,11 @@ pub struct Universal {
     prose: Vec<String>,
     /// What the corpus has said about tagging its edges. See [`EdgeClaims`].
     edge_claims: EdgeClaims,
+    /// Whether `refusal-undeclared` proposes refusals over this corpus's prose (RFC-0057).
+    ///
+    /// **Absent means no.** The proposer is wrong four times in ten, and a corpus that has not
+    /// asked for it should not open with one Info finding per negation in a tagged paragraph.
+    propose_refusals: bool,
     /// Why the bytes did not parse, when they did not. See [`Universal::parse`].
     ///
     /// Carried for the reason [`crate::corpus::Class::malformed`] is, and it is the same arm:
@@ -139,6 +151,14 @@ struct File {
     prose: Vec<String>,
     #[serde(default)]
     edge_claims: DeclaredEdgeClaims,
+    #[serde(default)]
+    refusals: DeclaredRefusals,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct DeclaredRefusals {
+    #[serde(default)]
+    propose: bool,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -172,6 +192,7 @@ impl Universal {
                 required: false,
                 structural: Vec::new(),
             },
+            propose_refusals: false,
             malformed: None,
         }
     }
@@ -230,6 +251,7 @@ impl Universal {
                     .filter(|r| !r.is_empty())
                     .collect(),
             },
+            propose_refusals: file.refusals.propose,
             malformed,
         }
     }
@@ -242,6 +264,11 @@ impl Universal {
     /// Whether an edge outside the structural list must declare its standing.
     pub fn edge_claims_required(&self) -> bool {
         self.edge_claims.required
+    }
+
+    /// Whether the corpus asked `refusal-undeclared` to propose refusals in its prose.
+    pub fn propose_refusals(&self) -> bool {
+        self.propose_refusals
     }
 
     /// Whether this relationship is bookkeeping, and so asserts nothing to tag.
@@ -324,7 +351,8 @@ impl Universal {
             .filter_map(|p| Some((p.pattern.as_ref()?.as_str(), p.r#type.as_str())))
     }
 
-    /// Whether the corpus declared nothing universal at all — properties, prose or edges.
+    /// Whether the corpus declared nothing universal at all — properties, prose, edges or
+    /// refusals.
     ///
     /// Every axis, deliberately. A reader asking whether this file says anything is asking
     /// about the file, and answering from the property list alone would report a corpus that
@@ -334,6 +362,7 @@ impl Universal {
             && self.prose.is_empty()
             && !self.edge_claims.required
             && self.edge_claims.structural.is_empty()
+            && !self.propose_refusals
     }
 }
 
@@ -444,6 +473,16 @@ properties:
         let u = Universal::parse("edge_claims:\n  required: true\n");
         assert!(u.edge_claims_required());
         assert!(u.structural_relationships().is_empty());
+    }
+
+    /// RFC-0057: proposing refusals is asked for, and absent is no.
+    #[test]
+    fn refusals_are_proposed_only_where_asked() {
+        assert!(!Universal::parse("").propose_refusals());
+        assert!(!Universal::parse("refusals: {}\n").propose_refusals());
+        let u = Universal::parse("refusals:\n  propose: true\n");
+        assert!(u.propose_refusals());
+        assert!(!u.is_empty(), "the file said something");
     }
 
     // ── the parse outcome (#1081) ─────────────────────────────────────────────

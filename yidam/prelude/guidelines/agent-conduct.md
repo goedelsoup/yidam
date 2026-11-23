@@ -256,6 +256,9 @@ answers:
     answer: This memo claims the schedule, not the avulsion.
 ```
 
+**Declare a refusal when you write it,** not when an argument first cites it. A paragraph you
+rule declines nothing goes under `not_refusals:`, so it is not proposed again.
+
 **`yidam derive check` holds every artifact under `[derive] paths` to all three rules.** Only a
 declared refusal gates; one left undeclared is proposed, and a person decides.
 [why](agent-conduct.evidence.md#outbound-claims)

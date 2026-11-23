@@ -507,6 +507,11 @@ const ROSTER: &[Entry] = &[
         run: |i| refusals::refusal_span_drift(i.nodes()),
     },
     Entry {
+        id: refusals::UNDECLARED,
+        asked: Asked::Always,
+        run: |i| refusals::refusal_undeclared(i.nodes(), i.universal()),
+    },
+    Entry {
         id: "verified-unsourced",
         asked: Asked::Always,
         run: |i| {

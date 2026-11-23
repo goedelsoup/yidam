@@ -73,6 +73,10 @@ CorpusInstance
                                    "declared none", and they are different answers
   cites       : Citation[]?      — RFC-0019 claims on a dependency's nodes. Beside `links`
                                    and never inside it: a foreign node is not an edge target
+  refuses     : Refusal[]?       — RFC-0045: what the node's prose declines to conclude,
+                                   each {span, inference?} quoted from that prose
+  not_refusals: NotRefusal[]?    — RFC-0057: each paragraph a person ruled is not a
+                                   refusal, as {span}, so a proposer does not flag it again
   extra       : map              — every other top-level key, KEPT. Corpora coin prose keys
                                    (`summary`, `findings`), and dropping them made one
                                    corpus measure 21 lines where it had written 118

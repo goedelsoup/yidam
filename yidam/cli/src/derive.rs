@@ -22,11 +22,13 @@
 //!
 //! # A paragraph is a blank-line block of one string
 //!
-//! Every string the node holds except its `refuses:` and `cites:` entries, split on a blank line.
+//! Every string the node holds except its `refuses:`, `not_refusals:` and `cites:` entries, split
+//! on a blank line.
 //! That is the split corpus A and `allen-county-ohio` already make, and the one RFC-0045's
 //! measurement used: 0 of 1,552 citations cross one. `refuses:` is excluded because a refusal's
 //! own declaration quotes it, and a span found only there would be found in the declaration
-//! rather than the prose. `cites:` is excluded because its spans are another node's words.
+//! rather than the prose; `not_refusals:` (RFC-0057) is excluded for the same reason. `cites:` is
+//! excluded because its spans are another node's words.
 //!
 //! # A refusal is declared, and only a declaration gates
 //!
@@ -34,7 +36,8 @@
 //! node lists under `refuses:`, and nothing here guesses at one: measured against 62 human
 //! rulings, the best lexicon found 12 of 33 and the widest flagged 22 paragraphs that were not
 //! refusals. The widest is kept as [`proposes_refusal`], and it reports at Info over cited
-//! paragraphs only. It never changes the exit code.
+//! paragraphs only. It never changes the exit code. A paragraph holding a `not_refusals:` span
+//! is one a person ruled declines nothing, and it is not proposed again.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -71,7 +74,7 @@ pub const REACHES: [(&str, &str); 3] = [
 // ── a node's prose, as paragraphs ─────────────────────────────────────────────
 
 /// Keys whose strings are not this node's prose. See the module note.
-const NOT_PROSE: [&str; 2] = ["refuses", "cites"];
+const NOT_PROSE: [&str; 3] = ["refuses", "not_refusals", "cites"];
 
 /// One string the node holds, whole and split into its blank-line paragraphs.
 pub(crate) struct Field {
@@ -126,13 +129,33 @@ pub(crate) fn in_prose(fields: &[Field], span: &str) -> bool {
 }
 
 /// The paragraphs `span` sits inside, flattened.
-fn paragraphs_holding(fields: &[Field], span: &str) -> Vec<String> {
+pub(crate) fn paragraphs_holding(fields: &[Field], span: &str) -> Vec<String> {
     let needle = flatten(span);
     fields
         .iter()
         .flat_map(|f| f.paragraphs.iter())
         .map(|p| flatten(p))
         .filter(|p| p.contains(&needle))
+        .collect()
+}
+
+/// A node's `refuses:` spans, as written, blank ones dropped.
+pub(crate) fn refusal_spans(node: &Node) -> Vec<&str> {
+    let declared = node.inst.refuses.as_deref().unwrap_or_default();
+    declared
+        .iter()
+        .filter_map(|r| r.span.as_deref())
+        .filter(|s| !s.trim().is_empty())
+        .collect()
+}
+
+/// A node's `not_refusals:` spans, as written, blank ones dropped (RFC-0057 §2.3).
+pub(crate) fn not_refusal_spans(node: &Node) -> Vec<&str> {
+    let declared = node.inst.not_refusals.as_deref().unwrap_or_default();
+    declared
+        .iter()
+        .filter_map(|r| r.span.as_deref())
+        .filter(|s| !s.trim().is_empty())
         .collect()
 }
 
@@ -471,8 +494,8 @@ pub(crate) fn check_artifact(rel: &str, text: &str, cited: &Cited) -> Option<Der
                     SPAN_DRIFT,
                     format!(
                         "cites `{key}` for text that is in the file and in none of its prose — \
-                         a span quoted from a `refuses:` or `cites:` entry is the node's \
-                         declaration, not its words. Span: {}",
+                         a span quoted from a `refuses:`, `not_refusals:` or `cites:` entry is \
+                         the node's declaration, not its words. Span: {}",
                         truncate(span)
                     ),
                 )
@@ -488,15 +511,9 @@ pub(crate) fn check_artifact(rel: &str, text: &str, cited: &Cited) -> Option<Der
         spans.push(entry);
 
         // ── the refusals in the paragraphs this span sits in ──
-        let refusals: Vec<&str> = node
-            .inst
-            .refuses
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|r| r.span.as_deref())
-            .filter(|s| !s.trim().is_empty())
-            .collect();
+        let refusals = refusal_spans(node);
+        // A paragraph a person ruled is not a refusal is not proposed again (RFC-0057 §2.3).
+        let ruled: Vec<String> = not_refusal_spans(node).into_iter().map(flatten).collect();
         let quoted = flatten(span);
         for paragraph in &paragraphs {
             let mut declared_here = false;
@@ -513,7 +530,8 @@ pub(crate) fn check_artifact(rel: &str, text: &str, cited: &Cited) -> Option<Der
                     owed.push((id.0, id.1, refusal.trim().to_string()));
                 }
             }
-            if !declared_here && proposes_refusal(paragraph) {
+            let ruled_here = ruled.iter().any(|r| paragraph.contains(r.as_str()));
+            if !declared_here && !ruled_here && proposes_refusal(paragraph) {
                 candidates.insert((key.to_string(), paragraph.clone()));
             }
         }
@@ -840,6 +858,24 @@ mod tests {
         );
         assert_eq!(ids(&d), [REFUSAL_CANDIDATE], "{:?}", d.findings);
         assert_eq!(d.errors(), 0);
+    }
+
+    /// RFC-0057 §2.3: a paragraph a person ruled declines nothing is not proposed again.
+    #[test]
+    fn a_ruled_non_refusal_is_not_proposed() {
+        let ruled = format!("{UNDECLARED}not_refusals:\n  - span: The survey does not reach it.\n");
+        let rel = ".yidam/corpus/reach/headwater.yml";
+        let nodes = [Node::parse(Path::new("/r").join(rel), rel, &ruled)];
+        let fields = ClaimFields::default();
+        let cited = Cited::new(&nodes, &fields);
+        let d = check_artifact(
+            "dossier/a.yml",
+            "reach: internal\ncites:\n  - node: reach/headwater\n    \
+             span: Whether the spring feeds the reach is [open].\n",
+            &cited,
+        )
+        .expect("a .yml is an artifact");
+        assert!(d.findings.is_empty(), "{:?}", d.findings);
     }
 
     #[test]

@@ -452,8 +452,22 @@ refuses:
 prose no longer holds. An argument citing that paragraph must answer the refusal
 ([`agent-conduct.md`](guidelines/agent-conduct.md#when-claims-leave-the-repository)).
 
-**Neither field is prose.** A span found only in `refuses:` is the node's declaration, not its
-words.
+**A paragraph ruled not to refuse says so under `not_refusals:`:**
+
+```yaml
+not_refusals:
+  - span: The publisher does not label the motions; the Journal does.
+```
+
+**A ruling is per paragraph.** `refusal-span-drift` fails a span on either list that crosses a
+blank line, and a paragraph holding a span from each.
+
+**Opt in to be asked.** With `refusals: propose: true` in `universal.yml`, `refusal-undeclared`
+names, at Info, each paragraph that reads like a refusal and that neither list rules on.
+[why](GRAPH.evidence.md#refusal-undeclared)
+
+**Neither list is prose.** A span found only in `refuses:` or `not_refusals:` is the node's
+declaration, not its words.
 
 ### Published, not only enforced
 

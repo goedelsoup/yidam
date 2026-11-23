@@ -356,6 +356,19 @@ Every corpus written before this field existed was written under a schema where 
 could not be asked, so defaulting to `true` would gate every class in every derived repository on
 a declaration nobody made.
 
+## refusal-undeclared
+
+`derive check` proposes refusals only over paragraphs an artifact cites. No repository sets
+`[derive] paths`, so the proposer had never run. Over every paragraph of 20 corpora it flags 8,780
+of 135,200, in 3,994 nodes, and none was declared. Its precision is 0.593 against 62 human
+rulings, so perhaps four in ten of those are not refusals. That is why the check is Info and
+opt-in, and why a ruling in the other direction needs `not_refusals:` to live in: without it,
+every run re-flags the same false positives.
+
+A sentence-level claim list was measured and rejected. Only 7.7% of 48,820 `[verified]` tags have
+a catalog link in their sentence, while 78.4% have one in their field. A sentence also often holds
+two standings. The paragraph is the unit `derive check` already grades.
+
 ## schema-no-stricter
 
 A schema that stayed strict where the gate had relaxed would underline a field the build is happy

@@ -107,6 +107,21 @@ pub struct Refusal {
     pub inference: Option<String>,
 }
 
+/// A paragraph of the node's prose that a person ruled is not a refusal (RFC-0057).
+///
+/// The other direction of a ruling. A proposer flags a paragraph by its shape, a hedge beside
+/// a negation, and about four in ten of the paragraphs it flags decline nothing. Without a
+/// place to say so, every run flags the same paragraphs again. `span` quotes the node's own
+/// prose, as a [`Refusal`]'s does, and `refusal-span-drift` holds it to the text.
+///
+/// **Its own list, not a flag on [`Refusal`].** A `refuses:` entry is one an artifact citing
+/// the node must answer. A ruled non-refusal is the opposite, and a reader that wants one
+/// list should not have to filter the other out of it.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct NotRefusal {
+    pub span: Option<String>,
+}
+
 /// A corpus node: `.yidam/corpus/<class>/<name>.yml`.
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 pub struct CorpusInstance {
@@ -151,6 +166,12 @@ pub struct CorpusInstance {
     /// reads it to decide which refusals an artifact citing this node must answer.
     #[serde(default)]
     pub refuses: Option<Vec<Refusal>>,
+    /// The paragraphs a person ruled are not refusals, each quoted verbatim (RFC-0057).
+    ///
+    /// `lint`'s `refusal-undeclared` and `derive check`'s refusal proposer both skip a
+    /// paragraph holding one of these spans, so a ruling made once stays made.
+    #[serde(default)]
+    pub not_refusals: Option<Vec<NotRefusal>>,
     /// Every other top-level key, kept rather than dropped. See the module note.
     #[serde(flatten)]
     pub extra: serde_yaml::Mapping,
@@ -209,6 +230,12 @@ impl CorpusInstance {
                 refuses
                     .iter()
                     .map(|r| serde_json::json!({ "span": r.span, "inference": r.inference }))
+                    .collect::<Vec<_>>()
+            }),
+            "not_refusals": self.not_refusals.as_ref().map(|rulings| {
+                rulings
+                    .iter()
+                    .map(|r| serde_json::json!({ "span": r.span }))
                     .collect::<Vec<_>>()
             }),
             "cites": self.cites.as_ref().map(|cites| {

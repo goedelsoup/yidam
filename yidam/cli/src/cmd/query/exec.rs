@@ -479,6 +479,7 @@ mod tests {
                 ),
                 references: None,
                 refuses: None,
+                not_refusals: None,
                 cites: None,
                 extra: Default::default(),
             },
