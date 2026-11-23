@@ -17,6 +17,7 @@ instance = """
   "links": null,
   "references": null,
   "refuses": null,
+  "not_refusals": null,
   "cites": null,
   "extra": {}
 }

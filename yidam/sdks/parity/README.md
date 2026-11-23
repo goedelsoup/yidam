@@ -70,6 +70,12 @@ citing that node must answer. `parse_instance/refusals-are-declared-on-the-node.
 shape, including an entry with no `inference`. It is a field and not a fourth tag, because a
 refusal is not a standing: the sentence in that fixture is `[open]` and is also a refusal.
 
+**`not_refusals:` is named beside it (RFC-0057).** A node declares each paragraph a person
+ruled is not a refusal, as `{span}`. `lint`'s `refusal-undeclared` and `derive check`'s
+proposer skip a paragraph holding one, so the same false flag is not raised on every run.
+`parse_instance/a-ruled-non-refusal-is-declared-on-the-node.toml` pins the shape. It is its own
+list, not a flag on a `refuses:` entry, because an entry there is one an artifact must answer.
+
 **Two kinds arrived by measurement, not by design (#783).** Across the five corpora that write
 evidence-tag details, 496 references sit inside brackets where nothing can read them, and the two
 largest shapes had no form in the grammar:

@@ -43,6 +43,15 @@ export interface Refusal {
   inference: string | null
 }
 
+/**
+ * A paragraph of the node's prose a person ruled is not a refusal (RFC-0057). The other direction
+ * of a ruling: `span` quotes the prose as a `Refusal`'s does. Its own list rather than a flag on
+ * `Refusal`, because a `refuses:` entry is one an artifact must answer and this is the opposite.
+ */
+export interface NotRefusal {
+  span: string | null
+}
+
 /** A corpus node: `.yidam/corpus/<class>/<name>.yml`. */
 export interface CorpusInstance {
   class: string | null
@@ -67,12 +76,15 @@ export interface CorpusInstance {
    * `references`' reason: a field that is named is one a check can read.
    */
   refuses: Refusal[] | null
+  /** The paragraphs a person ruled are not refusals, each quoted verbatim (RFC-0057). */
+  not_refusals: NotRefusal[] | null
   /** Every other top-level key, kept rather than dropped. */
   extra: Record<string, unknown>
 }
 
 const DECLARED = new Set([
   'class', 'label', 'description', 'properties', 'links', 'cites', 'references', 'refuses',
+  'not_refusals',
 ])
 
 function str(v: unknown): string | null {
@@ -93,6 +105,7 @@ export function emptyInstance(): CorpusInstance {
     cites: null,
     references: null,
     refuses: null,
+    not_refusals: null,
     extra: {},
   }
 }
@@ -156,6 +169,10 @@ export function parseInstance(text: string): CorpusInstance {
       })
     : null
 
+  const not_refusals = Array.isArray(doc.not_refusals)
+    ? doc.not_refusals.map((r): NotRefusal => ({ span: str(isRecord(r) ? r.span : undefined) }))
+    : null
+
   const extra: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(doc)) {
     if (!DECLARED.has(k)) extra[k] = v
@@ -169,6 +186,7 @@ export function parseInstance(text: string): CorpusInstance {
     links,
     references,
     refuses,
+    not_refusals,
     cites,
     extra,
   }
@@ -190,6 +208,7 @@ export function instanceToJson(i: CorpusInstance): Record<string, unknown> {
     links: i.links,
     references: i.references,
     refuses: i.refuses,
+    not_refusals: i.not_refusals,
     cites: i.cites,
     extra: i.extra,
   }

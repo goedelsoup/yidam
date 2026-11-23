@@ -111,7 +111,8 @@ survives it. Quoting the refusal itself owes nothing.
 | `derive-refusal-candidate` | info |
 
 The candidate is a cited paragraph that reads like a refusal and declares none. It is a
-question for a person and never fails the check. No `[derive] paths` means nothing is read, and
+question for a person and never fails the check. A paragraph holding a `not_refusals:` span is
+never proposed. No `[derive] paths` means nothing is read, and
 the check passes.
 
 ## The practice

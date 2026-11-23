@@ -1,6 +1,6 @@
 # RFC-0057 — A refusal is read without an argument, and a ruled non-refusal is declared once
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I40
 - **Relates to:**
   - #1502 (claims, edge provenance and refusals live in prose; the evidence this answers), parent epic #1513

@@ -1,0 +1,43 @@
+function = "parse_instance"
+description = "RFC-0057: `not_refusals:` is where a node declares a paragraph a person ruled is not a refusal — a verbatim span per entry, read as a named field beside `refuses:` rather than left in `extra`, so the ruling is not proposed again. An entry that is not a mapping, or a span that is not a string, is an entry with no span, never an unreadable node"
+
+[input]
+content = """
+class: period
+label: Depopulation, 2020–2024
+description: |
+  Eleven of the county's thirteen civil subdivisions lost population between 2020 and 2024.
+  [verified] It does not establish that the decline has ended. [open]
+
+  The publisher does not label the motions; the Journal does. [inference]
+refuses:
+  - span: It does not establish that the decline has ended.
+not_refusals:
+  - span: The publisher does not label the motions; the Journal does.
+  - {}
+  - The publisher does not label the motions.
+  - span: 2024
+"""
+
+[expected]
+instance = """
+{
+  "class": "period",
+  "label": "Depopulation, 2020–2024",
+  "description": "Eleven of the county's thirteen civil subdivisions lost population between 2020 and 2024.\\n[verified] It does not establish that the decline has ended. [open]\\n\\nThe publisher does not label the motions; the Journal does. [inference]\\n",
+  "properties": null,
+  "links": null,
+  "references": null,
+  "refuses": [
+    { "span": "It does not establish that the decline has ended.", "inference": null }
+  ],
+  "not_refusals": [
+    { "span": "The publisher does not label the motions; the Journal does." },
+    { "span": null },
+    { "span": null },
+    { "span": null }
+  ],
+  "cites": null,
+  "extra": {}
+}
+"""

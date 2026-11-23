@@ -241,20 +241,25 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// **Raised by 60 on *Before a claim crosses a corpus boundary*, on both routes, when
 /// `directories.md` documented the code-artifact pin (#1521).** The delta is **60 words in
 /// `directories.md`**: one bullet naming `commit`, `repo` and `symbol` on a `file` location.
+///
+/// **Raised by 81 on *Before you write or revise a node* and *Before you change a class*, on
+/// both routes, when a node could rule a paragraph not a refusal (#1502, RFC-0057).** The delta
+/// is **81 words in `GRAPH.md`**: the `not_refusals:` example, the per-paragraph ruling, the
+/// opt-in and the note that neither list is prose. All four moved by the same 81.
 const READ_CEILING: &[(&str, &str, usize)] = &[
-    ("AGENTS.md", "Before you write or revise a node", 6_759),
+    ("AGENTS.md", "Before you write or revise a node", 6_840),
     ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
         4_599,
     ),
-    ("AGENTS.md", "Before you change a class", 5_081),
+    ("AGENTS.md", "Before you change a class", 5_162),
     ("AGENTS.md", "Before you retrieve", 2_989),
     (
         "sadhana/root/AGENTS.md",
         "Before you write or revise a node",
-        7_736,
+        7_817,
     ),
     ("sadhana/root/AGENTS.md", "Before you run a phase", 5_583),
     (
@@ -262,7 +267,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
         "Before a claim crosses a corpus boundary",
         5_576,
     ),
-    ("sadhana/root/AGENTS.md", "Before you change a class", 6_058),
+    ("sadhana/root/AGENTS.md", "Before you change a class", 6_139),
     ("sadhana/root/AGENTS.md", "Before you retrieve", 3_966),
 ];
 
@@ -487,7 +492,11 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// the `.yidam/asks/` header and the rule never to move a pin without reading — and **41 in
 /// `directories.md`**, its listing line and three-line section. The argument went to the
 /// evidence file. 20,741 + 190 is this figure exactly.
-const BOOTSTRAP_CEILING: usize = 20_931;
+///
+/// **Raised to 21,012 when a node could rule a paragraph not a refusal (#1502, RFC-0057).** The
+/// delta is **81 words in `GRAPH.md`**, the same 81 both recurring routes moved by. 20,931 + 81
+/// is this figure exactly. The argument is in `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
+const BOOTSTRAP_CEILING: usize = 21_012;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
