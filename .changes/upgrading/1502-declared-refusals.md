@@ -6,16 +6,17 @@ Each entry's `span` quotes a paragraph a person ruled declines nothing.
 `derive check` no longer proposes that paragraph as `derive-refusal-candidate`.
 Neither list is read as the node's prose.
 
-**`refusal-span-drift` now reports three more errors.**
+**`refusal-span-drift` now reports four more errors.**
 
 It fails a drifted `not_refusals:` span, as it fails a drifted `refuses:` span.
-It fails a span on either list that crosses a blank line, or that is found in more than one paragraph.
+It fails a span on either list that crosses a blank line.
+It fails a span found in more than one paragraph.
 It fails a paragraph that holds a span from each list.
 No corpus declared a refusal when this shipped, so no existing corpus should see these.
 
 **A new Info check, `refusal-undeclared`, runs only where a corpus asks.**
 
-Add this to `.yidam/corpus/universal.yml` to turn it on:
+To turn it on, add this block to `.yidam/corpus/universal.yml`.
 
 ```yaml
 refusals:
