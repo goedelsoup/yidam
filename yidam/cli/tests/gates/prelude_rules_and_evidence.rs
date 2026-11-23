@@ -246,13 +246,18 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// both routes, when a node could rule a paragraph not a refusal (#1502, RFC-0057).** The delta
 /// is **81 words in `GRAPH.md`**: the `not_refusals:` example, the per-paragraph ruling, the
 /// opt-in and the note that neither list is prose. All four moved by the same 81.
+///
+/// **Raised by 48 on *Before a claim crosses a corpus boundary*, on both routes, when a
+/// `dataset` entry could declare its table (#1504, RFC-0059).** The delta is **48 words in
+/// `directories.md`**: one catalog paragraph naming `columns:`, `key:`, the `#row=` citation,
+/// the three checks, the run refusal and the kit's `table()`. Both routes moved by the same 48.
 const READ_CEILING: &[(&str, &str, usize)] = &[
     ("AGENTS.md", "Before you write or revise a node", 6_840),
     ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
-        4_599,
+        4_647,
     ),
     ("AGENTS.md", "Before you change a class", 5_162),
     ("AGENTS.md", "Before you retrieve", 2_989),
@@ -265,7 +270,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
     (
         "sadhana/root/AGENTS.md",
         "Before a claim crosses a corpus boundary",
-        5_576,
+        5_624,
     ),
     ("sadhana/root/AGENTS.md", "Before you change a class", 6_139),
     ("sadhana/root/AGENTS.md", "Before you retrieve", 3_966),

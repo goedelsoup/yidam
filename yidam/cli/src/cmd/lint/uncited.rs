@@ -602,6 +602,8 @@ mod tests {
             retrieved: None,
             ttl_days: None,
             artifacts: Vec::new(),
+            columns: None,
+            key: None,
             text: text.to_string(),
             malformed: None,
         }

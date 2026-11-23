@@ -25,6 +25,7 @@ use super::manifest::{Capability, Run};
 use super::receipt::{sha256, File};
 use crate::cmd::propose::write::{git, TempIndex};
 use crate::kuten::glob_covers;
+use crate::table::{self, Declaration};
 
 /// A scratch directory removed when the run ends, wherever it ends.
 ///
@@ -100,6 +101,137 @@ pub struct Inputs {
     /// consumer, and a field nothing reads is the shape a warning is right about.
     #[cfg(feature = "calculators-gluon")]
     pub script: Option<Script>,
+    /// Every table the commit's catalog declares, whether or not this step reads it (RFC-0059).
+    ///
+    /// All of them and not only the read ones, because [`check_tables_written`] holds what the
+    /// step *wrote* to the same declarations, and a step's writes are rarely among its reads.
+    pub(crate) tables: Vec<Declaration>,
+    /// The declarations of the tables this step reads, as `$YIDAM_TABLES` names them (§2.4).
+    ///
+    /// Its own scratch directory, for the reason [`Self::resolved`] gives. `None` where `reads`
+    /// cover no declared table, and the variable is then removed rather than left to inherit.
+    pub tables_file: Option<DeclaredTables>,
+}
+
+/// The `$YIDAM_TABLES` document as it was handed over.
+pub struct DeclaredTables {
+    /// A lifetime and not a value, as [`ResolvedCorpus`]'s is.
+    _dir: Scratch,
+    pub path: PathBuf,
+    /// In the input state, so an edited declaration moves it even where the catalog is not
+    /// among `reads` — see [`super::receipt::Input::tables_sha256`].
+    pub sha256: String,
+}
+
+impl DeclaredTables {
+    fn build(decls: &[Declaration], covered: &dyn Fn(&str) -> bool) -> Result<Option<Self>> {
+        let Some(text) = table::document(decls, covered) else {
+            return Ok(None);
+        };
+        let dir = Scratch::new("tables")?;
+        let path = dir.path().join("tables.json");
+        std::fs::write(&path, text.as_bytes())
+            .with_context(|| format!("writing the table declarations to {}", path.display()))?;
+        Ok(Some(Self {
+            _dir: dir,
+            path,
+            sha256: sha256(text.as_bytes()),
+        }))
+    }
+}
+
+/// The tables `commit`'s catalog declares, read out of the commit and not the working tree.
+///
+/// The catalog is checked out on its own, because a step's `reads` rarely cover it and the
+/// declarations are not the step's input. They are the run's, and they are the commit's.
+fn declarations_at(root: &Path, index: &Path, tracked: &[&str]) -> Result<Vec<Declaration>> {
+    let catalog: Vec<&str> = tracked
+        .iter()
+        .copied()
+        .filter(|p| p.starts_with(".yidam/catalog/") && p.ends_with(".md"))
+        .collect();
+    if catalog.is_empty() {
+        return Ok(Vec::new());
+    }
+    let dir = Scratch::new("catalog")?;
+    let prefix = format!("{}/", dir.path().display());
+    git(
+        root,
+        Some(index),
+        &["checkout-index", "-f", "--stdin", "-z", "--prefix", &prefix],
+        Some(&catalog.join("\0")),
+    )?;
+    Ok(table::declarations(
+        crate::corpus::Corpus::open(dir.path()).sources(),
+    ))
+}
+
+/// The first findings against a table, for a refusal that sends its reader to `lint` for the rest.
+fn first_departures(departures: &[table::Departure]) -> String {
+    const SHOWN: usize = 5;
+    let mut lines: Vec<String> = departures
+        .iter()
+        .take(SHOWN)
+        .map(|d| format!("  {d}"))
+        .collect();
+    if departures.len() > SHOWN {
+        lines.push(format!(
+            "  and {} more; `yidam lint` reports them",
+            departures.len() - SHOWN
+        ));
+    }
+    lines.join("\n")
+}
+
+/// Refuse a step whose `reads` cover a declared table that departs from its declaration.
+///
+/// RFC-0059 §2.3: a calculator should not compute from a file its own corpus would reject.
+/// Called just before the step is invoked, and not in [`materialize`], so `--dry-run` and a
+/// fresh step still report rather than refuse. Read from the materialized tree, which holds the
+/// bytes the step would have been handed.
+pub(crate) fn check_tables_read(inputs: &Inputs) -> Result<()> {
+    for decl in &inputs.tables {
+        if !inputs.files.iter().any(|f| f.path == decl.path) {
+            continue;
+        }
+        let bytes = std::fs::read(inputs.dir.path().join(&decl.path))
+            .with_context(|| format!("reading back the materialized {}", decl.path))?;
+        let departures = table::departures(decl, &bytes);
+        if !departures.is_empty() {
+            bail!(
+                "`{}` departs from the table `{}` declares, and the step was not run.\n{}",
+                decl.path,
+                decl.entry,
+                first_departures(&departures)
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Refuse a step that wrote a declared table its declaration does not describe (RFC-0059 §2.3).
+///
+/// Beside [`check_declared`] and after it: that one asks whether a step wrote where it said, this
+/// one whether a table it wrote is the table the catalog says is there.
+pub(crate) fn check_tables_written(
+    tables: &[Declaration],
+    produced: &[(String, Vec<u8>)],
+) -> Result<()> {
+    for (path, bytes) in produced {
+        let Some(decl) = tables.iter().find(|d| &d.path == path) else {
+            continue;
+        };
+        let departures = table::departures(decl, bytes);
+        if !departures.is_empty() {
+            bail!(
+                "the step wrote `{path}`, which departs from the table `{}` declares, and \
+                 nothing was committed.\n{}",
+                decl.entry,
+                first_departures(&departures)
+            );
+        }
+    }
+    Ok(())
 }
 
 /// A typed calculator's program, as the run read it.
@@ -216,6 +348,9 @@ pub fn materialize(root: &Path, commit: &str, cap: &Capability) -> Result<Inputs
         Some(&wanted.join("\0")),
     )?;
 
+    let tables = declarations_at(root, &index, &tracked)?;
+    let tables_file = DeclaredTables::build(&tables, &|p| wanted.iter().any(|w| w == p))?;
+
     let mut files = Vec::new();
     for path in wanted {
         let bytes = std::fs::read(dir.path().join(&path))
@@ -249,6 +384,8 @@ pub fn materialize(root: &Path, commit: &str, cap: &Capability) -> Result<Inputs
         resolved,
         #[cfg(feature = "calculators-gluon")]
         script,
+        tables,
+        tables_file,
     })
 }
 
@@ -310,6 +447,9 @@ pub(crate) fn invoke_argv(
 /// resolved corpus at all. A script that wants it tests for it — `[ -n "${YIDAM_GRAPH:-}" ]`
 /// — rather than assuming the file is there, which is the same shape as the other four and is
 /// what the manifest doc states.
+///
+/// `YIDAM_TABLES` is the sixth (RFC-0059 §2.4), absent in the same way: it names the
+/// declarations of the tables the step's `reads` cover, and a step that reads none has none.
 fn process(
     argv: &[String],
     inputs: &Inputs,
@@ -334,6 +474,11 @@ fn process(
     match &inputs.resolved {
         Some(r) => command.env("YIDAM_GRAPH", &r.path),
         None => command.env_remove("YIDAM_GRAPH"),
+    };
+    // The same argument, for the table declarations (RFC-0059 §2.4).
+    match &inputs.tables_file {
+        Some(t) => command.env("YIDAM_TABLES", &t.path),
+        None => command.env_remove("YIDAM_TABLES"),
     };
     let status = command
         .output()

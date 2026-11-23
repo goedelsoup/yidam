@@ -24,6 +24,9 @@
 //!
 //! The kit does not know `yidam`'s rules for a signal table: which names are reserved, and which
 //! nodes exist. `yidam run` checks those against the corpus before it commits.
+//!
+//! A step that reads a table a catalog entry declares reads it with [`table`], which types its
+//! cells by the declaration `yidam run` names in `$YIDAM_TABLES` (RFC-0059 §2.4).
 
 use std::fmt;
 use std::fmt::Write as _;
@@ -446,6 +449,365 @@ pub fn read() -> Result<Graph, KitError> {
         Ok(text) => parse(&text),
         Err(e) => fail(format!("{path}: {e}")),
     }
+}
+
+// ── tables ──────────────────────────────────────────────────────────────────────────────
+
+/// The `$YIDAM_TABLES` document, read as far as [`parse_table`] needs it.
+///
+/// A JSON reader of its own because the kit takes no dependency. It reads any JSON, and keeps an
+/// object's keys in the order written.
+struct Json<'a> {
+    s: &'a [u8],
+    at: usize,
+}
+
+impl Json<'_> {
+    fn ws(&mut self) {
+        while self.at < self.s.len() && self.s[self.at].is_ascii_whitespace() {
+            self.at += 1;
+        }
+    }
+
+    fn fail<T>(&self, what: &str) -> Result<T, KitError> {
+        fail(format!("$YIDAM_TABLES, byte {}: {what}", self.at))
+    }
+
+    fn eat(&mut self, b: u8) -> Result<(), KitError> {
+        self.ws();
+        if self.s.get(self.at) == Some(&b) {
+            self.at += 1;
+            Ok(())
+        } else {
+            self.fail(&format!("expected `{}`", b as char))
+        }
+    }
+
+    fn value(&mut self) -> Result<Value, KitError> {
+        self.ws();
+        match self.s.get(self.at) {
+            Some(b'{') => {
+                self.at += 1;
+                let mut m = Vec::new();
+                self.ws();
+                if self.s.get(self.at) == Some(&b'}') {
+                    self.at += 1;
+                    return Ok(Value::Map(m));
+                }
+                loop {
+                    self.ws();
+                    let k = self.string()?;
+                    self.eat(b':')?;
+                    m.push((k, self.value()?));
+                    self.ws();
+                    match self.s.get(self.at) {
+                        Some(b',') => self.at += 1,
+                        Some(b'}') => {
+                            self.at += 1;
+                            return Ok(Value::Map(m));
+                        }
+                        _ => return self.fail("expected `,` or `}`"),
+                    }
+                }
+            }
+            Some(b'[') => {
+                self.at += 1;
+                let mut l = Vec::new();
+                self.ws();
+                if self.s.get(self.at) == Some(&b']') {
+                    self.at += 1;
+                    return Ok(Value::List(l));
+                }
+                loop {
+                    l.push(self.value()?);
+                    self.ws();
+                    match self.s.get(self.at) {
+                        Some(b',') => self.at += 1,
+                        Some(b']') => {
+                            self.at += 1;
+                            return Ok(Value::List(l));
+                        }
+                        _ => return self.fail("expected `,` or `]`"),
+                    }
+                }
+            }
+            Some(b'"') => self.string().map(Value::Str),
+            Some(_) => {
+                let start = self.at;
+                while self.at < self.s.len() && !b",]} \t\r\n".contains(&self.s[self.at]) {
+                    self.at += 1;
+                }
+                match &self.s[start..self.at] {
+                    b"null" => Ok(Value::Null),
+                    b"true" => Ok(Value::Bool(true)),
+                    b"false" => Ok(Value::Bool(false)),
+                    word => match std::str::from_utf8(word).ok().and_then(|w| w.parse().ok()) {
+                        Some(x) => Ok(Value::Float(x)),
+                        None => self.fail("expected a value"),
+                    },
+                }
+            }
+            None => self.fail("expected a value"),
+        }
+    }
+
+    fn hex4(&mut self) -> Result<u32, KitError> {
+        let digits = self
+            .s
+            .get(self.at..self.at + 4)
+            .and_then(|h| std::str::from_utf8(h).ok());
+        match digits.and_then(|h| u32::from_str_radix(h, 16).ok()) {
+            Some(u) => {
+                self.at += 4;
+                Ok(u)
+            }
+            None => self.fail("a `\\u` escape needs four hex digits"),
+        }
+    }
+
+    fn string(&mut self) -> Result<String, KitError> {
+        if self.s.get(self.at) != Some(&b'"') {
+            return self.fail("expected a string");
+        }
+        self.at += 1;
+        let mut out = Vec::new();
+        loop {
+            match self.s.get(self.at) {
+                None => return self.fail("an unterminated string"),
+                Some(b'"') => {
+                    self.at += 1;
+                    break;
+                }
+                Some(b'\\') => {
+                    self.at += 1;
+                    let c = match self.s.get(self.at) {
+                        Some(b'"') => '"',
+                        Some(b'\\') => '\\',
+                        Some(b'/') => '/',
+                        Some(b'b') => '\u{8}',
+                        Some(b'f') => '\u{c}',
+                        Some(b'n') => '\n',
+                        Some(b'r') => '\r',
+                        Some(b't') => '\t',
+                        Some(b'u') => {
+                            self.at += 1;
+                            let hi = self.hex4()?;
+                            let code = if (0xD800..0xDC00).contains(&hi)
+                                && self.s.get(self.at..self.at + 2) == Some(b"\\u")
+                            {
+                                self.at += 2;
+                                let lo = self.hex4()?;
+                                0x10000 + ((hi - 0xD800) << 10) + (lo.wrapping_sub(0xDC00) & 0x3FF)
+                            } else {
+                                hi
+                            };
+                            let c = char::from_u32(code).unwrap_or('\u{FFFD}');
+                            out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes());
+                            continue;
+                        }
+                        _ => return self.fail("an unknown escape"),
+                    };
+                    self.at += 1;
+                    out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes());
+                }
+                Some(&b) => {
+                    self.at += 1;
+                    out.push(b);
+                }
+            }
+        }
+        String::from_utf8(out).or_else(|_| self.fail("a string that is not UTF-8"))
+    }
+}
+
+/// The rows of a CSV file, as RFC 4180 reads them: a quoted cell may hold a comma, a newline, or
+/// a doubled quote. A blank line is no record, as it is to `yidam`'s reader.
+fn csv_rows(text: &str) -> Vec<Vec<String>> {
+    let mut rows = Vec::new();
+    let mut row = Vec::new();
+    let mut cell = String::new();
+    let mut quoted = false;
+    let mut touched = false;
+    let mut chars = text.chars().peekable();
+    let mut end = |row: &mut Vec<String>, cell: &mut String, touched: &mut bool| {
+        row.push(std::mem::take(cell));
+        if *touched || row.len() > 1 || !row[0].is_empty() {
+            rows.push(std::mem::take(row));
+        } else {
+            row.clear();
+        }
+        *touched = false;
+    };
+    while let Some(c) = chars.next() {
+        if quoted {
+            if c != '"' {
+                cell.push(c);
+            } else if chars.peek() == Some(&'"') {
+                cell.push('"');
+                chars.next();
+            } else {
+                quoted = false;
+            }
+            continue;
+        }
+        match c {
+            '"' if cell.is_empty() => {
+                quoted = true;
+                touched = true;
+            }
+            ',' => row.push(std::mem::take(&mut cell)),
+            '\r' if chars.peek() == Some(&'\n') => {}
+            '\r' | '\n' => end(&mut row, &mut cell, &mut touched),
+            _ => cell.push(c),
+        }
+    }
+    if touched || !row.is_empty() || !cell.is_empty() {
+        end(&mut row, &mut cell, &mut touched);
+    }
+    rows
+}
+
+/// The rows of a table file, the header first, read as `yidam`'s own reader reads them.
+fn table_lines(text: &str, format: &str) -> Vec<Vec<String>> {
+    if format == "csv" {
+        return csv_rows(text);
+    }
+    let mut lines: Vec<Vec<String>> = text
+        .split('\n')
+        .map(|r| {
+            let r = r.strip_suffix('\r').unwrap_or(r);
+            r.split('\t').map(str::to_string).collect()
+        })
+        .collect();
+    if text.ends_with('\n') {
+        lines.pop();
+    }
+    lines
+}
+
+fn field<'v>(decl: &'v Value, key: &str) -> Result<&'v Value, KitError> {
+    match decl.get(key) {
+        Some(v) => Ok(v),
+        None => fail(format!("$YIDAM_TABLES: a declaration has no `{key}`")),
+    }
+}
+
+fn text_field<'v>(decl: &'v Value, key: &str) -> Result<&'v str, KitError> {
+    match field(decl, key)?.as_str() {
+        Some(s) => Ok(s),
+        None => fail(format!(
+            "$YIDAM_TABLES: a declaration's `{key}` is not a string"
+        )),
+    }
+}
+
+/// Read one table's text by its declaration in `declarations`, the `$YIDAM_TABLES` document.
+///
+/// One [`Value::Map`] per row, in the declaration's column order. A `number` cell is a
+/// [`Value::Float`], an empty cell is [`Value::Null`], and every other cell is its text, trimmed.
+/// A path no declaration names is refused, so an undeclared file is not read as if it were typed.
+pub fn parse_table(declarations: &str, path: &str, text: &str) -> Result<Vec<Value>, KitError> {
+    let doc = Json {
+        s: declarations.as_bytes(),
+        at: 0,
+    }
+    .value()?;
+    let Value::List(decls) = doc else {
+        return fail("$YIDAM_TABLES does not hold a list of declarations".into());
+    };
+    let mut decl = None;
+    for d in &decls {
+        if text_field(d, "path")? == path {
+            decl = Some(d);
+            break;
+        }
+    }
+    let Some(decl) = decl else {
+        return fail(format!(
+            "{path}: no table declaration in $YIDAM_TABLES names it. Does a catalog entry declare \
+             its `columns:`, and does this step's `reads` cover the file?"
+        ));
+    };
+    let entry = text_field(decl, "entry")?;
+    let Value::List(columns) = field(decl, "columns")? else {
+        return fail(format!(
+            "$YIDAM_TABLES: `{entry}`'s `columns` is not a list"
+        ));
+    };
+    let mut names = Vec::new();
+    let mut numeric = Vec::new();
+    for c in columns {
+        names.push(text_field(c, "name")?.to_string());
+        numeric.push(text_field(c, "type")? == "number");
+    }
+    let lines = table_lines(text, text_field(decl, "format")?);
+    let header: Vec<String> = lines
+        .first()
+        .map(|h| h.iter().map(|c| c.trim().to_string()).collect())
+        .unwrap_or_default();
+    if header != names {
+        return fail(format!(
+            "{path}: the header reads `{}`, and `{entry}` declares `{}`",
+            header.join(" "),
+            names.join(" ")
+        ));
+    }
+    let mut rows = Vec::new();
+    for (i, cells) in lines.iter().enumerate().skip(1) {
+        let number = i + 1;
+        if cells.len() != names.len() {
+            return fail(format!(
+                "{path}: row {number} has {} cells, and `{entry}` declares {} columns",
+                cells.len(),
+                names.len()
+            ));
+        }
+        let mut row = Vec::new();
+        for ((name, &is_number), cell) in names.iter().zip(&numeric).zip(cells) {
+            let v = cell.trim();
+            let value = if v.is_empty() {
+                Value::Null
+            } else if is_number {
+                // `yidam`'s rule: a finite decimal.
+                match v.parse::<f64>().ok().filter(|x| x.is_finite()) {
+                    Some(x) => Value::Float(x),
+                    None => {
+                        return fail(format!(
+                            "{path}: row {number}, column `{name}`: `{v}` is not a number"
+                        ))
+                    }
+                }
+            } else {
+                Value::Str(v.to_string())
+            };
+            row.push((name.clone(), value));
+        }
+        rows.push(Value::Map(row));
+    }
+    Ok(rows)
+}
+
+/// Read the declared table at `path`, repository-relative as its entry's `file` location.
+///
+/// The declarations are read from `$YIDAM_TABLES` and the file from under `$YIDAM_IN`, both of
+/// which `yidam run` sets. See [`parse_table`] for what a row is.
+pub fn table(path: &str) -> Result<Vec<Value>, KitError> {
+    let tables =
+        match std::env::var("YIDAM_TABLES") {
+            Ok(p) if !p.is_empty() => p,
+            _ => return fail(
+                "no table declarations: $YIDAM_TABLES is unset. Does this step's `reads` cover \
+                 a table a catalog entry declares?"
+                    .into(),
+            ),
+        };
+    let root = std::env::var("YIDAM_IN").unwrap_or_else(|_| ".".into());
+    let read = |p: &std::path::Path| {
+        std::fs::read_to_string(p).or_else(|e| fail(format!("{}: {e}", p.display())))
+    };
+    let declarations = read(std::path::Path::new(&tables))?;
+    let text = read(&std::path::Path::new(&root).join(path))?;
+    parse_table(&declarations, path, &text)
 }
 
 // ── writing ─────────────────────────────────────────────────────────────────────────────

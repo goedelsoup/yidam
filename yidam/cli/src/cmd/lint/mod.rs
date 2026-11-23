@@ -32,6 +32,7 @@ pub(crate) mod refusals;
 pub(crate) mod scope;
 pub(crate) mod skills;
 pub(crate) mod symbols;
+pub(crate) mod tables;
 pub(crate) mod ttl;
 pub(crate) mod uncited;
 
@@ -595,6 +596,21 @@ const ROSTER: &[Entry] = &[
         run: |i| i.pin_checks()[4].clone(),
     },
     Entry {
+        id: tables::DECLARATION_INVALID,
+        asked: Asked::Always,
+        run: |i| i.table_checks()[0].clone(),
+    },
+    Entry {
+        id: tables::SHAPE,
+        asked: Asked::Always,
+        run: |i| i.table_checks()[1].clone(),
+    },
+    Entry {
+        id: tables::REF_UNRESOLVED,
+        asked: Asked::Always,
+        run: |i| i.table_checks()[2].clone(),
+    },
+    Entry {
         id: prose_commits::ID,
         asked: Asked::Always,
         run: |i| prose_commits::check(i.root(), i.nodes(), i.sources()),
@@ -791,7 +807,9 @@ const ROSTER: &[Entry] = &[
     Entry {
         id: "broken-prose-link",
         asked: Asked::Always,
-        run: |i| checks::broken_prose_link(i.prose_links()),
+        run: |i| {
+            checks::broken_prose_link_with_rows(i.prose_links(), i.root(), i.declared_tables())
+        },
     },
     Entry {
         id: "broken-object-link",

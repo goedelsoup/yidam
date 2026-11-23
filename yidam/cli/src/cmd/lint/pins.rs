@@ -644,6 +644,8 @@ mod tests {
             retrieved: None,
             ttl_days: None,
             artifacts: Vec::new(),
+            columns: None,
+            key: None,
             text: String::new(),
             malformed: None,
         }

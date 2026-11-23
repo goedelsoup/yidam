@@ -1,6 +1,6 @@
 # RFC-0059 — A table is a catalog entry that declares its columns
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I42
 - **Relates to:**
   - #1504 (tabular evidence has no home; the evidence this answers), parent epic #1513

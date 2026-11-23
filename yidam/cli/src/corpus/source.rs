@@ -26,6 +26,10 @@ pub struct Source {
     /// so that an empty list is silent. A corpus adopting the field opts into the checks; a
     /// corpus that has not adopted it sees no new findings at all.
     pub artifacts: Vec<crate::parse::CatalogArtifact>,
+    /// The declared `columns:`, uninterpreted. See [`crate::table::declaration`].
+    pub columns: Option<serde_yaml::Value>,
+    /// The declared `key:`, uninterpreted.
+    pub key: Option<serde_yaml::Value>,
     /// The file's bytes, as they were read.
     ///
     /// Kept for the reason [`super::Node::text`] is: `load_sources` had this string in hand and

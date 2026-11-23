@@ -87,7 +87,7 @@ writer's failure that only a writer can prevent, and the kit's writer quotes eve
 ### 1.3 What the template checks, and when
 
 `yidam run` checks two things about an output before it commits it.
-[`check_declared`](../../yidam/cli/src/cmd/run/exec.rs#L385) checks that `writes` covers it.
+[`check_declared`](../../yidam/cli/src/cmd/run/exec.rs#L530) checks that `writes` covers it.
 `build_commit` checks that it is UTF-8. A `.yml` that does not parse is committed.
 
 The rules a later reader applies already exist, in

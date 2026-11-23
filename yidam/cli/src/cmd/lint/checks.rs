@@ -4347,6 +4347,8 @@ mod tests {
             retrieved: fm.retrieved,
             ttl_days: fm.ttl_days,
             artifacts: fm.artifacts.unwrap_or_default(),
+            columns: fm.columns,
+            key: fm.key,
             text: text.to_string(),
             malformed,
         }
@@ -4603,6 +4605,8 @@ mod tests {
             retrieved: None,
             ttl_days: None,
             artifacts: Vec::new(),
+            columns: None,
+            key: None,
             text: String::new(),
             malformed: None,
         }
@@ -4850,6 +4854,8 @@ mod tests {
                 retrieved: a.retrieved.clone(),
                 ttl_days: a.ttl_days,
                 artifacts: Vec::new(),
+                columns: None,
+                key: None,
                 text: String::new(),
                 malformed: None,
             })
@@ -6174,6 +6180,8 @@ mod tests {
             retrieved: None,
             ttl_days: None,
             artifacts: Vec::new(),
+            columns: None,
+            key: None,
             text: String::new(),
             malformed: None,
         }
@@ -10062,6 +10070,9 @@ pub struct ProseLink {
     /// is `None`: the file is what exists, the heading is not ours to verify. A line
     /// range is ours — see [`super::line_citations`].
     pub fragment: Option<super::line_citations::LineFragment>,
+    /// The key values of a `#row=` fragment (RFC-0059 §2.5), decoded, when the link carries
+    /// one. Resolved against the entry's declared table by `broken-prose-link`.
+    pub row: Option<Vec<String>>,
     /// Byte columns of the whole `[label](target)` on its line, for finding the quoted
     /// passage beside it. Valid into the raw line: the mask that found the link keeps
     /// byte offsets.
@@ -10179,12 +10190,18 @@ pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
             if is_external(&target) {
                 continue;
             }
+            let row = target_raw
+                .split_whitespace()
+                .next()
+                .and_then(|t| t.split_once('#'))
+                .and_then(|(_, frag)| crate::table::row_fragment(frag.trim_end_matches('>')));
             out.push(ProseLink {
                 file: file.to_string(),
                 line: number,
                 target: target.clone(),
                 resolved: dir.join(&target),
                 fragment,
+                row,
                 span: (label_start, j),
             });
         }
@@ -10192,8 +10209,20 @@ pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
     out
 }
 
-pub fn broken_prose_link(links: &[ProseLink]) -> Check {
-    let violations = links
+#[cfg(test)]
+fn broken_prose_link(links: &[ProseLink]) -> Check {
+    broken_prose_link_with_rows(links, Path::new(""), &[])
+}
+
+/// [`broken_prose_link`], with each `#row=` fragment resolved against the table its entry
+/// declares (RFC-0059 §2.5). `tables` is [`super::tables::declared`]'s reading, and `root` is
+/// what each declaring entry's path is relative to.
+pub(crate) fn broken_prose_link_with_rows(
+    links: &[ProseLink],
+    root: &Path,
+    tables: &[super::tables::Table],
+) -> Check {
+    let mut violations: Vec<Violation> = links
         .iter()
         .filter(|l| !l.resolved.exists())
         .map(|l| {
@@ -10203,6 +10232,12 @@ pub fn broken_prose_link(links: &[ProseLink]) -> Check {
             )
         })
         .collect();
+    for l in links.iter().filter(|l| l.resolved.exists()) {
+        let Some(values) = &l.row else { continue };
+        if let Some(why) = row_unresolved(l, values, root, tables) {
+            violations.push(Violation::new(format!("{}:{}", l.file, l.line), why));
+        }
+    }
     Check::new(
         "broken-prose-link",
         "A markdown link in prose does not resolve",
@@ -10216,6 +10251,60 @@ pub fn broken_prose_link(links: &[ProseLink]) -> Check {
          not read, so an example path in a shell command is not a finding.",
         violations,
     )
+}
+
+/// Why a `#row=` link names no row, or `None` when it names one.
+///
+/// An entry whose declaration is malformed is passed over: `table-declaration-invalid` has
+/// already reported it, and naming every link into it again would say the same thing twice.
+fn row_unresolved(
+    link: &ProseLink,
+    values: &[String],
+    root: &Path,
+    tables: &[super::tables::Table],
+) -> Option<String> {
+    use super::tables::Table;
+    let target = normalize(&link.resolved);
+    let entry_of = |rel: &str| normalize(&root.join(rel)) == target;
+    let found = tables.iter().find(|t| match t {
+        Table::Invalid { entry_rel, .. } => entry_of(entry_rel),
+        Table::Read { decl, .. } => entry_of(&decl.entry_rel),
+    });
+    let (decl, rows) = match found {
+        None => {
+            return Some(format!(
+                "`{}` cites a row, and the entry declares no table",
+                link.target
+            ))
+        }
+        Some(Table::Invalid { .. }) => return None,
+        Some(Table::Read { decl, rows, .. }) => (decl, rows),
+    };
+    if decl.key.is_empty() {
+        return Some(format!(
+            "`{}` cites a row, and `{}` declares no `key:` to name one by",
+            link.target, decl.entry
+        ));
+    }
+    if values.len() != decl.key.len() {
+        return Some(format!(
+            "`{}` names {} key values, and `{}`'s key is {} columns: {}",
+            link.target,
+            values.len(),
+            decl.entry,
+            decl.key.len(),
+            decl.key.join(", ")
+        ));
+    }
+    (!crate::table::has_row(decl, rows, values)).then(|| {
+        format!(
+            "`{}` names no row of `{}` — no row's {} reads `{}`",
+            link.target,
+            decl.path,
+            decl.key.join(", "),
+            values.join(",")
+        )
+    })
 }
 
 /// A link from the artifact into the corpus whose target is not there (#577).

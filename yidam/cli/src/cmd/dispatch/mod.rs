@@ -523,6 +523,9 @@ fn run(
     } = p;
     let position = position_path(name, question);
     let step = format!("elector/{name}");
+    if let Err(e) = exec::check_tables_read(&inputs) {
+        return report.failed(format!("{e:#}"));
+    }
     let produced = match exec::invoke_argv(
         &decl.run,
         &inputs,
@@ -544,6 +547,9 @@ fn run(
         report.stderr = Some(produced.stderr.clone());
     }
     if let Err(e) = exec::check_declared(&cap, &produced.outputs) {
+        return report.failed(format!("{e:#}"));
+    }
+    if let Err(e) = exec::check_tables_written(&inputs.tables, &produced.outputs) {
         return report.failed(format!("{e:#}"));
     }
     // A position is landed on `tip`, so that is the tree its outputs are read against
@@ -624,6 +630,7 @@ fn build_receipt(
             .as_bytes(),
     );
     let resolved = inputs.resolved.as_ref().map(|r| r.sha256.as_str());
+    let tables = inputs.tables_file.as_ref().map(|t| t.sha256.as_str());
     let input_state = Receipt::input_state(
         cap,
         &manifest_sha256,
@@ -631,6 +638,7 @@ fn build_receipt(
         &inputs.files,
         resolved,
         None,
+        tables,
     )?;
     Ok(Receipt {
         format_version: receipt::FORMAT_VERSION,
@@ -647,6 +655,7 @@ fn build_receipt(
             files: inputs.files.clone(),
             resolved_graph_sha256: resolved.map(str::to_string),
             script_sha256: None,
+            tables_sha256: tables.map(str::to_string),
         },
         writes: cap.writes.clone(),
         outputs: outputs

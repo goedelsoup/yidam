@@ -96,6 +96,8 @@ pub(crate) struct Input<'a> {
     commitment_checks: OnceLock<[Check; 4]>,
     calculator_checks: OnceLock<[Check; 3]>,
     pin_checks: OnceLock<[Check; 5]>,
+    declared_tables: OnceLock<Vec<super::tables::Table>>,
+    table_checks: OnceLock<[Check; 3]>,
 }
 
 impl<'a> Input<'a> {
@@ -155,6 +157,8 @@ impl<'a> Input<'a> {
             commitment_checks: OnceLock::new(),
             calculator_checks: OnceLock::new(),
             pin_checks: OnceLock::new(),
+            declared_tables: OnceLock::new(),
+            table_checks: OnceLock::new(),
         }
     }
 
@@ -747,6 +751,20 @@ impl<'a> Input<'a> {
     pub(crate) fn pin_checks(&self) -> &[Check; 5] {
         self.pin_checks
             .get_or_init(|| super::pins::checks(self.root(), self.sources()))
+    }
+
+    /// Every table a `dataset` entry declares (RFC-0059), read through the overlay so the
+    /// editor holds an unsaved table to its declaration. Shared by the three table checks and
+    /// by `broken-prose-link`'s `#row=` resolution.
+    pub(crate) fn declared_tables(&self) -> &[super::tables::Table] {
+        self.declared_tables.get_or_init(|| {
+            super::tables::declared(self.root(), self.sources(), &|p| self.overlay.try_read(p))
+        })
+    }
+
+    pub(crate) fn table_checks(&self) -> &[Check; 3] {
+        self.table_checks
+            .get_or_init(|| super::tables::checks(self.declared_tables(), self.nodes()))
     }
 
     pub(crate) fn quotation_checks(&self) -> &[Check; 3] {

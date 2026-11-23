@@ -376,6 +376,7 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
         let inputs = exec::materialize(root, &full, cap)?;
         let resolved_digest = inputs.resolved.as_ref().map(|r| r.sha256.clone());
         let script_digest = Receipt::script_sha256(cap, &inputs.files);
+        let tables_digest = inputs.tables_file.as_ref().map(|t| t.sha256.clone());
         let input_state = Receipt::input_state(
             cap,
             &manifest_sha256,
@@ -383,6 +384,7 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
             &inputs.files,
             resolved_digest.as_deref(),
             script_digest.as_deref(),
+            tables_digest.as_deref(),
         )?;
         let verdict = freshness(root, cap, &parent, &receipt_path, &input_state, today);
 
@@ -423,8 +425,10 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
                 format!("`{name}` was not run; the steps ahead of it in the plan landed")
             })?;
         }
+        exec::check_tables_read(&inputs)?;
         let produced = exec::invoke(cap, &inputs, name, &full)?;
         exec::check_declared(cap, &produced.outputs)?;
+        exec::check_tables_written(&inputs.tables, &produced.outputs)?;
         outputs::check_readable(root, &parent, &produced.outputs)?;
 
         let receipt = Receipt {
@@ -442,6 +446,7 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
                 files: inputs.files.clone(),
                 resolved_graph_sha256: resolved_digest.clone(),
                 script_sha256: script_digest.clone(),
+                tables_sha256: tables_digest.clone(),
             },
             writes: cap.writes.clone(),
             outputs: produced
@@ -695,6 +700,9 @@ pub(crate) fn standing(root: &Path) -> Result<Vec<Standing>> {
     let tracked = tracked_paths(root);
     let held: BTreeSet<&str> = tracked.iter().map(String::as_str).collect();
     let read = crate::corpus::Corpus::open(root);
+    // The declarations the run would read out of HEAD's catalog, read here out of the working
+    // tree as everything else in this function is (RFC-0059 §2.4).
+    let declared = crate::table::declarations(read.sources());
 
     let mut out = Vec::new();
     for name in m.plan(None)? {
@@ -722,6 +730,9 @@ pub(crate) fn standing(root: &Path) -> Result<Vec<Standing>> {
             &files,
             resolved_digest.as_deref(),
             Receipt::script_sha256(cap, &files).as_deref(),
+            crate::table::document(&declared, &|p| files.iter().any(|f| f.path == p))
+                .map(|text| sha256(text.as_bytes()))
+                .as_deref(),
         )?;
 
         let verdict = match &landed {
