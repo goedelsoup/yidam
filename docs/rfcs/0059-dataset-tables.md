@@ -165,7 +165,15 @@ and `ref`. A `ref` cell names a node, in RFC-0032's reference grammar. `values:`
 is one line and holds no standing of its own.
 
 `key:` is optional. It names one column, or a list of them, whose values together are unique
-across rows. Every key column is implicitly `required`.
+across rows. Every key column is implicitly `required`. Key values are compared as the raw text
+of their cells, and a row is cited by that text, so `3` and `3.0` are two keys whatever their
+column's type.
+
+**Read only on a dataset.** `columns:` and `key:` are read from an entry whose `type:` is
+`dataset` and from no other file. `Frontmatter` is shared by every kind of markdown file, and a
+derived corpus may already use either word for its own purposes. So both are typed as
+`serde_yaml::Value`, as `status:` is. A value of another shape then cannot fail the rest of the
+header, and the keys are interpreted only on the entries this RFC defines.
 
 The first line of the file is its header. The header must list the declared columns in the
 declared order. An extra column is a finding, so a column added by an extract is noticed and
@@ -184,13 +192,15 @@ not change on refresh.
 
 ### 2.2 What `lint` checks
 
-Three checks are added. Each reads the file through git at the commit being linted, as every
-other check does.
+Three checks are added. Each reads the file from the working tree, as the other checks do, and
+asks git only whether the file is tracked.
 
-- **`table-declaration-invalid`** (Error), on the catalog entry. It reports a `columns:` that
-  does not parse, a refused type, a duplicate column name, a `key:` naming no declared column,
-  a file location that is missing or untracked, and a `columns:` on an entry whose type is not
-  `dataset`. A malformed declaration is not used to check the file.
+- **`table-declaration-invalid`** (Error), on a `dataset` entry that carries `columns:`. It
+  reports a `columns:` that does not parse, a refused type, a duplicate column name, a `key:`
+  naming no declared column, no `file` location or more than one, a file that is missing or
+  untracked, and a file that does not end `.tsv` or `.csv`. So an entry that carries `columns:`
+  either declares a table or is reported. A malformed declaration is not used to check the
+  file.
 - **`table-shape`** (Error), on the table file. It reports a header that does not match, a row
   with the wrong number of cells, a missing required cell, a cell that does not parse as its
   type, a value outside `values:`, and a repeated key. It names the file, the line and the
@@ -199,8 +209,10 @@ other check does.
   the corpus does not hold. It is a warning because an extract may run ahead of the corpus, and
   the cell is still a fact about the source.
 
-The cell grammar is the property grammar. A `number` reads the way a property's number does. A
-`date` takes the precisions a property's date does. The empty cell is the absence of a value.
+The cell grammar is the property grammar applied to text. A property's number must be an
+unquoted YAML number, and every cell is text. So a `number` cell is read by `numeric_value`,
+the parser a property's number and `query`'s ordering already share. A `date` cell takes the
+precisions a property's date does. The empty cell is the absence of a value.
 TSV is read as plain tab-separated text with no quoting, and a tab or newline in a cell is
 a shape finding. CSV is read as RFC 4180. One reader serves `lint`, `run` and the row
 citation, so a file `lint` passes is a file the other two read the same way.
@@ -245,7 +257,9 @@ A node cites one row by a markdown link to the entry with a `#row=` fragment:
 [the largest receipt](../../catalog/sos-receipts.md#row=OH-2025-88412,3)
 ```
 
-The fragment holds the key's values in `key:` order, joined by `,`, each percent-encoded. A
+The fragment holds the key's values in `key:` order, joined by `,`, each percent-encoded. A `,`
+inside a value is written `%2C`, though common encoders leave it bare. The fragment is split on
+`,` before any value is decoded. A
 link with a `#row=` fragment is a citation of the entry, for `catalog-unobtained-but-cited` and
 the other checks that ask which nodes cite an entry. `broken-prose-link` resolves it further:
 
@@ -262,7 +276,9 @@ question takes them up.
 
 **Aggregates are not cited.** A total, a share or a median is computed. A calculator that reads
 the table writes it as a signal, and prose quotes it through RFC-0058's block. `regen --check`
-then holds the prose to the table. §1.2's two-vote discrepancy is the case that path catches,
+then holds the prose to the signal the last run wrote, not to the table. A table refreshed since
+that run is one of the capability's inputs, so `doctor` reports the capability stale until it
+runs again. §1.2's two-vote discrepancy is the case that path catches,
 and a citation grammar for aggregates would be a query language with no calculator behind it.
 
 ### 2.6 The prelude
@@ -274,11 +290,15 @@ read-route word ceilings move by the paragraph's word count.
 
 ### 2.7 Tests
 
-- A declaration with each refused type, a duplicate column, a `key:` naming no column, and an
-  untracked file each report `table-declaration-invalid`, and the file is not checked.
+- A declaration with each refused type, a duplicate column, a `key:` naming no column, an
+  untracked file, two `file` locations and a `.xlsx` file each report
+  `table-declaration-invalid`, and the file is not checked.
+- A catalog entry, a skill and an agent that carry `key: primary` or `columns: 3` outside a
+  `dataset` entry keep every other field of their header, and report nothing.
 - A header out of order, a short row, a missing required cell, a non-number in a `number`
   column, a value outside `values:` and a repeated composite key each report `table-shape`
-  with file, line and column. A file with 25 bad rows reports 20 and a count.
+  with file, line and column. A file with 25 bad rows reports 20 and a count. A `number` cell
+  reading `24` passes. Keys `3` and `3.0` are two keys.
 - A `ref` cell naming no node reports `table-ref-unresolved` at Warn.
 - TSV and CSV read the same rows from the same data, and a quoted CSV cell holding a comma is
   one cell.
@@ -286,7 +306,8 @@ read-route word ceilings move by the paragraph's word count.
   declared write fails. An undeclared TSV is read as before.
 - The kit's `table()` returns typed rows in both languages, and refuses an undeclared path.
 - A `#row=` link resolves, and the wrong arity, an unknown key, and a table with no `key:` each
-  report `broken-prose-link`. The link counts as a citation of the entry.
+  report `broken-prose-link`. The link counts as a citation of the entry. A key value holding
+  a comma resolves when written `%2C`.
 - The registration gates for three new checks pass.
 
 ## What this does not touch
@@ -312,12 +333,16 @@ still counts as citing it. An old `yidam run` sets no `$YIDAM_TABLES`, and the k
 refuses with a message naming the variable. A calculator written against the new kit fails
 loudly on an old pin. Nothing is stranded silently, so the bump is minor.
 
-**A new binary reading an old corpus.** No entry carries `columns:`, so no check fires and no
-run is checked. Nothing changes until a corpus declares.
+**A new binary reading an old corpus.** Both keys are read only on a `dataset` entry, and are
+typed so that a value of another shape cannot fail the header (§2.1). A `dataset` entry that
+already carries `columns:` for another purpose is reported by `table-declaration-invalid`. That
+is the one finding an old corpus can gain, and the implementing PR counts such entries across
+the local corpora before it merges. Otherwise no check fires and no run is checked until a
+corpus declares.
 
 **Adopting it.** ohio-campaign-finance-2025-2026 writes 17 entries, one per tabular file. The
 first `lint` reports what the files already hold. §1.2's discrepancy is found by the first
-calculator that writes the total as a signal.
+calculator that writes the total as a signal, once the prose quotes that signal.
 
 ## Alternatives considered
 
