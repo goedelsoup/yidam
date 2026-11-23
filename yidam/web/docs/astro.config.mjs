@@ -195,6 +195,7 @@ const sidebar = [
       { slug: 'rfcs/0055-watch-ledger-off-main', label: '0055 · The watch ledger off main' },
       { slug: 'rfcs/0056-calculator-kit', label: '0056 · The calculator kit' },
       { slug: 'rfcs/0057-claim-provenance', label: '0057 · Declared refusals' },
+      { slug: 'rfcs/0058-signal-citations', label: '0058 · Signal citations' },
     ],
   },
   {
