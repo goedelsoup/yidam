@@ -67,7 +67,7 @@ declaration rather than a format.
 
 An instance is a YAML document. `class`, `label`, a `description` block scalar carrying every
 paragraph the node asserts, a `properties` bag typed by the class, and `links`. The parser is
-[`CorpusInstance`](../../yidam/sdks/rust/src/corpus.rs#L112), and `description` is the only prose field
+[`CorpusInstance`](../../yidam/sdks/rust/src/corpus.rs#L127), and `description` is the only prose field
 it declares.
 
 Corpora did not stay inside it. The node schema is permissive at the top level, and the comment
@@ -313,7 +313,7 @@ node model that products would, for the first time, actually run.
    > The catalog schema describes frontmatter inside markdown, which yaml-language-server cannot
    > apply to a .md file
    >
-   > — [`schema.rs:851-852`](../../yidam/cli/src/cmd/schema.rs#L851-L852)
+   > — [`schema.rs:869-870`](../../yidam/cli/src/cmd/schema.rs#L869-L870)
 
    Every compiled per-class schema is delivered through `yaml.schemas`. Under Markdown nodes,
    none of them reaches a node in a third-party editor. This is the strongest argument against,
