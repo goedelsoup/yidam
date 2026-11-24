@@ -17,7 +17,8 @@
     - `yidam doctor` gains a fifth verdict, `declined`. Each warning that is an offer names
       the release that first made it (§1–§3).
     - `yidam schema` refuses `--force` and writes nothing when the repository declares
-      that it owns `.yidam/schemas/` (§4).
+      that it owns `.yidam/schemas/`. Under that declaration, `--settings` maps only the
+      schema files that exist (§4).
     - `yidam lint --bless` keeps the baseline's argument block and each entry's `note`.
       The baseline gains `expire_record`, and the expiry message stops suggesting a bare
       raise (§5).
@@ -25,6 +26,10 @@
     - `doctor --format json` carries the new verdict, a `declined` count, and each offer
       with its id and `since` release.
     - The report schema's verdict enum gains `declined`.
+  - **Editor.** The VS Code extension reads `doctor --format json`. Its `DoctorReport` type
+    (`reports.ts`) gains `'declined'`. The Health view (`tree/model.ts`) counts a check as
+    actionable when its verdict is anything other than `ok` or `skipped`, so it would show a
+    declined offer as a warning. `declined` joins `ok` and `skipped` there (§2).
   - **Prelude.** None. No file that `yidam-vendor-update` copies changes shape.
   - **Docs.** The #1057 upgrade note in `docs/upgrading.md` (`cli/v0.17.0`) is corrected
     (§4). `docs/troubleshooting.md` and `docs/configuration.md` gain the new keys.
@@ -94,9 +99,12 @@ The 2026-11-18 cross-corpus review counted re-pins and what each one adopted.
 - **#1057 already refuses to overwrite an unmarked schema file.** The refusal is the right
   behaviour, but nothing records why a file is unmarked. The `cli/v0.17.0` upgrade note says
   that files an earlier release wrote are refused on the first run, and tells the reader to
-  "replace them once" with `yidam schema --force`. For a repository that compiles its own
-  schemas, that command replaces the stricter files with the generic ones. The refusal text
-  is careful about this, but the note is not.
+  "replace them once" with `yidam schema --force`. The note's first paragraph does say that a
+  repository compiling its own schemas keeps them. The "replace them once" paragraph that
+  follows does not, and that paragraph is where a reader looks once the refusal fires. For a
+  repository that compiles its own schemas, its command replaces the stricter files with the
+  generic ones. The refusal text names both cases at the point of the command, and this
+  paragraph does not.
 - **The baseline already keeps one human-written value.** `expire_after` survives a bless
   (`baseline.rs`, `from_checks`) because it is "the one thing in this generated file a human
   wrote". The comments that argue for it are the second such thing, and they are dropped.
@@ -121,9 +129,13 @@ current check whose warning is an offer.
 | `routes` | `routes` | `AGENTS.md` has no `yidam routes` block | `cli/v0.16.0` |
 | `scaffold-regions` | `scaffold` | `ci.yml` or `CLAUDE.md` has no YIDAM region | `cli/v0.17.0` |
 | `scaffold-hooks` | `scaffold` | `.claude/settings.json` does not run `yidam hook` | `cli/v0.24.0` |
-| `ci` | `ci` | no workflow runs a corpus gate | `cli/v0.17.0` |
+| `ci` | `ci` | there is no `.github/workflows/`, or none of its workflows runs a corpus gate | `cli/v0.17.0` |
 | `contract-required` | `contract` | no property says `required:` | `cli/v0.17.0` |
 | `contract-edge-policy` | `contract` | no class with edges says `edge_policy:` | `cli/v0.17.0` |
+
+`check_ci` has two warn arms, and both belong to the `ci` offer. A repository with no
+`.github/workflows/` usually runs its CI somewhere `doctor` cannot read. Declining `ci`
+against a record that says where is the answer to both arms.
 
 The offer ids are finer than the check ids. One check can carry two offers, and a release can
 add a third. If a decline named the check, it would also silence an offer that did not exist
@@ -138,6 +150,14 @@ The roster lives beside `ROSTER` in `doctor.rs` as a typed list. A gate asserts 
 - every `since` parses as a `cli/v*` release.
 
 A test also asserts that each check's warn arms map to the offers it lists.
+
+**A check with two offers judges each one on its own.** Today `check_scaffold` returns as
+soon as it finds an unmarked region. When the regions are missing, it never reports the
+missing hooks. A decline built on that early return would let `scaffold-regions` hide
+`scaffold-hooks`. So a check that carries offers first collects every open offer, then
+applies the declines, then forms the verdict from what is left. `check_scaffold` and
+`contract_answer` are restructured that way. A test covers a repository with both regions
+and hooks missing and `scaffold-regions` declined. The check warns and names the hooks.
 
 ### 2. `[doctor.declined]`
 
@@ -165,9 +185,20 @@ A key that names no offer is reported. That covers a typo and also an attempt to
 defect such as `binary`. It is listed under the summary line, and `--strict` fails on it. A
 typo in a decline otherwise does nothing, and the repository would never learn it.
 
+**Under `--only`, a key is judged only when it could name an offer on a selected check.** A
+key that names a known offer on a check that was not selected is left alone. An unknown key
+is reported only on a full run, because no check owns it. `yidam-vendor-update` runs
+`doctor --only contract --strict` and prints the contract output when strict fails. Without
+this rule, a typo such as `scaffold-hoks` would fail that run on every re-vendor and print a
+contract block that reads `ok`.
+
 `declined` is a fifth `Verdict`, serialized as `"declined"`. It is counted apart from `warn`.
 It does not change the exit code, with or without `--strict`. `DoctorReport` gains a
 `declined` count, and the summary line reads `… 2 warning(s), 3 declined.`
+
+The VS Code extension's Health view treats `declined` the way it treats `ok` and `skipped`.
+It does not list a declined check as actionable. Otherwise the editor would ask the question
+again after the CLI stopped asking it.
 
 `yidam-vendor-update` runs `doctor --only contract` (#1078). The run reports `declined` for a
 contract the repository has argued against, so the same question stops being asked on every
@@ -205,17 +236,21 @@ When a repository declares that it owns its schemas, `yidam schema` changes in f
 - **`--force` refuses** and names the key. A declared owner is the one fact the #1057
   refusal could not know, so no flag overrides it. To regenerate the generic schemas, a
   repository removes the declaration.
-- **`--settings` is unchanged.** It maps editor globs to paths under `.yidam/schemas/`. A
-  repository that owns the directory writes its own files to the same paths, so the mapping
-  still holds.
+- **`--settings` maps only the files that exist.** Today it maps every generic file name and
+  every class schema to a path under `.yidam/schemas/`, whether or not the file is there
+  (`editor_settings_for`). A repository that owns the directory need not write the same set.
+  ohio-education-funding's set is 21 files smaller than the generic one, so a full mapping
+  would point the editor at paths that do not exist. Under `owner = "repository"`, a path is
+  mapped only when its file exists. A schema the repository writes under a name yidam does
+  not know is not mapped, and the output says so. With the default owner, nothing changes.
 - **An unknown value fails** the run and names the two values it accepts.
 
 With the default value, `yidam`, nothing changes. The #1057 marker refusal still protects an
 unmarked file.
 
 **The #1057 note is corrected.** The `cli/v0.17.0` section of `docs/upgrading.md` keeps its
-instruction for files an earlier release wrote. A paragraph is added ahead of the command,
-covering two points:
+first paragraph and its instruction for files an earlier release wrote. Only the "replace
+them once" paragraph changes. A sentence is added ahead of its command, covering two points:
 
 - if this repository writes its own schemas, the refusal is correct, and the fix is to
   declare `[schema] owner = "repository"`;
@@ -238,10 +273,18 @@ The refusal text in `schema.rs` names the key in the same place.
 
   In a file written before that line existed, the header is matched against the HEADER of
   each release that shipped one. Everything after the matched prefix counts as the block.
-  If no known header matches, every leading comment line is kept. The new header is then
-  written above them, so a bless never deletes a person's words.
+  If no known header matches, every leading comment line is kept and the new header is
+  written above them, so a bless never deletes a person's words. Kept lines that match a
+  line of any known HEADER are still removed, so a lightly edited old header is not carried
+  forward as argument. The bless lists each line it kept from an unmatched header, so a
+  person can check the block once.
 - **A per-entry `note`.** An optional field, carried across blessings the way `since` is. It
   is matched to the entry by check and node. Nothing compares it.
+
+The header's opening paragraph is rewritten to match. Today it says "do not hand-edit,
+except for `expire_after`". It will name all four things a person writes: `expire_after`,
+`expire_record`, each entry's `note`, and the argument block below the header's last line.
+Everything else in the file stays generated.
 
 #### 5.2 `expire_after` names a record
 
@@ -252,21 +295,37 @@ expire_after: 80
 expire_record: baseline-expiry-80
 ```
 
+A record that names a number has to state it. The record's frontmatter carries the same key:
+
+```yaml
+---
+id: baseline-expiry-80
+expire_after: 80
+---
+```
+
+Frontmatter is shared by every `.md` kind, so lint reads this key as an untyped value, and a
+record without it does not fail to parse.
+
 | State | What lint does |
 |---|---|
 | no `expire_after` | Nothing changes: entries never expire. |
-| `expire_after` with a resolving `expire_record` | The number is honoured. The summary names the record. |
-| `expire_after` with no `expire_record` | The number is honoured. One line under the ratchet result says the expiry is argued by no record. This line is a **warning for one minor release** and a ratchet failure after that (Migration). |
+| `expire_after` with a resolving `expire_record` that states the same number | The number is honoured. The summary names the record. |
+| `expire_after` with a resolving `expire_record` that states another number, or none | The ratchet fails. It names the record and both numbers. |
+| `expire_after` with no `expire_record` | The number is honoured. One line under the ratchet result says no record argues the expiry. This line is a **warning for one minor release** and a ratchet failure after that (Migration). |
 | `expire_record` naming a record that is not held | The ratchet fails and names the record. This is the rule for a stale entry: a baseline that disagrees with the repository fails. |
 
-A raise is a diff to the record, or a new one, so the argument lands in a reviewed file
+The record carries the number, so a raise cannot be made in the baseline alone. If only
+`expire_after` changes, the baseline and its record disagree and the ratchet fails. The raise
+has to change the record too, or name a new record, so the argument lands in a reviewed file
 rather than a commit message.
 
 **The expiry message changes.** It no longer offers a bare raise. The two ways out become:
 
 - fix the finding;
-- write a decision record that argues why this corpus needs longer, raise `expire_after`, and
-  name the record in `expire_record`.
+- write a decision record that argues why this corpus needs longer and states the new
+  `expire_after`, raise the baseline's `expire_after` to match, and name the record in
+  `expire_record`.
 
 The lines about `--bless` not restamping `since` are kept.
 
@@ -309,7 +368,8 @@ The lines about `--bless` not restamping `since` are kept.
   line is enough.
 - **Gate a raise of `expire_after` against the committed baseline.** CI lints the committed
   tree, where the working file and HEAD agree, so a raise cannot be seen without a base ref.
-  Requiring a record for any number is a static rule, and a raise still has to touch it.
+  Requiring a record that states the same number is a static rule. A raise still has to
+  touch the record, because otherwise the two numbers disagree (§5.2).
 
 ## Migration
 
@@ -320,8 +380,8 @@ The lines about `--bless` not restamping `since` are kept.
   hand.
 - **A baseline with `expire_after` and no `expire_record`** prints one warning line for one
   minor release, then fails the ratchet. matt-huffman's 40 and the fmh worktree's 80 are both
-  in this state. The upgrade note says to write the record, name it, and that nothing else is
-  owed.
+  in this state. The upgrade note says to write the record with the same `expire_after` in
+  its frontmatter, name it, and that nothing else is owed.
 - **A repository with its own schemas** declares `[schema] owner = "repository"`. It may then
   delete its guard task file.
 
@@ -340,10 +400,16 @@ This is wrong if any of these is observed after it ships:
 - a repository that declined an offer against a record it holds, whose next re-vendor
   `doctor` still warns on that offer;
 - a decline that silences an offer added in a later release;
+- a decline of one offer on a check that hides another undecided offer on the same check,
+  such as `scaffold-regions` declined while the hooks are missing;
+- a typo in `[doctor.declined]` that fails `yidam-vendor-update`'s `--only contract` run;
+- the editor's Health view listing a `declined` check as actionable;
 - `doctor --strict` failing on a repository whose only non-`ok` lines are `declined`;
 - a repository that declared `[schema] owner = "repository"`, whose `.yidam/schemas/` is
   changed by `yidam schema` with or without `--force`;
-- a `--bless` that changes any line of the argument block, or any entry's `note`;
+- `yidam schema --settings`, under `owner = "repository"`, mapping a path with no file;
+- a `--bless` that changes any line of the argument block, or any entry's `note`, or that
+  carries an old generated header forward as argument;
 - a derived repository that raises `expire_after` without touching a decision record, one
   release after the warning period ends, and stays green.
 
