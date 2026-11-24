@@ -20,6 +20,10 @@ pub struct YidamConfig {
     #[serde(default)]
     pub due: DueConfig,
     #[serde(default)]
+    pub doctor: DoctorConfig,
+    #[serde(default)]
+    pub schema: SchemaConfig,
+    #[serde(default)]
     pub object: ObjectConfig,
     #[serde(default)]
     pub derive: DeriveConfig,
@@ -517,6 +521,46 @@ pub struct CatalogConfig {
 /// belongs where a source is configured — restating it under `[due]` would create two places
 /// to change it and one of them would be wrong.
 ///
+/// The `[doctor]` section (RFC-0066 §2).
+#[derive(Debug, Default, Deserialize)]
+pub struct DoctorConfig {
+    /// Offers this repository decided against, each mapped to the decision record that says
+    /// why. Keyed by **offer id**, not check id: one check can carry offers from two
+    /// releases, and a decline of the check would silence the later one unexamined.
+    ///
+    /// The rule is `[due.declined]`'s. A record that does not resolve is not honoured, and the
+    /// offer warns again. A key naming no offer is reported, and `--strict` fails on it.
+    ///
+    /// ```toml
+    /// [doctor.declined]
+    /// scaffold-hooks = "no-claude-hooks"
+    /// ```
+    #[serde(default)]
+    pub declined: BTreeMap<String, String>,
+}
+
+/// Who writes `.yidam/schemas/` (RFC-0066 §4).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SchemaOwner {
+    /// `yidam schema` writes the generic schemas. The default.
+    #[default]
+    Yidam,
+    /// The repository writes its own, and `yidam schema` leaves the directory alone.
+    Repository,
+}
+
+/// The `[schema]` section.
+#[derive(Debug, Default, Deserialize)]
+pub struct SchemaConfig {
+    /// ```toml
+    /// [schema]
+    /// owner = "repository"
+    /// ```
+    #[serde(default)]
+    pub owner: SchemaOwner,
+}
+
 /// Every key absent is the default, and it means `yidam due` reports what it measured and
 /// calls nothing due. That is not a degraded mode: a clock with no interval is a number
 /// nobody has yet decided the meaning of, and inventing one in the binary would be the

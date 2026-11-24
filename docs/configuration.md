@@ -107,6 +107,9 @@ superseded_after = 14
 [due.declined]
 index = "due-clocks"
 
+[doctor.declined]
+routes = "agents-by-hand"
+
 [index]
 model = "BAAI/bge-small-en-v1.5"
 
@@ -115,6 +118,9 @@ paths = ["web/**", "crates/**"]
 
 [derive]
 paths = ["dossier/**"]
+
+[schema]
+owner = "repository"
 
 [serve]
 act = true
@@ -469,6 +475,54 @@ than quiet.
 
 Declaring an interval and declining the same clock is a contradiction. The interval wins, and
 the row names the contradiction.
+
+### `[doctor.declined]`
+
+Offers this repository examined and does not want, each naming the record that argues it.
+
+```toml
+[doctor.declined]
+routes = "agents-by-hand"
+```
+
+`doctor` separates an offer from a defect. A defect is something wrong with this repository.
+An offer is something a release added since the repository adopted yidam. Among them are the
+managed `AGENTS.md` routing, the scaffold regions and hooks, and the contract settings. An
+undecided offer warns and names the release that made it, and `--strict` fails on it as on any
+warning. A declined one does not warn.
+
+The key is the offer's id: `routes`, `scaffold-regions`, `scaffold-hooks`, `ci`,
+`contract-required` or `contract-edge-policy`. It is not the check's id, because one check can
+carry offers from two releases. Declining the check would silence the later offer before
+anyone examined it. The value is a decision record in `.yidam/decisions/`, by its `id:` or its
+file stem.
+
+The rule is `[due.declined]`'s. A declined offer reads `declined` and names its record, and the
+report counts it at the top level. If the record is missing, the decline is not honoured and
+the offer warns again. A key naming no offer is listed under `unknown_declines`, and that is
+the one thing about declines `--strict` fails on.
+
+### `[schema] owner`
+
+Who writes `.yidam/schemas/`. Absent, the owner is `yidam`, and `yidam schema` writes the
+generic schemas.
+
+```toml
+[schema]
+owner = "repository"
+```
+
+A repository that compiles its own schemas declares `repository`, and `yidam schema` changes
+in three ways:
+
+- **It writes nothing and exits 0.** It says the directory is the repository's own, so an
+  inherited `schema` task succeeds and changes nothing.
+- **`--force` refuses** and names this key. To regenerate the generic schemas, remove the
+  declaration.
+- **`--settings` maps only the files that exist.** A schema under a name yidam does not know
+  is not mapped, and the output says so.
+
+Any other value fails the run and names the two it accepts.
 
 ### `[index] model`
 
@@ -845,7 +899,23 @@ The ratchet. It records the findings a corpus already had when the baseline was 
 `yidam lint` can answer *did this change make the corpus less clean?* rather than *is the
 corpus clean?* — which is the only question a corpus with inherited debt can usefully be asked.
 
-Generated, sorted for a stable diff, and identified by node path plus message. You do not hand-edit it.
+Generated, sorted for a stable diff, and identified by node path plus message. You do not
+hand-edit the entries. Four things in it are written by people, and `--bless` keeps each:
+
+- **The argument block.** Everything after the line
+  `# ── this repository's argument: kept by --bless, written by people ──` is copied through
+  verbatim. A header an earlier release wrote is recognised and replaced. Lines that are
+  neither are kept and listed when the file is written.
+- **An entry's `note:`**, which says why that finding stands.
+- **`expire_after`**, the commits a baselined finding may stand before the ratchet fails on it.
+- **`expire_record`**, the decision record in `.yidam/decisions/` that argues `expire_after`.
+
+`expire_after` is a judgement, so a record argues it. The record states the same number as
+`expire_after:` in its YAML, or in its frontmatter for a Markdown record. `lint` reads the two
+and names the record when they agree. When they disagree it fails and names both numbers: a
+raise changes the record too. It also fails when `expire_record` names a record this
+repository does not hold. A baseline with `expire_after` and no `expire_record` prints a
+warning for now.
 
 ```sh
 yidam lint --init-baseline   # write it only if absent — the adoption path, safe to re-run

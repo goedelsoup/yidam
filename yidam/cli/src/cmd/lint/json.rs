@@ -46,6 +46,65 @@ pub struct Gate {
     /// deal with and has not, and a consumer telling somebody they introduced a finding
     /// that has sat in their baseline for two hundred commits would be wrong.
     pub expired_baseline_entries: Vec<ExpiredEntry>,
+    /// Whether the decision record named by `expire_record` argues `expire_after`
+    /// (RFC-0066 §5.2). Absent when the baseline declares no `expire_after` and names no
+    /// record — nothing expires, and there is nothing to argue.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expiry_record: Option<ExpiryRecord>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExpiryRecord {
+    /// `argued` | `unargued` | `disagrees` | `not_held`. The last two fail the gate;
+    /// `unargued` is a warning for one minor release.
+    pub state: &'static str,
+    /// The record's id, as the baseline names it. Absent when `unargued`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record: Option<String>,
+    /// The `expire_after` the baseline declares. Absent when `not_held` without one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expire_after: Option<usize>,
+    /// The `expire_after` the record states, when it states one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_states: Option<usize>,
+}
+
+fn expiry_record(a: &super::baseline::Argument) -> Option<ExpiryRecord> {
+    use super::baseline::Argument as A;
+    Some(match a {
+        A::Unset => return None,
+        A::Argued {
+            record,
+            expire_after,
+        } => ExpiryRecord {
+            state: "argued",
+            record: Some(record.clone()),
+            expire_after: Some(*expire_after),
+            record_states: Some(*expire_after),
+        },
+        A::Unargued { expire_after } => ExpiryRecord {
+            state: "unargued",
+            record: None,
+            expire_after: Some(*expire_after),
+            record_states: None,
+        },
+        A::Disagrees {
+            record,
+            expire_after,
+            states,
+        } => ExpiryRecord {
+            state: "disagrees",
+            record: Some(record.clone()),
+            expire_after: Some(*expire_after),
+            record_states: *states,
+        },
+        A::NotHeld { record } => ExpiryRecord {
+            state: "not_held",
+            record: Some(record.clone()),
+            expire_after: None,
+            record_states: None,
+        },
+    })
 }
 
 #[derive(Debug, Serialize)]
@@ -286,6 +345,7 @@ pub fn build(root: &Path, all: &[Check], baseline: &Baseline, d: &Diff) -> LintR
                     commits: e.commits,
                 })
                 .collect(),
+            expiry_record: expiry_record(&d.argument),
         },
         checks,
     }
@@ -320,6 +380,7 @@ mod tests {
                     node: n.to_string(),
                     detail: String::new(),
                     since: None,
+                    note: None,
                 })
                 .collect(),
         );

@@ -332,6 +332,10 @@ export interface DoctorReport extends Envelope {
   strict: boolean
   failed: number
   warned: number
+  /** Checks whose verdict is `declined`: offers this repository decided against (RFC-0066). Absent before it. */
+  declined?: number
+  /** Keys under `[doctor.declined]` naming no offer. `--strict` fails on one. */
+  unknown_declines?: string[]
   checks: DoctorCheck[]
 }
 
@@ -339,7 +343,8 @@ export interface DoctorCheck {
   /** Stable identifier. Key on this; the prose is free to change. */
   id: string
   question: string
-  verdict: 'ok' | 'warn' | 'fail' | 'skipped'
+  /** `declined` is an offer decided against in writing — not actionable, like `ok`. */
+  verdict: 'ok' | 'warn' | 'fail' | 'skipped' | 'declined'
   detail: string
   /** The command or edit that resolves it, stated and never run. Null when nothing to do. */
   remedy: string | null

@@ -100,6 +100,7 @@ mod task_layer;
 mod template_root;
 mod template_source_packs;
 mod unanswerable;
+mod upgrade_offers;
 mod vault;
 mod vault_s3;
 mod walkthrough_transcripts;

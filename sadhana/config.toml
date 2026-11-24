@@ -113,6 +113,17 @@
 # asks a person to look, and deleting the node decides what they would have concluded.
 # withdraw_uncited_after = 400
 
+[doctor]
+# Offers this repository examined and does not want, each naming the record that argues it.
+# `doctor` offers what a release added since this repository adopted it, and dates each offer
+# by that release; an offer nobody answers is reported again on every run. The key is the
+# offer's id — `routes`, `scaffold-regions`, `scaffold-hooks`, `ci`, `contract-required`,
+# `contract-edge-policy` — and the value a record in `.yidam/decisions/`, by its `id:` or its
+# file stem. A decline naming a record this repository does not hold is not honoured,
+# and a key naming no offer is listed; that is the one thing about declines `--strict` fails on.
+# [doctor.declined]
+# routes = "agents-by-hand"
+
 # ── what this repository is, beside the corpus ────────────────────────────────
 
 [object]
@@ -131,6 +142,12 @@
 # in a projection, naming it. Both keys, or neither.
 # mode = "projection"
 # generated_by = "example-producer mirror"
+
+[schema]
+# Who writes .yidam/schemas/. Absent is yidam, and `yidam schema` writes the generic schemas. A
+# repository that compiles its own declares `repository`: `yidam schema` then writes nothing,
+# `--force` refuses rather than overwrite them, and `--settings` maps only the files that exist.
+# owner = "repository"
 
 [derive]
 # Globs naming the arguments this repository derives from its corpus — memos, dossiers,

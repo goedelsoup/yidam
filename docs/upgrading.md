@@ -1104,7 +1104,10 @@ anything, and names the files. A repository that compiles its own, stricter sche
 directory keeps them. It needs no guard task around `mise run schema` any more.
 
 Files an earlier release wrote have no marker either. The first run after this upgrade
-refuses them. Replace them once, and commit the result:
+refuses them. If this repository writes its own schemas, the refusal is correct. Declare
+`[schema] owner = "repository"` in `.yidam/config.toml` instead (see
+[Configuration](configuration.md)). Otherwise `--force` replaces those files with the generic
+ones. Run it once, and commit the result:
 
 ```sh
 yidam schema --force

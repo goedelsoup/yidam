@@ -63,6 +63,10 @@ pub enum Verdict {
     /// Not answerable — almost always because the repository check already failed and
     /// there is nothing to answer *about*.
     Skipped,
+    /// Every open offer on the check was declined against a decision record this repository
+    /// holds (RFC-0066 §2). Counted apart from `warn`, and never affects the exit code: the
+    /// question was asked and answered in writing.
+    Declined,
 }
 
 impl Verdict {
@@ -72,6 +76,7 @@ impl Verdict {
             Self::Warn => "warn",
             Self::Fail => "fail",
             Self::Skipped => "skip",
+            Self::Declined => "decl",
         }
     }
 }
@@ -87,6 +92,9 @@ struct Answer {
     verdict: Verdict,
     detail: String,
     remedy: Option<String>,
+    /// The offers this check asked about, each open or adopted. Empty on a check that
+    /// carries none, and on an offer check that had nothing to ask (RFC-0066 §1).
+    offers: Vec<Offered>,
 }
 
 impl Answer {
@@ -105,6 +113,7 @@ impl Answer {
             verdict: Verdict::Ok,
             detail: detail.into(),
             remedy: None,
+            offers: vec![],
         }
     }
 
@@ -115,6 +124,7 @@ impl Answer {
             verdict: Verdict::Skipped,
             detail: why.into(),
             remedy: None,
+            offers: vec![],
         }
     }
 
@@ -124,6 +134,7 @@ impl Answer {
             verdict: Verdict::Warn,
             detail: detail.into(),
             remedy: remedy.map(str::to_string),
+            offers: vec![],
         }
     }
 
@@ -134,7 +145,277 @@ impl Answer {
             verdict: Verdict::Fail,
             detail: detail.into(),
             remedy: remedy.map(str::to_string),
+            offers: vec![],
         }
+    }
+
+    /// A check that carries offers. `held` is the detail when every one asked is adopted;
+    /// each entry is an offer asked about, with its finding when it is open.
+    ///
+    /// Settled at once against no declines, so a check called on its own reads as it always
+    /// did. [`Question::ask`] settles it again against the repository's `[doctor.declined]`.
+    fn offers(held: impl Into<String>, offers: Vec<Offered>) -> Self {
+        Self {
+            verdict: Verdict::Ok,
+            detail: held.into(),
+            remedy: None,
+            offers,
+        }
+        .settle(&Declines::default())
+    }
+
+    /// Judge each offer on its own, then form the verdict from what is left (RFC-0066 §1–§3).
+    ///
+    /// Collected first and judged after, so a decline of one offer cannot hide another open
+    /// offer on the same check: `check_scaffold` once returned at the first unmarked region,
+    /// and a decline built on that return would have let `scaffold-regions` silence the hooks.
+    fn settle(mut self, declines: &Declines) -> Self {
+        if self.offers.is_empty() {
+            return self;
+        }
+        let held = self.offers.iter().all(|o| o.open.is_none());
+        let base = if held {
+            std::mem::take(&mut self.detail)
+        } else {
+            String::new()
+        };
+        let mut open = vec![];
+        let mut remedies: Vec<String> = vec![];
+        let mut declined = vec![];
+        let mut notes = vec![];
+        for o in &mut self.offers {
+            let since = Offer::named(o.id).map_or("", |r| r.since);
+            let decline = declines.declined.get(o.id);
+            o.state = match (&o.open, decline) {
+                (Some(_), Some(record)) => match declines.find(record) {
+                    Some(path) => {
+                        declined.push(format!("`{}` declined in {path}", o.id));
+                        o.record = Some(path);
+                        OfferState::Declined
+                    }
+                    None => OfferState::Unhonoured,
+                },
+                (Some(_), None) => OfferState::Open,
+                (None, Some(_)) => {
+                    notes.push(format!(
+                        "`[doctor.declined] {}` is contradicted: this repository adopted it",
+                        o.id
+                    ));
+                    OfferState::Adopted
+                }
+                (None, None) => OfferState::Adopted,
+            };
+            let Some(finding) = &o.open else { continue };
+            if o.state == OfferState::Declined {
+                continue;
+            }
+            let mut line = format!("{}; {}", finding.detail, declines.dated(since));
+            if let (OfferState::Unhonoured, Some(record)) = (o.state, decline) {
+                let _ = write!(
+                    line,
+                    "; declined against `{record}`, which this repository does not hold"
+                );
+                remedies.push(format!(
+                    "record `{record}` in .yidam/decisions/, or drop `[doctor.declined] {}`",
+                    o.id
+                ));
+            }
+            remedies.push(finding.remedy.clone());
+            open.push(line);
+        }
+        // A remedy another one begins with is the shorter half of the same instruction:
+        // `yidam migrate scaffold` beside `yidam migrate scaffold, then mise run …`.
+        let all = remedies.clone();
+        remedies.retain(|r| !all.iter().any(|o| o != r && o.starts_with(r.as_str())));
+        remedies.dedup();
+        if !open.is_empty() {
+            open.extend(declined);
+            open.extend(notes);
+            self.verdict = Verdict::Warn;
+            self.detail = open.join("; ");
+            self.remedy = Some(remedies.join("; "));
+        } else if !declined.is_empty() {
+            declined.extend(notes);
+            self.verdict = Verdict::Declined;
+            self.detail = declined.join("; ");
+            self.remedy = None;
+        } else {
+            notes.insert(0, base);
+            self.verdict = Verdict::Ok;
+            self.detail = notes.join("; ");
+            self.remedy = None;
+        }
+        self
+    }
+}
+
+/// A feature a release made available, which a repository may adopt or decline in writing
+/// (RFC-0066 §1). Every other warning is a defect, and no decline reaches it.
+///
+/// Finer than the check ids, because one check can carry two offers from two releases, and a
+/// decline that named the check would silence an offer added after its record was written.
+#[derive(Debug)]
+struct Offer {
+    /// The key `[doctor.declined]` takes. Stable: a repository writes it in a committed file.
+    id: &'static str,
+    /// The [`ROSTER`] check whose warning this is.
+    check: &'static str,
+    /// The release that first made it, as a `cli/v*` tag.
+    since: &'static str,
+}
+
+/// Every offer `doctor` raises. A gate holds each `check` to [`ROSTER`] and each `since` to a
+/// release tag.
+const OFFERS: &[Offer] = &[
+    Offer {
+        id: "routes",
+        check: Check::ROUTES,
+        since: "cli/v0.16.0",
+    },
+    Offer {
+        id: "scaffold-regions",
+        check: Check::SCAFFOLD,
+        since: "cli/v0.17.0",
+    },
+    Offer {
+        id: "scaffold-hooks",
+        check: Check::SCAFFOLD,
+        since: "cli/v0.24.0",
+    },
+    Offer {
+        id: "ci",
+        check: Check::CI,
+        since: "cli/v0.17.0",
+    },
+    Offer {
+        id: "contract-required",
+        check: Check::CONTRACT,
+        since: "cli/v0.17.0",
+    },
+    Offer {
+        id: "contract-edge-policy",
+        check: Check::CONTRACT,
+        since: "cli/v0.17.0",
+    },
+];
+
+impl Offer {
+    fn named(id: &str) -> Option<&'static Self> {
+        OFFERS.iter().find(|o| o.id == id)
+    }
+}
+
+/// One offer as a check found it: open, with what is missing and what adopts it, or adopted.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Offered {
+    pub id: &'static str,
+    /// The release that first made it.
+    pub since: &'static str,
+    pub state: OfferState,
+    /// The decision record a decline resolved to. Set only on `declined`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record: Option<String>,
+    #[serde(skip)]
+    open: Option<Finding>,
+}
+
+impl Offered {
+    fn adopted(id: &'static str) -> Self {
+        Self::new(id, None)
+    }
+
+    fn open(id: &'static str, detail: impl Into<String>, remedy: impl Into<String>) -> Self {
+        Self::new(
+            id,
+            Some(Finding {
+                detail: detail.into(),
+                remedy: remedy.into(),
+            }),
+        )
+    }
+
+    fn new(id: &'static str, open: Option<Finding>) -> Self {
+        let offer = Offer::named(id);
+        debug_assert!(offer.is_some(), "`{id}` is not in OFFERS");
+        Self {
+            id,
+            since: offer.map_or("", |o| o.since),
+            state: if open.is_some() {
+                OfferState::Open
+            } else {
+                OfferState::Adopted
+            },
+            record: None,
+            open,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Finding {
+    detail: String,
+    remedy: String,
+}
+
+/// Where one offer stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OfferState {
+    /// Neither adopted nor declined.
+    Open,
+    /// Declined against a decision record this repository holds.
+    Declined,
+    /// Declined against a record this repository does not hold, so not honoured.
+    Unhonoured,
+    /// What the offer asks for is in place.
+    Adopted,
+}
+
+/// What `[doctor.declined]` says, with what it needs to judge each decline.
+#[derive(Debug, Default)]
+struct Declines {
+    declined: std::collections::BTreeMap<String, String>,
+    decisions: PathBuf,
+    /// `.yidam.toml`'s `release`, without its `+build` suffix (RFC-0065 §1).
+    pin: Option<String>,
+}
+
+impl Declines {
+    fn read(root: &Path) -> Self {
+        let declined = crate::config::load_yidam_config(root)
+            .map(|c| c.doctor.declined)
+            .unwrap_or_default();
+        let pin = std::fs::read_to_string(root.join(crate::provenance::MANIFEST))
+            .ok()
+            .and_then(|t| ManifestPin::parse(&t).release)
+            .map(|r| crate::provenance::base_release(&r).to_string());
+        Self {
+            declined,
+            decisions: crate::paths::yidam_decisions_dir(root),
+            pin,
+        }
+    }
+
+    fn find(&self, record: &str) -> Option<String> {
+        crate::cmd::decisions::find_decision(&self.decisions, record)
+    }
+
+    /// How old an undecided offer is, read offline from the pin (RFC-0066 §3).
+    fn dated(&self, since: &str) -> String {
+        match &self.pin {
+            Some(pin) => format!("offered since {since}; this pin is {pin}"),
+            None => format!("offered since {since}"),
+        }
+    }
+
+    /// Keys naming no offer, in the order the config declared them: a typo, or an attempt
+    /// to decline a defect.
+    fn unknown(&self) -> Vec<String> {
+        self.declined
+            .keys()
+            .filter(|k| Offer::named(k).is_none())
+            .cloned()
+            .collect()
     }
 }
 
@@ -154,6 +435,10 @@ pub struct Check {
     /// do*. Two did until #656 — the prose suppressed them at render time and the JSON did
     /// not, and the invariant was in neither contract.
     pub remedy: Option<String>,
+    /// The offers this check raises, each with the release that made it and where it stands
+    /// (RFC-0066). Empty on a check that carries none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub offers: Vec<Offered>,
 }
 
 impl Check {
@@ -205,18 +490,36 @@ pub struct DoctorReport {
     pub strict: bool,
     pub failed: usize,
     pub warned: usize,
+    /// Checks whose every open offer was declined against a record this repository holds.
+    /// Never affects the exit code (RFC-0066 §2).
+    pub declined: usize,
+    /// Keys under `[doctor.declined]` naming no offer: a typo, or a defect, which cannot be
+    /// declined. Judged only on a full run, since under `--only` no selected check owns them.
+    /// `--strict` fails on one.
+    pub unknown_declines: Vec<String>,
     pub checks: Vec<Check>,
 }
 
 impl DoctorReport {
+    #[cfg(test)]
     fn new(checks: Vec<Check>, strict: bool) -> Self {
-        let failed = checks.iter().filter(|c| c.verdict == Verdict::Fail).count();
-        let warned = checks.iter().filter(|c| c.verdict == Verdict::Warn).count();
+        Self::judged(checks, strict, vec![])
+    }
+
+    fn judged(checks: Vec<Check>, strict: bool, unknown_declines: Vec<String>) -> Self {
+        let count = |v: Verdict| checks.iter().filter(|c| c.verdict == v).count();
+        let (failed, warned, declined) = (
+            count(Verdict::Fail),
+            count(Verdict::Warn),
+            count(Verdict::Declined),
+        );
         Self {
-            passed: failed == 0 && !(strict && warned > 0),
+            passed: failed == 0 && !(strict && (warned > 0 || !unknown_declines.is_empty())),
             strict,
             failed,
             warned,
+            declined,
+            unknown_declines,
             checks,
         }
     }
@@ -902,17 +1205,22 @@ fn check_routes(root: &Path) -> Answer {
     let Ok(text) = std::fs::read_to_string(root.join("AGENTS.md")) else {
         return Answer::skipped("no `AGENTS.md`, so there is no reading list to route");
     };
+    const HELD: &str = "`AGENTS.md` reads by occasion, from the vendored routes";
     if super::migrate_routes::has_block(&text) {
-        return Answer::ok("`AGENTS.md` reads by occasion, from the vendored routes");
+        return Answer::offers(HELD, vec![Offered::adopted("routes")]);
     }
     let remedy = if root.join(super::routes::VENDORED).exists() {
         "yidam migrate routes, committed as a `migrate:` commit"
     } else {
         "mise run yidam-vendor-update, then yidam migrate routes"
     };
-    Answer::warn(
-        "`AGENTS.md` has no `yidam routes` block, so no re-vendor reaches its reading list",
-        Some(remedy),
+    Answer::offers(
+        HELD,
+        vec![Offered::open(
+            "routes",
+            "`AGENTS.md` has no `yidam routes` block, so no re-vendor reaches its reading list",
+            remedy,
+        )],
     )
 }
 
@@ -946,36 +1254,47 @@ fn check_scaffold(root: &Path) -> Answer {
     {
         unmarked.push(m::CLAUDE);
     }
+    // Both offers are collected before either is judged, so a decline of the regions
+    // cannot hide missing hooks (RFC-0066 §1).
+    let regions = if unmarked.is_empty() {
+        Offered::adopted("scaffold-regions")
+    } else {
+        Offered::open(
+            "scaffold-regions",
+            format!(
+                "no YIDAM region in {}, so no re-vendor reaches the part that is yidam's",
+                unmarked
+                    .iter()
+                    .map(|f| format!("`{f}`"))
+                    .collect::<Vec<_>>()
+                    .join(" or ")
+            ),
+            "yidam migrate scaffold, then mise run yidam-vendor-update",
+        )
+    };
+    let mut offers = vec![regions];
     // The hooks, asked of a repository an agent works in: one with a `CLAUDE.md`. Without
     // them no session is handed where the loop stands, and nothing else would say so (#1444).
-    let hooks = claude.is_some()
-        && !std::fs::read_to_string(root.join(m::SETTINGS))
+    if claude.is_some() {
+        let installed = std::fs::read_to_string(root.join(m::SETTINGS))
             .is_ok_and(|t| m::settings_has_hooks(&t));
-    if unmarked.is_empty() && !hooks {
-        return Answer::ok(
-            "each file genesis installed marks the part a re-vendor updates, and the loop's \
-             hooks are installed",
-        );
+        offers.push(if installed {
+            Offered::adopted("scaffold-hooks")
+        } else {
+            Offered::open(
+                "scaffold-hooks",
+                format!(
+                    "`{}` does not run `yidam hook`, so no session is handed `cycle --brief`",
+                    m::SETTINGS
+                ),
+                "yidam migrate scaffold",
+            )
+        });
     }
-    if unmarked.is_empty() {
-        return Answer::warn(
-            format!(
-                "`{}` does not run `yidam hook`, so no session is handed `cycle --brief`",
-                m::SETTINGS
-            ),
-            Some("yidam migrate scaffold"),
-        );
-    }
-    Answer::warn(
-        format!(
-            "no YIDAM region in {}, so no re-vendor reaches the part that is yidam's",
-            unmarked
-                .iter()
-                .map(|f| format!("`{f}`"))
-                .collect::<Vec<_>>()
-                .join(" or ")
-        ),
-        Some("yidam migrate scaffold, then mise run yidam-vendor-update"),
+    Answer::offers(
+        "each file genesis installed marks the part a re-vendor updates, and the loop's \
+         hooks are installed",
+        offers,
     )
 }
 
@@ -1089,11 +1408,15 @@ fn own_task_run(mise: &toml::Value, task: &str) -> Option<String> {
 fn check_ci(root: &Path) -> Answer {
     let dir = root.join(".github/workflows");
     let Ok(entries) = std::fs::read_dir(&dir) else {
-        return Answer::warn(
-            "no `.github/workflows/`, so no CI this can read checks the corpus",
-            Some(
+        // Both warn arms are the one `ci` offer: a repository with no workflows here usually
+        // runs CI where this cannot read, and a decline naming where answers both.
+        return Answer::offers(
+            "",
+            vec![Offered::open(
+                "ci",
+                "no `.github/workflows/`, so no CI this can read checks the corpus",
                 "a workflow step running `yidam graph-check` — or, with CI elsewhere, run it there",
-            ),
+            )],
         );
     };
     let mut files: Vec<_> = entries
@@ -1117,17 +1440,22 @@ fn check_ci(root: &Path) -> Answer {
             }
         }
     }
+    let held = format!("runs {}", gates.join(", "));
     if gates.is_empty() {
-        return Answer::warn(
-            format!(
-                "none of {} workflow(s) runs a corpus gate, so a green check says nothing about \
-                 the graph",
-                files.len()
-            ),
-            Some("yidam migrate scaffold, then mise run yidam-vendor-update"),
+        return Answer::offers(
+            held,
+            vec![Offered::open(
+                "ci",
+                format!(
+                    "none of {} workflow(s) runs a corpus gate, so a green check says nothing \
+                     about the graph",
+                    files.len()
+                ),
+                "yidam migrate scaffold, then mise run yidam-vendor-update",
+            )],
         );
     }
-    Answer::ok(format!("runs {}", gates.join(", ")))
+    Answer::offers(held, vec![Offered::adopted("ci")])
 }
 
 /// Which features does this binary have?
@@ -1158,6 +1486,8 @@ struct Subject {
     running: Option<PathBuf>,
     path_var: Option<std::ffi::OsString>,
     today: i64,
+    /// `[doctor.declined]`, applied to each check that carries offers.
+    declines: Declines,
 }
 
 /// Whether a question can be answered about a directory that is not a derived repository.
@@ -1200,14 +1530,23 @@ impl Question {
             {
                 Answer::skipped("projection")
             }
-            _ => (self.answer)(subject),
+            _ => (self.answer)(subject).settle(&subject.declines),
         };
+        debug_assert!(
+            answer
+                .offers
+                .iter()
+                .all(|o| Offer::named(o.id).is_some_and(|r| r.check == self.id)),
+            "`{}` raised an offer OFFERS gives another check",
+            self.id
+        );
         Check {
             id: self.id,
             question: self.text,
             verdict: answer.verdict,
             detail: answer.detail,
             remedy: answer.remedy,
+            offers: answer.offers,
         }
     }
 }
@@ -1398,6 +1737,7 @@ pub(crate) fn diagnose(
         running: running.map(Path::to_path_buf),
         path_var: path_var.map(std::ffi::OsStr::to_os_string),
         today,
+        declines: Declines::read(root),
     };
     // Set the moment the repository check fails, which is what makes the rest of the roster
     // unanswerable. Every later question sees it; the two that can be asked anywhere ignore
@@ -2213,39 +2553,45 @@ fn contract_answer(classes: &[crate::corpus::Class]) -> Answer {
         .filter(|c| c.edge_policy != EdgePolicy::Unstated)
         .count();
 
-    let required_unasked = !properties.is_empty() && answered_required == 0;
-    let policy_unasked = !with_edges.is_empty() && answered_policy == 0;
     let (p, e) = (properties.len(), with_edges.len());
-    match (required_unasked, policy_unasked) {
-        (true, true) => Answer::warn(
-            format!(
-                "no property says `required:` ({p} declared), and no class says \
-                 `edge_policy:` ({e} with edges) — `missing-property` and `unlicensed-edge` \
-                 can warn here and never gate"
-            ),
-            Some(&format!(
-                "write `required:` on each property and `edge_policy:` on each class; {WHERE}"
-            )),
-        ),
-        (true, false) => Answer::warn(
-            format!(
-                "no property says `required:` ({p} declared) — `missing-property` can warn \
-                 here and never gate"
-            ),
-            Some(&format!("write `required:` on each property; {WHERE}")),
-        ),
-        (false, true) => Answer::warn(
-            format!(
-                "no class says `edge_policy:` ({e} with edges) — `unlicensed-edge` can warn \
-                 here and never gate"
-            ),
-            Some(&format!("write `edge_policy:` on each class; {WHERE}")),
-        ),
-        (false, false) => Answer::ok(format!(
-            "`required:` on {answered_required} of {p} property declaration(s), \
-             `edge_policy:` on {answered_policy} of {e} class(es) with edges"
-        )),
+    // A question with no subject is not asked, so it is neither open nor adopted.
+    let mut offers = vec![];
+    if p > 0 {
+        offers.push(if answered_required > 0 {
+            Offered::adopted("contract-required")
+        } else {
+            Offered::open(
+                "contract-required",
+                format!(
+                    "no property says `required:` ({p} declared) — `missing-property` can warn \
+                     here and never gate"
+                ),
+                format!("write `required:` on each property; {WHERE}"),
+            )
+        });
     }
+    if e > 0 {
+        offers.push(if answered_policy > 0 {
+            Offered::adopted("contract-edge-policy")
+        } else {
+            Offered::open(
+                "contract-edge-policy",
+                format!(
+                    "no class says `edge_policy:` ({e} with edges) — `unlicensed-edge` can warn \
+                     here and never gate"
+                ),
+                format!("write `edge_policy:` on each class; {WHERE}"),
+            )
+        });
+    }
+    let held = format!(
+        "`required:` on {answered_required} of {p} property declaration(s), \
+         `edge_policy:` on {answered_policy} of {e} class(es) with edges"
+    );
+    if offers.is_empty() {
+        return Answer::ok(held);
+    }
+    Answer::offers(held, offers)
 }
 
 /// Have any source records aged past what the corpus said they may?
@@ -2323,6 +2669,10 @@ pub(crate) fn render(report: &DoctorReport, root: &Path) -> String {
         }
     }
     out.push('\n');
+    let declined = match report.declined {
+        0 => String::new(),
+        n => format!(" {n} declined, each against a record in .yidam/decisions/."),
+    };
     match (report.failed, report.warned) {
         (0, 0) => out.push_str("Everything checks out."),
         (0, w) => {
@@ -2342,6 +2692,29 @@ pub(crate) fn render(report: &DoctorReport, root: &Path) -> String {
         (f, w) => {
             let _ = write!(out, "{f} failing check(s), {w} warning(s).");
         }
+    }
+    out.push_str(&declined);
+    // Last, because it is about the configuration rather than the repository: a key that
+    // names no offer is a decline doing nothing, and the repository would never learn it.
+    if !report.unknown_declines.is_empty() {
+        let ids: Vec<&str> = OFFERS.iter().map(|o| o.id).collect();
+        let _ = write!(
+            out,
+            "\n\n`[doctor.declined]` names no offer called {} — the offers are {}. A defect \
+             cannot be declined.{}",
+            report
+                .unknown_declines
+                .iter()
+                .map(|k| format!("`{k}`"))
+                .collect::<Vec<_>>()
+                .join(", "),
+            ids.join(", "),
+            if report.strict {
+                " --strict: exiting nonzero."
+            } else {
+                ""
+            }
+        );
     }
     out
 }
@@ -2388,7 +2761,14 @@ pub fn doctor(
         crate::dates::today_days(),
         &only,
     );
-    let report = DoctorReport::new(checks, strict);
+    // Under `--only` no selected check owns an unknown key, so only a full run judges one:
+    // `yidam-vendor-update`'s `--only contract --strict` must not fail on a typo elsewhere.
+    let unknown = if only.is_empty() {
+        Declines::read(&root).unknown()
+    } else {
+        vec![]
+    };
+    let report = DoctorReport::judged(checks, strict, unknown);
     let passed = report.passed;
 
     crate::report::gate(&root, format, report, passed, |r| {
@@ -2407,6 +2787,8 @@ struct ManifestPin {
     commit: Option<String>,
     template: Option<String>,
     committed: Option<String>,
+    /// The release this pin names (RFC-0065 §1). `None` on a pin written before it.
+    release: Option<String>,
 }
 
 impl ManifestPin {
@@ -2425,6 +2807,7 @@ impl ManifestPin {
             commit: field("commit"),
             template: field("template"),
             committed: field("committed"),
+            release: field("release"),
         }
     }
 }
@@ -2447,6 +2830,7 @@ mod tests {
             running: None,
             path_var: None,
             today: 20_000,
+            declines: Declines::default(),
         };
         ROSTER
             .iter()
@@ -3104,6 +3488,7 @@ jobs:
             running: None,
             path_var: None,
             today: 20_000,
+            declines: Declines::default(),
         };
         let authored = check_mode(tmp.path());
         assert_eq!(authored.verdict, Verdict::Ok);
@@ -3967,6 +4352,7 @@ jobs:
                 verdict: *v,
                 detail: "d".into(),
                 remedy: Some("r".into()),
+                offers: vec![],
             })
             .collect()
     }
@@ -4028,6 +4414,7 @@ jobs:
             verdict: Verdict::Fail,
             detail: "broken".into(),
             remedy: Some("print-me".into()),
+            offers: vec![],
         }];
         let text = render(&DoctorReport::new(checks, false), Path::new("/r"));
         assert!(text.contains("→ print-me"), "{text}");
@@ -4045,5 +4432,252 @@ jobs:
             Path::new("/r"),
         );
         assert!(warned.contains("nothing broken"), "{warned}");
+    }
+
+    // ── offers and declines (RFC-0066) ───────────────────────────────────────
+
+    /// Each offer names a check doctor asks and a release that could have shipped it.
+    #[test]
+    fn every_offer_names_a_roster_check_and_a_release() {
+        for o in OFFERS {
+            assert!(
+                ROSTER.iter().any(|q| q.id == o.check),
+                "`{}` names `{}`, which no question asks",
+                o.id,
+                o.check
+            );
+            let version = o
+                .since
+                .strip_prefix("cli/v")
+                .unwrap_or_else(|| panic!("`{}`'s since `{}` is not a cli/v* tag", o.id, o.since));
+            let parts: Vec<&str> = version.split('.').collect();
+            assert!(
+                parts.len() == 3 && parts.iter().all(|p| p.parse::<u32>().is_ok()),
+                "`{}`'s since `{}` is not a release",
+                o.id,
+                o.since
+            );
+        }
+        let mut ids: Vec<&str> = OFFERS.iter().map(|o| o.id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), OFFERS.len(), "an offer id is listed twice");
+    }
+
+    /// A repository with a decisions directory holding `records`, and declines naming them.
+    fn declining(
+        records: &[&str],
+        declined: &[(&str, &str)],
+        pin: Option<&str>,
+    ) -> (TempDir, Declines) {
+        let tmp = derived_repo();
+        let dir = crate::paths::yidam_decisions_dir(tmp.path());
+        std::fs::create_dir_all(&dir).unwrap();
+        for r in records {
+            std::fs::write(
+                dir.join(format!("{r}.yml")),
+                "summary: Declined.\nrationale: The argument.\n",
+            )
+            .unwrap();
+        }
+        let declines = Declines {
+            declined: declined
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect(),
+            decisions: dir,
+            pin: pin.map(str::to_string),
+        };
+        (tmp, declines)
+    }
+
+    /// Regions and hooks both missing: the regions offer and the hooks offer, in that order.
+    fn scaffold_without_regions_or_hooks() -> TempDir {
+        let tmp = derived_repo();
+        std::fs::create_dir_all(tmp.path().join(".github/workflows")).unwrap();
+        std::fs::create_dir_all(tmp.path().join(".claude")).unwrap();
+        std::fs::write(tmp.path().join(".github/workflows/ci.yml"), "jobs:\n").unwrap();
+        std::fs::write(tmp.path().join(".claude/CLAUDE.md"), "# Ours\n").unwrap();
+        tmp
+    }
+
+    /// Every warn arm of an offer-carrying check is an open offer of that check's own.
+    #[test]
+    fn each_offer_check_warns_only_through_its_offers() {
+        let bare = derived_repo();
+        std::fs::write(bare.path().join("AGENTS.md"), "# Agents\n").unwrap();
+        let scaffold = scaffold_without_regions_or_hooks();
+        let ci_without_gate = derived_repo();
+        let workflows = ci_without_gate.path().join(".github/workflows");
+        std::fs::create_dir_all(&workflows).unwrap();
+        std::fs::write(workflows.join("build.yml"), "jobs:\n  b:\n    steps: []\n").unwrap();
+        let contract = [class("metric", &format!("{}{EDGE}", property("")))];
+        let cases = [
+            (Check::ROUTES, check_routes(bare.path())),
+            (Check::SCAFFOLD, check_scaffold(scaffold.path())),
+            (Check::CI, check_ci(bare.path())),
+            (Check::CI, check_ci(ci_without_gate.path())),
+            (Check::CONTRACT, contract_answer(&contract)),
+        ];
+        for (check, a) in cases {
+            assert_eq!(a.verdict, Verdict::Warn, "{check}: {}", a.detail);
+            assert!(!a.offers.is_empty(), "{check} warned without an offer");
+            for o in &a.offers {
+                assert_eq!(o.state, OfferState::Open, "{check}: {}", o.id);
+                assert_eq!(Offer::named(o.id).unwrap().check, check, "{}", o.id);
+            }
+        }
+    }
+
+    /// The regions declined, the hooks still missing: the check warns, and names the hooks.
+    #[test]
+    fn a_declined_offer_does_not_hide_another_on_its_check() {
+        let tmp = scaffold_without_regions_or_hooks();
+        let (_d, declines) = declining(
+            &["0001-our-ci"],
+            &[("scaffold-regions", "0001-our-ci")],
+            None,
+        );
+        let a = check_scaffold(tmp.path()).settle(&declines);
+        assert_eq!(a.verdict, Verdict::Warn, "{}", a.detail);
+        assert!(a.detail.contains("`yidam hook`"), "{}", a.detail);
+        assert!(!a.detail.contains("no YIDAM region"), "{}", a.detail);
+        assert!(
+            a.detail
+                .contains("`scaffold-regions` declined in .yidam/decisions/0001-our-ci.yml"),
+            "{}",
+            a.detail
+        );
+        assert_eq!(a.remedy.as_deref(), Some("yidam migrate scaffold"));
+        let states: Vec<_> = a.offers.iter().map(|o| (o.id, o.state)).collect();
+        assert_eq!(
+            states,
+            [
+                ("scaffold-regions", OfferState::Declined),
+                ("scaffold-hooks", OfferState::Open)
+            ]
+        );
+    }
+
+    /// Every open offer declined against a held record: `declined`, with the record named.
+    #[test]
+    fn an_offer_declined_against_a_held_record_reads_declined() {
+        let tmp = derived_repo();
+        let (_d, declines) =
+            declining(&["0002-ci-elsewhere"], &[("ci", "0002-ci-elsewhere")], None);
+        let a = check_ci(tmp.path()).settle(&declines);
+        assert_eq!(a.verdict, Verdict::Declined, "{}", a.detail);
+        assert_eq!(a.remedy, None);
+        assert_eq!(
+            a.offers[0].record.as_deref(),
+            Some(".yidam/decisions/0002-ci-elsewhere.yml")
+        );
+    }
+
+    /// A decline against a record that is not there is not honoured, and says so.
+    #[test]
+    fn a_decline_without_its_record_is_not_honoured() {
+        let tmp = derived_repo();
+        let (_d, declines) = declining(&[], &[("ci", "0009-missing")], Some("cli/v0.30.0"));
+        let a = check_ci(tmp.path()).settle(&declines);
+        assert_eq!(a.verdict, Verdict::Warn, "{}", a.detail);
+        assert!(
+            a.detail
+                .contains("declined against `0009-missing`, which this repository does not hold"),
+            "{}",
+            a.detail
+        );
+        assert!(
+            a.detail
+                .contains("offered since cli/v0.17.0; this pin is cli/v0.30.0"),
+            "{}",
+            a.detail
+        );
+        let remedy = a.remedy.unwrap();
+        assert!(
+            remedy.starts_with("record `0009-missing` in .yidam/decisions/"),
+            "{remedy}"
+        );
+        assert_eq!(a.offers[0].state, OfferState::Unhonoured);
+    }
+
+    /// Adopted and declined at once: adopted wins, and the contradiction is noted.
+    #[test]
+    fn an_adopted_offer_that_is_also_declined_reads_ok_with_a_note() {
+        let contract = [class(
+            "metric",
+            &format!(
+                "{}{EDGE}edge_policy: characteristic\n",
+                property("    required: true\n")
+            ),
+        )];
+        let (_d, declines) = declining(&["0003-x"], &[("contract-required", "0003-x")], None);
+        let a = contract_answer(&contract).settle(&declines);
+        assert_eq!(a.verdict, Verdict::Ok, "{}", a.detail);
+        assert!(
+            a.detail
+                .contains("`[doctor.declined] contract-required` is contradicted"),
+            "{}",
+            a.detail
+        );
+    }
+
+    /// An undecided offer is dated, against the pin when there is one.
+    #[test]
+    fn an_open_offer_is_dated() {
+        let a = contract_answer(&[class("metric", &property(""))]);
+        assert!(
+            a.detail.ends_with("offered since cli/v0.17.0"),
+            "{}",
+            a.detail
+        );
+    }
+
+    /// Unknown keys are listed, and fail only under `--strict`; a declined check never does.
+    #[test]
+    fn strict_fails_on_an_unknown_key_and_not_on_a_decline() {
+        let (_d, declines) = declining(&[], &[("graph-check", "0001"), ("ci", "0002")], None);
+        assert_eq!(declines.unknown(), ["graph-check"]);
+
+        let declined = DoctorReport::judged(checks_with(&[Verdict::Declined]), true, vec![]);
+        assert!(declined.passed);
+        assert_eq!(declined.declined, 1);
+        let text = render(&declined, Path::new("/r"));
+        assert!(text.contains("1 declined"), "{text}");
+
+        let unknown = DoctorReport::judged(
+            checks_with(&[Verdict::Ok]),
+            true,
+            vec!["graph-check".into()],
+        );
+        assert!(!unknown.passed);
+        let text = render(&unknown, Path::new("/r"));
+        assert!(
+            text.contains("names no offer called `graph-check`"),
+            "{text}"
+        );
+        assert!(DoctorReport::judged(checks_with(&[Verdict::Ok]), false, vec!["x".into()]).passed);
+    }
+
+    /// `[doctor.declined]` read from the repository's config, with the pin from `.yidam.toml`.
+    #[test]
+    fn declines_are_read_from_config_and_the_pin() {
+        let tmp = derived_repo();
+        std::fs::write(
+            tmp.path().join(".yidam/config.toml"),
+            "[doctor.declined]\nci = \"0002-ci-elsewhere\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.path().join(crate::provenance::MANIFEST),
+            "[yidam]\nrelease = \"cli/v0.31.0+abc\"\n",
+        )
+        .unwrap();
+        let d = Declines::read(tmp.path());
+        assert_eq!(
+            d.declined.get("ci").map(String::as_str),
+            Some("0002-ci-elsewhere")
+        );
+        assert_eq!(d.pin.as_deref(), Some("cli/v0.31.0"));
     }
 }

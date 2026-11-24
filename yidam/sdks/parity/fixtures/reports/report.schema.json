@@ -200,6 +200,35 @@
               }
             }
           }
+        },
+        "expiry_record": {
+          "type": "object",
+          "description": "Whether the decision record the baseline names in `expire_record` argues its `expire_after` (RFC-0066 \u00a75.2). Absent when the baseline declares neither. `disagrees` and `not_held` fail the gate; `unargued` is a warning for one minor release.",
+          "required": [
+            "state"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "argued",
+                "unargued",
+                "disagrees",
+                "not_held"
+              ]
+            },
+            "record": {
+              "type": "string",
+              "description": "The record id the baseline names. Absent when `unargued`."
+            },
+            "expire_after": {
+              "type": "integer",
+              "description": "The `expire_after` the baseline declares."
+            },
+            "record_states": {
+              "type": "integer",
+              "description": "The `expire_after` the record states, when it states one."
+            }
+          }
         }
       }
     },
@@ -321,9 +350,10 @@
                   "ok",
                   "warn",
                   "fail",
-                  "skipped"
+                  "skipped",
+                  "declined"
                 ],
-                "description": "`doctor` only. `warn` is actionable and a normal state to be in, and does not affect the exit code without `--strict`; `fail` is wrong now and exits nonzero; `skipped` is not answerable, almost always because the repository check already failed and there is nothing to answer about. A consumer MUST NOT read `skipped` as `ok`. Every question `doctor` asks is reported on both paths, so a `skipped` check is how the answerable set stays the same shape \u2014 one check was absent from the unanswerable path rather than skipped on it until #656, and no fixture emitted this value at all, which left renaming it here undetectable."
+                "description": "`doctor` only. `declined` is a check whose only open offers this repository declined under `[doctor.declined]`, each against a decision record it holds (RFC-0066): not actionable, and `--strict` does not fail on it. `warn` is actionable and a normal state to be in, and does not affect the exit code without `--strict`; `fail` is wrong now and exits nonzero; `skipped` is not answerable, almost always because the repository check already failed and there is nothing to answer about. A consumer MUST NOT read `skipped` as `ok`. Every question `doctor` asks is reported on both paths, so a `skipped` check is how the answerable set stays the same shape \u2014 one check was absent from the unanswerable path rather than skipped on it until #656, and no fixture emitted this value at all, which left renaming it here undetectable."
               },
               "detail": {
                 "type": "string",
@@ -335,6 +365,40 @@
                   "null"
                 ],
                 "description": "`doctor` only. The command or edit that resolves this finding. **Null on `ok` and on `skipped`** \u2014 a verdict with no finding has nothing to resolve \u2014 and null-iff-actionable is held by construction rather than by agreement: the constructors for those two verdicts take no remedy. It was NOT an invariant until #656, when the prelude and policy checks each named one alongside `verdict: ok`. The text renderer suppressed them and the JSON did not, so the same green check reached a person with nothing to do and a consumer with an action against it. Advice worth reading on a healthy check goes in `detail`, which is rendered on every line \u2014 that is where the prelude check's pointer at the one networked command now lives."
+              },
+              "offers": {
+                "type": "array",
+                "description": "`doctor` only. The upgrade offers this check raises, each with the release that first made it and where it stands (RFC-0066). Absent on a check that carries none. An offer is a convention a release made available, not a defect: `open` warns, `declined` is a decline against a held record, `unhonoured` is a decline whose record is not held and still warns, `adopted` is taken up.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "since",
+                    "state"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "The offer id \u2014 the key `[doctor.declined]` takes, which is not the check id."
+                    },
+                    "since": {
+                      "type": "string",
+                      "description": "The release tag that first made the offer, such as `cli/v0.17.0`."
+                    },
+                    "state": {
+                      "enum": [
+                        "open",
+                        "declined",
+                        "unhonoured",
+                        "adopted"
+                      ]
+                    },
+                    "record": {
+                      "type": "string",
+                      "description": "The decision record a decline resolved to, repo-relative. Present only on `declined`."
+                    }
+                  }
+                }
               }
             }
           }
@@ -554,14 +618,14 @@
     },
     "declined": {
       "type": "integer",
-      "description": "`due` only. Clocks this corpus declined in writing under `[due.declined]`, each with a decision record behind it. Not owed, and not a fault."
+      "description": "`due` and `doctor`. For `due`, clocks this corpus declined in writing under `[due.declined]`, each with a decision record behind it. For `doctor`, checks whose verdict is `declined` under `[doctor.declined]`. Not owed, and not a fault."
     },
     "unknown_declines": {
       "type": "array",
       "items": {
         "type": "string"
       },
-      "description": "`due` only. Keys under `[due.declined]` naming no clock this command reads. Empty in a corpus whose declines all land. A key here is a declaration that reads as deliberate and has no effect."
+      "description": "`due` and `doctor`. Keys under `[due.declined]` naming no clock `due` reads, or under `[doctor.declined]` naming no offer `doctor` makes. Empty in a corpus whose declines all land. A key here is a declaration that reads as deliberate and has no effect, and `doctor --strict` fails on one."
     },
     "strict": {
       "type": "boolean",
