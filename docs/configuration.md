@@ -568,6 +568,30 @@ No directory is compiled in. The repositories that built this gate keep their ar
 
 Absent means `derive check` has nothing to read, and it passes.
 
+### `[derive] records`
+
+JSON span records, each held as a citation
+([RFC-0063](rfcs/0063-tonpa-pins-an-export.md)). A producer that computes over its corpus can
+write what it computed to JSON. Each value it quotes there names a node and a span.
+
+```toml
+[[derive.records]]
+export = "traffic-design"   # or paths = ["packs/**"] for this repository's own JSON
+records = ["/models/*/formulation", "/fixtures/*/target/source"]
+node = "0/node"             # the defaults: the record's own node and span
+span = "0/span"
+governing = "0/tier_span"   # optional; defaults to span
+tier = "1/tier"             # optional; compared to the governing paragraph's tag
+```
+
+`records` are JSON pointers, with `*` matching every member of an array or object. `node`,
+`span`, `governing` and `tier` are relative pointers from each record. `export` names a pinned
+path dependency's export, and its records cite that dependency's corpus as installed at the pin.
+`derive check` refuses the mapping until `tonpa install` has written it. `paths` takes the
+`[derive] paths` grammar over `.json` files, and its records cite this corpus.
+
+`[derive]` refuses unknown keys, so a key a later release adds fails an older CLI's parse.
+
 ### `[serve] act`
 
 Whether a server started against this corpus may write to it.
@@ -849,7 +873,10 @@ merge_imported_index = true
 ```
 
 A dependency is named by exactly one source — `github`, `url`, or `path`. A `path` may add
-`rev = "<full sha>"` to read the sibling at that commit instead of its working tree. `merge_imported_index`
+`rev = "<full sha>"` to read the sibling at that commit instead of its working tree. A pinned
+path may also add `export = "<file>"`. That file is read at the pin, unpacked to
+`.yidam/tonpa/<name>/export/` and hashed in the lock. It is refused when the corpus moved
+after the commit that last wrote it. `merge_imported_index`
 defaults to **true**: an imported corpus's vectors join the local index so retrieval spans both.
 A repository with no dependencies and one that never declared any are the same answer to every
 caller, and neither is an error.

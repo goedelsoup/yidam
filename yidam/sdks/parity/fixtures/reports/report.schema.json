@@ -3441,9 +3441,14 @@
       },
       "description": "`derive check` only. The `[derive] paths` globs this repository declares, as written. Empty means none are declared: the report is then empty and the command passes, which is every repository before RFC-0045."
     },
+    "records": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "`derive check` only. How many span records the `[[derive.records]]` mappings matched (RFC-0063 §3.5). A consumer holds it above zero, which also fails a CLI too old to emit it."
+    },
     "derivations": {
       "type": "array",
-      "description": "`derive check` only. One entry per artifact under `[derive] paths`, sorted by path. The command fails when any entry carries an `error` finding; an `info` finding never fails it.",
+      "description": "`derive check` only. One entry per artifact under `[derive] paths`, sorted by path, then one per span record the `[[derive.records]]` mappings matched, and one per pointer that matched nothing in a file. The command fails when any entry carries an `error` finding; an `info` finding never fails it.",
       "items": {
         "type": "object",
         "required": [
@@ -3457,7 +3462,11 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "The artifact, repository-relative."
+            "description": "The artifact, repository-relative. For a span record, the JSON file holding it."
+          },
+          "record": {
+            "type": "string",
+            "description": "A span record's pointer with its wildcards filled, such as `/models/3/formulation`, or the pointer as written where it matched nothing. Absent for an artifact."
           },
           "claim": {
             "type": [

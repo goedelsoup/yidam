@@ -40,7 +40,7 @@ pub struct PackageMeta {
     pub name: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Dependency {
     pub url: Option<String>,
     pub github: Option<String>,
@@ -52,6 +52,13 @@ pub struct Dependency {
     /// dependency in it stays what it was — read live from the working tree.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rev: Option<String>,
+    /// One file in the dependency's repository, read at `rev` and unpacked beside the corpus
+    /// (RFC-0063 §1). Meaningful on a pinned path only, and refused on any other form.
+    ///
+    /// Additive, like `rev`. The table stays lenient about keys it does not know, so a CLI from
+    /// before this field drops it without a word; RFC-0063 §1 "Older CLIs" is what that costs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export: Option<String>,
 }
 
 impl Dependency {
@@ -138,6 +145,21 @@ pub struct LockedPackage {
     /// lock it cannot read at all would take every fetched dependency down with it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rev: Option<String>,
+    /// The export the dependency declared, as declared, when it declared one (RFC-0063 §1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export: Option<String>,
+    /// SHA-256 of the export's bytes at `rev`, which [`verify_installed`] re-hashes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_sha256: Option<String>,
+}
+
+/// Where a pinned path's export is unpacked: `<tonpa_dir>/<name>/export/<file name>`.
+///
+/// `None` for a declared path with no file name (`.`, `..`, `/`), which tonpa refuses before
+/// it writes anything, so no lock entry it wrote has one.
+pub fn export_file(name: &str, tonpa_dir: &Path, export: &str) -> Option<PathBuf> {
+    let file = Path::new(export).file_name()?;
+    Some(tonpa_dir.join(name).join("export").join(file))
 }
 
 pub fn load_lock(path: &Path) -> anyhow::Result<LockFile> {
@@ -351,10 +373,67 @@ pub fn verify_installed(
         return Ok(false);
     }
     if locked.rev.is_some() {
-        return Ok(corpus_digest(&marker)? == locked.sha256);
+        if corpus_digest(&marker)? != locked.sha256 {
+            return Ok(false);
+        }
+        // The export is part of the pin: an entry that locked one is installed only when the
+        // file is there with the bytes it was locked with.
+        return match (&locked.export, &locked.export_sha256) {
+            (Some(export), Some(want)) => {
+                let Some(file) = export_file(name, tonpa_dir, export) else {
+                    return Ok(false);
+                };
+                Ok(std::fs::read(&file).is_ok_and(|b| sha256_hex(&b) == *want))
+            }
+            _ => Ok(true),
+        };
     }
     let data = std::fs::read(&marker)?;
     Ok(sha256_hex(&data) == locked.sha256)
+}
+
+/// The sibling repository and locked commit `query --dependency <name>` reads (RFC-0063 §2).
+///
+/// Exactly `--root <path> --at <rev>`, with both taken from `tonpa.toml` and the lock, so the
+/// read is `--at`'s and nothing here reads a corpus. What is here is every reason the step
+/// from a name to that pair does not exist, each refused with what to do instead.
+pub fn pinned_dependency(root: &Path, name: &str) -> anyhow::Result<(PathBuf, String)> {
+    use anyhow::bail;
+    let config = load_config(&crate::paths::tonpa_config_path(root));
+    let Some(dep) = config.dependencies.get(name) else {
+        bail!("no dependency named '{name}' in .yidam/tonpa.toml");
+    };
+    if let (true, Some(rel)) = (dep.is_live_path(), &dep.path) {
+        bail!(
+            "'{name}' is an unpinned path dependency, read from its working tree\n  \
+             it has no commit to read at; query it with `--root {}`",
+            root.join(rel).display()
+        );
+    }
+    let Some((rel, rev)) = dep.pinned_path() else {
+        bail!(
+            "'{name}' is a fetched dependency\n  its bundle has no git history to read; \
+             `--dependency` reads a pinned path dependency"
+        );
+    };
+    let lock = load_lock(&crate::paths::tonpa_lock_path(root))?;
+    let locked = lock.packages.iter().find(|p| p.name == name);
+    if locked.and_then(|p| p.rev.as_deref()) != Some(rev) {
+        bail!(
+            "'{name}' is declared at {rev} and locked at {}\n  run `yidam tonpa install` to \
+             lock the declared commit",
+            locked.and_then(|p| p.rev.as_deref()).unwrap_or("nothing")
+        );
+    }
+    let sibling = root.join(rel);
+    if !sibling.is_dir() {
+        bail!(
+            "'{name}' needs its sibling repository, and there is none at {}\n  \
+             `--dependency` reads git objects; the unpacked copy under .yidam/tonpa/ has none",
+            sibling.display()
+        );
+    }
+    Ok((sibling, rev.to_string()))
 }
 
 // ── where a dependency's corpus is ────────────────────────────────────────────

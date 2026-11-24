@@ -143,11 +143,90 @@ struct Manifest<'a> {
     vector_index_model: Option<String>,
 }
 
+/// The export's bytes at `sha`, read out of the object store like the corpus is.
+///
+/// Refused when the path is not a plain relative path inside the repository, and when the
+/// tree at `sha` has no blob there, naming both.
+fn read_export_at(sibling: &Path, sha: &str, export: &str) -> Result<Vec<u8>> {
+    let path = Path::new(export);
+    if path.as_os_str().is_empty() || !path.components().all(|c| matches!(c, Component::Normal(_)))
+    {
+        bail!("export `{export}` is not a path inside the dependency's repository");
+    }
+    let out = Git::new(sibling)
+        .args(["cat-file", "blob"])
+        .rev(format!("{sha}:{export}"))
+        .output()?;
+    if !out.status.success() {
+        bail!(
+            "{} has no file {export} at {sha}\n  an export is read at the pinned commit, never \
+             from the working tree",
+            sibling.display()
+        );
+    }
+    Ok(out.stdout)
+}
+
+/// The commit on `rev`'s history that last wrote `export`, which is where a pack computed
+/// from the corpus lands (RFC-0063 §0.2). Literal pathspecs, so an export named with a `*`
+/// means that file.
+pub fn last_write(sibling: &Path, rev: &str, export: &str) -> Result<String> {
+    Git::new(sibling)
+        .env("GIT_LITERAL_PATHSPECS", "1")
+        .args(["log", "-1", "--format=%H"])
+        .rev(rev)
+        .paths([export])
+        .try_run()
+        .filter(|s| !s.is_empty())
+        .with_context(|| {
+            format!(
+                "no commit on {rev}'s history in {} writes {export}",
+                sibling.display()
+            )
+        })
+}
+
+/// The tree id of `.yidam/corpus` at `commit`, or `None` when the commit has none.
+fn corpus_tree(sibling: &Path, commit: &str) -> Option<String> {
+    Git::new(sibling)
+        .args(["rev-parse", "--verify", "--quiet"])
+        .rev(format!("{commit}:{CORPUS}"))
+        .try_run()
+        .filter(|s| !s.is_empty())
+}
+
+/// Refuse when the corpus at `at` is not the corpus at `written`, the commit that last wrote
+/// the export. Git trees only, so it holds for any export shape (RFC-0063 §1).
+///
+/// A commit with no corpus is refused too: two absent trees are equal, and an export computed
+/// from no corpus has nothing at the pin to be checked against.
+pub fn same_corpus(sibling: &Path, written: &str, at: &str, export: &str) -> Result<()> {
+    let Some(here) = corpus_tree(sibling, at) else {
+        bail!(
+            "{} has no {CORPUS} at {at}\n  an export is checked against the corpus at its pin",
+            sibling.display()
+        );
+    };
+    if corpus_tree(sibling, written).as_deref() != Some(here.as_str()) {
+        bail!(
+            "the corpus moved after {export} was last written\n  written at: {written}\n  \
+             corpus at:  {at}\n  recompute the export in {} and commit it",
+            sibling.display()
+        );
+    }
+    Ok(())
+}
+
 /// Write the sibling's corpus at `sha` to `<tonpa_dir>/<name>/`, and the lock entry for it.
 ///
-/// `expected` is the digest the lock already holds, when it holds one for this commit. The
+/// `expected` is the entry the lock already holds, when it holds one for this commit. The
 /// same commit cannot produce different content, so a mismatch means the lock was edited or
 /// the digest's definition moved — either way not something to paper over by re-pinning.
+/// Its export hash is compared only when it locked the export declared now.
+///
+/// `export`, when declared, is read at `sha` too, checked as new as the corpus there, and
+/// unpacked to `export/<file name>` beside it (RFC-0063 §1). Every check runs before the
+/// previous copy is touched.
 ///
 /// The previous copy is removed first. A file the pin moved past would otherwise outlive it
 /// and be read as part of the new one.
@@ -156,18 +235,43 @@ pub fn materialize(
     rel: &str,
     sibling: &Path,
     sha: &str,
+    export: Option<&str>,
     tonpa_dir: &Path,
-    expected: Option<&str>,
+    expected: Option<&LockedPackage>,
 ) -> Result<LockedPackage> {
     let entries = read_corpus_at(sibling, sha)?;
     let digest = crate::deps::tree_digest(&entries);
     if let Some(expected) = expected {
-        if digest != expected {
+        if digest != expected.sha256 {
             bail!(
-                "{name} at {sha} does not match tonpa.lock\n  expected: {expected}\n  got:      {digest}"
+                "{name} at {sha} does not match tonpa.lock\n  expected: {}\n  got:      {digest}",
+                expected.sha256
             );
         }
     }
+
+    let export = match export {
+        Some(path) => {
+            let bytes = read_export_at(sibling, sha, path)?;
+            same_corpus(sibling, &last_write(sibling, sha, path)?, sha, path)?;
+            let hash = crate::deps::sha256_hex(&bytes);
+            if let Some(want) = expected
+                .filter(|e| e.export.as_deref() == Some(path))
+                .and_then(|e| e.export_sha256.as_deref())
+            {
+                if hash != want {
+                    bail!(
+                        "{name}'s export {path} at {sha} does not match tonpa.lock\n  \
+                         expected: {want}\n  got:      {hash}"
+                    );
+                }
+            }
+            let file = crate::deps::export_file(name, tonpa_dir, path)
+                .with_context(|| format!("export `{path}` names no file"))?;
+            Some((path, bytes, hash, file))
+        }
+        None => None,
+    };
 
     let dest = tonpa_dir.join(name);
     if dest.exists() {
@@ -205,6 +309,12 @@ pub fn materialize(
         dest.join("manifest.yml"),
         serde_yaml::to_string(&manifest).context("serialising manifest.yml")?,
     )?;
+    if let Some((_, bytes, _, file)) = &export {
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(file, bytes).with_context(|| format!("writing {}", file.display()))?;
+    }
 
     Ok(LockedPackage {
         name: name.to_string(),
@@ -216,6 +326,8 @@ pub fn materialize(
         dims: None,
         nodes: Some(entries.len() as u64),
         rev: Some(sha.to_string()),
+        export: export.as_ref().map(|(path, ..)| path.to_string()),
+        export_sha256: export.map(|(_, _, hash, _)| hash),
     })
 }
 
@@ -332,7 +444,7 @@ mod tests {
         let (tmp, s, first, second) = sibling();
         let tonpa = tmp.path().join("consumer/.yidam/tonpa");
 
-        let locked = materialize("sib", "../sibling", &s, &first, &tonpa, None).unwrap();
+        let locked = materialize("sib", "../sibling", &s, &first, None, &tonpa, None).unwrap();
         assert_eq!(locked.rev.as_deref(), Some(first.as_str()));
         assert_eq!(locked.commit.as_deref(), Some(first.as_str()));
         assert!(crate::deps::verify_installed("sib", &tonpa, &locked).unwrap());
@@ -345,24 +457,17 @@ mod tests {
         assert!(!crate::deps::verify_installed("sib", &tonpa, &locked).unwrap());
 
         // Re-materialising at the same commit against the lock restores it.
-        let again = materialize(
-            "sib",
-            "../sibling",
-            &s,
-            &first,
-            &tonpa,
-            Some(&locked.sha256),
-        )
-        .unwrap();
+        let again =
+            materialize("sib", "../sibling", &s, &first, None, &tonpa, Some(&locked)).unwrap();
         assert_eq!(again.sha256, locked.sha256);
 
         // Moving the pin forward brings beta in.
-        let moved = materialize("sib", "../sibling", &s, &second, &tonpa, None).unwrap();
+        let moved = materialize("sib", "../sibling", &s, &second, None, &tonpa, None).unwrap();
         assert_ne!(moved.sha256, locked.sha256);
         assert!(tonpa.join("sib/corpus/concept/beta.yml").is_file());
 
         // …and moving it back takes beta out again, rather than leaving it behind.
-        materialize("sib", "../sibling", &s, &first, &tonpa, None).unwrap();
+        materialize("sib", "../sibling", &s, &first, None, &tonpa, None).unwrap();
         assert!(!tonpa.join("sib/corpus/concept/beta.yml").exists());
     }
 
@@ -370,10 +475,166 @@ mod tests {
     fn a_lock_that_disagrees_with_its_commit_is_refused() {
         let (tmp, s, first, _) = sibling();
         let tonpa = tmp.path().join("t");
-        let err = materialize("sib", "../sibling", &s, &first, &tonpa, Some("deadbeef"))
+        let mut wrong = materialize("sib", "../sibling", &s, &first, None, &tonpa, None).unwrap();
+        wrong.sha256 = "deadbeef".into();
+        let err = materialize("sib", "../sibling", &s, &first, None, &tonpa, Some(&wrong))
             .unwrap_err()
             .to_string();
         assert!(err.contains("does not match tonpa.lock"), "{err}");
+    }
+
+    /// A sibling whose pack lands one commit after the corpus it was computed from, as all six
+    /// of RFC-0063 §0.2's do, and whose corpus then moves on. Returns (tempdir, sibling,
+    /// corpus commit, compute commit, moved commit).
+    fn with_export() -> (
+        tempfile::TempDir,
+        std::path::PathBuf,
+        String,
+        String,
+        String,
+    ) {
+        let (tmp, s, first, _) = sibling();
+        git(&s, &["reset", "-q", "--hard", &first]);
+        std::fs::create_dir_all(s.join(".yidam/computed")).unwrap();
+        std::fs::write(s.join(".yidam/computed/pack.json"), "{\"v\":1}\n").unwrap();
+        git(&s, &["add", "-A"]);
+        git(
+            &s,
+            &["commit", "-q", "--no-gpg-sign", "-m", "compute: pack"],
+        );
+        let compute = git_out(&s, &["rev-parse", "HEAD"]).trim().to_string();
+        std::fs::write(s.join(".yidam/corpus/concept/gamma.yml"), "label: G\n").unwrap();
+        git(&s, &["add", "-A"]);
+        git(&s, &["commit", "-q", "--no-gpg-sign", "-m", "add gamma"]);
+        let moved = git_out(&s, &["rev-parse", "HEAD"]).trim().to_string();
+        (tmp, s, first, compute, moved)
+    }
+
+    const PACK: &str = ".yidam/computed/pack.json";
+
+    /// Read at the pin, unpacked beside the corpus, locked, and verified by its hash.
+    #[test]
+    fn an_export_is_read_at_the_pin_unpacked_and_locked() {
+        let (tmp, s, _, compute, _) = with_export();
+        std::fs::write(s.join(PACK), "{\"v\":\"EDITED\"}\n").unwrap();
+        let tonpa = tmp.path().join("t");
+        let locked =
+            materialize("sib", "../sibling", &s, &compute, Some(PACK), &tonpa, None).unwrap();
+        let file = tonpa.join("sib/export/pack.json");
+        assert_eq!(
+            std::fs::read(&file).unwrap(),
+            b"{\"v\":1}\n",
+            "never the working tree"
+        );
+        assert_eq!(locked.export.as_deref(), Some(PACK));
+        assert_eq!(
+            locked.export_sha256.as_deref(),
+            Some(crate::deps::sha256_hex(b"{\"v\":1}\n").as_str())
+        );
+        assert!(crate::deps::verify_installed("sib", &tonpa, &locked).unwrap());
+        std::fs::write(&file, "{}\n").unwrap();
+        assert!(!crate::deps::verify_installed("sib", &tonpa, &locked).unwrap());
+        std::fs::remove_file(&file).unwrap();
+        assert!(!crate::deps::verify_installed("sib", &tonpa, &locked).unwrap());
+
+        let mut edited = locked.clone();
+        edited.export_sha256 = Some("deadbeef".into());
+        let err = materialize(
+            "sib",
+            "../sibling",
+            &s,
+            &compute,
+            Some(PACK),
+            &tonpa,
+            Some(&edited),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("does not match tonpa.lock"), "{err}");
+    }
+
+    #[test]
+    fn a_rev_whose_tree_lacks_the_export_is_refused_naming_both() {
+        let (tmp, s, first, _, _) = with_export();
+        let err = materialize(
+            "sib",
+            "../sibling",
+            &s,
+            &first,
+            Some(PACK),
+            &tmp.path().join("t"),
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains(PACK) && err.contains(&first), "{err}");
+    }
+
+    /// The corpus at `moved` is not the one the pack was computed from: refused, naming the
+    /// commit that wrote the export and the commit asked for.
+    #[test]
+    fn an_export_older_than_the_corpus_at_rev_is_refused() {
+        let (tmp, s, _, compute, moved) = with_export();
+        let err = materialize(
+            "sib",
+            "../sibling",
+            &s,
+            &moved,
+            Some(PACK),
+            &tmp.path().join("t"),
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains(&compute) && err.contains(&moved), "{err}");
+        assert!(
+            !tmp.path().join("t/sib").exists(),
+            "refused before anything was written"
+        );
+    }
+
+    /// `update`'s target, and why it refuses here: HEAD's corpus moved past the last export.
+    #[test]
+    fn the_last_write_is_found_on_the_history_asked_about() {
+        let (_tmp, s, first, compute, moved) = with_export();
+        assert_eq!(last_write(&s, &moved, PACK).unwrap(), compute);
+        assert!(last_write(&s, &first, PACK).is_err());
+        assert!(same_corpus(&s, &compute, &moved, PACK).is_err());
+        assert!(
+            same_corpus(&s, &compute, &first, PACK).is_ok(),
+            "compute touched no corpus"
+        );
+    }
+
+    /// Two commits with no corpus have equal (absent) trees, and that is not freshness.
+    #[test]
+    fn a_pin_with_no_corpus_is_refused() {
+        let (_tmp, s, _, compute, _) = with_export();
+        git(&s, &["rm", "-rq", CORPUS]);
+        git(&s, &["commit", "-q", "--no-gpg-sign", "-m", "drop corpus"]);
+        let bare = git_out(&s, &["rev-parse", "HEAD"]).trim().to_string();
+        let err = same_corpus(&s, &bare, &bare, PACK).unwrap_err().to_string();
+        assert!(err.contains("has no"), "{err}");
+        assert!(same_corpus(&s, &compute, &compute, PACK).is_ok());
+    }
+
+    #[test]
+    fn an_export_outside_the_repository_is_refused() {
+        let (tmp, s, _, compute, _) = with_export();
+        for bad in ["../x.json", "/etc/passwd", "", "./a/../b"] {
+            let err = materialize(
+                "sib",
+                "../sibling",
+                &s,
+                &compute,
+                Some(bad),
+                &tmp.path().join("t"),
+                None,
+            )
+            .unwrap_err()
+            .to_string();
+            assert!(err.contains("not a path inside"), "{bad}: {err}");
+        }
     }
 
     #[test]

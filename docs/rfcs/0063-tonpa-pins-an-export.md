@@ -1,6 +1,6 @@
 # RFC-0063 — tonpa pins a dependency's export, and `derive check` reads it at that pin
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I46
 - **Relates to:**
   - #1508 (a dependency pinned in two places, and a consumer that re-implements `derive check`

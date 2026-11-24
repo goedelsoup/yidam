@@ -18,6 +18,7 @@ fn repo_root_of(rel: &str) -> std::path::PathBuf {
 pub async fn cmd_add(
     source: &str,
     name_override: Option<&str>,
+    export: Option<&str>,
     tonpa_dir: &Path,
     config_path: &Path,
     lock_path: &Path,
@@ -25,7 +26,14 @@ pub async fn cmd_add(
     let mut config = load_config(config_path)?;
     let mut lock = load_lock(lock_path)?;
 
-    let dep = parse_source(source)?;
+    let mut dep = parse_source(source)?;
+    // An export is read at a commit, so only a pinned path has one (RFC-0063 §1).
+    if let Some(export) = export {
+        if dep.pinned_path().is_none() {
+            bail!("{}", super::config::export_refusal(&dep, export));
+        }
+        dep.export = Some(export.to_string());
+    }
 
     // A path dependency is declared, not installed. There is nothing to fetch and nothing
     // worth hashing: the lock file records what a bundle *was* at a moment, and a working
@@ -61,7 +69,15 @@ pub async fn cmd_add(
             let sibling = repo_root().join(&rel);
             let sha = super::pinned::resolve(&sibling, &rev)?;
             println!("Adding {name} at {sha}");
-            let locked = super::pinned::materialize(&name, &rel, &sibling, &sha, tonpa_dir, None)?;
+            let locked = super::pinned::materialize(
+                &name,
+                &rel,
+                &sibling,
+                &sha,
+                dep.export.as_deref(),
+                tonpa_dir,
+                None,
+            )?;
             let dep = Dependency {
                 rev: Some(sha.clone()),
                 ..dep
@@ -117,10 +133,7 @@ fn parse_source(source: &str) -> Result<Dependency> {
     if source.starts_with("http://") || source.starts_with("https://") {
         return Ok(Dependency {
             url: Some(source.to_string()),
-            github: None,
-            tag: None,
-            path: None,
-            rev: None,
+            ..Dependency::default()
         });
     }
 
@@ -140,11 +153,9 @@ fn parse_source(source: &str) -> Result<Dependency> {
             _ => (source, None),
         };
         return Ok(Dependency {
-            url: None,
-            github: None,
-            tag: None,
             path: Some(path.to_string()),
             rev,
+            ..Dependency::default()
         });
     }
 
@@ -154,11 +165,9 @@ fn parse_source(source: &str) -> Result<Dependency> {
             .map(|(r, t)| (r, Some(t.to_string())))
             .unwrap_or((source, None));
         return Ok(Dependency {
-            url: None,
             github: Some(repo.to_string()),
             tag,
-            path: None,
-            rev: None,
+            ..Dependency::default()
         });
     }
 

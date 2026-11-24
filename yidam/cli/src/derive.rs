@@ -51,6 +51,9 @@ use crate::cmd::lint::Severity;
 use crate::corpus::Node;
 use crate::parse::ExternalCitation;
 
+mod records;
+pub(crate) use records::check_records;
+
 /// The finding ids, named once. RFC-0045 §3.5's table, in its order.
 pub const UNRESOLVED: &str = "derive-unresolved";
 pub const SPAN_DRIFT: &str = "derive-span-drift";
@@ -61,6 +64,7 @@ pub const UNANSWERED_REFUSAL: &str = "derive-unanswered-refusal";
 pub const STALE_ANSWER: &str = "derive-stale-answer";
 pub const NO_REACH: &str = "derive-no-reach";
 pub const REFUSAL_CANDIDATE: &str = "derive-refusal-candidate";
+pub const RECORD_UNMATCHED: &str = "derive-record-unmatched";
 
 /// The three reaches and the weakest standing each admits, from `agent-conduct.md`'s own
 /// sentences: `[verified]` may reach public material, `[inference]` reaches attributed memos and
@@ -280,6 +284,11 @@ fn artifact_yaml(rel: &str, text: &str) -> Option<String> {
 /// build directory beside its dossier does not pay for walking it. Working-tree files, not tracked
 /// ones: a gate run before a commit has to see the artifact the commit adds.
 pub(crate) fn artifact_files(root: &Path, globs: &[String]) -> Vec<String> {
+    files_under(root, globs, &[".yml", ".yaml", ".md"])
+}
+
+/// Every file under `globs` whose name ends in one of `extensions`, relative to `root`.
+pub(crate) fn files_under(root: &Path, globs: &[String], extensions: &[&str]) -> Vec<String> {
     let mut found = BTreeSet::new();
     for glob in globs {
         let prefix: Vec<&str> = glob.split('/').take_while(|s| !s.contains('*')).collect();
@@ -298,7 +307,7 @@ pub(crate) fn artifact_files(root: &Path, globs: &[String]) -> Vec<String> {
                 continue;
             };
             let rel = rel.to_string_lossy().replace('\\', "/");
-            let artifact = [".yml", ".yaml", ".md"].iter().any(|x| rel.ends_with(x));
+            let artifact = extensions.iter().any(|x| rel.ends_with(x));
             if artifact && crate::kuten::glob_covers(glob, &rel) {
                 found.insert(rel);
             }
@@ -334,6 +343,10 @@ pub struct CitedSpan {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Derivation {
     pub path: String,
+    /// For a JSON span record (RFC-0063 §3), the pointer that matched it, wildcards filled.
+    /// Absent for an artifact, which is the whole file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record: Option<String>,
     pub claim: Option<String>,
     pub reach: Option<String>,
     /// The weakest standing over every located span. `open` for an artifact that cites nothing,
@@ -643,6 +656,7 @@ pub(crate) fn check_artifact(rel: &str, text: &str, cited: &Cited) -> Option<Der
 
     Some(Derivation {
         path: rel.to_string(),
+        record: None,
         claim: artifact.claim.map(|c| flatten(&c)),
         reach: reach.map(str::to_string),
         tier,
@@ -683,7 +697,7 @@ mod tests {
     use crate::claims::ClaimFields;
 
     /// Every finding id, in table order — the roster a test holds the documentation to.
-    const FINDINGS: [&str; 9] = [
+    const FINDINGS: [&str; 10] = [
         UNRESOLVED,
         SPAN_DRIFT,
         CROSSES_PARAGRAPH,
@@ -693,23 +707,25 @@ mod tests {
         STALE_ANSWER,
         NO_REACH,
         REFUSAL_CANDIDATE,
+        RECORD_UNMATCHED,
     ];
 
     /// The reference documents every finding this command can report, by its id.
     #[test]
     fn every_finding_is_documented() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        for doc in [
-            "docs/cli-reference.md",
-            "docs/rfcs/0045-derivation-check.md",
-        ] {
-            let text = std::fs::read_to_string(root.join(doc)).unwrap();
-            for id in FINDINGS {
-                assert!(
-                    text.contains(&format!("`{id}`")),
-                    "{doc} does not name `{id}`"
-                );
-            }
+        let read = |doc: &str| std::fs::read_to_string(root.join(doc)).unwrap();
+        let reference = read("docs/cli-reference.md");
+        // The design that introduced each id: RFC-0045's table, and RFC-0063 §3.1 for records.
+        let rfcs = read("docs/rfcs/0045-derivation-check.md")
+            + &read("docs/rfcs/0063-tonpa-pins-an-export.md");
+        for id in FINDINGS {
+            let named = format!("`{id}`");
+            assert!(
+                reference.contains(&named),
+                "the CLI reference does not name {named}"
+            );
+            assert!(rfcs.contains(&named), "no derive RFC names {named}");
         }
     }
 

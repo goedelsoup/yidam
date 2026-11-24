@@ -614,7 +614,8 @@ enum Command {
         /// Print the typed paths between two nodes, fewest hops first, as runnable queries.
         /// Nodes are written `class/name`, as `query` prints them
         #[arg(long, num_args = 2, value_names = ["FROM", "TO"],
-              conflicts_with_all = ["query", "select", "anchor_k", "at", "between", "across"])]
+              conflicts_with_all = ["query", "select", "anchor_k", "at", "between", "across",
+                                    "dependency"])]
         paths: Option<Vec<String>>,
         /// With `--paths`: the most hops a path may take [default: 4]
         // `conflicts_with` and not only `requires`: clap waives a required argument that
@@ -647,6 +648,10 @@ enum Command {
         /// from, and no hop crosses a corpus boundary
         #[arg(long, conflicts_with_all = ["at", "between"])]
         across: bool,
+        /// Answer from a pinned path dependency at its locked commit: `--root <path> --at
+        /// <rev>`, both read from .yidam/tonpa.toml and the lock
+        #[arg(long, value_name = "NAME", conflicts_with_all = ["dir", "at", "between", "across"])]
+        dependency: Option<String>,
         #[command(flatten)]
         format: FormatArg,
     },
@@ -1871,6 +1876,7 @@ fn run() -> Result<()> {
             at,
             between,
             across,
+            dependency,
             format,
             ..
         } => yidam::query(
@@ -1882,10 +1888,11 @@ fn run() -> Result<()> {
             anchor_k,
             // Clap has already refused every combination of the three; this is where that
             // becomes a fact the rest of the command can rely on rather than a convention.
-            match (at, between, across) {
-                (Some(rev), _, _) => yidam::QueryScope::At(rev),
-                (_, Some(range), _) => yidam::QueryScope::Between(range),
-                (_, _, true) => yidam::QueryScope::Across,
+            match (at, between, across, dependency) {
+                (Some(rev), ..) => yidam::QueryScope::At(rev),
+                (_, Some(range), ..) => yidam::QueryScope::Between(range),
+                (_, _, true, _) => yidam::QueryScope::Across,
+                (.., Some(name)) => yidam::QueryScope::Dependency(name),
                 _ => yidam::QueryScope::Now,
             },
             format.value,

@@ -605,3 +605,314 @@ fn check_diff_knows_a_class_a_dependency_declares() {
     );
     assert!(!asked(&consumer), "known once the dependency declares it");
 }
+
+// ── a pinned path's export, and `query --dependency` (RFC-0063) ───────────────
+
+const PACK: &str = ".yidam/computed/pack.json";
+
+/// Commit `body` as the producer's pack, touching nothing in its corpus — a `compute:`
+/// commit, as RFC-0063 §0.2 found in all six siblings. Returns the commit.
+fn compute(producer: &Path, body: &str) -> String {
+    std::fs::create_dir_all(producer.join(".yidam/computed")).unwrap();
+    std::fs::write(producer.join(PACK), body).unwrap();
+    common::git::git(producer, &["add", "-A"]);
+    common::git::git(
+        producer,
+        &["commit", "-q", "--no-gpg-sign", "-m", "compute: pack"],
+    );
+    common::git::out(producer, &["rev-parse", "HEAD"])
+}
+
+fn commit_beta(producer: &Path) {
+    std::fs::write(
+        producer.join(".yidam/corpus/gauge-station/beta.yml"),
+        "class: gauge-station\nlabel: beta\n",
+    )
+    .unwrap();
+    common::git::git(producer, &["add", "-A"]);
+    common::git::git(producer, &["commit", "-q", "--no-gpg-sign", "-m", "beta"]);
+}
+
+fn add_with_export(consumer: &Path, sha: &str) {
+    let r = run(
+        consumer,
+        &[
+            "tonpa",
+            "add",
+            &format!("../producer@{sha}"),
+            "--export",
+            PACK,
+        ],
+    );
+    assert_eq!(r.code, 0, "stdout: {}\nstderr: {}", r.stdout, r.stderr);
+}
+
+/// Declared, read at the pin, unpacked beside the corpus, locked and verified.
+#[test]
+fn add_with_an_export_unpacks_and_locks_it_at_the_pin() {
+    let (_tmp, consumer, producer, _) = pinned_fixture();
+    let sha = compute(&producer, "{\"v\":1}\n");
+    std::fs::write(producer.join(PACK), "{\"v\":\"working tree\"}\n").unwrap();
+    add_with_export(&consumer, &sha);
+
+    let toml = std::fs::read_to_string(consumer.join(".yidam/tonpa.toml")).unwrap();
+    assert!(toml.contains(&format!("export = \"{PACK}\"")), "{toml}");
+    let lock = std::fs::read_to_string(consumer.join(".yidam/tonpa/tonpa.lock")).unwrap();
+    assert!(lock.contains("export_sha256 = "), "{lock}");
+    let unpacked = consumer.join(".yidam/tonpa/producer/export/pack.json");
+    assert_eq!(std::fs::read_to_string(&unpacked).unwrap(), "{\"v\":1}\n");
+    assert_eq!(run(&consumer, &["tonpa", "verify"]).code, 0);
+
+    std::fs::write(&unpacked, "{}\n").unwrap();
+    assert_ne!(run(&consumer, &["tonpa", "verify"]).code, 0);
+    assert_eq!(run(&consumer, &["tonpa", "install"]).code, 0);
+    assert_eq!(std::fs::read_to_string(&unpacked).unwrap(), "{\"v\":1}\n");
+}
+
+/// What an older CLI's `install` leaves: the declaration, and a lock entry with no export.
+#[test]
+fn verify_fails_an_export_the_lock_does_not_hash() {
+    let (_tmp, consumer, producer, _) = pinned_fixture();
+    let sha = compute(&producer, "{}\n");
+    add_with_export(&consumer, &sha);
+    let lock_path = consumer.join(".yidam/tonpa/tonpa.lock");
+    let lock: String = std::fs::read_to_string(&lock_path)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.starts_with("export"))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    std::fs::write(&lock_path, lock).unwrap();
+
+    let r = run(&consumer, &["tonpa", "verify"]);
+    assert_ne!(r.code, 0);
+    assert!(
+        r.stdout.contains("no hash for it") && r.stderr.contains("tonpa install"),
+        "stdout: {}\nstderr: {}",
+        r.stdout,
+        r.stderr
+    );
+}
+
+#[test]
+fn an_export_older_than_the_corpus_at_the_pin_is_refused() {
+    let (_tmp, consumer, producer, _) = pinned_fixture();
+    let written = compute(&producer, "{}\n");
+    commit_beta(&producer);
+    let head = common::git::out(&producer, &["rev-parse", "HEAD"]);
+    let r = run(
+        &consumer,
+        &[
+            "tonpa",
+            "add",
+            &format!("../producer@{head}"),
+            "--export",
+            PACK,
+        ],
+    );
+    assert_ne!(r.code, 0);
+    assert!(
+        r.stderr.contains(&written) && r.stderr.contains(&head),
+        "{}",
+        r.stderr
+    );
+    assert!(!consumer.join(".yidam/tonpa.toml").exists());
+}
+
+#[test]
+fn an_export_on_an_unpinned_path_is_refused() {
+    let (_tmp, consumer, producer, _) = pinned_fixture();
+    compute(&producer, "{}\n");
+    let r = run(
+        &consumer,
+        &["tonpa", "add", "../producer", "--export", PACK],
+    );
+    assert_ne!(r.code, 0);
+    assert!(r.stderr.contains("pinned path dependency"), "{}", r.stderr);
+}
+
+/// With an export, `update` moves to the commit that last wrote it, not to HEAD, and refuses
+/// once the corpus has moved past it.
+#[test]
+fn update_with_an_export_moves_to_the_last_compute_commit() {
+    let (_tmp, consumer, producer, _) = pinned_fixture();
+    let first = compute(&producer, "{\"v\":1}\n");
+    add_with_export(&consumer, &first);
+
+    let second = compute(&producer, "{\"v\":2}\n");
+    std::fs::write(producer.join("README.md"), "not the corpus\n").unwrap();
+    common::git::git(&producer, &["add", "-A"]);
+    common::git::git(&producer, &["commit", "-q", "--no-gpg-sign", "-m", "docs"]);
+
+    let r = run(&consumer, &["tonpa", "update", "producer"]);
+    assert_eq!(r.code, 0, "stdout: {}\nstderr: {}", r.stdout, r.stderr);
+    let toml = std::fs::read_to_string(consumer.join(".yidam/tonpa.toml")).unwrap();
+    assert!(toml.contains(&format!("rev = \"{second}\"")), "{toml}");
+    assert_eq!(
+        std::fs::read_to_string(consumer.join(".yidam/tonpa/producer/export/pack.json")).unwrap(),
+        "{\"v\":2}\n"
+    );
+
+    commit_beta(&producer);
+    let r = run(&consumer, &["tonpa", "update", "producer"]);
+    assert_ne!(r.code, 0);
+    assert!(r.stderr.contains("recompute the export"), "{}", r.stderr);
+}
+
+/// Updating everything, one stale export refuses that dependency alone: the others still move,
+/// and the lock and declaration record what is on disk.
+#[test]
+fn update_all_records_what_moved_when_one_export_is_refused() {
+    let (_tmp, consumer, producer, sha) = pinned_fixture();
+    let first = compute(&producer, "{\"v\":1}\n");
+    add_with_export(&consumer, &first);
+    let r = run(
+        &consumer,
+        &[
+            "tonpa",
+            "add",
+            &format!("../producer@{sha}"),
+            "--name",
+            "plain",
+        ],
+    );
+    assert_eq!(r.code, 0, "stdout: {}\nstderr: {}", r.stdout, r.stderr);
+
+    commit_beta(&producer);
+    let head = common::git::out(&producer, &["rev-parse", "HEAD"]);
+    let r = run(&consumer, &["tonpa", "update"]);
+    assert_ne!(r.code, 0, "{}", r.stdout);
+    assert!(r.stderr.contains("recompute the export"), "{}", r.stderr);
+    let toml = std::fs::read_to_string(consumer.join(".yidam/tonpa.toml")).unwrap();
+    assert!(
+        toml.contains(&format!("rev = \"{head}\"")),
+        "plain moved: {toml}"
+    );
+    assert!(
+        toml.contains(&format!("rev = \"{first}\"")),
+        "producer stayed: {toml}"
+    );
+    let r = run(&consumer, &["tonpa", "verify"]);
+    assert_eq!(r.code, 0, "the lock matches the disk: {}", r.stdout);
+}
+
+/// `--root <path> --at <locked rev>`, by name: the producer's later commit is not read.
+#[test]
+fn query_dependency_reads_the_pin_at_its_locked_commit() {
+    let (_tmp, consumer, producer, sha) = pinned_fixture();
+    assert_eq!(
+        run(&consumer, &["tonpa", "add", &format!("../producer@{sha}")]).code,
+        0
+    );
+    commit_beta(&producer);
+
+    let r = run(
+        &consumer,
+        &["query", "gauge-station", "--dependency", "producer"],
+    );
+    assert_eq!(r.code, 0, "stdout: {}\nstderr: {}", r.stdout, r.stderr);
+    assert!(
+        r.stdout.contains("alpha") && !r.stdout.contains("beta"),
+        "{}",
+        r.stdout
+    );
+
+    let r = run(
+        &consumer,
+        &["query", "gauge-station", "--dependency", "nobody"],
+    );
+    assert_ne!(r.code, 0);
+    assert!(r.stderr.contains("no dependency named"), "{}", r.stderr);
+
+    // Declared at one commit, locked at another.
+    let toml_path = consumer.join(".yidam/tonpa.toml");
+    let head = common::git::out(&producer, &["rev-parse", "HEAD"]);
+    let toml = std::fs::read_to_string(&toml_path)
+        .unwrap()
+        .replace(&sha, &head);
+    std::fs::write(&toml_path, toml).unwrap();
+    let r = run(
+        &consumer,
+        &["query", "gauge-station", "--dependency", "producer"],
+    );
+    assert_ne!(r.code, 0);
+    assert!(r.stderr.contains("tonpa install"), "{}", r.stderr);
+}
+
+#[test]
+fn query_dependency_refuses_a_live_path_and_names_the_root() {
+    let (_tmp, consumer) = producer_and_consumer("");
+    let r = run(&consumer, &["query", "concept", "--dependency", "producer"]);
+    assert_ne!(r.code, 0);
+    assert!(r.stderr.contains("--root"), "{}", r.stderr);
+
+    let r = run(
+        &consumer,
+        &[
+            "query",
+            "concept",
+            "--dependency",
+            "producer",
+            "--root",
+            ".",
+        ],
+    );
+    assert_ne!(r.code, 0, "clap refuses the pair");
+}
+
+/// `[[derive.records]]` over an export cites the dependency's corpus as installed at the pin,
+/// and is refused until `tonpa install` has written it (RFC-0063 §3.3).
+#[test]
+fn derive_records_read_an_export_against_the_corpus_at_the_pin() {
+    let (_tmp, consumer, producer, _) = pinned_fixture();
+    std::fs::write(
+        producer.join(".yidam/corpus/gauge-station/alpha.yml"),
+        "class: gauge-station\nlabel: alpha\nnote: Read weekly by the district [verified].\n",
+    )
+    .unwrap();
+    common::git::git(&producer, &["add", "-A"]);
+    common::git::git(
+        &producer,
+        &["commit", "-q", "--no-gpg-sign", "-m", "tag alpha"],
+    );
+    let sha = compute(
+        &producer,
+        r#"{"r": [{"node": "gauge-station/alpha", "span": "Read weekly", "tier": "verified"}]}"#,
+    );
+    add_with_export(&consumer, &sha);
+    std::fs::write(
+        consumer.join(".yidam/config.toml"),
+        "[[derive.records]]\nexport = \"producer\"\nrecords = [\"/r/*\"]\ntier = \"0/tier\"\n",
+    )
+    .unwrap();
+
+    let r = run(&consumer, &["derive", "check", "--format", "json"]);
+    assert_eq!(r.code, 0, "stdout: {}\nstderr: {}", r.stdout, r.stderr);
+    let doc: serde_json::Value = serde_json::from_str(&r.stdout).unwrap();
+    assert_eq!(doc["records"], 1, "{doc}");
+    let d = &doc["derivations"][0];
+    assert_eq!(d["path"], ".yidam/tonpa/producer/export/pack.json");
+    assert_eq!(d["record"], "/r/0");
+    assert_eq!(d["tier"], "verified");
+
+    // The producer's working tree is never read: an edit there changes nothing.
+    std::fs::write(
+        producer.join(".yidam/corpus/gauge-station/alpha.yml"),
+        "class: gauge-station\nlabel: alpha\n",
+    )
+    .unwrap();
+    assert_eq!(run(&consumer, &["derive", "check"]).code, 0);
+
+    std::fs::remove_dir_all(consumer.join(".yidam/tonpa/producer/export")).unwrap();
+    // Reported, not propagated: the refusal is a finding on stdout, in either format.
+    let r = run(&consumer, &["derive", "check"]);
+    assert_ne!(r.code, 0);
+    assert!(r.stdout.contains("tonpa install"), "stdout: {}", r.stdout);
+    let r = run(&consumer, &["derive", "check", "--format", "json"]);
+    assert_ne!(r.code, 0);
+    let doc: serde_json::Value = serde_json::from_str(&r.stdout).unwrap();
+    assert_eq!(
+        doc["derivations"][0]["findings"][0]["check"],
+        "derive-record-unmatched"
+    );
+}

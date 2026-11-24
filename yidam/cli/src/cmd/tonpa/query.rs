@@ -1,7 +1,9 @@
 use anyhow::{bail, Result};
 use std::path::Path;
 
-use super::config::{load_config, load_lock, resolve_url, save_lock};
+use super::config::{
+    load_config, load_lock, resolve_url, save_lock, Dependency, LockFile, LockedPackage,
+};
 use super::install::{install_package, verify_installed};
 
 // ── list ──────────────────────────────────────────────────────────────────────
@@ -150,7 +152,8 @@ fn short(sha: &str) -> &str {
 
 // ── verify ────────────────────────────────────────────────────────────────────
 
-pub fn cmd_verify(tonpa_dir: &Path, lock_path: &Path) -> Result<()> {
+pub fn cmd_verify(tonpa_dir: &Path, config_path: &Path, lock_path: &Path) -> Result<()> {
+    let config = load_config(config_path)?;
     let lock = load_lock(lock_path)?;
     if lock.packages.is_empty() {
         println!("Nothing to verify.");
@@ -158,6 +161,28 @@ pub fn cmd_verify(tonpa_dir: &Path, lock_path: &Path) -> Result<()> {
     }
 
     let mut failed = false;
+    // An export declared and not locked is what a CLI from before exports leaves behind: its
+    // `install` rewrote the entry without one (RFC-0063 §1, "Older CLIs"). The hashes below
+    // would pass it, because there is no export hash to compare.
+    for (name, dep) in &config.dependencies {
+        let Some(export) = &dep.export else { continue };
+        // On any other form the lock is not the problem, and naming it would send the reader
+        // to `install`, which refuses for the reason given here.
+        if dep.pinned_path().is_none() {
+            println!(
+                "  FAIL  {name} — {}",
+                super::config::export_refusal(dep, export)
+            );
+            failed = true;
+            continue;
+        }
+        let locked = lock.packages.iter().find(|p| &p.name == name);
+        if locked.is_some_and(|p| p.export.as_ref() == Some(export) && p.export_sha256.is_some()) {
+            continue;
+        }
+        println!("  FAIL  {name} — export {export} is declared and tonpa.lock has no hash for it");
+        failed = true;
+    }
     for p in &lock.packages {
         if verify_installed(&p.name, tonpa_dir, p)? {
             println!("  ok    {}", p.name);
@@ -192,6 +217,14 @@ pub async fn cmd_install(tonpa_dir: &Path, config_path: &Path, lock_path: &Path)
         // collected rather than `?`-ed, for the reason the branch below gives about path
         // dependencies: one sibling missing on this machine must not stop every other
         // dependency from installing.
+        if let (Some(export), None) = (&dep.export, dep.pinned_path()) {
+            eprintln!(
+                "  FAIL {name}: {}",
+                super::config::export_refusal(dep, export)
+            );
+            failed.push(name.clone());
+            continue;
+        }
         if let Some((rel, rev)) = dep.pinned_path() {
             let existing = lock
                 .packages
@@ -199,7 +232,10 @@ pub async fn cmd_install(tonpa_dir: &Path, config_path: &Path, lock_path: &Path)
                 .find(|p| &p.name == name && p.rev.as_deref() == Some(rev))
                 .cloned();
             if let Some(lk) = &existing {
-                if verify_installed(name, tonpa_dir, lk).unwrap_or(false) {
+                // An export added or changed since the lock was written is not installed,
+                // whatever the corpus digest says.
+                if lk.export == dep.export && verify_installed(name, tonpa_dir, lk).unwrap_or(false)
+                {
                     println!(
                         "  ok  {name} (pinned path → {rel} @ {}, already installed)",
                         short(rev)
@@ -213,8 +249,9 @@ pub async fn cmd_install(tonpa_dir: &Path, config_path: &Path, lock_path: &Path)
                 rel,
                 &sibling,
                 rev,
+                dep.export.as_deref(),
                 tonpa_dir,
-                existing.as_ref().map(|lk| lk.sha256.as_str()),
+                existing.as_ref(),
             ) {
                 Ok(locked) => {
                     println!("  installed {name} (pinned path → {rel} @ {})", short(rev));
@@ -312,6 +349,9 @@ pub async fn cmd_update(
             };
             // Naming a path dependency explicitly is worth an error rather than a silent
             // skip: the person asked for this one and needs to know why nothing happened.
+            if let (Some(export), None) = (&dep.export, dep.pinned_path()) {
+                bail!("'{n}': {}", super::config::export_refusal(dep, export));
+            }
             if let (true, Some(rel)) = (dep.is_live_path(), &dep.path) {
                 bail!(
                     "'{n}' is a path dependency → {rel}\n  \
@@ -340,35 +380,42 @@ pub async fn cmd_update(
 
     let mut changed = false;
     let mut config_changed = false;
+    // Refusals on a pinned path are collected rather than `?`-ed, as `install` collects them:
+    // one dependency whose export is stale must not leave the pins already moved on disk
+    // without the lock and declaration that record them.
+    let mut failed: Vec<String> = Vec::new();
     for n in &targets {
         let dep = config.dependencies[n].clone();
 
         // "Latest" for a pinned path is the sibling's HEAD: the pin moves to it, in the
         // declaration and in the lock, in one step. This is the refresh a consumer of local
         // siblings used to do by hand across every copied file.
+        if let (Some(export), None) = (&dep.export, dep.pinned_path()) {
+            eprintln!(
+                "  FAIL {n}: {}",
+                super::config::export_refusal(&dep, export)
+            );
+            failed.push(n.clone());
+            continue;
+        }
         if let Some((rel, rev)) = dep.pinned_path() {
-            let sibling = repo_root().join(rel);
-            let head = super::pinned::resolve(&sibling, "HEAD")?;
-            println!("Updating {n} …");
-            if head == rev
-                && lock
-                    .packages
-                    .iter()
-                    .find(|p| &p.name == n)
-                    .is_some_and(|p| p.rev.as_deref() == Some(rev))
-            {
-                println!("  {n} is already at {}", short(rev));
-                continue;
+            match update_pinned(n, &dep, rel, rev, tonpa_dir, &lock) {
+                Ok(None) => println!("  {n} is already at {}", short(rev)),
+                Ok(Some((locked, head))) => {
+                    println!("  {n}: {} → {}", short(rev), short(&head));
+                    lock.packages.retain(|p| &p.name != n);
+                    lock.packages.push(locked);
+                    if let Some(d) = config.dependencies.get_mut(n) {
+                        d.rev = Some(head);
+                    }
+                    changed = true;
+                    config_changed = true;
+                }
+                Err(e) => {
+                    eprintln!("  FAIL {n}: {e:#}");
+                    failed.push(n.clone());
+                }
             }
-            let locked = super::pinned::materialize(n, rel, &sibling, &head, tonpa_dir, None)?;
-            println!("  {n}: {} → {}", short(rev), short(&head));
-            lock.packages.retain(|p| &p.name != n);
-            lock.packages.push(locked);
-            if let Some(d) = config.dependencies.get_mut(n) {
-                d.rev = Some(head);
-            }
-            changed = true;
-            config_changed = true;
             continue;
         }
 
@@ -421,5 +468,49 @@ pub async fn cmd_update(
             ))
         );
     }
+    if !failed.is_empty() {
+        bail!("could not update: {}", failed.join(", "));
+    }
     Ok(())
+}
+
+/// One pinned path moved to its latest commit: `None` when it is already there, else the new
+/// lock entry and the commit it pins. Nothing is written before every refusal has run.
+fn update_pinned(
+    n: &str,
+    dep: &Dependency,
+    rel: &str,
+    rev: &str,
+    tonpa_dir: &Path,
+    lock: &LockFile,
+) -> Result<Option<(LockedPackage, String)>> {
+    let sibling = repo_root().join(rel);
+    let mut head = super::pinned::resolve(&sibling, "HEAD")?;
+    // With an export, "latest" is the commit that last wrote it: the corpus's own
+    // `compute:` commit, and never a corpus newer than the export (RFC-0063 §1).
+    if let Some(export) = &dep.export {
+        let written = super::pinned::last_write(&sibling, &head, export)?;
+        super::pinned::same_corpus(&sibling, &written, &head, export)?;
+        head = written;
+    }
+    println!("Updating {n} …");
+    if head == rev
+        && lock
+            .packages
+            .iter()
+            .find(|p| p.name == n)
+            .is_some_and(|p| p.rev.as_deref() == Some(rev) && p.export == dep.export)
+    {
+        return Ok(None);
+    }
+    let locked = super::pinned::materialize(
+        n,
+        rel,
+        &sibling,
+        &head,
+        dep.export.as_deref(),
+        tonpa_dir,
+        None,
+    )?;
+    Ok(Some((locked, head)))
 }

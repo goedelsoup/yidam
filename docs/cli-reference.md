@@ -108,12 +108,22 @@ survives it. Quoting the refusal itself owes nothing.
 | `derive-unresolved`, `derive-span-drift`, `derive-span-crosses-paragraph`, `derive-tag-drift` | error |
 | `derive-beyond-reach`, `derive-no-reach` | error |
 | `derive-unanswered-refusal`, `derive-stale-answer` | error |
+| `derive-record-unmatched` | error |
 | `derive-refusal-candidate` | info |
 
 The candidate is a cited paragraph that reads like a refusal and declares none. It is a
 question for a person and never fails the check. A paragraph holding a `not_refusals:` span is
-never proposed. No `[derive] paths` means nothing is read, and
-the check passes.
+never proposed.
+
+**A JSON span record is a citation too** ([RFC-0063](rfcs/0063-tonpa-pins-an-export.md)).
+[`[[derive.records]]`](configuration.md#derive-records) names JSON files and the pointers to
+the records in them. Each record's node must resolve, and its span must be in the node's file.
+Its governing quote must sit in one blank-line paragraph of that file, which carries a standing
+tag. That standing is the record's tier. A pointer or mapping matching nothing, or a record whose node or span is
+not a string, is `derive-record-unmatched`. A record has no reach and owes no answers. The JSON
+report counts the records matched in `records`.
+
+No `[derive] paths` and no `[[derive.records]]` means nothing is read, and the check passes.
 
 ## The practice
 
@@ -637,6 +647,7 @@ absence and takes no operand. The second is a comparison an absent property also
 | `--budget` | `pack`, `estimate` | Approximate token budget, 1 token ≈ 4 chars. `pack` is **unbudgeted by default**, because a default budget would silently truncate the first pack anybody builds |
 | `--at <ref>` | `query` | Answer as of a commit, reconstructed from git objects; the working tree is never touched |
 | `--between <a..b>` | `query` | Answer at every corpus-touching commit in the range, as a series |
+| `--dependency <name>` | `query` | Answer from a pinned path dependency at its locked commit: `--root <path> --at <rev>`, both read from tonpa |
 | `--across` | `query` | Query installed dependencies too. Every result says whose corpus it came from, and no hop crosses a corpus boundary |
 | `--paths <from> <to>` | `query` | Print the typed paths between two nodes, shortest first. Each one is a query that returns `<to>` when run. Takes no query |
 | `--max-hops` | `query --paths` | The longest path searched (default 4). A cut-off search names the nearest length that would connect |
@@ -2039,13 +2050,13 @@ corpus nodes, and the records it writes are a starting point for a person, not t
 
 | Subcommand | Effect |
 |---|---|
-| `add` | Add a dependency, fetch it, and update the lock file. `../sibling@<sha>` pins a path dependency to a commit |
+| `add` | Add a dependency, fetch it, and update the lock file. `../sibling@<sha>` pins a path dependency to a commit, and `--export <file>` locks a file read at that commit |
 | `install` | Install everything declared in `.yidam/tonpa.toml` |
 | `remove` | Remove a dependency and delete its installed files |
 | `list` | Installed packages with node counts and model info |
 | `status` | Per-dependency: installed / missing / stale |
 | `verify` | Check installed bundle hashes against the lock file |
-| `update` | Re-fetch one or all dependencies to the latest bundle. A pinned path moves to the sibling's `HEAD` |
+| `update` | Re-fetch one or all dependencies to the latest bundle. A pinned path moves to the sibling's `HEAD`, or with an export to the commit that last wrote it |
 
 [Sharing a derivation](sharing-derivations.md) covers publishing a `.yiz` and consuming one,
 and what a cross-corpus citation is and is not.
