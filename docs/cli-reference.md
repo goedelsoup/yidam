@@ -925,8 +925,8 @@ so a script can test for it. A step whose `reads` cover a table a `dataset` entr
 of the tables the step writes, is part of the input state. Each table the step reads is checked as
 `lint` checks it, before the step starts. Each one it writes is checked after, and a failure
 commits nothing.
-What the step wrote lands as one commit on the current branch. A receipt lands with it, at
-`.yidam/runs/<step>.yml`, naming the input commit and every digest.
+What the step wrote lands on the current branch, with a receipt at `.yidam/runs/<step>.yml`.
+The receipt names the input commit and every digest.
 
 A re-run can write the outputs it already committed. Then its receipt differs only in its input,
 and it lands no commit. It adds a line to a note on the committed receipt, in
@@ -972,7 +972,14 @@ at all.
 
 A manifest is a plan. An entry's `after` names the steps it waits for. `yidam run travel-tier`
 runs that step and everything it comes `after`, dependencies first. `yidam run` alone runs the
-whole manifest. An `after` that forms a cycle is refused with the cycle named, and nothing runs.
+whole manifest.
+
+**One invocation moves the branch once.** Each step is checked out from what the steps before it
+wrote. The operational steps then land together, one commit per run of consecutive steps with one
+verb. Eight `compute` steps land as `compute: 8 steps — 23 files at <parent>`, whose body names
+each step. A step's receipt names that parent, which is on the branch. If any operational step
+fails, or the branch moves meanwhile, nothing lands and no note is written.
+[RFC-0067](rfcs/0067-one-landing-per-plan.md) has the design. An `after` that forms a cycle is refused with the cycle named, and nothing runs.
 A step may not come `after` an epistemic one. That step's output is on `propose/<head>`, not in
 the tree a dependent is checked out from. So every epistemic step runs last, at the head the
 branch steps leave.

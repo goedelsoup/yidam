@@ -23,11 +23,13 @@ use std::path::Path;
 
 use common::{examples, kind_spellings, Example};
 
-/// One capability, in the three fields this file needs of it.
+/// One capability, in the four fields this file needs of it.
 #[derive(serde::Deserialize, Default)]
 struct Declared {
     #[serde(default)]
     after: Vec<String>,
+    #[serde(default)]
+    verb: String,
     #[serde(default)]
     reads: Vec<String>,
     /// `run`, kept as TOML because all this file asks of it is which arm it is.
@@ -460,38 +462,32 @@ fn a_step_that_writes_outside_its_declaration_is_refused_and_lands_nothing() {
             "the refusal names neither what was written nor what was declared:\n{err}"
         );
 
-        // The refused step landed nothing. Asserted about *that step* rather than about HEAD,
-        // which a plan may legitimately have advanced: an upstream this step comes `after` is
-        // a separate act that succeeded, and rolling it back because a later step overreached
-        // would be this command deciding to undo a commit it already wrote.
-        let receipt = common::git::succeeded(
-            &root,
-            &["cat-file", "-e", &format!("HEAD:.yidam/runs/{step}.yml")],
-        );
+        // The refused step landed nothing, and neither did the plan it was in: an upstream
+        // this step comes `after` finished, and is discarded with it (RFC-0067 §4).
         assert!(
-            !receipt,
-            "a refused `{step}` in {example} committed a receipt, so something it wrote landed"
+            err.contains("nothing in this plan was landed"),
+            "the refusal does not say the plan landed nothing:\n{err}"
         );
-        assert!(
-            !git(&root, &["log", "--format=%s", &format!("{before}..HEAD")])
-                .lines()
-                .any(|l| l.contains(&format!(": {step} "))),
-            "a refused `{step}` in {example} landed a commit of its own"
+        assert_eq!(
+            git(&root, &["rev-parse", "HEAD"]),
+            before,
+            "a refused `{step}` in {example} left the branch moved"
         );
     }
 }
 
 // ── what #472 added ───────────────────────────────────────────────────────────
 
-/// Dependency order, asserted through git rather than through the report.
+/// Dependency order, asserted through what the downstream step read.
 ///
 /// The claim is not that the report printed the steps in an order — it is that the downstream
 /// step was materialized from a tree that **held its upstream's output**, which is the whole
-/// of what `after` buys. So the evidence is ancestry: the downstream's commit descends from
-/// the upstream's, and the file the downstream read is in the upstream's tree and not in the
-/// one the plan started from.
+/// of what `after` buys. The plan lands as one commit per verb run (RFC-0067), so the evidence
+/// is the receipts: a file the upstream wrote is in the downstream's `input.files`, with the
+/// digest the upstream's receipt gives it — and the plan moved the branch once, past a commit
+/// whose parent is the one it started from.
 #[test]
-fn a_dependent_step_runs_against_the_commit_its_dependency_landed() {
+fn a_dependent_step_runs_against_what_its_dependency_wrote() {
     for name in examples() {
         let e = Example::materialize_runnable(&name);
         let caps = declared(&e.path());
@@ -506,30 +502,124 @@ fn a_dependent_step_runs_against_the_commit_its_dependency_landed() {
         let (out, err, code) = e.run(&["run"]);
         assert_eq!(code, 0, "`yidam run` failed in {name}:\n{out}{err}");
 
-        for (step, dep) in dependents {
-            let subject = |s: &str| format!(": {s} ");
-            let commit = |s: &str| {
-                let log = git(
-                    &e.path(),
-                    &["log", "--format=%H %s", &format!("{genesis}..HEAD")],
-                );
-                log.lines()
-                    .find(|l| l.contains(&subject(s)))
-                    .map(|l| l.split_whitespace().next().unwrap().to_string())
-                    .unwrap_or_else(|| panic!("no commit for `{s}` in {name}:\n{log}"))
+        let receipt = |s: &str| -> serde_yaml::Value {
+            let text = git(&e.path(), &["show", &format!("HEAD:.yidam/runs/{s}.yml")]);
+            serde_yaml::from_str(&text).unwrap_or_else(|e| panic!("`{s}`'s receipt: {e}"))
+        };
+        let files = |r: &serde_yaml::Value, key: &str| -> Vec<(String, String)> {
+            let list = match key {
+                "outputs" => &r["outputs"],
+                _ => &r["input"]["files"],
             };
-            let downstream = commit(step);
-            let upstream = commit(dep);
+            list.as_sequence()
+                .into_iter()
+                .flatten()
+                .map(|f| {
+                    (
+                        f["path"].as_str().unwrap_or_default().to_string(),
+                        f["sha256"].as_str().unwrap_or_default().to_string(),
+                    )
+                })
+                .collect()
+        };
+        for (step, dep) in dependents {
+            let read = files(&receipt(step), "input");
+            let wrote = files(&receipt(dep), "outputs");
             assert!(
-                common::git::succeeded(
-                    &e.path(),
-                    &["merge-base", "--is-ancestor", &upstream, &downstream]
-                ),
-                "`{step}` does not descend from `{dep}` in {name}, so it was computed from a \
-                 tree that did not hold what it declares it reads"
+                wrote.iter().any(|w| read.contains(w)),
+                "`{step}` read nothing `{dep}` wrote in {name}, so it was computed from a tree \
+                 that did not hold what it declares it reads:\nread {read:?}\nwrote {wrote:?}"
             );
         }
+        // Every commit the plan landed is one group, built on the last, from where it began.
+        let first = git(
+            &e.path(),
+            &["rev-list", "--reverse", &format!("{genesis}..HEAD")],
+        );
+        let first = first.lines().next().expect("the plan landed a commit");
+        assert_eq!(
+            git(&e.path(), &["rev-parse", &format!("{first}^")]),
+            genesis,
+            "the plan's first commit is not built on where it began in {name}"
+        );
     }
+}
+
+/// A plan whose every landing step is one verb lands one commit (RFC-0067 §2), whose body
+/// names every step it carries.
+#[test]
+fn a_plan_of_one_verb_lands_one_commit() {
+    for name in examples() {
+        let e = Example::materialize_runnable(&name);
+        let caps = declared(&e.path());
+        // `compute` is operational, so a plan of nothing else is one group.
+        if caps.len() < 2
+            || caps
+                .values()
+                .any(|c| c.verb != "compute" || !c.runnable_here())
+        {
+            continue;
+        }
+        let genesis = git(&e.path(), &["rev-parse", "HEAD"]);
+        let (out, err, code) = e.run(&["run"]);
+        assert_eq!(code, 0, "`yidam run` failed in {name}:\n{out}{err}");
+        let landed = git(&e.path(), &["rev-list", &format!("{genesis}..HEAD")]);
+        assert_eq!(
+            landed.lines().count(),
+            1,
+            "a plan of one verb landed more than one commit in {name}:\n{landed}"
+        );
+        let body = git(&e.path(), &["log", "-1", "--format=%B"]);
+        for step in caps.keys() {
+            assert!(
+                body.contains(&format!("({step}):")) || body.contains(&format!(": {step} ")),
+                "the commit does not name `{step}` in {name}:\n{body}"
+            );
+        }
+        assert!(
+            out.contains("1 commit(s) written."),
+            "the summary counts commits by step in {name}:\n{out}"
+        );
+    }
+}
+
+/// A step with another verb ends the group before it (RFC-0067 §2), and the commit it lands
+/// is built on the group's, so the branch still moves once, from where the plan began.
+#[test]
+fn a_change_of_verb_lands_a_commit_per_verb_run() {
+    let e = Example::materialize_runnable("streamflow");
+    with_verb(&e, "disclosure-envelope", "reconcile");
+    common::git::git(
+        &e.path(),
+        &["commit", "-qam", "fix: the envelope reconciles"],
+    );
+    let genesis = git(&e.path(), &["rev-parse", "HEAD"]);
+    let (out, err, code) = e.run(&["run", "disclosure-envelope"]);
+    assert_eq!(code, 0, "{out}{err}");
+    let log = git(
+        &e.path(),
+        &[
+            "log",
+            "--reverse",
+            "--format=%s",
+            &format!("{genesis}..HEAD"),
+        ],
+    );
+    let subjects: Vec<&str> = log.lines().collect();
+    assert_eq!(subjects.len(), 2, "{log}");
+    assert!(subjects[0].starts_with("compute: travel-tier — "), "{log}");
+    assert!(
+        subjects[1].starts_with("reconcile: disclosure-envelope — "),
+        "{log}"
+    );
+    // The reconcile step names the compute commit as its input, which is on the branch.
+    let receipt = git(
+        &e.path(),
+        &["show", "HEAD:.yidam/runs/disclosure-envelope.yml"],
+    );
+    let first = git(&e.path(), &["rev-parse", "HEAD^"]);
+    assert!(receipt.contains(&first), "{receipt}");
+    assert_eq!(git(&e.path(), &["rev-parse", "HEAD~2"]), genesis);
 }
 
 /// Asking for one step brings what it waits for up to date first.
@@ -559,8 +649,11 @@ fn asking_for_a_dependent_step_runs_its_dependency_first() {
         );
         for dep in deps {
             assert!(
-                log.contains(&format!(": {dep} ")),
-                "`yidam run {step}` landed no commit for `{dep}`, which it declares it comes \
+                common::git::succeeded(
+                    &e.path(),
+                    &["cat-file", "-e", &format!("HEAD:.yidam/runs/{dep}.yml")]
+                ),
+                "`yidam run {step}` landed no receipt for `{dep}`, which it declares it comes \
                  after:\n{log}"
             );
         }
@@ -2213,6 +2306,18 @@ fn a_compute_commit_carries_the_blocks_it_made_stale() {
     common::git::git(&root, &["commit", "-q", "-m", "docs: a status block"]);
     let (out, err, code) = e.run(&["regen", "--commit"]);
     assert_eq!(code, 0, "{out}{err}");
+    // A commit after the refresh, so the block is stale for whatever lands next. The plan's
+    // commit is its first, so nothing it lands moves the block on its own (RFC-0067 §2).
+    common::git::git(
+        &root,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "docs: after the refresh",
+        ],
+    );
     let before = git(&root, &["rev-parse", "HEAD"]);
 
     let (out, err, code) = e.run(&["run", &step]);

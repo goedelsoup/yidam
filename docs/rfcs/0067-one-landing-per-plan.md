@@ -1,6 +1,6 @@
 # RFC-0067 — A plan lands once, as one commit per verb
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I50
 - **Relates to:**
   - #1536 (a whole-manifest `yidam run` commits once per capability), parent epic #1513
@@ -105,15 +105,18 @@ was, as it leaves HEAD now.
 
 A **landing step** is an operational step whose `build_commit` in §1 changed the tip. A step
 that was fresh, that wrote a note, or whose tree equalled the tip's is not one. It joins no
-group and does not split one.
+group. A fresh step never splits one. A stale step with another verb does, for the reason the
+base gives below.
 
 A **group** is a maximal run of consecutive landing steps in plan order that share one verb.
 A plan of eight `compute` steps is one group. A plan of `compute`, `compute`, `reconcile`,
 `compute` is three groups if all four land. If the `reconcile` was fresh, it is one group.
 
 The **base** is the last group commit built so far, or HEAD before the plan if none is.
-A group's commit is built when the next landing step has another verb, or after the last
-operational step. So the base is known when each step runs.
+A group's commit is built before a stale step with another verb is invoked, or after the last
+operational step. So the base is known when each step runs, which it must be, because
+`YIDAM_INPUT_COMMIT` is exported before the step writes anything. That step is then checked out
+again from the new base. If it writes a note instead of landing, the group it ended stays closed.
 
 Plan order is not changed to make groups larger. It is the order the steps ran in, and a
 commit's position in the log should say that.

@@ -37,19 +37,19 @@ input commit.
 what a step declares and reads: its kind, verb and run, the manifest and config digests, its
 declared reads and the digest of each file they match, the resolved graph, the script, and its
 declared writes. It does not hash `input.commit`. A head that moves without touching anything
-the step reads leaves the input state where it was, [`freshness`](../../yidam/cli/src/cmd/run/mod.rs#L566) reports the step fresh, and nothing
+the step reads leaves the input state where it was, [`freshness`](../../yidam/cli/src/cmd/run/mod.rs#L822) reports the step fresh, and nothing
 runs. That part works.
 
 A step that declares a broad read is a different case. allen-county-ohio-democratic-party's
 `seat-coverage` reads `crates/local-seat-targets/src/lib.rs`, so an edit to that file moves its
 input state. The step runs again and writes the same `.yidam/computed/seat-coverage.yml`. Its
 receipt does change, in three fields: `input_state`, `input.commit`, and the digest of the one
-read. [`commit`](../../yidam/cli/src/cmd/run/mod.rs#L496) decides from the tree
+read. [`commit`](../../yidam/cli/src/cmd/run/mod.rs#L1468) decides from the tree
 alone, and the tree differs by the receipt. So `b634a8f compute: seat-coverage — 2 files at
 c96a1dd` lands, changing one file under `.yidam/runs/`.
 
-The run already knows. It sets [`unchanged_outputs`](../../yidam/cli/src/cmd/run/mod.rs#L469) from
-[`outputs_already_committed`](../../yidam/cli/src/cmd/run/mod.rs#L953), which
+The run already knows. It sets [`unchanged_outputs`](../../yidam/cli/src/cmd/run/mod.rs#L540) from
+[`outputs_already_committed`](../../yidam/cli/src/cmd/run/mod.rs#L1209), which
 compares object ids. That function's own doc says the commit is written anyway, *"so the check is
 recorded whether or not the answer moved."* The commit is the record of having looked. It is
 the only record there is.
@@ -59,7 +59,7 @@ the only record there is.
 `freshness` compares the current input state with the one in the receipt at the parent commit.
 If a run that reproduced its outputs wrote no commit, that comparison would fail on the next
 call, the step would run again, reproduce its outputs again, and write nothing again. `doctor`'s
-[`standing`](../../yidam/cli/src/cmd/run/mod.rs#L693) reads the same receipt and
+[`standing`](../../yidam/cli/src/cmd/run/mod.rs#L949) reads the same receipt and
 would report the step stale for as long as nobody changed its outputs. Skipping the commit trades
 one bookkeeping commit for an invocation that never ends and a doctor finding that is never
 true.
@@ -70,8 +70,8 @@ lives, if not in the branch's history.
 ### 1.3 Ageing
 
 A step with `ageing_days` re-runs once its receipt is old enough, even with no input change
-([`aged`](../../yidam/cli/src/cmd/run/mod.rs#L890)). The age is the committer date
-of the commit that last touched the receipt ([`receipt_age`](../../yidam/cli/src/cmd/run/mod.rs#L628)). The receipt carries no date of its own,
+([`aged`](../../yidam/cli/src/cmd/run/mod.rs#L1146)). The age is the committer date
+of the commit that last touched the receipt ([`receipt_age`](../../yidam/cli/src/cmd/run/mod.rs#L884)). The receipt carries no date of its own,
 and the module doc's "No clock" section says why
 ([`receipt.rs:18-24`](../../yidam/cli/src/cmd/run/receipt.rs#L18-L24)): *"a second date written
 into the file would be the same fact recorded twice and the only copy anyone could forge."* An aged re-run that reproduces its
