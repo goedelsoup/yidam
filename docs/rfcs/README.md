@@ -94,6 +94,7 @@ re-deriving it.
 | [0061](0061-unanswerable-open-claims.md) | I44 | An open claim may declare itself unanswerable, and the questions clock stops counting it | Draft |
 | [0062](0062-kuten-reads-the-corpus-register.md) | I45 | `kuten check` reads the corpus register, and no second profile ships | Implemented |
 | [0063](0063-tonpa-pins-an-export.md) | I46 | tonpa pins a dependency's export, and `derive check` reads it at that pin | Implemented |
+| [0064](0064-a-projected-corpus.md) | I47 | A projected corpus declares its producer and its id, and yidam stops assuming it was authored | Draft |
 
 ## Reading order
 
