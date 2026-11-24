@@ -520,7 +520,12 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// **Raised to 21,171 when an open claim could say the record cannot answer it (#1506,
 /// RFC-0061).** The delta is **50 words in `GRAPH.md`**, the same 50 the node route moved by.
 /// 21,121 + 50 is this figure exactly.
-const BOOTSTRAP_CEILING: usize = 21_171;
+///
+/// **Raised to 21,217 when bootstrap warned of a template already behind (#1511, RFC-0065).**
+/// The delta is **46 words in `bootstrap.md`**: the `release` line in the hand-written pin, and
+/// the `yidam-vendor-status` check that names a newer release and does not stop. 21,171 + 46 is
+/// this figure exactly.
+const BOOTSTRAP_CEILING: usize = 21_217;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///
@@ -704,11 +709,16 @@ const ENTRY: &[&str] = &[".claude/CLAUDE.md", "BOOTSTRAP.md"];
 /// that the prelude's own links read into them — stopped being true. It was retired, not moved:
 /// its 10-word-shorter replacement says they are not vendored. Nothing changed in the evidence
 /// half.
+///
+/// **`bootstrap.md` raised to 11,533 for #1511.** 46 words arrived, all in the rules half: the
+/// figure [`BOOTSTRAP_CEILING`] moved by. The floor moves by 77, because 31 had been standing as
+/// slack: main measured 11,487 against 11,456 before this edit. Closed rather than carried
+/// forward.
 const PAIR_FLOOR: &[(&str, usize)] = &[
     ("yidam/prelude/guidelines/agent-conduct.md", 5_686),
     ("yidam/prelude/GRAPH.md", 11_001),
     ("yidam/prelude/guidelines/directories.md", 13_113),
-    ("yidam/prelude/skills/bootstrap.md", 11_456),
+    ("yidam/prelude/skills/bootstrap.md", 11_533),
 ];
 
 /// The `##` sections of the seven step-1 files that no read reaches, as `file#slug` under

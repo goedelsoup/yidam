@@ -48,6 +48,13 @@
 # pin in .yidam/tonpa/tonpa.lock; marking the ask answered, or moving its `pin:`, discharges it.
 # asks_after = 7
 
+# Releases the template's origin may cut past the one .yidam.toml's `release` names before a
+# re-vendor is due. Counted by version, not by date: a pin a month old is current if nothing
+# was released since. The one clock that reads the network, by one bounded `git ls-remote`
+# against the pin's origin; an origin it cannot reach reads unmeasurable, never an error.
+# Reading the release notes and running `mise run yidam-vendor-update` discharges it.
+# template_after = 1
+
 # A list this corpus means to cover — a session's bills, a body's meetings — and the class
 # whose instances should account for every member of it. `source` is a catalog entry; its
 # newest artifact is read from the vault cache, by a JSON path (`select`) or a CSV header
@@ -71,7 +78,7 @@
 # a corpus that considered a vector index and chose against it reports identically to one
 # that has never heard of it, and the only remedy `due` can offer the first is to declare an
 # interval for work nobody intends. The key is the clock's id — `index`, `catalog`,
-# `questions`, `phases`, `superseded`, `asks`, `coverage` — and the value is a record in `.yidam/decisions/`,
+# `questions`, `phases`, `superseded`, `asks`, `coverage`, `template` — and the value is a record in `.yidam/decisions/`,
 # by its `id:` or its file stem. The record is required: a decline naming one this repository does not hold
 # is not honoured, and `due` says so rather than going quiet.
 # [due.declined]

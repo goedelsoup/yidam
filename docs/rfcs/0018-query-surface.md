@@ -547,10 +547,10 @@ fail.
 > is the labelled form working as #706 intended. A coordinate-only citation would have slid
 > onto whatever four lines took their place and stayed green.
 
-Exit **2** is not available and must not be borrowed. Its sites are `main.rs:1604`, inside the
+Exit **2** is not available and must not be borrowed. Its sites are `main.rs:1606`, inside the
 clap pre-dispatch arm for "ErrorKind::InvalidSubcommand | ErrorKind::UnknownArgument"
-([`main.rs:1626-1645`](../../yidam/cli/src/main.rs#L1626-L1645)), and the bare-`yidam` fallback
-at `main.rs:1620` — both reached *before* `match cli.command`, so no command body can produce
+([`main.rs:1628-1647`](../../yidam/cli/src/main.rs#L1628-L1647)), and the bare-`yidam` fallback
+at `main.rs:1622` — both reached *before* `match cli.command`, so no command body can produce
 it — and
 `tests/suite/binary_pin.rs:140` pins it as the unrecognized-subcommand code. Returning an ordinary
 `Err` from a command body exits 1 with `Error: {:?}` prose and no envelope at all, which would
@@ -560,7 +560,7 @@ The one `Err` that is not ordinary is
 [`report::GateFailed`](../../yidam/cli/src/report.rs#L204), the sentinel #926 introduced so
 that the library could stop calling `std::process::exit` from inside a published crate. It
 carries no message, and `main.rs` prints nothing for it
-([`fn main`](../../yidam/cli/src/main.rs#L1615-L1622)) — so the report emitted above it is
+([`fn main`](../../yidam/cli/src/main.rs#L1617-L1624)) — so the report emitted above it is
 still the only thing on the stream, which is the whole property this section is arranged
 around. The exit code did not move; the call to `exit` did.
 

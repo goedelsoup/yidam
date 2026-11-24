@@ -1,6 +1,6 @@
 # RFC-0065 — A pin names its release, and `due` counts the releases since
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I48
 - **Relates to:**
   - #1511 (nothing reports template age), parent epic #1513
@@ -124,7 +124,7 @@ cli       = "0.23.0 (f5a359c)"
 ```
 
 `release` is the nearest release tag at or before `commit`, asked with
-`git describe --tags --match 'cli/v[0-9]*' --exclude 'cli/v*-*'`. A release tag is one
+`git describe --tags --match 'cli/v[0-9]*.[0-9]*.[0-9]*' --exclude 'cli/v*-*'`. A release tag is one
 `newest_release` would count: `cli/vX.Y.Z` and nothing more. The `--exclude` keeps a
 pre-release such as `cli/v0.27.0-rc.1` out, since the clock could not place it in the
 version order. Whatever `describe` answers is then checked against that shape. A tag that

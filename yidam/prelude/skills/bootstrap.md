@@ -936,7 +936,17 @@ origin    = "git@github.com:goedelsoup/yidam.git"
 commit    = "<40-char sha, or unknown>"
 template  = "untagged"
 committed = "<YYYY-MM-DD — the date of that commit>"
+release   = "unreleased"
 ```
+
+**Check whether the template is already behind:**
+
+```
+mise run yidam-vendor-status
+```
+
+If it names a newer release, tell the user which, and that `mise run yidam-vendor-update`
+adopts it after genesis. Do not stop. If the origin is unreachable, say so and continue.
 
 Then commit the whole vendor step as one event:
 

@@ -420,12 +420,13 @@ enum Command {
         #[command(flatten)]
         format: FormatArg,
     },
-    /// What is due? The seven clocks, read together, on a schedule.
+    /// What is due? The eight clocks, read together, on a schedule.
     ///
     /// Index staleness, a catalog entry's TTL, how long a question has gone unanswered,
     /// how long a phase has been in flight, which nodes cite a source that has since
-    /// changed, and which questions put to another corpus were asked at a pin it has since
-    /// moved past. Each but the last had a home, and none said it was time.
+    /// changed, which questions put to another corpus were asked at a pin it has since
+    /// moved past, which members of a declared list no instance covers, and how many
+    /// releases the template has cut past the pin. None said it was time.
     ///
     /// **What is due is not what is wrong.** A corpus with three expired sources is not
     /// unhealthy, it is owed — so this exits zero however much is due, and `yidam doctor`
@@ -433,8 +434,9 @@ enum Command {
     /// nonzero, for a scheduled job that wants a signal.
     ///
     /// Every interval is declared by the corpus, never compiled in: `[catalog] ttl_days`
-    /// for sources, `[due]` for the other five. A clock with no interval reports what it
-    /// measured and never comes due. Read-only and offline.
+    /// for sources, `[[due.coverage]]` for lists, `[due]` for the other six. A clock with
+    /// no interval reports what it measured and never comes due. Read-only, and offline
+    /// but for one bounded `git ls-remote` against the template's origin.
     Due {
         #[command(flatten)]
         root: RootArg,
@@ -446,7 +448,7 @@ enum Command {
     },
     /// Where is this repository in its loop, and what is the next act?
     ///
-    /// One report in four halves: what is **owed** (`due`'s seven clocks), what is **in
+    /// One report in four halves: what is **owed** (`due`'s eight clocks), what is **in
     /// flight** (the unsettled inquiry refs `phases` lists), what is **blocked** (what
     /// `lint`'s ratchet and `graph-check` would fail on today), and what is **next**.
     ///

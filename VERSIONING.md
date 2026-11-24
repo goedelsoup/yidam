@@ -26,23 +26,28 @@ directory layout, prelude documents, REGEN marker format, `mise.toml` shape, the
 **Tags:** `v{major}.{minor}.{patch}` on the monorepo root (e.g. `v0.1.0`).
 
 **Pinning in derived repos.** Every derived repo carries a `.yidam.toml` at its root, written
-by `clone`/`overlay` and rewritten by `mise run yidam-vendor-update`. These five fields, and
+by `clone`/`overlay` and rewritten by `mise run yidam-vendor-update`. These six fields, and
 no others — `src/provenance.rs::render` is what emits them:
 
 ```toml
 [yidam]
 origin    = "git@github.com:goedelsoup/yidam.git"
 commit    = "88edd17f4c2a1b09e3d5f7a8c6b4e2d1a9f0c3b5"
-template  = "v0.1.0"    # this layer's tag at that commit, or "untagged"
+template  = "v0.1.0+4"  # this layer's nearest tag, and the commits past it, or "untagged"
 committed = "2026-08-27"
+release   = "cli/v0.16.0"       # the cli/v* release the pin installs, or "unreleased"
 cli       = "0.16.0 (ce5e738)"  # the yidam binary in use when this was written
 ```
 
 `commit` is the resolvable pin — it is what the re-vendor procedure and CI check out.
-`template` carries the tag verbatim, `v` prefix included, and is matched against
-`v[0-9]*` so that a commit carrying several layers' tags cannot answer for this one.
+`template` carries the nearest tag at or behind `commit`, `v` prefix included, and is matched
+against `v[0-9]*` so that a commit carrying several layers' tags cannot answer for this one.
+When `n` commits follow the tag it reads `<tag>+<n>`; it reads `untagged` only when no
+ancestor carries one (RFC-0065). `release` is the same lookup over `cli/v*`, pre-releases
+excluded: the binary release the pin installs, and what `yidam due`'s `template` clock counts
+newer releases against.
 `committed` is the *pinned commit's* author date, not the date the repo last re-vendored.
-`cli` is the binary, not the template: `clone` records itself, and the re-vendor records the
+`cli` is the binary that wrote the file, not the template and often not the release: `clone` records itself, and the re-vendor records the
 `yidam` it resolves. A tree copied wrongly at a correct `commit` is attributed by this field.
 
 **There is no `bootstrap` field.** This document described one for several releases; nothing

@@ -188,7 +188,7 @@ fi
 # template release was refused as already existing against two tags belonging to other
 # layers. Four layers share one tag namespace and every place that resolves a tag in this
 # repository has now asked a question meaning "this layer" in a form that answers for any of
-# them — `releases/latest` in three callers, `git describe --exact-match` in the template
+# them — `releases/latest` in three callers, the nearest-tag `git describe` in the template
 # pin, and this. The full ref path is the only spelling that means one tag.
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
   refuse tag-exists "$TAG already exists locally"
