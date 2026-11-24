@@ -25,7 +25,7 @@
     projection. The report schema declares both.
   - **The bump.** It is minor for the CLI. No authored file moves and no migration is owed. An
     upgrade note is owed when this is implemented, since a projection's producer has a file to
-    write. No existing note is rewritten (§6).
+    write. No existing note is rewritten ("What this does not do").
 - **Downstream reference case:** watermark-directory, read through the GitHub API at `main`
   691b9db1 (2026-11-18). Nothing was written to it and its local checkout was not touched.
 
@@ -72,16 +72,17 @@ Its `.yidam/config.toml` holds nothing but a `[vault.default]` table.
 ### 0.2 What `--root` covers today
 
 `--root` is a per-command `RootArg`, resolved by `resolve_root` (`paths.rs`), which walks up to
-the nearest `.yidam/`. Fifty-two call sites still call `repo_root()` directly, which reads
-`git rev-parse --show-toplevel` and ignores the flag.
+the nearest `.yidam/`. Fifty-one call sites outside `paths.rs` still call `repo_root()` directly,
+which reads `git rev-parse --show-toplevel` and ignores the flag.
 
 The nine calls in `cmd/vault.rs` matter most here, because `vault verify` is one of the three
 commands watermark-directory's CI runs. Outside vault, the direct calls sit in
 `rename`, `bundle`, `embed`, `migrate`, `schema`, `init`, `backfill`, `propose`, `bench`,
 `cluster status`, `cluster egress`, `cluster workflow`, `overlay`, `clone`, `phase`,
 `index-build`, `gather`, `regen`, `export-llms`, `catalog fetch`, `catalog extract`,
-`catalog reconcile`, `build`, `run`, `dispatch` and the tonpa subcommands. Some of those
-calls are a fallback beside `resolve_root`, and the rest ignore the flag outright.
+`catalog reconcile`, `build`, `run`, `dispatch`, `serve` and the tonpa subcommands, and one
+sits outside `cmd/`, in the library half of `regen.rs`. Some of those calls are a fallback beside
+`resolve_root`, and the rest ignore the flag outright.
 
 ### 0.3 Why a nickname was rejected before
 
@@ -157,8 +158,21 @@ to it:
 - the vector store's corpus id, `index push` and `remote.corpora`;
 - retrieval's corpus scoping;
 - the warehouse corpus table;
-- the bundle manifest;
-- `embed`'s cache key.
+- the bundle manifest, which gains a `corpus_id` field beside `genesis_hash` (below);
+- `embed`'s cache key;
+- `doctor`'s shadow detection (`deps::shadowed`), which compares the corpus id of a path
+  dependency's checkout with the one in its unpacked manifest;
+- the manifest `tonpa` writes for a pinned path (`tonpa/pinned.rs`), in the same field;
+- the remedy `doctor`'s `remote-index` check prints for a malformed `remote.corpora`, which says
+  a corpus is named by its genesis hash and will say it is named by its corpus id.
+
+The bundle manifest's `genesis_hash` is the full forty-character SHA, and a reader written
+before this change decodes it as one. It keeps that meaning and is not shortened. The new
+`corpus_id` field carries the twelve characters, in both modes. A projection's bundle writes
+`genesis_hash: null`, which the manifest already allows and which RFC-0032 §2 already reads as
+*unidentified by genesis*. Shadow detection compares `corpus_id` when both sides carry it, and
+falls back to comparing `genesis_hash` only for a manifest from before the field. That fallback
+cannot hide a projection, since a projection's manifest always carries `corpus_id`.
 
 The consumers that use genesis as *history* do not. They read the first commit for what it says
 about the past. A projection's host repository has a past, but it is not the corpus's. So in
@@ -168,7 +182,7 @@ projection mode they report that the corpus has no genesis instead:
   `<generated_by>`* rather than a date;
 - RFC-0047's sealed-article checks do not run, since there is no authored history to seal
   against;
-- `doctor`'s shadow detection, which compares a corpus's genesis with its neighbours', skips.
+- the bundle manifest's `genesis` date and `genesis_hash` are `null`.
 
 `remote.corpora` values stay twelve hex characters in both modes, so an index that serves an
 authored corpus and a projection does not need to know which is which.
@@ -184,14 +198,16 @@ the id does: RDF subjects, vector keys, and the entry in any `remote.corpora` li
 ### 3. Writers refuse
 
 In projection mode, every command that writes under `.yidam/corpus/` or commits on the corpus's
-behalf refuses before it reads anything:
+behalf refuses once it has read `.yidam/config.toml`, and before it reads or writes the corpus:
 
-> This corpus is a projection written by `watermark corpus-mirror`. Change it there and
-> re-run the projection; `yidam propose` would be overwritten on the next run.
+> This corpus is a projection written by `<generated_by>`. Change it there and re-run the
+> projection; what `yidam <verb>` wrote would be overwritten on the next run.
 
-The commands are `propose`, `phase`, `rename`, `migrate` and `backfill`, plus the scaffold and
-vendor steps of `init`, `clone` and `overlay`. Each one already resolves a root, so the check is
-one call, `refuse_if_projection(root, "<verb>")`, placed at that point.
+The commands that write the corpus are `propose`, `phase`, `rename`, `migrate` and `backfill`,
+plus the scaffold and vendor steps of `init`, `clone` and `overlay`. The commands that commit
+on its behalf are `gather`, `dispatch`, `run` and `cluster land`, each of which lands commits
+through a step of its own. Each command resolves a root, so the check is one call,
+`refuse_if_projection(root, "<verb>")`, placed where that root is resolved.
 
 Commands that write outside the corpus keep working: `regen`, `export-*`, `schema`, `index-build`
 and `embed`. watermark-directory's `generated:` entries for `.yidam/exports` and `.yidam/schemas`
@@ -200,9 +216,10 @@ show those outputs are expected there.
 ### 4. The corpus directory is generated
 
 In projection mode `.yidam/corpus` is a generated region attributed to `generated_by`, whether or
-not `authorship.yml` says so. An explicit entry for the same path stays valid and wins, so the
-existing file in watermark-directory keeps meaning what it means. Two entries with different
-`by:` values are an error, since then the attribution in a finding would be a guess.
+not `authorship.yml` says so. An explicit entry for the same path stays valid when its `by:`
+matches `generated_by`, so the existing file in watermark-directory keeps meaning what it means.
+An entry whose `by:` differs is an error, since then the attribution in a finding would be a
+guess. Neither declaration overrides the other.
 
 Graph findings stay errors. A dangling edge in a projection is a defect, and a downgrade to info
 would hide the producer's bug. What changes is who a finding names: in projection mode, every
