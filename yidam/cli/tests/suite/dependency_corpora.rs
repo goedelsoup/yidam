@@ -759,6 +759,43 @@ fn update_with_an_export_moves_to_the_last_compute_commit() {
     assert!(r.stderr.contains("recompute the export"), "{}", r.stderr);
 }
 
+/// Updating everything, one stale export refuses that dependency alone: the others still move,
+/// and the lock and declaration record what is on disk.
+#[test]
+fn update_all_records_what_moved_when_one_export_is_refused() {
+    let (_tmp, consumer, producer, sha) = pinned_fixture();
+    let first = compute(&producer, "{\"v\":1}\n");
+    add_with_export(&consumer, &first);
+    let r = run(
+        &consumer,
+        &[
+            "tonpa",
+            "add",
+            &format!("../producer@{sha}"),
+            "--name",
+            "plain",
+        ],
+    );
+    assert_eq!(r.code, 0, "stdout: {}\nstderr: {}", r.stdout, r.stderr);
+
+    commit_beta(&producer);
+    let head = common::git::out(&producer, &["rev-parse", "HEAD"]);
+    let r = run(&consumer, &["tonpa", "update"]);
+    assert_ne!(r.code, 0, "{}", r.stdout);
+    assert!(r.stderr.contains("recompute the export"), "{}", r.stderr);
+    let toml = std::fs::read_to_string(consumer.join(".yidam/tonpa.toml")).unwrap();
+    assert!(
+        toml.contains(&format!("rev = \"{head}\"")),
+        "plain moved: {toml}"
+    );
+    assert!(
+        toml.contains(&format!("rev = \"{first}\"")),
+        "producer stayed: {toml}"
+    );
+    let r = run(&consumer, &["tonpa", "verify"]);
+    assert_eq!(r.code, 0, "the lock matches the disk: {}", r.stdout);
+}
+
 /// `--root <path> --at <locked rev>`, by name: the producer's later commit is not read.
 #[test]
 fn query_dependency_reads_the_pin_at_its_locked_commit() {
@@ -867,7 +904,15 @@ fn derive_records_read_an_export_against_the_corpus_at_the_pin() {
     assert_eq!(run(&consumer, &["derive", "check"]).code, 0);
 
     std::fs::remove_dir_all(consumer.join(".yidam/tonpa/producer/export")).unwrap();
+    // Reported, not propagated: the refusal is a finding on stdout, in either format.
     let r = run(&consumer, &["derive", "check"]);
     assert_ne!(r.code, 0);
-    assert!(r.stderr.contains("tonpa install"), "stderr: {}", r.stderr);
+    assert!(r.stdout.contains("tonpa install"), "stdout: {}", r.stdout);
+    let r = run(&consumer, &["derive", "check", "--format", "json"]);
+    assert_ne!(r.code, 0);
+    let doc: serde_json::Value = serde_json::from_str(&r.stdout).unwrap();
+    assert_eq!(
+        doc["derivations"][0]["findings"][0]["check"],
+        "derive-record-unmatched"
+    );
 }

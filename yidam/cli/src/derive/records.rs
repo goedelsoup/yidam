@@ -19,7 +19,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use serde_json::Value;
 
 use super::{
@@ -32,75 +32,117 @@ use crate::cmd::lint::local_citations::key_of;
 use crate::cmd::lint::Severity;
 use crate::config::DeriveRecords;
 
-/// How many records the mappings matched, and their derivations: one per record, and one per
-/// pointer that matched nothing in a file.
+/// How many records the mappings matched, and their derivations: one per record, one per
+/// pointer that matched nothing in a file, and one per mapping that could not be read at all.
 ///
-/// Refuses a mapping that declares both `export` and `paths` or neither, a relative pointer it
-/// cannot read, and an export whose dependency is not installed at its declared `rev`.
-pub(crate) fn check_records(
-    root: &Path,
-    mappings: &[DeriveRecords],
-) -> Result<(usize, Vec<Derivation>)> {
+/// A mapping is refused, as a `derive-record-unmatched` finding against `.yidam/config.toml`,
+/// when it declares both `export` and `paths` or neither, no `records`, a pointer it cannot
+/// read, globs that match no JSON file, or an export whose dependency is not installed at its
+/// declared `rev`. Emitted rather than propagated, so a `--format json` consumer still reads a
+/// report that names why.
+pub(crate) fn check_records(root: &Path, mappings: &[DeriveRecords]) -> (usize, Vec<Derivation>) {
     let mut out = Vec::new();
     let mut matched = 0;
     for (i, mapping) in mappings.iter().enumerate() {
         let n = i + 1;
-        let parts = Parts::of(mapping).with_context(|| format!("[[derive.records]] #{n}"))?;
-        let (files, corpus) = match (&mapping.export, &mapping.paths) {
-            (Some(name), None) => {
-                let (file, corpus) = installed_export(root, name)
-                    .with_context(|| format!("[[derive.records]] #{n}"))?;
-                (vec![file], corpus)
+        if let Err(e) = check_mapping(root, mapping, &mut matched, &mut out) {
+            out.push(unmatched(
+                CONFIG,
+                None,
+                format!("[[derive.records]] #{n}: {e:#}"),
+            ));
+        }
+    }
+    (matched, out)
+}
+
+/// Where a mapping that cannot be read is reported: the file that declares it.
+const CONFIG: &str = ".yidam/config.toml";
+
+/// One mapping's records, pushed onto `out`. An `Err` is the mapping's own refusal; anything a
+/// file or record does wrong is a finding in `out` instead.
+fn check_mapping(
+    root: &Path,
+    mapping: &DeriveRecords,
+    matched: &mut usize,
+    out: &mut Vec<Derivation>,
+) -> Result<()> {
+    let parts = Parts::of(mapping)?;
+    if mapping.records.is_empty() {
+        bail!("declares no `records` pointers, so it reads nothing");
+    }
+    for pointer in &mapping.records {
+        if !pointer.is_empty() && !pointer.starts_with('/') {
+            bail!("`{pointer}` is not a JSON pointer: it does not open with `/`");
+        }
+    }
+    let (files, corpus) = match (&mapping.export, &mapping.paths) {
+        (Some(name), None) => {
+            let (file, corpus) = installed_export(root, name)?;
+            (vec![file], corpus)
+        }
+        (None, Some(globs)) => {
+            let files = super::files_under(root, globs, &[".json"]);
+            if files.is_empty() {
+                bail!(
+                    "`paths` {} match no .json file, so no record is read",
+                    globs.join(", ")
+                );
             }
-            (None, Some(globs)) => (
-                super::files_under(root, globs, &[".json"]),
-                root.join(".yidam/corpus"),
-            ),
-            _ => bail!(
-                "[[derive.records]] #{n} declares {} — give `export` for a dependency's export, \
-                 or `paths` for this repository's own JSON files",
-                if mapping.export.is_some() {
-                    "both `export` and `paths`"
-                } else {
-                    "neither `export` nor `paths`"
-                }
-            ),
+            (files, root.join(".yidam/corpus"))
+        }
+        _ => bail!(
+            "declares {} — give `export` for a dependency's export, or `paths` for this \
+             repository's own JSON files",
+            if mapping.export.is_some() {
+                "both `export` and `paths`"
+            } else {
+                "neither `export` nor `paths`"
+            }
+        ),
+    };
+    for rel in files {
+        let text = match std::fs::read_to_string(root.join(&rel)) {
+            Ok(t) => t,
+            Err(e) => {
+                out.push(unmatched(
+                    &rel,
+                    None,
+                    format!("cannot be read ({e}), so no record in it can be"),
+                ));
+                continue;
+            }
         };
-        for rel in files {
-            let text = std::fs::read_to_string(root.join(&rel))
-                .with_context(|| format!("reading {rel}"))?;
-            let json: Value = match serde_json::from_str(&text) {
-                Ok(v) => v,
-                Err(e) => {
-                    out.push(unmatched(
-                        &rel,
-                        None,
-                        format!("is not JSON ({e}), so no record in it can be read"),
-                    ));
-                    continue;
-                }
-            };
-            for pointer in &mapping.records {
-                let matches = matching(&json, pointer)
-                    .with_context(|| format!("[[derive.records]] #{n}: pointer {pointer}"))?;
-                if matches.is_empty() {
-                    out.push(unmatched(
-                        &rel,
-                        Some(pointer),
-                        format!(
-                            "pointer {pointer} matches nothing in this file — a key the \
-                             producer renamed or dropped; re-pin and update the pointer together"
-                        ),
-                    ));
-                }
-                matched += matches.len();
-                for m in matches {
-                    out.push(check_record(&rel, &corpus, &m, &parts));
-                }
+        let json: Value = match serde_json::from_str(&text) {
+            Ok(v) => v,
+            Err(e) => {
+                out.push(unmatched(
+                    &rel,
+                    None,
+                    format!("is not JSON ({e}), so no record in it can be read"),
+                ));
+                continue;
+            }
+        };
+        for pointer in &mapping.records {
+            let matches = matching(&json, pointer)?;
+            if matches.is_empty() {
+                out.push(unmatched(
+                    &rel,
+                    Some(pointer),
+                    format!(
+                        "pointer {pointer} matches nothing in this file — a key the \
+                         producer renamed or dropped; re-pin and update the pointer together"
+                    ),
+                ));
+            }
+            *matched += matches.len();
+            for m in matches {
+                out.push(check_record(&rel, &corpus, &m, &parts));
             }
         }
     }
-    Ok((matched, out))
+    Ok(())
 }
 
 /// The export file `export = "<name>"` reads, relative to `root`, and the corpus it cites —
@@ -113,7 +155,7 @@ fn installed_export(root: &Path, name: &str) -> Result<(String, PathBuf)> {
     let (Some((_, rev)), Some(export)) = (dep.pinned_path(), dep.export.as_deref()) else {
         bail!(
             "'{name}' declares no export at a pin\n  `export = \"{name}\"` reads a pinned path \
-             dependency's export; add one with `yidam tonpa add <path> --rev <commit> --export \
+             dependency's export; add one with `yidam tonpa add <path>@<commit> --export \
              <file>`"
         );
     };

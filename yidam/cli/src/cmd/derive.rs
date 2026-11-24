@@ -55,7 +55,7 @@ fn check(root: Option<&std::path::Path>, format: Format) -> Result<()> {
         let corpus = crate::corpus::Corpus::open(&root);
         crate::derive::check(&root, &globs, &corpus)
     };
-    let (records, read) = crate::derive::check_records(&root, &derive.records)?;
+    let (records, read) = crate::derive::check_records(&root, &derive.records);
     derivations.extend(read);
     let passed = derivations.iter().all(|d| d.errors() == 0);
     let report = Payload {

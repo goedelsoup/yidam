@@ -16,7 +16,7 @@ It reads exactly as `--root <path> --at <rev>` does, both taken from tonpa.
 
 Each record's node must resolve, and its span must be in the node's file.
 Its governing quote must sit in one paragraph that carries a standing tag.
-A pointer matching nothing is `derive-record-unmatched`, an error.
+A pointer, or a mapping, matching nothing is `derive-record-unmatched`, an error.
 See [Configuration](configuration.md#derive-records) for the mapping's keys.
 
 **`[derive]` now refuses unknown keys.**

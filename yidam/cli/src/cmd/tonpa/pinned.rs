@@ -197,8 +197,17 @@ fn corpus_tree(sibling: &Path, commit: &str) -> Option<String> {
 
 /// Refuse when the corpus at `at` is not the corpus at `written`, the commit that last wrote
 /// the export. Git trees only, so it holds for any export shape (RFC-0063 §1).
+///
+/// A commit with no corpus is refused too: two absent trees are equal, and an export computed
+/// from no corpus has nothing at the pin to be checked against.
 pub fn same_corpus(sibling: &Path, written: &str, at: &str, export: &str) -> Result<()> {
-    if corpus_tree(sibling, written) != corpus_tree(sibling, at) {
+    let Some(here) = corpus_tree(sibling, at) else {
+        bail!(
+            "{} has no {CORPUS} at {at}\n  an export is checked against the corpus at its pin",
+            sibling.display()
+        );
+    };
+    if corpus_tree(sibling, written).as_deref() != Some(here.as_str()) {
         bail!(
             "the corpus moved after {export} was last written\n  written at: {written}\n  \
              corpus at:  {at}\n  recompute the export in {} and commit it",
@@ -595,6 +604,18 @@ mod tests {
             same_corpus(&s, &compute, &first, PACK).is_ok(),
             "compute touched no corpus"
         );
+    }
+
+    /// Two commits with no corpus have equal (absent) trees, and that is not freshness.
+    #[test]
+    fn a_pin_with_no_corpus_is_refused() {
+        let (_tmp, s, _, compute, _) = with_export();
+        git(&s, &["rm", "-rq", CORPUS]);
+        git(&s, &["commit", "-q", "--no-gpg-sign", "-m", "drop corpus"]);
+        let bare = git_out(&s, &["rev-parse", "HEAD"]).trim().to_string();
+        let err = same_corpus(&s, &bare, &bare, PACK).unwrap_err().to_string();
+        assert!(err.contains("has no"), "{err}");
+        assert!(same_corpus(&s, &compute, &compute, PACK).is_ok());
     }
 
     #[test]

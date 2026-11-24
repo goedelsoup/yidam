@@ -1,7 +1,9 @@
 use anyhow::{bail, Result};
 use std::path::Path;
 
-use super::config::{load_config, load_lock, resolve_url, save_lock};
+use super::config::{
+    load_config, load_lock, resolve_url, save_lock, Dependency, LockFile, LockedPackage,
+};
 use super::install::{install_package, verify_installed};
 
 // ── list ──────────────────────────────────────────────────────────────────────
@@ -164,6 +166,16 @@ pub fn cmd_verify(tonpa_dir: &Path, config_path: &Path, lock_path: &Path) -> Res
     // would pass it, because there is no export hash to compare.
     for (name, dep) in &config.dependencies {
         let Some(export) = &dep.export else { continue };
+        // On any other form the lock is not the problem, and naming it would send the reader
+        // to `install`, which refuses for the reason given here.
+        if dep.pinned_path().is_none() {
+            println!(
+                "  FAIL  {name} — {}",
+                super::config::export_refusal(dep, export)
+            );
+            failed = true;
+            continue;
+        }
         let locked = lock.packages.iter().find(|p| &p.name == name);
         if locked.is_some_and(|p| p.export.as_ref() == Some(export) && p.export_sha256.is_some()) {
             continue;
@@ -368,6 +380,10 @@ pub async fn cmd_update(
 
     let mut changed = false;
     let mut config_changed = false;
+    // Refusals on a pinned path are collected rather than `?`-ed, as `install` collects them:
+    // one dependency whose export is stale must not leave the pins already moved on disk
+    // without the lock and declaration that record them.
+    let mut failed: Vec<String> = Vec::new();
     for n in &targets {
         let dep = config.dependencies[n].clone();
 
@@ -375,46 +391,31 @@ pub async fn cmd_update(
         // declaration and in the lock, in one step. This is the refresh a consumer of local
         // siblings used to do by hand across every copied file.
         if let (Some(export), None) = (&dep.export, dep.pinned_path()) {
-            bail!("'{n}': {}", super::config::export_refusal(&dep, export));
+            eprintln!(
+                "  FAIL {n}: {}",
+                super::config::export_refusal(&dep, export)
+            );
+            failed.push(n.clone());
+            continue;
         }
         if let Some((rel, rev)) = dep.pinned_path() {
-            let sibling = repo_root().join(rel);
-            let mut head = super::pinned::resolve(&sibling, "HEAD")?;
-            // With an export, "latest" is the commit that last wrote it: the corpus's own
-            // `compute:` commit, and never a corpus newer than the export (RFC-0063 §1).
-            if let Some(export) = &dep.export {
-                let written = super::pinned::last_write(&sibling, &head, export)?;
-                super::pinned::same_corpus(&sibling, &written, &head, export)?;
-                head = written;
+            match update_pinned(n, &dep, rel, rev, tonpa_dir, &lock) {
+                Ok(None) => println!("  {n} is already at {}", short(rev)),
+                Ok(Some((locked, head))) => {
+                    println!("  {n}: {} → {}", short(rev), short(&head));
+                    lock.packages.retain(|p| &p.name != n);
+                    lock.packages.push(locked);
+                    if let Some(d) = config.dependencies.get_mut(n) {
+                        d.rev = Some(head);
+                    }
+                    changed = true;
+                    config_changed = true;
+                }
+                Err(e) => {
+                    eprintln!("  FAIL {n}: {e:#}");
+                    failed.push(n.clone());
+                }
             }
-            println!("Updating {n} …");
-            if head == rev
-                && lock
-                    .packages
-                    .iter()
-                    .find(|p| &p.name == n)
-                    .is_some_and(|p| p.rev.as_deref() == Some(rev) && p.export == dep.export)
-            {
-                println!("  {n} is already at {}", short(rev));
-                continue;
-            }
-            let locked = super::pinned::materialize(
-                n,
-                rel,
-                &sibling,
-                &head,
-                dep.export.as_deref(),
-                tonpa_dir,
-                None,
-            )?;
-            println!("  {n}: {} → {}", short(rev), short(&head));
-            lock.packages.retain(|p| &p.name != n);
-            lock.packages.push(locked);
-            if let Some(d) = config.dependencies.get_mut(n) {
-                d.rev = Some(head);
-            }
-            changed = true;
-            config_changed = true;
             continue;
         }
 
@@ -467,5 +468,49 @@ pub async fn cmd_update(
             ))
         );
     }
+    if !failed.is_empty() {
+        bail!("could not update: {}", failed.join(", "));
+    }
     Ok(())
+}
+
+/// One pinned path moved to its latest commit: `None` when it is already there, else the new
+/// lock entry and the commit it pins. Nothing is written before every refusal has run.
+fn update_pinned(
+    n: &str,
+    dep: &Dependency,
+    rel: &str,
+    rev: &str,
+    tonpa_dir: &Path,
+    lock: &LockFile,
+) -> Result<Option<(LockedPackage, String)>> {
+    let sibling = repo_root().join(rel);
+    let mut head = super::pinned::resolve(&sibling, "HEAD")?;
+    // With an export, "latest" is the commit that last wrote it: the corpus's own
+    // `compute:` commit, and never a corpus newer than the export (RFC-0063 §1).
+    if let Some(export) = &dep.export {
+        let written = super::pinned::last_write(&sibling, &head, export)?;
+        super::pinned::same_corpus(&sibling, &written, &head, export)?;
+        head = written;
+    }
+    println!("Updating {n} …");
+    if head == rev
+        && lock
+            .packages
+            .iter()
+            .find(|p| p.name == n)
+            .is_some_and(|p| p.rev.as_deref() == Some(rev) && p.export == dep.export)
+    {
+        return Ok(None);
+    }
+    let locked = super::pinned::materialize(
+        n,
+        rel,
+        &sibling,
+        &head,
+        dep.export.as_deref(),
+        tonpa_dir,
+        None,
+    )?;
+    Ok(Some((locked, head)))
 }

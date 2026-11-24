@@ -119,7 +119,7 @@ never proposed.
 [`[[derive.records]]`](configuration.md#derive-records) names JSON files and the pointers to
 the records in them. Each record's node must resolve, and its span must be in the node's file.
 Its governing quote must sit in one blank-line paragraph of that file, which carries a standing
-tag. That standing is the record's tier. A pointer matching nothing, or a record whose node or span is
+tag. That standing is the record's tier. A pointer or mapping matching nothing, or a record whose node or span is
 not a string, is `derive-record-unmatched`. A record has no reach and owes no answers. The JSON
 report counts the records matched in `records`.
 

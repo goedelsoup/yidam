@@ -251,8 +251,40 @@ fn a_mapping_naming_both_sources_is_refused() {
         "paths = [\"packs/**\"]",
         "paths = [\"packs/**\"]\nexport = \"x\"",
     );
-    let r = run(stage_records(&both, PACK).path(), "text");
+    let tmp = stage_records(&both, PACK);
+    let r = run(tmp.path(), "text");
     assert_ne!(r.code, 0, "{}", r.stdout);
+    // A refused mapping is a finding in the report, not an empty stdout.
+    let r = run(tmp.path(), "json");
+    assert_ne!(r.code, 0, "{}", r.stdout);
+    let report: serde_json::Value = serde_json::from_str(&r.stdout).expect("a JSON report");
+    let refused = report["derivations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["path"] == ".yidam/config.toml")
+        .expect("the mapping's refusal is reported against the config");
+    assert_eq!(refused["findings"][0]["check"], "derive-record-unmatched");
+}
+
+/// Globs that name no JSON file read nothing, and that is a failure, not a pass.
+#[test]
+fn a_mapping_whose_paths_match_no_file_fails() {
+    let moved = RECORDS.replace("packs/**", "out/packs/**");
+    let tmp = stage_records(&moved, PACK);
+    let r = run(tmp.path(), "text");
+    assert_ne!(r.code, 0, "{}", r.stdout);
+    assert!(r.stdout.contains("match no .json file"), "{}", r.stdout);
+    assert_eq!(json(tmp.path())["records"], 0);
+}
+
+/// A mapping with no pointers reads nothing either.
+#[test]
+fn a_mapping_with_no_records_fails() {
+    let empty = RECORDS.replace("records = [\"/r/*\"]", "records = []");
+    let r = run(stage_records(&empty, PACK).path(), "text");
+    assert_ne!(r.code, 0, "{}", r.stdout);
+    assert!(r.stdout.contains("no `records` pointers"), "{}", r.stdout);
 }
 
 fn fixture_dir() -> PathBuf {
