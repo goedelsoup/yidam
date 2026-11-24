@@ -736,7 +736,7 @@ export function healthTree(input: HealthInput): TreeNode[] {
     label: 'Semantic index',
     description: describeIndex(index),
     tooltip: index.meta_present
-      ? `built ${index.built} · ${index.model} (${index.embedding_dim} dims) · ${index.node_count} nodes${index.row_count != null && index.row_count !== index.node_count ? ` in ${index.row_count} passages` : ''}`
+      ? `built ${index.built} · ${index.model} (${index.embedding_dim} dims) · ${index.node_count} nodes${typeof index.row_count === 'number' && index.row_count !== index.node_count ? ` in ${index.row_count} passages` : ''}`
       : 'No index metadata.',
     icon: !index.index_present ? 'circle-slash' : index.stale_nodes > 0 ? 'warning' : 'pass',
     command: { id: 'yidam.buildIndex' },
