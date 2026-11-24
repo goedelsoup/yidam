@@ -18,6 +18,17 @@
     the network (§3), and `due`'s "read-only, offline" contract becomes "read-only, and
     offline but for one `ls-remote`".
   - **Reports.** `due --format json` carries the new clock. The report schema gains its id.
+    `State::Unmeasurable`'s doc widens to cover an origin that could not be read (§3).
+  - **Gates.** Three hold the exact-match lookup §2 removes, and each changes with it:
+    - `tests/gates/template_pin.rs` asserts every `--exact-match` lookup carries `--match`,
+      and that it found at least two. With none left, that floor fails. The scan re-keys
+      on `describe`: every `git describe` that fills `template` carries the template glob.
+      The fixture test drops `--exact-match` and still asserts `v0.1.0` at a commit every
+      layer tagged.
+    - `provenance.rs`'s `a_tag_on_an_ancestor_does_not_count_as_this_release` asserts
+      `untagged` one commit past `v0.1.0`. It inverts to assert `v0.1.0+1`.
+    - `release.sh`'s comment that names the template's `git describe --exact-match` is
+      rewritten to name the nearest-tag lookup.
   - **Prelude.** The bootstrap skill's provenance step gains a stale-template warning (§4).
   - **The bump.** It is minor for the CLI and for the template. No authored file moves and no
     migration is owed. An upgrade note is owed when this is implemented: the field is new,
@@ -112,8 +123,13 @@ release   = "cli/v0.23.0"
 cli       = "0.23.0 (f5a359c)"
 ```
 
-`release` is the nearest `cli/v*` tag at or before `commit`, asked with
-`git describe --tags --match 'cli/v*'`. A pin exactly at a release records the tag bare.
+`release` is the nearest release tag at or before `commit`, asked with
+`git describe --tags --match 'cli/v[0-9]*' --exclude 'cli/v*-*'`. A release tag is one
+`newest_release` would count: `cli/vX.Y.Z` and nothing more. The `--exclude` keeps a
+pre-release such as `cli/v0.27.0-rc.1` out, since the clock could not place it in the
+version order. Whatever `describe` answers is then checked against that shape. A tag that
+fails it is not written, and the field reads `unreleased`. A pin exactly at a release
+records the tag bare.
 A pin past one, taken with `YIDAM_REF=HEAD`, records `cli/v0.23.0+5`. That is five commits
 past the release, which `yidam-build` compiles rather than downloads. A tree with no
 `cli/v*` tag in its history records `unreleased`.
@@ -165,18 +181,38 @@ fortnight with no release costs nothing, and a single release can carry a vocabu
 
 | Case | State | Detail |
 |---|---|---|
-| No `.yidam.toml` (the template itself, a projection, a hand copy) | `Undeclared` | not a derived repository, so it has no pin to age |
-| `release` absent (a pin written before this change) | measured from `commit` | the tag whose peeled commit equals `commit`, if one does |
-| Neither `release` nor `commit` resolves to a release | `Unmeasurable` | re-vendor to record `release` |
-| Origin unreachable, or `ls-remote` fails | `Unmeasurable` | names the origin, and that it could not be read |
+| No `.yidam.toml` (a projection, a hand copy) | no row | not a derived repository, so it has no pin to age |
+| `release` absent (a pin written before this change) | measured from `commit` | the release tag whose peeled commit equals `commit`, if one does |
+| No interval, and neither `release` nor `commit` names a release | `Undeclared` | `pin is not a release; re-vendor to record release` |
+| Interval declared, and neither names a release | `Unmeasurable` | the same |
+| No interval, and the origin could not be read | `Undeclared` | names the origin, and that it could not be read |
+| Interval declared, and the origin could not be read | `Unmeasurable` | the same |
 | No interval, origin read | `Undeclared` | `3 release(s) past cli/v0.23.0; newest cli/v0.26.0` |
 | Interval declared, behind `>= template_after` | `Due` | the same, with the interval |
 | Interval declared, fewer behind | `Ok` | the same |
 
-The remedy is a command: `mise run yidam-vendor-update`. Under #1442's distinction it is
-the one clock beside `index` whose discharge is mechanical. Adopting the release is a
-judgement, and the update task already refuses when that judgement matters: a rollback, or
-a source pack whose range the new commit cannot satisfy.
+**No `.yidam.toml` emits no row.** `Undeclared` says no interval is declared. A projection
+that declares `template_after` would read as one that had not, which is the opposite fact.
+So the clock is left out, as a clock with no subject. The template itself never gets this
+far, since `due` refuses a tree with no `.yidam/`. A `[due.declined] template` in such a
+repository names no clock. The existing note on unknown declines reports it, which is right:
+there is nothing to decline.
+
+**Each failure to measure follows the interval**, as every other clock does. With none
+declared the row is `Undeclared`, and its detail says what could not be read. With one
+declared it is `Unmeasurable`. That state's doc today reads "nothing to measure against",
+a gap in the corpus's own bookkeeping. An unreachable origin is a gap in the environment
+instead. The doc widens to say so, and the detail names which.
+
+**The remedy is a person act**, under #1442's distinction. Two clocks are tool acts today.
+`index` runs `yidam index-build`, and `catalog` runs `yidam propose`. This would be a third
+only if adopting a release were mechanical, and it is not. A release can change the closed
+commit vocabulary, a source pack's range, or a check's severity. Whether to take it now is a
+judgement. The prose names `mise run yidam-vendor-update` as where to act. That also keeps the
+tool-act contract whole: every tool act this binary emits starts `yidam`, and
+`cycle_acts.rs` runs each one as the binary under test. A `mise` argv would fail that gate.
+The update task still refuses where the judgement is plainly wrong: a rollback, or a source
+pack whose range the new commit cannot satisfy.
 
 **The network, bounded.** This is the clock that breaks `due`'s offline contract, so the
 breach is narrow:
@@ -185,8 +221,9 @@ breach is narrow:
   It is a clone, and a schedule should not pay for one;
 - run with `GIT_TERMINAL_PROMPT=0` and `ssh -o BatchMode=yes`, so CI without credentials
   fails fast instead of prompting;
-- a failure is `Unmeasurable`, never an error. `due` still exits zero unless `--strict`.
-  Under `--strict` an `Unmeasurable` clock gates the same way it does today.
+- a failure is `Undeclared` or `Unmeasurable`, never an error. `due` still exits zero
+  unless `--strict`. `--strict` fails only on `Due`, as it does today. An unreachable origin
+  never turns a strict run red.
 
 The module comment's "no network, and none is possible from here" becomes true of seven
 clocks, and says which one is the exception and why.
@@ -250,7 +287,13 @@ that does not make the corpus wrong, teaches the override.
 
 None is owed. Every existing `.yidam.toml` stays valid:
 
-- an absent `release` is measured from `commit` (§3), and the next re-vendor writes it;
+- an absent `release` is measured from `commit` (§3), and the next re-vendor writes it.
+  That works only for a pin exactly at a release. A pin taken before #1308 sat at the
+  origin's HEAD, which is rarely tagged, and §0.1 found two of six reading `untagged`. Those
+  pins read as not a release until they re-vendor: `Undeclared` with no interval, and
+  `Unmeasurable` with one. Measuring them from the nearest older release needs the pin's
+  history, which is a clone, and §3 rules a clone out of a schedule. The detail says to
+  re-vendor, and that one re-vendor is the whole migration;
 - an existing `template = "untagged"` is read verbatim until the next re-vendor rewrites it;
 - `[due] template_after` is absent, so the clock reports and calls nothing due.
 
@@ -261,8 +304,9 @@ that names the installed version. And `template` reads `<tag>+<n>` after the nex
 
 This is wrong if any of these is observed after it ships:
 
-- a derived repository three or more releases behind, with `template_after` declared, whose
-  `due` does not report the clock due;
+- a derived repository three or more releases behind, with `template_after` declared and a
+  pin that names a release, whose `due` does not report the clock due. A pin from before
+  this change that names none reads `Unmeasurable` (Migration), and that is not this case;
 - `due` in a CI job with no network or credentials that hangs, prompts or exits nonzero
   without `--strict`;
 - a re-vendor to `cli/vX.Y.Z` whose `.yidam.toml` does not record `release = "cli/vX.Y.Z"`;
@@ -274,6 +318,7 @@ This is wrong if any of these is observed after it ships:
 - **Should `doctor` print `release`?** Its provenance line prints `template`. Adding
   `release` is one more word on a line people read, and this RFC leaves it to the
   implementation.
-- **A forked origin.** A fork that cuts no `cli/v*` tags reads `Unmeasurable` on every run.
+- **A forked origin.** A fork that cuts no `cli/v*` tags cannot be measured on any run. It
+  reads `Undeclared` with no interval, and `Unmeasurable` with one.
   Declining the clock is the answer this RFC gives. A fork that cuts its own tags on another
   numbering would be measured against its own, which is right.
