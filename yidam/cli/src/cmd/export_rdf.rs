@@ -95,7 +95,10 @@ struct RdfView {
     dataset_iri: String,
     domain: String,
     commit: String,
-    genesis: String,
+    /// `None` for a projection, whose genesis is the host repository's (RFC-0064 §2.2): the
+    /// bundle and `status` say `null` there, and a `genesisDate` of `"unknown"` is a malformed
+    /// date to anyone reading the graph.
+    genesis: Option<String>,
     generated_at_iso: String,
     /// class name → its declared foundational alignment, when it has one.
     classes: BTreeMap<String, Option<Alignment>>,
@@ -312,7 +315,11 @@ fn build_view(model: &DomainModel) -> Result<RdfView> {
         dataset_iri: format!("urn:yidam:{corpus}"),
         domain: model.provenance.domain.clone(),
         commit: model.provenance.commit.clone(),
-        genesis: model.provenance.genesis.clone(),
+        genesis: model
+            .provenance
+            .generated_by
+            .is_none()
+            .then(|| model.provenance.genesis.clone()),
         generated_at_iso: unix_to_iso(model.provenance.generated_at),
         classes,
         instances,
@@ -350,11 +357,13 @@ fn build_graph(view: &RdfView) -> Result<Graph> {
         &yidam("commit")?,
         Literal::new_simple_literal(&view.commit).into(),
     );
-    insert(
-        &dataset,
-        &yidam("genesisDate")?,
-        Literal::new_simple_literal(&view.genesis).into(),
-    );
+    if let Some(genesis) = &view.genesis {
+        insert(
+            &dataset,
+            &yidam("genesisDate")?,
+            Literal::new_simple_literal(genesis).into(),
+        );
+    }
 
     // Classes
     for (class, align) in &view.classes {
@@ -491,8 +500,10 @@ pub(crate) fn render_rdf_jsonld(model: &DomainModel) -> Result<String> {
         "rdfs:label": view.domain,
         "prov:generatedAtTime": {"@value": view.generated_at_iso, "@type": "xsd:dateTime"},
         "yidam:commit": view.commit,
-        "yidam:genesisDate": view.genesis,
     })];
+    if let Some(genesis) = &view.genesis {
+        graph[0]["yidam:genesisDate"] = json!(genesis);
+    }
 
     for (class, align) in &view.classes {
         let mut obj = json!({

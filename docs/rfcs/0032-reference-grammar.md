@@ -52,12 +52,12 @@ address, and RFC-0005 declares the scheme normative without mentioning dependenc
 
 ### 2 — The RDF export mints subjects in a scheme nothing can dereference
 
-[`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135) types every instance at
-`yidam://corpus/<class>/<name>` and [`dataset_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L312)
+[`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L138) types every instance at
+`yidam://corpus/<class>/<name>` and [`dataset_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L315)
 names the dataset with a bare authority. No RDF consumer can follow either, and two corpora
 holding `concept/foo` mint the same subject. The export already knows the distinction it is
 failing to apply: *"gets it as a literal rather than a parse failure"*
-([`export_rdf.rs:383-388`](../../yidam/cli/src/cmd/export_rdf.rs#L383-L388)) — the export tests a
+([`export_rdf.rs:392-397`](../../yidam/cli/src/cmd/export_rdf.rs#L392-L397)) — the export tests a
 foreign alignment IRI for a scheme it can dereference and demotes it to a literal when it fails.
 It applies that test to other people's IRIs and not to its own.
 
@@ -133,7 +133,7 @@ relative path, which is a *fifth* convention, and unrelated to any of the above.
 | `.yidam/corpus/class/name.yml` | tolerated by [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L393) | — | — |
 | `../other-class/thing.yml` | [`resolve_link_target`](../../yidam/cli/src/model.rs#L533) | — | — |
 | `yidam://corpus/class/name` | [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56) | — | — |
-| the same string as an RDF subject | [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135) | — | — |
+| the same string as an RDF subject | [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L138) | — | — |
 | `file:///…/class/name.yml` | [`path_to_uri`](../../yidam/cli/src/cmd/lsp.rs#L107) | n/a | — |
 | `/node/class/name` | [`nodeHref`](../../yidam/editors/web/src/lib/graph.ts#L195-L196) | — | — |
 | a GraphML `node id` | `export_graphml.rs` | — | — |
@@ -299,7 +299,7 @@ Guessing would either invent a conflict on every bundle built before the field o
 `yidam_core::uri` parses and renders the grammar and becomes the only place an identifier is
 built or split. It retires [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L393)'s three
 tolerated spellings, [`qualified_id`](../../yidam/cli/src/model.rs#L516),
-[`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135),
+[`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L138),
 [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56)'s prefix chain and
 [`nodeHref`](../../yidam/editors/web/src/lib/graph.ts#L195-L196)'s route builder. It lands on the
 parity surface, so Rust, TypeScript and Python must agree — three implementations and one shared
@@ -321,7 +321,7 @@ about:
 
 The third, because the repository already does exactly this one layer out:
 *"gets it as a literal rather than a parse failure"*
-([`export_rdf.rs:383-388`](../../yidam/cli/src/cmd/export_rdf.rs#L383-L388)) — the export tests a foreign alignment IRI for
+([`export_rdf.rs:392-397`](../../yidam/cli/src/cmd/export_rdf.rs#L392-L397)) — the export tests a foreign alignment IRI for
 a scheme it can dereference and demotes it to a literal when it fails. §2's complaint is that it
 applies that test to other people's IRIs and not to its own. Reporting conformance on our own
 identifiers is that same test, turned inward — which makes this amendment continuous with the

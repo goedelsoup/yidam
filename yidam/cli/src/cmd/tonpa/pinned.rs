@@ -352,11 +352,7 @@ fn identity_at(
             .try_run()
     };
     let mode = match blob(".yidam/config.toml") {
-        Some(text) => {
-            toml::from_str::<crate::config::YidamConfig>(&text)
-                .with_context(|| format!("parsing .yidam/config.toml at {sha}"))?
-                .corpus
-        }
+        Some(text) => crate::projection::parse_mode(&text).with_context(|| format!("at {sha}"))?,
         None => crate::projection::CorpusMode::Authored,
     };
     if let Some(by) = mode.generated_by() {

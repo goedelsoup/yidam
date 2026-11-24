@@ -19,7 +19,7 @@ fn src() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")
 }
 
-/// `file:line` for every call of `repo_root()` outside `paths.rs` and outside comments.
+/// `file:line` for every use of `repo_root` outside `paths.rs` and outside comments.
 fn bare_calls() -> Vec<String> {
     let src = src();
     let mut out = Vec::new();
@@ -34,13 +34,49 @@ fn bare_calls() -> Vec<String> {
         }
         let text = std::fs::read_to_string(path).expect("source is readable");
         for (i, line) in text.lines().enumerate() {
-            let code = line.split("//").next().unwrap_or("");
-            if code.contains("repo_root()") {
+            if names_repo_root(code_of(line)) {
                 out.push(format!("src/{}:{}", rel.display(), i + 1));
             }
         }
     }
     out
+}
+
+/// A line up to its `//` comment, if it has one. A `//` inside a string literal is code — a
+/// URL or a path — and cutting there would hide whatever follows it on the line.
+fn code_of(line: &str) -> &str {
+    let bytes = line.as_bytes();
+    let mut in_str = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' if in_str => i += 1,
+            b'"' => in_str = !in_str,
+            // A `'"'` char literal is not the start of a string.
+            b'\''
+                if !in_str
+                    && bytes.get(i + 1) == Some(&b'"')
+                    && bytes.get(i + 2) == Some(&b'\'') =>
+            {
+                i += 2
+            }
+            b'/' if !in_str && bytes.get(i + 1) == Some(&b'/') => return &line[..i],
+            _ => {}
+        }
+        i += 1;
+    }
+    line
+}
+
+/// Whether code names `repo_root` as an identifier: a call, or a function passed by name
+/// (`.or_else(crate::paths::repo_root)`), which reaches the same answer without parentheses.
+fn names_repo_root(code: &str) -> bool {
+    let ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    code.match_indices("repo_root").any(|(at, word)| {
+        let before = code.as_bytes()[..at].last().copied();
+        let after = code.as_bytes().get(at + word.len()).copied();
+        !before.is_some_and(ident) && !after.is_some_and(ident)
+    })
 }
 
 #[test]
@@ -54,6 +90,32 @@ fn no_command_calls_repo_root_without_deciding_which_root_it_means() {
          command that writes a commit calls `paths::working_root()`, which reads neither (#918).",
         found.join("\n  ")
     );
+}
+
+/// The scan's two holes, closed: a `//` in a string does not end the line, and a function
+/// pointer counts as a call.
+#[test]
+fn the_scan_sees_past_a_url_and_through_a_function_pointer() {
+    for (line, found) in [
+        (
+            r#"let u = Url::parse("https://x").map(|_| crate::paths::repo_root());"#,
+            true,
+        ),
+        (
+            "let r = r.or_else(|_| fallback()).or_else(crate::paths::repo_root);",
+            true,
+        ),
+        ("let c = '\"'; let r = repo_root();", true),
+        (
+            "let r = paths::resolve_root(None)?; // not repo_root()",
+            false,
+        ),
+        ("let r = paths::working_root()?;", false),
+        ("let s = \"a \\\" // b\"; let r = repo_root();", true),
+        ("let my_repo_root_dir = here;", false),
+    ] {
+        assert_eq!(names_repo_root(code_of(line)), found, "{line}");
+    }
 }
 
 /// The scan finds a call when there is one, or the test above passes by reading nothing.

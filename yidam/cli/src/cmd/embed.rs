@@ -435,9 +435,14 @@ pub fn embed(root: Option<&std::path::Path>, opts: EmbedOptions) -> Result<()> {
         std::fs::create_dir_all(&embeddings_dir)?;
     }
     // Only a dry run asks: the corpus id shells out to git, and a plain `embed` has never
-    // needed the corpus identity to write a record.
+    // needed the corpus identity to write a record. A preview is not the place to refuse a
+    // missing id — a projection before its producer first writes `corpus.toml` still wants
+    // to see its records — so any answer short of an id is the placeholder, as no genesis is.
     let corpus = if opts.dry_run {
-        crate::projection::corpus_id(&root)?.unwrap_or_else(|| UNKNOWN_CORPUS.to_string())
+        crate::projection::corpus_id(&root)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| UNKNOWN_CORPUS.to_string())
     } else {
         String::new()
     };

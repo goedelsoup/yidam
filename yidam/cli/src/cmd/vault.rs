@@ -1346,7 +1346,8 @@ fn push_derived(
 ) -> Result<()> {
     // A commit is made in the repository this process stands in, never in a named one (#918).
     // A `--root` beside `--commit` is refused rather than ignored; `YIDAM_ROOT` is a shell's
-    // default for reads, so it is passed over here as every committing command passes it over.
+    // default for reads, so it is passed over here as every committing command passes it over,
+    // and refused only when it names a different corpus than the one the commit would go to.
     if commit && at.is_some() {
         bail!(
             "`--commit` writes a commit, and yidam commits only in the repository it is run \
@@ -1355,7 +1356,27 @@ fn push_derived(
         );
     }
     let root = if commit {
-        crate::paths::working_root()?
+        let here = crate::paths::working_root()?;
+        // Passed over, but not without a word: the same push without `--commit` reads
+        // `YIDAM_ROOT`, so a loop that sets it per site would otherwise pack this checkout's
+        // artifacts on every iteration and exit 0 each time.
+        let named = std::env::var_os(crate::paths::ROOT_VAR).filter(|v| !v.is_empty());
+        if named.is_some() {
+            let there = resolve_root(None)?;
+            let same = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+            if same(&there) != same(&here) {
+                bail!(
+                    "`--commit` writes a commit in the repository yidam is run from ({}), and \
+                     `{}` names another ({}).\n  Run `yidam vault push --commit` from that \
+                     repository, or unset `{}`.",
+                    here.display(),
+                    crate::paths::ROOT_VAR,
+                    there.display(),
+                    crate::paths::ROOT_VAR,
+                );
+            }
+        }
+        here
     } else {
         resolve_root(at)?
     };

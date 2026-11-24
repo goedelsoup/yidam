@@ -97,6 +97,22 @@ pub fn mode(root: &Path) -> Result<CorpusMode> {
     Ok(crate::config::load_yidam_config(root)?.corpus)
 }
 
+/// The mode a config file's text declares, read from its `[corpus]` table alone.
+///
+/// For a config read out of a pinned commit: every other table is the shape that commit's
+/// binary accepted, not this one's, so a key since renamed or added elsewhere must not stop a
+/// dependency from being locked. The `[corpus]` table itself is still read strictly.
+pub fn parse_mode(text: &str) -> Result<CorpusMode> {
+    let table: toml::Table = toml::from_str(text).context("parsing .yidam/config.toml")?;
+    match table.get("corpus") {
+        None => Ok(CorpusMode::Authored),
+        Some(corpus) => corpus
+            .clone()
+            .try_into()
+            .context("parsing the [corpus] table of .yidam/config.toml"),
+    }
+}
+
 /// What `.yidam/corpus/corpus.toml` holds. Only `id`, and nothing else is accepted, so a
 /// producer that misspells it is told rather than named after nothing.
 #[derive(Debug, Deserialize)]
@@ -221,6 +237,27 @@ mod tests {
         toml::from_str::<crate::config::YidamConfig>(t)
             .map(|c| c.corpus)
             .map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn a_pinned_config_is_read_for_its_corpus_table_alone() {
+        let text = "[cluster]\nkey_since_removed = 1\n[corpus]\nmode = \"projection\"\n\
+                    generated_by = \"mirror\"\n";
+        assert!(
+            parse(text).is_err(),
+            "today's YidamConfig refuses the stray [cluster] key"
+        );
+        assert_eq!(
+            parse_mode(text).unwrap(),
+            CorpusMode::Projection {
+                generated_by: "mirror".into()
+            }
+        );
+        assert_eq!(
+            parse_mode("[other]\nx = 1\n").unwrap(),
+            CorpusMode::Authored
+        );
+        assert!(parse_mode("[corpus]\nmode = \"projection\"\ntypo = 1\n").is_err());
     }
 
     #[test]

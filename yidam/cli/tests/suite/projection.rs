@@ -101,6 +101,11 @@ fn the_rdf_export_names_the_corpus_by_its_declared_id() {
         "the export must name the corpus by the id its producer declared, not the host's \
          genesis: {ttl:.600}"
     );
+    assert!(
+        !ttl.contains("genesisDate"),
+        "a projection has no genesis date of its own, so the export states none rather than \
+         \"unknown\": {ttl:.600}"
+    );
 
     std::fs::remove_file(example.path().join(".yidam/corpus/corpus.toml")).unwrap();
     let (_, err, code) =
@@ -109,5 +114,36 @@ fn the_rdf_export_names_the_corpus_by_its_declared_id() {
     assert!(
         err.contains(PRODUCER),
         "a missing id is the producer's to write, so the refusal names it: {err}"
+    );
+}
+
+/// `vault push --commit` commits where it runs and `YIDAM_ROOT` is a reader's default, so the
+/// variable naming a different corpus is refused rather than passed over: the same push
+/// without `--commit` would pack the corpus it names (RFC-0064 §7).
+#[test]
+fn a_committing_push_refuses_a_yidam_root_that_names_another_corpus() {
+    let here = projected();
+    let there = common::Example::materialize("streamflow");
+    let env = |p: std::path::PathBuf| vec![("YIDAM_ROOT".to_string(), p.display().to_string())];
+
+    let (out, err, code) = here.run_with_env(
+        &["vault", "push", "--index", "--commit"],
+        &env(there.path()),
+    );
+    assert_ne!(
+        code, 0,
+        "pushed with YIDAM_ROOT naming another corpus:\n{out}{err}"
+    );
+    assert!(
+        err.contains("YIDAM_ROOT") && err.contains("names another"),
+        "the refusal must name the variable: {err}"
+    );
+
+    // Naming the corpus it already stands in is not a disagreement.
+    let (_, err, _) =
+        here.run_with_env(&["vault", "push", "--index", "--commit"], &env(here.path()));
+    assert!(
+        !err.contains("names another"),
+        "refused an agreeing YIDAM_ROOT: {err}"
     );
 }
