@@ -82,6 +82,14 @@ because it is written down — the failure this layer exists to name. The slot s
 criteria a contribution is read against; `yidam score <range>` says what each one computes and
 reports a row each, with no overall number and no verdict.
 
+**There is one profile, and that is a measurement.** An engineering profile was measured for in
+2026-11 (#1507). The share of build verbs ran from 3% to 26% across the corpora with no gap, and
+about 95% of phases were Investigation in every corpus, so no band separated a second practice.
+The divergence that prompted it came from the reading: `yidam kuten check` counted commits that
+touch only `[object] paths`. It now reads the corpus register, as `lint --commits` does, and
+prints the unscoped shares beside the verdict
+([RFC-0062](https://github.com/goedelsoup/yidam/blob/main/docs/rfcs/0062-kuten-reads-the-corpus-register.md)).
+
 ## The kinds of question pressure
 
 `question_pressure` names a kind rather than a band, and the kinds are these two and no others.

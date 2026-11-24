@@ -1,6 +1,6 @@
 # RFC-0062 — `kuten check` reads the corpus register, and no second profile ships
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I45
 - **Relates to:**
   - #1507 (asks for an engineering profile; the measurement here answers no), parent epic

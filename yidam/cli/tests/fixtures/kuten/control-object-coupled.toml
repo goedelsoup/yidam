@@ -1,20 +1,29 @@
-# NOT one of the six. One of the two object-coupled repositories, at 25% off-vocabulary.
+# NOT one of the six. One of the two object-coupled repositories, at 25% off-vocabulary over
+# every authored commit.
 #
 # Of the nine repositories whose vendored prelude closes the list, seven are at exactly 0%.
-# The two that are not are the two with an artifact outside the corpus, and their `feat:` and
-# `test:` commits are reported here as being outside the vocabulary — which they are, until
-# the register split lands and scopes recognition to the corpus register.
-note = "object coupling is an axis crossing both shapes, and it shows up here as divergence"
+# The two that were not are the two with an artifact outside the corpus, and their `feat:` and
+# `test:` commits touch only the artifact. Since RFC-0062 the reading leaves a commit out when
+# its every path lies in `[object] paths`, as `lint --commits` does, so what was divergence
+# here reads as conformance. The 98 object-only off-vocabulary commits are still counted, in
+# their own field, and `kuten check` prints the unscoped 25% beside the verdict.
+note = "object coupling is an axis crossing both shapes, and the register scopes it out of the bands"
 cluster = false
 
 [measurement]
-commits = 400
+# The unscoped reading is the one measured before the split: 400 commits, 80 phase, 100
+# off-vocabulary. The 98 artifact commits are the object-only ones, and every phase commit
+# touched the corpus, so the scoped phase share is 80 of 302.
+commits = 302
 phase_commits = 80
-off_vocabulary_commits = 100
+off_vocabulary_commits = 2
+object_only_commits = 98
+object_only_phase_commits = 0
+object_only_off_vocabulary_commits = 98
 nodes = 320
 median_node_lines = 48.0
 # Object coupling is an axis, not a practice: this repository is still opening questions, and
-# the only thing that diverges is the register its commits are read against.
+# the only thing that diverged was the register its commits were read against.
 open_questions = 100
 
 [vintage]
@@ -23,4 +32,5 @@ vocabulary_is_closed = true
 graph_present = true
 
 [expect]
-off-vocabulary-share = "divergent"
+off-vocabulary-share = "conforming"
+phase-commit-share = "conforming"

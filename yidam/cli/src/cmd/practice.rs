@@ -118,6 +118,9 @@ struct Point {
     commits: usize,
     phase_share: String,
     off_vocabulary_share: String,
+    /// Population commits left out of the shares because each of their paths lies in the
+    /// `[object] paths` that point's own tree declared (RFC-0062). Zero where none is.
+    object_only: usize,
     /// The verdicts, in `kuten check`'s vocabulary — or the reason there are none.
     reading: String,
 }
@@ -226,7 +229,11 @@ fn population_rev(root: &Path) -> Option<&'static str> {
 fn point(root: &Path, sha: &str) -> Result<Point> {
     let subjects = commits::read_subjects(root, Some(sha));
     let population: Vec<&Subject> = subjects.iter().filter(|s| in_population(s)).collect();
-    let m = kuten::commit_measurement(&population);
+    // The registers this point's own tree declared, for the reason the baseline below is
+    // read there too: a declaration made later is not one the history was written under.
+    let registers = show(root, sha, ".yidam/config.toml")
+        .map_or_else(kuten::Registers::corpus_only, |t| historical_registers(&t));
+    let m = kuten::commit_measurement(&population, &registers);
 
     let reading = match show(root, sha, kuten::DECISION_PATH)
         .and_then(|t| kuten::Declaration::parse(&t).ok())
@@ -265,8 +272,32 @@ fn point(root: &Path, sha: &str) -> Result<Point> {
         commits: m.commits,
         phase_share: share(m.phase_commits),
         off_vocabulary_share: share(m.off_vocabulary_commits),
+        object_only: m.object_only_commits,
         reading,
     })
+}
+
+/// The registers one historical `.yidam/config.toml` declared.
+///
+/// **Reads `[object] paths` alone, not the whole [`crate::config::YidamConfig`].** Several of
+/// its sections deny unknown fields, so a config from before such a key was renamed or removed
+/// fails it, and a failed parse read as "no object" would quietly count that point's
+/// object-only commits again — a jump in the shares that looks like a change in practice.
+/// Only text that is not TOML at all, or a `paths` that is not a list of strings, reads as no
+/// object.
+fn historical_registers(text: &str) -> kuten::Registers {
+    let paths = toml::from_str::<toml::Value>(text)
+        .ok()
+        .and_then(|v| {
+            v.get("object")?
+                .get("paths")?
+                .as_array()?
+                .iter()
+                .map(|p| p.as_str().map(str::to_string))
+                .collect::<Option<Vec<_>>>()
+        })
+        .unwrap_or_default();
+    kuten::Registers::of_globs(paths)
 }
 
 /// The findings as one cell, in the verdict vocabulary `kuten check` prints.
@@ -368,6 +399,24 @@ fn render(
          `yidam kuten check` reads today's corpus in full, including the corpus-state \
          metrics no historical point can reconstruct.",
     );
+    // Only where something was left out, so a block in a repository that declares no
+    // object reads byte for byte as it did before the scoping existed.
+    // Every point that left something out is named, not only the newest: a narrowed glob can
+    // leave the last point at zero while earlier rows still count the scoped population.
+    let left_out: Vec<String> = points
+        .iter()
+        .filter(|p| p.object_only > 0)
+        .map(|p| format!("{} at `{}`", p.object_only, p.sha))
+        .collect();
+    if !left_out.is_empty() {
+        let _ = write!(
+            out,
+            " A commit that touches only the `[object] paths` its point's tree declared is \
+             outside the population too, as `lint --commits` leaves it out, so the commits \
+             column counts the scoped population: {}.",
+            left_out.join(", ")
+        );
+    }
     out
 }
 
@@ -527,6 +576,7 @@ mod tests {
             commits: 41,
             phase_share: "17.1%".into(),
             off_vocabulary_share: "0.0%".into(),
+            object_only: 0,
             reading: "phases ok · vocabulary ok".into(),
         }];
         let text = render(Some(&declaration), Some(&profile), &points);
@@ -537,6 +587,43 @@ mod tests {
             text.contains("`regen:` commits are outside it") && text.contains("a merge never does"),
             "the population rule is the fixed point's public face: {text}"
         );
+    }
+
+    /// RFC-0062: every point that left a commit out is named, the newest or not, and a block
+    /// where nothing was left out carries no sentence about it.
+    #[test]
+    fn every_point_that_left_commits_out_is_named() {
+        let point = |sha: &str, object_only: usize| Point {
+            sha: sha.into(),
+            date: "2026-01-02".into(),
+            commits: 41,
+            phase_share: "17.1%".into(),
+            off_vocabulary_share: "0.0%".into(),
+            object_only,
+            reading: "no kuten".into(),
+        };
+        let text = render(None, None, &[point("aaaaaaa", 12), point("bbbbbbb", 0)]);
+        assert!(text.contains("12 at `aaaaaaa`"), "{text}");
+        assert!(!text.contains("at `bbbbbbb`"), "{text}");
+        assert!(
+            text.contains("commits column counts the scoped population"),
+            "{text}"
+        );
+
+        let none = render(None, None, &[point("aaaaaaa", 0)]);
+        assert!(!none.contains("[object] paths"), "{none}");
+    }
+
+    /// A historical config is read for `[object] paths` alone, so a key today's config type
+    /// refuses does not drop the point's scoping.
+    #[test]
+    fn a_historical_config_with_a_retired_key_keeps_its_object_paths() {
+        // `[cluster]` denies unknown fields, so one retired key there fails the whole parse.
+        let text = "[object]\npaths = [\"crates/**\"]\n[cluster]\nretired_key = true\n";
+        assert!(toml::from_str::<crate::config::YidamConfig>(text).is_err());
+        assert_eq!(historical_registers(text).globs(), ["crates/**"]);
+        assert!(!historical_registers("[serve]\nact = true\n").declares_object());
+        assert!(!historical_registers("not toml [[").declares_object());
     }
 
     /// The reading cell speaks `kuten check`'s vocabulary and never invents a fifth tag.

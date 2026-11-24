@@ -245,8 +245,16 @@ impl Registers {
     }
 
     /// Which register one repository-relative path falls in.
+    ///
+    /// **A path under `.yidam/` is corpus, whatever the globs say** (RFC-0062 §2.2). The
+    /// corpus is what the vocabulary governs and what the kuten bands read, so a declaration
+    /// that could claim it — `paths = ["**"]` — would empty both readings at once. The glob
+    /// still claims every other path it covers.
     pub fn register_of(&self, path: &str) -> Register {
         let path = path.trim_start_matches("./");
+        if path == ".yidam" || path.starts_with(".yidam/") {
+            return Register::Corpus;
+        }
         if self.object.iter().any(|g| glob_covers(g, path)) {
             Register::Object
         } else {
@@ -545,36 +553,34 @@ impl Vintage {
 /// defined the `inquiry` cluster can be stated as data and run through [`compare`].
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 pub struct Measurement {
-    /// Commits with an authored subject — git-generated merge subjects are excluded, because
-    /// nobody chose their verb.
+    /// Commits with an authored subject in the corpus register — git-generated merge
+    /// subjects are excluded, because nobody chose their verb, and so is every commit that
+    /// touches only `[object] paths` (RFC-0062).
+    ///
+    /// **Every commit field here counts the scoped population.** The bands read these
+    /// fields, and the bands judge what the vocabulary governs, which is the population
+    /// `lint --commits` reports on. Each unscoped figure is the field plus its `object_only_`
+    /// twin. A repository that declares no object has every twin at 0, so its reading is
+    /// what it was before the scoping existed.
     pub commits: usize,
     /// Commits that settle a phase — counted with [`settles_a_phase`], which reads the base
     /// verb and so counts `phase(x):` alongside `phase:`.
     pub phase_commits: usize,
     /// Commits whose leading verb is outside the closed vocabulary.
     ///
-    /// **Every authored commit, and deliberately not register-scoped** — unlike
-    /// `lint --commits`, which since A3 declines to report a commit touching only the object
-    /// register. The asymmetry is a decision and was measured before it was taken.
+    /// **Register-scoped, as `lint --commits` is.** RFC-0028 §4 (A3) once left this whole,
+    /// on two grounds that RFC-0062 measured again. *Zero commits change register* stopped
+    /// being true when three corpora declared `[object] paths`: 1,432 of city-engine's 5,048
+    /// authored commits are object-only, and they carried its 0.286 to 0.004.
     ///
-    /// *It costs nothing today.* Under [`Registers::corpus_only`] — the state of all six
-    /// repositories that defined this profile, none of which holds a `.yidam/config.toml` at
-    /// all — **zero** commits change register in any of them, or in either object-coupled
-    /// repository. Scoping and not scoping give the same number for every corpus measured.
-    ///
-    /// *It would cost something later.* This number is read against a band. Scoping it would
-    /// make a band-checked quantity settable from `.yidam/config.toml`: a corpus could move
-    /// its own `off_vocabulary_share` toward `0.00–0.00` by widening `[object] paths`,
-    /// without writing a commit. The counterfactual measures the lever — declaring every
-    /// top-level path but `.yidam/` as the object takes matt-huffman from 0.1671 to 0.1291
-    /// and ohio-education-funding from 0.4930 to 0.3248. A conformance reading a corpus can
-    /// dial is not a measurement, and RFC-0024's rule against a gate loosened quietly is the
-    /// same argument one level out.
-    ///
-    /// So `lint --commits` reports what a reader is asked to act on, scoped to the register
-    /// the vocabulary governs; this measures what the repository did, whole. A repository
-    /// declaring `[object] paths` will see the two differ, and that is the intended reading
-    /// rather than a defect.
+    /// *A band-checked quantity settable from config* is still true, and it is bounded
+    /// rather than refused. A commit touching `.yidam/` is always corpus
+    /// ([`Registers::register_of`]), and a commit with no paths stays corpus, so only an
+    /// off-vocabulary commit whose every path lies outside `.yidam/` can be declared away.
+    /// The best case any declaration can reach moves no measured corpus into a band its held
+    /// declaration fails (RFC-0062 §2.3). The declaration is a committed file, and the
+    /// verdict prints the object-only counts beside the scoped share, so the lever is never
+    /// pulled silently.
     pub off_vocabulary_commits: usize,
     /// How many of [`Self::off_vocabulary_commits`] are a **recognised verb wearing a
     /// conventional-commits scope** — `phase(a-flat-grant):` rather than a coinage.
@@ -591,6 +597,24 @@ pub struct Measurement {
     /// of a member measured before anyone counted this.
     #[serde(default)]
     pub suffixed_commits: usize,
+    /// Authored commits left out of every count above because each of their paths lies in
+    /// `[object] paths` (RFC-0062 §2.4). Zero when no object is declared.
+    ///
+    /// `#[serde(default)]`, as [`Self::suffixed_commits`] carries it: a fixture or a
+    /// recorded member row from before the scoping parses with 0, which is what a repository
+    /// with no object declared measures.
+    #[serde(default)]
+    pub object_only_commits: usize,
+    /// The phase commits among [`Self::object_only_commits`].
+    #[serde(default)]
+    pub object_only_phase_commits: usize,
+    /// The off-vocabulary commits among [`Self::object_only_commits`].
+    #[serde(default)]
+    pub object_only_off_vocabulary_commits: usize,
+    /// The suffixed commits among [`Self::object_only_off_vocabulary_commits`], so
+    /// [`Self::suffixed_commits`] stays a subset of the off-vocabulary count on both readings.
+    #[serde(default)]
+    pub object_only_suffixed_commits: usize,
     /// Instance nodes in the corpus.
     pub nodes: usize,
     /// Median instance node length, in lines — **of the whole file**, not of the node's
@@ -613,6 +637,28 @@ pub struct Measurement {
 }
 
 impl Measurement {
+    /// The same history counted whole: every `object_only_` twin folded back into its scoped
+    /// field, and the twins zeroed.
+    ///
+    /// `yidam cohort` reads this one. Its `commit-vocabulary` norm says it counts whole
+    /// rather than register-scoped. Its trajectory indexes every authored commit, so the
+    /// head and the `authored` beside a member stay one number. RFC-0062 scopes the bands,
+    /// which judge a corpus, and not the cohort, which compares repositories as they stand.
+    pub fn whole(self) -> Self {
+        Self {
+            commits: self.commits + self.object_only_commits,
+            phase_commits: self.phase_commits + self.object_only_phase_commits,
+            off_vocabulary_commits: self.off_vocabulary_commits
+                + self.object_only_off_vocabulary_commits,
+            suffixed_commits: self.suffixed_commits + self.object_only_suffixed_commits,
+            object_only_commits: 0,
+            object_only_phase_commits: 0,
+            object_only_off_vocabulary_commits: 0,
+            object_only_suffixed_commits: 0,
+            ..self
+        }
+    }
+
     fn share(part: usize, whole: usize) -> Option<f64> {
         (whole > 0).then(|| part as f64 / whole as f64)
     }
@@ -1165,7 +1211,7 @@ pub fn measure(root: &Path) -> Measurement {
         nodes: lines.len(),
         median_node_lines: median(&lines),
         open_questions,
-        ..commit_measurement(&authored)
+        ..commit_measurement(&authored, &Registers::of_repo(root))
     }
 }
 
@@ -1173,29 +1219,70 @@ pub fn measure(root: &Path) -> Measurement {
 /// population — every authored commit for [`measure`], the authored non-`regen:` ones for
 /// `yidam practice`. The corpus half is zeroed: a history can be re-read at any commit it
 /// contains, and the working tree's corpus state cannot.
-pub(crate) fn commit_measurement(authored: &[&crate::cmd::lint::commits::Subject]) -> Measurement {
+///
+/// `registers` splits that population once more. A commit whose every path lies in the
+/// object register is counted only in the `object_only_` fields, and every other commit —
+/// corpus, both, or no paths at all, which is every merge — in the scoped ones. It is the
+/// split `lint --commits` reports on, so a range gets one reading on every surface that
+/// judges the vocabulary (RFC-0062 §2.1). [`measure`] passes the working tree's
+/// [`Registers::of_repo`]; `yidam practice` passes the registers each point's own tree
+/// declared. Registers that declare no object put every commit in scope.
+pub(crate) fn commit_measurement(
+    authored: &[&crate::cmd::lint::commits::Subject],
+    registers: &Registers,
+) -> Measurement {
+    let (object_only, scoped): (Vec<_>, Vec<_>) = authored
+        .iter()
+        .copied()
+        .partition(|s| registers.touch(&s.paths) == Touch::ObjectOnly);
+    let counts = CommitCounts::of(&scoped);
+    let dropped = CommitCounts::of(&object_only);
     Measurement {
-        commits: authored.len(),
-        phase_commits: authored.iter().filter(|s| settles_a_phase(&s.verb)).count(),
-        off_vocabulary_commits: authored
-            .iter()
-            .filter(|s| !yidam_core::git::is_recognized_verb(&s.verb))
-            .count(),
-        // The same predicate `lint --commits` uses to word its finding, so the gate and the
-        // reading cannot disagree about which off-vocabulary commits are a suffix. Filtered
-        // on `!is_recognized_verb` first so this stays a subset of the count above by
-        // construction rather than by the two filters happening to agree.
-        suffixed_commits: authored
-            .iter()
-            .filter(|s| !yidam_core::git::is_recognized_verb(&s.verb))
-            .filter(|s| {
-                crate::cmd::lint::commits::split_scope(&s.verb)
-                    .is_some_and(|(base, _)| yidam_core::git::is_recognized_verb(base))
-            })
-            .count(),
+        commits: counts.commits,
+        phase_commits: counts.phase,
+        off_vocabulary_commits: counts.off_vocabulary,
+        suffixed_commits: counts.suffixed,
+        object_only_commits: dropped.commits,
+        object_only_phase_commits: dropped.phase,
+        object_only_off_vocabulary_commits: dropped.off_vocabulary,
+        object_only_suffixed_commits: dropped.suffixed,
         nodes: 0,
         median_node_lines: None,
         open_questions: 0,
+    }
+}
+
+/// The four commit counts of one population, so the scoped and object-only halves of
+/// [`commit_measurement`] are counted by one function and cannot drift apart.
+struct CommitCounts {
+    commits: usize,
+    phase: usize,
+    off_vocabulary: usize,
+    suffixed: usize,
+}
+
+impl CommitCounts {
+    fn of(subjects: &[&crate::cmd::lint::commits::Subject]) -> Self {
+        let off: Vec<_> = subjects
+            .iter()
+            .filter(|s| !yidam_core::git::is_recognized_verb(&s.verb))
+            .collect();
+        Self {
+            commits: subjects.len(),
+            phase: subjects.iter().filter(|s| settles_a_phase(&s.verb)).count(),
+            off_vocabulary: off.len(),
+            // The same predicate `lint --commits` uses to word its finding, so the gate and
+            // the reading cannot disagree about which off-vocabulary commits are a suffix.
+            // Taken over `off` so this stays a subset of the count above by construction
+            // rather than by the two filters happening to agree.
+            suffixed: off
+                .iter()
+                .filter(|s| {
+                    crate::cmd::lint::commits::split_scope(&s.verb)
+                        .is_some_and(|(base, _)| yidam_core::git::is_recognized_verb(base))
+                })
+                .count(),
+        }
     }
 }
 
@@ -1308,6 +1395,7 @@ mod tests {
             nodes: 80,
             median_node_lines: Some(48.0),
             open_questions: 6,
+            ..Measurement::default()
         }
     }
 
@@ -1326,6 +1414,7 @@ mod tests {
             nodes: 683,
             median_node_lines: Some(64.0),
             open_questions: 448,
+            ..Measurement::default()
         }
     }
 
@@ -1396,6 +1485,7 @@ mod tests {
                 nodes: 5_000,
                 median_node_lines: Some(48.0),
                 open_questions: 40,
+                ..Measurement::default()
             };
             let f = compare(&profile, &m, &current());
             let finding = finding_for(&f, metric);
@@ -1875,6 +1965,80 @@ mod tests {
         }
         assert!(!r.declares_object());
         assert_eq!(r.touch(&["web/index.html".into()]), Touch::CorpusOnly);
+    }
+
+    /// RFC-0062 §2.2: no declaration moves the corpus out of the corpus register, so
+    /// `paths = ["**"]` cannot empty the reading. The glob keeps every other path.
+    #[test]
+    fn a_glob_over_the_corpus_leaves_the_corpus_in_the_corpus_register() {
+        let r = Registers::of_globs(vec!["**".into()]);
+        assert_eq!(r.register_of(".yidam/corpus/a.md"), Register::Corpus);
+        assert_eq!(r.register_of("./.yidam/config.toml"), Register::Corpus);
+        assert_eq!(r.register_of(".yidam"), Register::Corpus);
+        assert_eq!(r.register_of(".yidamish/x"), Register::Object);
+        assert_eq!(r.register_of("crates/a.rs"), Register::Object);
+        assert_eq!(
+            r.touch(&["crates/a.rs".into(), ".yidam/corpus/a.md".into()]),
+            Touch::Both
+        );
+    }
+
+    /// RFC-0062 §2.1 and §2.4: an object-only commit leaves every scoped count and lands in
+    /// its `object_only_` twin, so scoped plus twin is the unscoped figure; a commit with no
+    /// paths, as every merge arrives, and one touching both registers stay in scope.
+    #[test]
+    fn commit_measurement_reads_the_corpus_register_and_counts_what_it_left_out() {
+        use crate::cmd::lint::commits::Subject;
+        let s = |verb: &str, paths: &[&str]| Subject {
+            hash: "x".into(),
+            verb: verb.into(),
+            text: format!("{verb}: x"),
+            parents: 1,
+            paths: paths.iter().map(|p| p.to_string()).collect(),
+            body: String::new(),
+        };
+        let subjects = [
+            s("phase", &[".yidam/corpus/a.md"]),
+            s("revise", &[".yidam/corpus/b.md"]),
+            s("Bump", &["crates/a.rs"]),
+            s("phase(x)", &["crates/b.rs"]),
+            s("tweak", &[]),
+            s("Wire", &["crates/c.rs", ".yidam/corpus/c.md"]),
+        ];
+        let all: Vec<&Subject> = subjects.iter().collect();
+
+        let whole = commit_measurement(&all, &Registers::corpus_only());
+        assert_eq!(whole.commits, 6);
+        assert_eq!(whole.object_only_commits, 0);
+
+        let m = commit_measurement(&all, &Registers::of_globs(vec!["crates/**".into()]));
+        assert_eq!(
+            (
+                m.commits,
+                m.phase_commits,
+                m.off_vocabulary_commits,
+                m.suffixed_commits
+            ),
+            (4, 1, 2, 0)
+        );
+        assert_eq!(
+            (
+                m.object_only_commits,
+                m.object_only_phase_commits,
+                m.object_only_off_vocabulary_commits,
+                m.object_only_suffixed_commits
+            ),
+            (2, 1, 2, 1)
+        );
+        assert_eq!(m.commits + m.object_only_commits, whole.commits);
+        assert_eq!(
+            m.off_vocabulary_commits + m.object_only_off_vocabulary_commits,
+            whole.off_vocabulary_commits
+        );
+        assert_eq!(
+            m.suffixed_commits + m.object_only_suffixed_commits,
+            whole.suffixed_commits
+        );
     }
 
     #[test]
