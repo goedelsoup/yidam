@@ -236,3 +236,13 @@ fn an_unknown_owner_fails_and_names_the_two_values() {
     );
     assert!(schemas(tmp.path()).is_empty());
 }
+
+/// `--settings` writes nothing, so a config that does not parse does not stop it.
+#[test]
+fn settings_print_over_a_config_that_does_not_parse() {
+    let tmp = bootstrapped();
+    std::fs::write(tmp.path().join(".yidam/config.toml"), "[due\n").unwrap();
+    let (stdout, stderr, code) = run(tmp.path(), &["schema", "--settings"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("yaml.schemas"), "{stdout}");
+}

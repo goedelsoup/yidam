@@ -408,8 +408,8 @@ impl Declines {
         }
     }
 
-    /// Keys naming no offer, in the order the config declared them: a typo, or an attempt
-    /// to decline a defect.
+    /// Keys naming no offer, sorted (the config is read into a sorted map): a typo, or an
+    /// attempt to decline a defect.
     fn unknown(&self) -> Vec<String> {
         self.declined
             .keys()
@@ -2674,6 +2674,10 @@ pub(crate) fn render(report: &DoctorReport, root: &Path) -> String {
         n => format!(" {n} declined, each against a record in .yidam/decisions/."),
     };
     match (report.failed, report.warned) {
+        // Not "everything checks out" when `--strict` is about to fail on the configuration.
+        (0, 0) if report.strict && !report.unknown_declines.is_empty() => {
+            out.push_str("Every check passes, but `[doctor.declined]` does not.");
+        }
         (0, 0) => out.push_str("Everything checks out."),
         (0, w) => {
             let _ = write!(
@@ -4655,6 +4659,10 @@ jobs:
         assert!(
             text.contains("names no offer called `graph-check`"),
             "{text}"
+        );
+        assert!(
+            !text.contains("Everything checks out"),
+            "a failing --strict run does not say all is well: {text}"
         );
         assert!(DoctorReport::judged(checks_with(&[Verdict::Ok]), false, vec!["x".into()]).passed);
     }

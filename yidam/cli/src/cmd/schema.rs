@@ -883,9 +883,8 @@ pub fn editor_settings_for(root: &Path) -> Value {
 }
 
 /// Whether `.yidam/config.toml` declares `[schema] owner = "repository"` (RFC-0066 §4).
-/// A config that does not parse reads as the default here; `yidam schema` itself loads it
-/// strictly and fails on it.
-#[cfg(test)]
+/// A config that does not parse reads as the default here; the writing path of
+/// `yidam schema` loads it strictly and fails on it.
 fn repository_owns(root: &Path) -> bool {
     crate::config::load_yidam_config(root)
         .is_ok_and(|c| c.schema.owner == crate::config::SchemaOwner::Repository)
@@ -1164,12 +1163,10 @@ fn refusal(owned: &[String]) -> String {
 
 pub fn schema(root: Option<&std::path::Path>, print_settings: bool, force: bool) -> Result<()> {
     let root = resolve_root(root)?;
-    // Loaded strictly here, so an `owner` that is neither value fails the run and names both.
-    let owns = crate::config::load_yidam_config(&root)?.schema.owner
-        == crate::config::SchemaOwner::Repository;
 
     if print_settings {
-        let (settings, unknown) = settings_mapping(&root, owns);
+        // Read leniently: printing a mapping must not fail over an unrelated config error.
+        let (settings, unknown) = settings_mapping(&root, repository_owns(&root));
         println!("{}", serde_json::to_string_pretty(&settings)?);
         if !unknown.is_empty() {
             eprintln!(
@@ -1184,15 +1181,19 @@ pub fn schema(root: Option<&std::path::Path>, print_settings: bool, force: bool)
         return Ok(());
     }
 
-    // After the `--settings` branch, not before it. That branch prints a compiled-in editor
-    // configuration and reads nothing from disk, so it is legitimate outside a repository —
-    // gating the whole command would refuse a use that has no corpus to refuse over.
+    // After the `--settings` branch, not before it. That branch prints an editor mapping and
+    // writes nothing, so it is legitimate outside a repository — gating the whole command
+    // would refuse a use that has no corpus to refuse over.
     //
     // The writing branch has to be gated, and of everything that skipped this it was the worst
     // case: run in a directory that is not a corpus it created `.yidam/schemas/*`, which means
     // it *manufactured the `.yidam/` directory* every gate tests for. One wrong-directory run
     // and every check afterwards passes over a corpus that does not exist.
     crate::paths::require_yidam_repo(&root)?;
+
+    // Loaded strictly here, so an `owner` that is neither value fails the run and names both.
+    let owns = crate::config::load_yidam_config(&root)?.schema.owner
+        == crate::config::SchemaOwner::Repository;
 
     // A declared owner is the one fact the marker refusal could not know, so no flag
     // overrides it: to regenerate the generic set, a repository removes the declaration.

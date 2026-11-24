@@ -247,7 +247,11 @@ fn an_expire_record_that_is_not_held_fails_and_names_it() {
     let doc = json(tmp.path(), &["lint"]);
     assert_eq!(
         doc["gate"]["expiry_record"],
-        serde_json::json!({ "state": "not_held", "record": "baseline-expiry" })
+        serde_json::json!({
+            "state": "not_held",
+            "record": "baseline-expiry",
+            "expire_after": 2
+        })
     );
     let stderr = String::from_utf8_lossy(&yidam(tmp.path(), &["lint"]).stderr).to_string();
     assert!(

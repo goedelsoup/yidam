@@ -98,10 +98,13 @@ fn expiry_record(a: &super::baseline::Argument) -> Option<ExpiryRecord> {
             expire_after: Some(*expire_after),
             record_states: *states,
         },
-        A::NotHeld { record } => ExpiryRecord {
+        A::NotHeld {
+            record,
+            expire_after,
+        } => ExpiryRecord {
             state: "not_held",
             record: Some(record.clone()),
-            expire_after: None,
+            expire_after: *expire_after,
             record_states: None,
         },
     })

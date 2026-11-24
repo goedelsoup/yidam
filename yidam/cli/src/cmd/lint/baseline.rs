@@ -215,7 +215,8 @@ pub struct Baseline {
 ///   everything after that prefix;
 /// - neither: every leading comment line is kept, less any line that matches a line of a
 ///   known header, so a bless never deletes a person's words and never carries a lightly
-///   edited old header forward as one.
+///   edited old header forward as one. A blank or bare `#` line between two kept lines is
+///   kept too, one per run, so the argument's paragraphs stay paragraphs.
 fn split_argument(text: &str) -> (String, Vec<String>) {
     let lead_len: usize = text
         .split_inclusive('\n')
@@ -240,13 +241,25 @@ fn split_argument(text: &str) -> (String, Vec<String>) {
         .map(str::trim_end)
         .filter(|l| !l.is_empty() && *l != "#")
         .collect();
-    let kept: Vec<String> = lead
-        .lines()
-        .map(str::trim_end)
-        .filter(|l| !l.trim().is_empty() && *l != "#" && !known.contains(l))
-        .map(str::to_string)
-        .collect();
-    let argument = kept.iter().map(|l| format!("{l}\n")).collect();
+    let separator = |l: &str| l.trim().is_empty() || l == "#";
+    let mut kept: Vec<String> = vec![];
+    let mut argument = String::new();
+    // A separator seen since the last kept line, written only once another line is kept.
+    let mut pending: Option<&str> = None;
+    for l in lead.lines().map(str::trim_end) {
+        if separator(l) {
+            pending = pending.or(Some(l));
+        } else if !known.contains(l) {
+            if let (Some(sep), false) = (pending, kept.is_empty()) {
+                argument.push_str(sep);
+                argument.push('\n');
+            }
+            pending = None;
+            argument.push_str(l);
+            argument.push('\n');
+            kept.push(l.to_string());
+        }
+    }
     (argument, kept)
 }
 
@@ -434,8 +447,11 @@ pub enum Argument {
         states: Option<usize>,
     },
     /// The record is not held. Fails, as any baseline that disagrees with the repository
-    /// does.
-    NotHeld { record: String },
+    /// does. `expire_after` is the baseline's, when it declares one.
+    NotHeld {
+        record: String,
+        expire_after: Option<usize>,
+    },
 }
 
 impl Argument {
@@ -465,7 +481,7 @@ impl Argument {
                  a raise changes the record too",
                 states.map_or_else(|| "no expire_after".to_string(), |n| n.to_string())
             ),
-            Self::NotHeld { record } => {
+            Self::NotHeld { record, .. } => {
                 format!("lint: expire_record names {record}, and no decision record has that id")
             }
         })
@@ -480,8 +496,9 @@ pub fn argument(root: &Path, baseline: &Baseline) -> Argument {
     let decisions = root.join(".yidam").join("decisions");
     let held = |id: &str| crate::cmd::decisions::find_decision(&decisions, id);
     match (baseline.expire_after, baseline.expire_record.as_deref()) {
-        (_, Some(record)) if held(record).is_none() => Argument::NotHeld {
+        (expire_after, Some(record)) if held(record).is_none() => Argument::NotHeld {
             record: record.to_string(),
+            expire_after,
         },
         (None, _) => Argument::Unset,
         (Some(expire_after), None) => Argument::Unargued { expire_after },
@@ -506,8 +523,10 @@ pub fn argument(root: &Path, baseline: &Baseline) -> Argument {
 }
 
 /// The top-level `expire_after` a record states, from a YAML record or the frontmatter of a
-/// Markdown one.
+/// Markdown one. Line endings are normalised first, so a CRLF checkout reads the same.
 fn stated_expiry(text: &str) -> Option<usize> {
+    let text = text.replace("\r\n", "\n");
+    let text = text.as_str();
     let yaml = match text.strip_prefix("---\n") {
         Some(rest) => rest.split("\n---").next().unwrap_or(rest),
         None => text,
@@ -1080,6 +1099,7 @@ mod tests {
         assert_eq!(
             loaded.argument,
             "# Formerly known error-severity lint violations — this corpus's inherited debt.\n\
+             #\n\
              # Ours: the import is being re-run.\n"
         );
         // Written once, the file has the argument line and nothing is unmatched again.
@@ -1087,6 +1107,20 @@ mod tests {
         let reread = Baseline::load(tmp.path()).unwrap();
         assert!(reread.kept_unmatched.is_empty());
         assert_eq!(reread.argument, loaded.argument);
+    }
+
+    /// An unmatched block keeps a person's paragraph breaks, one separator per run, and none
+    /// before the first kept line or after the last.
+    #[test]
+    fn an_unmatched_block_keeps_its_paragraphs() {
+        let (argument, kept) = split_argument(
+            "#\n# First paragraph.\n#\n#\n# Second paragraph.\n\n# Third.\n#\nviolations: {}\n",
+        );
+        assert_eq!(
+            argument,
+            "# First paragraph.\n#\n# Second paragraph.\n\n# Third.\n"
+        );
+        assert_eq!(kept.len(), 3);
     }
 
     /// A bless carries each entry's note by check and node, and drops the note with its entry.
@@ -1167,7 +1201,8 @@ mod tests {
         assert_eq!(
             argument(root, &expiring(Some(80), Some("gone"))),
             Argument::NotHeld {
-                record: "gone".into()
+                record: "gone".into(),
+                expire_after: Some(80)
             }
         );
 
@@ -1199,7 +1234,10 @@ mod tests {
             record: "r".into(),
             expire_after: 80
         }));
-        assert!(!clean(Argument::NotHeld { record: "r".into() }));
+        assert!(!clean(Argument::NotHeld {
+            record: "r".into(),
+            expire_after: None
+        }));
         assert!(!clean(Argument::Disagrees {
             record: "r".into(),
             expire_after: 80,
@@ -1220,5 +1258,10 @@ mod tests {
         );
         assert_eq!(stated_expiry("summary: s\nexpire_after: 40\n"), Some(40));
         assert_eq!(stated_expiry("summary: s\n"), None);
+        assert_eq!(
+            stated_expiry("---\r\nid: x\r\nexpire_after: 80\r\n---\r\n\r\n# Why\r\n"),
+            Some(80),
+            "a CRLF checkout states the same number"
+        );
     }
 }
