@@ -203,6 +203,7 @@ const sidebar = [
       { slug: 'rfcs/0063-tonpa-pins-an-export', label: '0063 · tonpa pins an export' },
       { slug: 'rfcs/0064-a-projected-corpus', label: '0064 · a projected corpus' },
       { slug: 'rfcs/0065-template-age', label: '0065 · template age' },
+      { slug: 'rfcs/0066-upgrade-offers', label: '0066 · upgrade offers' },
     ],
   },
   {
