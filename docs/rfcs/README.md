@@ -92,7 +92,7 @@ re-deriving it.
 | [0059](0059-dataset-tables.md) | I42 | A table is a catalog entry that declares its columns | Implemented |
 | [0060](0060-embed-passages.md) | I43 | A node is embedded as passages, and scored by its best one | Implemented |
 | [0061](0061-unanswerable-open-claims.md) | I44 | An open claim may declare itself unanswerable, and the questions clock stops counting it | Draft |
-| [0062](0062-kuten-reads-the-corpus-register.md) | I45 | `kuten check` reads the corpus register, and no second profile ships | Draft |
+| [0062](0062-kuten-reads-the-corpus-register.md) | I45 | `kuten check` reads the corpus register, and no second profile ships | Implemented |
 
 ## Reading order
 

@@ -742,7 +742,9 @@ RFC, if the register ever genuinely needs to be a parity-visible fact.
 >   Re-measured 2026-09-06: **94** of matt-huffman's 132 off-vocabulary commits have no paths,
 >   92 of them merges, and **35** of ohio-education-funding's 211. Absence of evidence is not
 >   a declaration of jurisdiction.
-> - **`kuten check` is not scoped by the register, and `lint --commits` is.** Measured under
+> - ~~**`kuten check` is not scoped by the register, and `lint --commits` is.**~~ **Superseded
+>   2026-11-24 by [RFC-0062](0062-kuten-reads-the-corpus-register.md):** city-engine now
+>   declares an object, and its 1,432 artifact commits moved the band. Measured under
 >   `Registers::corpus_only()` across all eight relevant corpora, **zero** commits change
 >   register — none of the six defining repositories holds a `.yidam/config.toml` at all — so
 >   scoping `Measurement::off_vocabulary_commits` buys nothing today, and it would make a

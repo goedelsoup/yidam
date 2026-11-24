@@ -118,6 +118,9 @@ struct Point {
     commits: usize,
     phase_share: String,
     off_vocabulary_share: String,
+    /// Population commits left out of the shares because each of their paths lies in the
+    /// `[object] paths` that point's own tree declared (RFC-0062). Zero where none is.
+    object_only: usize,
     /// The verdicts, in `kuten check`'s vocabulary — or the reason there are none.
     reading: String,
 }
@@ -226,7 +229,15 @@ fn population_rev(root: &Path) -> Option<&'static str> {
 fn point(root: &Path, sha: &str) -> Result<Point> {
     let subjects = commits::read_subjects(root, Some(sha));
     let population: Vec<&Subject> = subjects.iter().filter(|s| in_population(s)).collect();
-    let m = kuten::commit_measurement(&population);
+    // The registers this point's own tree declared, for the reason the baseline below is
+    // read there too: a declaration made later is not one the history was written under.
+    // A missing or unparseable config reads as no object, as `Registers::of_repo` reads it.
+    let registers = show(root, sha, ".yidam/config.toml")
+        .and_then(|t| toml::from_str::<crate::config::YidamConfig>(&t).ok())
+        .map_or_else(kuten::Registers::corpus_only, |c| {
+            kuten::Registers::of_globs(c.object.paths)
+        });
+    let m = kuten::commit_measurement(&population, &registers);
 
     let reading = match show(root, sha, kuten::DECISION_PATH)
         .and_then(|t| kuten::Declaration::parse(&t).ok())
@@ -265,6 +276,7 @@ fn point(root: &Path, sha: &str) -> Result<Point> {
         commits: m.commits,
         phase_share: share(m.phase_commits),
         off_vocabulary_share: share(m.off_vocabulary_commits),
+        object_only: m.object_only_commits,
         reading,
     })
 }
@@ -368,6 +380,16 @@ fn render(
          `yidam kuten check` reads today's corpus in full, including the corpus-state \
          metrics no historical point can reconstruct.",
     );
+    // Only where something was left out, so a block in a repository that declares no
+    // object reads byte for byte as it did before the scoping existed.
+    if let Some(p) = points.last().filter(|p| p.object_only > 0) {
+        let _ = write!(
+            out,
+            " A commit that touches only the `[object] paths` its point's tree declared is \
+             outside the population too, as `lint --commits` leaves it out: {} at `{}`.",
+            p.object_only, p.sha
+        );
+    }
     out
 }
 
@@ -527,6 +549,7 @@ mod tests {
             commits: 41,
             phase_share: "17.1%".into(),
             off_vocabulary_share: "0.0%".into(),
+            object_only: 0,
             reading: "phases ok · vocabulary ok".into(),
         }];
         let text = render(Some(&declaration), Some(&profile), &points);

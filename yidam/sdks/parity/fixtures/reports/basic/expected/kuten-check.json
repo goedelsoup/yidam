@@ -25,6 +25,10 @@
       "phase_commits": 0,
       "off_vocabulary_commits": 0,
       "suffixed_commits": 0,
+      "object_only_commits": 0,
+      "object_only_phase_commits": 0,
+      "object_only_off_vocabulary_commits": 0,
+      "object_only_suffixed_commits": 0,
       "nodes": 4,
       "median_node_lines": 16.0,
       "open_questions": 3

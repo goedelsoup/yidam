@@ -317,11 +317,12 @@ nothing anywhere says so.
 
 **The commit vocabulary no longer reads as clean, and the reason is a scoping decision rather
 than a change in practice.** `cohort` counts every authored commit, not the corpus register
-alone. `Measurement::off_vocabulary_commits` states why, at length: a conformance figure a
-corpus can move by widening `[object] paths` is not a measurement. One repository reads 211 of
+alone. That was argued then as a conformance figure a corpus could move by widening
+`[object] paths`; `Measurement::whole` now states why the cohort keeps it. One repository reads 211 of
 566 under that counting. It is the object-coupled case the kuten profile already excludes from
 its band. Read this column as *what the repository did, whole*, and `lint --commits` as *what a
-reader is asked to act on*.
+reader is asked to act on*. Since #1507 `kuten check` reads the corpus register
+([RFC-0062](rfcs/0062-kuten-reads-the-corpus-register.md)); `cohort` still counts whole.
 
 ### One norm was withdrawn before it shipped
 

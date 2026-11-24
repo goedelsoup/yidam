@@ -553,6 +553,9 @@ fn render_verdict(r: &Report) -> String {
         "\n{} commit(s), {} node(s) measured.\n\n",
         r.measurement.commits, r.measurement.nodes
     );
+    if let Some(line) = register_line(&r.measurement) {
+        let _ = writeln!(out, "{line}\n");
+    }
     for f in &r.findings {
         let _ = writeln!(
             out,
@@ -581,6 +584,27 @@ fn render_verdict(r: &Report) -> String {
          superseding decision.",
     );
     out
+}
+
+/// What the register left out, beside the scoped verdict (RFC-0062 §2.4) — `None` when
+/// nothing was, so a repository that declares no object reads exactly as before.
+///
+/// The bands judge the scoped shares, and a corpus's own `[object] paths` decides the scope.
+/// Printing the unscoped shares beside them is what keeps that lever in sight: a reader sees
+/// how far the declaration moved the reading without re-running anything.
+fn register_line(m: &kuten::Measurement) -> Option<String> {
+    if m.object_only_commits == 0 {
+        return None;
+    }
+    let whole = m.commits + m.object_only_commits;
+    let share = |part: usize| format!("{:.3}", part as f64 / whole as f64);
+    Some(format!(
+        "register: {} object-only commit(s) left out ([object] paths); unscoped: phase {}, \
+         off-vocabulary {}",
+        m.object_only_commits,
+        share(m.phase_commits + m.object_only_phase_commits),
+        share(m.off_vocabulary_commits + m.object_only_off_vocabulary_commits)
+    ))
 }
 
 /// **Exits zero, always.** Divergence is not a defect, and a report that gated would make it
@@ -781,6 +805,28 @@ mod tests {
         assert!(text.contains("superseding decision"), "{text}");
     }
 
+    /// RFC-0062 §2.4: the verdict names what the register left out and the unscoped shares,
+    /// and says nothing at all where no object is declared.
+    #[test]
+    fn the_check_names_what_the_register_left_out_and_only_then() {
+        assert_eq!(super::register_line(&Measurement::default()), None);
+        let m = Measurement {
+            commits: 3616,
+            phase_commits: 493,
+            off_vocabulary_commits: 16,
+            object_only_commits: 1432,
+            object_only_off_vocabulary_commits: 1430,
+            ..Measurement::default()
+        };
+        assert_eq!(
+            super::register_line(&m).as_deref(),
+            Some(
+                "register: 1432 object-only commit(s) left out ([object] paths); unscoped: \
+                 phase 0.098, off-vocabulary 0.286"
+            )
+        );
+    }
+
     #[test]
     fn the_check_prints_a_question_and_never_a_defect() {
         let m = Measurement {
@@ -791,6 +837,7 @@ mod tests {
             nodes: 160,
             median_node_lines: Some(48.0),
             open_questions: 12,
+            ..Measurement::default()
         };
         let vintage = Vintage::read("| `phase` | settled |\nThis list is closed");
         let findings = crate::kuten::compare(&profile(), &m, &vintage);

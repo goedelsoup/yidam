@@ -678,8 +678,8 @@ fn the_inquiry_profile_is_readable_by_the_binary() {
         },
         "0 to 1.64% across the six, re-measured 2026-09-06. A0's \"exactly 0%\" was produced \
          by stripping the `(scope)` suffix GRAPH.md forbids before matching the verb, which \
-         is the one way this population reads as zero. The object-coupled pair is still \
-         outside, at 25% and 4%"
+         is the one way this population reads as zero. The object-coupled pair read 25% and \
+         4% over every authored commit, before RFC-0062 scoped the band to the corpus register"
     );
 }
 
@@ -982,6 +982,7 @@ fn every_populated_slot_has_a_consumer() {
         nodes: 80,
         median_node_lines: Some(48.0),
         open_questions: 6,
+        ..Measurement::default()
     };
     let vintage = Vintage::read("| `phase` | settled |\n\nThis list is closed:\n");
     let check_of =

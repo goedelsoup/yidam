@@ -141,8 +141,9 @@ vocabulary:
   # The ceiling is two commits in one repository and not a practice, and it is quoted anyway,
   # because a band that excludes its own evidence is a wrong extraction whatever the evidence
   # is made of.
-  # The object-coupled pair remains outside at 25% and 4%, which is what the band still
-  # separates. Separately: the vintage control is read per repository, so a commit authored
+  # The object-coupled pair read 25% and 4% over every authored commit. Since RFC-0062 the
+  # band reads the corpus register, so a commit touching only `[object] paths` no longer
+  # counts against it, and `kuten check` prints the unscoped share beside it. Separately: the vintage control is read per repository, so a commit authored
   # before its own repository closed its vocabulary is invisible to it. That gap is real, and
   # it is not this band's to close.
   off_vocabulary_share: {low: 0.0, high: 0.02}

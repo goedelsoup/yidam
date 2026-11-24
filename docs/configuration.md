@@ -538,11 +538,14 @@ says how many nodes, decisions and catalog entries the artifact cites, and how m
 Nothing is a finding there, because no rule says a node must be cited. The section is empty
 when no object is declared, or when the kuten declares the corpus `projected`.
 
-**`kuten check`'s history is not scoped by this key.** It measures every authored commit, because
-its numbers are read against a band. Scoping them would let a corpus move its own reading by
-widening this list, with no commit written.
+**`kuten check` and `yidam practice` read their history under this key (RFC-0062).** A commit
+touching only these paths is left out of both readings, as `lint --commits` leaves it out. The
+report prints the unscoped shares beside the verdict, so the list's effect stays visible.
 
-**`yidam vocabulary --check` is not scoped by it either.** It reads a subject line, and no
+**A path under `.yidam/` is corpus whatever these globs say.** So `paths = ["**"]` cannot
+empty a reading.
+
+**`yidam vocabulary --check` is not scoped by it.** It reads a subject line, and no
 commit exists yet. So it has no paths to read. Three surfaces call it: a contributor at a
 terminal, the VS Code commit box, and the MCP tool `check_subject`. All three still warn about
 `feat:` on an artifact while `lint --commits` stays silent. The asymmetry is recorded rather

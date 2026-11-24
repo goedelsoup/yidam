@@ -539,7 +539,7 @@ pub fn collect(roots: &[PathBuf], show_paths: bool) -> CohortReport {
     // reason: maturity is the first thing a reader has to hold constant.
     let mut measured: Vec<(PathBuf, Measurement)> = read
         .into_iter()
-        .map(|r| (measure(&r), r))
+        .map(|r| (measure(&r).whole(), r))
         .map(|(m, r)| (r, m))
         .collect();
     measured.sort_by(|a, b| (a.1.commits, &a.0).cmp(&(b.1.commits, &b.0)));

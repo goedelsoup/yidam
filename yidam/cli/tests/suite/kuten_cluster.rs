@@ -237,6 +237,13 @@ impl Member {
             // Recorded since the #704 re-measurement. It never reaches a band — it words the
             // off-vocabulary question — and a row that drops it fails to deserialize.
             suffixed_commits: self.suffixed,
+            // Zero by measurement, not by default (RFC-0062 §2.4): none of the six declares
+            // `[object] paths`, so the register leaves nothing out and `authored` is already
+            // the scoped count the bands read.
+            object_only_commits: 0,
+            object_only_phase_commits: 0,
+            object_only_off_vocabulary_commits: 0,
+            object_only_suffixed_commits: 0,
             nodes: self.instances,
             median_node_lines: Some(self.median_lines),
             open_questions: self.open_questions,
