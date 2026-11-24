@@ -92,9 +92,9 @@ The loop keeps a **tip**: a commit sha, set to HEAD before the first step. Each 
 1. materializes its inputs from the tip;
 2. reads freshness and `outputs_already_committed` at the tip;
 3. is invoked, checked, and given a receipt, as now;
-4. calls `build_commit` on the tip, and the result becomes the new tip.
+4. calls `build_commit` on the tip with `fold` off, and the result becomes the new tip.
 
-No ref moves in this loop. The tip is a commit object that no ref points at. A downstream
+No ref moves in this loop. No REGEN block is folded here. The group commit folds once (§2). The tip is a commit object that no ref points at. A downstream
 step is therefore given exactly the tree its upstream wrote, which is the property the
 module header states.
 
@@ -103,17 +103,27 @@ was, as it leaves HEAD now.
 
 ### 2. One commit per verb run, and one ref move
 
-The steps that land on the branch are grouped. A **group** is a maximal run of consecutive
-operational steps in plan order that share one verb. A plan of eight `compute` steps is one
-group. A plan of `compute`, `compute`, `reconcile`, `compute` is three groups.
+A **landing step** is an operational step whose `build_commit` in §1 changed the tip. A step
+that was fresh, that wrote a note, or whose tree equalled the tip's is not one. It joins no
+group and does not split one.
+
+A **group** is a maximal run of consecutive landing steps in plan order that share one verb.
+A plan of eight `compute` steps is one group. A plan of `compute`, `compute`, `reconcile`,
+`compute` is three groups if all four land. If the `reconcile` was fresh, it is one group.
+
+The **base** is the last group commit built so far, or HEAD before the plan if none is.
+A group's commit is built when the next landing step has another verb, or after the last
+operational step. So the base is known when each step runs.
 
 Plan order is not changed to make groups larger. It is the order the steps ran in, and a
 commit's position in the log should say that.
 
 At the end of each group, one commit is built:
 
-- its tree is the tip's tree;
-- its parent is the previous group's commit, or HEAD for the first group;
+- its tree is the tip's tree, with the REGEN blocks the group's combined landing made stale
+  refreshed in it (RFC-0054 §2.2). This is one fold over every file the group wrote, against
+  the base, so no `regen:` commit has to follow and the generators run once per group;
+- its parent is the base;
 - its author and committer follow RFC-0026 §5, as now.
 
 The intermediate commits from §1 are not ancestors of it. They become unreachable, and
@@ -141,13 +151,20 @@ compute: 8 steps — 23 files at c96a1dd
 ```
 
 The short sha is the group commit's parent. `yidam vocabulary --check` accepts both. The
-body lists each step with its files and their sha256, then the operational paragraph that
-`closing` writes now.
+body lists each step with its files and their sha256. It says what each step read. The first
+step ran against the parent. A later step ran against the parent and what the steps above it
+in the body wrote. Then comes the REGEN paragraph when the fold refreshed anything, and the
+operational paragraph that `closing` writes now.
 
 **Notes.** A step that reproduced its receipt writes a note under RFC-0052 §2.2. The note is
-attached to the receipt blob at the tip, which is the blob the branch will hold if no
-earlier step in the plan rewrote it. Notes are written after the branch moves. If the plan
-lands nothing, it writes no notes.
+attached to that step's receipt blob at the tip. Only that step writes its receipt, so it is
+the blob the branch holds after the landing. The note records the base as its input commit,
+which is on the branch after the landing. It never records the tip, which is not kept.
+
+Notes are written once every operational step has succeeded, after the branch move if
+there is one. A plan in which every stale step reproduced its receipt builds no group
+commit and moves no ref. It still writes its notes, after checking that the branch is
+still at HEAD before the plan. If the branch moved, or a step failed, it writes no notes.
 
 **Epistemic steps** run after the branch moves, as they run after the operational steps now.
 They are materialized from the new HEAD, and each lands on `propose/<head>` as now. They are
@@ -157,7 +174,8 @@ never part of a group.
 
 A step's receipt names `input.commit`. `YIDAM_INPUT_COMMIT` exports the same value.
 
-Under this RFC, it is the parent of the step's group commit. That commit is on the branch.
+Under this RFC, it is the base when the step runs, which is the parent of the step's group
+commit. That commit is on the branch.
 
 - For the first step of a group, that is exactly the tree the step was given.
 - For a later step in the group, the step was also given what the earlier steps wrote. Those
@@ -180,8 +198,14 @@ only after the last operational step succeeds. A failure in any operational step
 - names the step that failed;
 - says that nothing was landed.
 
-Re-running is idempotent. The steps that had finished reproduce their output on the next
-run, and the next run lands them with the rest.
+Re-running recovers the work of a calculator that is a function of its inputs. It reproduces
+its output on the next run, and the next run lands it with the rest. A step that declares
+`ageing_days` is not such a function. Its next run may compute a different answer, so its
+earlier answer is lost, not recovered.
+
+The cost is a wider window. Today a branch that moves during a run loses the step in
+flight. Under this RFC it loses every step the plan had finished, because the one
+compare-and-swap comes at the end. A long plan on a busy branch pays this.
 
 The pre-pass already holds this rule for a step this binary does not invoke. This extends it
 to a step that fails while it runs.
@@ -213,10 +237,12 @@ place, and the error says so, as `require_room`'s context does now.
   `refs/yidam/runs/…`, and something to prune them. The receipt's input digests already
   record what was read.
 - **Land what completed before a failure.** This keeps today's partial progress. It was
-  rejected because a plan could again leave the corpus half-advanced, and the next run
-  recovers the work anyway.
-- **An opt-in `--batch` flag.** It was rejected because it keeps two landing behaviours,
-  and the new one has no case where it is worse.
+  rejected because a plan could again leave the corpus half-advanced. The next run recovers
+  a calculator's work. It does not recover an ageing step's earlier answer, and §4 counts
+  that as a cost.
+- **An opt-in `--batch` flag.** It was rejected because it keeps two landing behaviours.
+  The new one is worse in one case, the wider window in §4. That case is not worth a second
+  behaviour to maintain.
 
 ## Migration
 
@@ -226,7 +252,8 @@ place, and the error says so, as `require_room`'s context does now.
   tool that finds a step's commit by its subject (`: <step> `) finds it only for a group of
   one. The body names every step.
 - **A failed plan lands nothing.** A repository that relied on a partial landing re-runs
-  after the fix.
+  after the fix. An ageing step that had finished runs again, and a branch that moves
+  during a plan discards every finished step.
 
 The upgrade note says these three things.
 
@@ -234,8 +261,12 @@ The upgrade note says these three things.
 
 This is wrong if any of these is observed after it ships:
 
-- a whole-manifest run in which every stale step is `compute`, which lands more than one
+- a whole-manifest run in which every landing step is `compute`, which lands more than one
   commit on the branch;
+- a run in which every stale step reproduced its receipt and the branch did not move, which
+  writes no notes;
+- a note whose recorded input commit is not an ancestor of the branch after the run;
+- a group commit whose REGEN blocks are stale for the files it wrote;
 - a dependent step whose materialized inputs lack what its `after` upstream wrote in the
   same plan;
 - a run that moves the branch more than once;
