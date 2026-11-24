@@ -16,11 +16,17 @@
     changes, and `inquiry` stays at revision 2.
   - **Registers.** A path under `.yidam/` is always in the corpus register. That holds for
     `lint --commits`, `kuten check`, `practice` and coupling alike.
-  - **Reports.** The `kuten check` measurement gains three object-only counts. They default to
-    0, so a vendored member's row still parses.
+  - **Reports.** The `kuten check` measurement gains four object-only counts, and its
+    `commits`, `phase_commits`, `off_vocabulary_commits` and `suffixed_commits` change meaning:
+    they count the scoped population, where today they count every authored commit (§2.4).
+    The new counts default to 0, so a fixture or recorded row without them still parses.
+  - **Regenerated files.** `yidam practice` writes the `PRACTICE.md` REGEN block, and scoping
+    moves its shares. city-engine keeps one, so its next `regen --check` after the upgrade
+    reports the block stale until `yidam regen` runs.
   - **The prelude.** The kuten `README.md` gains one paragraph on the negative measurement.
-  - **The bump.** It is minor for the CLI. Nothing on disk in any corpus moves, so no
-    migration and no upgrade note are owed.
+  - **The bump.** It is minor for the CLI. No authored file in any corpus moves and no config
+    changes, so no migration is owed. An upgrade note is owed for the regenerated block
+    above.
 - **Downstream reference cases:** measured read-only on 2026-11-24 at the checked-out head of
   every derived repository on the measuring machine. Three of them declare `[object] paths`:
   city-engine, allen-county-ohio and matt-huffman.
@@ -52,7 +58,8 @@ phase-type degeneracy stays with #1468.
 ### 1.1 What was measured
 
 The commit reading replays `kuten::commit_measurement` in a script: the verb is the text
-before `: `, merges are left out, and the glob matcher and the object-only rule are the ones
+before `: `, git-generated merge subjects are left out as `is_merge` leaves them out, and
+the glob matcher and the object-only rule are the ones
 `Registers` uses. Each corpus is read twice: over every authored commit, and over the commits
 that are not object-only.
 
@@ -69,9 +76,11 @@ city-engine fails both today and passes both over the corpus register. allen-cou
 passes both over the corpus register. #1464 reached the same split on city-engine at an
 earlier head.
 
-matt-huffman stays divergent on both bands after scoping. Most of its off-vocabulary commits
-are hand-written `merge …` subjects that touch the corpus, and its phase share is a practice,
-not a reading. Scoping is not a pass: it removes only what the corpus says is not corpus.
+matt-huffman stays divergent on both bands after scoping. Of its 192 off-vocabulary commits,
+106 list no paths, and 104 of those are hand-written `merge …` subjects on merge commits.
+`git log --name-only` lists no paths for a merge, so they stay in the corpus register under
+`Touch::None` (§2.1), not because they touch the corpus. Its phase share is a practice, not a
+reading. Scoping is not a pass: it removes only what the corpus says is not corpus.
 
 ### 1.2 What an engineering profile would have to measure
 
@@ -100,8 +109,8 @@ Second, scoping would make a band-checked quantity settable from a corpus's own 
 The first reason is now false. Three corpora declare `[object] paths`, and in city-engine
 1,432 of 5,048 authored commits are object-only.
 
-The second reason is real but smaller than A3 measured. §2.3 measures the lever again and
-bounds it.
+The second reason is real, and A3 measured it wrongly. §2.3 measures the lever again and
+bounds it from both sides.
 
 ## Design
 
@@ -136,31 +145,49 @@ covers.
 
 ### 2.3 The lever, measured again
 
-The counterfactual takes the widest declaration the rule in §2.2 allows: every top-level path
-except `.yidam/`.
+The widest declaration is not the extreme. Declaring more paths removes on-vocabulary and
+non-phase commits as well, so a declaration chosen to remove only the commits that hurt a
+share moves it further than declaring everything does. The bound therefore takes the best
+case for the corpus. Only a commit whose every path lies outside `.yidam/` can become
+object-only (§2.2). The floor removes every such off-vocabulary commit and keeps every other
+commit. The ceiling removes every such non-phase commit and keeps every phase commit. No glob
+set can do better than either, and a real one may not reach them, because a file that an
+off-vocabulary commit touches is often touched by an on-vocabulary one too.
 
-| Corpus | Off-vocabulary, declared → widest | Phase share, declared → widest |
+| Corpus | Off-vocabulary: declared, widest, floor | Phase share: declared, widest, ceiling |
 |---|---|---|
-| city-engine | 0.004 → 0.000 | 0.136 → 0.166 |
-| allen-county-ohio | — | 0.138 → 0.149 |
-| matt-huffman | 0.173 → 0.186 | — |
-| ohio-education-funding | 0.377 → 0.384 | 0.174 → 0.238 |
-| traffic-design | — | 0.151 → 0.166 |
+| city-engine | 0.004, 0.000, 0.000 | 0.136, 0.166, 0.166 |
+| allen-county-ohio | 0.006, 0.006, 0.005 | 0.138, 0.149, 0.149 |
+| matt-huffman | 0.173, 0.186, **0.137** | 0.005, 0.005, 0.005 |
+| ohio-education-funding (no object declared) | 0.377, 0.384, **0.285** | 0.174, 0.238, **0.260** |
+| traffic-design (no object declared) | 0.000, 0.000, 0.000 | 0.151, 0.166, 0.166 |
 
-Off-vocabulary share barely moves, and where it moves it can rise. An off-vocabulary commit
-that touches the corpus cannot be declared away. A3's counterfactual, 0.4930 to 0.3248 for
+Off-vocabulary share can move, by up to 0.092 in ohio-education-funding, and only a
+declaration aimed at it moves it down. An off-vocabulary commit that touches `.yidam/` or
+lists no paths cannot be declared away. A3's counterfactual, 0.4930 to 0.3248 for
 ohio-education-funding, removed object-only commits from the numerator alone. §2.1 removes
-them from both.
+them from both, which is why the widest declaration raises the share and only a targeted one
+lowers it.
 
-Phase share does move, by up to 0.064 in ohio-education-funding. Phase commits touch the
-corpus, so declaring more object shrinks the denominator. That is a lever, and three things
-bound it:
+Phase share moves by up to 0.086 in ohio-education-funding. In four of the five corpora every
+phase commit touches `.yidam/`, so the ceiling is the widest declaration. In
+ohio-education-funding 11 of its 97 phase commits do not touch `.yidam/`, so a declaration
+that spares them reaches 0.260 where the widest reaches 0.238.
+
+No measured corpus can declare its way into a band that its held declaration fails.
+matt-huffman's floor, 0.137, and ohio-education-funding's, 0.285, both stay above the 0.02
+off-vocabulary ceiling. matt-huffman's phase share cannot reach 0.12.
+ohio-education-funding's phase share is already inside its band, and its ceiling stays inside
+it. city-engine and allen-county-ohio pass both bands over the declarations they already hold.
+
+That is a lever all the same, and three things bound it:
 
 - The declaration is a committed file. In city-engine it is backed by a decision record.
   `lint --commits` already trusts it.
 - The verdict prints the unscoped share and the object-only count beside the scoped share, so
   a reader sees how far the declaration moved the reading.
-- Widening the declaration to everything is the most it can do, and that table is above.
+- The floor and ceiling above are the most any declaration can do, and none of them crosses
+  a band.
 
 A conformance that a corpus can move without saying so is not a measurement. One that it can
 move only in a committed file, with the effect printed beside the verdict, is a reading of
@@ -168,16 +195,29 @@ what that file says.
 
 ### 2.4 The report
 
-The measurement gains three counts:
+The measurement gains four counts:
 
 - `object_only_commits`, the object-only commits left out;
 - `object_only_phase_commits`, the phase commits among them;
-- `object_only_off_vocabulary_commits`, the off-vocabulary commits among them.
+- `object_only_off_vocabulary_commits`, the off-vocabulary commits among them;
+- `object_only_suffixed_commits`, the suffixed commits among those, so `suffixed_commits`
+  stays a subset of `off_vocabulary_commits` on both readings.
 
-`commits`, `phase_commits` and `off_vocabulary_commits` count the scoped population, so the
-unscoped figure is the sum. Each new count has `#[serde(default)]`, so a vendored member's row
-with no counts parses with 0. No member row in `yidam/prelude/kuten/README.md` holds a config,
-so no row changes.
+**Four existing fields change meaning.** `commits`, `phase_commits`, `off_vocabulary_commits`
+and `suffixed_commits` count the scoped population where they count every authored commit
+today, and the `Measurement` doc comment that calls the off-vocabulary count "deliberately
+not register-scoped" is rewritten. In a corpus that declares no object the two readings are
+equal. In one that does, a consumer of `kuten check --format json` that reads `commits` as
+every authored commit reads the scoped count, 3,616 rather than 5,048 in city-engine. Each
+unscoped figure is the scoped field plus its object-only count. The field names stay, because
+the bands read these fields and the bands now read the scoped figure.
+
+Each new count has `#[serde(default)]`, so a `Measurement` deserialized without them, such as
+a `tests/fixtures/kuten/*.toml` control, parses with 0. The `measured.members` rows in
+`yidam/prelude/kuten/inquiry/kuten.yml` are read through the `Member` mapping in
+`tests/suite/kuten_cluster.rs`, which builds a `Measurement` field by field and sets the new
+counts to 0. All six members declare no object, so no row changes. The report schema and the
+`kuten-check.json` golden gain the four fields, and a golden must reach each one non-null.
 
 The text verdict adds one line when any commit was left out:
 
