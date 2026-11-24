@@ -747,6 +747,25 @@ mod tests {
         assert_eq!(c.violations[0].node, "bbbbbbbb");
     }
 
+    /// RFC-0062 §2.2: `paths = ["**"]` cannot silence the corpus. A commit touching only
+    /// `.yidam/` stays a corpus commit and its verb is still checked; one touching only
+    /// other paths is the object's.
+    #[test]
+    fn a_glob_over_everything_still_checks_a_corpus_commit() {
+        let r = Registers::of_globs(vec!["**".into()]);
+        let s = vec![
+            touching(
+                "aaaaaaaa",
+                "viewport: charts that cannot draw a number",
+                &[".yidam/corpus/charts.md"],
+            ),
+            touching("bbbbbbbb", "feat: add dark mode", &["web/app.tsx"]),
+        ];
+        let c = super::unrecognized_verb(&s, &r);
+        assert_eq!(c.violations.len(), 1, "{:?}", c.violations);
+        assert_eq!(c.violations[0].node, "aaaaaaaa");
+    }
+
     /// A commit spanning both registers is corpus work that also touched the artifact, and
     /// the corpus register governs it. **The mixed-register conduct finding is #643's**, on a
     /// measurement showing it would raise ~710 findings across six corpora that are already

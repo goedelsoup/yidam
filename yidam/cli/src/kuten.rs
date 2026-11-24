@@ -1224,8 +1224,9 @@ pub fn measure(root: &Path) -> Measurement {
 /// object register is counted only in the `object_only_` fields, and every other commit —
 /// corpus, both, or no paths at all, which is every merge — in the scoped ones. It is the
 /// split `lint --commits` reports on, so a range gets one reading on every surface that
-/// judges the vocabulary (RFC-0062 §2.1). Both callers pass the repository's own
-/// [`Registers::of_repo`]; one that declares no object puts every commit in scope.
+/// judges the vocabulary (RFC-0062 §2.1). [`measure`] passes the working tree's
+/// [`Registers::of_repo`]; `yidam practice` passes the registers each point's own tree
+/// declared. Registers that declare no object put every commit in scope.
 pub(crate) fn commit_measurement(
     authored: &[&crate::cmd::lint::commits::Subject],
     registers: &Registers,

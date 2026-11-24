@@ -143,9 +143,10 @@ vocabulary:
   # is made of.
   # The object-coupled pair read 25% and 4% over every authored commit. Since RFC-0062 the
   # band reads the corpus register, so a commit touching only `[object] paths` no longer
-  # counts against it, and `kuten check` prints the unscoped share beside it. Separately: the vintage control is read per repository, so a commit authored
-  # before its own repository closed its vocabulary is invisible to it. That gap is real, and
-  # it is not this band's to close.
+  # counts against it, and `kuten check` prints the unscoped share beside it. Separately: the
+  # vintage control is read per repository, so a commit authored before its own repository
+  # closed its vocabulary is invisible to it. That gap is real, and it is not this band's to
+  # close.
   off_vocabulary_share: {low: 0.0, high: 0.02}
 
 # The `classes` slot is gone, and its absence is the finding (#692, revision 2).

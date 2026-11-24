@@ -1,15 +1,16 @@
 ### kuten check reads the corpus register
 
-**`kuten check`, `practice` and `cohort` leave out a commit touching only `[object] paths` (#1507, RFC-0062).**
+**`kuten check` and `practice` leave out a commit touching only `[object] paths` (#1507, RFC-0062).**
 
 They read the same population `lint --commits` already reads.
+`cohort` still counts every authored commit.
 A corpus with no object declared reads exactly as before.
 A path under `.yidam/` is corpus whatever the globs say.
 
 **The verdict names what it left out.**
 
-A line reads `register: 1,432 object-only commits left out ([object] paths)`.
-It gives the unscoped phase and off-vocabulary shares beside it.
+A line reads `register: 1432 object-only commit(s) left out ([object] paths)`.
+The same line goes on to the unscoped phase and off-vocabulary shares.
 The `--json` measurement gains four `object_only_` counts, each 0 with no object.
 
 **A `PRACTICE.md` REGEN block may go stale.**

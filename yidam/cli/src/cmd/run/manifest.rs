@@ -1286,6 +1286,22 @@ verb   = "compute"
         Manifest::parse(&text, &corpus_only()).unwrap();
     }
 
+    /// RFC-0062 §2.2: `.yidam/` is corpus whatever the globs say, so a glob over everything
+    /// cannot refuse a write into the corpus — and still refuses one outside it.
+    #[test]
+    fn a_glob_over_everything_does_not_refuse_a_write_into_the_corpus() {
+        let registers = Registers::of_globs(vec!["**".into()]);
+        Manifest::parse(CALC, &registers).unwrap();
+        let outside = CALC.replace(
+            r#"writes = [".yidam/computed/**"]"#,
+            r#"writes = ["web/data/**"]"#,
+        );
+        let err = Manifest::parse(&outside, &registers)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("object register"), "{err}");
+    }
+
     #[test]
     fn a_glob_that_leaves_the_corpus_is_refused() {
         for bad in ["../elsewhere/**", "/etc/**", "**/everything"] {

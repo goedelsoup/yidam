@@ -11,10 +11,13 @@ note = "object coupling is an axis crossing both shapes, and the register scopes
 cluster = false
 
 [measurement]
-commits = 300
-phase_commits = 60
+# The unscoped reading is the one measured before the split: 400 commits, 80 phase, 100
+# off-vocabulary. The 98 artifact commits are the object-only ones, and every phase commit
+# touched the corpus, so the scoped phase share is 80 of 302.
+commits = 302
+phase_commits = 80
 off_vocabulary_commits = 2
-object_only_commits = 100
+object_only_commits = 98
 object_only_phase_commits = 0
 object_only_off_vocabulary_commits = 98
 nodes = 320
