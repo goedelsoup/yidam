@@ -40,6 +40,22 @@ pub fn resolve_url(dep: &Dependency) -> Result<String> {
     bail!("dependency must specify at least one of: url, github, path");
 }
 
+/// Why `export` is refused on a dependency that is not a pinned path (RFC-0063 §1). One
+/// sentence for `add`, `install` and `update`, so the three cannot drift.
+pub fn export_refusal(dep: &Dependency, export: &str) -> String {
+    if dep.is_live_path() {
+        format!(
+            "export `{export}` needs a pinned path dependency\n  a working tree has no commit \
+             to read the export at; pin it with `<path>@<commit>`"
+        )
+    } else {
+        format!(
+            "export `{export}` needs a pinned path dependency\n  a fetched bundle's export \
+             belongs in its manifest, and tonpa reads none there"
+        )
+    }
+}
+
 /// Derive a package name from a URL when the user doesn't supply --name.
 pub fn name_from_url(url: &str) -> String {
     // "https://github.com/org/my-repo/releases/.../bundle.yiz" → "my-repo"

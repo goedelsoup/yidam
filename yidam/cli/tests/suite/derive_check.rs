@@ -169,6 +169,92 @@ fn routing_around_a_declared_refusal_fails_in_both_formats() {
     );
 }
 
+// ── span records (RFC-0063 §3) ───────────────────────────────────────────────
+
+const RECORDS: &str = "\
+[derive]
+paths = [\"dossier/**\"]
+
+[[derive.records]]
+paths = [\"packs/**\"]
+records = [\"/r/*\"]
+tier = \"0/tier\"
+";
+
+/// Two records: one the node's verified paragraph carries, and one declaring a standing its
+/// paragraph does not.
+const PACK: &str = r#"{"r": [
+  {"node": "reach/tailwater", "span": "read weekly by the district", "tier": "verified"},
+  {"node": "reach/tailwater", "span": "Discharge tracks the release schedule", "tier": "verified"}
+]}"#;
+
+fn stage_records(config: &str, pack: &str) -> tempfile::TempDir {
+    let tmp = stage(
+        &[("dossier/weekly.yml", HOLDS), ("packs/a.json", pack)],
+        true,
+    );
+    std::fs::write(tmp.path().join(".yidam/config.toml"), config).unwrap();
+    tmp
+}
+
+#[test]
+fn span_records_are_citations_counted_and_named_by_pointer() {
+    let tmp = stage_records(RECORDS, PACK);
+    let text = run(tmp.path(), "text");
+    assert_ne!(text.code, 0, "{}", text.stdout);
+    assert!(
+        text.stdout.contains("packs/a.json /r/1") && text.stdout.contains("derive-tag-drift"),
+        "{}",
+        text.stdout
+    );
+    assert!(text.stdout.contains("2 record(s)"), "{}", text.stdout);
+
+    let doc = json(tmp.path());
+    assert_eq!(doc["records"], 2);
+    let ds = doc["derivations"].as_array().unwrap();
+    assert_eq!(ds.len(), 3, "one artifact and two records");
+    assert_eq!(ds[1]["record"], "/r/0");
+    assert_eq!(ds[1]["tier"], "verified");
+    assert_eq!(ds[1]["findings"], serde_json::json!([]));
+    assert_eq!(ds[2]["tier"], "inference");
+    assert_eq!(ds[2]["claim"], serde_json::Value::Null);
+}
+
+#[test]
+fn a_pointer_matching_nothing_fails_rather_than_reading_nothing() {
+    let tmp = stage_records(&RECORDS.replace("/r/*", "/renamed/*"), PACK);
+    let r = run(tmp.path(), "json");
+    assert_ne!(r.code, 0, "{}", r.stdout);
+    let doc: serde_json::Value = serde_json::from_str(&r.stdout).unwrap();
+    assert_eq!(doc["records"], 0);
+    assert_eq!(
+        doc["derivations"][1]["findings"][0]["check"],
+        "derive-record-unmatched"
+    );
+}
+
+#[test]
+fn an_unknown_derive_key_is_refused() {
+    let tmp = stage_records(
+        "[derive]
+paths = [\"dossier/**\"]
+record = []\n",
+        PACK,
+    );
+    let r = run(tmp.path(), "text");
+    assert_ne!(r.code, 0, "{}", r.stdout);
+}
+
+#[test]
+fn a_mapping_naming_both_sources_is_refused() {
+    let both = RECORDS.replace(
+        "paths = [\"packs/**\"]",
+        "paths = [\"packs/**\"]\nexport = \"x\"",
+    );
+    let r = run(stage_records(&both, PACK).path(), "text");
+    assert_ne!(r.code, 0, "{}", r.stdout);
+}
+
 fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../sdks/parity/fixtures/reports")
 }
@@ -185,9 +271,11 @@ fn every_emitted_field_is_declared_in_the_schema() {
         &[
             ("dossier/weekly.yml", HOLDS),
             ("dossier/memo.md", ROUTES_AROUND),
+            ("packs/a.json", PACK),
         ],
         true,
     );
+    std::fs::write(tmp.path().join(".yidam/config.toml"), RECORDS).unwrap();
     let doc = json(tmp.path());
     let mut emitted = std::collections::BTreeSet::new();
     paths_of(&doc, "", &mut emitted);
@@ -202,6 +290,8 @@ fn every_emitted_field_is_declared_in_the_schema() {
     }
     for witness in [
         "derive_paths",
+        "records",
+        "derivations[].record",
         "derivations[].tier",
         "derivations[].spans[].standing",
         "derivations[].findings[].node",

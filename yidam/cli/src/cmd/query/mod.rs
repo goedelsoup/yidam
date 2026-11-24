@@ -1156,6 +1156,9 @@ pub enum Scope {
     At(String),
     /// Every commit in a range that touched the corpus (`--between`, #262).
     Between(String),
+    /// A pinned path dependency at its locked commit (`--dependency`, RFC-0063 §2). Becomes
+    /// [`Scope::At`] in the sibling before anything is read, so there is no second reader.
+    Dependency(String),
 }
 
 /// The corpus at a revision could not be reconstructed.
@@ -1193,20 +1196,38 @@ pub fn query(
         anchor_k: anchor_k.max(1),
     };
 
+    answer(&root, text, &opts, scope, format)
+}
+
+/// [`query`] once its options are read, so a scope that names another repository can answer
+/// there.
+fn answer(
+    root: &std::path::Path,
+    text: &str,
+    opts: &Options,
+    scope: Scope,
+    format: crate::report::Format,
+) -> Result<()> {
     let report = match scope {
-        Scope::Between(range) => return series(&root, &range, text, &opts, format),
+        // Refused before any report: a name that is not a readable pin is a wrong argument,
+        // and there is no corpus yet to say anything about.
+        Scope::Dependency(name) => {
+            let (sibling, rev) = crate::deps::pinned_dependency(root, &name)?;
+            return answer(&sibling, text, opts, Scope::At(rev), format);
+        }
+        Scope::Between(range) => return series(root, &range, text, opts, format),
         // **Emitted, not propagated.** `run_at` fails on a revision that is not one, and
         // propagating that printed `Error: …` on stderr with an empty stdout at exit 1 —
         // indistinguishable, to a `--format json` consumer, from a crash or a truncated pipe.
         // This module's docstring states the rule in as many words: a rejection emits its
         // report and *then* fails, or every rejection it specifies is invisible.
-        Scope::At(rev) => run_at(&root, &rev, text, &opts)
+        Scope::At(rev) => run_at(root, &rev, text, opts)
             .unwrap_or_else(|e| rejected_report(text, history_unreadable(e), None)),
-        Scope::Across => run_across(&root, text, &opts),
-        Scope::Now => run(&root, text, &opts),
+        Scope::Across => run_across(root, text, opts),
+        Scope::Now => run(root, text, opts),
     };
     let rejected = report.rejected.is_some();
-    crate::report::gate(&root, format, report, !rejected, |r| {
+    crate::report::gate(root, format, report, !rejected, |r| {
         println!("{}", render(r))
     })
 }

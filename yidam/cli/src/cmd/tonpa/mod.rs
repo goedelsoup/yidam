@@ -22,6 +22,10 @@ pub enum TonpaCommand {
         /// Override the package name derived from the URL
         #[arg(long)]
         name: Option<String>,
+        /// A file in a pinned path dependency's repository to read at the pin, unpack to
+        /// .yidam/tonpa/<name>/export/ and lock
+        #[arg(long)]
+        export: Option<String>,
     },
     /// Install all dependencies declared in .yidam/tonpa.toml
     Install,
@@ -37,7 +41,8 @@ pub enum TonpaCommand {
     /// Verify installed bundle hashes against the lock file
     Verify,
     /// Re-fetch and update one or all dependencies to the latest bundle (or, for a pinned
-    /// path dependency, move the pin to the sibling's HEAD)
+    /// path dependency, move the pin to the sibling's HEAD, or with an export to the commit
+    /// on HEAD's history that last wrote it)
     Update {
         /// Package name to update (omit to update all)
         name: Option<String>,
@@ -51,14 +56,26 @@ pub async fn run(sub: TonpaCommand) -> Result<()> {
     let lock_path = crate::paths::tonpa_lock_path(&root);
 
     match sub {
-        TonpaCommand::Add { source, name } => {
-            add::cmd_add(&source, name.as_deref(), &dir, &config_path, &lock_path).await
+        TonpaCommand::Add {
+            source,
+            name,
+            export,
+        } => {
+            add::cmd_add(
+                &source,
+                name.as_deref(),
+                export.as_deref(),
+                &dir,
+                &config_path,
+                &lock_path,
+            )
+            .await
         }
         TonpaCommand::Install => query::cmd_install(&dir, &config_path, &lock_path).await,
         TonpaCommand::Remove { name } => remove::cmd_remove(&name, &dir, &config_path, &lock_path),
         TonpaCommand::List => query::cmd_list(&lock_path),
         TonpaCommand::Status => query::cmd_status(&dir, &config_path, &lock_path),
-        TonpaCommand::Verify => query::cmd_verify(&dir, &lock_path),
+        TonpaCommand::Verify => query::cmd_verify(&dir, &config_path, &lock_path),
         TonpaCommand::Update { name } => {
             query::cmd_update(name.as_deref(), &dir, &config_path, &lock_path).await
         }

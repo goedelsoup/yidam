@@ -88,6 +88,8 @@ pub async fn install_package(
         dims,
         nodes: Some(nodes),
         rev: None,
+        export: None,
+        export_sha256: None,
     })
 }
 

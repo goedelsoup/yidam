@@ -222,6 +222,28 @@ files, not of an archive. `verify` and `doctor` check that digest against the fi
 `install` needs the sibling checkout on this machine. A missing sibling fails that dependency
 and not the others.
 
+`yidam query --dependency <name>` answers from the sibling at its locked commit. It reads as
+`--root <path> --at <rev>` does, both taken from the declaration and the lock.
+
+### A pinned export
+
+A sibling that computes over its corpus can commit the result, such as a JSON pack. Declare it
+on the pin, and it is read at that commit too
+([RFC-0063](rfcs/0063-tonpa-pins-an-export.md)):
+
+```sh
+yidam tonpa add ../sibling-corpus@6ca345d --export .yidam/computed/pack.json
+```
+
+The file is unpacked to `.yidam/tonpa/<name>/export/` and hashed in the lock as
+`export_sha256`. `verify` re-hashes it. The commit that last wrote the export must have the
+corpus that the pin has. Otherwise `add`, `install` and `update` refuse and name both commits,
+because the export was computed from an older corpus. With an export, `update` moves the pin to
+the commit on `HEAD`'s history that last wrote it.
+
+[`[derive] records`](configuration.md#derive-records) holds the spans the export quotes against
+the corpus at the pin.
+
 ## What changes once a dependency is installed
 
 Deliberately narrow: **readable and searchable, never an edge target.**

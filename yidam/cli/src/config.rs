@@ -786,7 +786,11 @@ pub struct ObjectConfig {
 ///
 /// Absent means `derive check` has nothing to read, reports nothing, and passes. That is every
 /// repository before this key existed.
+///
+/// Unknown keys are refused (RFC-0063 §3.5): a CLI that read a later key as nothing would check
+/// nothing under it and pass.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DeriveConfig {
     /// Globs naming the artifacts `derive check` reads, relative to the repository root.
     ///
@@ -801,6 +805,37 @@ pub struct DeriveConfig {
     /// ```
     #[serde(default)]
     pub paths: Vec<String>,
+    /// JSON span records read through declared pointers (RFC-0063 §3), each one a citation.
+    #[serde(default)]
+    pub records: Vec<DeriveRecords>,
+}
+
+/// One `[[derive.records]]` mapping: where the JSON files are, which values in them are span
+/// records, and where in each record its node, span, governing quote and tier sit.
+///
+/// ```toml
+/// [[derive.records]]
+/// export = "traffic-design"
+/// records = ["/models/*/formulation"]
+/// node = "0/node"
+/// span = "0/span"
+/// ```
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeriveRecords {
+    /// A pinned path dependency whose export holds the records; they cite its corpus at the pin.
+    pub export: Option<String>,
+    /// Globs over this repository's own JSON files, in the `paths` grammar; they cite this
+    /// repository's corpus. Exactly one of `export` and `paths` is given.
+    pub paths: Option<Vec<String>>,
+    /// RFC 6901 pointers to the records, with `*` matching every member of an array or object.
+    pub records: Vec<String>,
+    /// Relative pointers from a record to its parts. `node` and `span` default to `0/node` and
+    /// `0/span`; `governing` to `span`; `tier` is read only when given.
+    pub node: Option<String>,
+    pub span: Option<String>,
+    pub governing: Option<String>,
+    pub tier: Option<String>,
 }
 
 /// What this repository permits a server it starts to do — RFC-0029.

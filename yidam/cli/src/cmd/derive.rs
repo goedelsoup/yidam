@@ -38,44 +38,79 @@ pub fn run(root: Option<&std::path::Path>, sub: DeriveCommand) -> Result<()> {
 #[derive(Serialize)]
 struct Payload {
     derive_paths: Vec<String>,
+    /// How many span records the `[[derive.records]]` mappings matched (RFC-0063 §3.5). A
+    /// consumer holds it above zero, which also fails a CLI too old to emit it.
+    records: usize,
     derivations: Vec<Derivation>,
 }
 
 fn check(root: Option<&std::path::Path>, format: Format) -> Result<()> {
     let root = crate::paths::resolve_root(root)?;
     crate::paths::require_yidam_repo(&root)?;
-    let globs = crate::config::load_yidam_config(&root)?.derive.paths;
-    let derivations = if globs.is_empty() {
+    let derive = crate::config::load_yidam_config(&root)?.derive;
+    let globs = derive.paths;
+    let mut derivations = if globs.is_empty() {
         Vec::new()
     } else {
         let corpus = crate::corpus::Corpus::open(&root);
         crate::derive::check(&root, &globs, &corpus)
     };
+    let (records, read) = crate::derive::check_records(&root, &derive.records)?;
+    derivations.extend(read);
     let passed = derivations.iter().all(|d| d.errors() == 0);
     let report = Payload {
         derive_paths: globs,
+        records,
         derivations,
     };
+    let mappings = derive.records.len();
     crate::report::gate(&root, format, report, passed, |r| {
-        print!("{}", render(&r.derive_paths, &r.derivations))
+        print!(
+            "{}",
+            render(&r.derive_paths, mappings, r.records, &r.derivations)
+        )
     })
 }
 
 /// The text report: one block per artifact, its tier against its reach, then what was found.
-pub(crate) fn render(globs: &[String], derivations: &[Derivation]) -> String {
+pub(crate) fn render(
+    globs: &[String],
+    mappings: usize,
+    records: usize,
+    derivations: &[Derivation],
+) -> String {
     let mut out = String::new();
-    if globs.is_empty() {
+    if globs.is_empty() && mappings == 0 {
         out.push_str(
-            "derive check: no `[derive] paths` in .yidam/config.toml, so there is nothing to \
-             read.\n",
+            "derive check: no `[derive] paths` and no `[[derive.records]]` in \
+             .yidam/config.toml, so there is nothing to read.\n",
         );
         return out;
     }
     if derivations.is_empty() {
-        let _ = writeln!(out, "derive check: no artifact under {}.", globs.join(", "));
+        let mut under = globs.join(", ");
+        if mappings > 0 {
+            if !under.is_empty() {
+                under.push_str(", ");
+            }
+            let _ = write!(under, "{mappings} record mapping(s)");
+        }
+        let _ = writeln!(out, "derive check: no artifact under {under}.");
         return out;
     }
     for d in derivations {
+        if let Some(record) = &d.record {
+            let tier = d.tier.map_or("—".to_string(), |t| format!("[{t}]"));
+            let _ = writeln!(out, "{} {record}  tier {tier}", d.path);
+            for f in &d.findings {
+                let at = f
+                    .node
+                    .as_deref()
+                    .map_or(String::new(), |n| format!(" {n}:"));
+                let _ = writeln!(out, "  {:<5} {}{at} {}", f.severity, f.check, f.message);
+            }
+            continue;
+        }
         let reach = d.reach.as_deref().unwrap_or("—");
         let tier = d.tier.map_or("—".to_string(), |t| format!("[{t}]"));
         let admits = d
@@ -100,10 +135,15 @@ pub(crate) fn render(globs: &[String], derivations: &[Derivation]) -> String {
     }
     let errors: usize = derivations.iter().map(Derivation::errors).sum();
     let failing = derivations.iter().filter(|d| d.errors() > 0).count();
+    let artifacts = derivations.iter().filter(|d| d.record.is_none()).count();
     let _ = writeln!(
         out,
-        "derive check: {} artifact(s), {failing} failing, {errors} error(s).",
-        derivations.len()
+        "derive check: {artifacts} artifact(s), {}{failing} failing, {errors} error(s).",
+        if mappings > 0 {
+            format!("{records} record(s), ")
+        } else {
+            String::new()
+        }
     );
     out
 }
