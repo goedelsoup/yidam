@@ -200,6 +200,7 @@ const sidebar = [
       { slug: 'rfcs/0060-embed-passages', label: '0060 · Embed passages' },
       { slug: 'rfcs/0061-unanswerable-open-claims', label: '0061 · Unanswerable open claims' },
       { slug: 'rfcs/0062-kuten-reads-the-corpus-register', label: '0062 · The corpus register in kuten' },
+      { slug: 'rfcs/0063-tonpa-pins-an-export', label: '0063 · tonpa pins an export' },
     ],
   },
   {
