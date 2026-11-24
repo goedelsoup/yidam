@@ -1,7 +1,6 @@
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
-use crate::paths::repo_root;
 use crate::provenance::Provenance;
 
 use super::clone::require_template_root;
@@ -105,7 +104,14 @@ fn require_delivered(root: &Path, target: &Path, seedless: bool) -> Result<()> {
 }
 
 pub fn overlay(target: &Path, backfill: bool, backfill_ref: Option<&str>) -> Result<()> {
-    overlay_from(&repo_root()?, target, backfill, backfill_ref)
+    // The target is what an overlay writes, so it is the target whose mode is asked.
+    crate::projection::refuse_if_projection(target, "overlay")?;
+    overlay_from(
+        &crate::paths::working_root()?,
+        target,
+        backfill,
+        backfill_ref,
+    )
 }
 
 /// The overlay itself, with the source named rather than discovered.

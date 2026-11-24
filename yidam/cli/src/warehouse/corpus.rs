@@ -46,8 +46,8 @@ pub(crate) struct CorpusRows<'a> {
 /// warehouse under one constant would key `concept/foo` the same, and each `MERGE` would
 /// overwrite the other's row.
 fn corpus_component(model: &DomainModel) -> Result<String, String> {
-    match &model.provenance.genesis_hash {
-        Some(hash) => Ok(hash.chars().take(12).collect()),
+    match &model.provenance.corpus_id {
+        Some(id) => Ok(id.clone()),
         None => Err(
             "--with-corpus keys each row on the node's reference, which names the corpus by its \
              genesis commit, and this corpus has none: it is not a git repository, or it is a \
@@ -426,6 +426,7 @@ edges:
     fn model(nodes: &[(&str, &str, &str)]) -> DomainModel {
         let mut provenance = crate::model::test_provenance();
         provenance.genesis_hash = Some("0123456789abcdef0123".into());
+        provenance.corpus_id = Some("0123456789ab".into());
         DomainModel {
             classes: [("resource", RESOURCE), ("region", "properties: []\n")]
                 .iter()
@@ -594,6 +595,7 @@ links:
     fn a_corpus_with_no_genesis_of_its_own_is_refused() {
         let mut m = model(&[]);
         m.provenance.genesis_hash = None;
+        m.provenance.corpus_id = None;
         let classes = crate::warehouse::classes(&m);
         let contract = derive(&classes).unwrap();
         let why = rows(&m, &classes, &contract).err().unwrap().join("");

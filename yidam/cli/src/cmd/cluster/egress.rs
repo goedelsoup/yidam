@@ -28,7 +28,7 @@ use std::path::Path;
 use anyhow::{bail, Result};
 
 use crate::config::{parse_cidr, ClusterEgressConfig};
-use crate::paths::{repo_root, require_yidam_repo};
+use crate::paths::{require_yidam_repo, resolve_root};
 
 /// The label every pod of a corpus carries, whatever its kind. The corpus-wide policy selects
 /// on it alone, so a pod whose kind label is missing or misspelt still reaches nothing.
@@ -74,7 +74,7 @@ pub(super) struct Overrides {
 }
 
 pub(super) fn run(o: &Overrides) -> Result<()> {
-    let root = repo_root()?;
+    let root = resolve_root(None)?;
     require_yidam_repo(&root)?;
     print!("{}", generate(&root, o)?);
     Ok(())

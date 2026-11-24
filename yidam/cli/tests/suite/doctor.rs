@@ -208,6 +208,7 @@ fn the_json_report_carries_the_envelope_and_every_check() {
         .collect();
     let mut want = [
         "repository",
+        "mode",
         "provenance",
         "binary",
         "commit",

@@ -96,7 +96,18 @@ pub(crate) struct Rule {
 ///
 /// `input` is called only when there is a rule to evaluate, so a repository without articles
 /// never builds it.
+///
+/// A projection reads as [`Sealed::Absent`] (RFC-0064 §2.3): its root commit is the host
+/// repository's, which sealed nothing of this corpus, and its articles are rewritten with
+/// the rest of it on every run. A config that does not parse is reported by every other
+/// reader of it, so it is read as authored here.
 pub(crate) fn read(root: &Path, input: impl FnOnce() -> Json) -> Sealed {
+    if matches!(
+        crate::projection::mode(root),
+        Ok(crate::projection::CorpusMode::Projection { .. })
+    ) {
+        return Sealed::Absent;
+    }
     let on_disk = files_on_disk(root);
     let Some(genesis) = crate::git::genesis_hash(root) else {
         if on_disk.is_empty() {

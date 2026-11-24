@@ -275,7 +275,7 @@ the original design put all three in the CLI.
   right about `serve` and wrong about the five report commands this design spawns — `lint`,
   `graph`, `graph-check`, `status`, `open-questions` — which resolved by
   `git rev-parse --show-toplevel` from the working directory
-  ([`paths.rs:5-9`](../../yidam/cli/src/paths.rs#L5-L9)). They take `--root` since #918
+  ([`paths.rs:23-27`](../../yidam/cli/src/paths.rs#L23-L27): *"rev-parse", "--show-toplevel"*). They take `--root` since #918
   (cli/v0.16.0), and the surface passes it since #1012; a pinned binary older than that is
   asked again without the flag. See [§ A corpus inside a corpus](#a-corpus-inside-a-corpus).
 - **Loopback only, and not configurable.** The original offered `--bind` for a container; this
@@ -341,7 +341,7 @@ The server spawns the pinned binary per request and parses the envelope. Nothing
 |---|---|
 | `GET /` and the app's pages | Astro, server-rendered on `@astrojs/node` |
 | `GET /api/handshake` | `format_version` plus the CLI's version, commit and feature list — the fields [`report::YidamBlock::current()`](../../yidam/cli/src/report.rs#L48) assembles |
-| `GET /api/corpus` | `yidam graph --format json`, whose nodes and resolved edges come from [`model::corpus_nodes()`](../../yidam/cli/src/model.rs#L541) — the function `serve`, `graphml` and `rdf` already share |
+| `GET /api/corpus` | `yidam graph --format json`, whose nodes and resolved edges come from [`model::corpus_nodes()`](../../yidam/cli/src/model.rs#L572) — the function `serve`, `graphml` and `rdf` already share |
 | `GET /api/reports` | `lint` and `graph-check` as the RFC-0001 envelope, byte-identical to `--format json` |
 | `GET /api/overlay` (SSE) | Diagnostics from a supervised `yidam serve --lsp` — see below |
 | `POST /api/act/propose`, `POST /api/act/cycle` | The two tools of RFC-0029's `act` tier, through `yidam serve --mcp` — one stdio connection per request, three lines down and two back ([`act.ts:136`](../../yidam/editors/web/src/lib/act.ts#L136)). `?dry_run=true` is the tool's own argument; `force` has no field to arrive in. Landed 2026-09-22 (#608) |

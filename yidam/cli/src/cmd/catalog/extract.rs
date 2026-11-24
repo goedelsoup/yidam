@@ -46,7 +46,7 @@ use crate::parse::{
     parse_frontmatter, ArtifactOrigin, ArtifactReading, CatalogArtifact, CatalogLocation,
     TEXT_READING,
 };
-use crate::paths::{repo_root, yidam_catalog_dir};
+use crate::paths::yidam_catalog_dir;
 use crate::reading::{self, EXTRACTOR};
 use crate::sources::{self, transform::Transform};
 use crate::vault::{Cache, ContentHash};
@@ -383,7 +383,7 @@ fn message(entry: &str, read: &[Read]) -> (String, String) {
 }
 
 pub fn extract(opts: &ExtractOptions) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::working_root()?;
     let out = extract_in(&root, opts, &mut Writer::WorkingTree)?;
     crate::report::finish(&root, opts.format, ExtractReport { extracted: out }, |r| {
         print!("{}", render(&r.extracted, opts.dry_run))

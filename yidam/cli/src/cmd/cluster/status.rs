@@ -31,7 +31,7 @@ use super::egress::CORPUS_LABEL;
 use super::{Admission, Landed, StepOutcome, StepOutput};
 use crate::cmd::gather::Outcome as PeerOutcome;
 use crate::git::Git;
-use crate::paths::{repo_root, require_yidam_repo};
+use crate::paths::{require_yidam_repo, resolve_root};
 use crate::report::Format;
 
 /// The label Argo puts on every `Workflow` a `CronWorkflow` creates.
@@ -189,7 +189,7 @@ pub(super) struct Refs {
 // ── the command ───────────────────────────────────────────────────────────────
 
 pub(super) fn run(o: &Overrides, format: Format) -> Result<()> {
-    let root = repo_root()?;
+    let root = resolve_root(None)?;
     require_yidam_repo(&root)?;
     let cfg = crate::config::load_yidam_config(&root)?;
     let corpus = o

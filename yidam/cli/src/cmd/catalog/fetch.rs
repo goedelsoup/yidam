@@ -37,7 +37,7 @@ use super::superseded;
 use super::transport::{self, Policy, Session};
 use crate::cmd::operational::{Commit, Writer};
 use crate::parse::{parse_frontmatter, ArtifactOrigin, CatalogArtifact, CatalogLocation};
-use crate::paths::{repo_root, yidam_catalog_dir};
+use crate::paths::yidam_catalog_dir;
 use crate::sources::manifest::Paginate;
 use crate::sources::resolve::{Enabled, WAYBACK};
 use crate::vault::{Cache, ContentHash, Route};
@@ -628,7 +628,7 @@ fn message(
 }
 
 pub fn fetch(opts: &FetchOptions) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::working_root()?;
     let out = fetch_in(&root, opts, &mut Writer::WorkingTree)?;
     // A refusal is a finding: recorded, not retried, and the run says so in its exit code.
     let passed = !out.iter().any(EntryOutcome::was_refused);

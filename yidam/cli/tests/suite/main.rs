@@ -73,6 +73,7 @@ mod migrate;
 mod object_coupling;
 mod phase_record;
 mod policy;
+mod projection;
 mod propose;
 mod query_goldens;
 mod query_history;

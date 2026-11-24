@@ -202,6 +202,10 @@ pub struct BundleManifest {
     /// corpus this is*. `None` for a bundle produced before the field existed, and for a
     /// tree with no root commit.
     pub genesis_hash: Option<String>,
+    /// The name the corpus is published under, twelve characters (RFC-0064 §2.2). `None` for
+    /// a bundle produced before the field existed, and for an authored tree with no root
+    /// commit; a projection's bundle always carries it, and carries `genesis_hash: null`.
+    pub corpus_id: Option<String>,
     /// Name of the fastembed model used to build the vector index, if present.
     pub vector_index_model: Option<String>,
     /// Number of corpus instance files included in the bundle.
@@ -574,9 +578,19 @@ pub fn shadowed(root: &Path) -> Vec<ShadowedDependency> {
         let Some(manifest) = read_manifest(&unpacked) else {
             continue;
         };
-        let (Some(path_genesis), Some(fetched_genesis)) =
-            (crate::git::genesis_hash(&sibling), manifest.genesis_hash)
-        else {
+        // The corpus id when the manifest carries one (RFC-0064 §2.2), which every manifest
+        // written since does, a projection's included. The genesis hash only for a manifest
+        // from before the field, and that fallback cannot hide a projection: its manifest
+        // always carries `corpus_id`. A sibling whose id cannot be read is unknown, not
+        // different.
+        let pair = match manifest.corpus_id {
+            Some(fetched) => crate::projection::corpus_id(&sibling)
+                .ok()
+                .flatten()
+                .map(|path| (path, fetched)),
+            None => crate::git::genesis_hash(&sibling).zip(manifest.genesis_hash),
+        };
+        let Some((path_genesis, fetched_genesis)) = pair else {
             continue;
         };
         if path_genesis != fetched_genesis {

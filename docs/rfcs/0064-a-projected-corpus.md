@@ -1,6 +1,6 @@
 # RFC-0064 — A projected corpus declares its producer and its id, and yidam stops assuming it was authored
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I47
 - **Relates to:**
   - #1510 (a projection mode for generated corpora), parent epic #1513

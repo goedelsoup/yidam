@@ -37,6 +37,7 @@ fn class(name: &str, properties: &[&str], edges: &[&str]) -> Class {
             .collect(),
         label: String::new(),
         edge_policy: Default::default(),
+        outgoing_optional: false,
         max_lines: None,
         interval: None,
         prose: Vec::new(),

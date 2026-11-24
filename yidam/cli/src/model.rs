@@ -92,6 +92,16 @@ pub struct Provenance {
     /// store is read by machines, and there the properties that matter are *unique* and *stable*.
     /// `None` only for a tree with no commits, which no export can be run against anyway.
     pub genesis_hash: Option<String>,
+    /// The name the corpus is published under, twelve characters (RFC-0064 §2.2).
+    ///
+    /// For an authored corpus, the first twelve characters of [`Self::genesis_hash`]. For a
+    /// projection, the id its producer declared in `.yidam/corpus/corpus.toml`, while
+    /// `genesis_hash` is `None`: the host repository's first commit is shared by every site a
+    /// producer projects into it, so it names none of them. Every consumer that uses genesis as
+    /// a *name* — RDF subjects, vector keys, warehouse rows — reads this field instead.
+    pub corpus_id: Option<String>,
+    /// The producer, when the corpus is a projection (RFC-0064 §1).
+    pub generated_by: Option<String>,
 }
 
 /// The one `Provenance` every test fixture in this crate is built from.
@@ -126,6 +136,8 @@ pub fn test_provenance() -> Provenance {
         // only that the `^^xsd:dateTime` type survives.
         generated_at: 1_780_000_000,
         genesis_hash: None,
+        corpus_id: None,
+        generated_by: None,
     }
 }
 
@@ -309,12 +321,29 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
     };
 
     let commit = head_commit_short(root);
-    let genesis = genesis_date(root);
-    let genesis_msg = genesis_message(root);
-    let first_line = genesis_msg.lines().next().unwrap_or("").trim();
     // Read here rather than in the exporter, because every export renderer is a pure function
     // of this model and does no disk I/O of its own.
-    let genesis_hash = crate::git::genesis_hash(root);
+    //
+    // A projection has no genesis of its own (RFC-0064 §2.2): the host repository's first
+    // commit is shared by every site its producer projects, so its date is not the corpus's
+    // age, its message is not the corpus's domain, and its hash is not the corpus's name.
+    let generated_by = crate::projection::mode(root)?
+        .generated_by()
+        .map(str::to_string);
+    let (genesis, genesis_msg, genesis_hash, corpus_id) = match &generated_by {
+        None => {
+            let hash = crate::git::genesis_hash(root);
+            let id = hash.as_deref().map(crate::s3vectors::request::corpus_id);
+            (genesis_date(root), genesis_message(root), hash, id)
+        }
+        Some(by) => (
+            crate::git::UNKNOWN_COMMIT.to_string(),
+            String::new(),
+            None,
+            Some(crate::projection::declared_id(root, by)?),
+        ),
+    };
+    let first_line = genesis_msg.lines().next().unwrap_or("").trim();
     let domain = if let Some(name) = domain_from_genesis(first_line) {
         name
     } else {
@@ -364,6 +393,8 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
             domain,
             generated_at,
             genesis_hash,
+            corpus_id,
+            generated_by,
         },
         rendered: RenderedViews {
             corpus_index,

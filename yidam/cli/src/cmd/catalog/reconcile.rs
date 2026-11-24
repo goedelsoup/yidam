@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 
 use crate::parse::parse_frontmatter;
-use crate::paths::{repo_root, yidam_catalog_dir};
+use crate::paths::yidam_catalog_dir;
 use crate::walk::walk_md_files;
 
 pub struct ReconcileOptions {
@@ -37,7 +37,7 @@ struct ReconcileReport {
 }
 
 pub fn reconcile(opts: &ReconcileOptions) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::working_root()?;
     let declaring = declaring(&root, opts.entry.as_deref())?;
     if !declaring.is_empty() {
         eprintln!(

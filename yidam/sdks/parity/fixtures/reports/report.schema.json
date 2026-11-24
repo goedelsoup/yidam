@@ -1299,8 +1299,19 @@
       }
     },
     "genesis": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "`status` only. `null` in a projection, whose first commit is the host repository's (RFC-0064 \u00a72.3)."
+    },
+    "mode": {
       "type": "string",
-      "description": "`status` only."
+      "enum": [
+        "authored",
+        "projection"
+      ],
+      "description": "`status` only. Whether `.yidam/config.toml` declares the corpus written by people or projected by a program (RFC-0064 \u00a71)."
     },
     "catalog_entries": {
       "type": "integer",

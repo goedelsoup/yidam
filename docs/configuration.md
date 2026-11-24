@@ -764,6 +764,31 @@ declares that the server keeps an operational record of what it was asked. It ne
 because nothing it writes is testimony. Nor is this the `record` in `disclose/record` below. That
 one is a catalog entry's record of a source, judged for disclosure.
 
+### `[corpus] mode` and `generated_by`
+
+A corpus a program writes declares it here. Absent means `mode = "authored"`, which is every
+corpus people write.
+
+```toml
+[corpus]
+mode = "projection"
+generated_by = "example-producer mirror"
+```
+
+Both keys or neither: a projection with no producer is refused, and so is a producer on an
+authored corpus. `generated_by` is the command a reader runs to regenerate the tree, and every
+refusal names it. A projection changes four things (RFC-0064):
+
+- **Its name.** The producer writes `.yidam/corpus/corpus.toml` holding `id`, twelve lowercase
+  hex characters. That id replaces the genesis hash in RDF subjects and vector keys. Keep it
+  stable, since a new id re-keys everything already published.
+- **Writers refuse.** A command that writes under `.yidam/corpus/`, or commits for the corpus,
+  stops and names the producer. Its output would be gone on the next run.
+- **The corpus directory is generated.** Findings there are attributed to the producer, with
+  no `authorship.yml` entry needed.
+- **`doctor` skips the vendoring checks**, and `status --format json` reports `mode`
+  and `genesis: null`.
+
 ## `.yidam/policy/`
 
 The rules this repository writes about itself (RFC-0024), as [Rego](https://www.openpolicyagent.org/docs/policy-language).
@@ -950,10 +975,17 @@ through unchanged. A set on a coined type constrains nothing until the property 
 `string`, `text`, `ref`, `date`, `number`, `claim`, `quotation` and `list`. A value holding
 records is a `list` with `fields:`. The finding does not gate.
 
+**`outgoing: optional` exempts a class from `orphan-out`.** Some classes end a path: a
+reading, a measurement, a leaf the rest of the graph points at. Their instances link to nothing
+and are complete. Declaring it on the class means `orphan-out` does not fire for any of its
+instances. It is per class, never per node, so the exemption is reviewed where the ontology is.
+Any other value, or none, is `required`.
+
 ## Environment variables
 
 | Variable | Read by | Effect |
 |---|---|---|
+| `YIDAM_ROOT` | every command that reads a corpus | The corpus to act on when `--root` is not passed. The flag wins, and an empty value is unset |
 | `YIDAM_BIN_DIR` | `install.sh` | Install target, default `~/.local/bin` |
 | `YIDAM_VERSION` | `install.sh` | Install a specific tag rather than the latest |
 | `YIDAM_REPO` | `install.sh` | Resolve releases from a fork |

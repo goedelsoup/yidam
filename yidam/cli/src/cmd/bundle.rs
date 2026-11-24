@@ -5,7 +5,7 @@ use std::io::Write;
 use tar::Builder;
 
 use crate::model::{load_domain_model, DomainModel};
-use crate::paths::repo_root;
+use crate::paths::resolve_root;
 
 fn add_bytes<W: Write>(tar: &mut Builder<W>, path: &str, data: &[u8]) -> Result<()> {
     let mut header = tar::Header::new_gnu();
@@ -46,8 +46,9 @@ fn add_bytes<W: Write>(tar: &mut Builder<W>, path: &str, data: &[u8]) -> Result<
 /// |----------------------|---------|-----------------------------------------------|
 /// | `bundle_version`     | string  | Format version ("1"). Bumped on breaking change|
 /// | `commit`             | string  | Short SHA of HEAD at bundle time               |
-/// | `genesis`            | string  | ISO date of the first commit                  |
+/// | `genesis`            | string? | ISO date of the first commit; `null` in a projection |
 /// | `genesis_hash`       | string? | Full SHA of the first commit, or `null`       |
+/// | `corpus_id`          | string? | The name the corpus is published under (RFC-0064 §2.2) |
 /// | `generated_at`       | integer | Unix timestamp (seconds) of bundle creation   |
 /// | `domain`             | string  | Domain name extracted from the genesis commit |
 /// | `classes`            | integer | Count of `.ont.yml` schema files              |
@@ -89,11 +90,32 @@ pub(crate) fn render_bundle(model: &DomainModel) -> Result<Vec<u8>> {
         None => "genesis_hash: null\n".to_string(),
     };
 
+    // A projection has no genesis of its own: its root commit is the host repository's, which
+    // every site the producer projects there shares (RFC-0064 §2.2). Both genesis fields are
+    // `null` for one, and `corpus_id` is the field that names it. Written in both modes, so a
+    // reader that has it never needs the fallback.
+    let projected = p.generated_by.is_some();
+    let genesis_line = if projected {
+        "genesis: null\n".to_string()
+    } else {
+        format!("genesis: \"{}\"\n", p.genesis)
+    };
+    let genesis_hash_line = if projected {
+        "genesis_hash: null\n".to_string()
+    } else {
+        genesis_hash_line
+    };
+    let corpus_id_line = match &p.corpus_id {
+        Some(id) => format!("corpus_id: \"{id}\"\n"),
+        None => "corpus_id: null\n".to_string(),
+    };
+
     let manifest = format!(
         "bundle_version: \"1\"\n\
          commit: \"{}\"\n\
-         genesis: \"{}\"\n\
+         {genesis_line}\
          {genesis_hash_line}\
+         {corpus_id_line}\
          generated_at: {}\n\
          domain: \"{}\"\n\
          classes: {}\n\
@@ -102,7 +124,6 @@ pub(crate) fn render_bundle(model: &DomainModel) -> Result<Vec<u8>> {
          decisions: {}\n\
          {index_line}",
         p.commit,
-        p.genesis,
         p.generated_at,
         p.domain,
         model.classes.len(),
@@ -181,8 +202,8 @@ pub(crate) fn render_bundle(model: &DomainModel) -> Result<Vec<u8>> {
 /// Bundle ontology, corpus, skills, decisions, and vector index into `.yidam/bundle.yiz`.
 ///
 /// Backwards-compatible entry point; `yidam export --format bundle` is the canonical form.
-pub fn bundle() -> Result<()> {
-    let root = repo_root()?;
+pub fn bundle(root: Option<&std::path::Path>) -> Result<()> {
+    let root = resolve_root(root)?;
     // The same gate `run_export` applies, because this is the same operation reached by an
     // older name. Without it the two disagreed: `export --format bundle` created `.yidam/`
     // and wrote an empty bundle into a directory that was not a corpus, while this exited 1
@@ -363,5 +384,25 @@ mod tests {
             assert_eq!(value["bundle_version"].as_str(), Some("1"));
             assert_eq!(value["domain"].as_str(), Some("test-domain"));
         }
+    }
+
+    /// A projection's manifest names it by its declared id and claims no genesis: the host's
+    /// root commit is shared by every site the producer projects there (RFC-0064 §2.2).
+    #[test]
+    fn a_projection_s_manifest_carries_its_id_and_no_genesis() {
+        let model = DomainModel {
+            provenance: Provenance {
+                genesis_hash: Some("da4eeb36530f1111222233334444555566667777".into()),
+                corpus_id: Some("3f9c2a71b0de".into()),
+                generated_by: Some("site mirror".into()),
+                ..crate::model::test_provenance()
+            },
+            ..minimal_model(None)
+        };
+        let manifest = manifest_of(&model);
+        let decoded = crate::deps::parse_manifest(&manifest);
+        assert_eq!(decoded.corpus_id.as_deref(), Some("3f9c2a71b0de"));
+        assert_eq!(decoded.genesis_hash, None, "{manifest}");
+        assert_eq!(decoded.genesis, None, "{manifest}");
     }
 }

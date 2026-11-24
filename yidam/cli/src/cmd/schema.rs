@@ -22,7 +22,7 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
-use crate::paths::repo_root;
+use crate::paths::resolve_root;
 
 pub fn schemas_dir(root: &Path) -> PathBuf {
     root.join(".yidam").join("schemas")
@@ -389,6 +389,18 @@ pub fn corpus_ontology_schema() -> Value {
                                 policy is underlined as it is typed — `unlicensed-edge` \
                                 reads an unrecognized value as absent rather than gating on \
                                 a typo."
+            },
+            "outgoing": {
+                "type": "string",
+                "enum": ["required", "optional"],
+                "default": "required",
+                "description": "Whether an instance must carry an outgoing link. `optional` \
+                                exempts this class from `orphan-out`: a root, a glossary \
+                                entry, a terminal source nothing further is said about. Per \
+                                class rather than per node, so the exemption is reviewed in \
+                                the ontology instead of written on every instance. Declared \
+                                here so a misspelling is underlined rather than read as \
+                                `required` without a word."
             },
             "prose": {
                 "type": "array",
@@ -852,9 +864,11 @@ pub fn all() -> Vec<(&'static str, &'static str, Value)> {
 ///
 /// Read by `yaml-language-server`, which ships inside the Red Hat YAML extension for VS
 /// Code and is reachable from Neovim and Helix over LSP. Editors using none of these still
-/// get the check from `yidam lint`.
+/// get the check from `yidam lint`. `yidam schema --settings` asks it of the root it resolved;
+/// this form, of the working directory, is the tests'.
+#[cfg(test)]
 pub fn editor_settings() -> Value {
-    editor_settings_for(&repo_root().unwrap_or_default())
+    editor_settings_for(&crate::paths::working_root().unwrap_or_default())
 }
 
 /// The mapping, including one entry per compiled class.
@@ -1089,11 +1103,14 @@ fn refusal(owned: &[String]) -> String {
     )
 }
 
-pub fn schema(print_settings: bool, force: bool) -> Result<()> {
-    let root = repo_root()?;
+pub fn schema(root: Option<&std::path::Path>, print_settings: bool, force: bool) -> Result<()> {
+    let root = resolve_root(root)?;
 
     if print_settings {
-        println!("{}", serde_json::to_string_pretty(&editor_settings())?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&editor_settings_for(&root))?
+        );
         return Ok(());
     }
 

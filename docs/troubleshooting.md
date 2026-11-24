@@ -11,6 +11,7 @@ $ yidam doctor
 yidam doctor — /home/you/my-domain
 
   ok    repository   /home/you/my-domain
+  ok    mode         authored — no `[corpus]` in .yidam/config.toml
   fail  provenance   .yidam.toml records no resolvable commit
                      → mise run yidam-vendor-update
   ok    binary       this repository pins no binary — nothing can be shadowed
@@ -52,6 +53,7 @@ exit code unless you pass `--strict`, which is the reading a CI job wants.
 | Check | The question |
 |---|---|
 | `repository` | Am I in a derived repository? |
+| `mode` | Is this corpus authored, or a projection? |
 | `provenance` | Does this repository record where it came from? |
 | `binary` | Is the running binary the one this repository pins? |
 | `commit` | Was the running binary built at the commit this repository pins? |

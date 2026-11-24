@@ -52,11 +52,12 @@ address, and RFC-0005 declares the scheme normative without mentioning dependenc
 
 ### 2 — The RDF export mints subjects in a scheme nothing can dereference
 
-[`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135) types every instance at
-`yidam://corpus/<class>/<name>` and [`dataset_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L310)
+[`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L138) types every instance at
+`yidam://corpus/<class>/<name>` and [`dataset_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L315)
 names the dataset with a bare authority. No RDF consumer can follow either, and two corpora
 holding `concept/foo` mint the same subject. The export already knows the distinction it is
-failing to apply: [`export_rdf.rs:317`](../../yidam/cli/src/cmd/export_rdf.rs#L317) tests a
+failing to apply: *"gets it as a literal rather than a parse failure"*
+([`export_rdf.rs:392-397`](../../yidam/cli/src/cmd/export_rdf.rs#L392-L397)) — the export tests a
 foreign alignment IRI for a scheme it can dereference and demotes it to a literal when it fails.
 It applies that test to other people's IRIs and not to its own.
 
@@ -115,24 +116,24 @@ authoritative for terms this project minted.
 
 ### 3 — Only a struct can say *which corpus, at which revision*
 
-[`qualified_id`](../../yidam/cli/src/model.rs#L485) renders `pkg::class/name` and is the only
+[`qualified_id`](../../yidam/cli/src/model.rs#L516) renders `pkg::class/name` and is the only
 string form carrying a corpus. [`ExternalCitation`](../../yidam/sdks/rust/src/corpus.rs#L83)
 carries `package`, `node`, `commit` and `tag` — the only identifier in the system that can name a
 foreign node at a known revision, and it is four fields rather than a string, so it cannot appear
 in a resource URI, an RDF subject, a query result, or a rendered citation. Meanwhile
-[`resolve_link_target`](../../yidam/cli/src/model.rs#L502) resolves an on-disk edge from a
+[`resolve_link_target`](../../yidam/cli/src/model.rs#L533) resolves an on-disk edge from a
 relative path, which is a *fifth* convention, and unrelated to any of the above.
 
 ### 4 — Eleven forms, and the count is the argument
 
 | Form | Built by | Corpus? | Revision? |
 |---|---|---|---|
-| `class/name` | [`corpus_nodes`](../../yidam/cli/src/model.rs#L529-L552) | — | — |
-| `pkg::class/name` | [`qualified_id`](../../yidam/cli/src/model.rs#L485) | yes | — |
+| `class/name` | [`corpus_nodes`](../../yidam/cli/src/model.rs#L560-L583) | — | — |
+| `pkg::class/name` | [`qualified_id`](../../yidam/cli/src/model.rs#L516) | yes | — |
 | `.yidam/corpus/class/name.yml` | tolerated by [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L393) | — | — |
-| `../other-class/thing.yml` | [`resolve_link_target`](../../yidam/cli/src/model.rs#L502) | — | — |
+| `../other-class/thing.yml` | [`resolve_link_target`](../../yidam/cli/src/model.rs#L533) | — | — |
 | `yidam://corpus/class/name` | [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56) | — | — |
-| the same string as an RDF subject | [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135) | — | — |
+| the same string as an RDF subject | [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L138) | — | — |
 | `file:///…/class/name.yml` | [`path_to_uri`](../../yidam/cli/src/cmd/lsp.rs#L107) | n/a | — |
 | `/node/class/name` | [`nodeHref`](../../yidam/editors/web/src/lib/graph.ts#L195-L196) | — | — |
 | a GraphML `node id` | `export_graphml.rs` | — | — |
@@ -158,7 +159,7 @@ kind         node | crate | catalog | skill | decision | issue
 The corpus moves into the authority and the kind into the path, which is the minimal change that
 creates the slot §1 lacks. `<path>` is `<class>/<name>` for `node` and a single segment for the
 others. Every segment in a **conforming** corpus is a slug — the rule
-[`name_not_a_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L893) reports against, through its
+[`name_not_a_slug`](../../yidam/cli/src/cmd/lint/checks.rs#L901) reports against, through its
 predicate [`is_slug`](../../yidam/sdks/rust/src/uri.rs#L132) — so **no percent-encoding is
 required anywhere in this grammar**, which is why there is one string form and not one per
 encoder.
@@ -281,7 +282,7 @@ question one layer down and the answers must not contradict.
 is actually reachable narrowed what "detectable" means. It is not two entries in one
 `.yidam/tonpa/`, which cannot exist — the directory name *is* the declared name. It is a path
 dependency and an unpacked bundle claiming one name, which
-[`resolved`](../../yidam/cli/src/deps.rs#L472-L519) already resolves in favour of the checkout
+[`resolved`](../../yidam/cli/src/deps.rs#L476-L523) already resolves in favour of the checkout
 and does so **silently**. Silence is right in the common case, where the two are one corpus in
 two forms: someone fetched a dependency and then pointed at a checkout of it to edit. It is
 wrong when they are different corpora, because then the reader is reading one while
@@ -297,8 +298,8 @@ Guessing would either invent a conflict on every bundle built before the field o
 
 `yidam_core::uri` parses and renders the grammar and becomes the only place an identifier is
 built or split. It retires [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L393)'s three
-tolerated spellings, [`qualified_id`](../../yidam/cli/src/model.rs#L485),
-[`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L135),
+tolerated spellings, [`qualified_id`](../../yidam/cli/src/model.rs#L516),
+[`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L138),
 [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56)'s prefix chain and
 [`nodeHref`](../../yidam/editors/web/src/lib/graph.ts#L195-L196)'s route builder. It lands on the
 parity surface, so Rust, TypeScript and Python must agree — three implementations and one shared
@@ -319,7 +320,8 @@ about:
   must emit a URI can then act on the answer.
 
 The third, because the repository already does exactly this one layer out:
-[`export_rdf.rs:317`](../../yidam/cli/src/cmd/export_rdf.rs#L317) tests a foreign alignment IRI for
+*"gets it as a literal rather than a parse failure"*
+([`export_rdf.rs:392-397`](../../yidam/cli/src/cmd/export_rdf.rs#L392-L397)) — the export tests a foreign alignment IRI for
 a scheme it can dereference and demotes it to a literal when it fails. §2's complaint is that it
 applies that test to other people's IRIs and not to its own. Reporting conformance on our own
 identifiers is that same test, turned inward — which makes this amendment continuous with the

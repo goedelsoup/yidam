@@ -72,6 +72,8 @@ mod paths;
 /// The rules a repository writes about itself (RFC-0024). Public so the equivalence
 /// tests can hold it beside the Rust guards it re-expresses.
 pub mod policy;
+/// A corpus written by a program rather than by people (RFC-0064).
+mod projection;
 mod prose;
 pub mod provenance;
 mod reading;

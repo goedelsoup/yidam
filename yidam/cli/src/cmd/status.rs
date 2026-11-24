@@ -68,7 +68,11 @@ struct StatusReport {
     rewritten_phases: usize,
     /// Standing `ma/*` elector positions, which are neither active work nor drift.
     positions: usize,
-    genesis: String,
+    /// The date of the first commit. `null` in a projection (RFC-0064 §2.3): its first commit
+    /// is the host repository's, which says nothing about when this corpus began.
+    genesis: Option<String>,
+    /// `authored` or `projection`, as `.yidam/config.toml` declares it.
+    mode: &'static str,
 }
 
 /// The corpus in one line, into the README block — and the same numbers plus the phase tally
@@ -165,7 +169,16 @@ pub fn status(root: Option<&std::path::Path>, format: crate::report::Format) -> 
     .filter(|a| a.overdue_days().is_some())
     .count();
 
-    let genesis = genesis_date(&root);
+    let mode = crate::projection::mode(&root)?;
+    let genesis = match mode.generated_by() {
+        None => Some(genesis_date(&root)),
+        Some(_) => None,
+    };
+    // In a projection the line says who wrote it, where an authored corpus says when it began.
+    let origin_cell = match (&genesis, mode.generated_by()) {
+        (Some(date), _) => format!("genesis {date}"),
+        (None, by) => format!("projected by `{}`", by.unwrap_or_default()),
+    };
 
     let sources_cell = match catalog_expired {
         0 => format!("{catalog_entries} sources"),
@@ -187,7 +200,7 @@ pub fn status(root: Option<&std::path::Path>, format: crate::report::Format) -> 
     };
     let content = format!(
         "**{node_count} nodes** · {open_cell} · {sources_cell} · \
-         claims {} · {edges_cell}genesis {genesis}",
+         claims {} · {edges_cell}{origin_cell}",
         claims.cell()
     );
 
@@ -231,7 +244,8 @@ pub fn status(root: Option<&std::path::Path>, format: crate::report::Format) -> 
                 settled_phases: phases.settled,
                 rewritten_phases: phases.rewritten,
                 positions: phases.positions,
-                genesis: genesis.clone(),
+                genesis,
+                mode: mode.word(),
             },
         );
     }

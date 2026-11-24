@@ -180,7 +180,24 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     }
 
     suppress_unparsed(&mut all, &corpus, input.universal());
+    attribute_projected(&mut all, root);
     all
+}
+
+/// In a projection, every finding under the corpus names who wrote it (RFC-0064 §4).
+///
+/// On `detail`, which the baseline carries and never compares, so attributing a finding does
+/// not make it a new one. The severity is not touched: a projection's defect is still a defect.
+fn attribute_projected(all: &mut [Check], root: &Path) {
+    let Some(by) = crate::projection::producer(root) else {
+        return;
+    };
+    let note = crate::projection::attribution(&by);
+    for v in all.iter_mut().flat_map(|c| c.violations.iter_mut()) {
+        if crate::projection::under_corpus(&v.node) {
+            v.detail = format!("{} — {note}", v.detail);
+        }
+    }
 }
 
 /// The roster's ids that `reported` does not carry: every check this run left unasked.
@@ -342,7 +359,7 @@ const ROSTER: &[Entry] = &[
     Entry {
         id: "orphan-out",
         asked: Asked::Always,
-        run: |i| checks::orphan_out(i.nodes()),
+        run: |i| checks::orphan_out(i.nodes(), i.classes()),
     },
     Entry {
         id: "dangling-edge",

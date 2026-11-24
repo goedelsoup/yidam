@@ -2,6 +2,24 @@ use anyhow::{Context, Result};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
+/// The environment variable that names a corpus root when `--root` does not. See
+/// [`resolve_root`].
+pub const ROOT_VAR: &str = "YIDAM_ROOT";
+
+/// The repository this process stands in, for a command that **commits** — and for the few
+/// readers whose question is that one: which repository a path a person reads is relative
+/// to, or where a corpus-free report (`bench --scaling`) is filed.
+///
+/// Neither `--root` nor `YIDAM_ROOT` reaches it. #918 drew that line: a command that writes a
+/// commit and takes a corpus to write it into is a design question, not a threading bug, and
+/// a variable exported for a producer's read-only runs (RFC-0064 §7) must not move a rename
+/// or a phase into another checkout. Named rather than inlined so that every caller of
+/// [`repo_root`] outside this file is one of the two decisions — this, or [`resolve_root`] —
+/// and `tests/gates` can hold it there.
+pub fn working_root() -> Result<PathBuf> {
+    repo_root()
+}
+
 pub fn repo_root() -> Result<PathBuf> {
     // `Git::here()`, not `Git::new(dir)`: this *is* the question "which repository is this
     // process standing in", so it is the one caller with no directory to name.
@@ -51,14 +69,23 @@ pub fn repo_root() -> Result<PathBuf> {
 ///
 /// The check and the messages are [`require_yidam_repo`]'s, unchanged: a named directory that
 /// is an unbootstrapped `yidam clone` is told so by name, rather than reading as empty.
+///
+/// **`YIDAM_ROOT` names one when the flag does not** (RFC-0064 §7), and the flag wins when
+/// both are given. It is the same assertion made once per shell instead of once per command —
+/// a producer's CI sets it per site and runs the same commands against each — so it is
+/// refused on the same terms. An empty value is unset, so `YIDAM_ROOT= yidam …` is the
+/// working directory again.
 pub fn resolve_root(explicit: Option<&Path>) -> Result<PathBuf> {
-    let Some(dir) = explicit else {
+    let from_env = std::env::var_os(ROOT_VAR)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from);
+    let Some(dir) = explicit.map(Path::to_path_buf).or(from_env) else {
         return repo_root();
     };
     let resolved = dir
         .ancestors()
         .find(|d| d.join(".yidam").is_dir())
-        .unwrap_or(dir)
+        .unwrap_or(&dir)
         .to_path_buf();
     require_yidam_repo(&resolved)?;
     Ok(resolved)

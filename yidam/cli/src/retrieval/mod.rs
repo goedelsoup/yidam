@@ -499,18 +499,13 @@ fn remote_state(
     // Same refusal `index-push` makes, for the same reason: every key is prefixed with the
     // corpus, so a repository that cannot see its own root commit would be asking about a
     // corpus that is not the one it is in.
-    let corpus = model
-        .provenance
-        .genesis_hash
-        .as_deref()
-        .map(|h| h.chars().take(12).collect::<String>())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "this repository cannot see its own genesis commit, so it cannot say which \
+    let corpus = model.provenance.corpus_id.clone().ok_or_else(|| {
+        anyhow::anyhow!(
+            "this repository cannot see its own genesis commit, so it cannot say which \
                  corpus in the remote index is its own.\n  \
                  A shallow clone is the usual cause — `git fetch --unshallow`."
-            )
-        })?;
+        )
+    })?;
 
     // The model to embed queries with. A local `embed.config.json` is authoritative when one
     // is present; otherwise the default, checked against the index's own witness on the first

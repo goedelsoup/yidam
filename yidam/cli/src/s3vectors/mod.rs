@@ -314,9 +314,9 @@ pub fn checked_corpus_id(hash: &str) -> Result<String> {
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
     {
         bail!(
-            "{hash:?} is not a corpus identity — a corpus is named by its genesis commit \
-             hash, in lowercase hex, and a vector index keys on the first {CORPUS_ID_LEN} \
-             characters of it"
+            "{hash:?} is not a corpus identity — a corpus is named by its corpus id, in \
+             lowercase hex: the first {CORPUS_ID_LEN} characters of its genesis commit hash, or \
+             the id a projection declares in .yidam/corpus/corpus.toml"
         );
     }
     Ok(request::corpus_id(hash))
@@ -534,7 +534,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(e.contains("ohio-budget"), "{e}");
-        assert!(e.contains("genesis"), "{e}");
+        assert!(e.contains("corpus id"), "{e}");
     }
 
     /// And a name that is not a slug, because the name is rendered and read back.

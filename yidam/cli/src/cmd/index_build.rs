@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::config::load_yidam_config;
 use crate::embed_config::{EmbedConfig, EMBED_CONFIG_FILENAME};
 use crate::git::head_commit_short;
-use crate::paths::{repo_root, yidam_embeddings_dir, yidam_index_dir};
+use crate::paths::{resolve_root, yidam_embeddings_dir, yidam_index_dir};
 
 /// The name `meta.json` records under `table`. There is no table any more — #1287 removed the
 /// LanceDB one nothing read — but the key is part of the contract a pushed index carries, and
@@ -91,8 +91,8 @@ impl EmbedRecord {
     }
 }
 
-pub fn index_build(model_arg: Option<String>) -> Result<()> {
-    let root = repo_root()?;
+pub fn index_build(root: Option<&std::path::Path>, model_arg: Option<String>) -> Result<()> {
+    let root = resolve_root(root)?;
     let embeddings_dir = yidam_embeddings_dir(&root);
     let index_dir = yidam_index_dir(&root);
 

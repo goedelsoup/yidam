@@ -38,7 +38,7 @@ use anyhow::{bail, Result};
 use super::egress::{Egress, CORPUS_LABEL, EGRESS_LABEL};
 use crate::cmd::run::manifest::{Manifest, Run, MANIFEST};
 use crate::config::{ClusterCleanupConfig, ClusterPodConfig};
-use crate::paths::{repo_root, require_yidam_repo};
+use crate::paths::{require_yidam_repo, resolve_root};
 
 /// Flags that override `[cluster]` and `[vault.<name>]`.
 pub(super) struct Overrides {
@@ -69,7 +69,7 @@ const GIT_SSH: &str =
     "ssh -i /etc/yidam/git/key -o UserKnownHostsFile=/etc/yidam/git/known_hosts -o IdentitiesOnly=yes";
 
 pub(super) fn run(o: &Overrides) -> Result<()> {
-    let root = repo_root()?;
+    let root = resolve_root(None)?;
     require_yidam_repo(&root)?;
     print!("{}", generate(&root, o)?);
     Ok(())

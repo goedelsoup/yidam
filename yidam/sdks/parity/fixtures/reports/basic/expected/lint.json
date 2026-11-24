@@ -63,7 +63,7 @@
       "id": "orphan-out",
       "title": "Node connected to nothing",
       "severity": "error",
-      "rationale": "Every node must carry at least one outgoing edge. A node with none is unreachable by traversal from anywhere, which in a graph whose value is its connectivity means it is not in the graph at all.",
+      "rationale": "Every node must carry at least one outgoing edge. A node with none is unreachable by traversal from anywhere, which in a graph whose value is its connectivity means it is not in the graph at all. A class whose instances legitimately end a path — a root, a glossary entry, a terminal source — says so with `outgoing: optional`.",
       "escalation_eligible": false,
       "violations": []
     },

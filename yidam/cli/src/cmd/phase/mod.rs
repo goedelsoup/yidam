@@ -90,7 +90,7 @@ use clap::Subcommand;
 use crate::cmd::propose::write::{commit_tree, current_branch, git, head, short_of, TempIndex};
 use crate::cmd::run::manifest::{Manifest, MANIFEST};
 use crate::cmd::run::receipt::sha256;
-use crate::paths::{repo_root, require_yidam_repo};
+use crate::paths::require_yidam_repo;
 use crate::report::Format;
 use record::{Input, Record, Step};
 
@@ -289,8 +289,9 @@ fn branch_exists(root: &Path, branch: &str) -> bool {
 }
 
 pub fn start(name: &str, kind: &str, format: Format) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::working_root()?;
     require_yidam_repo(&root)?;
+    crate::projection::refuse_if_projection(&root, "phase start")?;
 
     let slug = name.strip_prefix(PHASE_PREFIX).unwrap_or(name);
     if !is_kebab(slug) {
@@ -611,8 +612,9 @@ struct Skew {
 }
 
 fn run_phase(dry_run: bool, format: Format) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::working_root()?;
     require_yidam_repo(&root)?;
+    crate::projection::refuse_if_projection(&root, "phase run")?;
     let (branch, slug, mut rec) = current_phase(&root)?;
 
     let manifest = Manifest::load(&root)?;
@@ -1078,8 +1080,9 @@ struct RegenSettle {
 
 /// `settle`, and with `merge` (the `--summary`, if any) the merge written.
 fn settle(merge: Option<Option<String>>, format: Format) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::working_root()?;
     require_yidam_repo(&root)?;
+    crate::projection::refuse_if_projection(&root, "phase settle")?;
     let (branch, slug, rec) = current_phase(&root)?;
 
     let Some(baseline) = crate::git::base_branch(&root) else {

@@ -49,8 +49,8 @@ pub enum TonpaCommand {
     },
 }
 
-pub async fn run(sub: TonpaCommand) -> Result<()> {
-    let root = crate::paths::repo_root()?;
+pub async fn run(sub: TonpaCommand, root: Option<&std::path::Path>) -> Result<()> {
+    let root = crate::paths::resolve_root(root)?;
     let dir = tonpa_dir(&root);
     let config_path = tonpa_config_path(&root);
     let lock_path = crate::paths::tonpa_lock_path(&root);

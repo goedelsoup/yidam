@@ -626,7 +626,7 @@ fn repository_paths(root: &std::path::Path, stale: &[crate::regen::Stale]) -> Re
     let base = root
         .canonicalize()
         .with_context(|| format!("resolving {}", root.display()))?;
-    let here = crate::paths::repo_root().ok();
+    let here = crate::paths::working_root().ok();
     let mut out: Vec<String> = Vec::new();
     for s in stale {
         let named = std::path::Path::new(&s.file);

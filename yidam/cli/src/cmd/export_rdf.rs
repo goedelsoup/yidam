@@ -95,7 +95,10 @@ struct RdfView {
     dataset_iri: String,
     domain: String,
     commit: String,
-    genesis: String,
+    /// `None` for a projection, whose genesis is the host repository's (RFC-0064 §2.2): the
+    /// bundle and `status` say `null` there, and a `genesisDate` of `"unknown"` is a malformed
+    /// date to anyone reading the graph.
+    genesis: Option<String>,
     generated_at_iso: String,
     /// class name → its declared foundational alignment, when it has one.
     classes: BTreeMap<String, Option<Alignment>>,
@@ -182,8 +185,10 @@ fn reference_for(corpus: &str, target: &str) -> yidam_core::uri::Reference {
 /// is unchanged. The two are different jobs, which is the same split §4.2 makes between an
 /// identifier and a locator.
 fn corpus_component(model: &DomainModel) -> Result<String> {
-    match &model.provenance.genesis_hash {
-        Some(hash) => Ok(hash.chars().take(12).collect()),
+    // `corpus_id` is twelve characters of the genesis hash for an authored corpus, and the
+    // producer's declared id for a projection (RFC-0064 §2.2).
+    match &model.provenance.corpus_id {
+        Some(id) => Ok(id.clone()),
         // Refused rather than substituted. A constant here — `local`, `unknown`, anything —
         // is the same string for every corpus that reaches this branch, so two of them merged
         // into one triple store would conflate their nodes: exactly the defect §2 is about,
@@ -310,7 +315,11 @@ fn build_view(model: &DomainModel) -> Result<RdfView> {
         dataset_iri: format!("urn:yidam:{corpus}"),
         domain: model.provenance.domain.clone(),
         commit: model.provenance.commit.clone(),
-        genesis: model.provenance.genesis.clone(),
+        genesis: model
+            .provenance
+            .generated_by
+            .is_none()
+            .then(|| model.provenance.genesis.clone()),
         generated_at_iso: unix_to_iso(model.provenance.generated_at),
         classes,
         instances,
@@ -348,11 +357,13 @@ fn build_graph(view: &RdfView) -> Result<Graph> {
         &yidam("commit")?,
         Literal::new_simple_literal(&view.commit).into(),
     );
-    insert(
-        &dataset,
-        &yidam("genesisDate")?,
-        Literal::new_simple_literal(&view.genesis).into(),
-    );
+    if let Some(genesis) = &view.genesis {
+        insert(
+            &dataset,
+            &yidam("genesisDate")?,
+            Literal::new_simple_literal(genesis).into(),
+        );
+    }
 
     // Classes
     for (class, align) in &view.classes {
@@ -489,8 +500,10 @@ pub(crate) fn render_rdf_jsonld(model: &DomainModel) -> Result<String> {
         "rdfs:label": view.domain,
         "prov:generatedAtTime": {"@value": view.generated_at_iso, "@type": "xsd:dateTime"},
         "yidam:commit": view.commit,
-        "yidam:genesisDate": view.genesis,
     })];
+    if let Some(genesis) = &view.genesis {
+        graph[0]["yidam:genesisDate"] = json!(genesis);
+    }
 
     for (class, align) in &view.classes {
         let mut obj = json!({
@@ -608,6 +621,7 @@ mod tests {
             index: None,
             provenance: Provenance {
                 genesis_hash: Some("abcdef012345deadbeef".into()),
+                corpus_id: Some("abcdef012345".into()),
                 ..crate::model::test_provenance()
             },
             rendered: RenderedViews {
@@ -832,6 +846,7 @@ mod tests {
     fn a_corpus_with_no_genesis_commit_is_refused_rather_than_named_like_every_other() {
         let mut model = test_model();
         model.provenance.genesis_hash = None;
+        model.provenance.corpus_id = None;
         let err = render_rdf_turtle(&model).expect_err("an unidentifiable corpus must not export");
         let message = err.to_string();
         assert!(
