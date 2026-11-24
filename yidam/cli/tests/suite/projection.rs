@@ -16,10 +16,8 @@ fn projected() -> common::Example {
     let example = common::Example::materialize("streamflow");
     let root = example.path();
     let config = root.join(".yidam/config.toml");
-    let mut text = std::fs::read_to_string(&config).unwrap_or_default();
-    text.push_str(&format!(
-        "\n[corpus]\nmode = \"projection\"\ngenerated_by = \"{PRODUCER}\"\n"
-    ));
+    let text = std::fs::read_to_string(&config).unwrap_or_default();
+    let text = format!("{text}\n[corpus]\nmode = \"projection\"\ngenerated_by = \"{PRODUCER}\"\n");
     std::fs::write(&config, text).unwrap();
     std::fs::write(
         root.join(".yidam/corpus/corpus.toml"),
