@@ -259,31 +259,51 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
         let meta_raw = std::fs::read(&meta_path)?;
         let meta = serde_json::from_slice(&meta_raw).unwrap_or(serde_json::Value::Null);
         let embed_config_path = index_dir.join(EMBED_CONFIG_FILENAME);
-        let embed_config = if embed_config_path.exists() {
-            match EmbedConfig::from_json(&std::fs::read_to_string(&embed_config_path)?) {
-                Ok(cfg) => Some(cfg),
+        // `Err` when the index is refused outright, `Ok(None)` when it is read without a
+        // contract — an index built before the contract existed, or one whose contract is not
+        // JSON this binary can parse.
+        let embed_config: std::result::Result<Option<EmbedConfig>, String> = if embed_config_path
+            .exists()
+        {
+            match serde_json::from_str::<EmbedConfig>(&std::fs::read_to_string(&embed_config_path)?)
+            {
+                // A contract from a later yidam (RFC-0060 §2.5). Read without it, its rows
+                // would be ranked under terms this binary does not know — passages taken
+                // for nodes was the first such misreading — so the index is not loaded.
+                Ok(cfg) => cfg.known_version().map(|()| Some(cfg)).map_err(|e| {
+                    format!(
+                        "[warn] not reading the vector index at {}: {e:#}",
+                        index_dir.display()
+                    )
+                }),
                 Err(e) => {
                     eprintln!(
                         "[warn] {} is not a valid embed config ({e}) — \
-                         rebuild with `yidam index-build`",
+                             rebuild with `yidam index-build`",
                         embed_config_path.display()
                     );
-                    None
+                    Ok(None)
                 }
             }
         } else {
             eprintln!(
                 "[warn] index has no {EMBED_CONFIG_FILENAME} — \
-                 rebuild with `yidam index-build` to pin the embedding contract"
+                     rebuild with `yidam index-build` to pin the embedding contract"
             );
-            None
+            Ok(None)
         };
-        Some(IndexData {
-            arrow_ipc,
-            meta_raw,
-            meta,
-            embed_config,
-        })
+        match embed_config {
+            Ok(embed_config) => Some(IndexData {
+                arrow_ipc,
+                meta_raw,
+                meta,
+                embed_config,
+            }),
+            Err(refused) => {
+                eprintln!("{refused}");
+                None
+            }
+        }
     } else {
         None
     };

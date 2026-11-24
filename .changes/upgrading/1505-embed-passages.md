@@ -29,7 +29,7 @@ Keyword search and an index built before this answer 0.
 **`index-status` gains `row_count`.**
 
 `node_count` still counts distinct nodes, and `row_count` counts the passages they were split into.
-It is `null` on an index built before this.
+An index built before this reports its `node_count` as its `row_count`, one row per node.
 
 **`export-sqlite` writes one row per passage, with a `passage` column.**
 

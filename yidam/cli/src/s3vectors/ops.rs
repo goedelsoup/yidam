@@ -107,13 +107,14 @@ pub fn query(
     k: usize,
 ) -> Result<Vec<Hit>, Failure> {
     let pushed = filter::to_json(corpora, filter).map_err(|e| Failure::invalid(e.to_string()))?;
-    let top_k = response::top_k_request(k, true);
+    let mut top_k = response::top_k_request(k, true);
 
     let mut collected: Vec<Hit> = Vec::new();
     let mut token: Option<String> = None;
     let mut seen_tokens: BTreeSet<String> = BTreeSet::new();
 
     loop {
+        let paged = token.is_some();
         let req = request::query_vectors(idx, query_vector, top_k, &pushed, token.as_deref())
             .map_err(|e| Failure::invalid(e.to_string()))?;
         let body = session.call(&req)?;
@@ -121,11 +122,19 @@ pub fn query(
             response::decode_query(corpora, &body).map_err(Failure::invalid)?;
 
         let empty = hits.is_empty();
+        let rows = hits.len();
         collected.extend(hits);
 
         // Enough surviving nodes, or nothing more to ask for. Nodes and not rows: the rows are
         // passages, and `k` of them can be one node's.
         let kept = response::distinct_nodes(&collected, &residual);
+        // One full page and no token: the rows past `topK` are out of reach except by asking
+        // for more of them. The wider answer contains this one, so it replaces it.
+        if let Some(wider) = response::widened(top_k, rows, kept, k, paged || next.is_some()) {
+            top_k = wider;
+            collected.clear();
+            continue;
+        }
         if !response::wants_more(kept, k, &next) {
             break;
         }
@@ -317,7 +326,10 @@ pub fn plan_mirror(
     let mut delete = Vec::new();
     let mut untouched = 0;
     let mut present = 0;
-    let mut others: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    // Nodes, not rows: a long node is several passage rows, and the roster counts what the
+    // other corpus holds, as `node_count` does.
+    let mut others: std::collections::BTreeMap<String, BTreeSet<&str>> =
+        std::collections::BTreeMap::new();
     for key in &remote {
         // **The safety property.** Anything that is not this corpus's is not this push's to
         // remove: the witness lives beside the rows, and an index may hold another corpus.
@@ -326,9 +338,9 @@ pub fn plan_mirror(
             // Whose it is, where the key says so. A prefix is a corpus only if it is one —
             // `checked_corpus_id` is the same predicate a query resolves a caller's argument
             // with, so nothing can appear in this roster that could not be asked about.
-            if let Some((other, _)) = request::split_key(key) {
+            if let Some((other, path)) = request::split_key(key) {
                 if let Ok(id) = super::checked_corpus_id(other) {
-                    *others.entry(id).or_default() += 1;
+                    others.entry(id).or_default().insert(path);
                 }
             }
             continue;
@@ -346,7 +358,10 @@ pub fn plan_mirror(
         new: local_keys.len().saturating_sub(present),
         delete,
         untouched,
-        others: others.into_iter().collect(),
+        others: others
+            .into_iter()
+            .map(|(id, paths)| (id, paths.len()))
+            .collect(),
     })
 }
 
@@ -639,6 +654,38 @@ mod tests {
         );
     }
 
+    /// `QueryVectors` hands back one page. When its `topK` rows are the passages of fewer than
+    /// `k` nodes, the query is asked again wider rather than answering short (RFC-0060).
+    #[test]
+    fn a_full_page_of_too_few_nodes_is_asked_again_wider() {
+        let passages = |n: usize| {
+            json!((0..n)
+                .map(|i| row(&format!("c1/long.yml#{i}"), 0.1 + i as f64 * 0.001))
+                .collect::<Vec<_>>())
+        };
+        let mut wider = passages(16);
+        wider.as_array_mut().unwrap().push(row("c1/b.yml", 0.5));
+        let api = Fake::ok(vec![page(passages(16), None), page(wider, None)]);
+        let hits = query(
+            &session(&api),
+            &idx(),
+            &Corpora::own("c1"),
+            &[0.1],
+            &Filter::any(),
+            |_| true,
+            2,
+        )
+        .unwrap();
+        let calls = api.calls();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].body["topK"], 16);
+        assert_eq!(calls[1].body["topK"], 32);
+        assert_eq!(
+            hits.iter().map(|h| h.path.as_str()).collect::<Vec<_>>(),
+            vec!["long.yml", "b.yml"]
+        );
+    }
+
     #[test]
     fn a_query_stops_paging_once_it_has_what_it_asked_for() {
         let api = Fake::ok(vec![page(
@@ -831,6 +878,7 @@ mod tests {
             "3f2a9c4d1b70/a.yml",
             "0123456789ab/theirs.yml",
             "0123456789ab/also-theirs.yml",
+            "0123456789ab/also-theirs.yml#1",
             "not-a-corpus/x.yml",
         ])]);
         let plan = plan_mirror(
@@ -843,7 +891,7 @@ mod tests {
         assert_eq!(plan.others, vec![(theirs.to_string(), 2)]);
         // And the roster is a report, not a licence: none of it is this push's to delete.
         assert!(plan.delete.is_empty());
-        assert_eq!(plan.untouched, 4);
+        assert_eq!(plan.untouched, 5);
     }
 
     /// An index holding one corpus reports no roster, so nothing is printed where there is

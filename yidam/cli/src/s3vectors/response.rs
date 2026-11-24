@@ -363,6 +363,18 @@ pub fn wants_more(kept: usize, k: usize, next: &Option<String>) -> bool {
     kept < k && next.is_some()
 }
 
+/// A larger `topK` to ask again with, when one unpaged answer came back full and still short.
+///
+/// `QueryVectors` answers in one page, so [`wants_more`] alone cannot reach past the first
+/// `topK` rows — and those can all be the passages of a few long nodes (RFC-0060). A full page
+/// says there may be more rows behind it, so the query is asked again with `topK` doubled, up to
+/// [`MAX_TOP_K`]. A page shorter than `topK` is everything the filter admits; asking again would
+/// return the same rows.
+pub fn widened(top_k: usize, rows: usize, kept: usize, k: usize, paged: bool) -> Option<usize> {
+    (!paged && kept < k && rows >= top_k && top_k < MAX_TOP_K)
+        .then(|| top_k.saturating_mul(2).min(MAX_TOP_K))
+}
+
 /// How many distinct nodes the hits the residual admits name: one per corpus and path,
 /// however many of a node's passages came back.
 pub fn distinct_nodes(hits: &[Hit], residual: impl Fn(&Hit) -> bool) -> usize {
@@ -674,6 +686,24 @@ mod tests {
         // Clamped to the service's ceiling rather than sent and rejected.
         assert_eq!(top_k_request(MAX_TOP_K, true), MAX_TOP_K);
         assert_eq!(top_k_request(0, false), 1);
+    }
+
+    #[test]
+    fn only_a_full_unpaged_answer_that_is_short_of_nodes_is_widened() {
+        assert_eq!(widened(40, 40, 3, 5, false), Some(80));
+        assert_eq!(
+            widened(40, 39, 3, 5, false),
+            None,
+            "short page: that is all there is"
+        );
+        assert_eq!(widened(40, 40, 5, 5, false), None, "enough nodes");
+        assert_eq!(
+            widened(40, 40, 3, 5, true),
+            None,
+            "paging reaches further itself"
+        );
+        assert_eq!(widened(MAX_TOP_K, MAX_TOP_K, 3, 5, false), None);
+        assert_eq!(widened(6_000, 6_000, 3, 5, false), Some(MAX_TOP_K));
     }
 
     #[test]

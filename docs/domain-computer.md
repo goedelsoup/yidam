@@ -149,6 +149,7 @@ index; nothing is re-embedded. Requires an index (`yidam embed && yidam index-bu
 
 A long node is embedded as several passages, one row each, numbered by `passage` from 0.
 A `vec0` query returns rows, so group by `path` to get one answer per node.
+The examples ask for 40 rows to get 5 nodes; raise `k` when a few long nodes fill all 40.
 
 Query from Python:
 

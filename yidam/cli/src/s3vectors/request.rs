@@ -77,13 +77,15 @@ pub fn corpus_id(genesis_hash: &str) -> String {
 /// the key a node had before passages existed, so a corpus whose nodes all fit pushes exactly
 /// the keys it pushed before, and a mirror deletes nothing it did not have to.
 ///
-/// **A path holding `#` is refused**, because the suffix is read back off the key: a node at
-/// `notes/a#2.yml` and the third passage of `notes/a` would otherwise be one key.
+/// **A path ending in `#` and digits is refused**, because the suffix is read back off the key:
+/// a node at `notes/a#2` and the third passage of `notes/a` would otherwise be one key. Any
+/// other `#` is kept — `c#-language.yml` pushed before passages existed and still does, since
+/// [`split_passage`] reads a suffix only where every character after the last `#` is a digit.
 pub fn vector_key(corpus: &str, path: &str, passage: u32) -> Result<String> {
-    if path.contains('#') {
+    if split_passage(path).0 != path {
         bail!(
-            "{path} contains `#`, which a vector key uses to number a node's passages. \
-             Rename the file."
+            "{path} ends in `#` and digits, which a vector key uses to number a node's \
+             passages. Rename the file."
         );
     }
     let key = if passage == 0 {
@@ -115,9 +117,9 @@ pub fn path_from_key<'a>(corpus: &str, key: &'a str) -> Option<&'a str> {
 
 /// A key's path and the passage its `#<n>` suffix numbers, or passage 0 when it has none.
 ///
-/// Only a trailing `#` followed by digits is a suffix. [`vector_key`] refuses a path holding
-/// `#` at all, so a key this build wrote can never be misread; the digits test is what keeps
-/// a key some other writer put in the index from losing half its path here.
+/// Only a trailing `#` followed by digits is a suffix. [`vector_key`] refuses a path that would
+/// read as one, so a key this build wrote can never be misread; the digits test is what keeps
+/// a key with any other `#` in it from losing half its path here.
 pub fn split_passage(path: &str) -> (&str, u32) {
     match path.rsplit_once('#') {
         Some((head, n))
@@ -683,13 +685,21 @@ mod tests {
         assert_eq!(split_passage("corpus/a.yml#"), ("corpus/a.yml#", 0));
     }
 
-    /// A path with `#` in it is refused, so a suffix can never be mistaken for a path.
+    /// A path that reads as a passage suffix is refused, so a suffix can never be mistaken
+    /// for a path; any other `#` keeps the key it always had.
     #[test]
-    fn a_path_containing_a_hash_is_refused() {
-        let e = vector_key("abc123", "corpus/concept/a#b.yml", 0)
+    fn only_a_path_that_reads_as_a_passage_suffix_is_refused() {
+        let e = vector_key("abc123", "corpus/concept/a#2", 0)
             .unwrap_err()
             .to_string();
-        assert!(e.contains("corpus/concept/a#b.yml"), "{e}");
+        assert!(e.contains("corpus/concept/a#2"), "{e}");
+        for path in ["corpus/concept/c#-language.yml", "corpus/concept/a#2.yml"] {
+            let k = vector_key("abc123", path, 0).unwrap();
+            assert_eq!(path_from_key("abc123", &k), Some(path));
+            let k = vector_key("abc123", path, 4).unwrap();
+            assert_eq!(path_from_key("abc123", &k), Some(path));
+            assert_eq!(split_passage(k.split_once('/').unwrap().1), (path, 4));
+        }
     }
 
     /// The ordinal travels as metadata, so a reader of the row need not parse the key.

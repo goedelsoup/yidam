@@ -598,10 +598,22 @@ fn check_index(root: &Path) -> Answer {
     // An index of whole nodes (RFC-0060): still read, as passage 0 of each node, and blind
     // past the embedding window on every node longer than it. A rebuild is all it takes.
     let contract = yidam_index_dir(root).join(crate::embed_config::EMBED_CONFIG_FILENAME);
-    if let Some(Ok(config)) = std::fs::read_to_string(&contract)
+    if let Some(parsed) = std::fs::read_to_string(&contract)
         .ok()
         .map(|t| crate::embed_config::EmbedConfig::from_json(&t))
     {
+        // A contract every reader on this binary refuses — a later yidam's, or one that does
+        // not parse — is not an index that is fine. Saying nothing here reported Ok over an
+        // index `retrieve` will not read.
+        let config = match parsed {
+            Ok(config) => config,
+            Err(e) => {
+                return Answer::warn(
+                    format!("{} is refused: {e:#}", contract.display()),
+                    Some("move this pin to the release that built it, or yidam index-build"),
+                );
+            }
+        };
         if config.is_whole_nodes() {
             return Answer::warn(
                 format!(
@@ -2430,6 +2442,29 @@ mod tests {
             answer.detail
         );
         assert!(answer.remedy.unwrap().contains("index-build"));
+    }
+
+    /// A contract this binary refuses is not reported Ok (RFC-0060 §2.5).
+    #[test]
+    fn an_index_from_a_later_yidam_is_not_reported_ok() {
+        let tmp = TempDir::new().unwrap();
+        let index = yidam_index_dir(tmp.path());
+        std::fs::create_dir_all(&index).unwrap();
+        std::fs::write(
+            index.join("meta.json"),
+            r#"{"generated_at": 1, "model_name": "m", "node_count": 1}"#,
+        )
+        .unwrap();
+        let mut config = crate::embed_config::EmbedConfig::for_fastembed_model("m", 4, "f", "E");
+        config.format_version = "3".to_string();
+        std::fs::write(
+            index.join(crate::embed_config::EMBED_CONFIG_FILENAME),
+            serde_json::to_string(&config).unwrap(),
+        )
+        .unwrap();
+        let answer = check_index(tmp.path());
+        assert_eq!(answer.verdict, Verdict::Warn);
+        assert!(answer.detail.contains("\"3\""), "{}", answer.detail);
     }
 
     /// A repository declaring corpora, with control over what is on disk and in the lock.

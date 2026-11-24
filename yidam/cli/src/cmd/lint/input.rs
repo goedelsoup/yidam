@@ -328,16 +328,6 @@ impl<'a> Input<'a> {
             .get_or_init(|| crate::claims::ClaimFields::from_classes(self.classes()))
     }
 
-    /// Which keys on each class carry prose.
-    ///
-    /// Built from the classes already parsed rather than re-read from disk, and through the
-    /// overlay for `universal.yml`, so the editor measures an unsaved declaration. Keyed by
-    /// the `.ont.yml` stem, which is the directory an instance's class resolves to — the same
-    /// keying [`crate::claims::ClaimFields`] documents.
-    ///
-    /// The reduction is [`crate::prose::declared`]'s, where this wrote it out again beside
-    /// the copy in `ProseFields::load` (#1116) — and the two had already drifted: that one
-    /// dropped a property whose `name:` was blank or whitespace and this one kept it.
     /// The properties each class flagged `retrievable: true`, from the classes already parsed.
     ///
     /// The other half of what `embed` composes a node's text from, so a check measuring that
@@ -350,6 +340,16 @@ impl<'a> Input<'a> {
         })
     }
 
+    /// Which keys on each class carry prose.
+    ///
+    /// Built from the classes already parsed rather than re-read from disk, and through the
+    /// overlay for `universal.yml`, so the editor measures an unsaved declaration. Keyed by
+    /// the `.ont.yml` stem, which is the directory an instance's class resolves to — the same
+    /// keying [`crate::claims::ClaimFields`] documents.
+    ///
+    /// The reduction is [`crate::prose::declared`]'s, where this wrote it out again beside
+    /// the copy in `ProseFields::load` (#1116) — and the two had already drifted: that one
+    /// dropped a property whose `name:` was blank or whitespace and this one kept it.
     pub(crate) fn prose_fields(&self) -> &crate::prose::ProseFields {
         self.prose_fields.get_or_init(|| {
             crate::prose::ProseFields::from_declarations(
