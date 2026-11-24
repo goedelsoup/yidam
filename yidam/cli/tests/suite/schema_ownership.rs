@@ -161,3 +161,88 @@ fn settings_is_not_refused_over_a_repo_owned_file() {
     assert!(stdout.contains("yaml.schemas"), "{stdout}");
     assert_eq!(schemas(d.path()).len(), 1, "--settings wrote a file");
 }
+
+// ── `[schema] owner` (RFC-0066 §4) ───────────────────────────────────────────
+
+fn owned_by_the_repository() -> tempfile::TempDir {
+    let tmp = bootstrapped();
+    std::fs::write(
+        tmp.path().join(".yidam/config.toml"),
+        "[schema]\nowner = \"repository\"\n",
+    )
+    .unwrap();
+    let dir = tmp.path().join(".yidam/schemas");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("corpus-node.json"), THEIRS).unwrap();
+    std::fs::write(dir.join("ours-only.json"), THEIRS).unwrap();
+    tmp
+}
+
+/// A declared owner: nothing is written, the run succeeds, and the reason is printed.
+#[test]
+fn a_declared_owner_is_left_alone_and_the_run_succeeds() {
+    let tmp = owned_by_the_repository();
+    let before = schemas(tmp.path());
+    let (stdout, stderr, code) = run(tmp.path(), &["schema"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stdout.contains("`[schema] owner = \"repository\"`"),
+        "{stdout}"
+    );
+    assert_eq!(schemas(tmp.path()), before);
+}
+
+/// `--force` does not override a declared owner, and the refusal names the key.
+#[test]
+fn force_refuses_under_a_declared_owner() {
+    let tmp = owned_by_the_repository();
+    let before = schemas(tmp.path());
+    let (_, stderr, code) = run(tmp.path(), &["schema", "--force"]);
+    assert_ne!(code, 0);
+    assert!(stderr.contains("[schema] owner"), "{stderr}");
+    assert_eq!(schemas(tmp.path()), before);
+}
+
+/// `--settings` maps only the files that are there, and says which it could not map.
+#[test]
+fn settings_under_a_declared_owner_map_only_files_that_exist() {
+    let tmp = owned_by_the_repository();
+    let (stdout, stderr, code) = run(tmp.path(), &["schema", "--settings"]);
+    assert_eq!(code, 0, "{stderr}");
+    let settings: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let mapped: Vec<&String> = settings["yaml.schemas"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .collect();
+    assert_eq!(mapped, ["./.yidam/schemas/corpus-node.json"], "{stdout}");
+    assert!(stderr.contains(".yidam/schemas/ours-only.json"), "{stderr}");
+}
+
+/// An owner that is neither value fails, and names both.
+#[test]
+fn an_unknown_owner_fails_and_names_the_two_values() {
+    let tmp = bootstrapped();
+    std::fs::write(
+        tmp.path().join(".yidam/config.toml"),
+        "[schema]\nowner = \"team\"\n",
+    )
+    .unwrap();
+    let (_, stderr, code) = run(tmp.path(), &["schema"]);
+    assert_ne!(code, 0);
+    assert!(
+        stderr.contains("`yidam`") && stderr.contains("`repository`"),
+        "{stderr}"
+    );
+    assert!(schemas(tmp.path()).is_empty());
+}
+
+/// `--settings` writes nothing, so a config that does not parse does not stop it.
+#[test]
+fn settings_print_over_a_config_that_does_not_parse() {
+    let tmp = bootstrapped();
+    std::fs::write(tmp.path().join(".yidam/config.toml"), "[due\n").unwrap();
+    let (stdout, stderr, code) = run(tmp.path(), &["schema", "--settings"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("yaml.schemas"), "{stdout}");
+}

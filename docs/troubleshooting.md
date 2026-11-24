@@ -50,6 +50,12 @@ only mean every release falsifies it. Each finding names its own remedy; a check
 nothing to do names none. **It exits nonzero on what is wrong now**; warnings — no index, an old pin — are reported and do not affect the
 exit code unless you pass `--strict`, which is the reading a CI job wants.
 
+**An offer is not a defect.** `routes`, `scaffold`, `ci` and `contract` can each carry an offer:
+something a release added since this repository adopted yidam. An undecided offer warns and says
+which release offered it, so `--strict` fails on it. To decline one, name its id and a
+decision record under `[doctor.declined]` in `.yidam/config.toml`. The check then reads
+`declined` and names the record. See [Configuration](configuration.md#doctordeclined).
+
 | Check | The question |
 |---|---|
 | `repository` | Am I in a derived repository? |

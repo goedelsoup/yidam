@@ -877,24 +877,80 @@ pub fn editor_settings() -> Value {
 /// an editor applies what a glob names. `.yidam/corpus/<class>/*.yml` is the glob, which is
 /// also how `graph-check` decides which class governs an instance — so the validation while
 /// typing and the validation at the gate are keyed the same way.
+#[cfg(test)]
 pub fn editor_settings_for(root: &Path) -> Value {
+    settings_mapping(root, repository_owns(root)).0
+}
+
+/// Whether `.yidam/config.toml` declares `[schema] owner = "repository"` (RFC-0066 §4).
+/// A config that does not parse reads as the default here; the writing path of
+/// `yidam schema` loads it strictly and fails on it.
+fn repository_owns(root: &Path) -> bool {
+    crate::config::load_yidam_config(root)
+        .is_ok_and(|c| c.schema.owner == crate::config::SchemaOwner::Repository)
+}
+
+/// The editor mapping, and the schema files present under a name yidam does not know.
+///
+/// With `existing_only`, a path is mapped only when its file is there: a repository that
+/// owns `.yidam/schemas/` need not write the generic set, and a mapping to a missing file
+/// sends the editor nowhere. The second value is empty unless `existing_only`.
+fn settings_mapping(root: &Path, existing_only: bool) -> (Value, Vec<String>) {
+    let dir = schemas_dir(root);
     let mut schemas = serde_json::Map::new();
-    for (file, glob, _) in all() {
+    let mut known = std::collections::BTreeSet::new();
+    let generic = all()
+        .into_iter()
+        .map(|(f, g, _)| (f.to_string(), g.to_string()));
+    let classes = class_schemas(root).into_iter().map(|(f, g, _)| (f, g));
+    for (file, glob) in generic.chain(classes) {
+        known.insert(file.clone());
         // The catalog schema describes frontmatter inside markdown, which
         // yaml-language-server cannot apply to a .md file; it is emitted for use by
         // other tooling and deliberately not mapped here.
-        if file == "catalog-entry.json" {
+        if file == "catalog-entry.json" || (existing_only && !dir.join(&file).is_file()) {
             continue;
         }
         schemas.insert(format!("./.yidam/schemas/{file}"), json!(glob));
     }
-    for (file, glob, _) in class_schemas(root) {
-        schemas.insert(format!("./.yidam/schemas/{file}"), json!(glob));
-    }
-    json!({
+    let unknown = if existing_only {
+        present_schemas(&dir)
+            .into_iter()
+            .filter(|f| !known.contains(f))
+            .collect()
+    } else {
+        vec![]
+    };
+    let settings = json!({
         "yaml.schemas": schemas,
         "files.associations": { "*.ont.yml": "yaml" }
-    })
+    });
+    (settings, unknown)
+}
+
+/// Every `.json` under `dir`, one level of subdirectory deep (where `class/` lives), as a
+/// path relative to it.
+fn present_schemas(dir: &Path) -> Vec<String> {
+    let mut out = vec![];
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        let path = e.path();
+        if path.is_dir() {
+            for f in std::fs::read_dir(&path).into_iter().flatten().flatten() {
+                let sub = f.file_name().to_string_lossy().to_string();
+                if f.path().is_file() && sub.ends_with(".json") {
+                    out.push(format!("{name}/{sub}"));
+                }
+            }
+        } else if name.ends_with(".json") {
+            out.push(name);
+        }
+    }
+    out.sort();
+    out
 }
 
 /// One compiled schema per class, from the corpus's own ontology.
@@ -1098,7 +1154,9 @@ fn refusal(owned: &[String]) -> String {
          \n\
          If an earlier yidam release wrote them, before it marked its output:\n\
            yidam schema --force\n\
-         If this repository compiles its own schemas: keep them, and do not run this command.",
+         If this repository compiles its own schemas, this refusal is right: declare \
+         `[schema] owner = \"repository\"` in .yidam/config.toml, and `yidam schema` leaves \
+         them alone. `--force` would replace them with the generic ones.",
         files.join("\n")
     )
 }
@@ -1107,22 +1165,52 @@ pub fn schema(root: Option<&std::path::Path>, print_settings: bool, force: bool)
     let root = resolve_root(root)?;
 
     if print_settings {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&editor_settings_for(&root))?
-        );
+        // Read leniently: printing a mapping must not fail over an unrelated config error.
+        let (settings, unknown) = settings_mapping(&root, repository_owns(&root));
+        println!("{}", serde_json::to_string_pretty(&settings)?);
+        if !unknown.is_empty() {
+            eprintln!(
+                "not mapped — yidam does not know which files these validate: {}",
+                unknown
+                    .iter()
+                    .map(|f| format!(".yidam/schemas/{f}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
         return Ok(());
     }
 
-    // After the `--settings` branch, not before it. That branch prints a compiled-in editor
-    // configuration and reads nothing from disk, so it is legitimate outside a repository —
-    // gating the whole command would refuse a use that has no corpus to refuse over.
+    // After the `--settings` branch, not before it. That branch prints an editor mapping and
+    // writes nothing, so it is legitimate outside a repository — gating the whole command
+    // would refuse a use that has no corpus to refuse over.
     //
     // The writing branch has to be gated, and of everything that skipped this it was the worst
     // case: run in a directory that is not a corpus it created `.yidam/schemas/*`, which means
     // it *manufactured the `.yidam/` directory* every gate tests for. One wrong-directory run
     // and every check afterwards passes over a corpus that does not exist.
     crate::paths::require_yidam_repo(&root)?;
+
+    // Loaded strictly here, so an `owner` that is neither value fails the run and names both.
+    let owns = crate::config::load_yidam_config(&root)?.schema.owner
+        == crate::config::SchemaOwner::Repository;
+
+    // A declared owner is the one fact the marker refusal could not know, so no flag
+    // overrides it: to regenerate the generic set, a repository removes the declaration.
+    if owns {
+        if force {
+            anyhow::bail!(
+                "`[schema] owner = \"repository\"` in .yidam/config.toml: .yidam/schemas/ is \
+                 this repository's own, and --force does not override a declared owner. \
+                 Nothing was written. To write the generic schemas, remove the declaration."
+            );
+        }
+        println!(
+            ".yidam/schemas/ is this repository's own, per `[schema] owner = \"repository\"` \
+             in .yidam/config.toml. Nothing was written."
+        );
+        return Ok(());
+    }
 
     let dir = schemas_dir(&root);
     let targets: Vec<(String, String, Value)> = all()

@@ -1,6 +1,6 @@
 # RFC-0066 — An upgrade's offers take a written answer, and a repository's own argument survives the tools
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I49
 - **Relates to:**
   - #1512 (upgrades are cheap and their features go unadopted), parent epic #1513

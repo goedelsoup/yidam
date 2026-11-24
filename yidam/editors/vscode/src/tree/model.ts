@@ -584,7 +584,11 @@ export interface HealthInput {
  * rendering one — the two mise tasks this extension does run are named in its own manifest.
  */
 function doctorRow(doctor: DoctorReport): TreeNode {
-  const actionable = doctor.checks.filter((c) => c.verdict !== 'ok' && c.verdict !== 'skipped')
+  // `declined` is an offer this repository decided against in a decision record it holds
+  // (RFC-0066). Listing it as actionable would re-ask a question the repository answered.
+  const actionable = doctor.checks.filter(
+    (c) => c.verdict !== 'ok' && c.verdict !== 'skipped' && c.verdict !== 'declined',
+  )
   return {
     id: 'health:doctor',
     label: 'Setup',

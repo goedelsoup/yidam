@@ -1090,6 +1090,37 @@ fn bless(root: &Path, all: &[Check]) -> Result<baseline::Baseline> {
     Ok(b)
 }
 
+/// The lines a bless kept from a leading block no release's header matched, so a person can
+/// check once that what it kept as the argument is theirs (RFC-0066 §5.1).
+fn kept_lines(b: &baseline::Baseline) {
+    if b.kept_unmatched.is_empty() {
+        return;
+    }
+    println!(
+        "kept {} line(s) above the first key that match no header yidam wrote, as this \
+         repository's argument — check them once:",
+        b.kept_unmatched.len()
+    );
+    for line in &b.kept_unmatched {
+        println!("  {line}");
+    }
+}
+
+/// The ratchet's verdict as one line, the expiry argument included when it fails.
+fn verdict(d: &baseline::Diff) -> String {
+    let counts = format!(
+        "lint: {} introduced, {} expired, {} stale",
+        d.introduced.len(),
+        d.expired.len(),
+        d.resolved.len()
+    );
+    if d.argument.fails() {
+        format!("{counts}, expire_after not argued by its record")
+    } else {
+        counts
+    }
+}
+
 /// One line naming the baseline entries this run did not compare, or nothing.
 ///
 /// A gate that stays green over entries it never looked at owes the reader the list, and the
@@ -1140,6 +1171,7 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
         }
         let b = bless(&root, &all)?;
         let count: usize = b.violations.values().map(|v| v.len()).sum();
+        kept_lines(&b);
         println!(
             "wrote {count} inherited violation(s) into {}",
             baseline::path(&root).display()
@@ -1154,6 +1186,7 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
     if opts.bless {
         let b = bless(&root, &all)?;
         let count: usize = b.violations.values().map(|v| v.len()).sum();
+        kept_lines(&b);
         println!(
             "blessed {count} error-severity violation(s) into {}",
             baseline::path(&root).display()
@@ -1178,7 +1211,8 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
 
     let committed = baseline::Baseline::load(&root)?;
     let corpus_commits = history::corpus_commits(&root);
-    let d = baseline::diff(&all, &committed, &corpus_commits, &unasked(&all));
+    let mut d = baseline::diff(&all, &committed, &corpus_commits, &unasked(&all));
+    d.argument = baseline::argument(&root, &committed);
 
     if opts.warn_only {
         let n: usize = all.iter().map(|c| c.violations.len()).sum();
@@ -1200,9 +1234,15 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
         if let Some(line) = carried_line(&d) {
             println!("{line}");
         }
+        if let Some(line) = d.argument.line() {
+            println!("{line}");
+        }
         return Ok(());
     }
     if let Some(line) = carried_line(&d) {
+        eprintln!("\n{line}");
+    }
+    if let Some(line) = d.argument.line() {
         eprintln!("\n{line}");
     }
 
@@ -1222,13 +1262,14 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
         }
         // Deliberately does not offer `--bless`. Blessing carries the original `since`
         // forward rather than restamping it, so it would print a reassuring line and
-        // change nothing — the two ways out are to fix the finding or to argue, in the
-        // file, for more time.
+        // change nothing — the two ways out are to fix the finding or to argue, in a
+        // decision record, for more time (RFC-0066 §5.2).
         eprintln!(
             "\nA baseline is a scheduled repayment, not a permanent exemption, and blessing\n\
              again will not clear these — the clock runs from when the debt was first\n\
-             accepted. Fix them, or raise `expire_after` in the baseline and say in the\n\
-             commit message why this corpus needs longer than it said it did."
+             accepted. Fix them, or write a decision record that argues why this corpus\n\
+             needs longer and states the new `expire_after`, raise the baseline's\n\
+             `expire_after` to match, and name the record in `expire_record`."
         );
     }
     if !d.resolved.is_empty() {
@@ -1246,12 +1287,7 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
     if !d.introduced.is_empty() || !d.resolved.is_empty() {
         eprintln!("\nrun `yidam lint --bless` to record the current state as the new baseline.");
     }
-    anyhow::bail!(
-        "lint: {} introduced, {} expired, {} stale",
-        d.introduced.len(),
-        d.expired.len(),
-        d.resolved.len()
-    )
+    anyhow::bail!("{}", verdict(&d))
 }
 
 /// The JSON path: same checks, same baseline, same verdict, same exit code.
@@ -1283,19 +1319,15 @@ fn lint_json(root: &Path, all: &[Check], opts: &Options) -> Result<()> {
 
     let committed = baseline::Baseline::load(root)?;
     let corpus_commits = history::corpus_commits(root);
-    let d = baseline::diff(all, &committed, &corpus_commits, &unasked(all));
+    let mut d = baseline::diff(all, &committed, &corpus_commits, &unasked(all));
+    d.argument = baseline::argument(root, &committed);
     crate::report::emit(root, json::build(root, all, &committed, &d))?;
 
     // Same verdict as the text path, and the same silence about it on success.
     if opts.warn_only || d.is_clean() {
         return Ok(());
     }
-    anyhow::bail!(
-        "lint: {} introduced, {} expired, {} stale",
-        d.introduced.len(),
-        d.expired.len(),
-        d.resolved.len()
-    )
+    anyhow::bail!("{}", verdict(&d))
 }
 
 fn report(all: &[Check], opts: &Options) {

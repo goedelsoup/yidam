@@ -709,6 +709,7 @@ test('only the setup checks a reader can act on get rows', () => {
       checks: [
         ...DOCTOR.checks,
         { id: 'skipped', question: 'Unanswerable', verdict: 'skipped', detail: '—', remedy: null },
+        { id: 'routes', question: 'Declined', verdict: 'declined', detail: '—', remedy: null },
       ],
     },
   })

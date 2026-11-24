@@ -24,7 +24,11 @@
         "node": ".yidam/corpus/concept/low-flow.yml",
         "commits": 3
       }
-    ]
+    ],
+    "expiry_record": {
+      "state": "unargued",
+      "expire_after": 2
+    }
   },
   "checks": [
     {

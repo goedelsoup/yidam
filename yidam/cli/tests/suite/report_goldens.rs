@@ -2427,6 +2427,24 @@ fn declarations(
 /// instead of here, and `NO_REPORT` says why `index-verify` cannot run at all.
 const UNREACHED: &[(&str, &str)] = &[
     (
+        "checks[].offers[].record",
+        "`doctor` names a record only on an offer the repository declined under \
+         `[doctor.declined]`, and this fixture declines nothing. `upgrade_offers.rs` stages a \
+         decline and holds every emitted path to this schema (RFC-0066)",
+    ),
+    (
+        "gate.expiry_record.record",
+        "`lint` names the record only when the baseline declares `expire_record`, and this \
+         fixture's baseline declares `expire_after` alone — the state every baseline is in \
+         before its first record. `upgrade_offers.rs` stages each state and holds every emitted \
+         path to this schema (RFC-0066)",
+    ),
+    (
+        "gate.expiry_record.record_states",
+        "`lint` reports the record's number only when the baseline names a record — see \
+         `gate.expiry_record.record`",
+    ),
+    (
         "open_questions[].unanswerable",
         "`open-questions` emits it only for an entry whose every open claim is written \
          `[open — unanswerable: <reason>]`, and this fixture writes none. Giving it one would \
