@@ -1653,11 +1653,14 @@ fn the_run_and_the_doctor_agree_about_the_resolved_corpus() {
 
 /// The script both tests declare: one signal per node, naming the class it is an instance of.
 ///
+/// The signal is `class_of`, not `class`: `class` is a field every embedding record already
+/// carries, and `computed::RESERVED` refuses a signal that would shadow it.
+///
 /// Deliberately the smallest thing that is still a function of the corpus. A calculator
 /// returning `{ signals = [] }` would commit a document with no rows, and a run that writes an
 /// empty answer is indistinguishable from one whose projection handed it nothing.
 const TYPED_SCRIPT: &str = "\\c -> { signals = array.functor.map \
-     (\\n -> { node = n.id, values = [{ name = \"class\", value = Text n.class }] }) c.nodes, \
+     (\\n -> { node = n.id, values = [{ name = \"class_of\", value = Text n.class }] }) c.nodes, \
      summary = [] }";
 
 /// Declare a typed calculator in `example`'s manifest and commit it.
@@ -1900,7 +1903,10 @@ fn a_typed_step_is_stale_when_its_script_changes() {
     // A different answer from the same corpus, so only the program moved.
     std::fs::write(
         e.path().join(".yidam/capabilities/class-of.glu"),
-        format!("{}\n", TYPED_SCRIPT.replace("\"class\"", "\"instance_of\"")),
+        format!(
+            "{}\n",
+            TYPED_SCRIPT.replace("\"class_of\"", "\"instance_of\"")
+        ),
     )
     .expect("editing the calculator");
     git(&e.path(), &["add", "-A"]);
