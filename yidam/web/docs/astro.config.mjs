@@ -204,6 +204,7 @@ const sidebar = [
       { slug: 'rfcs/0064-a-projected-corpus', label: '0064 · a projected corpus' },
       { slug: 'rfcs/0065-template-age', label: '0065 · template age' },
       { slug: 'rfcs/0066-upgrade-offers', label: '0066 · upgrade offers' },
+      { slug: 'rfcs/0067-one-landing-per-plan', label: '0067 · one landing per plan' },
     ],
   },
   {
