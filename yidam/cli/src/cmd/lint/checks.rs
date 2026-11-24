@@ -2712,6 +2712,30 @@ pub fn claim_tag_malformed(prose: &[ProseView<'_>]) -> Check {
         for tag in crate::claims::detail_tags(&crate::markdown::mask_code(n.text)) {
             let (line, found) = (tag.line, format!("[{}]", tag.inner));
             let inner = reported_inner(&found);
+            // The terminal form written wrongly (RFC-0061), asked first: an unknown reason is a
+            // scoped tag and would be skipped below, and neither form should be told to move a
+            // citation out. The valid form is a scoped tag and is skipped like any other.
+            if let Some(misuse) = crate::claims::unanswerable_misuse(&tag.inner) {
+                let message = match misuse {
+                    crate::claims::UnanswerableMisuse::UnknownReason => format!(
+                        "`{found}` gives a reason that is not one of {}, so it still counts \
+                         as a plain `[open]` and stays owed — use one of the three, and put \
+                         anything more beside the tag",
+                        crate::claims::UNANSWERABLE_REASONS
+                            .iter()
+                            .map(|r| format!("`{r}`"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    crate::claims::UnanswerableMisuse::NotOpen => format!(
+                        "`{found}` marks a claim unanswerable that is not open, so it is \
+                         counted as no claim at all — only an `[open]` claim can be \
+                         unanswerable"
+                    ),
+                };
+                violations.push(Violation::new(format!("{}:{}", n.rel, line), message));
+                continue;
+            }
             // A **scoped tag is a claim** and is not reported (#789). This check used to tell
             // the author of `[verified — as proposed]` that it counted as nothing, and the
             // advice it gave was that there was nothing to do about it — a finding whose own
@@ -5620,6 +5644,31 @@ mod tests {
             "{}",
             c.violations[0].node
         );
+    }
+
+    /// The terminal form (RFC-0061): the valid one is a claim and not reported; the two wrong
+    /// ones get their own advice, never the citation advice.
+    #[test]
+    fn the_unanswerable_form_is_read_and_its_misuses_are_named() {
+        let node = Node::parse(
+            PathBuf::from("/tmp/x.yml"),
+            ".yidam/corpus/c/x.yml",
+            "class: c\ndescription: |\n  Who paid is [open — unanswerable: not in the public record].\n",
+        );
+        let c = claim_tag_malformed(&prose_views(std::slice::from_ref(&node), &[]));
+        assert_eq!(c.violations.len(), 0, "{:?}", c.violations);
+
+        let unknown = advice_for("Who paid is [open — unanswerable: no filing exists].");
+        assert!(
+            unknown.contains("`not in the public record`, `out of scope`, `superseded`"),
+            "{unknown}"
+        );
+        assert!(unknown.contains("plain `[open]`"), "{unknown}");
+        assert!(!unknown.contains("citation beside it"), "{unknown}");
+
+        let not_open = advice_for("It held [verified — unanswerable: superseded].");
+        assert!(not_open.contains("only an `[open]` claim"), "{not_open}");
+        assert!(!not_open.contains("citation beside it"), "{not_open}");
     }
 
     fn advice_for(body: &str) -> String {

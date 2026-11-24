@@ -75,6 +75,11 @@ this sentence is unsettled — and it says nothing about what the node is. The t
 is unsettled; the `?` says the node **is** the question.
 [why](GRAPH.evidence.md#question-node-versus-open-claim)
 
+**An open claim the record cannot answer says why.** Write
+`[open — unanswerable: superseded]`, with one of three reasons: `not in the public record`,
+`out of scope` or `superseded`. The claim stays open and listed. The questions clock stops
+counting a node once every open claim on it is marked.
+
 ## Edges
 
 An edge is a `links:` entry: a `target:` relative to the node's file, and a

@@ -1176,25 +1176,37 @@ fn open_questions(state: &ServerState) -> Value {
     for n in &state.nodes {
         let path = format!(".yidam/corpus/{}.yml", n.id);
         if has_open_claim(state, n) {
-            questions.push(json!({
+            let mut entry = json!({
                 "id": n.id,
                 "label": n.label,
                 "path": path,
                 "scope": "node",
-            }));
+            });
+            with_terminal(
+                &mut entry,
+                &crate::claims::Terminal::of_node(
+                    &n.label,
+                    &n.content,
+                    state.claim_fields.for_class(&n.class),
+                ),
+            );
+            questions.push(entry);
         }
         for claim in crate::claims::edge_claims(&n.content) {
             if claim.standing != "open" {
                 continue;
             }
-            questions.push(json!({
+            let terminal = crate::claims::Terminal::of_edge(&claim);
+            let mut entry = json!({
                 "id": n.id,
                 "label": claim.text,
                 "path": path,
                 "scope": "edge",
                 "relationship": claim.relationship,
                 "target": claim.target,
-            }));
+            });
+            with_terminal(&mut entry, &terminal);
+            questions.push(entry);
         }
     }
     // Asks are listed beside the questions and never among them (#1486). An ask is a question
@@ -1204,6 +1216,17 @@ fn open_questions(state: &ServerState) -> Value {
     // cannot disagree about which asks are open.
     let asks = crate::cmd::corpus::open_asks(&state.root);
     json!({"open_questions": questions, "asks": asks})
+}
+
+/// `unanswerable` and `reasons` on an entry, each only when present (RFC-0061, contract 0.35.0).
+///
+/// Absent rather than null, as `open-questions --format json` writes them, so a client older
+/// than 0.35.0 meets no field on an entry with no terminal claim.
+fn with_terminal(entry: &mut Value, terminal: &crate::claims::Terminal) {
+    if let (Value::Object(map), Ok(Value::Object(extra))) = (entry, serde_json::to_value(terminal))
+    {
+        map.extend(extra);
+    }
 }
 
 // ── assertions, not documents (contract 0.5.0) ────────────────────────────────

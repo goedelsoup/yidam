@@ -288,6 +288,96 @@ pub struct Tag {
     pub standing: &'static str,
     /// The text that narrows what is asserted, or `None` for a bare tag.
     pub qualifier: Option<String>,
+    /// For an `[open — unanswerable: …]` tag, the reason it gives (RFC-0061). `None` for every
+    /// other tag, and always `None` unless `standing` is [`OPEN`].
+    pub unanswerable: Option<Unanswerable>,
+}
+
+/// What an `[open — unanswerable: …]` tag says about its reason (RFC-0061 §2.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unanswerable {
+    /// One of [`UNANSWERABLE_REASONS`], in its canonical spelling. The claim is terminal.
+    Reason(&'static str),
+    /// A reason that is not one of the three, or none at all. The claim reads as a plain
+    /// `[open]`, still owed, because a misspelt reason must not take a question out of view.
+    Unknown,
+}
+
+/// The closed list of reasons an open claim may be unanswerable for (RFC-0061 §2.2).
+///
+/// Closed because a reason is something a reader filters on: an open list would make the count
+/// by reason across corpora a count of spellings. Adding a fourth is a contract change.
+pub const UNANSWERABLE_REASONS: &[&str] =
+    &["not in the public record", "out of scope", "superseded"];
+
+/// The word that marks an open claim's detail as a terminal reason.
+const UNANSWERABLE: &str = "unanswerable";
+
+/// The detail after `unanswerable` and its separators, when `detail` opens with the word.
+///
+/// The word is matched whole and without regard to case, so `[open — unanswerable-ish]` is not
+/// read as one. `None` means the detail is not this form at all.
+fn unanswerable_rest(detail: &str) -> Option<&str> {
+    let head = detail.get(..UNANSWERABLE.len())?;
+    if !head.eq_ignore_ascii_case(UNANSWERABLE) {
+        return None;
+    }
+    let rest = &detail[UNANSWERABLE.len()..];
+    if rest
+        .chars()
+        .next()
+        .is_some_and(|c| !TAG_SEPARATORS.contains(&c) && !c.is_whitespace())
+    {
+        return None;
+    }
+    Some(rest.trim_start_matches(|c: char| TAG_SEPARATORS.contains(&c) || c.is_whitespace()))
+}
+
+/// The reason a terminal detail names, matched case-insensitively and exactly.
+///
+/// Nothing may follow the reason inside the bracket: `superseded by Q12` is not `superseded`,
+/// and a citation goes beside the tag, as it does for every other standing.
+fn unanswerable_reason(rest: &str) -> Unanswerable {
+    let reason = rest.trim().to_lowercase();
+    UNANSWERABLE_REASONS
+        .iter()
+        .find(|r| **r == reason)
+        .map_or(Unanswerable::Unknown, |r| Unanswerable::Reason(r))
+}
+
+/// The canonical reason, when a tag's terminal form names one of the three.
+pub(crate) fn terminal_reason(u: Option<Unanswerable>) -> Option<&'static str> {
+    match u {
+        Some(Unanswerable::Reason(r)) => Some(r),
+        _ => None,
+    }
+}
+
+/// How an inner text misuses the terminal form, for `claim-tag-malformed` (RFC-0061 §2.6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UnanswerableMisuse {
+    /// `[open — unanswerable: no filing exists]`: not one of the three reasons.
+    UnknownReason,
+    /// `[verified — unanswerable: …]`: only an open claim can be unanswerable.
+    NotOpen,
+}
+
+/// Whether a collapsed inner text writes the terminal form wrongly, and how.
+///
+/// Read off [`tag_from_inner`]'s own parse where it is a tag, so the check and the counter
+/// cannot disagree about which forms are valid.
+pub(crate) fn unanswerable_misuse(inner: &str) -> Option<UnanswerableMisuse> {
+    let standing = STANDING_WORDS.iter().find(|w| inner.starts_with(**w))?;
+    let detail = inner[standing.len()..]
+        .trim_start_matches(|c: char| TAG_SEPARATORS.contains(&c) || c.is_whitespace());
+    unanswerable_rest(detail)?;
+    if *standing != "open" {
+        return Some(UnanswerableMisuse::NotOpen);
+    }
+    match tag_from_inner(inner)?.unanswerable {
+        Some(Unanswerable::Unknown) => Some(UnanswerableMisuse::UnknownReason),
+        _ => None,
+    }
 }
 
 /// The tag a value spells, bracketed or bare, or `None` when it spells none.
@@ -353,7 +443,21 @@ fn tag_from_inner(inner: &str) -> Option<Tag> {
             .then_some(Tag {
                 standing: standing_tag,
                 qualifier: None,
+                unanswerable: None,
             });
+    }
+    // The terminal form (RFC-0061). Before the narrowing test, because `unanswerable` is no
+    // narrowing head and the form would otherwise be refused as a citation. Only `open` takes
+    // it; a verified or inferred claim marked unanswerable is not a tag.
+    if let Some(rest) = unanswerable_rest(detail) {
+        if standing_tag != OPEN {
+            return None;
+        }
+        return Some(Tag {
+            standing: OPEN,
+            qualifier: Some(detail.to_string()),
+            unanswerable: Some(unanswerable_reason(rest)),
+        });
     }
     if !narrowing_detail(inner) {
         return None; // a citation, not a qualifier
@@ -364,6 +468,7 @@ fn tag_from_inner(inner: &str) -> Option<Tag> {
     Some(Tag {
         standing: standing_tag,
         qualifier: Some(detail.to_string()),
+        unanswerable: None,
     })
 }
 
@@ -879,6 +984,7 @@ pub fn edge_claims(text: &str) -> Vec<ServedClaim> {
                 scope: ClaimScope::Edge,
                 property: None,
                 qualifier: parsed.qualifier,
+                unanswerable: terminal_reason(parsed.unanswerable),
                 relationship: link.relationship.clone(),
                 target: link.target.clone(),
                 // Link order, not a byte offset. An edge claim is never sorted against a
@@ -1071,6 +1177,11 @@ pub struct ServedClaim {
     /// bare tag, which is the large majority. See [`Tag::qualifier`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub qualifier: Option<String>,
+    /// For an open claim marked `unanswerable` with one of the three reasons, that reason
+    /// (RFC-0061). Not served by the claims surface, whose contract this does not change; the
+    /// `open-questions` entry is where a reader meets it.
+    #[serde(skip)]
+    pub unanswerable: Option<&'static str>,
     /// For [`ClaimScope::Edge`]: the relationship the edge asserts. `None` otherwise.
     ///
     /// Beside `text` rather than parsed back out of it, because a consumer that wants the
@@ -1497,6 +1608,7 @@ fn prose_claims(text: &str) -> Vec<ServedClaim> {
                 scope: ClaimScope::Statement,
                 property: None,
                 qualifier: None,
+                unanswerable: None,
                 relationship: None,
                 target: None,
                 at: i,
@@ -1525,6 +1637,7 @@ fn prose_claims(text: &str) -> Vec<ServedClaim> {
             scope: ClaimScope::Statement,
             property: None,
             qualifier: Some(qualifier),
+            unanswerable: terminal_reason(parsed.unanswerable),
             relationship: None,
             target: None,
             at: tag.start,
@@ -1585,6 +1698,7 @@ fn structural_claims(text: &str, fields: &[String]) -> Vec<ServedClaim> {
                 scope,
                 property: Some(d.property),
                 qualifier: parsed.qualifier,
+                unanswerable: terminal_reason(parsed.unanswerable),
                 relationship: None,
                 target: None,
                 at,
@@ -1730,6 +1844,12 @@ pub fn has_open_claim(label: &str, text: &str, fields: &[String]) -> bool {
         // Masked, for the same reason the counter is: a node explaining what `[open]` means
         // is not thereby an open question.
         || count_tag(&crate::markdown::mask_fenced(&mask_links(text)), OPEN) > 0
+        // The terminal form in prose (RFC-0061). A terminal claim is still an open claim, and
+        // the bare-token arm above cannot see a bracket that carries a detail. Without this, an
+        // author who marked their only `[open]` unanswerable would take the node off every
+        // surface instead of moving it to the unanswerable heading. No corpus wrote the form
+        // before the RFC, so no existing membership moves.
+        || terminal_forms(&crate::markdown::mask_fenced(&mask_links(text))) > 0
         || count_structural(text, fields).open > 0
         // A question `yidam propose` carried here. RFC-0020 put it where this predicate
         // looks, deliberately, and moving it out of the prose must not move it out of view:
@@ -1742,6 +1862,121 @@ pub fn has_open_claim(label: &str, text: &str, fields: &[String]) -> bool {
         || crate::findings::parse(text)
             .iter()
             .any(|f| f.standing.trim() == "open")
+}
+
+/// Prose `[open — unanswerable: …]` tags in already-masked text, valid reason or not.
+fn terminal_forms(masked: &str) -> usize {
+    detail_tags(masked)
+        .iter()
+        .filter(|t| {
+            tag_from_inner(&t.inner).is_some_and(|p| p.unanswerable.is_some())
+                && !is_narrated(masked, t.start, t.end + 1)
+        })
+        .count()
+}
+
+/// What the open claims on a node leave owed (RFC-0061 §2.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenClaimState {
+    /// The node has no open claim: [`has_open_claim`] is false.
+    None,
+    /// At least one open claim on the node is not terminal, so the node is owed.
+    Open,
+    /// Every open claim on the node is terminal; the reason is the first in [`open_claims`]'s
+    /// order.
+    Unanswerable(&'static str),
+}
+
+/// The open claims on a node, each with its terminal reason or `None` when it is owed.
+///
+/// **The order is fixed because the arms have no common file order** (RFC-0061 §2.3): properties
+/// declared `type: claim` first, in document order, then prose by byte offset, then the findings
+/// carried under `yidam.findings`, which are never terminal. A `?` label is one owed claim, and
+/// only when nothing else is open: a question node whose body marks its question unanswerable is
+/// a terminal question, and the label is how the reader knew it was a question.
+///
+/// Empty exactly when [`has_open_claim`] is false. The prose it reads is that predicate's: the
+/// bare `[open]` token and the terminal form, not every scoped `[open — …]`, so the state and
+/// the membership it qualifies cannot disagree.
+pub fn open_claims(label: &str, text: &str, fields: &[String]) -> Vec<Option<&'static str>> {
+    let claims = claims_in_node(text, fields);
+    let (structural, prose): (Vec<_>, Vec<_>) = claims
+        .into_iter()
+        .filter(|c| c.standing == "open")
+        .partition(|c| c.property.is_some());
+    let mut out: Vec<Option<&'static str>> = structural.iter().map(|c| c.unanswerable).collect();
+    out.extend(
+        prose
+            .iter()
+            .filter(|c| {
+                c.qualifier
+                    .as_deref()
+                    .is_none_or(|q| unanswerable_rest(q).is_some())
+            })
+            .map(|c| c.unanswerable),
+    );
+    out.extend(
+        crate::findings::parse(text)
+            .iter()
+            .filter(|f| f.standing.trim() == "open")
+            .map(|_| None),
+    );
+    if out.is_empty() && is_question_node(label) {
+        out.push(None);
+    }
+    out
+}
+
+/// The terminal reasons among [`open_claims`], in its order, repeats kept.
+pub fn unanswerable_reasons(claims: &[Option<&'static str>]) -> Vec<&'static str> {
+    claims.iter().flatten().copied().collect()
+}
+
+/// Whether a node is owed, unanswerable, or carries no open claim (RFC-0061 §2.3).
+pub fn open_claim_state(claims: &[Option<&'static str>]) -> OpenClaimState {
+    match claims.first() {
+        None => OpenClaimState::None,
+        Some(_) if claims.iter().any(Option::is_none) => OpenClaimState::Open,
+        Some(first) => first.map_or(OpenClaimState::Open, OpenClaimState::Unanswerable),
+    }
+}
+
+/// The two fields an `open-questions` entry carries for its terminal claims (RFC-0061 §2.5).
+///
+/// One value for the CLI's JSON, the MCP tool and the text output, so the three cannot disagree
+/// about which entries are unanswerable.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct Terminal {
+    /// The state's reason when every open claim on the entry is terminal. Absent when it is owed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unanswerable: Option<&'static str>,
+    /// Every terminal claim's reason, in [`open_claims`]'s order, repeats kept. Present whenever
+    /// at least one claim is terminal, including on an entry that is still owed, so no terminal
+    /// claim is left on no surface at all.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reasons: Vec<&'static str>,
+}
+
+impl Terminal {
+    /// A node entry's fields, from the open claims on it.
+    pub fn of_node(label: &str, text: &str, fields: &[String]) -> Self {
+        let claims = open_claims(label, text, fields);
+        Self {
+            unanswerable: match open_claim_state(&claims) {
+                OpenClaimState::Unanswerable(reason) => Some(reason),
+                OpenClaimState::None | OpenClaimState::Open => None,
+            },
+            reasons: unanswerable_reasons(&claims),
+        }
+    }
+
+    /// An edge entry's fields. An edge is its own entry and carries one claim.
+    pub fn of_edge(claim: &ServedClaim) -> Self {
+        Self {
+            unanswerable: claim.unanswerable,
+            reasons: claim.unanswerable.into_iter().collect(),
+        }
+    }
 }
 
 /// Whether the node **is** a question the corpus has not closed, rather than a node that
@@ -1996,6 +2231,158 @@ pub fn count_in_source(text: &str) -> ClaimCounts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── unanswerable open claims (RFC-0061) ───────────────────────────────────
+
+    /// The form, any separator, any case: one open claim, terminal, with its canonical reason.
+    #[test]
+    fn the_terminal_form_is_an_open_tag_with_its_reason() {
+        for (value, reason) in [
+            (
+                "[open — unanswerable: not in the public record]",
+                "not in the public record",
+            ),
+            ("[open: unanswerable — out of scope]", "out of scope"),
+            ("[open - Unanswerable;  SUPERSEDED]", "superseded"),
+            ("open — unanswerable: superseded", "superseded"),
+        ] {
+            let tag = parse_tag(value).unwrap_or_else(|| panic!("{value:?} is a tag"));
+            assert_eq!(tag.standing, OPEN, "{value:?}");
+            assert_eq!(
+                tag.unanswerable,
+                Some(Unanswerable::Reason(reason)),
+                "{value:?}"
+            );
+        }
+        let c = count_in_source("Who paid is [open — unanswerable: superseded].");
+        assert_eq!((c.open, c.total()), (1, 1));
+    }
+
+    /// A reason off the list, or anything after one, still reads as open and owed.
+    #[test]
+    fn an_unknown_reason_reads_as_a_plain_open() {
+        for value in [
+            "[open — unanswerable: no filing exists]",
+            "[open — unanswerable: superseded by Q12]",
+            "[open — unanswerable]",
+        ] {
+            let tag = parse_tag(value).unwrap_or_else(|| panic!("{value:?} is a tag"));
+            assert_eq!(tag.unanswerable, Some(Unanswerable::Unknown), "{value:?}");
+            assert_eq!(
+                unanswerable_misuse(&value[1..value.len() - 1]),
+                Some(UnanswerableMisuse::UnknownReason),
+                "{value:?}"
+            );
+        }
+        let claims = open_claims(
+            "x",
+            "Who paid is [open — unanswerable: no filing exists].",
+            &[],
+        );
+        assert_eq!(open_claim_state(&claims), OpenClaimState::Open);
+        assert!(unanswerable_reasons(&claims).is_empty());
+    }
+
+    /// Only `open` takes it, and `unanswerable` must be the whole word.
+    #[test]
+    fn only_an_open_claim_can_be_unanswerable() {
+        for inner in [
+            "verified — unanswerable: superseded",
+            "inference: unanswerable — out of scope",
+        ] {
+            assert_eq!(parse_tag(&format!("[{inner}]")), None, "{inner:?}");
+            assert_eq!(
+                unanswerable_misuse(inner),
+                Some(UnanswerableMisuse::NotOpen)
+            );
+        }
+        assert_eq!(parse_tag("[open — unanswerableish: superseded]"), None);
+        assert_eq!(unanswerable_misuse("open — unanswerable: superseded"), None);
+        assert_eq!(unanswerable_misuse("open — as proposed"), None);
+    }
+
+    /// The state over the arms: none, owed, or terminal with the first reason in order.
+    #[test]
+    fn the_state_is_terminal_only_when_every_open_claim_is() {
+        assert_eq!(
+            open_claim_state(&open_claims("x", "Nothing open.", &[])),
+            OpenClaimState::None
+        );
+        let both = "A [open — unanswerable: superseded]. B [open].";
+        let claims = open_claims("x", both, &[]);
+        assert_eq!(open_claim_state(&claims), OpenClaimState::Open);
+        assert_eq!(unanswerable_reasons(&claims), vec!["superseded"]);
+
+        let two = "A [open — unanswerable: out of scope]. B [open — unanswerable: superseded]. \
+                   C [open — unanswerable: out of scope].";
+        let claims = open_claims("x", two, &[]);
+        assert_eq!(
+            open_claim_state(&claims),
+            OpenClaimState::Unanswerable("out of scope")
+        );
+        assert_eq!(
+            unanswerable_reasons(&claims),
+            vec!["out of scope", "superseded", "out of scope"]
+        );
+        assert!(has_open_claim("x", two, &[]));
+    }
+
+    /// A `?` label is owed only when nothing else is open; a scoped non-terminal tag is not read.
+    #[test]
+    fn a_question_label_defers_to_a_terminal_body() {
+        let body = "Who paid is [open — unanswerable: not in the public record].";
+        assert_eq!(
+            open_claim_state(&open_claims("?who paid", body, &[])),
+            OpenClaimState::Unanswerable("not in the public record")
+        );
+        assert_eq!(
+            open_claim_state(&open_claims("?who paid", "Nothing tagged.", &[])),
+            OpenClaimState::Open
+        );
+        // `has_open_claim` does not read `[open — which …]`, so neither does the state.
+        let scoped = "It is [open — which of the six, not whether].";
+        assert!(!has_open_claim("x", scoped, &[]));
+        assert_eq!(
+            open_claim_state(&open_claims("x", scoped, &[])),
+            OpenClaimState::None
+        );
+    }
+
+    /// Declared properties come before prose, whatever the byte order.
+    #[test]
+    fn declared_properties_come_before_prose() {
+        let text = "label: x\nnotes: \"Earlier [open — unanswerable: superseded].\"\n\
+                    claim_tag: \"open — unanswerable: out of scope\"\n";
+        let fields = vec!["claim_tag".to_string()];
+        let claims = open_claims("x", text, &fields);
+        assert_eq!(
+            unanswerable_reasons(&claims),
+            vec!["out of scope", "superseded"]
+        );
+        assert_eq!(
+            Terminal::of_node("x", text, &fields),
+            Terminal {
+                unanswerable: Some("out of scope"),
+                reasons: vec!["out of scope", "superseded"],
+            }
+        );
+    }
+
+    /// A finding carried as open is never terminal.
+    #[test]
+    fn a_carried_open_finding_keeps_the_node_owed() {
+        let text = "label: x\nnotes: \"[open — unanswerable: superseded]\"\nyidam:\n  \
+                    findings:\n    - id: 7f3a1c94b2e1\n      check: orphan-in\n      \
+                    detail: nothing links here\n      standing: open\n";
+        assert_eq!(
+            crate::findings::parse(text).len(),
+            1,
+            "the fixture carries one finding"
+        );
+        let claims = open_claims("x", text, &[]);
+        assert_eq!(open_claim_state(&claims), OpenClaimState::Open);
+        assert_eq!(unanswerable_reasons(&claims), vec!["superseded"]);
+    }
 
     // ── scoped tags (#789) ────────────────────────────────────────────────────
 

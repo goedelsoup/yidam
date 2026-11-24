@@ -2427,6 +2427,20 @@ fn declarations(
 /// instead of here, and `NO_REPORT` says why `index-verify` cannot run at all.
 const UNREACHED: &[(&str, &str)] = &[
     (
+        "open_questions[].unanswerable",
+        "`open-questions` emits it only for an entry whose every open claim is written \
+         `[open — unanswerable: <reason>]`, and this fixture writes none. Giving it one would \
+         move `due`, `status` and `open-questions` for every SDK runner graded against it. \
+         `unanswerable.rs` stages a terminal node and holds every emitted path to this schema \
+         (#1506)",
+    ),
+    (
+        "open_questions[].reasons",
+        "`open-questions` emits it only for an entry with some open claims marked unanswerable \
+         and some not, and this fixture writes none. `unanswerable.rs` stages one and holds \
+         every emitted path to this schema (#1506)",
+    ),
+    (
         "asks",
         "`open-questions` lists an ask only when the repository holds one under \
          `.yidam/asks/<package>/`, addressed to a dependency `.yidam/tonpa.toml` declares, and \

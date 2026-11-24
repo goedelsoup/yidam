@@ -257,29 +257,34 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// deltas are **89 words in `directories.md`**, the node-convention bullet saying an artifact
 /// about an entity is a node of its own, and **20 in `GRAPH.md`**, the `node-too-many-passages`
 /// row. Only the node route reads `directories.md`, so it moved by both.
+///
+/// **Raised by 50 on every route of both files, when an open claim could say the record cannot
+/// answer it (#1506, RFC-0061).** The delta is **50 words in `GRAPH.md`**, the paragraph naming
+/// `[open — unanswerable: <reason>]` and its three reasons, which every route reads. *Before you
+/// run a phase* moved by 44 on both files: it had 6 to spare, and the ceiling is the count.
 const READ_CEILING: &[(&str, &str, usize)] = &[
-    ("AGENTS.md", "Before you write or revise a node", 6_949),
-    ("AGENTS.md", "Before you run a phase", 4_606),
+    ("AGENTS.md", "Before you write or revise a node", 6_999),
+    ("AGENTS.md", "Before you run a phase", 4_650),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
-        4_647,
+        4_697,
     ),
-    ("AGENTS.md", "Before you change a class", 5_182),
-    ("AGENTS.md", "Before you retrieve", 2_989),
+    ("AGENTS.md", "Before you change a class", 5_232),
+    ("AGENTS.md", "Before you retrieve", 3_039),
     (
         "sadhana/root/AGENTS.md",
         "Before you write or revise a node",
-        7_926,
+        7_976,
     ),
-    ("sadhana/root/AGENTS.md", "Before you run a phase", 5_583),
+    ("sadhana/root/AGENTS.md", "Before you run a phase", 5_627),
     (
         "sadhana/root/AGENTS.md",
         "Before a claim crosses a corpus boundary",
-        5_624,
+        5_674,
     ),
-    ("sadhana/root/AGENTS.md", "Before you change a class", 6_159),
-    ("sadhana/root/AGENTS.md", "Before you retrieve", 3_966),
+    ("sadhana/root/AGENTS.md", "Before you change a class", 6_209),
+    ("sadhana/root/AGENTS.md", "Before you retrieve", 4_016),
 ];
 
 /// Ceiling on the bootstrap path, in words: **the measured figure at `b52e031`, with no slack.**
@@ -511,7 +516,11 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// **Raised to 21,121 when a long node was split into passages (#1505, RFC-0060).** The delta is
 /// **89 words in `directories.md`** and **20 in `GRAPH.md`**, the same two the recurring routes
 /// moved by. 21,012 + 109 is this figure exactly.
-const BOOTSTRAP_CEILING: usize = 21_121;
+///
+/// **Raised to 21,171 when an open claim could say the record cannot answer it (#1506,
+/// RFC-0061).** The delta is **50 words in `GRAPH.md`**, the same 50 the node route moved by.
+/// 21,121 + 50 is this figure exactly.
+const BOOTSTRAP_CEILING: usize = 21_171;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///

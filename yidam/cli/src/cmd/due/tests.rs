@@ -420,6 +420,55 @@ fn a_node_that_does_not_parse_is_still_counted() {
     assert!(q.detail.contains("of 1 "), "{}", q.detail);
 }
 
+/// An unanswerable question is listed and named, and neither counted nor aged (RFC-0061).
+///
+/// Two questions of one age, one marked terminal: the clock owes the other alone, and its line
+/// names the total and the excluded figure so it is never silent about what it left out.
+#[test]
+fn an_unanswerable_question_is_off_the_clock_and_named() {
+    let tmp = repo();
+    let root = tmp.path();
+    node(
+        root,
+        "concept/b.yml",
+        "class: concept\nlabel: B\ndescription: it is `[open]`\n",
+    );
+    node(
+        root,
+        "concept/c.yml",
+        "class: concept\nlabel: C\ndescription: it is `[open — unanswerable: superseded]`\n",
+    );
+    commit(root, "2026-01-02", "open: whether b and c hold");
+
+    let undeclared = find(&clocks(root), "questions").clone();
+    assert_eq!(undeclared.detail, "2 open question(s), 1 unanswerable");
+
+    config(root, "[due]\nquestions_after = 1\n");
+    let q = find(&clocks(root), "questions").clone();
+    assert_eq!(q.state, State::Due, "{q:?}");
+    assert_eq!(q.overdue, 1);
+    assert!(
+        q.detail.starts_with("1 of 1 owed question(s)"),
+        "{}",
+        q.detail
+    );
+    assert!(
+        q.detail.ends_with("; 2 open, 1 unanswerable"),
+        "{}",
+        q.detail
+    );
+
+    // Every question terminal: nothing is owed, and the line still says what was left out.
+    node(
+        root,
+        "concept/b.yml",
+        "class: concept\nlabel: B\ndescription: it is `[open — unanswerable: out of scope]`\n",
+    );
+    let ok = find(&clocks(root), "questions").clone();
+    assert_eq!(ok.state, State::Ok, "{ok:?}");
+    assert_eq!(ok.detail, "no owed questions; 2 open, 2 unanswerable");
+}
+
 // ── the phases clock ──────────────────────────────────────────────────────────
 
 /// A `phase/*` ref that has not settled, older than the declared interval.

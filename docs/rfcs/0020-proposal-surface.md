@@ -53,7 +53,7 @@ The test that decides all three is not new. `prelude/GRAPH.md` already licenses 
 epistemic commit written outside a resolution event, and licenses it on exactly this ground:
 
 > It is carriage and not synthesis, which is what makes it legal outside a resolution event.
-> — [`GRAPH.md:696`](../../yidam/prelude/GRAPH.md#L696), on `transport`
+> — [`GRAPH.md:701`](../../yidam/prelude/GRAPH.md#L701), on `transport`
 
 The reason sits in the evidence beside it: *"`transport` is legal outside a resolution event
 because Article V confines synthesis to resolutions, and copying a file verbatim introduces no
@@ -166,7 +166,7 @@ and #271's expiry both collapse into the same act.
 #### 3. A question whose answer already landed — deciding that is the resolution event
 
 `claims::is_open_question` finds open questions (renamed by RFC-0037 to
-[`has_open_claim`](../../yidam/cli/src/claims.rs#L1725)). Nothing finds answers, and
+[`has_open_claim`](../../yidam/cli/src/claims.rs#L1839)). Nothing finds answers, and
 nothing could: an open question in this corpus is a paragraph of prose tagged `[open]`, and
 deciding that some later paragraph answers it is a judgment about content.
 

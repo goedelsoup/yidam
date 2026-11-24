@@ -26,11 +26,8 @@ docs/rfcs/0013-node-model-close.md → 0002-node-model-unification.md#L179-L181
 docs/rfcs/0013-node-model-close.md → 0002-node-model-unification.md#L47
 docs/rfcs/0013-node-model-close.md → 0002-node-model-unification.md#L47
 docs/rfcs/0013-node-model-close.md → 0002-node-model-unification.md#L97-L99
-docs/rfcs/0014-node-rename.md → ../../yidam/cli/src/cmd/corpus.rs#L101
-docs/rfcs/0014-node-rename.md → ../../yidam/cli/src/cmd/corpus.rs#L109-L110
 docs/rfcs/0015-epistemic-log.md → ../../VERSIONING.md#L65-L66
 docs/rfcs/0015-epistemic-log.md → ../../yidam/cli/src/cmd/backfill.rs#L81-L122
-docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/corpus.rs#L111-L113
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/lint/model.rs#L44-L51
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/cmd/lint/model.rs#L44-L74
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/lib.rs#L27
@@ -91,5 +88,4 @@ docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/export_rdf.rs#L3
 docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/serve/resources.rs#L56
 docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/serve/resources.rs#L56
 docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/serve/resources.rs#L56
-docs/rfcs/0035-class-extent.md → ../../yidam/cli/src/cmd/corpus.rs#L131
 docs/rfcs/0035-class-extent.md → ../../yidam/cli/src/kuten.rs#L800-L808

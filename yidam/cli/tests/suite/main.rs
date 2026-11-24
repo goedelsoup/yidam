@@ -98,6 +98,7 @@ mod source_check;
 mod task_layer;
 mod template_root;
 mod template_source_packs;
+mod unanswerable;
 mod vault;
 mod vault_s3;
 mod walkthrough_transcripts;
