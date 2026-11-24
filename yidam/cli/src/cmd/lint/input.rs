@@ -53,6 +53,7 @@ pub(crate) struct Input<'a> {
     cites: OnceLock<Vec<Vec<String>>>,
     claim_fields: OnceLock<crate::claims::ClaimFields>,
     prose_fields: OnceLock<crate::prose::ProseFields>,
+    retrievable: OnceLock<crate::retrievable::Retrievable>,
     catalog_ages: OnceLock<Vec<ttl::Age>>,
     tables: OnceLock<Vec<(String, String)>>,
     skills: OnceLock<Vec<(String, String)>>,
@@ -122,6 +123,7 @@ impl<'a> Input<'a> {
             cites: OnceLock::new(),
             claim_fields: OnceLock::new(),
             prose_fields: OnceLock::new(),
+            retrievable: OnceLock::new(),
             catalog_ages: OnceLock::new(),
             tables: OnceLock::new(),
             skills: OnceLock::new(),
@@ -324,6 +326,18 @@ impl<'a> Input<'a> {
     pub(crate) fn claim_fields(&self) -> &crate::claims::ClaimFields {
         self.claim_fields
             .get_or_init(|| crate::claims::ClaimFields::from_classes(self.classes()))
+    }
+
+    /// The properties each class flagged `retrievable: true`, from the classes already parsed.
+    ///
+    /// The other half of what `embed` composes a node's text from, so a check measuring that
+    /// text reads the same declarations [`crate::retrievable::Retrievable::load`] reads.
+    pub(crate) fn retrievable(&self) -> &crate::retrievable::Retrievable {
+        self.retrievable.get_or_init(|| {
+            crate::retrievable::Retrievable::from_declarations(
+                self.classes().iter().map(crate::retrievable::declared),
+            )
+        })
     }
 
     /// Which keys on each class carry prose.

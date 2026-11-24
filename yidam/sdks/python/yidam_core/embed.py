@@ -139,3 +139,78 @@ def compose_embed_text(inst: CorpusInstance, fields: EmbedFields) -> str:
         parts.append(f"Related: {', '.join(names)}.")
 
     return " ".join(parts)
+
+
+#: How many characters a passage may hold, label included. See the Rust reference's
+#: ``PASSAGE_MAX_CHARS`` for why the budget is in characters and why 1,200.
+PASSAGE_MAX_CHARS = 1200
+
+
+def _is_cut(c: str) -> bool:
+    # Two characters only, so three languages agree on what a cut is.
+    return c == " " or c == "\t"
+
+
+def _cut(chars: str, room: int) -> tuple[str, str]:
+    if len(chars) <= room:
+        return chars, ""
+    for j in range(room, 0, -1):
+        if _is_cut(chars[j]):
+            return chars[:j], chars[j + 1 :]
+    return chars[:room], chars[room:]
+
+
+def split_passages(label: str, text: str, max_chars: int) -> list[str]:
+    """Split a composed embed text into passages no longer than ``max_chars``, each led by the label.
+
+    RFC-0060 §2.1; see the Rust reference's ``split_passages`` for the argument. A text that
+    fits comes back whole. A text that does not begin with ``label`` and a space is read as
+    having no label. Lengths are counted in code points.
+    """
+    if len(text) <= max_chars:
+        return [text]
+
+    if label and text == label:
+        body = ""
+    elif label and text.startswith(label + " "):
+        body = text[len(label) + 1 :]
+    else:
+        label, body = "", text
+
+    half = max_chars // 2
+    if len(label) + 1 > max_chars - half:
+        label = _cut(label, half)[0].rstrip(" \t")
+    prefix = f"{label} " if label else ""
+    room = max(max_chars - len(prefix), 1)
+
+    i = body.rfind(" Related: ")
+    if i >= 0 and "\n" not in body[i:]:
+        lines = body[:i].split("\n") + [body[i + 1 :]]
+    else:
+        lines = body.split("\n")
+
+    pieces: list[str] = []
+    for line in lines:
+        if all(_is_cut(c) for c in line):
+            continue
+        rest = line
+        while rest:
+            head, rest = _cut(rest, room)
+            if head:
+                pieces.append(head)
+
+    passages: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for piece in pieces:
+        if current_len > 0 and current_len + 1 + len(piece) > room:
+            passages.append(prefix + "\n".join(current))
+            current, current_len = [], 0
+        if current_len > 0:
+            current_len += 1
+        current.append(piece)
+        current_len += len(piece)
+    if current_len > 0:
+        passages.append(prefix + "\n".join(current))
+
+    return passages or [label]

@@ -1,0 +1,12 @@
+function = "split_passages"
+description = "A text that is its label alone, too long for the budget, is one passage: the label as cut"
+
+[input]
+label = "A label long enough that the text is over budget"
+text = "A label long enough that the text is over budget"
+max_chars = 40
+
+[expected]
+passages = [
+  "A label long enough",
+]

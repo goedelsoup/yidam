@@ -351,6 +351,7 @@ existed — nothing changes for them.
 | Reads the declared set | What changes |
 |---|---|
 | `node-too-long` | counts every declared prose field; the finding says `lines of prose`, not of `description` |
+| `node-too-many-passages` | measures the text `yidam embed` composes, so a flagged field adds to a node's passage count |
 | `missing-description` | reports a node with prose in **no** declared field. A node carrying a `summary` and no `description` has said something |
 | `yidam embed` | embeds all the prose. A node whose substance is in `summary` was retrievable by its title and by nothing it says |
 

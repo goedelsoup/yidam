@@ -214,8 +214,11 @@ struct Footprints {
     row_max: (usize, String),
     /// The largest filterable half seen, and whose it was.
     filterable_max: (usize, String),
-    /// Rows whose text did not fit: path, composed bytes, bytes kept.
-    truncated: Vec<(String, usize, usize)>,
+    /// Passages per record (RFC-0060 §2.4): each one is a remote row of its own, and the
+    /// whole-row figures above are measured per passage.
+    passages: Vec<usize>,
+    /// The record that split into the most passages, and how many.
+    passages_max: (usize, String),
     /// Rows a push would refuse outright, and why.
     refused: Vec<(String, String)>,
 }
@@ -237,28 +240,37 @@ impl Footprints {
     fn observe(&mut self, corpus: &str, commit: &str, rec: &EmbedRecord) {
         let text_bytes = rec.text.len();
         self.text.push((text_bytes, rec.kind == KIND_NODE));
-        match request::metadata(corpus, &rec.class, &rec.label, commit, &rec.text) {
-            Ok((m, cut)) => {
-                let bytes = serde_json::to_vec(&m).map_or(0, |b| b.len());
-                self.row.push(bytes);
-                if bytes > self.row_max.0 {
-                    self.row_max = (bytes, rec.path.clone());
+        let passages = yidam_core::embed::split_passages(
+            &rec.label,
+            &rec.text,
+            yidam_core::embed::PASSAGE_MAX_CHARS,
+        );
+        self.passages.push(passages.len());
+        if passages.len() > self.passages_max.0 {
+            self.passages_max = (passages.len(), rec.path.clone());
+        }
+        for (n, passage) in passages.iter().enumerate() {
+            let ordinal = u32::try_from(n).unwrap_or(u32::MAX);
+            match request::metadata(corpus, &rec.class, &rec.label, commit, ordinal, passage) {
+                Ok((m, _)) => {
+                    let bytes = serde_json::to_vec(&m).map_or(0, |b| b.len());
+                    self.row.push(bytes);
+                    if bytes > self.row_max.0 {
+                        self.row_max = (bytes, rec.path.clone());
+                    }
+                    let filterable = request::filterable_len(&m);
+                    if filterable > self.filterable_max.0 {
+                        self.filterable_max = (filterable, rec.path.clone());
+                    }
                 }
-                let filterable = request::filterable_len(&m);
-                if filterable > self.filterable_max.0 {
-                    self.filterable_max = (filterable, rec.path.clone());
-                }
-                if cut {
-                    let kept = m[crate::s3vectors::META_KEY_TEXT]
-                        .as_str()
-                        .map_or(0, str::len);
-                    self.truncated.push((rec.path.clone(), text_bytes, kept));
+                // Recorded rather than propagated: a push refuses the whole run on the first
+                // bad row, which is right for a push and wrong for a measurement — the point
+                // of running this is to find out how many there are.
+                Err(e) => {
+                    self.refused.push((rec.path.clone(), e.to_string()));
+                    break;
                 }
             }
-            // Recorded rather than propagated: a push refuses the whole run on the first bad
-            // row, which is right for a push and wrong for a measurement — the point of
-            // running this is to find out how many there are.
-            Err(e) => self.refused.push((rec.path.clone(), e.to_string())),
         }
     }
 
@@ -344,16 +356,21 @@ impl Footprints {
                 &self.filterable_max.1
             }
         );
+        // A passage is at most `PASSAGE_MAX_CHARS` characters, so no text is cut to fit the
+        // row ceiling any more (RFC-0060 §2.4). What a reader wants instead is how many rows
+        // the records become, and which record is the longest.
+        let split = self.passages.iter().filter(|&&n| n > 1).count();
         println!(
-            "  truncated:   {} row(s) would have their text cut",
-            self.truncated.len()
+            "  passages:    {} over {} record(s); {split} record(s) split, most {} ({})",
+            self.passages.iter().sum::<usize>(),
+            self.passages.len(),
+            self.passages_max.0,
+            if self.passages_max.1.is_empty() {
+                "—"
+            } else {
+                &self.passages_max.1
+            }
         );
-        for (path, composed, kept) in self.truncated.iter().take(10) {
-            println!("    - {path}: {composed} composed, {kept} kept");
-        }
-        if self.truncated.len() > 10 {
-            println!("    … and {} more", self.truncated.len() - 10);
-        }
         if !self.refused.is_empty() {
             println!(
                 "  refused:     {} row(s) a push would not send",

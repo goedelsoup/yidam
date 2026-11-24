@@ -70,14 +70,14 @@ at depth 2 and all of it at depth 3.
 `.ont.yml` now declares, and lint now enforces: the class an instance belongs to
 ([`unknown-class`](../../yidam/cli/src/cmd/lint/checks.rs#L696), Error), the properties it may
 and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1220),
-[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1403)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1883)), which relationships a class
-licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L1951)), and which class
+[`missing-property`](../../yidam/cli/src/cmd/lint/checks.rs#L1458)), the type of each value
+([`property-type`](../../yidam/cli/src/cmd/lint/checks.rs#L1938)), which relationships a class
+licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks.rs#L2006)), and which class
 each relationship may land on
-([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L2020), Error).
+([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks.rs#L2075), Error).
 
 `unlicensed-edge`'s own rationale states the gap in as many words
-([`checks.rs:2004-2005`](../../yidam/cli/src/cmd/lint/checks.rs#L2004-L2005)):
+([`checks.rs:2059-2060`](../../yidam/cli/src/cmd/lint/checks.rs#L2059-L2060)):
 
 > a relationship in no declaration is worth seeing, because **a traversal that walks by
 > relationship will not find it**
@@ -291,7 +291,7 @@ relationship the class does not declare resolves as:
 
 The first row is load-bearing and is easy to omit. `unlicensed_edge` short-circuits on an empty
 edge list **before** it consults the policy
-([`checks.rs:1960-1961`](../../yidam/cli/src/cmd/lint/checks.rs#L1960-L1961)):
+([`checks.rs:2015-2016`](../../yidam/cli/src/cmd/lint/checks.rs#L2015-L2016)):
 
 ```rust
 if class.edges.is_empty() || class.edge_policy == EdgePolicy::Characteristic { continue; }
@@ -345,7 +345,7 @@ If a class declares the relationship but only toward class C, a hop asking for c
 **rejected**, naming the declared targets. `edge-target-class` is Error severity for the same
 reason: an edge to the wrong thing resolves, traverses, and exports, and is simply false. A
 declaration with an empty `target` licenses every class, exactly as the check reads it
-([`edge_target_class`](../../yidam/cli/src/cmd/lint/checks.rs#L2020-L2039)), and so does a query hop
+([`edge_target_class`](../../yidam/cli/src/cmd/lint/checks.rs#L2075-L2094)), and so does a query hop
 against it. `*` on the target side is the query-side twin of that empty `target:` and licenses
 every class in the same way.
 
@@ -357,7 +357,7 @@ so `seeded_because` and `fy2024_profile` are queryable without being declared on
 classes. An undeclared name is **rejected** with the class's declared list.
 
 Predicate *values* are a separate question from predicate *names*, and the operator decides it.
-[`property_type_violation`](../../yidam/cli/src/cmd/lint/checks.rs#L1513)
+[`property_type_violation`](../../yidam/cli/src/cmd/lint/checks.rs#L1568)
 takes a declared type and a value and no operator — it answers *may the corpus store this*, not
 *may someone ask about this*. Using it operator-blind rejects satisfiable predicates:
 `reach[claim_tag!=maybe]` is satisfied by every reach in `examples/streamflow`, and
@@ -379,7 +379,7 @@ Three further rules the naive version leaves undefined:
   rule stands as the default and `?` after the operator opts one predicate out of it.
 - **A list value matches if any element matches.** `claim_tag: [open]` is legal YAML that the
   claim counter reads as one claim, and `property_type_violation` accepts it
-  ([`property_type_violation`](../../yidam/cli/src/cmd/lint/checks.rs#L1513-L1542)); a predicate must read the
+  ([`property_type_violation`](../../yidam/cli/src/cmd/lint/checks.rs#L1568-L1597)); a predicate must read the
   same bytes the same way.
 - **`=` on a `date` compares at the precision written**, so `observed_on=2026-08` matches every
   day in that month. Ordering compares at the precision the two sides *share*, which is a
@@ -508,7 +508,7 @@ unproductive the report says so rather than shrugging:
 
 A rejected query **emits its report and exits 1**. That is the shape four commands already
 have — `doctor`
-([`crate::report::gate`](../../yidam/cli/src/cmd/doctor.rs#L2323)), `regen`
+([`crate::report::gate`](../../yidam/cli/src/cmd/doctor.rs#L2353)), `regen`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/regen.rs#L692)), `rename`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/rename.rs#L798)) and `index-verify`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/index_verify.rs#L260)) all print, then

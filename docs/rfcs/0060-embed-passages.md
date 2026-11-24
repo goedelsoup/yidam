@@ -1,6 +1,6 @@
 # RFC-0060 — A node is embedded as passages, and scored by its best one
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I43
 - **Relates to:**
   - #1505 (a node grew to 209,000 characters and nothing warned; the evidence this answers),
@@ -254,9 +254,9 @@ whole node reads it through `find_node`, as it does today.
 A passage's key is `"{corpus}/{path}"` for passage 0 and `"{corpus}/{path}#{n}"` for passage
 `n ≥ 1`. `split_key` and `path_from_key` strip a trailing `#{digits}`.
 
-`vector_key` does not refuse `#` today. From this release it refuses a node path containing
-one, naming the path, so a suffix can never be confused with a path. No file under any of the
-18 corpora measured has `#` in its name.
+`vector_key` refuses a node path that ends in `#` and digits, naming the path, so a suffix can
+never be confused with a path. Any other `#` keeps its key, so a pushed `c#-notes.yml` still
+pushes. No file under any of the 18 corpora measured has `#` in its name.
 
 `plan_mirror` diffs on keys, as it does now. A node that shrinks deletes its high-numbered
 passage keys, and a node that grows puts new ones. A passage carries a new metadata key,

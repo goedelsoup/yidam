@@ -56,7 +56,7 @@ available. A `.yiz` bundle is a **tarball**, not a repository — `manifest.yml`
 resolve against and no object store to ask.
 
 What exists is one string. `manifest.yml` carries `commit`, and that field is
-`head_commit_short(root)` ([`head_commit_short`](../../yidam/cli/src/model.rs#L291)) — `git
+`head_commit_short(root)` ([`head_commit_short`](../../yidam/cli/src/model.rs#L311)) — `git
 rev-parse --short`, whose **length git chooses from the producing repository's object count**.
 Bundling the eight-node example produces `commit: "8d35441"`. The same commit, bundled from a
 larger repository, is spelled with more characters.
@@ -187,7 +187,7 @@ Stated as prohibitions because each one is a thing a reader will assume:
   `instance_links` — the gate's own edge reader, and RFC-0018's — never sees it. `--across`
   (#268) queries the dependency set as a *scope*; it does not follow citations.
 - **Not licensed by `edge_policy`.** `unlicensed-edge`'s own rationale draws this line
-  already ([`checks.rs:2007-2008`](../../yidam/cli/src/cmd/lint/checks.rs#L2007-L2008)): *a link to the
+  already ([`checks.rs:2062-2063`](../../yidam/cli/src/cmd/lint/checks.rs#L2062-L2063)): *a link to the
   class file or into the catalog is a citation, not a relationship.*
   A class's `edges:` bounds relationships; a citation is not one, and asking a class to
   declare which foreign corpora its instances may cite would be asking the ontology a

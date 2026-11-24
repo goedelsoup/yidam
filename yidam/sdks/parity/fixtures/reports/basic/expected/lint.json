@@ -129,6 +129,14 @@
       "violations": []
     },
     {
+      "id": "node-too-many-passages",
+      "title": "Node too long to embed as one",
+      "severity": "warn",
+      "rationale": "A long node is indexed as many passages, so it stays findable, but past a point its length says it is several things. Usually one is an artifact about the entity — a plan, a brief, a decision log — which belongs in a node of its own linking to it, or an account that grew to argue several claims, each of which is a claim node. The measure is the text `yidam embed` composes, not the file, and it applies to every class, whether or not the class declares `max_lines:`.",
+      "escalation_eligible": false,
+      "violations": []
+    },
+    {
       "id": "property-type",
       "title": "Property value that contradicts its declared type",
       "severity": "error",

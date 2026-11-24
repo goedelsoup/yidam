@@ -452,3 +452,40 @@ fn parity_compose_embed_text() {
         );
     }
 }
+
+// ── split_passages ────────────────────────────────────────────────────────────
+
+#[test]
+fn parity_split_passages() {
+    let fixtures = load_fixtures("split_passages");
+    assert!(!fixtures.is_empty(), "no split_passages fixtures found");
+
+    for fx in &fixtures {
+        let description = fx["description"].as_str().unwrap_or("");
+        let input = &fx["input"];
+        let max_chars = input["max_chars"]
+            .as_integer()
+            .unwrap_or_else(|| panic!("{description}: [input] declares no `max_chars`"))
+            as usize;
+        let expected: Vec<String> = fx["expected"]["passages"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{description}: [expected] declares no `passages`"))
+            .iter()
+            .map(|v| {
+                v.as_str()
+                    .expect("a passage that is not a string")
+                    .to_string()
+            })
+            .collect();
+
+        assert_eq!(
+            embed::split_passages(
+                input["label"].as_str().unwrap(),
+                input["text"].as_str().unwrap(),
+                max_chars
+            ),
+            expected,
+            "{description}"
+        );
+    }
+}

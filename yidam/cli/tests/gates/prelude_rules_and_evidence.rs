@@ -251,20 +251,26 @@ const MIN_EVIDENCE_WORDS: usize = 25;
 /// `dataset` entry could declare its table (#1504, RFC-0059).** The delta is **48 words in
 /// `directories.md`**: one catalog paragraph naming `columns:`, `key:`, the `#row=` citation,
 /// the three checks, the run refusal and the kit's `table()`. Both routes moved by the same 48.
+///
+/// **Raised by 109 on *Before you write or revise a node* and by 20 on *Before you change a
+/// class*, on both routes, when a long node was split into passages (#1505, RFC-0060).** The
+/// deltas are **89 words in `directories.md`**, the node-convention bullet saying an artifact
+/// about an entity is a node of its own, and **20 in `GRAPH.md`**, the `node-too-many-passages`
+/// row. Only the node route reads `directories.md`, so it moved by both.
 const READ_CEILING: &[(&str, &str, usize)] = &[
-    ("AGENTS.md", "Before you write or revise a node", 6_840),
+    ("AGENTS.md", "Before you write or revise a node", 6_949),
     ("AGENTS.md", "Before you run a phase", 4_606),
     (
         "AGENTS.md",
         "Before a claim crosses a corpus boundary",
         4_647,
     ),
-    ("AGENTS.md", "Before you change a class", 5_162),
+    ("AGENTS.md", "Before you change a class", 5_182),
     ("AGENTS.md", "Before you retrieve", 2_989),
     (
         "sadhana/root/AGENTS.md",
         "Before you write or revise a node",
-        7_817,
+        7_926,
     ),
     ("sadhana/root/AGENTS.md", "Before you run a phase", 5_583),
     (
@@ -272,7 +278,7 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
         "Before a claim crosses a corpus boundary",
         5_624,
     ),
-    ("sadhana/root/AGENTS.md", "Before you change a class", 6_139),
+    ("sadhana/root/AGENTS.md", "Before you change a class", 6_159),
     ("sadhana/root/AGENTS.md", "Before you retrieve", 3_966),
 ];
 
@@ -501,7 +507,11 @@ const READ_CEILING: &[(&str, &str, usize)] = &[
 /// **Raised to 21,012 when a node could rule a paragraph not a refusal (#1502, RFC-0057).** The
 /// delta is **81 words in `GRAPH.md`**, the same 81 both recurring routes moved by. 20,931 + 81
 /// is this figure exactly. The argument is in `GRAPH.evidence.md` and charged to [`PAIR_FLOOR`].
-const BOOTSTRAP_CEILING: usize = 21_012;
+///
+/// **Raised to 21,121 when a long node was split into passages (#1505, RFC-0060).** The delta is
+/// **89 words in `directories.md`** and **20 in `GRAPH.md`**, the same two the recurring routes
+/// moved by. 21,012 + 109 is this figure exactly.
+const BOOTSTRAP_CEILING: usize = 21_121;
 
 /// The two files a fresh clone opens before anything under `yidam/prelude/`.
 ///

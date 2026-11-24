@@ -239,6 +239,8 @@ export interface IndexStatusReport extends Envelope {
   model: string | null
   embedding_dim: number | null
   node_count: number | null
+  /** Rows, one per passage (RFC-0060). Absent from a CLI older than the field. */
+  row_count?: number | null
   stale_nodes: number
 }
 

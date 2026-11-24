@@ -1,0 +1,14 @@
+function = "split_passages"
+description = "A line longer than a passage's room is cut at the last space at or before the room, and that space is dropped"
+
+[input]
+label = "L"
+text = "L the quick brown fox jumps over the lazy dog and keeps on running far away"
+max_chars = 30
+
+[expected]
+passages = [
+  "L the quick brown fox jumps",
+  "L over the lazy dog and keeps",
+  "L on running far away",
+]

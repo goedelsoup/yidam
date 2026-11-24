@@ -122,6 +122,7 @@ pub(crate) fn search(
             path: r.path.clone(),
             class: r.class.clone(),
             label: r.label.clone(),
+            passage: r.passage,
             text: r.text.clone(),
             score: r.vector.iter().zip(&query_vec).map(|(a, b)| a * b).sum(),
             // Not a placeholder. A local index carries whole text — there is no per-row

@@ -2,7 +2,7 @@ use crate::embedding::{
     embed_in_batches, resolve_model, Runtime, DEFAULT_BATCH_SIZE, DEFAULT_MODEL,
 };
 use anyhow::{Context, Result};
-use arrow_array::{FixedSizeListArray, Float32Array, RecordBatch, StringArray};
+use arrow_array::{FixedSizeListArray, Float32Array, RecordBatch, StringArray, UInt32Array};
 use arrow_ipc::writer::FileWriter;
 use arrow_schema::{DataType, Field, Schema};
 use std::sync::Arc;
@@ -20,10 +20,20 @@ const TABLE_NAME: &str = "corpus";
 /// The columns every index built by this command carries, in the order the schema declares
 /// them. Written to `meta.json` as `columns` so a reader with no Arrow decoder — a person, a
 /// web shell deciding what it can filter on — can see what the index holds without opening
-/// it. `properties` is the one a `--where` needs, and the one an older index lacks.
-pub const COLUMNS: &[&str] = &["path", "class", "label", "text", "properties", "vector"];
+/// it. `properties` is the one a `--where` needs, and the one an older index lacks. `passage`
+/// is the ordinal of the row's passage within its node (RFC-0060), and an index without it
+/// holds one row per node, every one of them passage 0.
+pub const COLUMNS: &[&str] = &[
+    "path",
+    "class",
+    "label",
+    "passage",
+    "text",
+    "properties",
+    "vector",
+];
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 struct EmbedRecord {
     path: String,
     class: String,
@@ -38,6 +48,33 @@ struct EmbedRecord {
     /// reads the ontology, and the executor, which reads the value.
     #[serde(default)]
     properties: Option<std::collections::BTreeMap<String, serde_json::Value>>,
+    /// Which passage of its node this row is. Never read from `embed`'s record, which holds
+    /// the whole composed text: [`into_passages`] sets it.
+    #[serde(skip)]
+    passage: u32,
+}
+
+/// One row per passage (RFC-0060 §2.2): each record's text split by
+/// [`yidam_core::embed::split_passages`], every passage a row that repeats its node's path,
+/// class, label and properties. A node that fits the budget is one row, passage 0, with the
+/// text it had before passages existed — which is every node in most corpora.
+fn into_passages(records: Vec<EmbedRecord>) -> Vec<EmbedRecord> {
+    let mut rows = Vec::with_capacity(records.len());
+    for record in records {
+        let passages = yidam_core::embed::split_passages(
+            &record.label,
+            &record.text,
+            yidam_core::embed::PASSAGE_MAX_CHARS,
+        );
+        for (n, text) in passages.into_iter().enumerate() {
+            rows.push(EmbedRecord {
+                text,
+                passage: u32::try_from(n).unwrap_or(u32::MAX),
+                ..record.clone()
+            });
+        }
+    }
+    rows
 }
 
 impl EmbedRecord {
@@ -93,7 +130,10 @@ pub fn index_build(model_arg: Option<String>) -> Result<()> {
         return Ok(());
     }
 
-    println!("Loaded {} embedding record(s).", records.len());
+    let node_count = records.len();
+    let records = into_passages(records);
+    let row_count = records.len();
+    println!("Loaded {node_count} embedding record(s), {row_count} passage(s).");
 
     // Whether this index may vouch for its own class metadata (RFC-0033 §4.5).
     //
@@ -156,7 +196,6 @@ pub fn index_build(model_arg: Option<String>) -> Result<()> {
     println!("  Arrow IPC exported: {} bytes", ipc_bytes.len());
 
     let commit = head_commit_short(&root);
-    let node_count = records.len();
     let generated_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -165,7 +204,10 @@ pub fn index_build(model_arg: Option<String>) -> Result<()> {
     let meta = serde_json::json!({
         "model_name": model_name,
         "embedding_dim": embedding_dim,
+        // Nodes, not rows: a reader that counts what a corpus holds asks how many nodes.
+        // `row_count` is what the file holds, and the two differ by the passages (RFC-0060).
         "node_count": node_count,
+        "row_count": row_count,
         "indexed_commit": commit,
         "table": TABLE_NAME,
         "generated_at": generated_at,
@@ -199,7 +241,7 @@ pub fn index_build(model_arg: Option<String>) -> Result<()> {
     )?;
 
     println!(
-        "Index built: {node_count} node(s) → {} (model: {model_name})",
+        "Index built: {node_count} node(s), {row_count} passage(s) → {} (model: {model_name})",
         index_dir.display(),
     );
     Ok(())
@@ -226,6 +268,7 @@ fn encode_corpus_arrow(
         Field::new("path", DataType::Utf8, false),
         Field::new("class", DataType::Utf8, false),
         Field::new("label", DataType::Utf8, false),
+        Field::new("passage", DataType::UInt32, false),
         Field::new("text", DataType::Utf8, false),
         // Nullable: most rows in most corpora carry no ordered property, and the absence is
         // the value. See `EmbedRecord::properties_cell`.
@@ -240,6 +283,7 @@ fn encode_corpus_arrow(
     let paths: StringArray = records.iter().map(|r| Some(r.path.as_str())).collect();
     let classes: StringArray = records.iter().map(|r| Some(r.class.as_str())).collect();
     let labels: StringArray = records.iter().map(|r| Some(r.label.as_str())).collect();
+    let passages: UInt32Array = records.iter().map(|r| Some(r.passage)).collect();
     let texts_arr: StringArray = records.iter().map(|r| Some(r.text.as_str())).collect();
     let properties_arr: StringArray = records.iter().map(EmbedRecord::properties_cell).collect();
 
@@ -258,6 +302,7 @@ fn encode_corpus_arrow(
             Arc::new(paths),
             Arc::new(classes),
             Arc::new(labels),
+            Arc::new(passages),
             Arc::new(texts_arr),
             Arc::new(properties_arr),
             Arc::new(vector_array),
@@ -285,6 +330,7 @@ mod tests {
             label: format!("Gauge {i}"),
             text: format!("gauge {i} on a river"),
             properties: properties.map(|p| serde_json::from_str(p).unwrap()),
+            passage: 0,
         }
     }
 
@@ -329,6 +375,117 @@ mod tests {
             .enumerate()
             .all(|(i, r)| i == 3 || r.properties.is_none()));
         assert!(index.has_properties_column());
+    }
+
+    /// A record of three passages is three rows, ordinals 0, 1 and 2, each repeating its node's
+    /// path, class and label (RFC-0060 §2.2), and the ordinals survive the round trip.
+    #[test]
+    fn a_record_of_three_passages_writes_three_rows_numbered_from_zero() {
+        let line = "word ".repeat(200); // 1,000 chars: two lines cannot share a passage.
+        let long = EmbedRecord {
+            text: format!("Gauge 1 {line}\n{line}\n{line}"),
+            ..record(1, None)
+        };
+        let rows = into_passages(vec![record(0, None), long, record(2, None)]);
+        assert_eq!(
+            rows.iter()
+                .map(|r| (r.path.as_str(), r.passage))
+                .collect::<Vec<_>>(),
+            vec![
+                ("corpus/gauge/g00.yml", 0),
+                ("corpus/gauge/g01.yml", 0),
+                ("corpus/gauge/g01.yml", 1),
+                ("corpus/gauge/g01.yml", 2),
+                ("corpus/gauge/g02.yml", 0),
+            ]
+        );
+        assert!(rows[1..4].iter().all(|r| r.label == "Gauge 1"
+            && r.text.starts_with("Gauge 1 ")
+            && r.text.chars().count() <= yidam_core::embed::PASSAGE_MAX_CHARS));
+        // A record that fits is the row it was before passages existed.
+        assert_eq!(rows[0].text, record(0, None).text);
+
+        let embeddings: Vec<Vec<f32>> = (0..rows.len()).map(|i| vec![i as f32, 1.0]).collect();
+        let index = decode(encode_corpus_arrow(&rows, &embeddings, 2).unwrap());
+        let read = index_rows(&index).unwrap();
+        assert_eq!(
+            read.iter().map(|r| r.passage).collect::<Vec<_>>(),
+            vec![0, 0, 1, 2, 0]
+        );
+    }
+
+    /// A phrase past char 10,000 makes its node the top hit (#1505).
+    ///
+    /// The embedder is a toy: hashed set of words over the first `WINDOW` chars, which is
+    /// what a real model's token window does to a longer input. One row per node, the shape
+    /// before passages, never sees the phrase and ranks a short node that shares one word above
+    /// it. One row per passage puts the phrase in a passage of its own, and the reader's
+    /// grouping returns the long node once, first, naming that passage.
+    #[test]
+    fn a_phrase_past_char_ten_thousand_makes_its_node_the_top_hit() {
+        const WINDOW: usize = 2_000;
+        fn embed(text: &str) -> Vec<f32> {
+            let mut v = vec![0.0f32; 64];
+            let seen: String = text.chars().take(WINDOW).collect();
+            for word in seen.split_whitespace() {
+                let h = word.bytes().fold(1469598103934665603u64, |h, b| {
+                    (h ^ b as u64).wrapping_mul(1099511628211)
+                });
+                v[(h % 64) as usize] = 1.0;
+            }
+            let norm = v
+                .iter()
+                .map(|x| x * x)
+                .sum::<f32>()
+                .sqrt()
+                .max(f32::EPSILON);
+            v.iter().map(|x| x / norm).collect()
+        }
+        fn top(rows: &[EmbedRecord], query: &str) -> Vec<crate::retrieval::Hit> {
+            let q = embed(query);
+            let hits = rows
+                .iter()
+                .map(|r| crate::retrieval::Hit {
+                    path: r.path.clone(),
+                    class: r.class.clone(),
+                    label: r.label.clone(),
+                    passage: r.passage,
+                    text: r.text.clone(),
+                    score: embed(&r.text).iter().zip(&q).map(|(a, b)| a * b).sum(),
+                    truncated: false,
+                    corpus: None,
+                    properties: None,
+                })
+                .collect();
+            crate::s3vectors::response::finish(hits, |_| true, 2)
+        }
+
+        let filler =
+            "the gauge records discharge at the bridge every fifteen minutes\n".repeat(165);
+        let phrase = "hydropeaking below the dam scours the spawning gravel";
+        let text = format!("Gauge 1 {filler}{phrase}\n{filler}");
+        assert!(text.find(phrase).unwrap() > 10_000);
+        let long = EmbedRecord {
+            text,
+            ..record(1, None)
+        };
+        let short = EmbedRecord {
+            text: "Gauge 2 spawning season on the river".to_string(),
+            ..record(2, None)
+        };
+        let query = "hydropeaking scours spawning gravel";
+
+        let whole = top(&[long.clone(), short.clone()], query);
+        assert_eq!(whole[0].path, short.path, "the old shape already found it");
+
+        let hits = top(&into_passages(vec![long.clone(), short]), query);
+        assert_eq!(hits[0].path, long.path, "{hits:#?}");
+        assert!(hits[0].passage > 0 && hits[0].text.contains(phrase));
+        assert_eq!(
+            hits.iter().filter(|h| h.path == long.path).count(),
+            1,
+            "a node comes back once"
+        );
     }
 
     /// The schema written is the one `meta.json` advertises, in that order. [`COLUMNS`] is

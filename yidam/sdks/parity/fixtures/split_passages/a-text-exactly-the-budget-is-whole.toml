@@ -1,0 +1,12 @@
+function = "split_passages"
+description = "A text of exactly max_chars characters fits: the budget is inclusive"
+
+[input]
+label = "Gage"
+text = "Gage abcdefghij klmnopqrst uvwxyz abcdef"
+max_chars = 40
+
+[expected]
+passages = [
+  "Gage abcdefghij klmnopqrst uvwxyz abcdef",
+]

@@ -20,6 +20,7 @@ is a build error — `mise run parity` enforces it before running any SDK tests.
 | `render_reference` | Render a `Reference` back to a string. The only place an identifier is built |
 | `reference_conforms` | Whether every segment of a `Reference` is a slug, so it needs no escaping in any rendering — and whether its fragment names something, per kind |
 | `compose_embed_text` | Compose the one string a node is embedded as, out of the node and the three field lists its class declared |
+| `split_passages` | Split a composed embed text into passages no longer than a character budget, each led by the node's label (RFC-0060) |
 
 The parity surface is versioned in [`VERSION`](VERSION). Any change to a function's
 contract — input shape, output shape, or classification logic — requires bumping this
@@ -52,6 +53,16 @@ it; what all three SDKs must agree on is what the node composes to once they are
 `a-stem-is-cut-at-its-last-dot.toml` exists to stop the three agreeing by coincidence: the
 Rust reference reached link stems through `Path::file_stem`, which splits on `\` as well as `/`
 on Windows, so the rule is written out in four steps and fixtured instead.
+
+**`split_passages` is here for the same reason one step later (RFC-0060).** The model reads 512
+tokens and drops the rest, so a node composed longer than its window was embedded as its opening
+alone. The index now holds one row per passage, and which passages a text splits into is the
+same kind of judgement as which text it composes to: two splitters over one corpus are two
+indexes. The budget is in characters, not tokens, so the function needs no tokenizer and three
+languages can agree on it; lengths are Unicode scalar values, which TypeScript has to count with
+`Array.from` rather than `.length`, and `a-character-outside-the-bmp-counts-once.toml` is there to
+catch the difference. A cut is a space or a tab and nothing else, because each language's idea
+of whitespace differs past ASCII.
 
 **`references:` is a named field, not a key that survives `extra`.** A node's reference to a thing
 that is not a node — an issue, a crate, a catalog entry — goes in `references:`, as a **string** in

@@ -35,7 +35,7 @@ fn f32s_to_blob(vector: &[f32]) -> Vec<u8> {
 
 /// Write the vector index as a single-file SQLite database using the
 /// `sqlite-vec` extension: a `corpus_vec` vec0 virtual table with the
-/// embeddings plus metadata columns, and a `corpus_meta` table carrying the
+/// embeddings plus metadata columns, one row per passage, and a `corpus_meta` table carrying the
 /// embedding contract so consumers embed queries with matching settings.
 ///
 /// Vectors come from the already-built Arrow index — nothing is re-embedded.
@@ -84,6 +84,7 @@ pub(crate) fn render_sqlite(model: &DomainModel, out: &Path) -> Result<()> {
            path TEXT,
            class TEXT,
            label TEXT,
+           +passage INTEGER,
            +text TEXT,
            +properties TEXT,
            embedding FLOAT[{dim}]
@@ -112,8 +113,8 @@ pub(crate) fn render_sqlite(model: &DomainModel, out: &Path) -> Result<()> {
     )?;
 
     let mut insert = conn.prepare(
-        "INSERT INTO corpus_vec (path, class, label, text, properties, embedding)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO corpus_vec (path, class, label, passage, text, properties, embedding)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )?;
     for row in &rows {
         anyhow::ensure!(
@@ -126,6 +127,9 @@ pub(crate) fn render_sqlite(model: &DomainModel, out: &Path) -> Result<()> {
             row.path,
             row.class,
             row.label,
+            // One row per passage, so a long node is several rows under one `path` (RFC-0060).
+            // A `vec0` query returns rows; a reader wanting nodes groups by `path`.
+            row.passage,
             row.text,
             // Null where the index carried none — an older index, or a node with no ordered
             // property — which is the same answer the Arrow column gives (#1029).
@@ -149,7 +153,7 @@ mod tests {
     use super::*;
     use crate::embed_config::EmbedConfig;
     use crate::model::{IndexData, RenderedViews};
-    use arrow_array::{FixedSizeListArray, Float32Array, RecordBatch, StringArray};
+    use arrow_array::{FixedSizeListArray, Float32Array, RecordBatch, StringArray, UInt32Array};
     use arrow_schema::{DataType, Field, Schema};
     use std::sync::Arc;
 
@@ -159,6 +163,7 @@ mod tests {
             Field::new("path", DataType::Utf8, false),
             Field::new("class", DataType::Utf8, false),
             Field::new("label", DataType::Utf8, false),
+            Field::new("passage", DataType::UInt32, false),
             Field::new("text", DataType::Utf8, false),
             Field::new("properties", DataType::Utf8, true),
             Field::new(
@@ -184,6 +189,13 @@ mod tests {
                 Arc::new(rows.iter().map(|r| Some(r.0)).collect::<StringArray>()),
                 Arc::new(rows.iter().map(|r| Some(r.1)).collect::<StringArray>()),
                 Arc::new(rows.iter().map(|r| Some(r.2)).collect::<StringArray>()),
+                // Numbered within each path from zero, as `index_build` numbers passages.
+                Arc::new(
+                    rows.iter()
+                        .enumerate()
+                        .map(|(i, r)| rows[..i].iter().filter(|p| p.0 == r.0).count() as u32)
+                        .collect::<UInt32Array>(),
+                ),
                 Arc::new(rows.iter().map(|r| Some(r.3)).collect::<StringArray>()),
                 // One row in three carries an ordered property, the way a corpus does.
                 Arc::new(
@@ -211,7 +223,7 @@ mod tests {
         alpha[0] = 1.0;
         let mut gamma = vec![0.0f32; dim as usize];
         gamma[1] = 1.0;
-        let ipc = arrow_ipc(
+        model_of(
             &[
                 (
                     ".yidam/corpus/concept/alpha.yml",
@@ -229,7 +241,11 @@ mod tests {
                 ),
             ],
             dim,
-        );
+        )
+    }
+
+    fn model_of(rows: &[(&str, &str, &str, &str, Vec<f32>)], dim: i32) -> DomainModel {
+        let ipc = arrow_ipc(rows, dim);
         DomainModel {
             classes: vec![],
             instances: vec![],
@@ -295,6 +311,67 @@ mod tests {
             .unwrap();
         assert_eq!(label, "Gamma");
         assert_eq!(path, ".yidam/corpus/concept/gamma.yml");
+    }
+
+    /// A long node is several rows under one path, and the documented query groups them.
+    ///
+    /// The query here is the one `docs/domain-computer.md` gives: over-fetch rows, then keep
+    /// each path's nearest. Without the grouping a node of many passages fills the top `k`.
+    #[test]
+    fn a_long_node_is_one_answer_when_grouped_by_path() {
+        let gamma = ".yidam/corpus/concept/gamma.yml";
+        let m = model_of(
+            &[
+                (gamma, "concept", "Gamma", "first", vec![0.0, 1.0, 0.0, 0.0]),
+                (
+                    gamma,
+                    "concept",
+                    "Gamma",
+                    "second",
+                    vec![0.2, 0.98, 0.0, 0.0],
+                ),
+                (
+                    ".yidam/corpus/concept/alpha.yml",
+                    "concept",
+                    "Alpha",
+                    "alpha text",
+                    vec![1.0, 0.0, 0.0, 0.0],
+                ),
+            ],
+            4,
+        );
+        let tmp = tempfile::TempDir::new().unwrap();
+        let db = tmp.path().join("corpus.db");
+        render_sqlite(&m, &db).unwrap();
+
+        let conn = Connection::open(&db).unwrap();
+        let query = f32s_to_blob(&[0.1, 0.99, 0.0, 0.0]);
+        let rows: i64 = conn
+            .query_row("SELECT count(*) FROM corpus_vec", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 3, "one row per passage");
+        let mut grouped = conn
+            .prepare(
+                "WITH knn AS MATERIALIZED \
+                   (SELECT path, distance FROM corpus_vec WHERE embedding MATCH ?1 AND k = 40) \
+                 SELECT path, min(distance) AS d FROM knn GROUP BY path ORDER BY d LIMIT 5",
+            )
+            .unwrap();
+        let paths: Vec<String> = grouped
+            .query_map([query], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(paths.len(), 2, "{paths:?}");
+        assert_eq!(paths[0], ".yidam/corpus/concept/gamma.yml");
+        let passages: Vec<i64> = conn
+            .prepare("SELECT passage FROM corpus_vec WHERE path = ?1 ORDER BY passage")
+            .unwrap()
+            .query_map([&paths[0]], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(passages, vec![0, 1]);
     }
 
     #[test]

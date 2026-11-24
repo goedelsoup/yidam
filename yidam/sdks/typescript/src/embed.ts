@@ -141,3 +141,90 @@ export function composeEmbedText(
 
   return parts.join(' ')
 }
+
+/**
+ * How many characters a passage may hold, label included. See the Rust reference's
+ * `PASSAGE_MAX_CHARS` for why the budget is in characters and why 1,200.
+ */
+export const PASSAGE_MAX_CHARS = 1200
+
+/** Two characters only, so three languages agree on what a cut is. */
+function isCut(c: string): boolean {
+  return c === ' ' || c === '\t'
+}
+
+function cut(chars: string[], room: number): [string[], string[]] {
+  if (chars.length <= room) return [chars, []]
+  for (let j = room; j >= 1; j--) {
+    if (isCut(chars[j]!)) return [chars.slice(0, j), chars.slice(j + 1)]
+  }
+  return [chars.slice(0, room), chars.slice(room)]
+}
+
+/**
+ * Split a composed embed text into passages no longer than `maxChars`, each led by the label.
+ *
+ * RFC-0060 §2.1; see the Rust reference's `split_passages` for the argument. A text that fits
+ * comes back whole. A text that does not begin with `label` and a space is read as having no
+ * label. Lengths are counted in code points, never UTF-16 units, so a character outside the
+ * Basic Multilingual Plane counts once here as it does in Rust and Python.
+ */
+export function splitPassages(
+  label: string,
+  text: string,
+  maxChars: number,
+): string[] {
+  if (Array.from(text).length <= maxChars) return [text]
+
+  let body: string
+  if (label !== '' && text === label) {
+    body = ''
+  } else if (label !== '' && text.startsWith(label + ' ')) {
+    body = text.slice(label.length + 1)
+  } else {
+    label = ''
+    body = text
+  }
+
+  const half = Math.floor(maxChars / 2)
+  if (Array.from(label).length + 1 > maxChars - half) {
+    label = cut(Array.from(label), half)[0].join('').replace(/[ \t]+$/, '')
+  }
+  const prefix = label === '' ? '' : `${label} `
+  const room = Math.max(maxChars - Array.from(prefix).length, 1)
+
+  const i = body.lastIndexOf(' Related: ')
+  const lines =
+    i >= 0 && !body.slice(i).includes('\n')
+      ? [...body.slice(0, i).split('\n'), body.slice(i + 1)]
+      : body.split('\n')
+
+  const pieces: string[] = []
+  for (const line of lines) {
+    let rest = Array.from(line)
+    if (rest.every(isCut)) continue
+    while (rest.length > 0) {
+      const [head, tail] = cut(rest, room)
+      if (head.length > 0) pieces.push(head.join(''))
+      rest = tail
+    }
+  }
+
+  const passages: string[] = []
+  let current: string[] = []
+  let currentLen = 0
+  for (const piece of pieces) {
+    const n = Array.from(piece).length
+    if (currentLen > 0 && currentLen + 1 + n > room) {
+      passages.push(prefix + current.join('\n'))
+      current = []
+      currentLen = 0
+    }
+    if (currentLen > 0) currentLen += 1
+    current.push(piece)
+    currentLen += n
+  }
+  if (currentLen > 0) passages.push(prefix + current.join('\n'))
+
+  return passages.length > 0 ? passages : [label]
+}

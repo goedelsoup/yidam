@@ -172,9 +172,16 @@ fn to_vectors(
     let mut vectors = Vec::with_capacity(rows.len());
     let mut truncated = 0usize;
     for row in rows {
-        let key = request::vector_key(corpus, &row.path)?;
-        let (metadata, cut) = request::metadata(corpus, &row.class, &row.label, commit, &row.text)
-            .with_context(|| format!("building the metadata for {}", row.path))?;
+        let key = request::vector_key(corpus, &row.path, row.passage)?;
+        let (metadata, cut) = request::metadata(
+            corpus,
+            &row.class,
+            &row.label,
+            commit,
+            row.passage,
+            &row.text,
+        )
+        .with_context(|| format!("building the metadata for {}", row.path))?;
         if cut {
             truncated += 1;
         }
@@ -258,6 +265,7 @@ mod tests {
             class: "concept".to_string(),
             label: "A label".to_string(),
             text: text.to_string(),
+            passage: 0,
             vector: vec![0.5, -0.5],
             properties: None,
         }

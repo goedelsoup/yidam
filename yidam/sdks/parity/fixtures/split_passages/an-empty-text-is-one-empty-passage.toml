@@ -1,0 +1,12 @@
+function = "split_passages"
+description = "An empty text fits any budget and is one empty passage, as it was one empty row before passages"
+
+[input]
+label = ""
+text = ""
+max_chars = 40
+
+[expected]
+passages = [
+  "",
+]

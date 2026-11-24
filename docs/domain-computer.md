@@ -142,10 +142,14 @@ as its `type`. Dangling links are warned and skipped, never fatal.
 
 `yidam export --format sqlite [--out corpus.db]` writes the vector index as a single-file
 SQLite database using the [sqlite-vec](https://github.com/asg017/sqlite-vec) extension: a
-`corpus_vec` vec0 virtual table (path, class, label, text, embedding) and a `corpus_meta`
+`corpus_vec` vec0 virtual table (path, class, label, passage, text, embedding) and a `corpus_meta`
 table carrying the embedding contract (model, dim, pooling, normalize — from
 `embed.config.json`, never hardcoded). Vectors are copied from the already-built Arrow
 index; nothing is re-embedded. Requires an index (`yidam embed && yidam index-build`).
+
+A long node is embedded as several passages, one row each, numbered by `passage` from 0.
+A `vec0` query returns rows, so group by `path` to get one answer per node.
+The examples ask for 40 rows to get 5 nodes; raise `k` when a few long nodes fill all 40.
 
 Query from Python:
 
@@ -163,8 +167,10 @@ model_id, dim, pooling, normalize = conn.execute(
 # e.g. via sentence-transformers, then:
 blob = struct.pack(f"{dim}f", *query_vector)
 rows = conn.execute(
-    "SELECT label, path, distance FROM corpus_vec "
-    "WHERE embedding MATCH ? ORDER BY distance LIMIT 5", (blob,)).fetchall()
+    "WITH knn AS MATERIALIZED (SELECT path, label, distance FROM corpus_vec "
+    "  WHERE embedding MATCH ? AND k = 40) "
+    "SELECT path, label, min(distance) AS d FROM knn GROUP BY path ORDER BY d LIMIT 5",
+    (blob,)).fetchall()
 ```
 
 Query from JS (WASM SQLite in the browser or Node):
@@ -177,8 +183,9 @@ import Database from "better-sqlite3";
 const db = new Database("corpus.db");
 sqliteVec.load(db);
 const rows = db.prepare(
-  `SELECT label, path, distance FROM corpus_vec
-   WHERE embedding MATCH ? ORDER BY distance LIMIT 5`
+  `WITH knn AS MATERIALIZED (SELECT path, label, distance FROM corpus_vec
+     WHERE embedding MATCH ? AND k = 40)
+   SELECT path, label, min(distance) AS d FROM knn GROUP BY path ORDER BY d LIMIT 5`
 ).all(new Float32Array(queryVector));
 ```
 

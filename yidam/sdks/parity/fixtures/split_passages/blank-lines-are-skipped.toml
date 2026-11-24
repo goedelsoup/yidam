@@ -1,0 +1,14 @@
+function = "split_passages"
+description = "A blank or whitespace-only line is a boundary and nothing else: it is never a passage and never padding inside one"
+
+[input]
+label = "N"
+text = "N alpha alpha alpha\n\n   \nbeta beta beta beta\n\ngamma gamma"
+max_chars = 25
+
+[expected]
+passages = [
+  "N alpha alpha alpha",
+  "N beta beta beta beta",
+  "N gamma gamma",
+]
