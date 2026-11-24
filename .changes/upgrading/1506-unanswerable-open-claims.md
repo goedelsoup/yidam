@@ -15,7 +15,7 @@ With none marked, every `due` line reads exactly as before.
 **`open_questions` gains `unanswerable` and `reasons` (MCP contract 0.35.0).**
 
 An entry whose every open claim is marked carries `unanswerable`, its first reason.
-An entry with only some marked carries `reasons`.
+An entry with at least one marked carries `reasons`, every marked claim's reason.
 Both are absent on a plain entry.
 
 **`claim-tag-malformed` names two misuses of the form.**

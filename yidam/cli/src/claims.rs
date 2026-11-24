@@ -1864,6 +1864,21 @@ pub fn has_open_claim(label: &str, text: &str, fields: &[String]) -> bool {
             .any(|f| f.standing.trim() == "open")
 }
 
+/// Every terminal form `text` writes wrongly, with how, for `claim-tag-malformed`.
+///
+/// Read over the text the counter reads: fenced blocks masked and inline code kept, because a
+/// backticked tag is a claim like any other and a backticked misuse is still owed. A tag the
+/// sentence only reports is skipped, as the counter skips it: "an earlier draft said
+/// `[open — unanswerable: no filing exists]`" counts as nothing, so it is not "still owed".
+pub(crate) fn unanswerable_misuses(text: &str) -> Vec<(DetailTag, UnanswerableMisuse)> {
+    let masked = crate::markdown::mask_fenced(text);
+    detail_tags(&masked)
+        .into_iter()
+        .filter(|t| !is_narrated(&masked, t.start, t.end + 1))
+        .filter_map(|t| unanswerable_misuse(&t.inner).map(|m| (t, m)))
+        .collect()
+}
+
 /// Prose `[open — unanswerable: …]` tags in already-masked text, valid reason or not.
 fn terminal_forms(masked: &str) -> usize {
     detail_tags(masked)
@@ -1977,6 +1992,20 @@ impl Terminal {
             reasons: claim.unanswerable.into_iter().collect(),
         }
     }
+}
+
+/// Whether anything a node's file lists in `open-questions` is still owed (RFC-0061 §2.4).
+///
+/// The questions clock's predicate: the node entry when it is open and not wholly terminal,
+/// or any edge entry the node authors that is open and not terminal. The clock lists owed
+/// entries by node path, so the age it reads must hold exactly while one of them does. An
+/// age read off [`has_open_claim`] would count the commits a node spent wholly terminal, and
+/// an edge question would have no age at all.
+pub fn owes(label: &str, text: &str, fields: &[String]) -> bool {
+    open_claim_state(&open_claims(label, text, fields)) == OpenClaimState::Open
+        || edge_claims(text)
+            .iter()
+            .any(|c| c.standing == "open" && c.unanswerable.is_none())
 }
 
 /// Whether the node **is** a question the corpus has not closed, rather than a node that

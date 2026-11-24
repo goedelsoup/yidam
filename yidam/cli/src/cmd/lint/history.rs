@@ -506,12 +506,13 @@ pub fn uncited_age(root: &Path) -> HashMap<String, Age> {
     age_while(root, |f, node, _| !f.cited.contains(node))
 }
 
-/// Whether a node's content at one commit reads as an open question.
+/// Whether a node's content at one commit owes an open question.
 ///
-/// The live predicate, applied to a past revision. `status` and `open-questions` ask
-/// [`crate::claims::has_open_claim`] the same way over the working tree; asking it
+/// The live predicate, applied to a past revision. `due` lists the owed entries of
+/// `open-questions` by node, and [`crate::claims::owes`] is that list's condition; asking it
 /// differently here would produce an age for a condition the present-tense reports do not
-/// agree is holding.
+/// agree is holding. **Owed, not merely open** (RFC-0061): a node that spent two hundred
+/// commits wholly unanswerable and gained an owed claim yesterday has owed it for one.
 ///
 /// **Not a duplicate of [`crate::corpus`]'s read** (#1116). The bytes are a blob out of the
 /// replay, not a file on disk, and the replay hands them over one frame at a time — there is
@@ -532,10 +533,10 @@ fn is_open(path: &str, content: &str, fields: &crate::claims::ClaimFields) -> bo
     // reports do not agree is holding. The fallback is this reader's own: a historical node
     // that named no class still lived in a class directory.
     let class = inst.class.unwrap_or_else(|| class_of(path).to_string());
-    crate::claims::has_open_claim(&label, content, fields.for_class(&class))
+    crate::claims::owes(&label, content, fields.for_class(&class))
 }
 
-/// For every node that is an open question at HEAD, how long it has been one.
+/// For every node that owes an open question at HEAD, how long it has been one.
 ///
 /// The third clock `yidam due` reads, and the one that had no machinery. `status` counts
 /// open questions and cannot say whether it is counting a question asked this morning or one
@@ -1144,6 +1145,62 @@ mod tests {
             .expect("a is an open question at HEAD");
         assert_eq!(day(age.ts), "2026-01-09", "{since:?}");
         assert_eq!(age.commits, 1, "one corpus commit, HEAD inclusive");
+    }
+
+    /// A node wholly unanswerable owes nothing, and its age starts when it next owes
+    /// something (RFC-0061). Dated from the first open claim, the new `[open]` would be
+    /// overdue the commit it was written.
+    #[test]
+    fn an_owed_question_dates_from_when_it_became_owed_not_from_its_terminal_claim() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init(root);
+
+        let sealed =
+            "class: concept\nlabel: A\ndescription: it is `[open — unanswerable: superseded]`\n";
+        node(root, "concept/a.yml", sealed);
+        commit(root, "2026-01-01", "open: a, superseded");
+        assert!(
+            !open_question_age(root).contains_key(".yidam/corpus/concept/a.yml"),
+            "a wholly terminal node owes nothing and carries no age"
+        );
+
+        node(
+            root,
+            "concept/a.yml",
+            "class: concept\nlabel: A\ndescription: it is `[open — unanswerable: superseded]`, and when is `[open]`\n",
+        );
+        commit(root, "2026-02-01", "open: when a holds");
+
+        let since = open_question_age(root);
+        let age = since
+            .get(".yidam/corpus/concept/a.yml")
+            .expect("a owes a question at HEAD");
+        assert_eq!(day(age.ts), "2026-02-01", "{since:?}");
+        assert_eq!(age.commits, 1, "{since:?}");
+    }
+
+    /// An open edge is a question the node's file owes, so it is aged like a node one.
+    #[test]
+    fn an_open_edge_is_aged() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        init(root);
+
+        node(root, "concept/b.yml", "class: concept\nlabel: B\n");
+        node(
+            root,
+            "concept/a.yml",
+            "class: concept\nlabel: A\nlinks:\n  - target: b.yml\n    relationship: requires\n    claim_tag: open\n",
+        );
+        commit(root, "2026-01-01", "open: whether a requires b");
+
+        let since = open_question_age(root);
+        assert_eq!(
+            since.get(".yidam/corpus/concept/a.yml").map(|a| day(a.ts)),
+            Some("2026-01-01".to_string()),
+            "{since:?}"
+        );
     }
 
     /// A question answered and later reopened is a new question.
