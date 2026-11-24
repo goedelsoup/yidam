@@ -13,14 +13,20 @@
 - **Versioning layers touched:**
   - **tonpa.** A pinned path dependency may declare `export`, a file in the dependency's
     repository. tonpa reads it at `rev`, unpacks it, and locks its hash. The field is
-    optional, so every existing `tonpa.toml` and lock still parses.
+    optional, so every existing `tonpa.toml` and lock still parses. The other direction does not
+    hold. `Dependency` and `LockedPackage` ignore keys they do not know, so a CLI from before
+    this change drops `export` without a word. It never unpacks the file, and an `install` it
+    runs rewrites the lock without `export` or `export_sha256` (§1, "Older CLIs").
   - **Config.** `[derive]` gains `[[derive.records]]` tables, which map span records in a JSON
     file onto `derive check`'s citation. Absent means `derive check` reads exactly what it reads
-    today.
+    today. `DeriveConfig` ignores unknown keys too. So an older CLI reads the table as absent,
+    checks no record, and passes. This change makes `[derive]` reject unknown keys, so the next
+    key cannot repeat that, and §3.5 says what a consumer does about CLIs already shipped.
   - **CLI.** `yidam query` gains `--dependency <name>`. No command's output changes when the new
     keys are absent.
   - **Reports.** `derive check --format json` gains one optional key on a derivation, `record`,
-    the JSON pointer of the record it read (§3.4). The report schema declares it.
+    the JSON pointer of the record it read (§3.4). It gains `records` at the top, the count of
+    records the mappings matched (§3.5). The report schema declares both.
   - **The bump.** It is minor for the CLI. No authored file moves and no migration is owed. An
     upgrade note is owed, because the new keys are what a consumer moves to.
 - **Downstream reference case:** city-engine, measured read-only on 2026-11-24 against its six
@@ -56,12 +62,17 @@ and eight more. Read at each pack's `corpus_commit`:
 | `span` appears inside one of the node's prose strings | 540 |
 | the governing quote (`tier_span`, else `span`) appears inside one parsed prose paragraph | 1,608 |
 | the governing quote appears inside one blank-line paragraph of the node's **file text** | 1,658 |
+| that paragraph carries a standing tag (`[open]`, `[inference]` or `[verified]`) | 1,658 |
 
 Two of those rows decide the design. **1,118 spans quote a typed property**, such as
 `value: 0.15`, and not prose. `derive check` today finds a span only in prose strings, so read
 as it reads an artifact, two thirds of the packs would fail. And **50 governing quotes carry
 YAML's own folding**, a newline and two spaces of indent, so they match the file and not the
 parsed string. Every one of the 1,658 sits inside one blank-line paragraph of the file.
+
+The last row is what §3.2's standing-tag check reads. It was measured over every record, not only
+those that carry a `tier_span`. The 44 records with no `tier_span` govern by their own `span`, and
+each of their paragraphs carries a tag too.
 
 ### 0.2 Where the pack lives at the pin
 
@@ -106,11 +117,25 @@ export = ".yidam/computed/engine-pack.json"
 - **tonpa does not read the file.** It is bytes with a hash. A JSON pack's own `corpus_commit`
   is the producer's record, and tonpa never compares it to `rev`. §0.2 is why: the two differ by
   one compute commit in every case measured, and each corpus tree is identical to the other.
-  `derive check` (§3) is what holds the file to the corpus, and it reads the corpus at `rev`.
+- **The export must be as new as the corpus at `rev`.** tonpa finds the commit that last wrote
+  the export in `rev`'s history (`git log -1 <rev> -- <export>`). It compares that commit's
+  `.yidam/corpus` tree with the one at `rev`. If they differ, the corpus changed after the export
+  was written, and `add`, `install` and `update` refuse, naming both commits. This reads git
+  trees only, so it holds for any export shape. §0.2's six pins pass it: each compute commit's
+  corpus tree is the pin's.
 
 `tonpa add ../traffic-design@<sha> --export .yidam/computed/engine-pack.json` writes the table.
-`tonpa update traffic-design` moves `rev` to the sibling's HEAD and re-reads the export there.
-So the corpus's own `compute:` commit is the one to pin.
+With an export declared, `tonpa update traffic-design` does not move `rev` to the sibling's HEAD.
+It moves `rev` to the commit on HEAD's history that last wrote the export, and re-reads it there.
+That is the corpus's own `compute:` commit. A sibling whose corpus moved past its last export is
+refused by the check above, and the fix is to recompute the export there.
+
+**Older CLIs.** A CLI from before this change reads `export` as an unknown key and drops it.
+Run against a lock this change wrote, its `install` unpacks no export and rewrites the entry
+without `export` or `export_sha256`. Nothing in an older binary can be made to notice. So a
+consumer that declares `export` pins its CLI at this release or later (§3.5). A `tonpa verify`
+from this release that finds an export declared with no `export_sha256` in the lock fails,
+naming `tonpa install`.
 
 ### 2. `query --dependency <name>`
 
@@ -123,6 +148,11 @@ So the corpus's own `compute:` commit is the one to pin.
   dependency is refused because it has no git history to read.
 - A declared `rev` that differs from the lock is refused, naming `tonpa install`. This is the
   mismatch `tonpa status` already reports.
+- **It needs the sibling repository.** `--at` reads git objects, and the materialised copy
+  under `.yidam/tonpa/<name>/corpus` has none. So a checkout that holds that copy but not the
+  sibling, a CI runner among them, cannot run `query --dependency`. It is refused there with
+  the missing path. This is unlike §3.3, which reads the copy. The two still read one corpus:
+  `rev` is a full SHA, and tonpa wrote the copy from that commit's tree and locked its digest.
 
 ### 3. `derive check` reads span records through a declared mapping
 
@@ -147,11 +177,14 @@ tier = "1/tier"             # optional
   repository's own JSON files, and every record cites this repository's corpus.
 - **`records`** are JSON pointers (RFC 6901), with `*` as a segment matching every member of an
   array or object. A pointer that matches nothing in a file is a finding, `derive-record-unmatched`
-  at Warn, so a renamed key in the producer cannot silently empty a check.
+  at Error. `derive check` fails only on an Error, so a renamed key in the producer fails the
+  check rather than emptying it.
 - **`node`, `span`, `governing` and `tier`** are relative JSON pointers (`0/node` is the record's
   own `node`; `1/tier` is its parent's `tier`). A price-index value whose node sits two levels up
   is `node = "2/node"`. A record where `node` or `span` does not resolve to a string is
-  `derive-record-unmatched` too.
+  `derive-record-unmatched` too, at Error, because it is a citation that names nothing.
+- A producer that drops a section for one release is a re-pin the consumer makes. The consumer
+  removes the pointer in the same commit that moves `rev`.
 
 #### 3.2 What a record is held to
 
@@ -194,8 +227,27 @@ sibling's working tree.
 
 A JSON file contributes one derivation per record. Its `path` is the file and its new optional
 `record` is the matched pointer with the wildcards filled, such as
-`/models/3/parameter_sets/0/parameters/7/source`. `claim`, `reach` and `tier` are null. Text
-output names the file and the pointer on each finding.
+`/models/3/parameter_sets/0/parameters/7/source`. `claim` and `reach` are null, because a record
+has neither. `tier` is filled as it is for an artifact: the standing the governing paragraph
+carries, and null only when no paragraph could be located. Where the mapping declares `tier`,
+that is the value `derive-tag-drift` compared it to. Text output names the file and the pointer
+on each finding.
+
+#### 3.5 A CLI that predates the mapping
+
+`DeriveConfig` has never rejected an unknown key. So a CLI from before this change reads
+`[[derive.records]]` as nothing, checks no record, and passes. That cannot be fixed in a binary
+already shipped, and two changes keep it from mattering.
+
+- **`[derive]` rejects unknown keys from this release.** A later key then fails an older CLI's
+  parse instead of passing it. The `Dependency` and `LockedPackage` tables stay lenient, for the
+  reason #1466 gives about `rev`: a lock an older CLI cannot read takes every fetched dependency
+  down with it.
+- **The report counts what it read.** `derive check --format json` carries `records`, the number
+  of records the mappings matched. A consumer's CI holds it above zero. An older CLI emits no such
+  key, so that assertion fails on it, which is the point.
+
+A consumer pins its CLI at this release before it drops its own checker. Migration step 1 says so.
 
 ### 4. What city-engine can retire
 
@@ -232,9 +284,11 @@ does not change the asks format.
 
 ## Alternatives considered
 
-- **Export plus provenance.** tonpa could read the pack's `corpus_commit` and check that its
-  corpus tree matches the one at `rev`. That is stronger, but it couples tonpa to one JSON shape.
-  §3.3 gets the same guarantee from the corpus tree tonpa already locks.
+- **Export plus provenance from the file.** tonpa could read the pack's `corpus_commit` and check
+  that its corpus tree matches the one at `rev`. That couples tonpa to one JSON shape. §1 gets the
+  same guarantee from git instead: the commit that last wrote the export must have the corpus tree
+  at `rev`. §3.3 alone would not give it. It shows the quoted spans still hold at `rev`, not that
+  the export was computed from that corpus.
 - **Find every object holding `node` and `span`.** This needs no pointers, and it found all 1,658
   records in this measurement. But it cannot tell a span record from an object that merely has
   those keys, and it gives a renamed key no way to be noticed. Declared pointers fail loudly
@@ -248,11 +302,12 @@ does not change the asks format.
 
 None is owed. A consumer adopting this:
 
-1. adds `export` to each pinned dependency and re-pins to the corpus's `compute:` commit
+1. pins its CLI at this release or later, since an older one ignores both new keys (§3.5);
+2. adds `export` to each pinned dependency and re-pins to the corpus's `compute:` commit
    (`tonpa update`);
-2. declares `[[derive.records]]` for each pack shape;
-3. points its reader at `.yidam/tonpa/<name>/export/`;
-4. drops its own pin, copies and span checker.
+3. declares `[[derive.records]]` for each pack shape, and holds the report's `records` above zero;
+4. points its reader at `.yidam/tonpa/<name>/export/`;
+5. drops its own pin, copies and span checker.
 
 ## Falsifier
 
@@ -267,5 +322,3 @@ re-measures them through the declared `tier` pointer before it ships.
 
 - Whether a dependency should declare more than one export. city-engine reads one file from each
   corpus, so `export` is one path. A list can come later without breaking the key.
-- Whether `derive-record-unmatched` should be Error once a consumer has used it. It starts at
-  Warn, because a producer may legitimately drop a section for one release.
