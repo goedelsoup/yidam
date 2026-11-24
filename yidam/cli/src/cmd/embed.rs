@@ -4,7 +4,7 @@ use serde::Serialize;
 use crate::git::head_commit_short;
 use crate::parse::{frontmatter_body, parse_frontmatter};
 use crate::paths::{
-    class_of_path, repo_root, yidam_catalog_dir, yidam_corpus_dir, yidam_embeddings_dir,
+    class_of_path, resolve_root, yidam_catalog_dir, yidam_corpus_dir, yidam_embeddings_dir,
 };
 use crate::s3vectors::request;
 use crate::walk::walk_md_files;
@@ -390,8 +390,8 @@ fn quantile(sorted: &[usize], p: usize) -> usize {
     sorted[rank - 1]
 }
 
-pub fn embed(opts: EmbedOptions) -> Result<()> {
-    let root = repo_root()?;
+pub fn embed(root: Option<&std::path::Path>, opts: EmbedOptions) -> Result<()> {
+    let root = resolve_root(root)?;
     let corpus_dir = yidam_corpus_dir(&root);
     let embeddings_dir = yidam_embeddings_dir(&root);
     let commit = head_commit_short(&root);
@@ -434,12 +434,10 @@ pub fn embed(opts: EmbedOptions) -> Result<()> {
     if !opts.dry_run {
         std::fs::create_dir_all(&embeddings_dir)?;
     }
-    // Only a dry run asks: `genesis_hash` shells out to git, and a plain `embed` has never
+    // Only a dry run asks: the corpus id shells out to git, and a plain `embed` has never
     // needed the corpus identity to write a record.
     let corpus = if opts.dry_run {
-        crate::git::genesis_hash(&root)
-            .as_deref()
-            .map_or_else(|| UNKNOWN_CORPUS.to_string(), request::corpus_id)
+        crate::projection::corpus_id(&root)?.unwrap_or_else(|| UNKNOWN_CORPUS.to_string())
     } else {
         String::new()
     };

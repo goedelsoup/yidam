@@ -59,7 +59,7 @@ use crate::cmd::run::exec;
 use crate::cmd::run::manifest::{Capability, Kind, Run};
 use crate::cmd::run::receipt::{self, File, Input, Receipt};
 use crate::cmd::sangha::{parse_electors, ElectorRow};
-use crate::paths::{repo_root, require_yidam_repo};
+use crate::paths::require_yidam_repo;
 
 #[cfg(test)]
 mod tests;
@@ -841,8 +841,9 @@ pub(crate) fn run_all(root: &Path, opts: &Options) -> Result<DispatchReport> {
 }
 
 pub fn dispatch(opts: Options) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::working_root()?;
     require_yidam_repo(&root)?;
+    crate::projection::refuse_if_projection(&root, "dispatch")?;
     let report = run_all(&root, &opts)?;
     let passed = report.passed();
     crate::report::gate(&root, opts.format, report, passed, |r| {

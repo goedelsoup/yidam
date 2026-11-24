@@ -28,8 +28,6 @@ use anyhow::{bail, Result};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use crate::paths::repo_root;
-
 /// The classes written when `--class` names none.
 ///
 /// A pair rather than one, because one class and one node is a corpus a reader cannot see
@@ -379,7 +377,8 @@ fn init_into(root: &Path, named: &[String]) -> Result<Vec<PathBuf>> {
 }
 
 pub fn init(classes: &[String]) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::working_root()?;
+    crate::projection::refuse_if_projection(&root, "init")?;
     let written = init_into(&root, classes)?;
 
     println!("Wrote {} file(s) into {}:", written.len(), root.display());

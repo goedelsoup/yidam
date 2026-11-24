@@ -1,6 +1,7 @@
 //! `--root <DIR>` reads the corpus it names, on every command that offers it.
 //!
-//! Forty-two commands accept the flag since #918, where two did before it. Declaring it is a
+//! Forty-eight commands accept the flag: forty-two since #918, where two did before it, and
+//! six more since RFC-0064 §7 gave a producer's CI a reason to point every reader at a site. Declaring it is a
 //! line in `main.rs`; *honouring* it is a parameter threaded from that line through the
 //! command function to [`yidam::paths::resolve_root`], and the two are independent. A command
 //! that declares the flag and drops the value compiles, accepts `--root`, prints a plausible
@@ -53,7 +54,7 @@ enum Tell {
     Writes(&'static str),
     /// The command names the directory it was pointed at, in its output.
     ///
-    /// For the six that neither emit an envelope nor write a block. Each of them refuses, or
+    /// For the twelve that neither emit an envelope nor write a block. Each of them refuses, or
     /// reports a missing input, in a message that quotes the resolved path — so pointing them
     /// at a directory holding no corpus is what makes them speak. It is a *second* such
     /// directory, not the one they are run from: pointed at their own working directory a
@@ -74,6 +75,7 @@ const CORPUS: &str = "{corpus}";
 const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
     ("agents-index", &[], Tell::Writes("agents/README.md")),
     ("bench", &[], Tell::Names),
+    ("bundle", &[], Tell::Names),
     ("bundle-status", &[], Tell::Writes("web/README.md")),
     ("catalog-audit", &["--format", "json"], Tell::Envelope),
     (
@@ -98,6 +100,7 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
         Tell::Envelope,
     ),
     ("doctor", &["--format", "json"], Tell::Envelope),
+    ("embed", &["--dry-run"], Tell::Names),
     ("due", &["--format", "json"], Tell::Envelope),
     (
         "estimate",
@@ -129,6 +132,7 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
              read, by the round record landing in the corpus named and not where it is run",
         ),
     ),
+    ("index-build", &[], Tell::Names),
     ("index-status", &["--format", "json"], Tell::Envelope),
     ("index-verify", &[], Tell::Names),
     ("kuten", &[], Tell::Writes("AGENTS.md")),
@@ -157,6 +161,7 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
         Tell::Envelope,
     ),
     ("samudaya-audit", &[], Tell::Names),
+    ("schema", &[], Tell::Names),
     ("sangha", &["--format", "json"], Tell::Envelope),
     (
         "score",
@@ -171,6 +176,11 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
     ("skills-index", &[], Tell::Writes(".yidam/skills/README.md")),
     ("source", &["check", "--format", "json"], Tell::Envelope),
     ("status", &["--format", "json"], Tell::Envelope),
+    // `tonpa` and `vault` take the flag before the subcommand, as `policy` does, which is
+    // where the runner puts it. `list` because it is the one subcommand of each that reads
+    // and writes nothing else.
+    ("tonpa", &["list"], Tell::Names),
+    ("vault", &["list"], Tell::Names),
     ("vault-status", &[], Tell::Writes("README.md")),
     ("vocabulary", &["--format", "json"], Tell::Envelope),
 ];
@@ -382,7 +392,7 @@ fn every_rooted_command_reads_the_corpus_it_is_given() {
     let mut failures: Vec<String> = Vec::new();
     for (command, args, tell) in INVOCATIONS {
         // A `Names` row is pointed at the directory with no corpus: the refusal that quotes a
-        // path is the only place these six say which one they resolved.
+        // path is the only place these twelve say which one they resolved.
         let named: &Path = match tell {
             Tell::Names => rootless.path(),
             _ => &corpus,
@@ -461,5 +471,73 @@ fn every_rooted_command_reads_the_corpus_it_is_given() {
          `paths::resolve_root`; a command that declares it and resolves its own root reports \
          on whatever directory it was started in.",
         failures.join("\n  ")
+    );
+}
+
+/// `YIDAM_ROOT` names the corpus when `--root` does not, and the flag wins over it (RFC-0064
+/// §7). An empty value is unset, so the working directory is read again.
+///
+/// One command stands for the roster: the variable is read in `paths::resolve_root`, the one
+/// function every row above already proves it reaches, so a second sweep would measure that
+/// function forty-eight times.
+#[test]
+fn yidam_root_names_the_corpus_and_the_flag_wins() {
+    let example = common::Example::materialize("streamflow");
+    let corpus = example.path();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let rootless = tempfile::tempdir().unwrap();
+
+    let run = |var: &Path, flag: Option<&Path>| {
+        let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_yidam"));
+        cmd.current_dir(elsewhere.path())
+            .env("YIDAM_ROOT", var)
+            .arg("status");
+        if let Some(dir) = flag {
+            cmd.arg("--root").arg(dir);
+        }
+        let out = cmd
+            .args(["--format", "json"])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("running `yidam status`");
+        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+        let both = format!("{stdout}{}", String::from_utf8_lossy(&out.stderr));
+        (out.status.success(), stdout, both)
+    };
+    let root_of = |stdout: &str| -> Option<String> {
+        let v: serde_json::Value = serde_json::from_str(stdout).ok()?;
+        v.get("root")?.as_str().map(str::to_string)
+    };
+
+    let (ok, stdout, both) = run(&corpus, None);
+    assert!(ok, "`YIDAM_ROOT=<corpus> yidam status` failed: {both:.400}");
+    assert_eq!(
+        root_of(&stdout).as_deref().map(Path::new),
+        Some(corpus.as_path()),
+        "`YIDAM_ROOT` did not name the corpus `status` read: {both:.400}"
+    );
+
+    let (ok, stdout, both) = run(rootless.path(), Some(&corpus));
+    assert!(
+        ok,
+        "`--root` beside a rootless `YIDAM_ROOT` failed: {both:.400}"
+    );
+    assert_eq!(
+        root_of(&stdout).as_deref().map(Path::new),
+        Some(corpus.as_path()),
+        "`--root` did not win over `YIDAM_ROOT`: {both:.400}"
+    );
+
+    let (_, _, both) = run(rootless.path(), None);
+    assert!(
+        both.contains("not a yidam repository")
+            && both.contains(&rootless.path().display().to_string()),
+        "a `YIDAM_ROOT` holding no corpus must be refused by name, as `--root` is: {both:.400}"
+    );
+
+    let (_, _, both) = run(Path::new(""), None);
+    assert!(
+        !both.contains(&corpus.display().to_string()),
+        "an empty `YIDAM_ROOT` is unset, so nothing here can have read the corpus: {both:.400}"
     );
 }

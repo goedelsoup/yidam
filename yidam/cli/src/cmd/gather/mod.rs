@@ -45,7 +45,7 @@ use crate::cmd::query::{check, exec, lang, Foreign, Graph};
 use crate::cmd::run::manifest::{Capability, Kind, Run};
 use crate::cmd::run::receipt::{self, File, Input, Receipt};
 use crate::deps::DependencyKind;
-use crate::paths::{repo_root, require_yidam_repo};
+use crate::paths::require_yidam_repo;
 
 #[cfg(test)]
 mod tests;
@@ -1289,13 +1289,14 @@ fn report(
 // ── the command ───────────────────────────────────────────────────────────────
 
 pub fn gather(opts: Options) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::working_root()?;
     let report = run(&root, &opts)?;
     crate::report::finish(&root, opts.format, report, |r| println!("{}", render(r)))
 }
 
 pub(crate) fn run(root: &Path, opts: &Options) -> Result<GatherReport> {
     require_yidam_repo(root)?;
+    crate::projection::refuse_if_projection(root, "gather")?;
     write::require_committed_corpus(root)?;
     let local = Graph::load(root);
     let (spec, query) = load(root, &opts.name, &local)?;

@@ -75,6 +75,7 @@ pub(super) fn run(
         let scratch = Scratch::new("land")?;
         let root = scratch.path().join("corpus");
         clone_branch_as(&url, &remote.branch, &root, &push)?;
+        crate::projection::refuse_if_projection(&root, "cluster land")?;
         super::commits_as_the_pod(&root)?;
         let record = land_in(&root, scratch.path(), &claim, remote, &push, store.as_ref())?;
         Ok::<_, anyhow::Error>((scratch, root, record))

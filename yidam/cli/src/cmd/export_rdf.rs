@@ -182,8 +182,10 @@ fn reference_for(corpus: &str, target: &str) -> yidam_core::uri::Reference {
 /// is unchanged. The two are different jobs, which is the same split §4.2 makes between an
 /// identifier and a locator.
 fn corpus_component(model: &DomainModel) -> Result<String> {
-    match &model.provenance.genesis_hash {
-        Some(hash) => Ok(hash.chars().take(12).collect()),
+    // `corpus_id` is twelve characters of the genesis hash for an authored corpus, and the
+    // producer's declared id for a projection (RFC-0064 §2.2).
+    match &model.provenance.corpus_id {
+        Some(id) => Ok(id.clone()),
         // Refused rather than substituted. A constant here — `local`, `unknown`, anything —
         // is the same string for every corpus that reaches this branch, so two of them merged
         // into one triple store would conflate their nodes: exactly the defect §2 is about,
@@ -608,6 +610,7 @@ mod tests {
             index: None,
             provenance: Provenance {
                 genesis_hash: Some("abcdef012345deadbeef".into()),
+                corpus_id: Some("abcdef012345".into()),
                 ..crate::model::test_provenance()
             },
             rendered: RenderedViews {
@@ -832,6 +835,7 @@ mod tests {
     fn a_corpus_with_no_genesis_commit_is_refused_rather_than_named_like_every_other() {
         let mut model = test_model();
         model.provenance.genesis_hash = None;
+        model.provenance.corpus_id = None;
         let err = render_rdf_turtle(&model).expect_err("an unidentifiable corpus must not export");
         let message = err.to_string();
         assert!(

@@ -157,7 +157,7 @@ struct FormatArg {
 /// `export` was measured against in #428 and the only one worth a gate.
 #[derive(clap::Args, Debug, Clone, Default)]
 struct RootArg {
-    /// The corpus to act on. Defaults to wherever this process was started.
+    /// The corpus to act on. Defaults to `YIDAM_ROOT`, then to wherever this process started.
     //
     // `long` and `value_name` are spelled out for the reason `FormatArg` gives: the field is
     // not called `root`, because `root.root` at thirty-nine call sites is the duplication
@@ -810,7 +810,10 @@ enum Command {
     },
     /// Bundle ontology, corpus, skills, decisions, and vector index into .yidam/bundle.yiz
     /// (backwards-compatible alias for `export --format bundle`)
-    Bundle,
+    Bundle {
+        #[command(flatten)]
+        root: RootArg,
+    },
     /// Export the domain model in the specified format
     Export {
         #[command(flatten)]
@@ -852,6 +855,8 @@ enum Command {
     },
     /// Extract embedding text from corpus instances to .yidam/embeddings/
     Embed {
+        #[command(flatten)]
+        root: RootArg,
         /// Do not embed `.yidam/catalog/` — corpus nodes only.
         ///
         /// The catalog is walked by default: in a real derived corpus it was 51.3% of the
@@ -867,6 +872,8 @@ enum Command {
     /// Build the vector index from embeddings, as Arrow IPC every reader decodes
     #[command(name = "index-build")]
     IndexBuild {
+        #[command(flatten)]
+        root: RootArg,
         /// Embedding model to use (overrides .yidam/config.toml [index] model and the default)
         #[arg(long)]
         model: Option<String>,
@@ -1103,6 +1110,8 @@ enum Command {
     },
     /// Emit JSON Schema for the corpus shapes into .yidam/schemas/
     Schema {
+        #[command(flatten)]
+        root: RootArg,
         /// Print the editor `yaml.schemas` mapping instead of writing schema files
         #[arg(long)]
         settings: bool,
@@ -1317,6 +1326,8 @@ enum Command {
     /// Manage bundle dependencies in .yidam/tonpa/
     #[cfg(feature = "tonpa")]
     Tonpa {
+        #[command(flatten)]
+        root: RootArg,
         #[command(subcommand)]
         sub: yidam::tonpa::TonpaCommand,
     },
@@ -1329,6 +1340,8 @@ enum Command {
     /// Not gated on a feature. Addressing, the cache and a `file://` store need no network,
     /// and the light build is the one that most needs to read a vault.
     Vault {
+        #[command(flatten)]
+        root: RootArg,
         #[command(subcommand)]
         sub: yidam::VaultCommand,
     },
@@ -1965,7 +1978,7 @@ fn run() -> Result<()> {
             range,
             format,
         } => yidam::check_diff(root.as_deref(), range, format.value),
-        Command::Bundle => yidam::bundle(),
+        Command::Bundle { root } => yidam::bundle(root.as_deref()),
         Command::Export {
             root,
             format,
@@ -1996,20 +2009,24 @@ fn run() -> Result<()> {
             }
         }
         Command::Embed {
+            root,
             no_catalog,
             dry_run,
-        } => yidam::embed(yidam::EmbedOptions {
-            catalog: !no_catalog,
-            dry_run,
-        }),
-        Command::IndexBuild { model } => {
+        } => yidam::embed(
+            root.as_deref(),
+            yidam::EmbedOptions {
+                catalog: !no_catalog,
+                dry_run,
+            },
+        ),
+        Command::IndexBuild { root, model } => {
             #[cfg(feature = "vector-read")]
             {
-                yidam::index_build(model)
+                yidam::index_build(root.as_deref(), model)
             }
             #[cfg(not(feature = "vector-read"))]
             {
-                let _ = model;
+                let _ = (root, model);
                 anyhow::bail!(
                     "`index-build` needs the `vector-read` feature — reinstall with \
                      `cargo install yidam --locked --features vector-read` (pulls fastembed \
@@ -2158,7 +2175,11 @@ fn run() -> Result<()> {
             dry_run,
             format,
         } => yidam::migrate(operation.into(), dry_run, format.value),
-        Command::Schema { settings, force } => yidam::schema(settings, force),
+        Command::Schema {
+            root,
+            settings,
+            force,
+        } => yidam::schema(root.as_deref(), settings, force),
         Command::SamudayaAudit { root } => yidam::samudaya_audit(root.as_deref()),
         Command::Record { fold, root, format } => {
             if fold {
@@ -2174,11 +2195,11 @@ fn run() -> Result<()> {
             format,
         } => yidam::vocabulary(root.as_deref(), check, format.value),
         #[cfg(feature = "tonpa")]
-        Command::Tonpa { sub } => block_on(yidam::tonpa::run(sub)),
+        Command::Tonpa { root, sub } => block_on(yidam::tonpa::run(sub, root.as_deref())),
         // Not `block_on`: every vault operation this build has is synchronous, and the
         // `Store` trait is synchronous so that the transport can block on the runtime without
         // putting one in the signature of the ungated half. See `vault/store.rs`.
-        Command::Vault { sub } => yidam::run_vault(sub),
+        Command::Vault { root, sub } => yidam::run_vault(sub, root.as_deref()),
         Command::Policy { root, sub } => yidam::run_policy(root.as_deref(), sub),
         Command::Source { root, sub } => yidam::run_source(root.as_deref(), sub),
         Command::Derive { root, sub } => yidam::run_derive(root.as_deref(), sub),

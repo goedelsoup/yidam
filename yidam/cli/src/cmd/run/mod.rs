@@ -81,7 +81,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 
 use crate::cmd::propose::write::{commit_tree, current_branch, git, head, short_of, TempIndex};
-use crate::paths::{repo_root, require_yidam_repo};
+use crate::paths::require_yidam_repo;
 use manifest::{Capability, Manifest, Route};
 use receipt::{sha256, File, Input, Receipt};
 
@@ -231,8 +231,9 @@ pub struct Committed {
 }
 
 pub fn run(step: Option<&str>, opts: Options) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::working_root()?;
     require_yidam_repo(&root)?;
+    crate::projection::refuse_if_projection(&root, "run")?;
     let report = plan_and_write(&root, step, opts.dry_run)?;
     crate::report::finish(&root, opts.format, report, |r| println!("{}", render(r)))
 }

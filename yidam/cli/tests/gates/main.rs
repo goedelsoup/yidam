@@ -63,6 +63,7 @@ mod publish_guard;
 mod quality_surface;
 mod recorded_output;
 mod repo_walks;
+mod root_decisions;
 mod scaffolded_config;
 mod symbol_pins;
 mod template_pin;

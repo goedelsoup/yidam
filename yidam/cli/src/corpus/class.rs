@@ -102,6 +102,13 @@ pub struct Class {
     pub edges: Vec<ClassEdge>,
     /// Whether [`Self::edges`] is a bound or a description. See [`EdgePolicy`].
     pub edge_policy: EdgePolicy,
+    /// Whether an instance must link out — RFC-0064 §6. `outgoing: optional` exempts the
+    /// class from `orphan-out`: a root class, a glossary entry, a terminal source nothing
+    /// further is said about. Any other value, or none, is `required`, which is what every
+    /// class written before the field meant; `yidam schema` publishes the enum so a typo is
+    /// underlined rather than read as an exemption. Per class and never per node, so the
+    /// exemption is reviewed where the ontology is.
+    pub outgoing_optional: bool,
     /// The longest an instance's `description` may be, in lines. `None` when the class has
     /// not said, which is every class written before the field existed — and no check runs.
     ///
@@ -538,6 +545,8 @@ struct ClassFields {
     #[serde(default)]
     edge_policy: Option<String>,
     #[serde(default)]
+    outgoing: Option<String>,
+    #[serde(default)]
     max_lines: Option<usize>,
     #[serde(default)]
     prose: Vec<String>,
@@ -613,6 +622,7 @@ impl Class {
             properties: fields.properties,
             edges: fields.edges,
             edge_policy: EdgePolicy::parse(fields.edge_policy.as_deref()),
+            outgoing_optional: fields.outgoing.as_deref() == Some("optional"),
             max_lines: fields.max_lines,
             prose: fields
                 .prose

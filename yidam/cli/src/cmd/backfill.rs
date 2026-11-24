@@ -127,7 +127,8 @@ pub fn backfill_history(target: &Path, since_ref: Option<&str>) -> Result<()> {
 /// Requires the repo to be bootstrapped (`.yidam/` present); for a repo that
 /// has not adopted yidam yet, `yidam overlay --backfill` is the entry point.
 pub fn backfill(since_ref: Option<&str>) -> Result<()> {
-    let root = crate::paths::repo_root()?;
+    let root = crate::paths::working_root()?;
+    crate::projection::refuse_if_projection(&root, "backfill")?;
     if !root.join(".yidam").exists() {
         anyhow::bail!(
             "no .yidam/ directory at {} — this repo is not bootstrapped.\n       \

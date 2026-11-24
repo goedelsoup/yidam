@@ -79,7 +79,7 @@ use std::path::Path;
 
 use crate::cmd::lint::checks::{prose_links, source_targets};
 use crate::corpus::{normalize, resolve_target};
-use crate::paths::{repo_root, yidam_corpus_dir};
+use crate::paths::yidam_corpus_dir;
 use crate::walk::{walk_corpus_instances, walk_linkable_files};
 
 /// One `target:` rewrite, located.
@@ -791,7 +791,8 @@ pub(crate) fn render_rename(r: &RenameReport) -> String {
 
 /// Rename a corpus node or a catalog entry, rewriting every edge into it.
 pub fn rename(old: &str, new: &str, dry_run: bool, format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::working_root()?;
+    crate::projection::refuse_if_projection(&root, "rename")?;
     let corpus = yidam_corpus_dir(&root);
     let mut report = plan(&root, &corpus, old, new);
 

@@ -28,5 +28,6 @@
   "settled_phases": 2,
   "rewritten_phases": 0,
   "positions": 1,
-  "genesis": "2026-01-01"
+  "genesis": "2026-01-01",
+  "mode": "authored"
 }

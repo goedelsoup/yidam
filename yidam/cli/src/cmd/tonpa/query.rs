@@ -88,7 +88,7 @@ pub fn cmd_status(tonpa_dir: &Path, config_path: &Path, lock_path: &Path) -> Res
             continue;
         }
         if let Some(rel) = &dep.path {
-            let corpus = crate::paths::yidam_corpus_dir(&repo_root().join(rel));
+            let corpus = crate::paths::yidam_corpus_dir(&root_of(tonpa_dir).join(rel));
             if corpus.is_dir() {
                 println!("  [linked]         {name}  → {rel}  (path, unpinned)");
             } else {
@@ -141,8 +141,13 @@ pub fn cmd_status(tonpa_dir: &Path, config_path: &Path, lock_path: &Path) -> Res
 ///
 /// Matching `add`'s resolution: a `path` in `tonpa.toml` is relative to the repository root,
 /// which is what someone writing `../sibling` means.
-fn repo_root() -> std::path::PathBuf {
-    crate::paths::repo_root().unwrap_or_else(|_| std::path::PathBuf::from("."))
+/// The repository a `.yidam/tonpa` directory belongs to — the root `yidam tonpa` was given
+/// (`--root`, `YIDAM_ROOT`, or the working directory), recovered from the path it built.
+fn root_of(tonpa_dir: &Path) -> std::path::PathBuf {
+    tonpa_dir
+        .parent()
+        .and_then(Path::parent)
+        .map_or_else(|| std::path::PathBuf::from("."), Path::to_path_buf)
 }
 
 /// A commit as a status line shows it.
@@ -243,7 +248,7 @@ pub async fn cmd_install(tonpa_dir: &Path, config_path: &Path, lock_path: &Path)
                     continue;
                 }
             }
-            let sibling = repo_root().join(rel);
+            let sibling = root_of(tonpa_dir).join(rel);
             match super::pinned::materialize(
                 name,
                 rel,
@@ -484,7 +489,7 @@ fn update_pinned(
     tonpa_dir: &Path,
     lock: &LockFile,
 ) -> Result<Option<(LockedPackage, String)>> {
-    let sibling = repo_root().join(rel);
+    let sibling = root_of(tonpa_dir).join(rel);
     let mut head = super::pinned::resolve(&sibling, "HEAD")?;
     // With an export, "latest" is the commit that last wrote it: the corpus's own
     // `compute:` commit, and never a corpus newer than the export (RFC-0063 §1).

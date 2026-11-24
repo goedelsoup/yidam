@@ -117,6 +117,14 @@
 # corpus vocabulary governs every commit.
 # paths = ["web/**", "crates/**", "package.json"]
 
+[corpus]
+# Whether people write this corpus or a program projects it (RFC-0064). Absent is authored. A
+# projection names the program that rewrites .yidam/corpus/ on every run, and that program
+# writes the corpus id into .yidam/corpus/corpus.toml. The commands that write a corpus refuse
+# in a projection, naming it. Both keys, or neither.
+# mode = "projection"
+# generated_by = "example-producer mirror"
+
 [derive]
 # Globs naming the arguments this repository derives from its corpus — memos, dossiers,
 # findings — for `yidam derive check` to hold to the three outbound rules: each cites a span,

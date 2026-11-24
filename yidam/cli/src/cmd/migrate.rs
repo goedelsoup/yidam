@@ -59,7 +59,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use crate::paths::{repo_root, yidam_corpus_dir};
+use crate::paths::yidam_corpus_dir;
 use crate::walk::{walk_corpus_instances, walk_ont_files};
 
 use super::rename::{target_on, Edit, Unhandled};
@@ -2185,8 +2185,9 @@ fn render_scaffold(r: &MigrateReport) -> String {
 
 /// Perform one ontology migration.
 pub fn migrate(op: Operation, dry_run: bool, format: crate::report::Format) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::working_root()?;
     crate::paths::require_yidam_repo(&root)?;
+    crate::projection::refuse_if_projection(&root, "migrate")?;
     let corpus = yidam_corpus_dir(&root);
     let mut report = plan(&root, &corpus, &op);
 

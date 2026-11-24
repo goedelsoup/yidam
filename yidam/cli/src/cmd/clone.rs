@@ -1,7 +1,6 @@
 use anyhow::{bail, Result};
 use std::path::Path;
 
-use crate::paths::repo_root;
 use crate::provenance::Provenance;
 
 use super::tracked;
@@ -138,7 +137,8 @@ pub fn clone(target: &Path) -> Result<()> {
         bail!("target already exists: {}", target.display());
     }
 
-    let root = repo_root()?;
+    let root = crate::paths::working_root()?;
+    crate::projection::refuse_if_projection(&root, "clone")?;
     require_template_root(&root, "clone", CLONE_REMEDY)?;
     let tracked = tracked::paths(&root)?;
 

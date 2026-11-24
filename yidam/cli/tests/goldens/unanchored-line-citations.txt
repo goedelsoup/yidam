@@ -72,7 +72,6 @@ docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/lsp.rs#L418
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/propose/write.rs#L110
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/serve/http.rs#L9
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/serve/tools.rs#L294
-docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/paths.rs#L5-L9
 docs/rfcs/0030-standalone-editor.md → ../../yidam/editors/web/astro.config.mjs#L39
 docs/rfcs/0030-standalone-editor.md → ../../yidam/editors/web/src/lib/act.ts#L136
 docs/rfcs/0030-standalone-editor.md → ../../yidam/editors/web/src/lib/overlay.ts#L396
@@ -83,8 +82,6 @@ docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/schema.rs#L136-L1
 docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/cmd/schema.rs#L136-L138
 docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/corpus/class.rs#L57-L63
 docs/rfcs/0031-node-prose-model.md → ../../yidam/cli/src/corpus/class.rs#L57-L63
-docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/export_rdf.rs#L317
-docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/export_rdf.rs#L317
 docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/serve/resources.rs#L56
 docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/serve/resources.rs#L56
 docs/rfcs/0032-reference-grammar.md → ../../yidam/cli/src/cmd/serve/resources.rs#L56

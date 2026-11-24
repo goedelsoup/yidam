@@ -749,10 +749,17 @@ pub fn missing_description(nodes: &[Node], prose: &crate::prose::ProseFields) ->
     )
 }
 
-pub fn orphan_out(nodes: &[Node]) -> Check {
+/// A node with no outgoing link, unless its class declares `outgoing: optional` (RFC-0064 §6).
+pub fn orphan_out(nodes: &[Node], classes: &[Class]) -> Check {
+    let exempt: HashSet<&str> = classes
+        .iter()
+        .filter(|c| c.outgoing_optional)
+        .map(|c| c.name.as_str())
+        .collect();
     let violations = nodes
         .iter()
         .filter(|n| n.inst.links.as_deref().unwrap_or(&[]).is_empty())
+        .filter(|n| !exempt.contains(class_of(n).as_str()))
         .map(|n| Violation::new(&n.rel, "no outgoing links"))
         .collect();
     Check::new(
@@ -761,7 +768,8 @@ pub fn orphan_out(nodes: &[Node]) -> Check {
         Severity::Error,
         "Every node must carry at least one outgoing edge. A node with none is unreachable \
          by traversal from anywhere, which in a graph whose value is its connectivity means \
-         it is not in the graph at all.",
+         it is not in the graph at all. A class whose instances legitimately end a path — a \
+         root, a glossary entry, a terminal source — says so with `outgoing: optional`.",
         violations,
     )
 }
@@ -5100,10 +5108,26 @@ mod tests {
             node("a.yml", "class: c\nlinks: []\n"),
             node("b.yml", "class: c\nlinks:\n  - target: a.yml\n"),
         ];
-        let c = orphan_out(&nodes);
+        let c = orphan_out(&nodes, &[]);
         assert_eq!(c.violations.len(), 1);
         assert_eq!(c.violations[0].node, "a.yml");
         assert_eq!(c.severity, Severity::Error);
+    }
+
+    #[test]
+    fn orphan_out_skips_a_class_whose_outgoing_is_optional() {
+        let nodes = vec![
+            node("corpus/site/a.yml", "class: site\nlinks: []\n"),
+            node("corpus/gage/b.yml", "class: gage\nlinks: []\n"),
+        ];
+        let classes = [
+            Class::parse("site.ont.yml", "class: site\noutgoing: optional\n"),
+            // A typo is not an exemption: anything but `optional` is `required`.
+            Class::parse("gage.ont.yml", "class: gage\noutgoing: optinal\n"),
+        ];
+        let c = orphan_out(&nodes, &classes);
+        assert_eq!(c.violations.len(), 1);
+        assert_eq!(c.violations[0].node, "corpus/gage/b.yml");
     }
 
     #[test]
@@ -5297,6 +5321,7 @@ mod tests {
             edges: vec![edge("cited-by", "recording", dir)],
             label: String::new(),
             edge_policy: EdgePolicy::default(),
+            outgoing_optional: false,
             max_lines: None,
             interval: None,
             prose: Vec::new(),
@@ -5343,6 +5368,7 @@ mod tests {
             edges: vec![edge("sources-from", "concept", "out")],
             label: String::new(),
             edge_policy: EdgePolicy::default(),
+            outgoing_optional: false,
             max_lines: None,
             interval: None,
             prose: Vec::new(),
@@ -5360,6 +5386,7 @@ mod tests {
             edges: vec![edge("refines", "concept", "out")],
             label: String::new(),
             edge_policy: EdgePolicy::default(),
+            outgoing_optional: false,
             max_lines: None,
             interval: None,
             prose: Vec::new(),
@@ -5397,6 +5424,7 @@ mod tests {
             edges: vec![edge("downstream-of", "reach", "out")],
             label: String::new(),
             edge_policy: EdgePolicy::default(),
+            outgoing_optional: false,
             max_lines: None,
             interval: None,
             prose: Vec::new(),
@@ -5427,6 +5455,7 @@ mod tests {
             }],
             label: String::new(),
             edge_policy: EdgePolicy::default(),
+            outgoing_optional: false,
             max_lines: None,
             interval: None,
             prose: Vec::new(),
@@ -5444,6 +5473,7 @@ mod tests {
             edges: vec![edge("other", "c", "out")],
             label: String::new(),
             edge_policy: EdgePolicy::default(),
+            outgoing_optional: false,
             max_lines: None,
             interval: None,
             prose: Vec::new(),
@@ -5471,6 +5501,7 @@ mod tests {
             edges: vec![],
             label: String::new(),
             edge_policy: EdgePolicy::default(),
+            outgoing_optional: false,
             max_lines: None,
             interval: None,
             prose: Vec::new(),
@@ -8127,6 +8158,7 @@ resolve = { template = "https://api.crossref.org/works/{id}" }
             edges: vec![],
             label: String::new(),
             edge_policy: EdgePolicy::default(),
+            outgoing_optional: false,
             max_lines: max,
             interval: None,
             prose: Vec::new(),
@@ -8496,6 +8528,7 @@ resolve = { template = "https://api.crossref.org/works/{id}" }
             edges: vec![],
             label: String::new(),
             edge_policy: EdgePolicy::default(),
+            outgoing_optional: false,
             max_lines: None,
             interval: None,
             prose: Vec::new(),

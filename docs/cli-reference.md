@@ -23,18 +23,22 @@ of [RFC-0016](rfcs/0016-editor-surface.md). `text` is the default and is byte-st
 surface and CI both consume the JSON, so the prose is free to stay prose. Commands below that take
 no options at all are marked *(no flags)*.
 
-**`--root <DIR>` names the corpus to read.** Every command that reads one takes it, including
-the generators that refresh a README block. Without it `yidam` finds a repository with
+**`--root <DIR>` names the corpus to read.** Every command that reads one takes it. So do
+the generators that refresh a README block, and the builds that write under `.yidam/`.
+`YIDAM_ROOT` supplies it when the flag is absent, and the flag wins when both are given. An empty
+`YIDAM_ROOT` counts as unset. Without either, `yidam` finds a repository with
 `git rev-parse --show-toplevel` from wherever the process started, which makes the working
 directory load-bearing. It takes the corpus directory or any directory inside one. The `root`
 field of every JSON report says which one was resolved.
 
-**A named `--root` must hold a corpus.** A directory with no `.yidam/` is refused, not reported
-empty. The working directory is not held to that. Run a report from nowhere and it still prints
-what it found. Naming a directory is an assertion; being somewhere is not.
+**A named `--root` must hold a corpus.** So must a `YIDAM_ROOT`. A directory with no `.yidam/`
+is refused, not reported empty. The working directory is not held to that. Run a report from
+nowhere and it still prints what it found. Naming a directory is an assertion; being somewhere is
+not.
 
-The commands that **refuse** it are the `*` ones that do more than refresh a README block. They
-author a commit, write a build artifact, or name a repository to derive. Naming a corpus to
+The commands that **refuse** it are the `*` ones that author a commit or name a repository to
+derive. They ignore `YIDAM_ROOT` as well, and act on the repository they are run from.
+`vault push --commit` refuses a `--root` beside it for the same reason. Naming a corpus to
 report on is one promise. Being run inside the one you are about to write to is another. It is
 not a promise a reader should be able to make by passing a path. `yidam <command> --help` is
 the answer for any single command.

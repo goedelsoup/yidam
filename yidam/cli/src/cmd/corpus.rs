@@ -349,6 +349,18 @@ pub(crate) fn graph_check_data(corpus: &Corpus) -> GraphCheckReport {
         .collect();
     classes_without_instances.sort();
 
+    // Every finding here is under the corpus, so in a projection every one names who wrote it
+    // (RFC-0064 §4). Added to the issue rather than to the report, so each surface that prints
+    // an issue prints the attribution with it.
+    if let Some(by) = crate::projection::producer(root) {
+        let note = crate::projection::attribution(&by);
+        for found in nodes_with_issues.iter_mut().chain(&mut classes_with_issues) {
+            for issue in &mut found.issues {
+                *issue = format!("{issue} — {note}");
+            }
+        }
+    }
+
     let total = instances.len();
     let issue_count = nodes_with_issues.len();
     GraphCheckReport {

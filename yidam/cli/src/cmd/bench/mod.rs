@@ -43,7 +43,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use crate::cmd::serve::{tools, ServerState};
-use crate::paths::{repo_root, yidam_bench_dir};
+use crate::paths::yidam_bench_dir;
 
 pub const GOALS_FILE: &str = "goals.yml";
 
@@ -819,7 +819,7 @@ pub fn bench(
     if scaling {
         let report = scaling::run()?;
         if format.is_json() {
-            return crate::report::emit(&repo_root()?, report);
+            return crate::report::emit(&crate::paths::working_root()?, report);
         }
         println!("{}", scaling::render(&report));
         return Ok(());

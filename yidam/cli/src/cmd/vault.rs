@@ -37,7 +37,7 @@ use anyhow::{bail, Context, Result};
 use clap::Subcommand;
 
 use crate::config::load_yidam_config;
-use crate::paths::{repo_root, require_yidam_repo};
+use crate::paths::{require_yidam_repo, resolve_root};
 use crate::vault::{self, Cache, ContentHash, Route, Vaults, Verdict};
 
 #[derive(Debug, Subcommand)]
@@ -136,11 +136,13 @@ pub enum VaultCommand {
     },
 }
 
-pub fn run(sub: VaultCommand) -> Result<()> {
+/// `at` is `--root`: the corpus whose catalog and vaults are meant. Subcommands that only
+/// address the local cache (`put`, `path`, `verify`) never resolve it.
+pub fn run(sub: VaultCommand, at: Option<&Path>) -> Result<()> {
     match sub {
-        VaultCommand::List => list(),
+        VaultCommand::List => list(at),
         VaultCommand::Put { path } => put(&path),
-        VaultCommand::Get { sha256, out } => get(&sha256, out.as_deref()),
+        VaultCommand::Get { sha256, out } => get(at, &sha256, out.as_deref()),
         VaultCommand::Path { sha256 } => path_of(&sha256),
         VaultCommand::Verify => verify(),
         VaultCommand::Push {
@@ -157,8 +159,8 @@ pub fn run(sub: VaultCommand) -> Result<()> {
                  nothing there — the catalog entry already names the artifact.\n  \
                  Use it with `--index`, `--embeddings` or `--bundle`."
             ),
-            picked if picked.is_empty() => push(dry_run, artifact.as_deref(), vault.as_deref()),
-            picked => push_derived(&picked, dry_run, commit, vault.as_deref()),
+            picked if picked.is_empty() => push(at, dry_run, artifact.as_deref(), vault.as_deref()),
+            picked => push_derived(at, &picked, dry_run, commit, vault.as_deref()),
         },
         VaultCommand::Pull {
             vault,
@@ -166,12 +168,12 @@ pub fn run(sub: VaultCommand) -> Result<()> {
             embeddings,
             bundle,
         } => match chosen(index, embeddings, bundle) {
-            picked if picked.is_empty() => pull(vault.as_deref()),
-            picked => pull_derived(&picked, vault.as_deref()),
+            picked if picked.is_empty() => pull(at, vault.as_deref()),
+            picked => pull_derived(at, &picked, vault.as_deref()),
         },
-        VaultCommand::Gc { yes } => gc(yes),
-        VaultCommand::Materialize { entry } => materialize(entry.as_deref()),
-        VaultCommand::Status { remote, vault } => status(remote, vault.as_deref()),
+        VaultCommand::Gc { yes } => gc(at, yes),
+        VaultCommand::Materialize { entry } => materialize(at, entry.as_deref()),
+        VaultCommand::Status { remote, vault } => status(at, remote, vault.as_deref()),
     }
 }
 
@@ -327,8 +329,13 @@ fn heading(name: &str, cfg: &vault::VaultConfig) -> String {
     format!("{name} — {}", cfg.audience())
 }
 
-fn push(dry_run: bool, artifact: Option<&str>, only: Option<&str>) -> Result<()> {
-    let root = repo_root()?;
+fn push(
+    at: Option<&Path>,
+    dry_run: bool,
+    artifact: Option<&str>,
+    only: Option<&str>,
+) -> Result<()> {
+    let root = resolve_root(at)?;
     require_yidam_repo(&root)?;
     let vaults = configured(&root)?;
     if vaults.is_empty() {
@@ -484,8 +491,8 @@ fn push(dry_run: bool, artifact: Option<&str>, only: Option<&str>) -> Result<()>
     })
 }
 
-fn pull(only: Option<&str>) -> Result<()> {
-    let root = repo_root()?;
+fn pull(at: Option<&Path>, only: Option<&str>) -> Result<()> {
+    let root = resolve_root(at)?;
     require_yidam_repo(&root)?;
     let vaults = configured(&root)?;
     if vaults.is_empty() {
@@ -551,8 +558,8 @@ fn pull(only: Option<&str>) -> Result<()> {
     crate::report::verdict(absent == 0)
 }
 
-fn status(remote: bool, only: Option<&str>) -> Result<()> {
-    let root = repo_root()?;
+fn status(at: Option<&Path>, remote: bool, only: Option<&str>) -> Result<()> {
+    let root = resolve_root(at)?;
     require_yidam_repo(&root)?;
     let cache = cache()?;
     let vaults = configured(&root)?;
@@ -644,9 +651,9 @@ fn configured(root: &Path) -> Result<Vaults> {
     vault::resolve(&config.vault)
 }
 
-fn list() -> Result<()> {
+fn list(at: Option<&Path>) -> Result<()> {
     let cache = cache()?;
-    let root = repo_root()?;
+    let root = resolve_root(at)?;
     require_yidam_repo(&root)?;
     let vaults = configured(&root)?;
     if vaults.is_empty() {
@@ -736,12 +743,12 @@ fn put(path: &Path) -> Result<()> {
 /// repository can reach* — and it is safe because asking is a `HEAD`: nothing is uploaded, and
 /// a vault that cannot be opened is reported rather than fatal, so one unreachable store does
 /// not hide an artifact sitting in another.
-fn get(sha256: &str, out: Option<&Path>) -> Result<()> {
+fn get(at: Option<&Path>, sha256: &str, out: Option<&Path>) -> Result<()> {
     let hash = ContentHash::parse(sha256)?;
     let cache = cache()?;
 
     if !cache.contains(&hash) {
-        let root = repo_root()?;
+        let root = resolve_root(at)?;
         require_yidam_repo(&root)?;
         let vaults = configured(&root)?;
         if vaults.is_empty() {
@@ -1047,8 +1054,8 @@ fn live_set(root: &Path) -> Result<std::collections::BTreeSet<ContentHash>> {
 /// which the cache *is* the only copy. This command cannot distinguish one of those belonging
 /// to another repository from an orphan, so it does not try: it reports, states the hazard, and
 /// deletes only when told to.
-fn gc(yes: bool) -> Result<()> {
-    let root = repo_root()?;
+fn gc(at: Option<&Path>, yes: bool) -> Result<()> {
+    let root = resolve_root(at)?;
     require_yidam_repo(&root)?;
     let cache = cache()?;
     let live = live_set(&root)?;
@@ -1156,8 +1163,8 @@ fn extension_for(media_type: Option<&str>) -> &'static str {
 /// **Nothing is written until `.yidam/vault/` is known to be ignored.** A licensed PDF landing
 /// in a tracked path is precisely the leak the push guard exists to prevent, arriving through
 /// the back door of `git add -A` — which this repository's own bootstrap prescribes.
-fn materialize(entry: Option<&str>) -> Result<()> {
-    let root = repo_root()?;
+fn materialize(at: Option<&Path>, entry: Option<&str>) -> Result<()> {
+    let root = resolve_root(at)?;
     require_yidam_repo(&root)?;
     let cache = cache()?;
     let dest_root = root.join(".yidam").join("vault");
@@ -1331,12 +1338,27 @@ fn index_meta(root: &Path, key: &str) -> Option<String> {
 }
 
 fn push_derived(
+    at: Option<&Path>,
     picked: &[vault::Derived],
     dry_run: bool,
     commit: bool,
     only: Option<&str>,
 ) -> Result<()> {
-    let root = repo_root()?;
+    // A commit is made in the repository this process stands in, never in a named one (#918).
+    // A `--root` beside `--commit` is refused rather than ignored; `YIDAM_ROOT` is a shell's
+    // default for reads, so it is passed over here as every committing command passes it over.
+    if commit && at.is_some() {
+        bail!(
+            "`--commit` writes a commit, and yidam commits only in the repository it is run \
+             from (#918).\n  Run `yidam vault push --commit` from that repository, without \
+             `--root`."
+        );
+    }
+    let root = if commit {
+        crate::paths::working_root()?
+    } else {
+        resolve_root(at)?
+    };
     require_yidam_repo(&root)?;
     // Before anything is packed or sent: a lock with somebody's hand edit in it would be
     // committed under a subject that says only what this push recorded.
@@ -1477,8 +1499,8 @@ fn push_derived(
     Ok(())
 }
 
-fn pull_derived(picked: &[vault::Derived], only: Option<&str>) -> Result<()> {
-    let root = repo_root()?;
+fn pull_derived(at: Option<&Path>, picked: &[vault::Derived], only: Option<&str>) -> Result<()> {
+    let root = resolve_root(at)?;
     require_yidam_repo(&root)?;
     let vaults = configured(&root)?;
     let cache = cache()?;

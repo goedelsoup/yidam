@@ -74,18 +74,13 @@ pub fn index_push(root: Option<&std::path::Path>, dry_run: bool, create: bool) -
     // another — and the mirror's delete step, which only touches its own prefix, would leave
     // the first set behind forever with nothing able to name it. A shallow clone is exactly
     // the case: `git log` in one does not reach the root, and the hash is `None`.
-    let corpus = model
-        .provenance
-        .genesis_hash
-        .as_deref()
-        .map(request::corpus_id)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "this repository cannot see its own genesis commit, so a push has no corpus \
+    let corpus = model.provenance.corpus_id.clone().ok_or_else(|| {
+        anyhow::anyhow!(
+            "this repository cannot see its own genesis commit, so a push has no corpus \
                  identity to key its vectors under.\n  \
                  A shallow clone is the usual cause — `git fetch --unshallow` and try again."
-            )
-        })?;
+        )
+    })?;
     let commit = model.provenance.commit.clone();
     let rows = index_rows(index)?;
     if rows.is_empty() {

@@ -48,6 +48,10 @@ pub struct YidamConfig {
     /// may say.*
     #[serde(default)]
     pub cluster: ClusterConfig,
+    /// Whether this corpus is authored or projected by a program (RFC-0064 §1). Absent is
+    /// authored, which is every corpus before the table existed.
+    #[serde(default)]
+    pub corpus: crate::projection::CorpusMode,
 }
 
 /// The `[cluster]` section: the execution plane a run is generated for.

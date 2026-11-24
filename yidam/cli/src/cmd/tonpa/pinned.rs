@@ -139,6 +139,9 @@ struct Manifest<'a> {
     commit: &'a str,
     genesis: Option<String>,
     genesis_hash: Option<String>,
+    /// The name the dependency is published under (RFC-0064 §2.2), the field
+    /// [`crate::deps::shadowed`] compares.
+    corpus_id: Option<String>,
     instances: usize,
     vector_index_model: Option<String>,
 }
@@ -294,7 +297,7 @@ pub fn materialize(
     }
 
     let instances = entries.iter().filter(|(f, _)| f.contains('/')).count();
-    let (genesis_hash, genesis) = genesis_of(sibling, sha);
+    let (genesis_hash, genesis, corpus_id) = identity_at(sibling, sha)?;
     let manifest = Manifest {
         bundle_version: "1",
         source: "path",
@@ -302,6 +305,7 @@ pub fn materialize(
         commit: sha,
         genesis: genesis.clone(),
         genesis_hash,
+        corpus_id,
         instances,
         vector_index_model: None,
     };
@@ -329,6 +333,46 @@ pub fn materialize(
         export: export.as_ref().map(|(path, ..)| path.to_string()),
         export_sha256: export.map(|(_, _, hash, _)| hash),
     })
+}
+
+/// The genesis hash, the genesis date and the corpus id the pinned commit carries.
+///
+/// A projection's mode and id are read out of the commit too, like the corpus is: a sibling
+/// that was authored at the pin and projected since, or the reverse, is named as it was at the
+/// pin. A projection has no genesis of its own (RFC-0064 §2.2), so both genesis fields are
+/// `None` for one.
+fn identity_at(
+    sibling: &Path,
+    sha: &str,
+) -> Result<(Option<String>, Option<String>, Option<String>)> {
+    let blob = |path: &str| {
+        Git::new(sibling)
+            .args(["cat-file", "blob"])
+            .rev(format!("{sha}:{path}"))
+            .try_run()
+    };
+    let mode = match blob(".yidam/config.toml") {
+        Some(text) => {
+            toml::from_str::<crate::config::YidamConfig>(&text)
+                .with_context(|| format!("parsing .yidam/config.toml at {sha}"))?
+                .corpus
+        }
+        None => crate::projection::CorpusMode::Authored,
+    };
+    if let Some(by) = mode.generated_by() {
+        let text = blob(crate::projection::CORPUS_TOML).with_context(|| {
+            format!(
+                "{} is a projection at {sha} and has no {} there",
+                sibling.display(),
+                crate::projection::CORPUS_TOML
+            )
+        })?;
+        let id = crate::projection::parse_declared_id(&text, by)?;
+        return Ok((None, None, Some(id)));
+    }
+    let (hash, date) = genesis_of(sibling, sha);
+    let id = hash.as_deref().map(crate::s3vectors::request::corpus_id);
+    Ok((hash, date, id))
 }
 
 /// The root commit `sha` descends from, and its date — the identity a bundle's manifest

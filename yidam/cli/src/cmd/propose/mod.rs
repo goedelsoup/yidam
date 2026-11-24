@@ -38,7 +38,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::cmd::lint::{self, baseline, history};
-use crate::paths::{repo_root, require_yidam_repo, yidam_catalog_dir, yidam_corpus_dir};
+use crate::paths::{require_yidam_repo, yidam_catalog_dir, yidam_corpus_dir};
 use draft::{Change, Proposal};
 
 pub struct Options {
@@ -291,7 +291,7 @@ fn plan(
 }
 
 pub fn propose(opts: Options) -> Result<()> {
-    let root = repo_root()?;
+    let root = crate::paths::working_root()?;
     let report = run(&root, &opts)?;
 
     crate::report::finish(&root, opts.format, report, |r| {
@@ -311,6 +311,7 @@ pub fn propose(opts: Options) -> Result<()> {
 /// It returns the report rather than printing it, because the second caller renders JSON into
 /// a tool result rather than to stdout.
 pub(crate) fn run(root: &Path, opts: &Options) -> Result<ProposeReport> {
+    crate::projection::refuse_if_projection(root, "propose")?;
     require_yidam_repo(root)?;
     write::require_committed_corpus(root)?;
 

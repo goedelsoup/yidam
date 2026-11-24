@@ -6,13 +6,18 @@ use super::config::{
 };
 use super::install::install_package;
 
-fn repo_root() -> std::path::PathBuf {
-    crate::paths::repo_root().unwrap_or_else(|_| std::path::PathBuf::from("."))
+/// The repository a `.yidam/tonpa` directory belongs to — the root `yidam tonpa` was given
+/// (`--root`, `YIDAM_ROOT`, or the working directory), recovered from the path it built.
+fn root_of(tonpa_dir: &Path) -> std::path::PathBuf {
+    tonpa_dir
+        .parent()
+        .and_then(Path::parent)
+        .map_or_else(|| std::path::PathBuf::from("."), Path::to_path_buf)
 }
 
 /// Where a path dependency's corpus should be, relative to the current repository.
-fn repo_root_of(rel: &str) -> std::path::PathBuf {
-    crate::paths::yidam_corpus_dir(&repo_root().join(rel))
+fn repo_root_of(tonpa_dir: &Path, rel: &str) -> std::path::PathBuf {
+    crate::paths::yidam_corpus_dir(&root_of(tonpa_dir).join(rel))
 }
 
 pub async fn cmd_add(
@@ -55,7 +60,7 @@ pub async fn cmd_add(
 
         // A pinned path is checked at its commit instead, by `materialize`: the working tree
         // may have moved on, or be mid-rewrite, and neither is the pin's business.
-        let corpus = repo_root_of(&rel);
+        let corpus = repo_root_of(tonpa_dir, &rel);
         if dep.rev.is_none() && !corpus.is_dir() {
             bail!(
                 "no corpus at {}\n  a path dependency points at a yidam repository; expected \
@@ -66,7 +71,7 @@ pub async fn cmd_add(
 
         // Pinned: resolve the commit, write the corpus as it stood there, and lock it.
         if let Some(rev) = dep.rev.clone() {
-            let sibling = repo_root().join(&rel);
+            let sibling = root_of(tonpa_dir).join(&rel);
             let sha = super::pinned::resolve(&sibling, &rev)?;
             println!("Adding {name} at {sha}");
             let locked = super::pinned::materialize(
