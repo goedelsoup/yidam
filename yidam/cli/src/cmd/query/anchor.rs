@@ -263,6 +263,9 @@ fn search_index(
         }
     };
 
+    // One entry per node, already: `finish` groups a long node's passages and keeps its best
+    // (RFC-0060 §2.3), so `hits` names each path once. An entry carries no text, so the
+    // ordinal of the passage that scored has nothing here to point into, and is not reported.
     let entries: Vec<Entry> = hits
         .iter()
         .filter_map(|hit| {
@@ -493,6 +496,7 @@ mod tests {
             path: path.to_string(),
             class: class.to_string(),
             label: String::new(),
+            passage: 0,
             text: String::new(),
             score,
             truncated: false,

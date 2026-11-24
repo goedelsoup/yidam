@@ -1,0 +1,14 @@
+function = "split_passages"
+description = "The closing Related sentence is joined to the last field by a space, not a newline. It is cut off and treated as a line, so a full last line does not drag it into a hard cut"
+
+[input]
+label = "Rent"
+text = "Rent Median gross rent rose sharply.\nIt outpaced wages. Related: income, wages."
+max_chars = 40
+
+[expected]
+passages = [
+  "Rent Median gross rent rose sharply.",
+  "Rent It outpaced wages.",
+  "Rent Related: income, wages.",
+]

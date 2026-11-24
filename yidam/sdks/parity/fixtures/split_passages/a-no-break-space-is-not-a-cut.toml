@@ -1,0 +1,13 @@
+function = "split_passages"
+description = "Only a space or a tab is a place to cut. Each language's own idea of whitespace differs past ASCII, so a no-break space is a character like any other, and a line made of them is cut hard"
+
+[input]
+label = "L"
+text = "L aaaa\u00A0bbbb\u00A0cccc\u00A0dddd\u00A0eeee"
+max_chars = 20
+
+[expected]
+passages = [
+  "L aaaa\u00A0bbbb\u00A0cccc\u00A0ddd",
+  "L d\u00A0eeee",
+]

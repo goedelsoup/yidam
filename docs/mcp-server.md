@@ -562,6 +562,10 @@ kind that grows without a bound. A node's text is the fields somebody wrote; a c
 is a whole document. A `true` here means read the file, not the result. Keyword search and a
 local index answer `false` about every row. Neither has a ceiling to cut against.
 
+**`passage` says which part of a long node scored.** A long node is indexed as several passages.
+A vector result's `text` is the passage that scored best, and `passage` numbers it from 0. A node
+appears once, so `k` counts nodes. Keyword search and an index built before passages answer 0.
+
 **`corpora` reaches past this corpus, where an index is shared.** Several corpora may push to
 one vector index. `retrieve` takes a list of the others and searches them
 alongside its own. Name one by a nickname this corpus declared, or by a genesis hash. This corpus is always in the set. A caller
@@ -709,7 +713,7 @@ only where you look for it.
 tool-not-found errors:
 
 ```json
-{"contract": "0.33.0",
+{"contract": "0.34.0",
  "corpus": {"domain": "streamflow", "commit": "a1b2c3d",
             "nodes": 8, "skills": 1, "decisions": 2,
             "indexed_commit": null, "stale": false},

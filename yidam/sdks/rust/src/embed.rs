@@ -172,6 +172,128 @@ pub fn compose_embed_text(inst: &CorpusInstance, fields: &EmbedFields) -> String
     parts.join(" ")
 }
 
+/// How many characters a passage may hold, label included.
+///
+/// The model reads 512 tokens and silently drops the rest (RFC-0060 §1.1), so a node composed
+/// longer than its window is embedded as its opening alone. A budget in characters rather than
+/// tokens keeps this function free of a tokenizer, which is what lets it be a parity function;
+/// 1,200 characters stays under 512 tokens of the shipped model on every measured corpus.
+pub const PASSAGE_MAX_CHARS: usize = 1200;
+
+/// Whether `c` is a place a long line may be cut. Two characters only, so three languages
+/// agree on it: each one's own idea of "whitespace" differs past ASCII.
+fn is_cut(c: char) -> bool {
+    c == ' ' || c == '\t'
+}
+
+/// Cut `chars` at `room`: at the last cut character at or before `room`, which is dropped, or
+/// at `room` exactly when there is none. A run no longer than `room` comes back whole.
+fn cut(chars: &[char], room: usize) -> (&[char], &[char]) {
+    if chars.len() <= room {
+        return (chars, &[]);
+    }
+    match (1..=room).rev().find(|&j| is_cut(chars[j])) {
+        Some(j) => (&chars[..j], &chars[j + 1..]),
+        None => (&chars[..room], &chars[room..]),
+    }
+}
+
+/// Split a composed embed text into passages no longer than `max_chars`, each led by the label.
+///
+/// RFC-0060 §2.1. A text that fits is returned whole, which is every node in most corpora.
+/// Otherwise the body — the text with `label` and the space after it stripped — is split on
+/// its newlines, with the closing `Related:` sentence as a line of its own, and the lines are
+/// packed greedily into passages of `"{label} {lines joined by newlines}"`. A line longer than a
+/// passage's room is cut at its last space or tab, or hard at a character when it has none.
+///
+/// The label leads every passage because a passage is retrieved as its node: a reader seeing
+/// the third passage of a long account needs to know whose account it is, and so does the
+/// model. A label that would leave less than half the budget for the body is cut to half.
+///
+/// A text that does not begin with `label` and a space is read as having no label, and its
+/// passages are its lines alone. Lengths are counted in Unicode scalar values.
+pub fn split_passages(label: &str, text: &str, max_chars: usize) -> Vec<String> {
+    if text.chars().count() <= max_chars {
+        return vec![text.to_string()];
+    }
+
+    let (label, body) = match text.strip_prefix(label) {
+        Some(rest) if !label.is_empty() && rest.is_empty() => (label, ""),
+        Some(rest) if !label.is_empty() && rest.starts_with(' ') => (label, &rest[1..]),
+        _ => ("", text),
+    };
+
+    let half = max_chars / 2;
+    let label_chars: Vec<char> = label.chars().collect();
+    let label: String = if label_chars.len() + 1 > max_chars - half {
+        cut(&label_chars, half)
+            .0
+            .iter()
+            .collect::<String>()
+            .trim_end_matches(is_cut)
+            .to_string()
+    } else {
+        label.to_string()
+    };
+    let prefix = if label.is_empty() {
+        String::new()
+    } else {
+        format!("{label} ")
+    };
+    let room = max_chars.saturating_sub(prefix.chars().count()).max(1);
+
+    let mut lines: Vec<&str> = Vec::new();
+    match body.rfind(" Related: ") {
+        Some(i) if !body[i..].contains('\n') => {
+            lines.extend(body[..i].split('\n'));
+            lines.push(&body[i + 1..]);
+        }
+        _ => lines.extend(body.split('\n')),
+    }
+
+    let mut pieces: Vec<String> = Vec::new();
+    for line in lines {
+        if line.chars().all(is_cut) {
+            continue;
+        }
+        let chars: Vec<char> = line.chars().collect();
+        let mut rest: &[char] = &chars;
+        while !rest.is_empty() {
+            let (head, tail) = cut(rest, room);
+            if !head.is_empty() {
+                pieces.push(head.iter().collect());
+            }
+            rest = tail;
+        }
+    }
+
+    let mut passages: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut current_chars = 0usize;
+    for piece in pieces {
+        let n = piece.chars().count();
+        if current_chars > 0 && current_chars + 1 + n > room {
+            passages.push(format!("{prefix}{current}"));
+            current.clear();
+            current_chars = 0;
+        }
+        if current_chars > 0 {
+            current.push('\n');
+            current_chars += 1;
+        }
+        current.push_str(&piece);
+        current_chars += n;
+    }
+    if current_chars > 0 {
+        passages.push(format!("{prefix}{current}"));
+    }
+
+    if passages.is_empty() {
+        passages.push(label);
+    }
+    passages
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

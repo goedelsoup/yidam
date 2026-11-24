@@ -1,0 +1,13 @@
+function = "split_passages"
+description = "A tab is a place to cut, as a space is, and is dropped the same way"
+
+[input]
+label = "L"
+text = "L aaaa bbbb cccc\tdddd eeee"
+max_chars = 20
+
+[expected]
+passages = [
+  "L aaaa bbbb cccc",
+  "L dddd eeee",
+]

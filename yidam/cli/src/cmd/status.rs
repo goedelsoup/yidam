@@ -242,7 +242,12 @@ pub struct IndexStatusReport {
     pub built: Option<String>,
     pub model: Option<String>,
     pub embedding_dim: Option<u64>,
+    /// Distinct nodes the index carries.
     pub node_count: Option<u64>,
+    /// Rows the index carries, one per passage (RFC-0060). Above `node_count` by the passages
+    /// long nodes were split into. An index built before passages has one row per node, and
+    /// reads `node_count` here.
+    pub row_count: Option<u64>,
     /// Corpus files modified since the build. This is the freshness verdict.
     pub stale_nodes: usize,
 }
@@ -257,6 +262,7 @@ pub(crate) fn index_status_data(root: &Path) -> IndexStatusReport {
         model: None,
         embedding_dim: None,
         node_count: None,
+        row_count: None,
         stale_nodes: 0,
     };
     if !index_dir.exists() {
@@ -276,6 +282,12 @@ pub(crate) fn index_status_data(root: &Path) -> IndexStatusReport {
         model: Some(meta["model_name"].as_str().unwrap_or("unknown").to_string()),
         embedding_dim: Some(meta["embedding_dim"].as_u64().unwrap_or(0)),
         node_count: Some(meta["node_count"].as_u64().unwrap_or(0)),
+        row_count: Some(
+            meta["row_count"]
+                .as_u64()
+                .or_else(|| meta["node_count"].as_u64())
+                .unwrap_or(0),
+        ),
         stale_nodes: count_stale_corpus_files(&yidam_corpus_dir(root), generated_at),
     }
 }
@@ -302,10 +314,11 @@ pub(crate) fn render_index_status(r: &IndexStatusReport, now: u64) -> String {
         format!(
             "Vector index: built {date_str} ({age_str}), up-to-date\n\
              Model:        {} ({} dims)\n\
-             Nodes:        {}",
+             Nodes:        {} ({} passage(s))",
             r.model.clone().unwrap_or_default(),
             r.embedding_dim.unwrap_or(0),
-            r.node_count.unwrap_or(0)
+            r.node_count.unwrap_or(0),
+            r.row_count.unwrap_or(0)
         )
     }
 }

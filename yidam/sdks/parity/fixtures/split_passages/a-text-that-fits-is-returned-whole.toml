@@ -1,0 +1,12 @@
+function = "split_passages"
+description = "A text no longer than the budget is one passage, unchanged. That is every node in most corpora, and it is why an index built before passages and one built after agree on them"
+
+[input]
+label = "Gage"
+text = "Gage Discharge daily.\nRelated: river."
+max_chars = 40
+
+[expected]
+passages = [
+  "Gage Discharge daily.\nRelated: river.",
+]

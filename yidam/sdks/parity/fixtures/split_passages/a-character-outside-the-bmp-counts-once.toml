@@ -1,0 +1,13 @@
+function = "split_passages"
+description = "Lengths are Unicode scalar values. A character outside the Basic Multilingual Plane is one character, not the two UTF-16 units a JavaScript string length would count"
+
+[input]
+label = "M"
+text = "M 𝄞𝄞𝄞𝄞𝄞 𝄞𝄞𝄞𝄞𝄞 𝄞𝄞𝄞"
+max_chars = 12
+
+[expected]
+passages = [
+  "M 𝄞𝄞𝄞𝄞𝄞",
+  "M 𝄞𝄞𝄞𝄞𝄞 𝄞𝄞𝄞",
+]

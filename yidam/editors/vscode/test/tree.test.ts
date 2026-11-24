@@ -613,6 +613,7 @@ const INDEX_STATUS: IndexStatusReport = {
   model: 'Xenova/all-MiniLM-L6-v2',
   embedding_dim: 384,
   node_count: 3,
+  row_count: 5,
   stale_nodes: 0,
 }
 
@@ -782,6 +783,27 @@ test('a stale REGEN block is a verdict, and names which generator', () => {
   // Regenerating a current block is a no-op, so unlike blessing a baseline the action is
   // never the wrong thing to click.
   assert.equal(current.command?.id, 'yidam.regen')
+})
+
+/** `node_count` counts nodes; a long node is several rows, and the tooltip says both (RFC-0060). */
+test('the index row counts nodes, and passages where they differ', () => {
+  const split = find(
+    healthTree({ lint: lintReport(), graph: GRAPH, index: INDEX_STATUS, regen: REGEN, doctor: DOCTOR }),
+    'health:index',
+  )!
+  assert.match(String(split.tooltip), /3 nodes in 5 passages/)
+
+  const older = find(
+    healthTree({
+      lint: lintReport(),
+      graph: GRAPH,
+      index: { ...INDEX_STATUS, row_count: undefined },
+      regen: REGEN,
+      doctor: DOCTOR,
+    }),
+    'health:index',
+  )!
+  assert.match(String(older.tooltip), /3 nodes$/)
 })
 
 test('a failing graph gate expands and lists its offending nodes', () => {

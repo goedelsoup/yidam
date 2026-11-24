@@ -1,0 +1,13 @@
+function = "split_passages"
+description = "One character past the budget and the body is split, each passage led again by the label"
+
+[input]
+label = "Gage"
+text = "Gage abcdefghij klmnopqrst uvwxyz abcdefg"
+max_chars = 40
+
+[expected]
+passages = [
+  "Gage abcdefghij klmnopqrst uvwxyz",
+  "Gage abcdefg",
+]

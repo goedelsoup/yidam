@@ -1,0 +1,13 @@
+function = "split_passages"
+description = "Lines are packed into a passage until the next would overflow it; a passage never ends mid-line when the line fits a passage of its own"
+
+[input]
+label = "Note"
+text = "Note First line here.\nSecond line here.\nThird line here.\nFourth."
+max_chars = 40
+
+[expected]
+passages = [
+  "Note First line here.\nSecond line here.",
+  "Note Third line here.\nFourth.",
+]

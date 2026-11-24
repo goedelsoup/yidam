@@ -1,0 +1,13 @@
+function = "split_passages"
+description = "A text that does not begin with the label and a space is read as having no label, rather than having its opening characters stripped"
+
+[input]
+label = "Gage"
+text = "Gagex is not the label\nsecond line of text here\nthird"
+max_chars = 30
+
+[expected]
+passages = [
+  "Gagex is not the label",
+  "second line of text here\nthird",
+]

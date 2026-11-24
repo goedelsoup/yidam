@@ -73,8 +73,8 @@ fn the_report_names_both_ceilings_and_breaches_neither() {
     for expected in [
         "40960-byte ceiling", // the per-vector metadata ceiling
         "largest row:",
-        "of 2048", // the filterable ceiling
-        "truncated:",
+        "of 2048",   // the filterable ceiling
+        "passages:", // RFC-0060: rows are passages, so no text is cut
         "Nothing was written.",
     ] {
         assert!(dry.contains(expected), "no {expected:?} in:\n{dry}");

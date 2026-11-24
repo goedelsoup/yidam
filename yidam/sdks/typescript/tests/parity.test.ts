@@ -4,7 +4,11 @@ import { fileURLToPath } from 'node:url'
 import { parse } from 'smol-toml'
 import { describe, it, expect } from 'vitest'
 import { parseInstance, instanceToJson } from '../src/corpus.ts'
-import { composeEmbedText, type EmbedFields } from '../src/embed.ts'
+import {
+  composeEmbedText,
+  splitPassages,
+  type EmbedFields,
+} from '../src/embed.ts'
 import { classifyCommit, isRecognizedVerb } from '../src/git.ts'
 import { findReachable, findCitations, type GraphEdge } from '../src/graph.ts'
 import { scanMarkers, updateRegen } from '../src/markers.ts'
@@ -306,6 +310,23 @@ describe('parity: compose_embed_text', () => {
         retrievable_properties: list('retrievable_properties'),
       }
       expect(composeEmbedText(parseInstance(inp['content'] as string), fields)).toBe(exp['text'])
+    })
+  }
+})
+
+// ── split_passages ────────────────────────────────────────────────────────────
+
+describe('parity: split_passages', () => {
+  const fixtures = loadFixtures('split_passages')
+  it('has fixtures', () => expect(fixtures.length).toBeGreaterThan(0))
+
+  for (const fx of fixtures) {
+    const inp = fx['input'] as { label: string; text: string; max_chars: number }
+    const exp = fx['expected'] as { passages: string[] }
+    it(fx['description'] as string, () => {
+      expect(splitPassages(inp.label, inp.text, Number(inp.max_chars))).toEqual(
+        exp.passages,
+      )
     })
   }
 })

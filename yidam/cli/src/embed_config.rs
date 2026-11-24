@@ -59,6 +59,71 @@ pub struct EmbedConfig {
     /// [`crate::retrieval::Filter::as_applied`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub class_source: Option<String>,
+    /// How each node's composed text was split into rows (RFC-0060 §2.5).
+    ///
+    /// `None` on every index of [`FORMAT_VERSION_WHOLE_NODES`], which held one row per node.
+    /// Part of the space: the same query lands on different rows under another budget, so
+    /// [`space_disagreement`] compares it as it compares the model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub passages: Option<Passages>,
+}
+
+/// The splitter an index was built with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Passages {
+    /// [`PASSAGE_SPLITTER`], the only splitter there is.
+    pub splitter: String,
+    /// The budget a passage is held to, in characters.
+    pub max_chars: usize,
+}
+
+/// The splitter `yidam_core::embed::split_passages` implements: lines, packed greedily.
+pub const PASSAGE_SPLITTER: &str = "lines";
+
+/// The contract this binary writes. `"2"` added [`EmbedConfig::passages`].
+pub const FORMAT_VERSION: &str = "2";
+
+/// The contract of an index built before passages, one row per node. Still read: its rows are
+/// what passage 0 of each node is.
+pub const FORMAT_VERSION_WHOLE_NODES: &str = "1";
+
+/// Every `format_version` this binary reads.
+pub const KNOWN_FORMAT_VERSIONS: &[&str] = &[FORMAT_VERSION_WHOLE_NODES, FORMAT_VERSION];
+
+impl EmbedConfig {
+    /// Parse a contract, refusing a `format_version` this binary does not know.
+    ///
+    /// **New with RFC-0060.** No reader branched on the version before, so a contract from a
+    /// later binary was read as if it were this one's, with its new keys ignored. Ignoring
+    /// `passages` is exactly the misreading that makes a reader rank passages as nodes. A
+    /// version this binary does not know is now an error that names it.
+    pub fn from_json(text: &str) -> anyhow::Result<Self> {
+        let config: Self = serde_json::from_str(text)?;
+        config.known_version()?;
+        Ok(config)
+    }
+
+    /// `Err` naming the version when this binary does not read it.
+    pub fn known_version(&self) -> anyhow::Result<()> {
+        if !KNOWN_FORMAT_VERSIONS.contains(&self.format_version.as_str()) {
+            anyhow::bail!(
+                "the embedding contract has format_version {:?}, and this yidam reads only {}: \
+                 it was written by a later yidam. Move this pin to that release.",
+                self.format_version,
+                KNOWN_FORMAT_VERSIONS
+                    .iter()
+                    .map(|v| format!("{v:?}"))
+                    .collect::<Vec<_>>()
+                    .join(" and ")
+            );
+        }
+        Ok(())
+    }
+
+    /// Whether this index was built before passages, one row per node.
+    pub fn is_whole_nodes(&self) -> bool {
+        self.format_version == FORMAT_VERSION_WHOLE_NODES
+    }
 }
 
 /// A row's `class` is the name of the directory its `path` sits in — [`crate::paths::class_of_path`].
@@ -259,7 +324,7 @@ impl EmbedConfig {
         model_enum: &str,
     ) -> Self {
         Self {
-            format_version: "1".to_string(),
+            format_version: FORMAT_VERSION.to_string(),
             model_id: model_id.to_string(),
             embedding_dim,
             model_file: model_file.to_string(),
@@ -272,6 +337,10 @@ impl EmbedConfig {
             // checking every record, the way [`Self::with_verification`] attaches a witness
             // after embedding the probe.
             class_source: None,
+            passages: Some(Passages {
+                splitter: PASSAGE_SPLITTER.to_string(),
+                max_chars: yidam_core::embed::PASSAGE_MAX_CHARS,
+            }),
         }
     }
 
@@ -367,6 +436,22 @@ pub fn space_disagreement(existing: &EmbedConfig, ours: &EmbedConfig) -> Option<
         &existing.embedding_dim.to_string(),
         &ours.embedding_dim.to_string(),
     );
+
+    // An index built with another budget holds other rows: the same query lands on a
+    // different row (RFC-0060 §2.5). Compared only where both declare one, as the witness
+    // probe is below. An index pushed before passages declares none, and refusing it would
+    // refuse every remote push on the first release that writes passages, with a repair
+    // ("rebuild with the settings this one declares") no pin can perform. Its rows are whole
+    // nodes embedded in the same model, which is passage 0 of each, and the push that meets
+    // it rewrites this corpus's keys and the witness both.
+    if let (Some(a), Some(b)) = (&existing.passages, &ours.passages) {
+        if a != b {
+            differs.push(format!(
+                "passages {} of {} chars vs {} of {} chars",
+                a.splitter, a.max_chars, b.splitter, b.max_chars
+            ));
+        }
+    }
 
     if let (Some(a), Some(b)) = (&existing.verification, &ours.verification) {
         // Only where the two witnessed the *same* sentence. A probe that differs is not a
@@ -502,7 +587,11 @@ mod tests {
     #[test]
     fn serializes_expected_fields() {
         let v: serde_json::Value = serde_json::to_value(sample()).unwrap();
-        assert_eq!(v["format_version"], "1");
+        assert_eq!(v["format_version"], "2");
+        assert_eq!(
+            v["passages"],
+            serde_json::json!({"splitter": "lines", "max_chars": 1200})
+        );
         assert_eq!(v["model_id"], "Xenova/all-MiniLM-L6-v2");
         assert_eq!(v["embedding_dim"], 384);
         assert_eq!(v["model_file"], "onnx/model_quantized.onnx");
@@ -550,9 +639,55 @@ mod tests {
             "normalize": true,
             "fastembed_model_enum": "AllMiniLML6V2Q"
         });
-        let cfg: EmbedConfig = serde_json::from_value(older).unwrap();
+        let cfg = EmbedConfig::from_json(&older.to_string()).unwrap();
         assert_eq!(cfg.class_source, None);
         assert!(!cfg.classes_are_path_derived());
+        assert_eq!(cfg.passages, None);
+        assert!(cfg.is_whole_nodes());
+    }
+
+    // ── passages (RFC-0060 §2.5) ──────────────────────────────────────────────
+
+    /// A version this binary does not know is refused by name, not read as this one.
+    #[test]
+    fn a_format_version_from_a_later_yidam_is_refused_by_name() {
+        let mut later = serde_json::to_value(sample()).unwrap();
+        later["format_version"] = "3".into();
+        let e = EmbedConfig::from_json(&later.to_string())
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("\"3\""), "{e}");
+        assert!(e.contains("later yidam"), "{e}");
+    }
+
+    /// Another budget lands the same query on other rows, so it is another space.
+    #[test]
+    fn another_passage_budget_is_another_space() {
+        let mut theirs = sample();
+        theirs.passages.as_mut().unwrap().max_chars = 600;
+        let why = space_disagreement(&theirs, &sample()).expect("two budgets");
+        assert!(why.contains("passages"), "{why}");
+        assert!(why.contains("600") && why.contains("1200"), "{why}");
+    }
+
+    /// An index pushed before passages does not refuse the first push that writes them.
+    ///
+    /// Refusing it would refuse every remote push on upgrade, with no repair a pin can make.
+    #[test]
+    fn an_index_of_whole_nodes_does_not_refuse_the_upgrade() {
+        let mut theirs = sample();
+        theirs.format_version = FORMAT_VERSION_WHOLE_NODES.to_string();
+        theirs.passages = None;
+        assert_eq!(space_disagreement(&theirs, &sample()), None);
+    }
+
+    /// The witness pins the budget the index was split with, which is the SDK's.
+    #[test]
+    fn the_witness_records_the_sdk_budget() {
+        assert_eq!(
+            sample().passages.unwrap().max_chars,
+            yidam_core::embed::PASSAGE_MAX_CHARS
+        );
     }
 
     /// A derivation this binary does not implement is a "no", not a parse error and not a

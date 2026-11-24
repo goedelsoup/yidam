@@ -56,7 +56,7 @@ fn read_config(index: &Path) -> Result<EmbedConfig> {
     let path = index.join(EMBED_CONFIG_FILENAME);
     let text = std::fs::read_to_string(&path)
         .with_context(|| format!("reading {} — is this an index directory?", path.display()))?;
-    serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+    EmbedConfig::from_json(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
 /// Run the provider over the probe and read back a vector.
@@ -210,7 +210,7 @@ fn read_remote_config(root: Option<&Path>) -> Result<EmbedConfig> {
         .get(crate::s3vectors::META_KEY_EMBED_CONFIG)
         .and_then(|v| v.as_str())
         .context("the witness record carries no `embed_config`")?;
-    serde_json::from_str(encoded).context("parsing the contract the remote index carries")
+    EmbedConfig::from_json(encoded).context("parsing the contract the remote index carries")
 }
 
 pub fn index_verify(

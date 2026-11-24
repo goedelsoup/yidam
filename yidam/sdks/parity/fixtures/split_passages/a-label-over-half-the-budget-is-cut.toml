@@ -1,0 +1,13 @@
+function = "split_passages"
+description = "A label that would leave less than half the budget for the body is cut to half, at its last space"
+
+[input]
+label = "The very long label of a node that rambles"
+text = "The very long label of a node that rambles body one\nbody two two two"
+max_chars = 40
+
+[expected]
+passages = [
+  "The very long label body one",
+  "The very long label body two two two",
+]

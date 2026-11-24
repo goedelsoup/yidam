@@ -1,0 +1,14 @@
+function = "split_passages"
+description = "A line with no space or tab in reach is cut at the room exactly, on a character boundary"
+
+[input]
+label = "L"
+text = "L abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghij"
+max_chars = 30
+
+[expected]
+passages = [
+  "L abcdefghijabcdefghijabcdefgh",
+  "L ijabcdefghijabcdefghijabcdef",
+  "L ghijabcdefghij",
+]

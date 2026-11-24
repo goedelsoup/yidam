@@ -161,11 +161,12 @@ fn row(path: &str, data: Vec<f32>) -> OutVector {
         "concept",
         "A label",
         "deadbeef",
+        0,
         "the embedded text",
     )
     .unwrap();
     OutVector {
-        key: request::vector_key(CORPUS, path).unwrap(),
+        key: request::vector_key(CORPUS, path, 0).unwrap(),
         data,
         metadata,
     }
@@ -174,9 +175,9 @@ fn row(path: &str, data: Vec<f32>) -> OutVector {
 /// A row belonging to another corpus, keyed and tagged as that corpus's.
 fn foreign_row(path: &str, data: Vec<f32>) -> OutVector {
     let (metadata, _) =
-        request::metadata(OTHER, "concept", "Theirs", "deadbeef", "their text").unwrap();
+        request::metadata(OTHER, "concept", "Theirs", "deadbeef", 0, "their text").unwrap();
     OutVector {
-        key: request::vector_key(OTHER, path).unwrap(),
+        key: request::vector_key(OTHER, path, 0).unwrap(),
         data,
         metadata,
     }
@@ -456,7 +457,7 @@ fn a_pushed_class_filter_narrows_the_result() {
     clear(&session, &index);
 
     let mut other = row("other.yml", unit([1.0, 0.0, 0.0, 0.0]));
-    other.metadata = request::metadata(CORPUS, "source", "Other", "deadbeef", "text")
+    other.metadata = request::metadata(CORPUS, "source", "Other", "deadbeef", 0, "text")
         .unwrap()
         .0;
     session

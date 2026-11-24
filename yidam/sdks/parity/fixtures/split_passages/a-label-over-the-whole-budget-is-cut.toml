@@ -1,0 +1,12 @@
+function = "split_passages"
+description = "A label longer than the whole budget is cut to half of it, hard when it has no space in reach"
+
+[input]
+label = "Averyveryverylonglabelwithnospacesatallinsideitanywhere"
+text = "Averyveryverylonglabelwithnospacesatallinsideitanywhere short body"
+max_chars = 40
+
+[expected]
+passages = [
+  "Averyveryverylonglab short body",
+]

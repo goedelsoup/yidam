@@ -94,6 +94,10 @@ pub const META_KEY_CLASS: &str = "class";
 pub const META_KEY_LABEL: &str = "label";
 pub const META_KEY_COMMIT: &str = "commit";
 pub const META_KEY_TEXT: &str = "text";
+/// Which passage of its node a row holds (RFC-0060). The key's `#<n>` suffix says the same
+/// thing and is what a reader trusts; this copy is for a filter, and for a person reading a
+/// row in the console.
+pub const META_KEY_PASSAGE: &str = "passage";
 /// The embedding contract, as a JSON string, on the witness record.
 pub const META_KEY_EMBED_CONFIG: &str = "embed_config";
 /// Set when [`META_KEY_TEXT`] was cut to fit the per-vector metadata ceiling.

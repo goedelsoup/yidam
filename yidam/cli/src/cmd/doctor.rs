@@ -595,6 +595,24 @@ fn check_index(root: &Path) -> Answer {
             Some(BUILD),
         );
     }
+    // An index of whole nodes (RFC-0060): still read, as passage 0 of each node, and blind
+    // past the embedding window on every node longer than it. A rebuild is all it takes.
+    let contract = yidam_index_dir(root).join(crate::embed_config::EMBED_CONFIG_FILENAME);
+    if let Some(Ok(config)) = std::fs::read_to_string(&contract)
+        .ok()
+        .map(|t| crate::embed_config::EmbedConfig::from_json(&t))
+    {
+        if config.is_whole_nodes() {
+            return Answer::warn(
+                format!(
+                    "built {} with format_version \"1\", one row per node: a long node is \
+                     embedded only as far as the model's window reaches",
+                    data.built.clone().unwrap_or_default()
+                ),
+                Some(BUILD),
+            );
+        }
+    }
     if data.stale_nodes > 0 {
         return Answer::warn(
             format!(
@@ -2382,6 +2400,36 @@ mod tests {
             .find(|q| q.id == id)
             .expect("a question with that id")
             .ask(&subject, unanswerable)
+    }
+
+    /// An index built before passages is read, and reported as owed a rebuild (RFC-0060).
+    #[test]
+    fn an_index_of_whole_nodes_is_reported_stale_by_its_format() {
+        let tmp = TempDir::new().unwrap();
+        let index = yidam_index_dir(tmp.path());
+        std::fs::create_dir_all(&index).unwrap();
+        std::fs::write(
+            index.join("meta.json"),
+            r#"{"generated_at": 1, "model_name": "m", "node_count": 1}"#,
+        )
+        .unwrap();
+        let mut config = crate::embed_config::EmbedConfig::for_fastembed_model("m", 4, "f", "E");
+        let contract = index.join(crate::embed_config::EMBED_CONFIG_FILENAME);
+
+        std::fs::write(&contract, serde_json::to_string(&config).unwrap()).unwrap();
+        assert_eq!(check_index(tmp.path()).verdict, Verdict::Ok);
+
+        config.format_version = crate::embed_config::FORMAT_VERSION_WHOLE_NODES.to_string();
+        config.passages = None;
+        std::fs::write(&contract, serde_json::to_string(&config).unwrap()).unwrap();
+        let answer = check_index(tmp.path());
+        assert_eq!(answer.verdict, Verdict::Warn);
+        assert!(
+            answer.detail.contains("one row per node"),
+            "{}",
+            answer.detail
+        );
+        assert!(answer.remedy.unwrap().contains("index-build"));
     }
 
     /// A repository declaring corpora, with control over what is on disk and in the lock.

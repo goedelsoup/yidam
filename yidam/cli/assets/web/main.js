@@ -225,6 +225,8 @@ async function parseArrow(bytes) {
     const row = table.get(i);
     rows.push({
       path: row.path, class: row.class, label: row.label, text: row.text,
+      // A long node is several rows, one per passage (RFC-0060); 0 on an older index.
+      passage: row.passage ?? 0,
       // The typed-property column (#1029); null on an index built before it existed, and
       // on a row whose node carries no ordered property.
       properties: row.properties ?? null,
@@ -298,13 +300,17 @@ async function runSearch() {
   let ranked;
   if (state.index && state.embedder) {
     const qv = await embedQuery(query);
-    ranked = state.index.rows
-      .map((r) => {
-        let score = 0;
-        for (let i = 0; i < r.vector.length; i++) score += r.vector[i] * qv[i];
-        return { ...r, score };
-      })
-      .sort((a, b) => b.score - a.score)
+    // One entry per node, scored by its best passage, and cut after grouping (RFC-0060 §2.3).
+    // Cutting rows first would let one long node fill every slot.
+    const best = new Map();
+    for (const r of state.index.rows) {
+      let score = 0;
+      for (let i = 0; i < r.vector.length; i++) score += r.vector[i] * qv[i];
+      const seen = best.get(r.path);
+      if (!seen || score > seen.score) best.set(r.path, { ...r, score });
+    }
+    ranked = [...best.values()]
+      .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
       .slice(0, 8);
   } else {
     const terms = query.toLowerCase().split(/\s+/);

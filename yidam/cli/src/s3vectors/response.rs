@@ -223,6 +223,10 @@ pub fn decode_query(corpora: &Corpora, body: &Value) -> Result<Page, String> {
         let Some((corpus, path)) = split_key(key) else {
             continue;
         };
+        // From the key, as the path is: the suffix is what the row is stored under.
+        let passage = key
+            .split_once('/')
+            .map_or(0, |(_, rest)| super::request::split_passage(rest).1);
         if !corpora.admits(corpus) {
             continue;
         }
@@ -241,6 +245,7 @@ pub fn decode_query(corpora: &Corpora, body: &Value) -> Result<Page, String> {
             path: path.to_string(),
             class: text_field(super::META_KEY_CLASS),
             label: text_field(super::META_KEY_LABEL),
+            passage,
             text: text_field(super::META_KEY_TEXT),
             score: score_from_distance(metric, distance)?,
             // Absent means whole, which is what the push writes: the key is set only on a row
@@ -350,22 +355,43 @@ pub fn top_k_request(k: usize, has_residual: bool) -> usize {
     want.clamp(1, MAX_TOP_K)
 }
 
-/// Whether a caller should ask for another page: it still wants rows and the service has more.
+/// Whether a caller should ask for another page: it still wants nodes and the service has more.
+///
+/// `kept` counts **nodes**, not rows — see [`distinct_nodes`]. A page of `k` rows can be the
+/// passages of one long node, and stopping there answers one node where `k` were asked for.
 pub fn wants_more(kept: usize, k: usize, next: &Option<String>) -> bool {
     kept < k && next.is_some()
 }
 
-/// Apply the residual filter, order, and cut to `k`.
+/// How many distinct nodes the hits the residual admits name: one per corpus and path,
+/// however many of a node's passages came back.
+pub fn distinct_nodes(hits: &[Hit], residual: impl Fn(&Hit) -> bool) -> usize {
+    hits.iter()
+        .filter(|h| residual(h))
+        .map(|h| (h.corpus.as_deref(), h.path.as_str()))
+        .collect::<std::collections::BTreeSet<_>>()
+        .len()
+}
+
+/// Apply the residual filter, order, keep each node's best passage, and cut to `k`.
 ///
 /// The ordering is `retrieval::vector::search`'s, verbatim: score descending, ties broken on
-/// the path ascending. Both backends sort here so neither can drift.
+/// the path ascending, then the passage. Both backends sort here so neither can drift.
+///
+/// **One hit per node** (RFC-0060 §2.3). An index holds a row per passage, and a reader asked
+/// for `k` results is asked for `k` nodes: a long node whose every passage scored well would
+/// otherwise fill the answer with itself. The row kept is the node's best, which is the passage
+/// that matched — the reason a phrase deep in a long account now finds it at all.
 pub fn finish(mut hits: Vec<Hit>, residual: impl Fn(&Hit) -> bool, k: usize) -> Vec<Hit> {
     hits.retain(|h| residual(h));
     hits.sort_by(|a, b| {
         b.score
             .total_cmp(&a.score)
             .then_with(|| a.path.cmp(&b.path))
+            .then_with(|| a.passage.cmp(&b.passage))
     });
+    let mut seen = std::collections::BTreeSet::new();
+    hits.retain(|h| seen.insert((h.corpus.clone(), h.path.clone())));
     hits.truncate(k);
     hits
 }
@@ -432,6 +458,18 @@ mod tests {
         assert_eq!(h.label, "A");
         assert_eq!(h.text, "some text");
         assert_eq!(h.score, 0.75);
+    }
+
+    /// A passage key decodes to its node's path and its ordinal.
+    #[test]
+    fn a_passage_key_decodes_to_its_path_and_ordinal() {
+        let body = response(
+            json!([{"key": "abc123/corpus/concept/a.yml#3", "distance": 0.25, "metadata": {}}]),
+            "cosine",
+        );
+        let page = decode_query(&Corpora::own("abc123"), &body).unwrap();
+        assert_eq!(page.hits[0].path, "corpus/concept/a.yml");
+        assert_eq!(page.hits[0].passage, 3);
     }
 
     #[test]
@@ -545,6 +583,7 @@ mod tests {
             path: path.to_string(),
             class: "concept".into(),
             label: String::new(),
+            passage: 0,
             text: String::new(),
             score,
             truncated: false,
@@ -585,6 +624,47 @@ mod tests {
             vec!["high.yml", "mid.yml"],
             "the residual must run before the cut, or `k` counts rows the caller cannot use"
         );
+    }
+
+    fn passage(path: &str, n: u32, score: f32) -> Hit {
+        Hit {
+            passage: n,
+            text: format!("passage {n}"),
+            ..hit(path, score)
+        }
+    }
+
+    /// Two passages of one node above a third node: the node comes back once, with its best
+    /// passage, and the answer is still `k` distinct nodes (RFC-0060 §2.3).
+    #[test]
+    fn a_node_comes_back_once_with_its_best_passage() {
+        let hits = vec![
+            passage("long.yml", 0, 0.7),
+            passage("long.yml", 3, 0.9),
+            passage("other.yml", 0, 0.5),
+            passage("third.yml", 0, 0.4),
+        ];
+        let out = finish(hits, |_| true, 2);
+        assert_eq!(
+            out.iter()
+                .map(|h| (h.path.as_str(), h.passage))
+                .collect::<Vec<_>>(),
+            vec![("long.yml", 3), ("other.yml", 0)]
+        );
+        assert_eq!(out[0].text, "passage 3");
+    }
+
+    /// The count a pager stops on is of nodes the residual admits, not rows.
+    #[test]
+    fn distinct_nodes_counts_a_node_once_however_many_passages_came() {
+        let hits = vec![
+            passage("a.yml", 0, 0.9),
+            passage("a.yml", 1, 0.8),
+            passage("b.yml", 2, 0.7),
+            passage("c.yml", 0, 0.6),
+        ];
+        assert_eq!(distinct_nodes(&hits, |_| true), 3);
+        assert_eq!(distinct_nodes(&hits, |h| h.path != "c.yml"), 2);
     }
 
     #[test]

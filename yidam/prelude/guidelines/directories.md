@@ -374,6 +374,12 @@ from here* or *does this corpus cover that*. See [Reading the corpus](reading-th
   question about its class — a statutory obligation quoting the text it arises from is not the
   length of a person — so the class is where the number lives, if a corpus wants one.
   [why](directories.evidence.md#max-lines-measures-prose)
+- An artifact about an entity is a node of its own. A plan, a brief or a decision log goes in a
+  class of its own and links to the entity it concerns. The entity node states what is true of
+  it, and the artifact node states what was done about it. An account that has grown to argue
+  several claims is several claim nodes, each linked from the one that cites it. Either kind of
+  growth makes the outlier `node-too-many-passages` reports, at every class, whatever its
+  `max_lines:`.
 - A class may name the type that implements it, with `implemented_by:` in its `.ont.yml`.
   `unimplemented-class` then **gates** when the tree defines no `struct` or `enum` of that
   name: the class stated a fact about `crates/`, and a missing type contradicts it rather than

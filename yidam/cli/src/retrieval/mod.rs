@@ -128,6 +128,10 @@ pub struct Hit {
     pub path: String,
     pub class: String,
     pub label: String,
+    /// Which passage of the node [`Self::text`] is (RFC-0060): the node's best-scoring one,
+    /// since [`crate::s3vectors::response::finish`] keeps one hit per node. 0 for a node that
+    /// fit the budget, and for every row of an index built before passages.
+    pub passage: u32,
     pub text: String,
     /// Cosine similarity, highest first. The local scan computes it as a dot product over
     /// normalized vectors; the remote backend converts the distance it is given. They are the
@@ -1047,6 +1051,7 @@ mod tests {
             path: path.to_string(),
             class: class.to_string(),
             label: String::new(),
+            passage: 0,
             text: String::new(),
             score: 1.0,
             truncated: false,

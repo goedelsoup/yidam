@@ -15,5 +15,6 @@
   "model": null,
   "embedding_dim": null,
   "node_count": null,
+  "row_count": null,
   "stale_nodes": 0
 }

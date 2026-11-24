@@ -221,3 +221,12 @@ def test_parity_compose_embed_text():
         )
         got = embed.compose_embed_text(corpus.parse_instance(inp["content"]), fields)
         assert got == fx["expected"]["text"], fx["description"]
+
+
+def test_parity_split_passages():
+    fixtures = load_fixtures("split_passages")
+    assert fixtures, "no split_passages fixtures"
+    for fx in fixtures:
+        inp = fx["input"]
+        got = embed.split_passages(inp["label"], inp["text"], inp["max_chars"])
+        assert got == fx["expected"]["passages"], fx["description"]

@@ -365,6 +365,11 @@ const ROSTER: &[Entry] = &[
         run: |i| checks::node_too_long(i.nodes(), i.classes(), i.prose_fields()),
     },
     Entry {
+        id: "node-too-many-passages",
+        asked: Asked::Always,
+        run: |i| checks::node_too_many_passages(i.nodes(), i.prose_fields(), i.retrievable()),
+    },
+    Entry {
         id: "property-type",
         asked: Asked::Always,
         run: |i| checks::property_type(i.nodes(), i.classes(), i.universal()),

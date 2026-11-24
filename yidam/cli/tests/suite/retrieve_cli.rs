@@ -61,6 +61,8 @@ fn a_build_that_cannot_span_says_local_and_names_no_corpus() {
         );
         assert_eq!(row["corpus"], serde_json::Value::Null);
         assert_eq!(row["truncated"], false);
+        // Contract 0.34.0: present on every arm, and 0 where the whole node was scored.
+        assert_eq!(row["passage"], 0, "{row}");
         // The id is the handle `get_node` resolves, and on this arm every row has one.
         assert!(row["id"].is_string(), "{row}");
     }

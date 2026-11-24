@@ -682,7 +682,10 @@ fn vector_result(state: &ServerState, r: &crate::retrieval::Hit) -> Value {
         "corpus": r.corpus,
         "class": r.class,
         "label": r.label,
+        // The passage that scored, not the node's opening (RFC-0060 §2.3). A node longer than
+        // one passage is several rows, and the reader keeps its best; `passage` says which.
         "text": r.text,
+        "passage": r.passage,
         "score": r.score,
         // Whether that `text` is all of it. Only a remote index can say no: S3 Vectors caps
         // per-vector metadata at 40 KB and the push cuts `text` to fit, flagging the row. The
@@ -839,6 +842,10 @@ fn keyword_retrieve(
                 "class": n.class,
                 "label": n.label,
                 "text": n.description,
+                // Zero, and an answer: keyword search scores the whole node, so the passage it
+                // returns is the node's first and only one. Present on both arms, as `truncated`
+                // is, so a client testing the key never meets an arm that lacks it.
+                "passage": 0,
                 "score": score,
                 // Always false on this path, and it is an answer rather than a filler. Keyword
                 // search reads nodes out of the model this process loaded, so its `text` is the
@@ -1539,6 +1546,7 @@ mod tests {
             path: path.to_string(),
             class: "concept".to_string(),
             label: "A".to_string(),
+            passage: 0,
             text: "some text".to_string(),
             score: 0.5,
             truncated: false,
@@ -1612,6 +1620,21 @@ mod tests {
             "yidam://3f2a9c4d1b70/catalog/ohio-lobbying-register"
         );
         assert_eq!(rendered["truncated"], true);
+    }
+
+    /// A hit from the middle of a long node says which passage it was (RFC-0060 §2.3).
+    ///
+    /// Its `text` is that passage and not the node's opening, so a caller quoting it needs the
+    /// ordinal to know it is reading from the middle. The id stays the node's: `get_node` reads
+    /// the whole of it.
+    #[test]
+    fn a_vector_hit_names_the_passage_that_scored() {
+        let state = test_state();
+        let mut row = hit("nodes/concept/a.md", None);
+        row.passage = 3;
+        let rendered = vector_result(&state, &row);
+        assert_eq!(rendered["passage"], 3);
+        assert_eq!(rendered["path"], "nodes/concept/a.md");
     }
 
     /// `&mut`, because `call` is: RFC-0029's write tier reloads the snapshot behind one
@@ -1875,6 +1898,7 @@ mod tests {
             path: ".yidam/catalog/a-long-source.md".to_string(),
             class: "source".to_string(),
             label: "A long source".to_string(),
+            passage: 0,
             text: "half of it".to_string(),
             score: 0.5,
             truncated,
@@ -1905,6 +1929,7 @@ mod tests {
         assert!(!results.is_empty());
         for r in results {
             assert_eq!(r["truncated"], false, "{r:#?}");
+            assert_eq!(r["passage"], 0, "{r:#?}");
         }
     }
 

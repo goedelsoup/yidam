@@ -19,7 +19,7 @@ use super::{
     MAX_FILTERABLE_METADATA_BYTES, MAX_KEYS_PER_GET, MAX_KEY_LEN, MAX_LIST_PAGE,
     MAX_METADATA_BYTES, MAX_PAYLOAD_BYTES, MAX_TOP_K, MAX_VECTORS_PER_WRITE, META_CORPUS,
     META_KEY_CLASS, META_KEY_COMMIT, META_KEY_CORPUS, META_KEY_EMBED_CONFIG, META_KEY_LABEL,
-    META_KEY_TEXT, META_KEY_TEXT_TRUNCATED, NON_FILTERABLE_KEYS, WITNESS_KEY,
+    META_KEY_PASSAGE, META_KEY_TEXT, META_KEY_TEXT_TRUNCATED, NON_FILTERABLE_KEYS, WITNESS_KEY,
 };
 
 /// One request, ready to be signed.
@@ -69,12 +69,28 @@ pub fn corpus_id(genesis_hash: &str) -> String {
     genesis_hash.chars().take(CORPUS_ID_LEN).collect()
 }
 
-/// The key a node's row is stored under: `<corpus>/<repo-relative path>`.
+/// The key a passage's row is stored under: `<corpus>/<repo-relative path>`, with `#<n>`
+/// after it for every passage but the first (RFC-0060 §2.4).
 ///
 /// Prefixed by the corpus from the first push, which costs nothing now and is what lets an
-/// index hold more than one corpus later without every key having to move.
-pub fn vector_key(corpus: &str, path: &str) -> Result<String> {
-    let key = format!("{corpus}/{path}");
+/// index hold more than one corpus later without every key having to move. Passage 0 keeps
+/// the key a node had before passages existed, so a corpus whose nodes all fit pushes exactly
+/// the keys it pushed before, and a mirror deletes nothing it did not have to.
+///
+/// **A path holding `#` is refused**, because the suffix is read back off the key: a node at
+/// `notes/a#2.yml` and the third passage of `notes/a` would otherwise be one key.
+pub fn vector_key(corpus: &str, path: &str, passage: u32) -> Result<String> {
+    if path.contains('#') {
+        bail!(
+            "{path} contains `#`, which a vector key uses to number a node's passages. \
+             Rename the file."
+        );
+    }
+    let key = if passage == 0 {
+        format!("{corpus}/{path}")
+    } else {
+        format!("{corpus}/{path}#{passage}")
+    };
     if key.chars().count() > MAX_KEY_LEN {
         bail!(
             "the key for {path} is {} characters — S3 Vectors allows {MAX_KEY_LEN}. \
@@ -94,7 +110,26 @@ pub fn vector_key(corpus: &str, path: &str) -> Result<String> {
 /// resolves to no node and looks like an index built before a file moved, which is a different
 /// diagnosis with a different repair.
 pub fn path_from_key<'a>(corpus: &str, key: &'a str) -> Option<&'a str> {
-    key.strip_prefix(corpus)?.strip_prefix('/')
+    Some(split_passage(key.strip_prefix(corpus)?.strip_prefix('/')?).0)
+}
+
+/// A key's path and the passage its `#<n>` suffix numbers, or passage 0 when it has none.
+///
+/// Only a trailing `#` followed by digits is a suffix. [`vector_key`] refuses a path holding
+/// `#` at all, so a key this build wrote can never be misread; the digits test is what keeps
+/// a key some other writer put in the index from losing half its path here.
+pub fn split_passage(path: &str) -> (&str, u32) {
+    match path.rsplit_once('#') {
+        Some((head, n))
+            if !head.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            match n.parse() {
+                Ok(n) => (head, n),
+                Err(_) => (path, 0),
+            }
+        }
+        _ => (path, 0),
+    }
 }
 
 /// A key split into the corpus that owns it and the path within that corpus.
@@ -106,8 +141,12 @@ pub fn path_from_key<'a>(corpus: &str, key: &'a str) -> Option<&'a str> {
 /// hazard here at all: an id contains no `/` and a path always follows one. The witness key
 /// `__yidam__/embed-config` splits too — into a corpus no query names — which is the
 /// structural half of the exclusion the positive `corpus` predicate makes on the wire.
+///
+/// The path comes back without its passage suffix — see [`split_passage`], which a caller
+/// wanting the passage too applies to the key's own path half.
 pub fn split_key(key: &str) -> Option<(&str, &str)> {
     let (corpus, path) = key.split_once('/')?;
+    let path = split_passage(path).0;
     (!corpus.is_empty() && !path.is_empty()).then_some((corpus, path))
 }
 
@@ -173,6 +212,7 @@ pub fn metadata(
     class: &str,
     label: &str,
     commit: &str,
+    passage: u32,
     text: &str,
 ) -> Result<(Value, bool)> {
     let build = |text: &str, truncated: bool| {
@@ -181,6 +221,7 @@ pub fn metadata(
             META_KEY_CLASS: class,
             META_KEY_LABEL: label,
             META_KEY_COMMIT: commit,
+            META_KEY_PASSAGE: passage,
             META_KEY_TEXT: text,
         });
         if truncated {
@@ -523,7 +564,7 @@ mod tests {
         OutVector {
             key: key.to_string(),
             data: vec![0.5, -0.5],
-            metadata: metadata("abc123", "concept", "A label", "deadbee", text)
+            metadata: metadata("abc123", "concept", "A label", "deadbee", 0, text)
                 .unwrap()
                 .0,
         }
@@ -614,12 +655,48 @@ mod tests {
 
     #[test]
     fn a_key_carries_the_corpus_and_round_trips_back_to_a_path() {
-        let k = vector_key("abc123", "corpus/concept/funding.yml").unwrap();
+        let k = vector_key("abc123", "corpus/concept/funding.yml", 0).unwrap();
         assert_eq!(k, "abc123/corpus/concept/funding.yml");
         assert_eq!(
             path_from_key("abc123", &k),
             Some("corpus/concept/funding.yml")
         );
+    }
+
+    /// Passage 0 keeps the key a node always had; passage `n` adds `#n`, and both come back
+    /// to the node's path (RFC-0060 §2.4).
+    #[test]
+    fn a_passage_key_round_trips_to_its_path() {
+        let k = vector_key("abc123", "corpus/concept/funding.yml", 3).unwrap();
+        assert_eq!(k, "abc123/corpus/concept/funding.yml#3");
+        assert_eq!(
+            path_from_key("abc123", &k),
+            Some("corpus/concept/funding.yml")
+        );
+        assert_eq!(
+            split_key(&k),
+            Some(("abc123", "corpus/concept/funding.yml"))
+        );
+        assert_eq!(split_passage("corpus/a.yml#12"), ("corpus/a.yml", 12));
+        // Only a trailing run of digits is an ordinal.
+        assert_eq!(split_passage("corpus/a.yml#x"), ("corpus/a.yml#x", 0));
+        assert_eq!(split_passage("corpus/a.yml#"), ("corpus/a.yml#", 0));
+    }
+
+    /// A path with `#` in it is refused, so a suffix can never be mistaken for a path.
+    #[test]
+    fn a_path_containing_a_hash_is_refused() {
+        let e = vector_key("abc123", "corpus/concept/a#b.yml", 0)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("corpus/concept/a#b.yml"), "{e}");
+    }
+
+    /// The ordinal travels as metadata, so a reader of the row need not parse the key.
+    #[test]
+    fn metadata_carries_the_passage_ordinal() {
+        let (m, _) = metadata("abc123", "concept", "L", "dead", 2, "hello").unwrap();
+        assert_eq!(m[super::super::META_KEY_PASSAGE], json!(2));
     }
 
     /// A key from another corpus resolves to no path — the property the cross-corpus phase
@@ -634,14 +711,14 @@ mod tests {
     #[test]
     fn a_key_longer_than_the_service_allows_is_refused_rather_than_truncated() {
         let long = "a/".repeat(600);
-        let e = vector_key("abc123", &long).unwrap_err().to_string();
+        let e = vector_key("abc123", &long, 0).unwrap_err().to_string();
         assert!(e.contains("1024"), "{e}");
         assert!(e.contains("share one key"), "{e}");
     }
 
     #[test]
     fn short_text_is_carried_whole_and_unflagged() {
-        let (m, truncated) = metadata("abc123", "concept", "L", "dead", "hello").unwrap();
+        let (m, truncated) = metadata("abc123", "concept", "L", "dead", 0, "hello").unwrap();
         assert!(!truncated);
         assert_eq!(m[META_KEY_TEXT], "hello");
         assert!(m.get(META_KEY_TEXT_TRUNCATED).is_none());
@@ -653,7 +730,7 @@ mod tests {
     #[test]
     fn oversize_text_is_cut_to_fit_and_says_so() {
         let text = "x".repeat(MAX_METADATA_BYTES * 2);
-        let (m, truncated) = metadata("abc123", "concept", "L", "dead", &text).unwrap();
+        let (m, truncated) = metadata("abc123", "concept", "L", "dead", 0, &text).unwrap();
         assert!(truncated);
         assert_eq!(m[META_KEY_TEXT_TRUNCATED], json!(true));
         assert!(json_len(&m) <= MAX_METADATA_BYTES);
@@ -667,7 +744,7 @@ mod tests {
     fn text_that_expands_under_json_escaping_still_fits() {
         for filler in ["\"", "\\", "\n", "\u{7f}", "é"] {
             let text = filler.repeat(MAX_METADATA_BYTES);
-            let (m, truncated) = metadata("abc123", "concept", "L", "dead", &text).unwrap();
+            let (m, truncated) = metadata("abc123", "concept", "L", "dead", 0, &text).unwrap();
             assert!(truncated, "{filler:?} was not truncated");
             assert!(
                 json_len(&m) <= MAX_METADATA_BYTES,
@@ -688,7 +765,7 @@ mod tests {
     #[test]
     fn a_label_over_the_filterable_ceiling_is_refused_though_the_row_fits() {
         let label = "L".repeat(MAX_FILTERABLE_METADATA_BYTES + 1);
-        let m = metadata("abc123", "concept", &label, "dead", "short");
+        let m = metadata("abc123", "concept", &label, "dead", 0, "short");
         let e = m.unwrap_err().to_string();
         assert!(e.contains("filterable"), "{e}");
         assert!(e.contains("2048"), "{e}");
@@ -701,7 +778,7 @@ mod tests {
     fn truncating_text_does_not_rescue_an_oversize_filterable_half() {
         let label = "L".repeat(MAX_FILTERABLE_METADATA_BYTES + 1);
         let text = "x".repeat(MAX_METADATA_BYTES * 2);
-        assert!(metadata("abc123", "concept", &label, "dead", &text).is_err());
+        assert!(metadata("abc123", "concept", &label, "dead", 0, &text).is_err());
     }
 
     /// The four filterable keys, and nothing else. A row whose `text` is at the 40 KB ceiling
@@ -709,7 +786,7 @@ mod tests {
     #[test]
     fn filterable_len_excludes_the_large_fields() {
         let text = "x".repeat(MAX_METADATA_BYTES * 2);
-        let (m, truncated) = metadata("abc123", "concept", "A label", "dead", &text).unwrap();
+        let (m, truncated) = metadata("abc123", "concept", "A label", "dead", 0, &text).unwrap();
         assert!(truncated);
         assert!(json_len(&m) > MAX_METADATA_BYTES / 2);
         assert!(
@@ -721,7 +798,7 @@ mod tests {
         assert!(
             filterable_len(&m)
                 > filterable_len(
-                    &metadata("abc123", "concept", "A label", "dead", "x")
+                    &metadata("abc123", "concept", "A label", "dead", 0, "x")
                         .unwrap()
                         .0
                 )
@@ -745,7 +822,7 @@ mod tests {
     #[test]
     fn a_label_too_large_to_leave_room_for_any_text_is_refused() {
         let label = "L".repeat(MAX_METADATA_BYTES + 1);
-        let e = metadata("abc123", "concept", &label, "dead", "x")
+        let e = metadata("abc123", "concept", &label, "dead", 0, "x")
             .unwrap_err()
             .to_string();
         assert!(e.contains("label"), "{e}");

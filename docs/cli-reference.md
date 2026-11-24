@@ -1253,6 +1253,12 @@ text would be cut is listed. Run it before declaring a remote index. It is also 
 [RFC-0033 §8.3](rfcs/0033-remote-vector-index.md) was measured, over corpora nothing was
 written into.
 
+**A long node is several rows.** `index-build` splits each record's text into passages of at
+most 1,200 characters, on line breaks where it can. Each passage is embedded on its own. So a
+phrase deep in a long node is still findable. A short node is one passage, exactly as before.
+`embed --dry-run` reports the passage count beside the node count. A search returns a node once,
+with the passage that scored best ([RFC-0060](rfcs/0060-embed-passages.md)).
+
 `index-push` is a mirror. It writes every row the local index holds, and deletes the ones this
 corpus no longer has. A node removed from the corpus stops being findable. It never touches a
 record that is not this corpus's.

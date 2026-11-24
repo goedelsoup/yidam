@@ -1,6 +1,6 @@
 # RFC-0060 — A node is embedded as passages, and scored by its best one
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I43
 - **Relates to:**
   - #1505 (a node grew to 209,000 characters and nothing warned; the evidence this answers),

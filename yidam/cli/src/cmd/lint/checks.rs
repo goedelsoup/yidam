@@ -1350,6 +1350,61 @@ pub fn node_too_long(
     )
 }
 
+/// The most passages a node's composed text may split into before `node-too-many-passages`
+/// reports it (RFC-0060 §2.6). About 38,000 characters, the order of the remote row ceiling.
+pub(crate) const MAX_PASSAGES: usize = 32;
+
+/// A node whose embedding text splits into more than [`MAX_PASSAGES`] passages.
+///
+/// The text is composed exactly as `yidam embed` composes it, from the same prose and
+/// retrievable declarations, and split by the same SDK function `index-build` uses. So a
+/// count here is the number of rows the node will be in the index.
+pub fn node_too_many_passages(
+    nodes: &[Node],
+    prose: &crate::prose::ProseFields,
+    retrievable: &crate::retrievable::Retrievable,
+) -> Check {
+    let mut violations = Vec::new();
+    for n in nodes {
+        if n.malformed.is_some() {
+            continue;
+        }
+        let class = class_of(n);
+        let text = yidam_core::embed::compose_embed_text(
+            &n.inst,
+            &crate::retrievable::fields(prose, retrievable, &class),
+        );
+        let label = n.inst.label.as_deref().unwrap_or("");
+        let passages =
+            yidam_core::embed::split_passages(label, &text, yidam_core::embed::PASSAGE_MAX_CHARS)
+                .len();
+        if passages <= MAX_PASSAGES {
+            continue;
+        }
+        violations.push(Violation::new(
+            &n.rel,
+            format!(
+                "`{class}` node of {passages} passages ({} characters), past {MAX_PASSAGES}; \
+                 a plan, brief or log about it is a node of its own, and an account arguing \
+                 several claims is several claim nodes",
+                text.chars().count(),
+            ),
+        ));
+    }
+    Check::new(
+        "node-too-many-passages",
+        "Node too long to embed as one",
+        Severity::Warn,
+        "A long node is indexed as many passages, so it stays findable, but past a point its \
+         length says it is several things. Usually one is an artifact about the entity — a \
+         plan, a brief, a decision log — which belongs in a node of its own linking to it, \
+         or an account that grew to argue several claims, each of which is a claim node. \
+         The measure is the text `yidam embed` composes, not the file, and it applies to \
+         every class, whether or not the class declares `max_lines:`.",
+        violations,
+    )
+}
+
 pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
     let by_name = classes_by_name(classes);
     let mut violations = Vec::new();
@@ -8013,6 +8068,59 @@ resolve = { template = "https://api.crossref.org/works/{id}" }
             dead_alignment_fields: vec![],
             malformed: None,
         }
+    }
+
+    // ── node-too-many-passages ────────────────────────────────────────────────
+
+    /// A `measure` node whose description is `lines` lines of about a hundred characters.
+    fn long_measure(lines: usize) -> Node {
+        let body: String = (0..lines)
+            .map(|i| format!("  line {i:04} of an account that has grown well past what one passage holds, and keeps going\n"))
+            .collect();
+        node(
+            "measure/m.yml",
+            &format!("class: measure\nlabel: Long\ndescription: |\n{body}"),
+        )
+    }
+
+    fn passages_of(n: &Node) -> usize {
+        let text = yidam_core::embed::compose_embed_text(
+            &n.inst,
+            &crate::retrievable::fields(
+                &declaring("measure", &[]),
+                &crate::retrievable::Retrievable::default(),
+                "measure",
+            ),
+        );
+        yidam_core::embed::split_passages("Long", &text, yidam_core::embed::PASSAGE_MAX_CHARS).len()
+    }
+
+    /// RFC-0060 §2.8: it fires on a node of 33 passages and stays silent on one of 32.
+    #[test]
+    fn a_node_past_thirty_two_passages_is_reported_and_one_at_it_is_not() {
+        let at = |want: usize| {
+            (1..2_000)
+                .map(long_measure)
+                .find(|n| passages_of(n) == want)
+                .expect("some line count lands on each passage count")
+        };
+        let check = |n: Node| {
+            node_too_many_passages(
+                std::slice::from_ref(&n),
+                &declaring("measure", &[]),
+                &crate::retrievable::Retrievable::default(),
+            )
+        };
+        assert!(check(at(MAX_PASSAGES)).passed());
+        let c = check(at(MAX_PASSAGES + 1));
+        assert_eq!(c.violations.len(), 1);
+        let detail = &c.violations[0].detail;
+        assert!(detail.contains("`measure` node of 33 passages"), "{detail}");
+        assert!(
+            detail.contains("characters") && detail.contains("a node of its own"),
+            "{detail}"
+        );
+        assert!(c.violations[0].node.ends_with("measure/m.yml"));
     }
 
     /// The declared set, for a class that names prose keys beyond `description`.

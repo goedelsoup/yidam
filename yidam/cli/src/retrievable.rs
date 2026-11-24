@@ -116,7 +116,7 @@ pub struct Declaration {
 }
 
 /// The properties one class flagged `retrievable: true`, read off the corpus model.
-fn declared(class: &crate::corpus::Class) -> Declaration {
+pub(crate) fn declared(class: &crate::corpus::Class) -> Declaration {
     Declaration {
         class: class.name.clone(),
         properties: class

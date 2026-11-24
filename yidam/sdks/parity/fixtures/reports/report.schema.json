@@ -1348,7 +1348,14 @@
         "integer",
         "null"
       ],
-      "description": "`index-status` only. Rows in the index at build time. Compare against `status.nodes` to see what the index does not carry."
+      "description": "`index-status` only. Distinct nodes in the index at build time. Compare against `status.nodes` to see what the index does not carry."
+    },
+    "row_count": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "`index-status` only. Rows in the index at build time, one per passage (RFC-0060): above `node_count` by the passages long nodes were split into. An index built before passages reports `node_count` here. NOT required: a CLI released before this field emits a report without it, and its output must still validate."
     },
     "stale_nodes": {
       "type": "integer",

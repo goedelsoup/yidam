@@ -260,7 +260,7 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
         let meta = serde_json::from_slice(&meta_raw).unwrap_or(serde_json::Value::Null);
         let embed_config_path = index_dir.join(EMBED_CONFIG_FILENAME);
         let embed_config = if embed_config_path.exists() {
-            match serde_json::from_slice(&std::fs::read(&embed_config_path)?) {
+            match EmbedConfig::from_json(&std::fs::read_to_string(&embed_config_path)?) {
                 Ok(cfg) => Some(cfg),
                 Err(e) => {
                     eprintln!(
@@ -360,6 +360,10 @@ pub struct VectorRow {
     pub path: String,
     pub class: String,
     pub label: String,
+    /// Which passage of its node this row holds (RFC-0060): 0 for the first, and for every
+    /// row of an index built before passages, which held one row per node.
+    pub passage: u32,
+    /// The passage's text — the node's whole composed text when it fit the budget.
     pub text: String,
     pub vector: Vec<f32>,
     /// The `properties` column, when the index was built with one (#1029): a JSON object of
@@ -397,6 +401,11 @@ pub fn index_rows(index: &IndexData) -> Result<Vec<VectorRow>> {
         let classes = col("class")?;
         let labels = col("label")?;
         let texts = col("text")?;
+        // Optional, by name: an index built before RFC-0060 has no such column, holds one
+        // row per node, and every row is passage 0.
+        let passages: Option<&arrow_array::UInt32Array> = batch
+            .column_by_name("passage")
+            .and_then(|c| c.as_any().downcast_ref());
         // Optional, by name: an index built before #1029 has no such column and still reads.
         let properties: Option<&arrow_array::StringArray> = batch
             .column_by_name("properties")
@@ -413,6 +422,7 @@ pub fn index_rows(index: &IndexData) -> Result<Vec<VectorRow>> {
                 path: paths.value(i).to_string(),
                 class: classes.value(i).to_string(),
                 label: labels.value(i).to_string(),
+                passage: passages.map_or(0, |p| p.value(i)),
                 text: texts.value(i).to_string(),
                 vector: floats.values().to_vec(),
                 properties: properties
