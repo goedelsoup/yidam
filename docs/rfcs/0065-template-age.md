@@ -1,6 +1,6 @@
 # RFC-0065 — A pin names its release, and `due` counts the releases since
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I48
 - **Relates to:**
   - #1511 (nothing reports template age), parent epic #1513

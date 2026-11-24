@@ -16,7 +16,7 @@ cannot disagree with them.
 
 | Half | What it is |
 |---|---|
-| `owed` | seven clocks — index staleness, a source past its TTL, how long a question has gone unanswered, how long a phase has been in flight, which nodes cite a source that has since changed, which questions put to another corpus were asked at a pin it has since moved past, which members of a declared list no instance covers |
+| `owed` | eight clocks — index staleness, a source past its TTL, how long a question has gone unanswered, how long a phase has been in flight, which nodes cite a source that has since changed, which questions put to another corpus were asked at a pin it has since moved past, which members of a declared list no instance covers, how many releases the template has cut past the pin |
 | `in_flight` | the unsettled inquiry refs |
 | `blocked` | what a gate would fail on **today** |
 | `next` | one act per half, each carrying the finding, clock or declaration behind it |
@@ -37,9 +37,9 @@ says so there — that is a supported state, not a gap to fill in.
 
 ## Second call: discharge what you can
 
-**One of the seven clocks is dischargeable by a tool at all.** A source past its TTL is; the index
+**One of the eight clocks is dischargeable by a tool at all.** A source past its TTL is; the index
 wants a build, and an unanswered question, a phase in flight, a node citing a changed source, an
-ask whose corpus has moved and a list member nothing covers all want a person. Deciding a
+ask whose corpus has moved, a list member nothing covers and a template release past the pin all want a person. Deciding a
 question is answered is a resolution event, and no tool performs one.
 
 For that one, `propose` drafts the commits the corpus's own findings license. Three verbs —

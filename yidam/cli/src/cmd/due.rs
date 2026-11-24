@@ -1,4 +1,4 @@
-//! `yidam due` — the seven clocks, read together, on a schedule.
+//! `yidam due` — the eight clocks, read together, on a schedule.
 //!
 //! Four clocks existed in a derived repository and nothing read them as a set: index
 //! staleness, a catalog entry's TTL, how long a question has gone unanswered, and how long a
@@ -18,6 +18,10 @@
 //! held 28 bills of 1,555 listed and missed one that passed both chambers. Every other clock
 //! asked whether what the corpus *holds* is fresh, and none could see what it lacked.
 //!
+//! The eighth is the template's (#1511): how many releases its origin has cut past this
+//! repository's pin. `.yidam.toml` recorded a commit and a date, and a date cannot tell a quiet
+//! upstream from a stale pin. It is the one clock that reads the network, once.
+//!
 //! A practice is not performed because you suspect something. It is performed because it is
 //! time, and nothing here said it was time.
 //!
@@ -36,15 +40,15 @@
 //! So [`State`] is its own enum rather than a reuse of `doctor`'s `Verdict`, and this command
 //! exits zero however much is due unless `--strict` asks otherwise.
 //!
-//! # Intervals are declared, and five of the six that count were not
+//! # Intervals are declared, and six of the seven that count were not
 //!
 //! A clock is an age and an interval, and the interval is never compiled in — the argument is
 //! [`crate::config::LintConfig::escalate_after`]'s and applies unchanged: a number in the
 //! binary is one corpus's judgement arriving in another that never agreed to it.
 //!
-//! One of the six already had its interval declared in the right place: a source's TTL, per
+//! One of the seven already had its interval declared in the right place: a source's TTL, per
 //! entry or as `[catalog] ttl_days`. This command reads it there rather than restating it.
-//! The other five are `[due]` keys, absent by default, and a clock with no interval reports
+//! The other six are `[due]` keys, absent by default, and a clock with no interval reports
 //! what it measured and calls nothing due. The seventh's declaration is not an interval but a
 //! universe — `[[due.coverage]]` — and with none declared it is unset in the same way.
 //!
@@ -63,8 +67,9 @@
 //! | superseded | A person re-reading the source, and committing to the node. Whether a claim survives a new edition is a judgement. |
 //! | asks | A person reading the far side at its new pin, then marking the ask `answered` or moving its `pin:`. Whether a corpus answered a question is a reading of its text. |
 //! | coverage | A person adding an instance per missing member, or narrowing the universe. Whether a listed bill belongs in this corpus is scope, which is a judgement. |
+//! | template | A person re-vendoring with `mise run yidam-vendor-update`. A release can change the commit vocabulary or a check's severity, and whether to take it now is a judgement. |
 //!
-//! One of seven. That is the honest surface, and the remedy column says so per clock rather
+//! One of eight. That is the honest surface, and the remedy column says so per clock rather
 //! than this command growing a `--propose` that would shell into a command a reader can run.
 
 use anyhow::Result;
@@ -190,7 +195,8 @@ pub enum State {
     /// and the cost is the three clocks beside it.
     Declined,
     /// The interval is declared and there is nothing to measure against — no history, no
-    /// date, no index metadata.
+    /// date, no index metadata — or the environment could not supply it: the template clock's
+    /// origin, unreachable from here. The detail says which.
     Unmeasurable,
     /// This binary cannot perform the act that would discharge the clock, so the clock has no
     /// subject in this build whatever the corpus declared.
@@ -280,6 +286,7 @@ impl Clock {
     const SUPERSEDED: &'static str = "superseded";
     const ASKS: &'static str = "asks";
     const COVERAGE: &'static str = "coverage";
+    const TEMPLATE: &'static str = "template";
 
     fn new(
         id: &'static str,
@@ -436,7 +443,7 @@ impl DueReport {
     }
 }
 
-// ── the seven clocks ──────────────────────────────────────────────────────────
+// ── the eight clocks ─────────────────────────────────────────────────────────
 
 /// Is the index built against the corpus as it stands?
 ///
@@ -546,7 +553,9 @@ fn clock_index(root: &Path, after: Option<usize>, can_build: bool) -> Clock {
 /// where it already lived. Reading it from a `[due]` key instead would be a second place to
 /// set one number.
 ///
-/// **No network, and none is possible from here.** Every age is computed from what is
+/// **No network, and none is possible from here.** That is true of seven clocks; the
+/// template's is the exception, because the releases it counts are cut after the pin and are
+/// recorded only at the origin. Every age here is computed from what is
 /// recorded — the entry's `retrieved:`, or the commit that last touched its file. An expiry
 /// does not claim the upstream changed. It claims nobody has looked.
 fn clock_catalog(root: &Path, today: i64) -> Clock {
@@ -1155,8 +1164,19 @@ fn clock_coverage(
 /// matters more here: a corpus that declined an index and later wants to revisit that is
 /// exactly the reader who needs the number the decline is about.
 pub(crate) fn read_clocks(root: &Path, cfg: &crate::config::DueConfig, today: i64) -> Vec<Clock> {
+    read_clocks_with(root, cfg, today, template::list_releases)
+}
+
+/// [`read_clocks`], with the template clock's one network read passed in, so a test reads a
+/// listing it wrote and never an origin.
+pub(crate) fn read_clocks_with(
+    root: &Path,
+    cfg: &crate::config::DueConfig,
+    today: i64,
+    list: impl FnOnce(&Path, &str) -> Option<String>,
+) -> Vec<Clock> {
     let decisions = crate::paths::yidam_decisions_dir(root);
-    vec![
+    let mut clocks = vec![
         // The one place the build fact is read. See [`clock_index`] for why it is an argument
         // and not a `cfg!` inside the function.
         clock_index(root, cfg.index_after, cfg!(feature = "vector-read")),
@@ -1176,13 +1196,16 @@ pub(crate) fn read_clocks(root: &Path, cfg: &crate::config::DueConfig, today: i6
                 .ok()
                 .as_ref(),
         ),
-    ]
-    .into_iter()
-    .map(|c| match cfg.declined.get(c.id) {
-        Some(record) => c.declined(record, &decisions),
-        None => c,
-    })
-    .collect()
+    ];
+    // Absent, not undeclared, where there is no `.yidam.toml`: no pin, so no subject.
+    clocks.extend(template::clock(root, cfg.template_after, list));
+    clocks
+        .into_iter()
+        .map(|c| match cfg.declined.get(c.id) {
+            Some(record) => c.declined(record, &decisions),
+            None => c,
+        })
+        .collect()
 }
 
 /// `[due.declined]` keys that name no clock, in the order the config declared them.
@@ -1197,7 +1220,7 @@ fn unknown_declines(cfg: &crate::config::DueConfig, clocks: &[Clock]) -> Vec<Str
 /// The most subjects one clock lists in the text report. JSON carries every one.
 pub(crate) const SUBJECTS_SHOWN: usize = 20;
 
-/// `yidam due`. Read-only, offline, and exits zero however much is owed unless `--strict`.
+/// `yidam due`. Read-only, offline but for the template clock's one `ls-remote`, and exits zero however much is owed unless `--strict`.
 pub fn due(
     root: Option<&std::path::Path>,
     strict: bool,
@@ -1316,6 +1339,7 @@ pub(crate) fn render(report: &DueReport, root: &Path) -> String {
 }
 
 mod coverage;
+mod template;
 
 #[cfg(test)]
 mod tests;

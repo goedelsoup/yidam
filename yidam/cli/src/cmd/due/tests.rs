@@ -23,10 +23,18 @@ fn node(dir: &Path, rel: &str, body: &str) {
 }
 
 /// A derived repository with one node and one commit, and no configuration at all.
+///
+/// Its `.yidam.toml` names no origin, so the template clock is present and reads nothing
+/// from the network: a derived repository has a pin, and the row set is the one it sees.
 fn repo() -> tempfile::TempDir {
     let tmp = tempfile::TempDir::new().unwrap();
     let root = tmp.path();
     init(root);
+    std::fs::write(
+        root.join(crate::provenance::MANIFEST),
+        "[yidam]\norigin = \"unknown\"\ncommit = \"unknown\"\n",
+    )
+    .unwrap();
     node(root, "concept/a.yml", "class: concept\nlabel: A\n");
     commit(root, "2026-01-01", "establish: a");
     tmp
@@ -44,7 +52,7 @@ fn today() -> i64 {
 
 fn clocks(root: &Path) -> Vec<Clock> {
     let cfg = crate::config::load_yidam_config(root).unwrap();
-    read_clocks(root, &cfg.due, today())
+    read_clocks_with(root, &cfg.due, today(), |_, _| None)
 }
 
 fn find<'a>(clocks: &'a [Clock], id: &str) -> &'a Clock {
@@ -58,7 +66,7 @@ fn find<'a>(clocks: &'a [Clock], id: &str) -> &'a Clock {
 fn a_corpus_that_declared_nothing_is_owed_nothing() {
     let tmp = repo();
     let all = clocks(tmp.path());
-    assert_eq!(all.len(), 7, "seven clocks: {all:?}");
+    assert_eq!(all.len(), 8, "eight clocks: {all:?}");
     for c in &all {
         assert_ne!(
             c.state,
@@ -783,7 +791,7 @@ fn a_clock_declined_in_writing_is_not_a_clock_nobody_set() {
     // And it leaves the sentence about unset clocks to the clocks that really are unset.
     let report = DueReport::new(all, false);
     assert_eq!(report.declined, 1);
-    assert_eq!(report.undeclared, 6, "a decline was counted as an absence");
+    assert_eq!(report.undeclared, 7, "a decline was counted as an absence");
     assert_eq!(report.due, 0);
 }
 
@@ -2135,4 +2143,211 @@ fn moving_a_symbol_pin_across_an_edit_elsewhere_is_a_re_date_when_symbols_are_re
         State::Due
     };
     assert_eq!(c.state, expected, "{c:?}");
+}
+
+// ── the template clock (#1511) ────────────────────────────────────────────────
+
+mod template_clock {
+    use super::super::template::{measure, parse_releases, read_pin, Pin};
+    use super::*;
+
+    /// An origin's listing, as `git ls-remote --tags` prints it: an annotated tag's bare line
+    /// names the tag object, and its `^{}` line the commit.
+    const LISTING: &str = "\
+aaaa\trefs/tags/cli/v0.23.0
+c023\trefs/tags/cli/v0.23.0^{}
+c024\trefs/tags/cli/v0.24.0
+c100\trefs/tags/cli/v0.100.0-rc.1
+c025\trefs/tags/cli/v0.25.0
+c026\trefs/tags/cli/v0.26.0
+c999\trefs/tags/cli/v0.26
+";
+
+    fn pin(release: Option<&str>, commit: &str) -> Pin {
+        Pin {
+            origin: "git@example.test:o/yidam.git".into(),
+            commit: commit.into(),
+            release: release.map(str::to_string),
+        }
+    }
+
+    fn listed() -> Option<String> {
+        Some(LISTING.to_string())
+    }
+
+    #[test]
+    fn releases_are_read_by_the_vendor_tasks_rules() {
+        let r = parse_releases(LISTING);
+        let tags: Vec<&str> = r.iter().map(|r| r.tag.as_str()).collect();
+        // Version order, not listing order; a pre-release and a two-number tag are not releases.
+        assert_eq!(
+            tags,
+            ["cli/v0.23.0", "cli/v0.24.0", "cli/v0.25.0", "cli/v0.26.0"]
+        );
+        assert_eq!(r[0].commit, "c023", "the peeled line names the commit");
+        // Peeled wins in whichever order the lines come.
+        let reversed = "c023\trefs/tags/cli/v0.23.0^{}\naaaa\trefs/tags/cli/v0.23.0\n";
+        assert_eq!(parse_releases(reversed)[0].commit, "c023");
+        // And by number, not by string: 0.100 sorts above 0.26.
+        let wide = "x\trefs/tags/cli/v0.100.0\ny\trefs/tags/cli/v0.26.0\n";
+        assert_eq!(parse_releases(wide)[1].tag, "cli/v0.100.0");
+    }
+
+    #[test]
+    fn no_interval_reports_the_count_and_owes_nothing() {
+        let c = measure(&pin(Some("cli/v0.23.0"), "c023"), None, listed);
+        assert_eq!(c.state, State::Undeclared);
+        assert_eq!(
+            c.detail,
+            "3 release(s) past cli/v0.23.0; newest cli/v0.26.0"
+        );
+        assert_eq!(c.overdue, 0);
+        assert!(
+            c.remedy.as_deref().unwrap().contains("template_after"),
+            "{c:?}"
+        );
+    }
+
+    #[test]
+    fn an_interval_reached_is_due_to_a_person() {
+        let c = measure(&pin(Some("cli/v0.23.0"), "c023"), Some(2), listed);
+        assert_eq!(c.state, State::Due);
+        assert_eq!(c.overdue, 3);
+        assert_eq!(c.interval.as_deref(), Some("[due] template_after = 2"));
+        assert_eq!(
+            c.actor,
+            Some(Actor::Person),
+            "adopting a release is a judgement"
+        );
+        assert!(c
+            .remedy
+            .as_deref()
+            .unwrap()
+            .contains("mise run yidam-vendor-update"));
+
+        let ok = measure(&pin(Some("cli/v0.25.0"), "c025"), Some(2), listed);
+        assert_eq!(ok.state, State::Ok, "{ok:?}");
+        assert_eq!(ok.overdue, 0);
+    }
+
+    #[test]
+    fn a_pin_past_a_release_counts_from_it() {
+        // Five commits past the newest release is zero behind, however far past it sits.
+        let c = measure(&pin(Some("cli/v0.26.0+5"), "beef"), Some(0), listed);
+        assert_eq!(c.state, State::Ok, "{c:?}");
+        assert_eq!(c.detail, "no release past cli/v0.26.0; due at 1");
+        let c = measure(&pin(Some("cli/v0.25.0+5"), "beef"), Some(0), listed);
+        assert_eq!(
+            c.state,
+            State::Due,
+            "`0` makes any release past the pin due"
+        );
+    }
+
+    #[test]
+    fn a_pin_from_before_the_field_is_measured_from_its_commit() {
+        let c = measure(&pin(None, "c024"), None, listed);
+        assert_eq!(
+            c.detail,
+            "2 release(s) past cli/v0.24.0; newest cli/v0.26.0"
+        );
+        // An annotated tag is matched by its peeled commit, not the tag object.
+        let c = measure(&pin(None, "c023"), None, listed);
+        assert!(
+            c.detail.starts_with("3 release(s) past cli/v0.23.0"),
+            "{c:?}"
+        );
+    }
+
+    #[test]
+    fn a_pin_that_is_no_release_follows_the_interval() {
+        for release in [None, Some("unreleased")] {
+            let c = measure(&pin(release, "beef"), None, listed);
+            assert_eq!(c.state, State::Undeclared);
+            assert_eq!(
+                c.detail,
+                "pin is not a release; re-vendor to record release"
+            );
+            let c = measure(&pin(release, "beef"), Some(2), listed);
+            assert_eq!(c.state, State::Unmeasurable);
+            assert_eq!(c.remedy, None);
+        }
+    }
+
+    #[test]
+    fn an_unreachable_origin_is_a_row_and_never_due() {
+        let c = measure(&pin(Some("cli/v0.23.0"), "c023"), None, || None);
+        assert_eq!(c.state, State::Undeclared);
+        assert_eq!(
+            c.detail,
+            "could not read releases from git@example.test:o/yidam.git"
+        );
+        let c = measure(&pin(Some("cli/v0.23.0"), "c023"), Some(1), || None);
+        assert_eq!(c.state, State::Unmeasurable);
+        // And a strict run over it passes: only `Due` fails one.
+        assert!(DueReport::new(vec![c], true).passed);
+    }
+
+    #[test]
+    fn no_manifest_is_no_row() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        assert_eq!(read_pin(root), None);
+        let cfg = crate::config::DueConfig::default();
+        let all = read_clocks_with(root, &cfg, today(), |_, _| panic!("no pin, no network"));
+        assert!(all.iter().all(|c| c.id != "template"), "{all:?}");
+        assert_eq!(all.len(), 7);
+    }
+
+    #[test]
+    fn the_listing_is_read_once_against_the_pins_origin() {
+        let tmp = repo();
+        let root = tmp.path();
+        std::fs::write(
+            root.join(crate::provenance::MANIFEST),
+            "[yidam]\norigin = \"/srv/yidam.git\"\ncommit = \"c024\"\nrelease = \"cli/v0.24.0\"\n",
+        )
+        .unwrap();
+        config(root, "[due]\ntemplate_after = 2\n");
+        let cfg = crate::config::load_yidam_config(root).unwrap();
+        let all = read_clocks_with(root, &cfg.due, today(), |_, origin| {
+            assert_eq!(origin, "/srv/yidam.git");
+            listed()
+        });
+        let c = find(&all, "template");
+        assert_eq!(c.state, State::Due, "{c:?}");
+        assert_eq!(c.overdue, 2);
+    }
+
+    #[test]
+    fn an_origin_that_reads_as_an_option_never_reaches_git() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        assert_eq!(
+            super::super::template::list_releases(tmp.path(), "--upload-pack=touch x"),
+            None
+        );
+        assert_eq!(
+            super::super::template::list_releases(tmp.path(), "unknown"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_local_origin_is_listed_for_real() {
+        let up = tempfile::TempDir::new().unwrap();
+        init(up.path());
+        commit(up.path(), "2026-01-01", "seed");
+        git(up.path(), &["tag", "cli/v0.1.0"]);
+        git(up.path(), &["tag", "-a", "-m", "r", "cli/v0.2.0"]);
+        git(up.path(), &["tag", "v0.1.0"]);
+        let here = tempfile::TempDir::new().unwrap();
+        let out = super::super::template::list_releases(here.path(), up.path().to_str().unwrap())
+            .expect("a local origin is readable");
+        let tags: Vec<String> = parse_releases(&out).into_iter().map(|r| r.tag).collect();
+        assert_eq!(
+            tags,
+            ["cli/v0.1.0", "cli/v0.2.0"],
+            "only the cli layer: {out}"
+        );
+    }
 }

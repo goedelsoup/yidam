@@ -205,6 +205,13 @@ fn the_index_clock_in_a_build_that_cannot_make_one() {
 #[test]
 fn the_json_report_carries_the_envelope_and_every_clock() {
     let tmp = stage();
+    // The template clock reads `.yidam.toml`, and a repository without one has no pin to age.
+    // An origin nobody can reach keeps the run offline and still reports the row.
+    std::fs::write(
+        tmp.path().join(".yidam.toml"),
+        "[yidam]\norigin = \"unknown\"\ncommit = \"unknown\"\n",
+    )
+    .unwrap();
     let v = json(tmp.path());
     let mut got: Vec<&str> = v["clocks"]
         .as_array()
@@ -222,7 +229,8 @@ fn the_json_report_carries_the_envelope_and_every_clock() {
             "index",
             "phases",
             "questions",
-            "superseded"
+            "superseded",
+            "template"
         ],
         "the set of clocks changed"
     );
@@ -358,5 +366,59 @@ fn a_declined_clock_reaches_the_json_as_its_own_state_and_is_not_owed() {
         text.stdout.contains("1 clock(s) have no interval declared"),
         "{}",
         text.stdout
+    );
+}
+
+/// The template clock end to end: one `ls-remote` against the pin's origin, releases counted by
+/// version past the one `release` names, and a person owed the re-vendor (#1511).
+#[test]
+fn the_template_clock_counts_releases_the_origin_cut_past_the_pin() {
+    let origin = tempfile::tempdir().unwrap();
+    let o = origin.path();
+    let git = |args: &[&str]| common::git::git_at(o, args, common::git::FIXTURE_DATE);
+    git(&["init", "-q", "-b", "main"]);
+    git(&["config", "user.email", "fixture@yidam.test"]);
+    git(&["config", "user.name", "Fixture"]);
+    for v in ["0.1.0", "0.2.0", "0.3.0"] {
+        git(&["commit", "-q", "--allow-empty", "-m", "release"]);
+        git(&["tag", &format!("cli/v{v}")]);
+    }
+    // A pre-release is not a release, and is not counted.
+    git(&["tag", "cli/v0.4.0-rc.1"]);
+
+    let tmp = stage();
+    let root = tmp.path();
+    std::fs::write(
+        root.join(".yidam.toml"),
+        format!(
+            "[yidam]\norigin = \"{}\"\ncommit = \"unknown\"\nrelease = \"cli/v0.1.0+3\"\n",
+            o.display()
+        ),
+    )
+    .unwrap();
+    let mut cfg = std::fs::read_to_string(root.join(".yidam/config.toml")).unwrap();
+    cfg.push_str("template_after = 2\n");
+    std::fs::write(root.join(".yidam/config.toml"), cfg).unwrap();
+
+    let v = json(root);
+    let c = v["clocks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "template")
+        .expect("a pinned repository reports the template clock")
+        .clone();
+    assert_eq!(c["state"], "due", "{c}");
+    assert_eq!(c["overdue"], 2, "{c}");
+    assert_eq!(
+        c["detail"], "2 release(s) past cli/v0.1.0; newest cli/v0.3.0; due at 2",
+        "{c}"
+    );
+    assert!(
+        c["remedy"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("mise run yidam-vendor-update"),
+        "{c}"
     );
 }

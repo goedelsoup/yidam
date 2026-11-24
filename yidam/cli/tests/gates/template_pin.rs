@@ -2,15 +2,15 @@
 //!
 //! Four layers release from one repository — `v*` for the template, `cli/v*`, `sdk/rust/v*`,
 //! `bootstrap/v*`, `editor/v*` — and they routinely tag the same commit. `a7aaa5f` carries
-//! three of them. So "is there a tag here?" is the wrong question and `git describe --tags
-//! --exact-match` is exactly that question: at `a7aaa5f` it answers `editor/v0.1.0`, and
-//! every repository cloned there recorded a VS Code extension's version as the version of its
-//! template layer.
+//! three of them. So "which tag is nearest?" is the wrong question unless it names a layer:
+//! `git describe --tags` at `a7aaa5f` answers `editor/v0.1.0`, and every repository cloned
+//! there recorded a VS Code extension's version as the version of its template layer.
 //!
 //! Two places ask it — `provenance.rs` when `yidam clone` writes the manifest, and
-//! `mise.yidam.toml`'s `yidam-vendor-update` when a derived repository re-pins itself. The
-//! second is the one that lands in a derived repo and is the one nothing here would otherwise
-//! compile, so it is discovered rather than named.
+//! `mise.yidam.toml`'s `yidam-vendor-update` when a derived repository re-pins itself. Each
+//! asks twice since RFC-0065: once for `template`, once for `release`. The second place is
+//! the one that lands in a derived repo and is the one nothing here would otherwise compile,
+//! so it is discovered rather than named.
 
 use std::path::PathBuf;
 
@@ -45,26 +45,20 @@ fn a_commit_tagged_by_every_layer_still_names_the_template() {
         git(p, &["tag", tag]);
     }
 
-    let resolved = common::git::out(
-        p,
-        &[
-            "describe",
-            "--tags",
-            "--exact-match",
-            "--match",
-            yidam::provenance::TEMPLATE_TAG_GLOB,
-            "HEAD",
-        ],
-    );
+    let p_ = yidam::provenance::Provenance::read(p);
     assert_eq!(
-        resolved, "v0.1.0",
+        p_.template, "v0.1.0",
         "the template pin must answer with the template layer's tag, not with whichever \
          other layer shares the commit"
     );
+    assert_eq!(
+        p_.release, "cli/v0.5.0",
+        "the release pin must answer with the cli layer's tag"
+    );
 
-    // And the unrestricted question — the one that shipped — gets it wrong here, so this
-    // test is about the `--match` and not about `git describe` being obviously right.
-    let naive = common::git::out(p, &["describe", "--tags", "--exact-match", "HEAD"]);
+    // And the unrestricted question gets it wrong here, so this test is about the
+    // `--match` and not about `git describe` being obviously right.
+    let naive = common::git::out(p, &["describe", "--tags", "HEAD"]);
     assert_ne!(
         naive, "v0.1.0",
         "if the unrestricted form now answers correctly, this fixture no longer reproduces \
@@ -72,7 +66,8 @@ fn a_commit_tagged_by_every_layer_still_names_the_template() {
     );
 }
 
-/// Every place that resolves a tag for the `template` pin restricts to the template's glob.
+/// Every tag lookup that fills the pin restricts to one layer's glob, and `template`'s to the
+/// template's.
 ///
 /// Discovered, not listed. The CLI and `mise.yidam.toml` are the two today; a third would be
 /// a third silent way to write a CLI version into a field that names the template.
@@ -119,13 +114,22 @@ fn every_template_tag_lookup_is_restricted_to_the_template_layer() {
             .join(" ");
         let code: String = code.split_whitespace().collect::<Vec<_>>().join(" ");
 
-        for (i, _) in code.match_indices("--exact-match") {
+        // The shell spelling and the Rust one. Keyed on the subcommand with `--tags`, so
+        // prose that merely says "describe" is not read as a lookup.
+        let lookups = code
+            .match_indices("describe --tags")
+            .chain(code.match_indices("\"describe\", \"--tags\""));
+        for (i, _) in lookups {
             checked += 1;
-            // `--match` is not a substring of `--exact-match`, so the window cannot match
-            // the very flag it is checking.
-            let lo = i.saturating_sub(240);
-            let hi = (i + 240).min(code.len());
-            if !code[lo..hi].contains("--match") {
+            let mut hi = (i + 240).min(code.len());
+            while !code.is_char_boundary(hi) {
+                hi -= 1;
+            }
+            if !code[i..hi].contains("--match") {
+                let mut lo = i.saturating_sub(80);
+                while !code.is_char_boundary(lo) {
+                    lo -= 1;
+                }
                 let snippet: String = code[lo..hi].chars().take(160).collect();
                 unrestricted.push(format!("  {}\n      …{snippet}…", f.display()));
             }
@@ -134,7 +138,7 @@ fn every_template_tag_lookup_is_restricted_to_the_template_layer() {
 
     assert!(
         checked >= 2,
-        "found {checked} exact-match tag lookup(s) — the scan is broken, not the repository"
+        "found {checked} tag lookup(s) — the scan is broken, not the repository"
     );
     assert!(
         unrestricted.is_empty(),
@@ -143,6 +147,22 @@ fn every_template_tag_lookup_is_restricted_to_the_template_layer() {
          prefers. Restrict with `--match`.",
         unrestricted.len(),
         unrestricted.join("\n")
+    );
+
+    // And `template` is filled with the template's glob, in both places.
+    let provenance =
+        std::fs::read_to_string(root.join("yidam/cli/src/provenance.rs")).expect("provenance.rs");
+    assert!(
+        provenance.contains("template: describe_nearest(root, TEMPLATE_TAG_GLOB"),
+        "provenance.rs no longer fills `template` from TEMPLATE_TAG_GLOB"
+    );
+    let tasks = std::fs::read_to_string(root.join("mise.yidam.toml")).expect("mise.yidam.toml");
+    let glob = yidam::provenance::TEMPLATE_TAG_GLOB;
+    assert!(
+        tasks
+            .lines()
+            .any(|l| l.starts_with("template=$(nearest_tag") && l.contains(&format!("'{glob}'"))),
+        "yidam-vendor-update no longer fills `template` from the template glob `{glob}`"
     );
 }
 

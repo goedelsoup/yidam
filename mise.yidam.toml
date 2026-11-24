@@ -303,8 +303,9 @@ origin=$(sed -n 's/^ *origin *= *"\\(.*\\)"/\\1/p' .yidam.toml)
 commit=$(sed -n 's/^ *commit *= *"\\(.*\\)"/\\1/p' .yidam.toml)
 template=$(sed -n 's/^ *template *= *"\\(.*\\)"/\\1/p' .yidam.toml)
 committed=$(sed -n 's/^ *committed *= *"\\(.*\\)"/\\1/p' .yidam.toml)
+release=$(sed -n 's/^ *release *= *"\\(.*\\)"/\\1/p' .yidam.toml)
 echo "origin    $origin"
-echo "pinned    $commit ($template, committed $committed)"
+echo "pinned    $commit ($template, release ${release:-unrecorded}, committed $committed)"
 # What a re-vendor would adopt, asked the way yidam-vendor-update asks it: the newest
 # `cli/v*` release unless YIDAM_REF names something else (#1308). Measured against the
 # origin's HEAD, this reported "origin has moved" on almost every run — main is rarely
@@ -508,7 +509,18 @@ if [ -z "${YIDAM_REF:-}" ] && [ -n "$previous" ] && [ "$previous" != "$commit" ]
   exit 1
 fi
 # NO-ROLLBACK END
-template=$(git -C "$tmp/yidam" describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null || echo untagged)
+# The nearest tag at or before the pin, as `<tag>` or `<tag>+<n>` when n commits past it
+# (RFC-0065). Always restricted by glob: four layers tag the same commits, and an unrestricted
+# lookup answers with whichever layer git prefers.
+nearest_tag() {
+  d=$(git -C "$tmp/yidam" describe --tags --long --match "$@" HEAD 2>/dev/null) || return 1
+  t=${d%-*-*}; n=${d%-*}; n=${n##*-}
+  if [ "$n" = 0 ]; then echo "$t"; else echo "$t+$n"; fi
+}
+template=$(nearest_tag 'v[0-9]*') || template=untagged
+# The release this pin installs: the nearest `cli/vX.Y.Z`, never a pre-release.
+release=$(nearest_tag 'cli/v[0-9]*' --exclude 'cli/v*-*') || release=unreleased
+echo "${release%%+*}" | grep -Eq '^cli/v[0-9]+[.][0-9]+[.][0-9]+$' || release=unreleased
 committed=$(git -C "$tmp/yidam" log -1 --format=%as HEAD)
 if [ ! -d "$tmp/yidam/yidam/prelude" ]; then
   echo "ERROR: $origin@$commit has no yidam/prelude/ — wrong origin?" >&2
@@ -828,9 +840,11 @@ cat > .yidam.toml <<EOF
 # repository. Updated by \\`mise run yidam-vendor-update\\`.
 #
 # \\`commit\\` is the resolvable pin: it is what the re-vendor procedure and CI
-# check out. \\`template\\` is the release tag at that commit, or "untagged".
-# \\`committed\\` is that commit's date — how old the vendored prelude is.
-# \\`cli\\` is the yidam binary in use when this file was written: version (build commit).
+# check out. \\`template\\` is the nearest template tag at or before it, \\`+n\\` when
+# n commits past, or "untagged". \\`committed\\` is that commit's date.
+# \\`release\\` is the cli/v* release the pin installs, \\`+n\\` when past it.
+# \\`cli\\` is the binary that wrote this file, not the one the pin installs:
+# version (build commit).
 #
 # See .yidam/.vendor/prelude/guidelines/directories.md for the re-vendor procedure.
 
@@ -839,6 +853,7 @@ origin    = "$origin"
 commit    = "$commit"
 template  = "$template"
 committed = "$committed"
+release   = "$release"
 cli       = "$cli"
 EOF
 # Yours, and preserved across every re-vendor. Both channels read it: the source build passes

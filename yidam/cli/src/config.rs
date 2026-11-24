@@ -592,6 +592,20 @@ pub struct DueConfig {
     /// asks_after = 7
     /// ```
     pub asks_after: Option<u32>,
+    /// Releases the template's origin may cut past this repository's pin before a re-vendor
+    /// is due (#1511).
+    ///
+    /// **Releases, not days or commits.** A release is the unit a derived repository adopts:
+    /// a fortnight with none costs nothing, and a single one can change the closed commit
+    /// vocabulary. Counted by version against `.yidam.toml`'s `release`, from one
+    /// `git ls-remote` of its `origin` — the one clock that reads the network. `0` makes any
+    /// release past the pin due.
+    ///
+    /// ```toml
+    /// [due]
+    /// template_after = 2
+    /// ```
+    pub template_after: Option<u32>,
     /// The external, listable sets this corpus means to cover, each read against the class
     /// whose instances should cover it (#1491).
     ///
@@ -618,7 +632,7 @@ pub struct DueConfig {
     /// permanently due, which is a clock a reader learns to skip.
     ///
     /// The key is the clock's `id` — `index`, `catalog`, `questions`, `phases`, `superseded`,
-    /// `asks`, `coverage` — and the value is a decision record in `.yidam/decisions/`, by its `id:` or its file stem.
+    /// `asks`, `coverage`, `template` — and the value is a decision record in `.yidam/decisions/`, by its `id:` or its file stem.
     /// **The record is required**, and that is the whole of what makes this a declaration
     /// rather than a mute button: a decline naming a record this repository does not hold
     /// is not honoured, and `due` says so. It is `.yidam/lint-baseline.yml`'s property —

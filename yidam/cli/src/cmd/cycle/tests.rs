@@ -145,11 +145,17 @@ fn the_quiet_run_still_says_being_owed_is_not_being_broken() {
 
 // ── it composes, and does not recompute ───────────────────────────────────────
 
-/// The owed half is `due`'s seven clocks, by the ids `due` publishes — not a second set
-/// measured here.
+/// The owed half is `due`'s eight clocks, by the ids `due` publishes — not a second set
+/// measured here. The template clock needs a pin to age; an origin nobody can reach keeps the
+/// read offline.
 #[test]
 fn the_owed_half_is_dues_own_clocks() {
     let tmp = repo();
+    std::fs::write(
+        tmp.path().join(".yidam.toml"),
+        "[yidam]\norigin = \"unknown\"\ncommit = \"unknown\"\n",
+    )
+    .unwrap();
     let r = read(tmp.path());
     let ids: Vec<&str> = r.owed.iter().map(|c| c.id).collect();
     assert_eq!(
@@ -161,12 +167,13 @@ fn the_owed_half_is_dues_own_clocks() {
             "phases",
             "superseded",
             "asks",
-            "coverage"
+            "coverage",
+            "template"
         ]
     );
 }
 
-/// A due clock contributes the remedy `due` computed, verbatim. Six of the seven clocks are
+/// A due clock contributes the remedy `due` computed, verbatim. Seven of the eight clocks are
 /// discharged by something that is not a command, and inventing a remedy here would be this
 /// report claiming an agent can do what `due.rs`'s table says it cannot.
 #[test]

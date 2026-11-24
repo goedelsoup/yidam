@@ -24,8 +24,9 @@ The template provenance pin, at the repository root. Generated; you do not norma
 [yidam]
 origin    = "git@github.com:goedelsoup/yidam.git"
 commit    = "88edd17f4c2a1b09e3d5f7a8c6b4e2d1a9f0c3b5"
-template  = "v0.1.0"
+template  = "v0.1.0+4"
 committed = "2026-08-27"
+release   = "cli/v0.16.0"
 cli       = "0.16.0 (ce5e738)"
 ```
 
@@ -33,9 +34,10 @@ cli       = "0.16.0 (ce5e738)"
 |---|---|
 | `origin` | Where the template came from |
 | `commit` | **The resolvable pin** — what the re-vendor procedure and CI check out |
-| `template` | The template-layer release tag at that commit, or `"untagged"` |
+| `template` | The nearest template-layer tag at or behind that commit, as `<tag>+<n>` when `n` commits follow it, or `"untagged"` |
 | `committed` | That commit's author date — i.e. how old the vendored prelude is |
-| `cli` | The `yidam` binary in use when the file was written: version and build commit |
+| `release` | The nearest `cli/vX.Y.Z` release at or behind that commit, which the pin installs, as `<tag>+<n>` the same way, or `"unreleased"`. [`due`'s `template` clock](cli-reference.md#template-how-far-behind-the-origin) counts from it |
+| `cli` | The `yidam` binary in use when the file was written: version and build commit. Often not the one the pin installs |
 
 ### `[build]` — yours, and preserved
 
@@ -314,12 +316,13 @@ never comes due.
 | `index_after` | Corpus files changed since the index was built | files |
 | `superseded_after` | A node citing a source that gained a new version since the node's last commit | days |
 | `asks_after` | An open ask in `.yidam/asks/<package>/` whose `pin:` the dependency has since moved from | days |
+| `template_after` | A release the template's origin has cut past the one `.yidam.toml`'s `release` names | releases |
 
 **The catalog clock's interval is not here.** `due` also reads a source record's TTL, and that
 is [`[catalog] ttl_days`](#catalog-ttl_days) and each entry's own `ttl_days:`, where it already
 lived. Restating it under `[due]` would create two places to set one number.
 
-**Three of these count days and two do not.** How long a question has gone unanswered is a fact
+**Three of these count days and three do not.** How long a question has gone unanswered is a fact
 about the repository, and the repository's clock is `HEAD`. A corpus that has not committed has
 not ignored anything. A phase's time in flight is a fact about the world, which is the same
 argument `ttl_days` makes. Work does not stop having been open for four months because nobody
@@ -338,6 +341,12 @@ started reading the far side's new text. It is the first day an answer could hav
 An ask whose `pin:` still matches the dependency is owed nothing, however old it is. It is
 waiting on the far side, and there is nothing new to read. Marking it `answered`, or moving its
 `pin:` to the new commit after reading, discharges it.
+
+`template_after` counts releases, not days, because a date cannot tell a quiet upstream from a
+stale pin. `template_after = 1` makes any newer release due. `0` means the same, since a pin at
+the newest release is owed nothing. It is the one clock that reads the network: one bounded
+`git ls-remote` against the pin's `origin`. An origin it cannot reach makes it `unmeasurable`.
+Re-vendoring with `mise run yidam-vendor-update` discharges it.
 
 ### `[[due.coverage]]`
 
@@ -441,7 +450,7 @@ Clocks this corpus decided it does not want, each naming the record that argues 
 index = "due-clocks"
 ```
 
-The key is the clock's id: `index`, `catalog`, `questions`, `phases`, `superseded`, `asks` or `coverage`. The value
+The key is the clock's id: `index`, `catalog`, `questions`, `phases`, `superseded`, `asks`, `coverage` or `template`. The value
 is a decision record in `.yidam/decisions/`, by its `id:` or its file stem.
 
 **Unset and declined are different states.** Without this key they report the same. A corpus
