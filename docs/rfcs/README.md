@@ -91,6 +91,7 @@ re-deriving it.
 | [0058](0058-signal-citations.md) | I41 | A signal quoted in prose is a block that `regen` refreshes | Implemented |
 | [0059](0059-dataset-tables.md) | I42 | A table is a catalog entry that declares its columns | Implemented |
 | [0060](0060-embed-passages.md) | I43 | A node is embedded as passages, and scored by its best one | Implemented |
+| [0061](0061-unanswerable-open-claims.md) | I44 | An open claim may declare itself unanswerable, and the questions clock stops counting it | Draft |
 
 ## Reading order
 

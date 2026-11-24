@@ -198,6 +198,7 @@ const sidebar = [
       { slug: 'rfcs/0058-signal-citations', label: '0058 · Signal citations' },
       { slug: 'rfcs/0059-dataset-tables', label: '0059 · Dataset tables' },
       { slug: 'rfcs/0060-embed-passages', label: '0060 · Embed passages' },
+      { slug: 'rfcs/0061-unanswerable-open-claims', label: '0061 · Unanswerable open claims' },
     ],
   },
   {
