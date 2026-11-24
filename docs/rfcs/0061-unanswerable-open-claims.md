@@ -12,8 +12,8 @@
 - **Versioning layers touched:**
   - **The claim grammar.** `claims.rs` reads one new detail shape on an `[open]` tag. The
     standing vocabulary (`verified`, `inference`, `open`) does not change.
-  - **The MCP contract.** An `open_questions` entry gains `unanswerable`. The change is
-    additive, 0.34.0 to 0.35.0.
+  - **The MCP contract.** An `open_questions` entry gains `unanswerable` and `reasons`. The
+    entries and their order do not change, so the change is additive, 0.34.0 to 0.35.0.
   - **Reports.** `due`'s questions clock, `status` and `open-questions` each gain a figure or a
     section. `status --format json` gains `unanswerable`.
   - **Lint.** `claim-tag-malformed` gains two messages. It gains no check.
@@ -103,8 +103,8 @@ state on it, in two different ways:
 
 ### 1.2 Why the node is the wrong place
 
-A node-level status would serve the 91 nodes in a question class and the 23 with a `?` label.
-It would not reach the dominant population at all. In ohio-campaign-finance, an author who
+A node-level status would serve at most 114 nodes: the 91 in a question class and the 23 with
+a `?` label. The two sets may overlap, so 114 is a ceiling, not a count. It would not reach the dominant population at all. In ohio-campaign-finance, an author who
 wanted to quiet one unanswerable question on a committee would have to declare the whole
 committee unanswerable. That committee may carry three other questions that a report due next
 month will settle.
@@ -144,6 +144,10 @@ then a reason:
 **Only `open` takes it.** `[verified — unanswerable: …]` is not a tag. A claim that has been
 verified has been answered.
 
+**An unknown reason still reads as open.** `[open — unanswerable: no filing exists]` is read as
+a plain `[open]`: it is listed, it is owed, and the clock counts it. A misspelt reason must not
+take a question out of view. Lint reports it (§2.6).
+
 **Today this form is not a tag at all.** `unanswerable` is not one of the narrowing heads, so
 `tag_from_inner` refuses it as a citation folded into the bracket. No corpus writes it, so no
 existing count moves when it starts to read.
@@ -165,8 +169,8 @@ The issue proposed these three. They cover the unanswerable shapes in the §1.1 
 ### 2.3 What reads it
 
 **`has_open_claim` is unchanged.** A terminal claim is still an open claim. The predicate's
-four node arms and its edge arm keep their membership, and `open-questions` lists exactly the
-entries it lists today.
+four node arms keep their membership, and so does `edge_claims`, which answers for edges.
+`open-questions` lists exactly the entries it lists today, in the same order.
 
 **A new companion, `open_claim_state`,** answers the question the clock needs. For a node it
 returns one of three values:
@@ -184,31 +188,50 @@ The arms combine as follows:
   question a tool raised, and the finding record has no reason field.
 - **Edges are their own entries**, as they are today. An edge's terminal state is its own.
 
-When the terminal claims on one node give different reasons, the state carries the first in
-file order. The full list is available from `open-questions`, one claim at a time.
+**The order is fixed, because the arms have no common file order.** Properties declared
+`type: claim` are read first, in document order. Prose is read next, by byte offset. When the
+terminal claims on one node give different reasons, the state carries the first in that
+order.
+
+**Every reason stays reachable.** An `open-questions` entry is one per node or edge, not one
+per claim. So each entry carries `reasons`: the reason of every terminal claim on it, in the
+order above, repeats kept. The list is present whenever at least one claim is terminal. That
+includes a node that is still owed because another claim on it is not terminal. Without it,
+the terminal claims on such a node would appear on no surface at all.
 
 ### 2.4 The questions clock
 
+**Two words, one meaning each, on every surface.** *Open* is the total: every entry
+`open-questions` lists, terminal or not. *Owed* is open minus unanswerable. `status`, `due` and
+`open-questions` all use *open* for the total, so one corpus never shows two different "open"
+figures.
+
 `open_at_head` keeps calling `open_questions_data`. It drops every entry that carries
-`unanswerable`, so the clock counts and ages only what is still owed. Its summary line names
-the excluded figure, so it is never silent. The figures here are illustrative:
+`unanswerable`, so the clock counts and ages only what is owed. Its summary line names the
+total and the excluded figure, so it is never silent. The figures here are illustrative:
 
 ```
-questions  due  12 of 67 open question(s) past 100 commit(s), longest 412 (…); 341 unanswerable
+questions  due  12 of 67 owed question(s) past 100 commit(s), longest 412 (…); 408 open, 341 unanswerable
 ```
 
-With no `questions_after`, the undeclared line reads `N open question(s), M unanswerable`.
+With no `questions_after`, the undeclared line reads `N open question(s), M unanswerable`,
+where N is the total, as it is in `status`.
 
 The remedy line does not change. Declaring a question unanswerable is a judgement about the
 record, as answering one is, so the clock names a person and proposes no commit.
 
 ### 2.5 The other surfaces
 
-- **`yidam open-questions`** lists unanswerable entries after the open ones, under their own
-  heading, with the reason on each line. `--format json` gives each such entry an
-  `unanswerable` field holding the reason. The field is absent on an entry that is still owed.
-- **The MCP `open_questions` tool** answers the same way, at contract 0.35.0. A client older
-  than 0.35.0 sees the same list it sees today, and no field it reads changes meaning.
+- **`yidam open-questions`**, in its text output, groups unanswerable entries after the owed
+  ones, under their own heading, with the reasons on each line. An owed entry that carries
+  terminal claims lists their reasons too. The grouping is presentation only.
+- **`--format json`** keeps today's entries in today's order. Each entry gains two fields:
+  - `unanswerable`, holding the state's reason (§2.3) when every open claim on the entry is
+    terminal. It is absent on an entry that is owed.
+  - `reasons`, the full list (§2.3). It is absent when no claim on the entry is terminal.
+- **The MCP `open_questions` tool** answers as `--format json` does, at contract 0.35.0. A
+  client older than 0.35.0 sees the same entries in the same order. It meets two fields it
+  does not read, and no field it does read changes meaning.
 - **`yidam status`** keeps `open_questions` as the total and adds `unanswerable` beside it.
   The text line reads `N open (M unanswerable)`, and drops the parenthesis at zero.
 - **The coverage clock (#1491)** does not change. It asks whether every member of a declared
@@ -217,20 +240,28 @@ record, as answering one is, so the clock names a person and proposes no commit.
 
 ### 2.6 Lint
 
-`claim-tag-malformed` already reports a detail that reads as nothing. It gains two messages,
-at its existing level, Warn:
+`claim-tag-malformed` already reports a detail that reads as nothing. Today it would report
+every terminal form, valid or not, with the citation advice: `unanswerable` is no narrowing
+head, so `narrowing_detail` is false and `is_scoped_claim` is false. The change is in two
+places, because the counter and the check share these predicates:
 
-- `[open — unanswerable: no filing exists]`: the reason is not one of the three, and the
-  message lists them.
-- `[verified — unanswerable: …]` or `[inference — unanswerable: …]`: only an open claim can be
-  unanswerable.
+- **The valid form is a tag.** `tag_from_inner` accepts `open`, a separator, `unanswerable`, a
+  separator and one of the three reasons. `parse_tag` and `is_scoped_claim` read it through
+  that one function, so the check skips it as it skips `[verified — as proposed]`, and no
+  second reading is written.
+- **The two wrong forms get their own messages**, at the check's existing level, Warn. They
+  are tested before the citation advice, so neither gets told to move a citation out:
+  - `[open — unanswerable: no filing exists]`: the reason is not one of the three, and the
+    message lists them. The claim still counts as a plain `[open]` (§2.1).
+  - `[verified — unanswerable: …]` or `[inference — unanswerable: …]`: only an open claim can
+    be unanswerable. The bracket is still not a tag.
 
 No new check is registered.
 
 ## Alternatives considered
 
 **A node-level `status: unanswerable`, as the issue proposed.** Rejected by §1.2. At most it reaches
-the 91 nodes in a question class and the 23 with a `?` label, against 2,352 open questions in
+114 nodes, the ceiling §1.2 sets, against 2,352 open questions in
 the nine corpora tabled in §1.1. It forces an author to declare
 a whole node to quiet one claim. And `status` is a key two corpora already use with their own
 values, which RFC-0037 and the contract both forbid a tool to bless.
