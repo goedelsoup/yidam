@@ -46,9 +46,13 @@ pub(super) fn admit_in(root: &Path) -> Result<Admission> {
     let cfg = crate::config::load_yidam_config(root)?;
     let today = crate::dates::today_days();
 
-    let owed: Vec<String> = crate::cmd::due::read_clocks(root, &cfg.due, today)
+    // The template clock is not a reason to run. Its remedy is a re-vendor, which no run
+    // performs, so admitting on it would admit the same corpus on every tick until a person
+    // re-vendored (#1511). So it is left out, and its origin is never read from here: an
+    // admission depends on the corpus's remote, not on the template's.
+    let owed: Vec<String> = crate::cmd::due::read_clocks_with(root, &cfg.due, today, |_, _| None)
         .into_iter()
-        .filter(|c| c.state == State::Due)
+        .filter(|c| c.state == State::Due && c.id != "template")
         .map(|c| c.id.to_string())
         .collect();
 

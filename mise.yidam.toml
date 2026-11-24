@@ -518,8 +518,9 @@ nearest_tag() {
   if [ "$n" = 0 ]; then echo "$t"; else echo "$t+$n"; fi
 }
 template=$(nearest_tag 'v[0-9]*') || template=untagged
-# The release this pin installs: the nearest `cli/vX.Y.Z`, never a pre-release.
-release=$(nearest_tag 'cli/v[0-9]*' --exclude 'cli/v*-*') || release=unreleased
+# The release this pin installs: the nearest `cli/vX.Y.Z`, never a pre-release. Three
+# numbers in the glob, so a malformed nearer tag cannot hide the release behind it.
+release=$(nearest_tag 'cli/v[0-9]*.[0-9]*.[0-9]*' --exclude 'cli/v*-*' --exclude 'cli/v*.*.*.*') || release=unreleased
 echo "${release%%+*}" | grep -Eq '^cli/v[0-9]+[.][0-9]+[.][0-9]+$' || release=unreleased
 committed=$(git -C "$tmp/yidam" log -1 --format=%as HEAD)
 if [ ! -d "$tmp/yidam/yidam/prelude" ]; then

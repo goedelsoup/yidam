@@ -2350,4 +2350,44 @@ c999\trefs/tags/cli/v0.26
             "only the cli layer: {out}"
         );
     }
+
+    #[test]
+    fn a_declined_clock_never_reads_the_network() {
+        let tmp = repo();
+        let root = tmp.path();
+        decision(root, "offline", "this corpus is air-gapped");
+        config(root, "[due.declined]\ntemplate = \"offline\"\n");
+        let cfg = crate::config::load_yidam_config(root).unwrap();
+        let all = read_clocks_with(root, &cfg.due, today(), |_, _| {
+            panic!("a declined clock read the origin")
+        });
+        let c = find(&all, "template");
+        assert_eq!(c.state, State::Declined, "{c:?}");
+    }
+
+    #[test]
+    fn batch_flags_go_only_to_openssh() {
+        for ssh in ["ssh", "/usr/bin/ssh -i key", "C:\\Git\\usr\\bin\\ssh.exe"] {
+            assert!(super::super::template::is_openssh(ssh), "{ssh}");
+        }
+        for other in ["plink.exe", "/opt/wrap-ssh.sh", "", "sshpass -p x ssh"] {
+            assert!(!super::super::template::is_openssh(other), "{other}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_past_its_deadline_is_killed_and_unmeasured() {
+        let child = std::process::Command::new("sleep")
+            .arg("30")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let start = std::time::Instant::now();
+        let out =
+            super::super::template::wait_bounded(child, std::time::Duration::from_millis(200));
+        assert_eq!(out, None);
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+    }
 }

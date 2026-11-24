@@ -9,7 +9,8 @@ commits past it, as `v0.13.0+6`. It read `untagged` whenever the pin was not on 
 
 **`yidam due` has an eighth clock, `template`, and it reads the network.** It makes one bounded
 `git ls-remote` against the pin's `origin` and counts newer releases. An origin it cannot reach
-reads `unmeasurable`, so no exit code changes. Declare an interval to make it come due:
+reads `undeclared` until you set an interval and `unmeasurable` after, so no exit code changes.
+Declining the clock skips the read. Declare an interval to make it come due:
 
 ```toml
 [due]

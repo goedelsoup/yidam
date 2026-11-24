@@ -29,11 +29,15 @@ pub const TEMPLATE_TAG_GLOB: &str = "v[0-9]*";
 
 /// The tag pattern that names a **release**: `cli/v<semver>`, the tag the release workflow
 /// publishes binaries for and the re-vendor task pins (#1308).
-pub const RELEASE_TAG_GLOB: &str = "cli/v[0-9]*";
+///
+/// Three dotted numbers in the glob itself, not only in the check after it: `describe`
+/// answers with the *nearest* match, so a malformed tag such as `cli/v0.26` that the glob
+/// let through would stand in front of the real release behind it and read `unreleased`.
+pub const RELEASE_TAG_GLOB: &str = "cli/v[0-9]*.[0-9]*.[0-9]*";
 
-/// Release tags `release` never names: a pre-release such as `cli/v0.27.0-rc.1`. The
-/// `template` clock could not place one in the version order (RFC-0065 §1).
-pub const RELEASE_TAG_EXCLUDE: &str = "cli/v*-*";
+/// Release tags `release` never names: a pre-release such as `cli/v0.27.0-rc.1`, which the
+/// `template` clock could not place in the version order (RFC-0065 §1), and a fourth number.
+pub const RELEASE_TAG_EXCLUDE: &[&str] = &["cli/v*-*", "cli/v*.*.*.*"];
 
 /// What `release` reads when no release tag is in the pin's history.
 pub const UNRELEASED: &str = "unreleased";
@@ -65,9 +69,9 @@ pub fn base_release(field: &str) -> &str {
 ///
 /// Asked with `--long`, whose answer is always `<tag>-<n>-g<sha>`. The tag itself may hold
 /// a `-`, so the two trailing fields are split off from the right.
-fn describe_nearest(root: &Path, glob: &str, exclude: Option<&str>) -> Option<(String, u64)> {
+fn describe_nearest(root: &Path, glob: &str, exclude: &[&str]) -> Option<(String, u64)> {
     let mut args = vec!["describe", "--tags", "--long", "--match", glob];
-    if let Some(ex) = exclude {
+    for ex in exclude {
         args.extend(["--exclude", ex]);
     }
     args.push("HEAD");
@@ -153,11 +157,11 @@ impl Provenance {
             // `sdk/rust/v0.3.0` and `editor/v0.1.0`, it answers `editor/v0.1.0` — so every
             // repository cloned there recorded a VS Code extension's version as the version
             // of its template layer. The field names one layer and must ask about that one.
-            template: describe_nearest(root, TEMPLATE_TAG_GLOB, None)
+            template: describe_nearest(root, TEMPLATE_TAG_GLOB, &[])
                 .map_or_else(|| "untagged".to_string(), |(tag, n)| nearest(&tag, n)),
             committed: git_output(root, &["log", "-1", "--format=%as", "HEAD"])
                 .unwrap_or_else(|| "unknown".to_string()),
-            release: describe_nearest(root, RELEASE_TAG_GLOB, Some(RELEASE_TAG_EXCLUDE))
+            release: describe_nearest(root, RELEASE_TAG_GLOB, RELEASE_TAG_EXCLUDE)
                 .filter(|(tag, _)| release_version(tag).is_some())
                 .map_or_else(|| UNRELEASED.to_string(), |(tag, n)| nearest(&tag, n)),
             cli: cli(),
@@ -264,8 +268,11 @@ mod tests {
         std::fs::write(root.join("b"), "b").unwrap();
         git(root, &["add", "."]);
         git(root, &["commit", "-q", "-m", "later"]);
-        // A pre-release is never named, and the release behind it still is.
-        git(root, &["tag", "cli/v0.24.0-rc.1"]);
+        // A pre-release is never named, and the release behind it still is. Nor is a tag
+        // of the wrong shape, which would otherwise stand nearest and hide it.
+        for t in ["cli/v0.24.0-rc.1", "cli/v0.24", "cli/v0.24.0.1"] {
+            git(root, &["tag", t]);
+        }
         let p = Provenance::read(root);
         assert_eq!(p.release, "cli/v0.23.0+1");
         assert_eq!(p.template, "v0.1.0+1");

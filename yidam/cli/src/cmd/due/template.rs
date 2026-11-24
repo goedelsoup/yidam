@@ -118,44 +118,124 @@ pub(crate) fn parse_releases(listing: &str) -> Vec<Release> {
 
 /// The origin's release tags, by one bounded `ls-remote`; `None` when it cannot be read.
 ///
-/// Bounded three ways. `GIT_TERMINAL_PROMPT=0` stops an https credential prompt, and ssh runs
-/// in batch mode with a connect timeout, so CI without credentials fails in seconds rather
-/// than waiting on a terminal nobody is at. A configured `core.sshCommand` or a
-/// `GIT_SSH_COMMAND` is kept, with the batch flags added, so an agent-backed ssh still works.
+/// Bounded four ways. `GIT_TERMINAL_PROMPT=0` stops an https credential prompt; an https
+/// transfer slower than `http.lowSpeedLimit` for `http.lowSpeedTime` is abandoned; OpenSSH
+/// runs in batch mode with a connect timeout; and whatever the transport, the child is killed
+/// at [`DEADLINE`]. So CI without credentials, or behind a proxy that holds connections open,
+/// fails in seconds rather than waiting on a terminal nobody is at.
+///
+/// The user's ssh is kept. Batch flags are added only to a command that is OpenSSH by name —
+/// `GIT_SSH_COMMAND`, else `core.sshCommand`, else plain `ssh`. A `GIT_SSH` wrapper, or a
+/// command that is some other program (plink, a script), is left exactly as configured,
+/// because `GIT_SSH_COMMAND` would override it and `-o` may mean nothing to it; the deadline
+/// still bounds it.
 ///
 /// An origin starting `-` is refused before it reaches git, where it would read as an option.
 pub(crate) fn list_releases(root: &Path, origin: &str) -> Option<String> {
     if origin.is_empty() || origin == "unknown" || origin.starts_with('-') {
         return None;
     }
-    const BATCH: &str = "-o BatchMode=yes -o ConnectTimeout=10";
-    let ssh = std::env::var("GIT_SSH_COMMAND")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| {
-            crate::git::Git::new(root)
-                .args(["config", "core.sshCommand"])
-                .try_run()
-        })
-        .unwrap_or_else(|| "ssh".to_string());
-    crate::git::Git::new(root)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_SSH_COMMAND", format!("{ssh} {BATCH}"))
+    let mut git = crate::git::Git::new(root)
+        .config("http.lowSpeedLimit", "1000")
+        .config("http.lowSpeedTime", "10")
+        .env("GIT_TERMINAL_PROMPT", "0");
+    if let Some(ssh) = batch_ssh_command(root) {
+        git = git.env("GIT_SSH_COMMAND", ssh);
+    }
+    let child = git
         .args(["ls-remote", "--tags", origin, "refs/tags/cli/v*"])
-        .run()
-        .ok()
+        .spawn_piped()
+        .ok()?;
+    wait_bounded(child, DEADLINE)
+}
+
+/// How long the one network read may take, end to end, before the row reads unmeasurable.
+const DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// The `GIT_SSH_COMMAND` to run with, or `None` to leave the user's ssh as configured.
+fn batch_ssh_command(root: &Path) -> Option<String> {
+    let set = |s: Option<String>| s.filter(|s| !s.trim().is_empty());
+    let configured = set(std::env::var("GIT_SSH_COMMAND").ok()).or_else(|| {
+        if set(std::env::var("GIT_SSH").ok()).is_some() {
+            // `GIT_SSH` loses to `GIT_SSH_COMMAND`, so setting one here would bypass it.
+            return Some(String::new());
+        }
+        set(crate::git::Git::new(root)
+            .args(["config", "core.sshCommand"])
+            .try_run())
+    });
+    let ssh = match configured {
+        None => "ssh".to_string(),
+        Some(s) if s.is_empty() => return None,
+        Some(s) => s,
+    };
+    is_openssh(&ssh).then(|| format!("{ssh} -o BatchMode=yes -o ConnectTimeout=10"))
+}
+
+/// Whether a command line's program is OpenSSH by name, so `-o` means what it means there.
+pub(crate) fn is_openssh(command: &str) -> bool {
+    let program = command.split_whitespace().next().unwrap_or_default();
+    let name = program.rsplit(['/', '\\']).next().unwrap_or_default();
+    matches!(name, "ssh" | "ssh.exe")
+}
+
+/// The child's stdout when it exits successfully within `deadline`; killed and `None` past it.
+pub(crate) fn wait_bounded(
+    mut child: std::process::Child,
+    deadline: std::time::Duration,
+) -> Option<String> {
+    use std::io::Read;
+    drop(child.stdin.take());
+    let mut stdout = child.stdout.take()?;
+    // Read on a thread so a listing larger than the pipe buffer cannot stall the child.
+    let reader = std::thread::spawn(move || {
+        let mut s = String::new();
+        stdout.read_to_string(&mut s).map(|_| s)
+    });
+    let start = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if start.elapsed() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    };
+    let out = reader.join().ok()?.ok()?;
+    status.success().then(|| out.trim().to_string())
 }
 
 /// Read the clock. `list` is the network, passed in so every state is testable offline.
 ///
 /// `None` when there is no `.yidam.toml`: a projection or a hand copy has no pin, and an
 /// `Undeclared` row would read as a corpus that had not set an interval when it may have.
+///
+/// A clock declined in `[due.declined]` with no interval beside it is not read at all: a
+/// corpus that decided against the clock, an offline one most of all, is owed no network
+/// read for it. With an interval the decline is contradicted, and the clock reads as usual.
 pub(crate) fn clock(
     root: &Path,
     after: Option<u32>,
+    declined: bool,
     list: impl FnOnce(&Path, &str) -> Option<String>,
 ) -> Option<Clock> {
     let pin = read_pin(root)?;
+    if declined && after.is_none() {
+        return Some(
+            Clock::new(
+                Clock::TEMPLATE,
+                Q,
+                State::Undeclared,
+                "origin not read: the clock is declined".to_string(),
+            )
+            .unset(UNSET),
+        );
+    }
     Some(measure(&pin, after, || list(root, &pin.origin)))
 }
 
@@ -211,12 +291,15 @@ pub(crate) fn measure(
     let behind = past.len();
     // `0` makes any release past the pin due, not every pin: a pin at the newest release is
     // owed nothing at any interval.
+    // The threshold a reader sees is the count that comes due, so `0` reads as `1` in both
+    // states rather than as two different numbers.
+    let threshold = n.max(1);
     if behind > 0 && behind >= n as usize {
         Clock::new(
             Clock::TEMPLATE,
             Q,
             State::Due,
-            format!("{measured}; due at {n}"),
+            format!("{measured}; due at {threshold}"),
         )
         .at(interval)
         .owing(behind, REMEDY, Actor::Person)
@@ -225,7 +308,7 @@ pub(crate) fn measure(
             Clock::TEMPLATE,
             Q,
             State::Ok,
-            format!("{measured}; due at {}", n.max(1)),
+            format!("{measured}; due at {threshold}"),
         )
         .at(interval)
     }

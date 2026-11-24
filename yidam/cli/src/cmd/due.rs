@@ -1198,7 +1198,12 @@ pub(crate) fn read_clocks_with(
         ),
     ];
     // Absent, not undeclared, where there is no `.yidam.toml`: no pin, so no subject.
-    clocks.extend(template::clock(root, cfg.template_after, list));
+    clocks.extend(template::clock(
+        root,
+        cfg.template_after,
+        cfg.declined.contains_key(Clock::TEMPLATE),
+        list,
+    ));
     clocks
         .into_iter()
         .map(|c| match cfg.declined.get(c.id) {
