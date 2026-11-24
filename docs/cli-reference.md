@@ -318,7 +318,7 @@ corpus said about itself, never a number in the binary. The reasoning is
 |---|---|---|---|
 | `index` | Corpus files changed since the index was built | `[due] index_after` | files |
 | `catalog` | How long since a source record was retrieved, or whether a pinned read's file changed | `[catalog] ttl_days`, or an entry's own; none for a pinned read | days; changed files |
-| `questions` | How long a question has gone unanswered | `[due] questions_after` | corpus commits |
+| `questions` | How long an owed question has gone unanswered; one marked `unanswerable` is named, not counted | `[due] questions_after` | corpus commits |
 | `phases` | How long a bounded inquiry has been in flight | `[due] phases_after` | days |
 | `superseded` | How long a node has cited a source that changed since it was last committed | `[due] superseded_after` | days |
 | `asks` | How long an open question to another corpus has stood against a pin that corpus has since moved from | `[due] asks_after` | days, from the re-pin |

@@ -309,7 +309,7 @@ never comes due.
 
 | Key | Subject | Unit |
 |---|---|---|
-| `questions_after` | An open question | corpus-touching commits |
+| `questions_after` | An owed open question, not one marked `unanswerable` | corpus-touching commits |
 | `phases_after` | A bounded inquiry ref not yet on the baseline | days |
 | `index_after` | Corpus files changed since the index was built | files |
 | `superseded_after` | A node citing a source that gained a new version since the node's last commit | days |

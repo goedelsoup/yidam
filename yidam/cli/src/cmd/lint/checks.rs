@@ -2712,6 +2712,12 @@ pub fn claim_tag_malformed(prose: &[ProseView<'_>]) -> Check {
         for tag in crate::claims::detail_tags(&crate::markdown::mask_code(n.text)) {
             let (line, found) = (tag.line, format!("[{}]", tag.inner));
             let inner = reported_inner(&found);
+            // The terminal form written wrongly (RFC-0061) is reported by its own pass below,
+            // never here: an unknown reason is a scoped tag and neither form should be told to
+            // move a citation out.
+            if crate::claims::unanswerable_misuse(&tag.inner).is_some() {
+                continue;
+            }
             // A **scoped tag is a claim** and is not reported (#789). This check used to tell
             // the author of `[verified — as proposed]` that it counted as nothing, and the
             // advice it gave was that there was nothing to do about it — a finding whose own
@@ -2741,6 +2747,29 @@ pub fn claim_tag_malformed(prose: &[ProseView<'_>]) -> Check {
                 )
             };
             violations.push(Violation::new(format!("{}:{}", n.rel, line), message));
+        }
+        // Over the text the counter reads, not the code-masked text above (RFC-0061): a
+        // backticked `[open — unanswerable: no filing exists]` is counted as owed, so it is
+        // named, and one the sentence only reports is counted as nothing, so it is not.
+        for (tag, misuse) in crate::claims::unanswerable_misuses(n.text) {
+            let found = format!("[{}]", tag.inner);
+            let message = match misuse {
+                crate::claims::UnanswerableMisuse::UnknownReason => format!(
+                    "`{found}` gives a reason that is not one of {}, so it still counts as a \
+                     plain `[open]` and stays owed — use one of the three, and put anything \
+                     more beside the tag",
+                    crate::claims::UNANSWERABLE_REASONS
+                        .iter()
+                        .map(|r| format!("`{r}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                crate::claims::UnanswerableMisuse::NotOpen => format!(
+                    "`{found}` marks a claim unanswerable that is not open, so it is counted \
+                     as no claim at all — only an `[open]` claim can be unanswerable"
+                ),
+            };
+            violations.push(Violation::new(format!("{}:{}", n.rel, tag.line), message));
         }
     }
     Check::new(
@@ -5620,6 +5649,44 @@ mod tests {
             "{}",
             c.violations[0].node
         );
+    }
+
+    /// The terminal form (RFC-0061): the valid one is a claim and not reported; the two wrong
+    /// ones get their own advice, never the citation advice.
+    #[test]
+    fn the_unanswerable_form_is_read_and_its_misuses_are_named() {
+        let node = Node::parse(
+            PathBuf::from("/tmp/x.yml"),
+            ".yidam/corpus/c/x.yml",
+            "class: c\ndescription: |\n  Who paid is [open — unanswerable: not in the public record].\n",
+        );
+        let c = claim_tag_malformed(&prose_views(std::slice::from_ref(&node), &[]));
+        assert_eq!(c.violations.len(), 0, "{:?}", c.violations);
+
+        let unknown = advice_for("Who paid is [open — unanswerable: no filing exists].");
+        assert!(
+            unknown.contains("`not in the public record`, `out of scope`, `superseded`"),
+            "{unknown}"
+        );
+        assert!(unknown.contains("plain `[open]`"), "{unknown}");
+        assert!(!unknown.contains("citation beside it"), "{unknown}");
+
+        let not_open = advice_for("It held [verified — unanswerable: superseded].");
+        assert!(not_open.contains("only an `[open]` claim"), "{not_open}");
+        assert!(!not_open.contains("citation beside it"), "{not_open}");
+
+        // Backticked, as an open claim is usually written: still counted, so still named.
+        let ticked = advice_for("Who paid is `[open — unanswerable: no filing exists]`.");
+        assert!(ticked.contains("plain `[open]`"), "{ticked}");
+
+        // Only reported, so counted as nothing and not named.
+        let node = Node::parse(
+            PathBuf::from("/tmp/x.yml"),
+            ".yidam/corpus/c/x.yml",
+            "class: c\ndescription: |\n  An earlier draft said [open — unanswerable: no filing exists].\n",
+        );
+        let c = claim_tag_malformed(&prose_views(std::slice::from_ref(&node), &[]));
+        assert_eq!(c.violations.len(), 0, "{:?}", c.violations);
     }
 
     fn advice_for(body: &str) -> String {

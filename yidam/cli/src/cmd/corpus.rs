@@ -95,14 +95,28 @@ pub(crate) fn render_corpus_index(link_prefix: &str, corpus: &Corpus) -> String 
 pub(crate) fn render_open_questions(corpus: &Corpus) -> String {
     let root = corpus.root();
     let fields = crate::claims::ClaimFields::load(corpus.dir());
-    let mut items = Vec::new();
+    // Owed entries first, then the unanswerable ones under their own heading (RFC-0061 §2.5).
+    // The grouping is presentation only: `--format json` keeps one list in today's order.
+    let (mut items, mut terminal) = (Vec::new(), Vec::new());
+    let mut place = |line: String, t: crate::claims::Terminal| match t.unanswerable {
+        Some(_) => terminal.push(format!("{line} — {}", t.reasons.join("; "))),
+        None if t.reasons.is_empty() => items.push(line),
+        None => items.push(format!(
+            "{line} (unanswerable in part: {})",
+            t.reasons.join("; ")
+        )),
+    };
     for node in corpus.nodes() {
         let (path, text) = (&node.path, &node.text);
         let label = node.inst.label.clone().unwrap_or_default();
         let class = node.inst.class.clone().unwrap_or_default();
         let rel = path.strip_prefix(root).unwrap_or(path);
-        if crate::claims::has_open_claim(&label, text, fields.for_class(&class)) {
-            items.push(format!("- [{label}]({})", slash_path(rel)));
+        let fields = fields.for_class(&class);
+        if crate::claims::has_open_claim(&label, text, fields) {
+            place(
+                format!("- [{label}]({})", slash_path(rel)),
+                crate::claims::Terminal::of_node(&label, text, fields),
+            );
         }
         // An edge tagged `open` is a question in its own right (#857), and it is listed as
         // one rather than promoting the node that authors it: a node may author a dozen
@@ -113,18 +127,24 @@ pub(crate) fn render_open_questions(corpus: &Corpus) -> String {
             if claim.standing != "open" {
                 continue;
             }
-            items.push(format!(
-                "- [{label}]({}) — `{}`",
-                slash_path(rel),
-                claim.text
-            ));
+            let t = crate::claims::Terminal::of_edge(&claim);
+            place(
+                format!("- [{label}]({}) — `{}`", slash_path(rel), claim.text),
+                t,
+            );
         }
     }
-    let mut out = if items.is_empty() {
-        "_No open questions._".to_string()
-    } else {
-        items.join("\n")
+    // A corpus with no terminal claim renders exactly what it rendered before, so no README
+    // churns on the upgrade.
+    let mut out = match (items.is_empty(), terminal.is_empty()) {
+        (true, true) => "_No open questions._".to_string(),
+        (true, false) => "_No owed questions._".to_string(),
+        (false, _) => items.join("\n"),
     };
+    if !terminal.is_empty() {
+        out.push_str("\n\nUnanswerable, and off the questions clock:\n\n");
+        out.push_str(&terminal.join("\n"));
+    }
     // Questions this repository put to the corpora it depends on (#1467), listed beside its
     // own questions rather than mixed into them. An ask is open on the far side, and an
     // undecided claim here is not the same thing. A repository with no open asks renders
@@ -497,6 +517,10 @@ pub struct OpenQuestion {
     pub relationship: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    /// `unanswerable` and `reasons` (RFC-0061). Both absent on an entry with no terminal claim,
+    /// which is every entry in a corpus that has not written the form.
+    #[serde(flatten)]
+    pub terminal: crate::claims::Terminal,
 }
 
 /// A question this repository put to a corpus it depends on (#1467).
@@ -539,6 +563,7 @@ pub(crate) fn open_questions_data(corpus: &Corpus) -> OpenQuestionsReport {
                 scope: "node",
                 relationship: None,
                 target: None,
+                terminal: crate::claims::Terminal::of_node(&label, text, fields.for_class(&class)),
             });
         }
         // See [`render_open_questions`]: the edge is the subject, and the triple is what it
@@ -547,12 +572,14 @@ pub(crate) fn open_questions_data(corpus: &Corpus) -> OpenQuestionsReport {
             if claim.standing != "open" {
                 continue;
             }
+            let terminal = crate::claims::Terminal::of_edge(&claim);
             open_questions.push(OpenQuestion {
                 node: slash_path(rel),
                 label: label.clone(),
                 scope: "edge",
                 relationship: claim.relationship,
                 target: claim.target,
+                terminal,
             });
         }
     }
@@ -826,6 +853,63 @@ mod tests {
             &render_corpus_index("../corpus/", &Corpus::open(tmp.path())),
             &bundle.join("index"),
         );
+    }
+
+    /// Unanswerable entries are listed after the owed ones with their reasons, and the JSON
+    /// keeps one list in today's order with two fields that are absent where nothing is
+    /// terminal (RFC-0061 §2.5).
+    #[test]
+    fn unanswerable_questions_are_grouped_after_the_owed_ones() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let d = root.join(".yidam/corpus/concept");
+        std::fs::create_dir_all(&d).unwrap();
+        for (name, body) in [
+            ("a.yml", "it is [open — unanswerable: superseded]"),
+            (
+                "b.yml",
+                "it is [open] and [open — unanswerable: out of scope]",
+            ),
+            ("c.yml", "it is [open]"),
+        ] {
+            std::fs::write(
+                d.join(name),
+                format!("class: concept\nlabel: {name}\ndescription: \"{body}\"\n"),
+            )
+            .unwrap();
+        }
+        let corpus = Corpus::open(root);
+
+        let text = render_open_questions(&corpus);
+        let (owed, terminal) = text
+            .split_once("Unanswerable, and off the questions clock:")
+            .unwrap_or_else(|| panic!("no unanswerable heading:\n{text}"));
+        assert!(
+            owed.contains("b.yml) (unanswerable in part: out of scope)"),
+            "{text}"
+        );
+        assert!(
+            owed.contains("c.yml)\n") || owed.trim_end().ends_with("c.yml)"),
+            "{text}"
+        );
+        assert!(!owed.contains("a.yml"), "{text}");
+        assert!(terminal.contains("a.yml) — superseded"), "{text}");
+
+        let json = serde_json::to_value(open_questions_data(&corpus)).unwrap();
+        let entries = json["open_questions"].as_array().unwrap();
+        let by = |n: &str| {
+            entries
+                .iter()
+                .find(|e| e["node"].as_str().unwrap().ends_with(n))
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(entries.len(), 3);
+        assert_eq!(by("a.yml")["unanswerable"], "superseded");
+        assert_eq!(by("a.yml")["reasons"], serde_json::json!(["superseded"]));
+        assert!(by("b.yml").get("unanswerable").is_none());
+        assert_eq!(by("b.yml")["reasons"], serde_json::json!(["out of scope"]));
+        assert!(by("c.yml").get("reasons").is_none());
     }
 
     /// The root README's list is root-relative, and that is correct rather than

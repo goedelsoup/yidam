@@ -55,7 +55,7 @@ declaration anywhere that says there should have been one.**
 ### The only coverage prose in the model is about a search
 
 The word occurs once, in `GRAPH.md`'s description of the `scope` verb
-([`GRAPH.md:688-689`](../../yidam/prelude/GRAPH.md#L688-L689)):
+([`GRAPH.md:693-694`](../../yidam/prelude/GRAPH.md#L693-L694)):
 
 > a negative result about coverage is the only durable record that the coverage was checked
 
@@ -203,7 +203,7 @@ that compound:
    `nodes_with_issues: Vec<NodeIssues>`, and a `NodeIssues` names a file. A hole has no file —
    the absence of one is the entire finding. It would have to go in the report's one class-level
    list, `classes_without_instances`
-   ([`corpus.rs:131`](../../yidam/cli/src/cmd/corpus.rs#L131)), which is documented as *reported,
+   ([`classes_without_instances`](../../yidam/cli/src/cmd/corpus.rs#L233)), which is documented as *reported,
    never gated* and therefore could never express `policy: closed`.
 2. **`graph-check` has no severity model.** It is a boolean gate plus that single ungated
    escape hatch. #578's third scope decision — *"a hole is a finding, not an error; severity

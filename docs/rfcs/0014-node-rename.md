@@ -30,7 +30,7 @@ Markdown), so renaming `a/old.yml` → `a/new.yml` silently invalidates every in
 
 The detection *exists but does not gate.* `graph-check` already resolves each outgoing link against
 the filesystem and reports a break
-([`corpus.rs:298-300`](../../yidam/cli/src/cmd/corpus.rs#L298-L300)):
+([`corpus.rs:318-320`](../../yidam/cli/src/cmd/corpus.rs#L318-L320)):
 
 ```rust
 let resolved = dir.join(target);
@@ -48,12 +48,12 @@ atomic rename.
 ## Proposal
 
 **1 — No-dangling-edges gate.** Promote the existing broken-link finding
-([`corpus.rs:109-110`](../../yidam/cli/src/cmd/corpus.rs#L109-L110)) from advisory report to enforced
+([`corpus.rs:320`](../../yidam/cli/src/cmd/corpus.rs#L320) — "broken link") from advisory report to enforced
 invariant: a commit whose corpus contains a link to a nonexistent target **fails**. This is nearly
 free — the check is already written; only its *status* changes from "printed" to "gating." Its home is
 RFC-0001's report contract (a versioned rule with a golden fixture), enforced in CI via RFC-0004's
 `check-drift`, and runnable in a local pre-commit hook via RFC-0003's light binary. It is the natural
-sibling of the existing orphan rule ([`corpus.rs:101`](../../yidam/cli/src/cmd/corpus.rs#L101), "no
+sibling of the existing orphan rule ([`corpus.rs:311`](../../yidam/cli/src/cmd/corpus.rs#L311) — "no
 outgoing links") — orphans forbid a node with *no* edge; this forbids an edge to *no* node.
 
 **2 — `yidam rename <old> <new>`.** A CLI command that, in a single atomic commit:
@@ -63,7 +63,7 @@ outgoing links") — orphans forbid a node with *no* edge; this forbids an edge 
   `old`, and rewrites it to `new`;
 - is committed as an **operational** event — a rename is infrastructure, and operational commits are
   *"legitimate provenance records but are not epistemic events"*
-  ([`GRAPH.md:642-643`](../../yidam/prelude/GRAPH.md#L642-L643)) — with a message naming the count, e.g.
+  ([`GRAPH.md:647-648`](../../yidam/prelude/GRAPH.md#L647-L648)) — with a message naming the count, e.g.
   `migrate: concept/old.yml → concept/new.yml (7 inbound links rewritten)`.
 
   **`migrate`, not `rename`.** This RFC said `rename:` until the command was built, and `rename` is

@@ -10,6 +10,8 @@ use crate::regen::update_file_regen;
 struct StatusReport {
     nodes: usize,
     open_questions: usize,
+    /// Of `open_questions`, the nodes whose every open claim is unanswerable (RFC-0061).
+    unanswerable: usize,
     catalog_entries: usize,
     /// Source records past the TTL the corpus declared. Zero when none is declared.
     catalog_expired: usize,
@@ -121,6 +123,9 @@ pub fn status(root: Option<&std::path::Path>, format: crate::report::Format) -> 
     let fields = crate::claims::ClaimFields::load(&corpus);
 
     let mut open_count = 0usize;
+    // Of those, the nodes whose every open claim is terminal (RFC-0061). Still counted in
+    // `open_count`: *open* is the total on every surface, and this is the part not owed.
+    let mut unanswerable_count = 0usize;
     // How much of the corpus is measured against how much is supposed. This is the
     // template's most-adopted convention by a wide margin and nothing reported on it.
     let mut claims = crate::claims::ClaimCounts::default();
@@ -128,12 +133,15 @@ pub fn status(root: Option<&std::path::Path>, format: crate::report::Format) -> 
     for node in read.nodes() {
         let (text, inst) = (&node.text, &node.inst);
         let class = inst.class.clone().unwrap_or_default();
-        if crate::claims::has_open_claim(
-            inst.label.as_deref().unwrap_or_default(),
-            text,
-            fields.for_class(&class),
-        ) {
+        let label = inst.label.as_deref().unwrap_or_default();
+        if crate::claims::has_open_claim(label, text, fields.for_class(&class)) {
             open_count += 1;
+            if crate::claims::Terminal::of_node(label, text, fields.for_class(&class))
+                .unanswerable
+                .is_some()
+            {
+                unanswerable_count += 1;
+            }
         }
         claims.add(crate::claims::count_in_node(text, fields.for_class(&class)));
         edge_claims.add(crate::claims::count_in_edges(text));
@@ -171,8 +179,14 @@ pub fn status(root: Option<&std::path::Path>, format: crate::report::Format) -> 
         0 => String::new(),
         _ => format!("edges {} · ", edge_claims.cell()),
     };
+    // No parenthesis at zero: this line is committed into the README and gated by `regen
+    // --check`, and no corpus wrote the form before RFC-0061.
+    let open_cell = match unanswerable_count {
+        0 => format!("{open_count} open"),
+        m => format!("{open_count} open ({m} unanswerable)"),
+    };
     let content = format!(
-        "**{node_count} nodes** · {open_count} open · {sources_cell} · \
+        "**{node_count} nodes** · {open_cell} · {sources_cell} · \
          claims {} · {edges_cell}genesis {genesis}",
         claims.cell()
     );
@@ -194,6 +208,7 @@ pub fn status(root: Option<&std::path::Path>, format: crate::report::Format) -> 
             StatusReport {
                 nodes: node_count,
                 open_questions: open_count,
+                unanswerable: unanswerable_count,
                 catalog_entries,
                 catalog_expired,
                 claims_verified: claims.verified,

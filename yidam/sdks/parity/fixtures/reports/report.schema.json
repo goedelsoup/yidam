@@ -762,9 +762,32 @@
           "target": {
             "type": "string",
             "description": "`scope: edge` only. The edge's target, exactly as the node wrote it, so a consumer can find it in the file."
+          },
+          "unanswerable": {
+            "enum": [
+              "not in the public record",
+              "out of scope",
+              "superseded"
+            ],
+            "description": "Present only when EVERY open claim on the entry is written `[open \u2014 unanswerable: <reason>]` (#1506, RFC-0061): the first of their reasons. The entry is still an open question and is still listed; what it is off is the questions clock in `due`. Absent rather than null on a plain entry. NOT required: a CLI released before this field emits entries without it, and its output must still validate."
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "not in the public record",
+                "out of scope",
+                "superseded"
+              ]
+            },
+            "description": "Present whenever at least one open claim on the entry is marked unanswerable (#1506, RFC-0061): the reason of every marked claim, declared properties first and then prose, repeats kept. It is present on a fully terminal entry beside `unanswerable`, and on an owed one, where it is the only surface the marked claims appear on. Absent on a plain entry."
           }
         }
       }
+    },
+    "unanswerable": {
+      "type": "integer",
+      "description": "`status` only. How many of `open_questions` are off the questions clock because every open claim on them is marked unanswerable (#1506). A SUBSET of `open_questions`, never added to it. NOT required: a CLI released before this field emits `status` without it, and its output must still validate."
     },
     "asks": {
       "type": "array",

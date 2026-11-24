@@ -691,20 +691,37 @@ fn clock_catalog(root: &Path, today: i64) -> Clock {
 /// pays for a directory walk and nothing else.
 fn clock_questions(root: &Path, after: Option<usize>) -> Clock {
     const Q: &str = "How long has a question gone unanswered?";
-    let open = open_at_head(root);
+    let Questions {
+        owed: open,
+        total,
+        unanswerable,
+    } = open_at_head(root);
+    // The excluded figure, named whenever there is one so the clock is never silent about
+    // what it left out (RFC-0061 §2.4). At zero the line reads as it always has.
+    let tail = match unanswerable {
+        0 => String::new(),
+        m => format!("; {total} open, {m} unanswerable"),
+    };
+    // *Owed* only when it differs from *open*: one word, one meaning, on every surface.
+    let noun = if unanswerable == 0 { "open" } else { "owed" };
 
     let Some(after) = after else {
-        return Clock::new(
-            Clock::QUESTIONS,
-            Q,
-            State::Undeclared,
-            format!("{} open question(s)", open.len()),
-        )
-        .unset("`[due] questions_after` in .yidam/config.toml");
+        let line = match unanswerable {
+            0 => format!("{total} open question(s)"),
+            m => format!("{total} open question(s), {m} unanswerable"),
+        };
+        return Clock::new(Clock::QUESTIONS, Q, State::Undeclared, line)
+            .unset("`[due] questions_after` in .yidam/config.toml");
     };
     let interval = format!("[due] questions_after = {after}");
     if open.is_empty() {
-        return Clock::new(Clock::QUESTIONS, Q, State::Ok, "no open questions").at(interval);
+        return Clock::new(
+            Clock::QUESTIONS,
+            Q,
+            State::Ok,
+            format!("no {noun} questions{tail}"),
+        )
+        .at(interval);
     }
 
     let ages = crate::cmd::lint::history::open_question_age(root);
@@ -723,7 +740,7 @@ fn clock_questions(root: &Path, after: Option<usize>) -> Clock {
             Q,
             State::Ok,
             format!(
-                "{} open question(s), none past {after} commit(s)",
+                "{} {noun} question(s), none past {after} commit(s){tail}",
                 open.len()
             ),
         )
@@ -735,7 +752,7 @@ fn clock_questions(root: &Path, after: Option<usize>) -> Clock {
         Q,
         State::Due,
         format!(
-            "{} of {} open question(s) past {after} commit(s), longest {longest} ({node})",
+            "{} of {} {noun} question(s) past {after} commit(s), longest {longest} ({node}){tail}",
             overdue.len(),
             open.len()
         ),
@@ -751,19 +768,40 @@ fn clock_questions(root: &Path, after: Option<usize>) -> Clock {
     )
 }
 
+/// The open questions at HEAD: the owed ones by node, and the two figures the line names.
+struct Questions {
+    /// Every owed entry's node, repo-relative. An unanswerable entry is not here (RFC-0061).
+    owed: Vec<String>,
+    /// Every entry `open-questions` lists, terminal or not.
+    total: usize,
+    /// The entries whose every open claim is terminal.
+    unanswerable: usize,
+}
+
 /// Every node that reads as an open question at HEAD, repo-relative.
+///
+/// **An unanswerable entry is dropped** (RFC-0061 §2.4): the clock counts and ages only what is
+/// owed, and the two figures it drops are carried beside the list so the line can name them.
 ///
 /// `open-questions`' own walk, called rather than reproduced. The remedy this clock prints
 /// sends a reader to that command, and a clock counting a set that command does not list
 /// would be the third implementation of one predicate this repository has had to consolidate.
 /// The near-miss it avoids is small and real: a node whose YAML does not parse still counts
 /// there, because the tag is found in its prose.
-fn open_at_head(root: &Path) -> Vec<String> {
-    crate::cmd::corpus::open_questions_data(&crate::corpus::Corpus::open(root))
-        .open_questions
+fn open_at_head(root: &Path) -> Questions {
+    let entries =
+        crate::cmd::corpus::open_questions_data(&crate::corpus::Corpus::open(root)).open_questions;
+    let total = entries.len();
+    let owed: Vec<String> = entries
         .into_iter()
+        .filter(|q| q.terminal.unanswerable.is_none())
         .map(|q| q.node)
-        .collect()
+        .collect();
+    Questions {
+        unanswerable: total - owed.len(),
+        owed,
+        total,
+    }
 }
 
 /// How long has a bounded inquiry been in flight?
