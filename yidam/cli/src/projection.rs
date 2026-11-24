@@ -102,6 +102,7 @@ pub fn mode(root: &Path) -> Result<CorpusMode> {
 /// For a config read out of a pinned commit: every other table is the shape that commit's
 /// binary accepted, not this one's, so a key since renamed or added elsewhere must not stop a
 /// dependency from being locked. The `[corpus]` table itself is still read strictly.
+#[cfg(any(feature = "tonpa", test))]
 pub fn parse_mode(text: &str) -> Result<CorpusMode> {
     let table: toml::Table = toml::from_str(text).context("parsing .yidam/config.toml")?;
     match table.get("corpus") {
