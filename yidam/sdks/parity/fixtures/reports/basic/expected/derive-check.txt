@@ -1,1 +1,1 @@
-derive check: no `[derive] paths` in .yidam/config.toml, so there is nothing to read.
+derive check: no `[derive] paths` and no `[[derive.records]]` in .yidam/config.toml, so there is nothing to read.

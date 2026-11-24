@@ -125,6 +125,22 @@
 # with YAML frontmatter. Absent means `derive check` reads nothing and passes.
 # paths = ["dossier/**"]
 
+# JSON files whose records each quote a span of a corpus, for `derive check` to hold every
+# record as a citation. Each entry names its files by `export` (a tonpa dependency's pinned
+# export, read against that dependency's corpus at the pin) or by `paths` (globs over this
+# repository's `.json` files, read against this corpus) — one, never both. `records` are JSON
+# pointers, `*` matching every member; `node` and `span` are pointers relative to each record
+# and default to "0/node" and "0/span". `governing` names the quote whose paragraph sets the
+# tier, defaulting to the span, and `tier` the standing the record claims. A pointer matching
+# nothing fails rather than reading nothing. Absent means no JSON is read as records.
+# [[derive.records]]
+# paths = ["packs/**"]
+# records = ["/claims/*"]
+# node = "0/node"
+# span = "0/span"
+# governing = "0/tier_span"
+# tier = "1/tier"
+
 [serve]
 # Whether a server started against this corpus may declare the `act` capability — that is,
 # may draft `propose/*` branches and answer `cycle`. The one key this file sets live.

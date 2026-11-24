@@ -318,7 +318,7 @@ fn standings_in(paragraph: &str) -> Vec<&'static str> {
     let mut rest = paragraph;
     while let Some(open) = rest.find('[') {
         let after = &rest[open + 1..];
-        let Some(close) = after.find(|c| c == ']' || c == '[') else {
+        let Some(close) = after.find([']', '[']) else {
             break;
         };
         if after.as_bytes()[close] == b']' {

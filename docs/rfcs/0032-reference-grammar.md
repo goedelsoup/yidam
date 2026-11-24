@@ -281,7 +281,7 @@ question one layer down and the answers must not contradict.
 is actually reachable narrowed what "detectable" means. It is not two entries in one
 `.yidam/tonpa/`, which cannot exist — the directory name *is* the declared name. It is a path
 dependency and an unpacked bundle claiming one name, which
-[`resolved`](../../yidam/cli/src/deps.rs#L390-L437) already resolves in favour of the checkout
+[`resolved`](../../yidam/cli/src/deps.rs#L472-L519) already resolves in favour of the checkout
 and does so **silently**. Silence is right in the common case, where the two are one corpus in
 two forms: someone fetched a dependency and then pointed at a checkout of it to edit. It is
 wrong when they are different corpora, because then the reader is reading one while
