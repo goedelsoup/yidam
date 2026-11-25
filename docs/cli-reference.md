@@ -543,7 +543,7 @@ the read-only overview.
 | `cohort <repo>…` | What a set of derived repositories says about the prelude they inherited: per norm, how many kept it. `--paths` |
 | `decisions-log` * | Decision records in `.yidam/decisions/`, newest first. Writes the `<!-- REGEN: yidam decisions-log -->` block where that directory has a README carrying one *(no flags)* |
 | `sangha` | Electors, positions, and settled resolutions |
-| `vocabulary` | The closed commit vocabulary. `--check <subject>` tests a subject line before the commit exists |
+| `vocabulary` | The closed commit vocabulary. `--check <subject>` tests a subject line before the commit exists, and exits 1 on a violation. Subjects git writes are exempt: a merge in progress, `Revert "…"`, `Reapply "…"`, and `fixup!`, `squash!` or `amend!` |
 | `rename <old> <new>` * | Rename a node or a catalog entry (`catalog/old`), rewriting every edge into it. `--dry-run` |
 | `migrate <sub>` * | Change an ontology and every instance that adopted it, as one event. `--dry-run` |
 | `propose` * | Draft findings as proposed epistemic commits on a `propose/<head>` branch |

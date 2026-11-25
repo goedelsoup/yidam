@@ -236,6 +236,32 @@ pub(crate) fn is_merge(subject: &str, parents: usize) -> bool {
     parents >= 2 && GENERATED.iter().any(|p| subject.starts_with(p))
 }
 
+/// Whether `subject` is the one `git revert` (or `git revert` of a revert) wrote (#1518).
+///
+/// `git revert <c>` writes `Revert "<subject of c>"`, and reverting that revert writes
+/// `Reapply "<subject of c>"` on git ≥ 2.43. Neither names a verb, and neither is the author's
+/// to choose: the subject inside the quotes was already checked when `c` was written. Both are
+/// exempt everywhere the vocabulary is enforced — here and in `vocabulary --check` — for the
+/// same reason [`is_merge`]'s generated forms are. The opening quote is carried in each prefix
+/// so an authored `Revert the cache change` stays checked.
+pub(crate) fn is_revert(subject: &str) -> bool {
+    subject.starts_with("Revert \"") || subject.starts_with("Reapply \"")
+}
+
+/// The autosquash marker `subject` opens with, if any (#1518).
+///
+/// `git commit --fixup`, `--squash` and `--fixup=amend:` write `fixup! `, `squash! ` and
+/// `amend! ` before the target's subject. These are *meant* to be folded away by
+/// `git rebase --autosquash` before they land, so `vocabulary --check`, which runs before the
+/// commit exists, exempts them: refusing one would refuse the workflow that removes it. History is the
+/// other side of that bargain: a marker that reached the log landed unsquashed, so
+/// [`unrecognized_verb`] still reports it, with a detail saying so.
+pub(crate) fn autosquash_prefix(subject: &str) -> Option<&'static str> {
+    ["fixup! ", "squash! ", "amend! "]
+        .into_iter()
+        .find(|p| subject.starts_with(p))
+}
+
 /// The corpus vocabulary, checked against the commits the corpus register governs.
 ///
 /// # The register scopes recognition and never classification
@@ -266,6 +292,7 @@ pub fn unrecognized_verb(subjects: &[Subject], registers: &Registers) -> Check {
     let violations = subjects
         .iter()
         .filter(|s| !is_merge(&s.text, s.parents))
+        .filter(|s| !is_revert(&s.text))
         .filter(|s| registers.touch(&s.paths) != Touch::ObjectOnly)
         .filter(|s| !is_recognized_verb(&s.verb))
         .map(|s| {
@@ -283,7 +310,13 @@ pub fn unrecognized_verb(subjects: &[Subject], registers: &Registers) -> Check {
             // Recognition itself does not move, and nothing here may make it: the suffixed
             // commit is still counted off-vocabulary, exactly as `split_scope`'s contract
             // requires. What changes is only what the finding *says*.
-            let detail = if s.verb.is_empty() {
+            let detail = if let Some(marker) = autosquash_prefix(&s.text) {
+                format!(
+                    "`{}` is git's autosquash marker and this commit landed unsquashed — \
+                     `git rebase --autosquash` folds it into its target",
+                    marker.trim_end()
+                )
+            } else if s.verb.is_empty() {
                 format!("no `verb: ` prefix — {:?}", truncate(&s.text))
             } else if let Some((base, scope)) =
                 split_scope(&s.verb).filter(|(base, _)| is_recognized_verb(base))
@@ -397,6 +430,35 @@ mod tests {
             "{}",
             c.violations[0].detail
         );
+    }
+
+    /// #1518: `git revert` writes the subject, and the reverted one was already checked.
+    #[test]
+    fn revert_and_reapply_subjects_are_exempt() {
+        let s = vec![
+            subj("aaaaaaaa", "Revert \"establish: a node\""),
+            subj("bbbbbbbb", "Reapply \"establish: a node\""),
+        ];
+        assert!(unrecognized_verb(&s).passed());
+        // Authored, not generated: no opening quote.
+        let s = vec![subj("cccccccc", "Revert the cache change")];
+        assert_eq!(unrecognized_verb(&s).violations.len(), 1);
+    }
+
+    /// #1518: an autosquash marker in history landed unsquashed, and the finding says so.
+    #[test]
+    fn an_autosquash_marker_in_history_is_reported_as_unsquashed() {
+        for (marker, text) in [
+            ("fixup!", "fixup! establish: a node"),
+            ("squash!", "squash! establish: a node"),
+            ("amend!", "amend! establish: a node"),
+        ] {
+            let c = unrecognized_verb(&[subj("deadbeef", text)]);
+            assert_eq!(c.violations.len(), 1, "{text}");
+            let d = &c.violations[0].detail;
+            assert!(d.contains(&format!("`{marker}`")), "{d}");
+            assert!(d.contains("git rebase --autosquash"), "{d}");
+        }
     }
 
     #[test]
