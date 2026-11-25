@@ -30,7 +30,8 @@ use yidam_core::git::{
     classify_commit, is_recognized_verb, CommitKind, EPISTEMIC_VERBS, OPERATIONAL_VERBS,
 };
 
-use crate::cmd::lint::commits::{autosquash_prefix, is_merge, is_revert, split_scope};
+use crate::cmd::lint::commits::{autosquash_prefix, is_merge, split_scope, unwrap_revert, verb_of};
+use crate::kuten::{Registers, Touch};
 
 #[derive(Debug, serde::Serialize)]
 pub struct Verb {
@@ -68,12 +69,59 @@ pub struct SubjectCheck {
     pub kind: &'static str,
     pub recognized: bool,
     pub violations: Vec<SubjectViolation>,
-    /// Why the subject is not the author's to check, when git wrote it (#1518).
+    /// Why the subject is not the author's to check, when it is not (#1518).
     ///
     /// Text-only: the frozen MCP contract and the report schema carry the verdict — an empty
     /// `violations` — and nothing about why, so this never reaches JSON.
     #[serde(skip)]
     pub exempt: Option<&'static str>,
+    /// The subject actually judged, when git wrote a wrapper around it (#1518).
+    ///
+    /// `verb`, `kind` and `recognized` read the line as written, because the frozen contract
+    /// defines `verb` as everything before its first `: `. The violations are about this one.
+    /// Text-only for the same reason as [`Self::exempt`].
+    #[serde(skip)]
+    pub checked: Option<String>,
+}
+
+/// What `--check` knows about the commit being written, beyond its message (#1518).
+///
+/// `lint --commits` reads both from the commit itself — its parent count and the paths it
+/// touched. Before the commit exists they come from the repository instead.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct Writing {
+    /// A merge is in progress, so a generated merge subject is git's.
+    pub merging: bool,
+    /// The staged change touches only `[object]` paths, which the vocabulary does not govern.
+    pub object_only: bool,
+}
+
+impl Writing {
+    pub(crate) fn of_repo(root: &Path) -> Self {
+        let git = || crate::git::Git::new(root);
+        let merging = git()
+            .args(["rev-parse", "-q", "--verify", "MERGE_HEAD"])
+            .succeeded();
+        // A merge has no paths of its own in `lint --commits`, so it is never object-only.
+        let registers = Registers::of_repo(root);
+        let object_only = !merging
+            && registers.declares_object()
+            && git()
+                .args(["diff", "--cached", "--name-only", "-z"])
+                .lines()
+                .map(|l| {
+                    l.iter()
+                        .flat_map(|l| l.split('\0'))
+                        .filter(|p| !p.is_empty())
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .is_some_and(|paths| registers.touch(&paths) == Touch::ObjectOnly);
+        Self {
+            merging,
+            object_only,
+        }
+    }
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -259,20 +307,57 @@ pub(crate) fn vocabulary_verbs() -> Vec<&'static str> {
         .collect()
 }
 
+/// [`check_subject_in`] with nothing known about the commit being written.
+#[cfg(test)]
 pub(crate) fn check_subject(text: &str) -> SubjectCheck {
-    check_subject_in(text, false)
+    check_subject_in(text, Writing::default())
 }
 
-/// [`check_subject`], knowing whether the commit being written is a merge (#1518).
+/// [`check_subject`] for a commit about to be written in `root`: what `--check` and
+/// `serve --mcp`'s `check_subject` both answer, so the two cannot disagree (#1518).
+pub(crate) fn check_subject_at(root: &Path, text: &str) -> SubjectCheck {
+    check_subject_in(text, Writing::of_repo(root))
+}
+
+/// The subject a message will leave behind once git's wrappers are gone (#1518).
 ///
-/// Three kinds of subject are git's rather than the author's, and none of them is checked:
-/// a generated merge subject — only when `merging`, because [`is_merge`] requires two
-/// parents and a bare `Merge branch '…'` on an ordinary commit is authored — a
-/// `Revert "…"`/`Reapply "…"`, and an autosquash marker. The first two are exempt in
-/// `lint --commits` too. The marker is exempt only here: before the commit exists it is the
-/// first half of `git rebase --autosquash`, and refusing it would refuse the workflow that
-/// removes it; in history it landed unsquashed, and the lint says so.
-pub(crate) fn check_subject_in(text: &str, merging: bool) -> SubjectCheck {
+/// `Revert "…"`/`Reapply "…"` are peeled to the reverted subject, and an autosquash marker
+/// to the subject the squash keeps: the target's, after `fixup! ` or `squash! `, or the
+/// replacement an `amend! ` commit carries as the first line of its body. None when there
+/// was no wrapper.
+fn unwrapped(text: &str) -> Option<String> {
+    let first = text.lines().next().unwrap_or("").trim();
+    let mut inner = first.to_string();
+    // The body belongs to the outermost subject only; an inner marker has none.
+    let mut body = Some(text);
+    loop {
+        if let Some(rest) = unwrap_revert(&inner) {
+            inner = rest.to_string();
+            body = None;
+        } else if let Some(marker) = autosquash_prefix(&inner) {
+            let rest = inner[marker.len()..].to_string();
+            let replacement = (marker == "amend! ")
+                .then_some(body)
+                .flatten()
+                .and_then(|t| t.lines().skip(1).map(str::trim).find(|l| !l.is_empty()));
+            inner = replacement.map(str::to_string).unwrap_or(rest);
+            body = None;
+        } else {
+            break;
+        }
+    }
+    (inner != first).then_some(inner)
+}
+
+/// [`check_subject`], knowing what is being written (#1518).
+///
+/// Two subjects are not the author's to check at all: a generated merge subject — only when
+/// a merge is in progress, because [`is_merge`] requires two parents and a bare
+/// `Merge branch '…'` on an ordinary commit is authored — and any subject on a commit whose
+/// staged paths are all `[object]` paths, which `lint --commits` does not hold to the
+/// vocabulary either. Subjects git wraps — reverts and autosquash markers — are checked by
+/// what the wrapper holds (see [`unwrapped`]); a reverted merge subject is git's.
+pub(crate) fn check_subject_in(text: &str, writing: Writing) -> SubjectCheck {
     // `classify_commit` rather than a local parse. The rule this whole check turns on —
     // *everything before the first `: ` is the verb* — is the reason a `(scope)` suffix
     // costs twice, and re-stating it here would be a second implementation of the one
@@ -283,25 +368,39 @@ pub(crate) fn check_subject_in(text: &str, merging: bool) -> SubjectCheck {
     let verb = event.verb;
     let recognized = is_recognized_verb(&verb);
     let mut violations = Vec::new();
-    let exempt = if is_merge(first, if merging { 2 } else { 1 }) {
+    let checked = unwrapped(text);
+    let judged = checked.as_deref().unwrap_or(first);
+    let exempt = if is_merge(first, if writing.merging { 2 } else { 1 }) {
         Some("git wrote this merge subject")
-    } else if is_revert(first) {
-        Some("git wrote this revert subject")
-    } else if autosquash_prefix(first).is_some() {
-        Some("an autosquash marker — `git rebase --autosquash` folds it into its target")
+    } else if writing.object_only {
+        Some(
+            "the staged change touches only `[object]` paths, which the vocabulary does not govern",
+        )
+    } else if checked.is_some() && is_merge(judged, 2) {
+        Some("git wrote the merge subject this reverts")
     } else {
         None
     };
+    // What the violations are about, read the same way `classify_commit` reads `verb`.
+    let judged_verb = if checked.is_some() {
+        verb_of(judged)
+    } else {
+        verb.clone()
+    };
+    let inside = match &checked {
+        Some(c) => format!("Inside git's wrapper, the subject is {c:?}. "),
+        None => String::new(),
+    };
 
     if exempt.is_some() {
-        // Nothing to say: the subject is git's, not the author's.
-    } else if verb.is_empty() {
+        // Nothing to say: the subject is not the author's to check.
+    } else if judged_verb.is_empty() {
         violations.push(SubjectViolation {
             rule: "no-verb".to_string(),
             severity: severity(),
-            message: "No `verb: ` prefix. Every commit subject begins with one.".to_string(),
+            message: format!("{inside}No `verb: ` prefix. Every commit subject begins with one."),
         });
-    } else if let Some((base, scope)) = split_scope(&verb) {
+    } else if let Some((base, scope)) = split_scope(&judged_verb) {
         // Worth its own rule rather than folding into "unrecognized": this one has a known
         // cause and a known cost, and saying so is the difference between a squiggle that
         // teaches and one that scolds.
@@ -310,25 +409,26 @@ pub(crate) fn check_subject_in(text: &str, merging: bool) -> SubjectCheck {
         } else {
             "the commit"
         };
-        let rest = first.split_once(": ").map(|(_, r)| r).unwrap_or("");
+        let rest = judged.split_once(": ").map(|(_, r)| r).unwrap_or("");
         violations.push(SubjectViolation {
             rule: "scope-suffix".to_string(),
             severity: severity(),
             message: format!(
-                "`{verb}` carries a conventional-commits scope. Everything before the first \
-                 `: ` is the verb, so this costs twice — it is outside the vocabulary, and \
-                 classification falls through to Epistemic, filing {cost} as a change in \
-                 understanding. Put the scope in the subject: `{base}: {scope} {rest}`."
+                "{inside}`{judged_verb}` carries a conventional-commits scope. Everything \
+                 before the first `: ` is the verb, so this costs twice — it is outside the \
+                 vocabulary, and classification falls through to Epistemic, filing {cost} as \
+                 a change in understanding. Put the scope in the subject: \
+                 `{base}: {scope} {rest}`."
             ),
         });
-    } else if !recognized {
+    } else if !is_recognized_verb(&judged_verb) {
         violations.push(SubjectViolation {
             rule: "unrecognized-verb".to_string(),
             severity: severity(),
             message: format!(
-                "`{verb}` is not in the closed vocabulary. Reach for the closest verb rather \
-                 than inventing one; a verb outside the list is not a richer description, it \
-                 is an unclassifiable one."
+                "{inside}`{judged_verb}` is not in the closed vocabulary. Reach for the \
+                 closest verb rather than inventing one; a verb outside the list is not a \
+                 richer description, it is an unclassifiable one."
             ),
         });
     }
@@ -340,11 +440,12 @@ pub(crate) fn check_subject_in(text: &str, merging: bool) -> SubjectCheck {
         recognized,
         violations,
         exempt,
+        checked,
     }
 }
 
-/// `merging` is whether a merge is in progress, so a generated merge subject is git's (#1518).
-fn vocabulary_data(root: &Path, check: Option<&str>, merging: bool) -> VocabularyReport {
+/// `writing` is what the repository says about the commit being written (#1518).
+fn vocabulary_data(root: &Path, check: Option<&str>, writing: Writing) -> VocabularyReport {
     let path = graph_md(root);
     let documented = path
         .as_ref()
@@ -386,7 +487,7 @@ fn vocabulary_data(root: &Path, check: Option<&str>, merging: bool) -> Vocabular
         } else {
             drift_between(&documented)
         },
-        subject: check.map(|c| check_subject_in(c, merging)),
+        subject: check.map(|c| check_subject_in(c, writing)),
     }
 }
 
@@ -441,6 +542,12 @@ fn render_subject(s: &SubjectCheck) -> String {
             "outside the vocabulary"
         }
     );
+    if let Some(inner) = &s.checked {
+        let _ = writeln!(
+            out,
+            "  checked: {inner:?} — the subject inside git's wrapper"
+        );
+    }
     if let Some(why) = s.exempt {
         let _ = writeln!(out, "  exempt: {why}");
     }
@@ -457,13 +564,14 @@ pub fn vocabulary(
     format: crate::report::Format,
 ) -> Result<()> {
     let root = crate::paths::resolve_root(root)?;
-    // `--check` runs before the commit exists, so a merge's parent count is read
-    // from the merge in progress (#1518). Only asked when there is a subject to check.
-    let merging = check.is_some()
-        && crate::git::Git::new(&root)
-            .args(["rev-parse", "-q", "--verify", "MERGE_HEAD"])
-            .succeeded();
-    let data = vocabulary_data(&root, check.as_deref(), merging);
+    // `--check` runs before the commit exists, so what `lint --commits` reads from the
+    // commit — its parents, its paths — is read from the repository (#1518). Only asked
+    // when there is a subject to check.
+    let writing = match check {
+        Some(_) => Writing::of_repo(&root),
+        None => Writing::default(),
+    };
+    let data = vocabulary_data(&root, check.as_deref(), writing);
     // `--check` is a gate (#1518): a hook or CI step reads the exit code, and a verdict
     // printed under exit 0 refuses nothing. Listing mode has no verdict and stays 0.
     let passed = data
@@ -559,21 +667,46 @@ mod tests {
         );
     }
 
-    /// #1518: the subjects git writes are not the author's to check, so a commit-msg hook
-    /// running `--check` must not refuse them.
+    /// #1518: a subject git wraps is checked by what the wrapper holds, so a commit-msg hook
+    /// neither refuses `git revert` nor lets `Revert "wip"` through.
     #[test]
-    fn subjects_git_writes_are_exempt() {
+    fn a_wrapped_subject_is_judged_by_what_it_holds() {
         for text in [
             "Revert \"establish: the tailwater node\"",
             "Reapply \"establish: the tailwater node\"",
+            "Revert \"Revert \"establish: the tailwater node\"\"",
             "fixup! establish: the tailwater node",
             "squash! establish: the tailwater node",
+            "fixup! fixup! establish: the tailwater node",
             "amend! establish: the tailwater node",
         ] {
             let c = check_subject(text);
             assert!(c.violations.is_empty(), "{text}: {:?}", c.violations);
-            assert!(c.exempt.is_some(), "{text}");
+            assert_eq!(
+                c.checked.as_deref(),
+                Some("establish: the tailwater node"),
+                "{text}"
+            );
+            assert!(c.exempt.is_none(), "{text}");
         }
+        for (text, rule) in [
+            ("Revert \"wip\"", "no-verb"),
+            ("Reapply \"lift: a node\"", "unrecognized-verb"),
+            ("fixup! wip", "no-verb"),
+            ("squash! fix(cli): a node", "scope-suffix"),
+        ] {
+            let c = check_subject(text);
+            assert_eq!(c.violations.len(), 1, "{text}");
+            assert_eq!(c.violations[0].rule, rule, "{text}");
+            assert!(
+                c.violations[0].message.starts_with("Inside git's wrapper"),
+                "{text}"
+            );
+        }
+        // A reverted merge subject is git's twice over.
+        let c = check_subject("Revert \"Merge branch 'x' into main\"");
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
+        assert!(c.exempt.is_some());
         // An authored revert names a verb like anything else.
         assert_eq!(
             check_subject("Revert the cache change").violations[0].rule,
@@ -581,18 +714,48 @@ mod tests {
         );
     }
 
+    /// #1518: `--fixup=amend:` keeps the body's first line as the new subject, so that is
+    /// the line checked — not the target's subject after the marker.
+    #[test]
+    fn an_amend_is_judged_by_its_replacement_subject() {
+        let c = check_subject("amend! establish: a node\n\nwip\n\nthe body\n");
+        assert_eq!(c.checked.as_deref(), Some("wip"));
+        assert_eq!(c.violations[0].rule, "no-verb");
+
+        let c = check_subject("amend! wip\n\nrevise: a node\n");
+        assert_eq!(c.checked.as_deref(), Some("revise: a node"));
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
+    }
+
     /// #1518: a generated merge subject is exempt only while a merge is being written —
     /// `lint --commits` exempts it only at two parents, and the hook must agree.
     #[test]
     fn a_merge_subject_is_exempt_only_while_merging() {
         let text = "Merge branch 'main' into phase/x";
-        let c = check_subject_in(text, true);
+        let merging = Writing {
+            merging: true,
+            ..Writing::default()
+        };
+        let c = check_subject_in(text, merging);
         assert!(c.violations.is_empty(), "{:?}", c.violations);
         assert!(c.exempt.is_some());
 
-        let c = check_subject_in(text, false);
+        let c = check_subject_in(text, Writing::default());
         assert_eq!(c.violations[0].rule, "no-verb");
         assert!(c.exempt.is_none());
+    }
+
+    /// #1518: `lint --commits` does not hold an object-only commit to the vocabulary, so the
+    /// hook does not refuse its subject either.
+    #[test]
+    fn an_object_only_commit_is_exempt() {
+        let object_only = Writing {
+            object_only: true,
+            ..Writing::default()
+        };
+        let c = check_subject_in("tweak the widget", object_only);
+        assert!(c.violations.is_empty(), "{:?}", c.violations);
+        assert!(c.exempt.is_some());
     }
 
     /// The exemption is text-only: the frozen contract carries no field for it.
@@ -600,6 +763,7 @@ mod tests {
     fn the_exemption_never_reaches_json() {
         let v = serde_json::to_value(check_subject("fixup! establish: x")).unwrap();
         assert!(v.get("exempt").is_none(), "{v}");
+        assert!(v.get("checked").is_none(), "{v}");
     }
 
     /// Only the subject line is checked. A body mentioning a verb is not a subject.
@@ -650,7 +814,7 @@ mod tests {
         .unwrap();
         assert_eq!(graph_md(root), Some(vendored));
 
-        let r = vocabulary_data(root, None, false);
+        let r = vocabulary_data(root, None, Writing::default());
         assert_eq!(r.source, ".yidam/.vendor/prelude/GRAPH.md");
         assert_eq!(
             r.verbs.iter().find(|v| v.verb == "establish").unwrap().when,
@@ -662,7 +826,7 @@ mod tests {
     #[test]
     fn an_absent_graph_md_costs_the_prose_and_reports_no_drift() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let r = vocabulary_data(tmp.path(), None, false);
+        let r = vocabulary_data(tmp.path(), None, Writing::default());
         assert!(r.source.is_empty());
         assert!(r.drift.is_empty(), "nothing to compare is not disagreement");
         assert_eq!(

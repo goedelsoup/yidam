@@ -31,7 +31,7 @@ fn a_violation_exits_nonzero_and_a_legal_subject_does_not() {
 }
 
 #[test]
-fn subjects_git_writes_pass_the_check() {
+fn a_wrapped_subject_is_checked_by_what_it_holds() {
     let example = common::Example::materialize("streamflow");
     for subject in [
         "Revert \"establish: the tailwater node\"",
@@ -42,8 +42,47 @@ fn subjects_git_writes_pass_the_check() {
     ] {
         let (out, code) = check(&example, subject);
         assert_eq!(code, 0, "{subject}: {out}");
-        assert!(out.contains("exempt:"), "{subject}: {out}");
+        assert!(
+            out.contains("checked: \"establish: the tailwater node\""),
+            "{subject}: {out}"
+        );
     }
+    // The wrapper is no way past the gate.
+    for subject in ["Revert \"wip\"", "fixup! did stuff"] {
+        let (out, code) = check(&example, subject);
+        assert_eq!(code, 1, "{subject}: {out}");
+    }
+    // `--fixup=amend:` keeps the body's first line, and that is the line judged.
+    let (out, code) = check(&example, "amend! establish: the tailwater node\n\nwip\n");
+    assert_eq!(code, 1, "{out}");
+}
+
+#[test]
+fn a_commit_touching_only_object_paths_passes() {
+    let example = common::Example::materialize("streamflow");
+    let dir = example.path();
+    let config = dir.join(".yidam/config.toml");
+    let mut text = std::fs::read_to_string(&config).unwrap_or_default();
+    text.push_str("\n[object]\npaths = [\"web/**\"]\n");
+    std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+    std::fs::write(&config, text).unwrap();
+
+    // Nothing staged: the subject is the author's, as `lint --commits` reads a commit with
+    // corpus paths.
+    let (out, code) = check(&example, "did stuff");
+    assert_eq!(code, 1, "{out}");
+
+    std::fs::create_dir_all(dir.join("web")).unwrap();
+    std::fs::write(dir.join("web/index.html"), "<p>hi</p>\n").unwrap();
+    common::git::git(&dir, &["add", "web/index.html"]);
+    let (out, code) = check(&example, "did stuff");
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("exempt:"), "{out}");
+
+    // One corpus path makes it corpus work again.
+    common::git::git(&dir, &["add", ".yidam/config.toml"]);
+    let (out, code) = check(&example, "did stuff");
+    assert_eq!(code, 1, "{out}");
 }
 
 #[test]

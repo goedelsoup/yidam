@@ -254,7 +254,7 @@ fn dispatch(state: &mut ServerState, name: &str, args: &Value) -> Result<Value, 
         "list_nodes" => Ok(list_nodes(state, args)),
         "open_questions" => Ok(open_questions(state)),
         "claims" => Ok(claims(state, args)),
-        "check_subject" => check_subject(args),
+        "check_subject" => check_subject(state, args),
         "check_citation" => check_citation(state, args),
         "claim_tags" => Ok(claim_tags()),
         "licensed_edges" => licensed_edges(state, args),
@@ -1381,14 +1381,16 @@ fn licensed_edges(state: &ServerState, args: &Value) -> Result<Value, String> {
 ///
 /// Calls the function `yidam vocabulary --check` calls, and serializes what it returns.
 /// Rebuilding the verb parse here would be its fourth copy and would lose the scope-suffix
-/// rule, which is the one that catches the common mistake.
+/// rule, which is the one that catches the common mistake. That includes reading the
+/// repository the way `--check` does — a merge in progress, a staged change that touches
+/// only `[object]` paths — so the two never give one subject two verdicts (#1518).
 ///
 /// **Never an error.** An unrecognized verb is a finding in the payload: the gate reports it
 /// at warn severity because history cannot be rewritten to fix a verb, and a tool that
 /// failed harder than the gate would assert a verdict nobody agreed to.
-fn check_subject(args: &Value) -> Result<Value, String> {
+fn check_subject(state: &ServerState, args: &Value) -> Result<Value, String> {
     let subject = args["subject"].as_str().ok_or("subject is required")?;
-    let checked = crate::cmd::vocabulary::check_subject(subject);
+    let checked = crate::cmd::vocabulary::check_subject_at(&state.root, subject);
     let mut out = serde_json::to_value(&checked).map_err(|e| e.to_string())?;
     // The closed list travels with the verdict, so a caller that got it wrong can correct
     // without a second call — which is the point of asking before the act.

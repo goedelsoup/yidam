@@ -1660,7 +1660,8 @@
           "description": "What the commit would be filed as. Total: every subject gets a kind, including one whose verb is unrecognized \u2014 which is precisely how a scoped operational verb ends up filed as Epistemic."
         },
         "recognized": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Whether `verb` is in the closed vocabulary. Not the verdict: `violations` is. A subject git wraps — `Revert \"…\"`, `fixup! …` — has no `verb` of its own and is judged by the subject inside the wrapper, and a generated merge subject or a commit staging only `[object]` paths is not judged at all, so either can read `false` here with no violations."
         },
         "violations": {
           "type": "array",
