@@ -93,7 +93,7 @@ between an **epistemic** commit (what is known changed; the message is testimony
 
 ```sh
 yidam vocabulary                      # the closed list, with reasoning
-yidam vocabulary --check "fix(cli): …" # check a subject before the commit exists
+yidam vocabulary --check "fix(cli): …" # check a subject before the commit exists; exits 1 here
 yidam lint --commits --range main..HEAD
 ```
 

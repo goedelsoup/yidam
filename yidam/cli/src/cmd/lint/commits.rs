@@ -156,7 +156,7 @@ fn parse_records(text: &str) -> Vec<Subject> {
 ///
 /// Matches the parse in `classify_commit` so the two cannot disagree about where the verb
 /// ends.
-fn verb_of(subject: &str) -> String {
+pub(crate) fn verb_of(subject: &str) -> String {
     match subject.find(": ") {
         Some(pos) => subject[..pos].trim().to_string(),
         None => String::new(),
@@ -236,6 +236,53 @@ pub(crate) fn is_merge(subject: &str, parents: usize) -> bool {
     parents >= 2 && GENERATED.iter().any(|p| subject.starts_with(p))
 }
 
+/// The subject inside the `Revert "…"` or `Reapply "…"` git wrote around it, if any (#1518).
+///
+/// `git revert <c>` writes `Revert "<subject of c>"`, and reverting that revert writes
+/// `Reapply "<subject of c>"` on git ≥ 2.43. The wrapper names no verb and is not the author's
+/// to choose. The subject inside it is not exempt, though: a prefix match alone would let any
+/// author pass the vocabulary by typing `Revert "wip"`, and the reverted commit may predate
+/// the vocabulary. So the wrapper is peeled and the inside is checked, here and in
+/// `vocabulary --check` alike. One layer per call; [`reverted_subject`] peels them all.
+///
+/// The opening quote is carried in each prefix so an authored `Revert the cache change` is
+/// read as written. The closing quote is dropped when present, since git always writes one.
+pub(crate) fn unwrap_revert(subject: &str) -> Option<&str> {
+    ["Revert \"", "Reapply \""].into_iter().find_map(|p| {
+        subject
+            .strip_prefix(p)
+            .map(|rest| rest.strip_suffix('"').unwrap_or(rest))
+    })
+}
+
+/// `subject` with every revert wrapper peeled, and whether there was one (#1518).
+///
+/// `Revert "Revert "establish: x""` is a revert of a revert on git before 2.43, so the
+/// peeling repeats until the authored subject is reached.
+pub(crate) fn reverted_subject(subject: &str) -> (&str, bool) {
+    let mut inner = subject;
+    while let Some(next) = unwrap_revert(inner) {
+        inner = next;
+    }
+    (inner, inner.len() != subject.len())
+}
+
+/// The autosquash marker `subject` opens with, if any (#1518).
+///
+/// `git commit --fixup`, `--squash` and `--fixup=amend:` write `fixup! `, `squash! ` and
+/// `amend! ` before the target's subject. These are *meant* to be folded away by
+/// `git rebase --autosquash` before they land, so `vocabulary --check`, which runs before the
+/// commit exists, does not refuse the marker: refusing it would refuse the workflow that
+/// removes it. It checks what the squash will leave instead — the target's subject after the
+/// marker, or an `amend!`'s replacement subject. History is the other side of that bargain: a
+/// marker that reached the log landed unsquashed, so [`unrecognized_verb`] still reports it,
+/// with a detail saying so.
+pub(crate) fn autosquash_prefix(subject: &str) -> Option<&'static str> {
+    ["fixup! ", "squash! ", "amend! "]
+        .into_iter()
+        .find(|p| subject.starts_with(p))
+}
+
 /// The corpus vocabulary, checked against the commits the corpus register governs.
 ///
 /// # The register scopes recognition and never classification
@@ -267,9 +314,24 @@ pub fn unrecognized_verb(subjects: &[Subject], registers: &Registers) -> Check {
         .iter()
         .filter(|s| !is_merge(&s.text, s.parents))
         .filter(|s| registers.touch(&s.paths) != Touch::ObjectOnly)
-        .filter(|s| !is_recognized_verb(&s.verb))
-        .map(|s| {
+        .filter_map(|s| {
+            // A revert is judged by the subject it reverts (#1518). A reverted merge had two
+            // parents when it was written, so git's merge subject inside the quotes is git's.
+            match reverted_subject(&s.text) {
+                (_, false) => Some((s, s.verb.clone(), None)),
+                (inner, true) if is_merge(inner, 2) => None,
+                (inner, true) => Some((s, verb_of(inner), Some(inner))),
+            }
+        })
+        .filter(|(_, verb, _)| !is_recognized_verb(verb))
+        .map(|(s, verb, reverted)| {
             let short = &s.hash[..s.hash.len().min(8)];
+            let text = reverted.unwrap_or(&s.text);
+            let wrapper = if reverted.is_some() {
+                "the subject this reverts: "
+            } else {
+                ""
+            };
             // The hash is already the node; repeating it here would print it twice.
             //
             // Three details rather than two (#673). A verb wearing a scope is off the
@@ -283,18 +345,23 @@ pub fn unrecognized_verb(subjects: &[Subject], registers: &Registers) -> Check {
             // Recognition itself does not move, and nothing here may make it: the suffixed
             // commit is still counted off-vocabulary, exactly as `split_scope`'s contract
             // requires. What changes is only what the finding *says*.
-            let detail = if s.verb.is_empty() {
-                format!("no `verb: ` prefix — {:?}", truncate(&s.text))
+            let detail = if let Some(marker) = autosquash_prefix(text) {
+                format!(
+                    "{wrapper}`{}` is git's autosquash marker and this commit landed \
+                     unsquashed — `git rebase --autosquash` folds it into its target",
+                    marker.trim_end()
+                )
+            } else if verb.is_empty() {
+                format!("{wrapper}no `verb: ` prefix — {:?}", truncate(text))
             } else if let Some((base, scope)) =
-                split_scope(&s.verb).filter(|(base, _)| is_recognized_verb(base))
+                split_scope(&verb).filter(|(base, _)| is_recognized_verb(base))
             {
                 format!(
-                    "`{}` is `{base}` wearing a conventional-commits scope, which GRAPH.md \
-                     forbids — write `{base}: {scope} …`",
-                    s.verb
+                    "{wrapper}`{verb}` is `{base}` wearing a conventional-commits scope, which \
+                     GRAPH.md forbids — write `{base}: {scope} …`"
                 )
             } else {
-                format!("`{}` is not in the vocabulary", s.verb)
+                format!("{wrapper}`{verb}` is not in the vocabulary")
             };
             // Identified by commit, not by file: history is immutable, so a baselined
             // entry here stays put and the ratchet gates only what is authored next.
@@ -397,6 +464,66 @@ mod tests {
             "{}",
             c.violations[0].detail
         );
+    }
+
+    /// #1518: `git revert` writes the wrapper, and the subject inside it is what is judged.
+    #[test]
+    fn a_revert_is_judged_by_the_subject_it_reverts() {
+        let s = vec![
+            subj("aaaaaaaa", "Revert \"establish: a node\""),
+            subj("bbbbbbbb", "Reapply \"establish: a node\""),
+            subj("cccccccc", "Revert \"Revert \"establish: a node\"\""),
+            subj("dddddddd", "Revert \"Merge branch 'x'\""),
+        ];
+        assert!(unrecognized_verb(&s).passed());
+        // The wrapper is no way past the vocabulary.
+        for text in ["Revert \"wip\"", "Reapply \"tweak: things\""] {
+            let c = unrecognized_verb(&[subj("eeeeeeee", text)]);
+            assert_eq!(c.violations.len(), 1, "{text}");
+            assert!(
+                c.violations[0]
+                    .detail
+                    .starts_with("the subject this reverts: "),
+                "{}",
+                c.violations[0].detail
+            );
+        }
+        // Authored, not generated: no opening quote.
+        let s = vec![subj("ffffffff", "Revert the cache change")];
+        assert_eq!(unrecognized_verb(&s).violations.len(), 1);
+    }
+
+    #[test]
+    fn reverted_subject_peels_every_wrapper() {
+        assert_eq!(reverted_subject("establish: x"), ("establish: x", false));
+        assert_eq!(
+            reverted_subject("Revert \"establish: x\""),
+            ("establish: x", true)
+        );
+        assert_eq!(
+            reverted_subject("Reapply \"Revert \"establish: x\"\""),
+            ("establish: x", true)
+        );
+        assert_eq!(
+            reverted_subject("Revert the cache"),
+            ("Revert the cache", false)
+        );
+    }
+
+    /// #1518: an autosquash marker in history landed unsquashed, and the finding says so.
+    #[test]
+    fn an_autosquash_marker_in_history_is_reported_as_unsquashed() {
+        for (marker, text) in [
+            ("fixup!", "fixup! establish: a node"),
+            ("squash!", "squash! establish: a node"),
+            ("amend!", "amend! establish: a node"),
+        ] {
+            let c = unrecognized_verb(&[subj("deadbeef", text)]);
+            assert_eq!(c.violations.len(), 1, "{text}");
+            let d = &c.violations[0].detail;
+            assert!(d.contains(&format!("`{marker}`")), "{d}");
+            assert!(d.contains("git rebase --autosquash"), "{d}");
+        }
     }
 
     #[test]

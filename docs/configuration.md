@@ -608,11 +608,10 @@ report prints the unscoped shares beside the verdict, so the list's effect stays
 **A path under `.yidam/` is corpus whatever these globs say.** So `paths = ["**"]` cannot
 empty a reading.
 
-**`yidam vocabulary --check` is not scoped by it.** It reads a subject line, and no
-commit exists yet. So it has no paths to read. Three surfaces call it: a contributor at a
-terminal, the VS Code commit box, and the MCP tool `check_subject`. All three still warn about
-`feat:` on an artifact while `lint --commits` stays silent. The asymmetry is recorded rather
-than fixed: closing it means changing a frozen MCP tool.
+**`yidam vocabulary --check` reads the staged paths under this key.** No commit exists
+yet, so it reads the index instead. A change staging only these paths is exempt, as
+`lint --commits` exempts the commit it becomes. The MCP tool `check_subject` reads the same
+index. The VS Code commit box calls the same check, so all three surfaces agree with the lint.
 
 **This project ships no commit-msg hook.** The stance is conformance, not hooks (RFC-0004).
 

@@ -105,6 +105,7 @@ mod unanswerable;
 mod upgrade_offers;
 mod vault;
 mod vault_s3;
+mod vocabulary_check;
 mod walkthrough_transcripts;
 mod warehouse_export;
 mod watch_workflow;
