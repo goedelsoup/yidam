@@ -11,7 +11,7 @@ directory, with the report schema, the MCP contract and a manifest, into
 | `cases/<case>/repo/` | A corpus, with its `.yidam/` tree | `tests/suite/conformance_cases.rs` |
 | `cases/<case>/expected.json` | Which checks that corpus fires, on which node, at which severity | `tests/suite/conformance_cases.rs` |
 | `stage.toml` | How a case becomes a repository | `tests/suite/conformance_cases.rs` |
-| `VERSION` | Bumped when the shape of `expected.json` or `stage.toml` changes | `tests/suite/spec_bundle.rs` |
+| `VERSION` | Bumped when the shape of `expected.json` or `stage.toml` changes | `tests/suite/conformance_cases.rs`, which records the key paths each version ships |
 
 ## Running a case
 

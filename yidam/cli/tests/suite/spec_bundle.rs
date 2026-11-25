@@ -7,7 +7,11 @@
 //! - a file in the tarball has no `files` entry in `manifest.json`, or an entry names a file
 //!   the tarball does not hold, or one whose bytes differ from its source;
 //! - a `versions` value differs from the committed file it is read from;
-//! - a committed file under `yidam/sdks/conformance/` is missing from the tarball.
+//! - a committed file under `yidam/sdks/conformance/` is missing from the tarball;
+//! - `manifest.json`'s `commit` is not the commit the script was handed.
+//!
+//! Every comparison is against `HEAD`'s tree, because that is what the script packs: an
+//! uncommitted edit is not in the asset, so the working tree is not what it is checked against.
 //!
 //! Neither the script nor this gate calls the network.
 
@@ -21,7 +25,6 @@ use serde_json::Value;
 use crate::common;
 
 const VERSION: &str = "0.0.0-test";
-const COMMIT: &str = "0000000000000000000000000000000000000000";
 
 /// Every regular file in the tarball, keyed by its path under `yidam-spec-<version>/`.
 fn unpack(tarball: &Path) -> BTreeMap<String, Vec<u8>> {
@@ -46,17 +49,25 @@ fn unpack(tarball: &Path) -> BTreeMap<String, Vec<u8>> {
     out
 }
 
-fn read(root: &Path, rel: &str) -> String {
-    std::fs::read_to_string(root.join(rel)).unwrap_or_else(|e| panic!("reading {rel}: {e}"))
+/// The bytes of `rel` in `commit`'s tree.
+fn blob(root: &Path, commit: &str, rel: &str) -> Vec<u8> {
+    let out = common::git::raw(root, &["cat-file", "blob", &format!("{commit}:{rel}")]);
+    assert!(out.status.success(), "{rel} is not in {commit}");
+    out.stdout
+}
+
+fn read(root: &Path, commit: &str, rel: &str) -> String {
+    String::from_utf8(blob(root, commit, rel)).unwrap_or_else(|e| panic!("{rel}: {e}"))
 }
 
 #[test]
 fn the_asset_holds_what_its_manifest_names_and_nothing_else() {
     let root = common::repo_root();
+    let commit = common::git::out(&root, &["rev-parse", "HEAD"]);
     let out = tempfile::tempdir().unwrap();
     let run = Command::new("bash")
         .arg(root.join("scripts/spec-bundle.sh"))
-        .args([VERSION, COMMIT])
+        .args([VERSION, commit.as_str()])
         .arg(out.path())
         .output()
         .unwrap();
@@ -77,7 +88,7 @@ fn the_asset_holds_what_its_manifest_names_and_nothing_else() {
             .expect("manifest.json parses");
     assert_eq!(manifest["format_version"], "1");
     assert_eq!(manifest["cli"], VERSION);
-    assert_eq!(manifest["commit"], COMMIT);
+    assert_eq!(manifest["commit"], commit.as_str());
 
     // Complete in both directions, and each entry is a copy of its source.
     let listed: BTreeMap<String, String> = manifest["files"]
@@ -99,49 +110,58 @@ fn the_asset_holds_what_its_manifest_names_and_nothing_else() {
         "named by `files` and not in the tarball: {absent:?}"
     );
     for (rel, src) in &listed {
-        let source = std::fs::read(root.join(src)).unwrap_or_else(|e| panic!("{src}: {e}"));
-        assert!(files[rel] == source, "{rel} differs from its source {src}");
+        let source = blob(&root, &commit, src);
+        assert!(files[rel] == source, "{rel} differs from {src} at {commit}");
     }
 
     // Each version, from the one committed file it is read from.
+    let read = |rel: &str| read(&root, &commit, rel);
     let report: Value = serde_json::from_str(&read(
-        &root,
         "yidam/sdks/parity/fixtures/reports/report.schema.json",
     ))
     .unwrap();
     let vocabulary: Value =
-        serde_json::from_str(&read(&root, "yidam/sdks/conformance/vocabulary.json")).unwrap();
-    let ledger = read(&root, "yidam/sdks/parity/mcp/CONTRACT_SHA");
+        serde_json::from_str(&read("yidam/sdks/conformance/vocabulary.json")).unwrap();
+    let ledger = read("yidam/sdks/parity/mcp/CONTRACT_SHA");
     let last_record = ledger
         .lines()
-        .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+        .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
         .next_back()
         .expect("a CONTRACT_SHA record");
     let versions = &manifest["versions"];
+    let contract = read("yidam/sdks/parity/mcp/VERSION");
+    let mut record = last_record.split_whitespace();
+    assert_eq!(
+        record.next(),
+        Some(contract.trim()),
+        "CONTRACT_SHA's last record must be for parity/mcp/VERSION"
+    );
     assert_eq!(
         versions["report"],
         report["properties"]["format_version"]["const"]
     );
-    assert_eq!(
-        versions["mcp_contract"],
-        read(&root, "yidam/sdks/parity/mcp/VERSION").trim()
-    );
-    assert_eq!(
-        versions["contract_sha"],
-        last_record.split_whitespace().nth(1).unwrap()
-    );
+    assert_eq!(versions["mcp_contract"], contract.trim());
+    assert_eq!(versions["contract_sha"], record.next().unwrap());
     assert_eq!(versions["vocabulary"], vocabulary["format_version"]);
     assert_eq!(
         versions["conformance"],
-        read(&root, "yidam/sdks/conformance/VERSION").trim()
+        read("yidam/sdks/conformance/VERSION").trim()
     );
 
     // Every committed conformance file ships.
     let shipped: BTreeSet<&str> = listed.values().map(String::as_str).collect();
-    let missing: Vec<String> = common::tracked_under(&root, "yidam/sdks/conformance/")
-        .into_iter()
-        .filter(|f| !shipped.contains(f.as_str()))
-        .collect();
+    let committed = common::git::out(
+        &root,
+        &[
+            "ls-tree",
+            "-r",
+            "--name-only",
+            &commit,
+            "--",
+            "yidam/sdks/conformance/",
+        ],
+    );
+    let missing: Vec<&str> = committed.lines().filter(|f| !shipped.contains(f)).collect();
     assert!(
         missing.is_empty(),
         "committed under yidam/sdks/conformance/ and missing from the asset: {missing:?}"

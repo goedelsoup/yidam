@@ -190,6 +190,14 @@ fn each_case_still_shows_what_it_was_added_for() {
             .iter()
             .any(|f| f["check"] == check && f["node"] == TRAVERSAL)
     };
+    // The same, at a stated severity: a regeneration that demotes the finding loses the case.
+    let fired_at = |v: &Value, check: &str, severity: &str| {
+        v["lint"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["check"] == check && f["node"] == TRAVERSAL && f["severity"] == severity)
+    };
     let errors = |v: &Value| {
         v["lint"]
             .as_array()
@@ -207,7 +215,10 @@ fn each_case_still_shows_what_it_was_added_for() {
     assert_eq!(errors(&minimal), 0, "minimal must carry no lint error");
 
     let orphan = read("orphan");
-    assert!(fails_on_traversal(&orphan) && fired(&orphan, "orphan-out"));
+    assert!(
+        fails_on_traversal(&orphan) && fired_at(&orphan, "orphan-out", "error"),
+        "orphan must fail on {TRAVERSAL} with an `orphan-out` error"
+    );
 
     let optional = read("optional-outgoing");
     assert!(
@@ -215,20 +226,34 @@ fn each_case_still_shows_what_it_was_added_for() {
         "graph-check does not read `outgoing: optional` and lint does"
     );
 
-    for case in ["broken-link", "missing-label", "unknown-class"] {
+    // Each fails graph-check on the node, and lint names the same defect by its own id.
+    for (case, check, severity) in [
+        ("broken-link", "dangling-edge", "error"),
+        ("missing-label", "missing-label", "warn"),
+        ("unknown-class", "unknown-class", "error"),
+    ] {
+        let v = read(case);
         assert!(
-            fails_on_traversal(&read(case)),
-            "{case} must fail on {TRAVERSAL}"
+            fails_on_traversal(&v),
+            "{case} must fail graph-check on {TRAVERSAL}"
+        );
+        assert!(
+            fired_at(&v, check, severity),
+            "{case} must carry a `{check}` {severity} on {TRAVERSAL}"
         );
     }
 
     let required = read("missing-required-property");
     assert!(
-        fired(&required, "missing-property"),
-        "an omitted `required: true` property is a lint finding"
+        fired_at(&required, "missing-property", "error"),
+        "an omitted `required: true` property is a lint error, not a warning"
     );
 
     let claims = read("claim-standings");
+    assert_eq!(
+        claims["graph_check"]["passed"], true,
+        "claim-standings must pass graph-check"
+    );
     assert!(
         !claims["lint"]
             .as_array()
@@ -236,5 +261,101 @@ fn each_case_still_shows_what_it_was_added_for() {
             .iter()
             .any(|f| f["check"].as_str().unwrap().starts_with("claim-")),
         "bare, bracketed and qualified standings are all readable"
+    );
+}
+
+/// The shape a consumer's runner reads at each `conformance/VERSION`: every key path in
+/// `expected.json` and in `stage.toml`, with `[]` for an array's items.
+///
+/// `VERSION` is a number a consumer pins, so it has to move when this shape does. Changing the
+/// projection in [`observe`] or a key in `stage.toml` fails here until `VERSION` is bumped and
+/// the new shape is recorded beside it. A message, a case or a finding changes no key path, so
+/// they need no bump.
+const SHAPE: (&str, &[&str]) = (
+    "1",
+    &[
+        "expected.json:graph_check",
+        "expected.json:graph_check.classes",
+        "expected.json:graph_check.nodes",
+        "expected.json:graph_check.nodes[]",
+        "expected.json:graph_check.passed",
+        "expected.json:lint",
+        "expected.json:lint[]",
+        "expected.json:lint[].check",
+        "expected.json:lint[].node",
+        "expected.json:lint[].severity",
+        "stage.toml:author",
+        "stage.toml:author.email",
+        "stage.toml:author.name",
+        "stage.toml:branch",
+        "stage.toml:commits",
+        "stage.toml:commits[]",
+        "stage.toml:commits[].message",
+        "stage.toml:date",
+    ],
+);
+
+fn key_paths(prefix: &str, v: &Value, out: &mut std::collections::BTreeSet<String>) {
+    match v {
+        Value::Object(map) => {
+            for (k, child) in map {
+                let path = if prefix.ends_with(':') {
+                    format!("{prefix}{k}")
+                } else {
+                    format!("{prefix}.{k}")
+                };
+                out.insert(path.clone());
+                key_paths(&path, child, out);
+            }
+        }
+        Value::Array(items) => {
+            let path = format!("{prefix}[]");
+            for item in items {
+                out.insert(path.clone());
+                key_paths(&path, item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn the_conformance_version_names_the_shape_it_ships() {
+    let mut shape = std::collections::BTreeSet::new();
+    // An empty list contributes no `[]` path, so the union over cases is the shape: every
+    // case is the same projection, and one with findings is enough to name the item keys.
+    for case in cases() {
+        let path = conformance()
+            .join("cases")
+            .join(&case)
+            .join("expected.json");
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap())
+            .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        key_paths("expected.json:", &v, &mut shape);
+    }
+    let recipe: toml::Value =
+        toml::from_str(&std::fs::read_to_string(conformance().join("stage.toml")).unwrap())
+            .expect("stage.toml parses");
+    let recipe = serde_json::to_value(recipe).expect("stage.toml as JSON");
+    key_paths("stage.toml:", &recipe, &mut shape);
+
+    let recorded: std::collections::BTreeSet<String> =
+        SHAPE.1.iter().map(|s| s.to_string()).collect();
+    let added: Vec<_> = shape.difference(&recorded).collect();
+    let dropped: Vec<_> = recorded.difference(&shape).collect();
+    assert!(
+        added.is_empty() && dropped.is_empty(),
+        "\nthe shape a consumer reads changed (added {added:?}, dropped {dropped:?}). Bump \
+         yidam/sdks/conformance/VERSION and record the new shape and version in `SHAPE`.\n"
+    );
+
+    let version = std::fs::read_to_string(conformance().join("VERSION")).expect("VERSION");
+    assert_eq!(
+        version.trim(),
+        SHAPE.0,
+        "conformance/VERSION says {}, and `SHAPE` records the shape of {}. Record the shape \
+         beside the version that ships it.",
+        version.trim(),
+        SHAPE.0
     );
 }
