@@ -226,6 +226,11 @@ act = "when-identity"
 # threads         = 0
 # session_options = { "mlas.disable_kleidiai" = "1" }
 
+# Where the embedding model is cached. A relative path is under the corpus root. Absent:
+# `$FASTEMBED_CACHE_DIR`, else `.fastembed_cache` under the corpus root. Point it at a cache
+# seeded with `yidam model fetch --from` on a machine that cannot download.
+# cache_dir = ".fastembed_cache"
+
 # The vector index this corpus publishes to and can be queried out of. One index holds one
 # vector space, so every corpus sharing it must be embedded with the same model. Never a
 # credential; `region` selects the endpoint as well as the signing scope, and has no default.
