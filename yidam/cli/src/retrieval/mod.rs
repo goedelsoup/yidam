@@ -458,6 +458,21 @@ impl Retrieval {
         }
     }
 
+    /// Which index answers a vector search, in the MCP contract's `index_source` words
+    /// (0.37.0, RFC-0069): `remote` for a declared remote index, otherwise whose local index
+    /// `model` loaded — this checkout's or its main worktree's. `None` when there is none.
+    ///
+    /// Not `None` for an index this build cannot read. The capability block describes the
+    /// index the server found, beside `indexed_commit`, and `degraded_reason` already says it
+    /// is not being read.
+    pub(crate) fn index_source(&self, model: &DomainModel) -> Option<&'static str> {
+        #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
+        if matches!(self, Self::Remote(_)) {
+            return Some("remote");
+        }
+        model.index.as_ref().map(|i| i.source.as_str())
+    }
+
     /// What to do about it, in one clause. Present tense, no leading capital — callers
     /// splice it into a sentence of their own.
     pub(crate) fn repair(&self) -> Option<&'static str> {
@@ -1044,6 +1059,8 @@ mod tests {
             arrow_ipc: ipc,
             meta_raw: br#"{"indexed_commit":"abc123"}"#.to_vec(),
             meta: serde_json::json!({"indexed_commit": "abc123", "model_name": "m"}),
+            source: crate::index_source::IndexSource::Local,
+            dir: std::path::PathBuf::new(),
             embed_config: None,
         };
         let rows = crate::model::index_rows(&index).expect("a vector-read build decodes an index");

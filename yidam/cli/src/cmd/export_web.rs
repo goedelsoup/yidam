@@ -112,6 +112,8 @@ mod tests {
             arrow_ipc: b"stub".to_vec(),
             meta_raw: b"{}".to_vec(),
             meta: serde_json::json!({}),
+            source: crate::index_source::IndexSource::Local,
+            dir: std::path::PathBuf::new(),
             embed_config: Some(EmbedConfig::for_fastembed_model(
                 "Xenova/all-MiniLM-L6-v2",
                 384,

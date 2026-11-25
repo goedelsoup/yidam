@@ -46,6 +46,11 @@ pub struct IndexData {
     /// in the bundle. `None` for indexes built before the contract existed;
     /// rebuild with `yidam index-build` to emit it.
     pub embed_config: Option<EmbedConfig>,
+    /// Whose index this is (RFC-0069). `Shared` is the main worktree's, read from a linked
+    /// worktree that has none of its own.
+    pub source: crate::index_source::IndexSource,
+    /// The directory it was read from.
+    pub dir: std::path::PathBuf,
 }
 
 impl IndexData {
@@ -164,6 +169,24 @@ pub struct DomainModel {
     pub rendered: RenderedViews,
 }
 
+impl DomainModel {
+    /// This model with any index borrowed from the main worktree dropped (RFC-0069 §4).
+    ///
+    /// For the commands that package or publish an index: `export`, `bundle` and
+    /// `index-push`. A shared index was built for another checkout and is stamped with that
+    /// checkout's commit, and what they write is a claim about the tree they ran in.
+    pub fn local_index_only(mut self) -> Self {
+        if self
+            .index
+            .as_ref()
+            .is_some_and(|i| i.source != crate::index_source::IndexSource::Local)
+        {
+            self.index = None;
+        }
+        self
+    }
+}
+
 /// The domain a genesis commit names, or `None` where its subject names none.
 ///
 /// **This used to accept only `chore: genesis — <name>`, which the bootstrap never writes.**
@@ -203,7 +226,16 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
     let corpus_dir = yidam_corpus_dir(root);
     let decisions_dir = yidam_decisions_dir(root);
     let skills_dir = yidam_skills_dir(root);
-    let index_dir = yidam_index_dir(root);
+    // Not always `root/.yidam/index`: a linked worktree with none of its own reads its main
+    // worktree's, under RFC-0069's ancestry rule. `index_dir` is only read when one was found.
+    let resolved = crate::index_source::resolve(root);
+    let (index_dir, index_source) = match resolved.found() {
+        Some((dir, source)) => (dir.to_path_buf(), source),
+        None => (
+            yidam_index_dir(root),
+            crate::index_source::IndexSource::Local,
+        ),
+    };
 
     let mut classes = Vec::new();
     for path in walk_ont_files(&corpus_dir) {
@@ -310,6 +342,8 @@ pub fn load_domain_model(root: &Path) -> Result<DomainModel> {
                 meta_raw,
                 meta,
                 embed_config,
+                source: index_source,
+                dir: index_dir.clone(),
             }),
             Err(refused) => {
                 eprintln!("{refused}");

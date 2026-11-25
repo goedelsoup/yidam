@@ -438,7 +438,7 @@ pub fn run_export(
     // Before the model rather than after: an export refused for having no corpus should say so
     // by name, not report the emptiness that follows from it.
     crate::paths::require_yidam_repo(&root)?;
-    let model = load_domain_model(&root)?;
+    let model = load_domain_model(&root)?.local_index_only();
     let default_out = format.default_output(&root);
     match out.or(default_out.as_deref()) {
         Some(out_path) => export(&model, &root, format, out_path, options),

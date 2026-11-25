@@ -96,6 +96,12 @@ pub(crate) struct ServerState {
     /// Read from the raw metadata, so the staleness warning still fires in a build that
     /// cannot decode the index itself. An index too old to trust is worth saying either way.
     pub indexed_commit: Option<String>,
+    /// Whose index `retrieval` reads: `local`, `shared` (the main worktree's, RFC-0069) or
+    /// `remote`. `None` exactly when no index was found, local or remote.
+    pub index_source: Option<&'static str>,
+    /// The directory a local or shared index was read from, for the banner. Never on the
+    /// wire: over HTTP it is a path on another machine.
+    pub index_dir: Option<std::path::PathBuf>,
     /// Which properties of each class carry an evidence tag.
     ///
     /// Loaded here so the MCP server's open-question answer is the reports' answer. It was a
@@ -333,6 +339,8 @@ impl ServerState {
             .collect();
 
         let (retrieval, indexed_commit) = crate::retrieval::load(root, &model)?;
+        let index_source = retrieval.index_source(&model);
+        let index_dir = model.index.as_ref().map(|i| i.dir.clone());
 
         let claim_fields = crate::claims::ClaimFields::load(&crate::paths::yidam_corpus_dir(root));
         let classes = model
@@ -387,6 +395,8 @@ impl ServerState {
             decisions,
             retrieval,
             indexed_commit,
+            index_source,
+            index_dir,
             claim_fields,
             classes,
             citations,
@@ -744,6 +754,15 @@ fn banner(state: &ServerState) {
             record::PATH
         );
     }
+    // Said, because a worktree answering from an index it did not build is answering from
+    // another checkout's work, and the person who started the server should know whose.
+    if let (Some("shared"), Some(dir)) = (state.index_source, &state.index_dir) {
+        eprintln!(
+            "index: shared — this worktree has no .yidam/index of its own, so `retrieve` reads \
+             the main worktree's at {} (RFC-0069)",
+            dir.display()
+        );
+    }
     if let Some(indexed) = &state.indexed_commit {
         let head = &state.commit;
         if state.stale_index() == Some(true) {
@@ -1078,6 +1097,8 @@ mod tests {
             decisions: vec![("adr-1".into(), "id: adr-1\nsummary: choice\n".into())],
             retrieval: Retrieval::NoIndex,
             indexed_commit: None,
+            index_source: None,
+            index_dir: None,
             // No class declares a claim field here, so the predicate reads prose only —
             // which is what these fixtures are written in.
             claim_fields: Default::default(),
@@ -1191,6 +1212,7 @@ mod tests {
             "skills",
             "decisions",
             "indexed_commit",
+            "index_source",
             "stale",
         ] {
             assert!(

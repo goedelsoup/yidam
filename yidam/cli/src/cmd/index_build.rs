@@ -339,6 +339,8 @@ mod tests {
             arrow_ipc: ipc,
             meta_raw: b"{}".to_vec(),
             meta: serde_json::json!({}),
+            source: crate::index_source::IndexSource::Local,
+            dir: std::path::PathBuf::new(),
             embed_config: None,
         }
     }

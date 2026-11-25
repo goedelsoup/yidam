@@ -306,6 +306,130 @@ fn an_index_this_build_cannot_read_is_not_reported_as_a_missing_index() {
     assert_eq!(node["links"][0]["target"], "concept/traversal");
 }
 
+// ── a worktree and the main checkout's index (RFC-0069) ─────────────────────
+
+/// An index staged as `index-build` would leave it, stamped with `commit`. Its bytes are not
+/// Arrow, so only what reads `meta.json` can be asked about it.
+fn stage_index(root: &Path, commit: &str) {
+    let index_dir = root.join(".yidam/index");
+    std::fs::create_dir_all(&index_dir).unwrap();
+    std::fs::write(index_dir.join("corpus.arrow"), b"not really arrow").unwrap();
+    std::fs::write(
+        index_dir.join("meta.json"),
+        format!(
+            r#"{{"model_name": "Xenova/all-MiniLM-L6-v2", "indexed_commit": "{commit}",
+                 "generated_at": 1, "node_count": 6}}"#
+        ),
+    )
+    .unwrap();
+}
+
+/// The fixture as a main checkout, and a linked worktree of it on its own branch.
+/// Both directories are dropped with the returned guards; the worktree's is empty when git
+/// is handed it, which `worktree add` accepts.
+fn main_and_worktree() -> ((tempfile::TempDir, tempfile::TempDir), PathBuf, PathBuf) {
+    let tmp = make_fixture_repo();
+    let wt_tmp = tempfile::TempDir::new().unwrap();
+    let main = tmp.path().to_path_buf();
+    let wt = wt_tmp.path().to_path_buf();
+    git(
+        &main,
+        &["worktree", "add", "-q", "-b", "side", wt.to_str().unwrap()],
+    );
+    ((tmp, wt_tmp), main, wt)
+}
+
+fn short_head(dir: &Path) -> String {
+    common::git::out(dir, &["rev-parse", "--short", "HEAD"])
+}
+
+fn yidam_stdout(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+/// A worktree with no index of its own reads the main checkout's, and every surface that
+/// reports on the index says so (#1517). Before, `.yidam/index` was read from the worktree
+/// alone, and 136 of one corpus's 244 `retrieve` calls were answered by keyword.
+#[test]
+fn a_worktree_reads_the_main_index_built_at_an_ancestor() {
+    let (_tmp, main, wt) = main_and_worktree();
+    stage_index(&main, &short_head(&main));
+    std::fs::write(wt.join("later.txt"), "later").unwrap();
+    git(&wt, &["add", "later.txt"]);
+    git(&wt, &["commit", "-q", "-m", "observe: later"]);
+
+    let report: Value =
+        serde_json::from_str(&yidam_stdout(&wt, &["index-status", "--format", "json"])).unwrap();
+    assert_eq!(report["index_present"], true, "{report}");
+    assert_eq!(report["index_source"], "shared", "{report}");
+    let path = PathBuf::from(report["index_path"].as_str().unwrap());
+    assert_eq!(
+        path.canonicalize().unwrap(),
+        main.join(".yidam/index").canonicalize().unwrap()
+    );
+
+    // The main checkout reads its own, and says so.
+    let report: Value =
+        serde_json::from_str(&yidam_stdout(&main, &["index-status", "--format", "json"])).unwrap();
+    assert_eq!(report["index_source"], "local", "{report}");
+
+    let doctor = yidam_stdout(&wt, &["doctor"]);
+    assert!(doctor.contains("the main worktree's"), "{doctor}");
+}
+
+/// The handshake names the shared index, and `stale` is computed against it. Light-only for
+/// the reason `an_index_this_build_cannot_read_is_not_reported_as_a_missing_index` is: the
+/// staged index is not Arrow, and a build that can decode it would refuse to start.
+#[test]
+#[cfg(not(feature = "vector-read"))]
+fn a_worktree_handshake_names_the_shared_index() {
+    let (_tmp, main, wt) = main_and_worktree();
+    stage_index(&main, &short_head(&main));
+    std::fs::write(wt.join("later.txt"), "later").unwrap();
+    git(&wt, &["add", "later.txt"]);
+    git(&wt, &["commit", "-q", "-m", "observe: later"]);
+
+    let mut client = McpClient::spawn(&wt);
+    let capabilities = client.initialize();
+    assert_eq!(capabilities["corpus"]["index_source"], "shared");
+    assert_eq!(capabilities["corpus"]["stale"], true);
+    assert_eq!(capabilities["retrieve"]["reason"], "no_vector_support");
+
+    // Degraded, so no index answered, whatever was loaded.
+    let retrieved = client.tool_json("retrieve", json!({"query": "knowledge graph"}));
+    assert_eq!(retrieved["degraded"], true);
+    assert_eq!(retrieved["index_source"], Value::Null, "{retrieved}");
+}
+
+/// An index built at a commit the worktree's branch does not contain is refused, and
+/// `doctor` names the commit and both repairs (RFC-0069 §2).
+#[test]
+fn an_index_the_branch_does_not_contain_is_refused_and_named() {
+    let (_tmp, main, wt) = main_and_worktree();
+    std::fs::write(main.join("ahead.txt"), "ahead").unwrap();
+    git(&main, &["add", "ahead.txt"]);
+    git(&main, &["commit", "-q", "-m", "observe: ahead"]);
+    let ahead = short_head(&main);
+    stage_index(&main, &ahead);
+
+    let report: Value =
+        serde_json::from_str(&yidam_stdout(&wt, &["index-status", "--format", "json"])).unwrap();
+    assert_eq!(report["index_present"], false, "{report}");
+    assert_eq!(report["index_source"], Value::Null, "{report}");
+
+    let doctor = yidam_stdout(&wt, &["doctor"]);
+    assert!(
+        doctor.contains(&ahead),
+        "doctor must name {ahead}:\n{doctor}"
+    );
+    assert!(doctor.contains("merge the baseline"), "{doctor}");
+}
+
 // ── conformance ──────────────────────────────────────────────────────────────
 
 /// Every case, against the corpus it names — and every corpus, against the capability block

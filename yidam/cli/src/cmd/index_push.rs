@@ -50,7 +50,7 @@ pub fn index_push(root: Option<&std::path::Path>, dry_run: bool, create: bool) -
     })?;
     let remote = RemoteIndex::resolve(declared)?;
 
-    let model = load_domain_model(&root)?;
+    let model = load_domain_model(&root)?.local_index_only();
     let index = model.index.as_ref().ok_or_else(|| {
         anyhow::anyhow!(
             "this corpus has no index to push.\n  \

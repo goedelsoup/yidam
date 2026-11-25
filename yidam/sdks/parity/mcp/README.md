@@ -40,12 +40,12 @@ The rule was unenforceable until a corpus existed on which some tier goes unback
 "capabilities": {
   "tools": {}, "resources": {},
   "yidam": {
-    "contract": "0.36.0",
+    "contract": "0.37.0",
     "corpus": {
       "domain": "streamflow",
       "commit": "a1b2c3d",
       "nodes": 8, "skills": 1, "decisions": 2,
-      "indexed_commit": null, "stale": false
+      "indexed_commit": null, "index_source": null, "stale": false
     },
     "retrieve": { "vector": false, "reason": "no_index" },
     "graph": true, "ontology": true, "dependencies": true,

@@ -210,7 +210,7 @@ pub fn bundle(root: Option<&std::path::Path>) -> Result<()> {
     // with `No such file or directory (os error 2)` — not a refusal, just the write failing
     // for want of a parent directory, naming neither the path nor the cause.
     crate::paths::require_yidam_repo(&root)?;
-    let model = load_domain_model(&root)?;
+    let model = load_domain_model(&root)?.local_index_only();
     let bytes = render_bundle(&model)?;
 
     let output = root.join(".yidam").join("bundle.yiz");
@@ -286,6 +286,8 @@ mod tests {
             arrow_ipc: b"stub".to_vec(),
             meta_raw: b"{}".to_vec(),
             meta: serde_json::json!({}),
+            source: crate::index_source::IndexSource::Local,
+            dir: std::path::PathBuf::new(),
             embed_config: Some(cfg.clone()),
         };
         let bytes = render_bundle(&minimal_model(Some(index))).unwrap();
@@ -305,6 +307,8 @@ mod tests {
             arrow_ipc: b"stub".to_vec(),
             meta_raw: b"{}".to_vec(),
             meta: serde_json::json!({}),
+            source: crate::index_source::IndexSource::Local,
+            dir: std::path::PathBuf::new(),
             embed_config: None,
         };
         let bytes = render_bundle(&minimal_model(Some(index))).unwrap();

@@ -9,6 +9,8 @@
   },
   "root": "<ROOT>",
   "index_present": false,
+  "index_source": null,
+  "index_path": null,
   "meta_present": false,
   "built_at": null,
   "built": null,

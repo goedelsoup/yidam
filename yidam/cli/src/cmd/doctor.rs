@@ -899,11 +899,43 @@ fn check_index(root: &Path) -> Answer {
     const BUILD: &str = "yidam index-build (needs the `index` feature)";
     let data = crate::cmd::index_status_data(root);
     if !data.index_present {
+        // A linked worktree whose main worktree has an index this branch does not contain
+        // (RFC-0069 §2). Saying only "no index here" would name one repair of two, and the
+        // one nobody takes for a checkout that lives a day.
+        if let crate::index_source::Resolution::Refused {
+            dir,
+            indexed_commit,
+        } = crate::index_source::resolve(root)
+        {
+            return Answer::warn(
+                format!(
+                    "no {}, and the main worktree's index at {} was built at {indexed_commit}, \
+                     which this branch does not contain",
+                    yidam_index_dir(root).display(),
+                    dir.display()
+                ),
+                Some(
+                    "merge the baseline into this branch, or run yidam index-build here (needs \
+                     the `index` feature)",
+                ),
+            );
+        }
         return Answer::warn(
             format!("no {}", yidam_index_dir(root).display()),
             Some(BUILD),
         );
     }
+    let index_dir = data
+        .index_path
+        .as_deref()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| yidam_index_dir(root));
+    // Named on a pass as on a warning: an index this checkout did not build is a fact a
+    // reader should not have to infer from a path that is not theirs.
+    let shared = match data.index_source {
+        Some("shared") => format!("; the main worktree's, at {}", index_dir.display()),
+        _ => String::new(),
+    };
     if !data.meta_present {
         return Answer::warn(
             "index present, but it carries no readable meta.json",
@@ -912,7 +944,7 @@ fn check_index(root: &Path) -> Answer {
     }
     // An index of whole nodes (RFC-0060): still read, as passage 0 of each node, and blind
     // past the embedding window on every node longer than it. A rebuild is all it takes.
-    let contract = yidam_index_dir(root).join(crate::embed_config::EMBED_CONFIG_FILENAME);
+    let contract = index_dir.join(crate::embed_config::EMBED_CONFIG_FILENAME);
     if let Some(parsed) = std::fs::read_to_string(&contract)
         .ok()
         .map(|t| crate::embed_config::EmbedConfig::from_json(&t))
@@ -943,7 +975,7 @@ fn check_index(root: &Path) -> Answer {
     if data.stale_nodes > 0 {
         return Answer::warn(
             format!(
-                "built {}, and {} corpus file(s) have changed since",
+                "built {}, and {} corpus file(s) have changed since{shared}",
                 data.built.clone().unwrap_or_default(),
                 data.stale_nodes
             ),
@@ -951,7 +983,7 @@ fn check_index(root: &Path) -> Answer {
         );
     }
     Answer::ok(format!(
-        "built {}, {} node(s), model {}",
+        "built {}, {} node(s), model {}{shared}",
         data.built.clone().unwrap_or_default(),
         data.node_count.unwrap_or(0),
         data.model.clone().unwrap_or_default()
