@@ -1,0 +1,8 @@
+class: concept
+label: Indexing
+description: Building the structure retrieval reads.
+properties:
+  claim_tag: "[inference — as proposed]"
+links:
+  - target: ../concept/retrieval.yml
+    relationship: relates-to

@@ -1,0 +1,15 @@
+# How a conformance case becomes a repository (RFC-0068 §3).
+#
+# `graph-check` and `lint` cannot run against a bare directory: they resolve the
+# repository root through git. So a runner copies `cases/<case>/repo/` to an empty
+# directory, runs `git init -b main`, stages everything, and makes the commits below.
+#
+# The date is fixed here and not by the clock, so a case staged on any machine has the
+# same history. The verb is `establish:`, so `lint --commits` reads the log as legible.
+# `conformance/VERSION` is bumped when this recipe or the shape of `expected.json` changes.
+branch = "main"
+date = "2026-01-01T00:00:00Z"
+author = { name = "Conformance", email = "conformance@yidam.test" }
+
+[[commits]]
+message = "establish: the conformance case"

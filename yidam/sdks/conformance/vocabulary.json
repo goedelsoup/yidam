@@ -1,0 +1,125 @@
+{
+  "format_version": "1",
+  "verbs": [
+    {
+      "kind": "epistemic",
+      "verb": "adopt"
+    },
+    {
+      "kind": "epistemic",
+      "verb": "assess"
+    },
+    {
+      "kind": "epistemic",
+      "verb": "close"
+    },
+    {
+      "kind": "epistemic",
+      "verb": "decide"
+    },
+    {
+      "kind": "epistemic",
+      "verb": "establish"
+    },
+    {
+      "kind": "epistemic",
+      "verb": "genesis"
+    },
+    {
+      "kind": "epistemic",
+      "verb": "open"
+    },
+    {
+      "kind": "epistemic",
+      "verb": "overlay"
+    },
+    {
+      "kind": "epistemic",
+      "verb": "phase"
+    },
+    {
+      "kind": "epistemic",
+      "verb": "resolve"
+    },
+    {
+      "kind": "epistemic",
+      "verb": "revise"
+    },
+    {
+      "kind": "epistemic",
+      "verb": "scope"
+    },
+    {
+      "kind": "epistemic",
+      "verb": "synthesize"
+    },
+    {
+      "kind": "epistemic",
+      "verb": "transport"
+    },
+    {
+      "kind": "epistemic",
+      "verb": "withdraw"
+    },
+    {
+      "kind": "operational",
+      "verb": "build"
+    },
+    {
+      "kind": "operational",
+      "verb": "bundle"
+    },
+    {
+      "kind": "operational",
+      "verb": "catalog"
+    },
+    {
+      "kind": "operational",
+      "verb": "compute"
+    },
+    {
+      "kind": "operational",
+      "verb": "consume"
+    },
+    {
+      "kind": "operational",
+      "verb": "extract"
+    },
+    {
+      "kind": "operational",
+      "verb": "fix"
+    },
+    {
+      "kind": "operational",
+      "verb": "implement"
+    },
+    {
+      "kind": "operational",
+      "verb": "index"
+    },
+    {
+      "kind": "operational",
+      "verb": "migrate"
+    },
+    {
+      "kind": "operational",
+      "verb": "reconcile"
+    },
+    {
+      "kind": "operational",
+      "verb": "refresh"
+    },
+    {
+      "kind": "operational",
+      "verb": "regen"
+    },
+    {
+      "kind": "operational",
+      "verb": "scaffold"
+    },
+    {
+      "kind": "operational",
+      "verb": "vendor"
+    }
+  ]
+}

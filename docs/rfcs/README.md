@@ -98,7 +98,7 @@ re-deriving it.
 | [0065](0065-template-age.md) | I48 | A pin names its release, and `due` counts the releases since | Implemented |
 | [0066](0066-upgrade-offers.md) | I49 | An upgrade's offers take a written answer, and a repository's own argument survives the tools | Implemented |
 | [0067](0067-one-landing-per-plan.md) | I50 | A plan lands once, as one commit per verb | Implemented |
-| [0068](0068-a-spec-asset.md) | I51 | A release ships the spec a producer writes against | Draft |
+| [0068](0068-a-spec-asset.md) | I51 | A release ships the spec a producer writes against | Implemented |
 
 ## Reading order
 

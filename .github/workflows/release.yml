@@ -226,12 +226,28 @@ jobs:
             ${{ steps.pkg.outputs.name }}.mcpb.sha256
           if-no-files-found: error
 
+  # The spec asset packed on every run, tag or not, so the pre-tag
+  # workflow_dispatch check fails on a broken scripts/spec-bundle.sh (a
+  # CONTRACT_SHA record missing for parity/mcp/VERSION, say) instead of the
+  # tagged run that would publish it. Uploads nothing: `publish` packs the asset
+  # it ships itself, from the same commit.
+  spec:
+    name: spec asset
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Pack the spec asset
+        run: |
+          set -eu
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' yidam/cli/Cargo.toml | head -1)
+          scripts/spec-bundle.sh "$version" "$GITHUB_SHA" dist-spec
+
   publish:
     name: publish
-    needs: build
+    needs: [build, spec]
     runs-on: ubuntu-latest
-    # Only a tag publishes. workflow_dispatch builds the matrix and stops, which
-    # is what makes it usable as a pre-tag check.
+    # Only a tag publishes. workflow_dispatch builds the matrix and packs the
+    # spec asset, then stops, which is what makes it usable as a pre-tag check.
     if: startsWith(github.ref, 'refs/tags/cli/v')
     # Job-level, so `build` and `tap` keep the workflow-level `contents: write`
     # and nothing more. A job that declares `permissions` replaces the
@@ -263,6 +279,14 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+
+      # The spec asset (RFC-0068): the schemas, conformance cases, MCP contract and
+      # vocabulary a producer writes against, packed from committed files with no
+      # build. Here, before the checksums, so it is in SHA256SUMS, in the upload
+      # and under the attestation's `dist/*.tar.gz` subject like every other
+      # tarball. It names no target, so no installer selects it as a binary.
+      - name: Pack the spec asset
+        run: scripts/spec-bundle.sh "${GITHUB_REF_NAME#cli/v}" "$GITHUB_SHA" dist
 
       # One checksum file over everything, alongside the per-asset ones. A
       # consumer verifying a single download should not have to fetch a manifest

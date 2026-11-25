@@ -197,6 +197,36 @@ It has three consumers now — the CLI declares it, and both editor clients name
 will parse. A client that meets a major it does not know says so and disables verdict features
 rather than guessing at an envelope it cannot read.
 
+### Each CLI release ships the spec a producer writes against
+
+A repository that writes `.yidam/` files without building yidam needs the schemas, the commit
+vocabulary and the MCP contract of the release it pins, and cases that say what a corpus must
+produce. Every `cli/v*` release carries them as one asset, `yidam-spec-<version>.tar.gz`, with a
+`.sha256` beside it. It is in `SHA256SUMS` and under the release's attestation like the binaries.
+It names no target, so no installer picks it as a binary. RFC-0068 holds the design.
+
+| Path in the asset | What it holds | Copied from |
+|---|---|---|
+| `manifest.json` | the release, its commit, five versions, and the source of every file | written by `scripts/spec-bundle.sh` |
+| `schemas/` | the five schemas `yidam schema` writes for every repository, and the report envelope | `yidam/sdks/conformance/schemas/`, `yidam/sdks/parity/fixtures/reports/report.schema.json` |
+| `conformance/` | corpora under `cases/<case>/repo/`, what each must produce in `expected.json`, and how to stage one | `yidam/sdks/conformance/` |
+| `mcp/` | the MCP contract, its cases and corpora | `yidam/sdks/parity/mcp/` |
+| `vocabulary.json` | each commit verb and its kind | `yidam/sdks/conformance/vocabulary.json` |
+
+A case fixes which checks fire, on which node, at which severity. Messages and rationales are
+not part of it. `yidam/sdks/conformance/README.md` says how to run one.
+
+A pin that names its release fetches:
+
+```text
+https://github.com/goedelsoup/yidam/releases/download/cli/v<release>/yidam-spec-<release>.tar.gz
+```
+
+It checks the `.sha256`, and can check the attestation with `gh attestation verify`. A pin with
+no release, such as an untagged commit, has no asset. It reads the same files from a checkout at
+the source paths `manifest.json` lists, which are the same at every commit since the asset
+landed.
+
 ## Release process
 
 1. **Decide which layers the changeset affects.**

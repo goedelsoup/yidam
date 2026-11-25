@@ -211,6 +211,18 @@ pub fn class_schemas_at(root: &std::path::Path) -> Vec<(String, String, serde_js
     cmd::class_schemas(root)
 }
 
+/// The repository-independent schemas, as `(filename, bytes)` exactly as `yidam schema`
+/// writes them.
+///
+/// Exposed for the gate that holds the spec asset's committed copies to what the binary emits.
+#[doc(hidden)]
+pub fn core_schemas_rendered() -> anyhow::Result<Vec<(&'static str, String)>> {
+    cmd::schema_all()
+        .into_iter()
+        .map(|(file, _, body)| Ok((file, cmd::schema_render(body)?)))
+        .collect()
+}
+
 #[doc(hidden)]
 pub use cmd::query::paths::DEFAULT_LIMIT as QUERY_PATHS_DEFAULT_LIMIT;
 #[doc(hidden)]

@@ -169,7 +169,7 @@ pub use retrieve::{retrieve, Options as RetrieveOptions};
 pub use run::{run as run_capability, Options as RunOptions};
 pub use samudaya_audit::{samudaya_audit, VALID_KINDS as SAMUDAYA_KINDS};
 pub use sangha::sangha;
-pub use schema::{class_schemas, schema};
+pub use schema::{all as schema_all, class_schemas, render as schema_render, schema};
 pub use score::score as run_score;
 pub use serve::serve_mcp;
 #[cfg(feature = "serve-http")]
