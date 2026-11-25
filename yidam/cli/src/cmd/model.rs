@@ -59,10 +59,15 @@ pub fn run(root: Option<&Path>, sub: ModelCommand) -> Result<()> {
 }
 
 #[cfg(not(feature = "vector-read"))]
-fn fetch(_root: Option<&Path>, _from: Option<&Path>, _model: Option<String>) -> Result<()> {
+fn fetch(root: Option<&Path>, _from: Option<&Path>, _model: Option<String>) -> Result<()> {
+    // The root first, as the vector build resolves it: a `--root` naming no corpus is the
+    // refusal either build gives, and it is the one that quotes the path it was handed.
+    let root = crate::paths::resolve_root(root)?;
     anyhow::bail!(
         "`model fetch` needs the `vector-read` feature — this build embeds nothing, so it reads \
-         no model.\n  Reinstall from any release channel, or `cargo install yidam --locked`."
+         no model for {}.\n  Reinstall from any release channel, or `cargo install yidam \
+         --locked`.",
+        root.display()
     )
 }
 
@@ -137,7 +142,10 @@ fn required_files(model_file: &str, additional: &[String]) -> Vec<String> {
     ] {
         files.push(f.to_string());
     }
-    files.dedup();
+    // Not `dedup`, which drops only neighbours: an additional file that is also a tokenizer
+    // file sits apart from its second mention. First mention wins, so the weights stay first.
+    let mut seen = std::collections::BTreeSet::new();
+    files.retain(|f| seen.insert(f.clone()));
     files
 }
 
@@ -165,6 +173,23 @@ fn locate(source: &Path, model: &str) -> Result<(PathBuf, String)> {
         None
     };
     let Some(repo) = repo else {
+        // A hub cache holding other models and not this one is not a flat directory, and
+        // reporting every file missing from its top level would hide that.
+        let mut others: Vec<String> = std::fs::read_dir(source)
+            .map_err(|e| anyhow::anyhow!("reading {}: {e}", source.display()))?
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("models--"))
+            .collect();
+        if !others.is_empty() {
+            others.sort();
+            anyhow::bail!(
+                "{} is a model cache without {model}: it holds {}, and {} is not among them",
+                source.display(),
+                others.join(", "),
+                folder_name(model)
+            );
+        }
         return Ok((source.to_path_buf(), SEEDED_REVISION.to_string()));
     };
 
@@ -198,14 +223,31 @@ fn locate(source: &Path, model: &str) -> Result<(PathBuf, String)> {
             }
         }
     };
+    // The revision becomes a directory name on both sides of the copy, so it must be exactly
+    // one: `refs/main` reading `../x` would read from, and write to, outside either cache.
+    let one_component = {
+        let mut parts = Path::new(&revision).components();
+        matches!(
+            (parts.next(), parts.next()),
+            (Some(std::path::Component::Normal(_)), None)
+        )
+    };
+    if !one_component {
+        anyhow::bail!(
+            "{} names revision {revision:?}, which is not a single directory name",
+            repo.join("refs/main").display()
+        );
+    }
     Ok((snapshots.join(&revision), revision))
 }
 
 /// Copy `files` of `model` from `source` into `cache`, in the hub's layout. Returns the model's
 /// folder in the cache.
 ///
-/// Every file is checked before any is written, so a source missing one leaves the cache as it
-/// was and the error names everything absent at once.
+/// Every file is checked before any is written, so a source missing one writes nothing and the
+/// error names everything absent at once. A copy that fails partway — a full disk, a
+/// permission — leaves the files copied so far, and `refs/main` unwritten, so the cache still
+/// names the revision it named before; running the command again finishes the seed.
 #[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
 fn seed(source: &Path, cache: &Path, model: &str, files: &[String]) -> Result<PathBuf> {
     let (dir, revision) = locate(source, model)?;
@@ -231,14 +273,40 @@ fn seed(source: &Path, cache: &Path, model: &str, files: &[String]) -> Result<Pa
             std::fs::create_dir_all(parent)
                 .map_err(|e| anyhow::anyhow!("creating {}: {e}", parent.display()))?;
         }
-        // `fs::copy` follows a symlink and copies what it points at, which is the point.
-        std::fs::copy(dir.join(f), &to).map_err(|e| {
-            anyhow::anyhow!("copying {} to {}: {e}", dir.join(f).display(), to.display())
-        })?;
+        let from = dir.join(f);
+        // A source that is this cache already (`--from .fastembed_cache`) is in place. Copying
+        // a file onto itself opens it truncated first, which would empty the model it names.
+        if same_file(&from, &to) {
+            continue;
+        }
+        // An entry this cache already holds may be a link into its `blobs/`; copying onto it
+        // would write through the link into a blob another snapshot can share. Replace the
+        // link, not what it points at.
+        if to
+            .symlink_metadata()
+            .is_ok_and(|m| m.file_type().is_symlink())
+        {
+            std::fs::remove_file(&to)
+                .map_err(|e| anyhow::anyhow!("removing {}: {e}", to.display()))?;
+        }
+        // `fs::copy` follows a symlink in the source and copies what it points at, which is
+        // the point.
+        std::fs::copy(&from, &to)
+            .map_err(|e| anyhow::anyhow!("copying {} to {}: {e}", from.display(), to.display()))?;
     }
     std::fs::create_dir_all(repo.join("refs"))?;
     std::fs::write(repo.join("refs/main"), &revision)?;
     Ok(repo)
+}
+
+/// Whether two paths name one file once every link is followed. A path that does not exist
+/// yet names no file, so it is never the same as one that does.
+#[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -348,6 +416,77 @@ mod tests {
         std::fs::create_dir_all(repo.join("snapshots/bbb")).unwrap();
         let err = locate(src.path(), MODEL).unwrap_err().to_string();
         assert!(err.contains("2 snapshots"), "{err}");
+    }
+
+    /// Seeding a cache from itself leaves every file whole. A copy onto itself would open the
+    /// destination truncated first and empty the blob the snapshot links to.
+    #[test]
+    fn a_cache_seeded_from_itself_keeps_its_files() {
+        let cache = tempfile::tempdir().unwrap();
+        let repo = cache.path().join(folder_name(MODEL));
+        let blobs = repo.join("blobs");
+        std::fs::create_dir_all(&blobs).unwrap();
+        write_files(&blobs);
+        let snap = repo.join("snapshots/abc123");
+        for f in files() {
+            let link = snap.join(&f);
+            std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(blobs.join(&f), &link).unwrap();
+            #[cfg(not(unix))]
+            std::fs::copy(blobs.join(&f), &link).unwrap();
+        }
+        std::fs::create_dir_all(repo.join("refs")).unwrap();
+        std::fs::write(repo.join("refs/main"), "abc123").unwrap();
+
+        for source in [cache.path().to_path_buf(), repo.clone()] {
+            seed(&source, cache.path(), MODEL, &files()).unwrap();
+            for f in files() {
+                assert_eq!(
+                    seeded_file(cache.path(), "abc123", &f),
+                    f,
+                    "{f} was emptied"
+                );
+            }
+        }
+    }
+
+    /// A revision that is not one directory name is refused before anything is read by it.
+    #[test]
+    fn a_revision_that_escapes_the_cache_is_refused() {
+        let src = tempfile::tempdir().unwrap();
+        let repo = src.path().join(folder_name(MODEL));
+        std::fs::create_dir_all(repo.join("snapshots/abc123")).unwrap();
+        std::fs::create_dir_all(repo.join("refs")).unwrap();
+        for bad in ["../../x", "a/b", ".."] {
+            std::fs::write(repo.join("refs/main"), bad).unwrap();
+            let err = locate(src.path(), MODEL).unwrap_err().to_string();
+            assert!(err.contains("not a single directory name"), "{bad}: {err}");
+        }
+    }
+
+    /// A cache holding only other models says so, rather than reporting every file missing.
+    #[test]
+    fn a_cache_of_another_model_names_what_it_holds() {
+        let src = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(src.path().join("models--BAAI--bge-small-en-v1.5")).unwrap();
+        let err = locate(src.path(), MODEL).unwrap_err().to_string();
+        assert!(
+            err.contains("models--BAAI--bge-small-en-v1.5") && err.contains(&folder_name(MODEL)),
+            "{err}"
+        );
+    }
+
+    /// A file named twice, apart, is listed once, and the weights stay first.
+    #[test]
+    fn a_file_named_twice_is_required_once() {
+        let files = required_files(
+            "onnx/model.onnx",
+            &["onnx/model.onnx_data".into(), "config.json".into()],
+        );
+        assert_eq!(files[0], "onnx/model.onnx");
+        assert_eq!(files.iter().filter(|f| *f == "config.json").count(), 1);
+        assert_eq!(files.len(), 6);
     }
 
     /// `$HF_HOME` is where fastembed reads, so it is where a fetch writes.
