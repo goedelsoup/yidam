@@ -31,31 +31,56 @@ die() {
     exit 1
 }
 
+# The project Claude Code opened: its git toplevel, with the working directory as the
+# fallback. It is the corpus when `YIDAM_ROOT` names none, and it is where a local build in
+# `.local/bin/` is looked for either way, because that build belongs to the project the
+# session is working in, not to a shared corpus it reads.
+project=$(git rev-parse --show-toplevel 2>/dev/null) || project=$PWD
+[ -n "$project" ] || project=$PWD
+
 # The same directory `serve` will resolve, resolved first. Deciding on one directory and
 # serving another is the footgun this script exists to close, so it `cd`s there rather than
 # trusting that the two agree.
 #
 # A non-empty `YIDAM_ROOT` names it, as it does for every command that reads a corpus. That
 # is how one shared corpus is served to sessions opened in other projects (#1520): set it in
-# the shell or in Claude Code's settings `env`. It is exported again as an absolute path, so
-# the binary reads the directory checked here and not one relative to where the `cd` landed.
-# Unset or empty, the root is `git rev-parse --show-toplevel`, with the working directory as
-# the fallback.
+# the shell or in Claude Code's settings `env`. The corpus is the nearest `.yidam/` at or
+# above the named directory, the rule `paths::resolve_root` applies, so a subdirectory of a
+# corpus serves that corpus here as it does for `yidam status`. It is exported again as that
+# absolute path, so the binary reads the directory checked here and not one relative to
+# where the `cd` landed.
+#
+# `CDPATH=` and the `./` prefix keep `cd` to the one directory named: with `CDPATH` set, a
+# relative name can resolve elsewhere and `cd` prints it to stdout, into the substitution;
+# and a value starting with `-` is read as an option, or as `$OLDPWD`.
 #
 # The rest of the environment reaches the server unchanged through `exec`, including
 # `FASTEMBED_CACHE_DIR` and the `HF_*` variables the model download reads.
 if [ -n "${YIDAM_ROOT:-}" ]; then
-    root=$(cd "$YIDAM_ROOT" 2>/dev/null && pwd -P) || die \
+    case $YIDAM_ROOT in
+        -*) named=./$YIDAM_ROOT ;;
+        *) named=$YIDAM_ROOT ;;
+    esac
+    named=$(CDPATH='' cd "$named" 2>/dev/null && pwd -P) || die \
         "yidam: YIDAM_ROOT is set to $YIDAM_ROOT, which is not a directory." \
         "  Point it at a yidam corpus, or unset it to serve the project Claude Code opened."
+    root=$named
+    while [ ! -d "$root/.yidam" ] && [ "$root" != / ]; do
+        root=$(dirname -- "$root")
+    done
+    if [ "$named" = "$YIDAM_ROOT" ]; then
+        shown=$YIDAM_ROOT
+    else
+        shown="$YIDAM_ROOT ($named)"
+    fi
     [ -d "$root/.yidam" ] || die \
-        "yidam: YIDAM_ROOT is set to $root, which is not a yidam corpus (no .yidam/ directory)." \
+        "yidam: YIDAM_ROOT is set to $shown, which is not in a yidam corpus" \
+        "  (no .yidam/ directory there or above it)." \
         "  Point it at a yidam corpus, or unset it to serve the project Claude Code opened."
     YIDAM_ROOT=$root
     export YIDAM_ROOT
 else
-    root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$PWD
-    [ -n "$root" ] || root=$PWD
+    root=$project
 fi
 cd "$root"
 
@@ -71,14 +96,16 @@ cd "$root"
 
 # YIDAM_BIN first, so a build that is not on PATH — `.local/bin/yidam` from
 # `mise run yidam-build`, or a `cargo install --path` target — can be named without
-# editing the plugin.
+# editing the plugin. The local build is the project's, not the served corpus's: with
+# `YIDAM_ROOT` set they differ, and a shared corpus's `.local/bin/` is not the build the
+# person working here made.
 if [ -n "${YIDAM_BIN:-}" ]; then
     bin=$YIDAM_BIN
     [ -x "$bin" ] || die "yidam: YIDAM_BIN is set to $bin, which is not an executable file."
 elif bin=$(command -v yidam 2>/dev/null); then
     :
-elif [ -x "$root/.local/bin/yidam" ]; then
-    bin=$root/.local/bin/yidam
+elif [ -x "$project/.local/bin/yidam" ]; then
+    bin=$project/.local/bin/yidam
 else
     die \
         "yidam: the \`yidam\` binary is not on PATH." \

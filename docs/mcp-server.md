@@ -108,8 +108,9 @@ prints the install line rather than failing as a dead server. If `yidam` lives o
 `YIDAM_BIN` to it.
 
 **One corpus can be served to every project.** Set `YIDAM_ROOT` to it, in your shell or in Claude
-Code's settings `env`. The launcher then serves that corpus wherever a session opens. It
-refuses, naming the variable, if the directory holds no `.yidam/`. Without the variable it serves
+Code's settings `env`. The launcher then serves that corpus wherever a session opens. A
+subdirectory of a corpus serves that corpus, as it does for `yidam status`. The launcher
+refuses, naming the variable, if no `.yidam/` is at or above it. Without the variable it serves
 the project's git toplevel. The rest of the environment reaches the server unchanged, so
 `FASTEMBED_CACHE_DIR` and the `HF_*` variables need nothing more. The model cache follows the
 corpus root by default.
