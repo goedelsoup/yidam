@@ -92,11 +92,13 @@ The loop keeps a **tip**: a commit sha, set to HEAD before the first step. Each 
 1. materializes its inputs from the tip;
 2. reads freshness and `outputs_already_committed` at the tip;
 3. is invoked, checked, and given a receipt, as now;
-4. calls `build_commit` on the tip with `fold` off, and the result becomes the new tip.
+4. calls `build_commit` on the tip with `fold` on, and the result becomes the new tip.
 
-No ref moves in this loop. No REGEN block is folded here. The group commit folds once (§2). The tip is a commit object that no ref points at. A downstream
+No ref moves in this loop. The fold here is quiet: a fold that cannot be made is said once,
+by the group commit (§2). The tip is a commit object that no ref points at. A downstream
 step is therefore given exactly the tree its upstream wrote, which is the property the
-module header states.
+module header states. That includes the REGEN blocks its upstream made stale, refreshed. A
+dependent that reads such a file reads it as it will land, so the next run finds it fresh.
 
 A step whose tree equals the tip's (`build_commit` returns `None`) leaves the tip where it
 was, as it leaves HEAD now.
@@ -125,7 +127,8 @@ At the end of each group, one commit is built:
 
 - its tree is the tip's tree, with the REGEN blocks the group's combined landing made stale
   refreshed in it (RFC-0054 §2.2). This is one fold over every file the group wrote, against
-  the base, so no `regen:` commit has to follow and the generators run once per group;
+  the base, so no `regen:` commit has to follow. A block that is a function of history is
+  rendered here against the base, not against the intermediate commits;
 - its parent is the base;
 - its author and committer follow RFC-0026 §5, as now.
 

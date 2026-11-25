@@ -499,8 +499,14 @@ fn a_dependent_step_runs_against_what_its_dependency_wrote() {
             continue;
         }
         let genesis = git(&e.path(), &["rev-parse", "HEAD"]);
+        let moves_before = branch_moves(&e.path());
         let (out, err, code) = e.run(&["run"]);
         assert_eq!(code, 0, "`yidam run` failed in {name}:\n{out}{err}");
+        assert_eq!(
+            branch_moves(&e.path()),
+            moves_before + 1,
+            "the plan did not move the branch exactly once in {name}"
+        );
 
         let receipt = |s: &str| -> serde_yaml::Value {
             let text = git(&e.path(), &["show", &format!("HEAD:.yidam/runs/{s}.yml")]);
@@ -531,14 +537,27 @@ fn a_dependent_step_runs_against_what_its_dependency_wrote() {
                  that did not hold what it declares it reads:\nread {read:?}\nwrote {wrote:?}"
             );
         }
-        // Every commit the plan landed is one group, built on the last, from where it began.
-        let first = git(
+        // Every commit the plan landed is one group, built on the one before it, from where
+        // the plan began: walking first parents back from HEAD reaches genesis through exactly
+        // the commits the range holds, and none of them merges anything.
+        let landed = git(&e.path(), &["rev-list", &format!("{genesis}..HEAD")]);
+        assert!(!landed.is_empty(), "the plan landed nothing in {name}");
+        let chain = git(
             &e.path(),
-            &["rev-list", "--reverse", &format!("{genesis}..HEAD")],
+            &[
+                "rev-list",
+                "--first-parent",
+                "--no-merges",
+                &format!("{genesis}..HEAD"),
+            ],
         );
-        let first = first.lines().next().expect("the plan landed a commit");
         assert_eq!(
-            git(&e.path(), &["rev-parse", &format!("{first}^")]),
+            chain, landed,
+            "the plan's commits are not one chain on where it began in {name}"
+        );
+        let oldest = landed.lines().last().expect("a landed commit");
+        assert_eq!(
+            git(&e.path(), &["rev-parse", &format!("{oldest}^")]),
             genesis,
             "the plan's first commit is not built on where it began in {name}"
         );
@@ -549,6 +568,7 @@ fn a_dependent_step_runs_against_what_its_dependency_wrote() {
 /// names every step it carries.
 #[test]
 fn a_plan_of_one_verb_lands_one_commit() {
+    let mut exercised = 0;
     for name in examples() {
         let e = Example::materialize_runnable(&name);
         let caps = declared(&e.path());
@@ -580,7 +600,31 @@ fn a_plan_of_one_verb_lands_one_commit() {
             out.contains("1 commit(s) written."),
             "the summary counts commits by step in {name}:\n{out}"
         );
+        exercised += 1;
     }
+    // Without this the filter above could skip every example and the test would pass having
+    // run nothing.
+    assert!(
+        exercised > 0,
+        "no example declares a plan of two or more runnable `compute` steps, so nothing here \
+         was asserted"
+    );
+}
+
+/// How many times the checked-out branch has moved, read from its reflog.
+fn branch_moves(root: &Path) -> usize {
+    let branch = git(root, &["symbolic-ref", "--short", "HEAD"]);
+    git(
+        root,
+        &[
+            "reflog",
+            "show",
+            "--format=%H",
+            &format!("refs/heads/{branch}"),
+        ],
+    )
+    .lines()
+    .count()
 }
 
 /// A step with another verb ends the group before it (RFC-0067 §2), and the commit it lands
