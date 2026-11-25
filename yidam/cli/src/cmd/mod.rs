@@ -59,6 +59,7 @@ pub(crate) mod migrate_references;
 pub(crate) mod migrate_routes;
 pub(crate) mod migrate_scaffold;
 pub(crate) mod migrate_used_by;
+pub(crate) mod model;
 pub(crate) mod operational;
 mod overlay;
 pub(crate) mod pack;
@@ -159,6 +160,7 @@ pub use regen::Mode as RegenMode;
 pub use regen::generator_names as regen_generator_names;
 // `doctor` asks the same question `regen --check` asks, through the same generator list.
 pub use migrate::{migrate, Operation as MigrateOperation};
+pub use model::{run as run_model, ModelCommand};
 pub use policy::{run as run_policy, PolicyCommand};
 pub use record::{fold::fold as record_fold, record};
 pub(crate) use regen::{fold_for, refresh_quietly, stale_blocks, unclaimed_blocks};

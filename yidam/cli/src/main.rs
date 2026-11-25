@@ -880,6 +880,16 @@ enum Command {
         #[arg(long)]
         model: Option<String>,
     },
+    /// Put the embedding model where this corpus reads it, from a directory or by download
+    ///
+    /// For a machine that cannot reach Hugging Face: copy a model cache from one that can, and
+    /// `model fetch --from` seeds it here. `retrieve` answers by keyword until the model loads.
+    Model {
+        #[command(flatten)]
+        root: RootArg,
+        #[command(subcommand)]
+        sub: yidam::ModelCommand,
+    },
     /// Mirror the local vector index into the vector bucket declared in [index.remote]
     ///
     /// Writes every row `.yidam/index/` holds and deletes the ones this corpus no longer has.
@@ -2203,6 +2213,7 @@ fn run() -> Result<()> {
         // putting one in the signature of the ungated half. See `vault/store.rs`.
         Command::Vault { root, sub } => yidam::run_vault(sub, root.as_deref()),
         Command::Policy { root, sub } => yidam::run_policy(root.as_deref(), sub),
+        Command::Model { root, sub } => yidam::run_model(root.as_deref(), sub),
         Command::Source { root, sub } => yidam::run_source(root.as_deref(), sub),
         Command::Derive { root, sub } => yidam::run_derive(root.as_deref(), sub),
         Command::Kuten { root, sub } => yidam::run_kuten(root.as_deref(), sub),

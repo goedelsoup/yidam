@@ -261,6 +261,12 @@ fn search_index(
                 crate::retrieval::REMOTE_UNAVAILABLE_REPAIR,
             ))
         }
+        crate::retrieval::Searched::ModelUnavailable(_why) => {
+            return Ok(Anchored::Degraded(
+                crate::retrieval::MODEL_UNAVAILABLE,
+                crate::retrieval::MODEL_UNAVAILABLE_REPAIR,
+            ))
+        }
     };
 
     // One entry per node, already: `finish` groups a long node's passages and keeps its best
@@ -435,6 +441,28 @@ mod tests {
         assert_eq!(reason, Some("remote_unavailable"));
         assert_ne!(reason, Some(crate::retrieval::STALE_CONTRACT));
         assert!(repair.is_some_and(|r| r.contains("index.remote")));
+    }
+
+    /// A model that would not load reports its own reason, and its repair names the cache.
+    ///
+    /// The third arm of the same two-line mapping, held for the same reason: `stale_contract`
+    /// here would send a reader to rebuild an index whose only fault is a missing download.
+    #[cfg(feature = "vector-read")]
+    #[test]
+    fn an_unloadable_model_does_not_report_a_stale_contract() {
+        let mut reason = None;
+        let mut repair = None;
+        degrade_or(
+            Anchored::Degraded(
+                crate::retrieval::MODEL_UNAVAILABLE,
+                crate::retrieval::MODEL_UNAVAILABLE_REPAIR,
+            ),
+            &mut reason,
+            &mut repair,
+            || (vec![], vec![]),
+        );
+        assert_eq!(reason, Some("model_unavailable"));
+        assert!(repair.is_some_and(|r| r.contains("model fetch")));
     }
 
     /// A backend, faithful in the three things [`search_index`] depends on: it asks the

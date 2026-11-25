@@ -713,7 +713,7 @@ only where you look for it.
 tool-not-found errors:
 
 ```json
-{"contract": "0.35.0",
+{"contract": "0.36.0",
  "corpus": {"domain": "streamflow", "commit": "a1b2c3d",
             "nodes": 8, "skills": 1, "decisions": 2,
             "indexed_commit": null, "stale": false},
@@ -772,16 +772,18 @@ The reason says which repair you need, and they are not the same repair:
 | `no_vector_support` | An index exists; this binary cannot read it | Reinstall from any channel; a build from before `vector-read` joined the default set, or one built `--no-default-features`, lacks it |
 | `stale_contract` | An index exists and was built with different embedding settings than this server uses, so answering from it would be answering in another vector space | `yidam embed && yidam index-build` with this binary |
 | `remote_unavailable` | This corpus is served out of a remote vector index and the service did not answer — a permission, a throttle, an outage, no network | Check `[index.remote]` and its credentials; `yidam doctor` |
+| `model_unavailable` | An index exists and this binary can read it, but the embedding model is not cached and could not be downloaded | Seed the cache: `yidam model fetch --from <dir>` (see [the model cache](configuration.md#index-cache_dir)) |
 
 The distinction is why the field exists. Both answer keyword-degraded. Being told to build an
 index you already built is the kind of advice that costs an afternoon. Note the precedence. A
 binary without `vector-read` on a corpus with *no* index reports `no_index`, not `no_vector_support`. Indexing is
 the repair under either build, so the reason names the nearer cause.
 
-`remote_unavailable` is different in kind from the other three and it is worth knowing which
-you are looking at. Those three are properties of a deployment: they are true when the server
-starts and stay true for its lifetime. `remote_unavailable` describes a **call**, so a server
-may report it on one request and nothing on the next. A client that caches the first
+`remote_unavailable` and `model_unavailable` are different in kind from the other three. It is
+worth knowing which you are looking at. Those three are properties of a deployment: they are
+true when the server starts and stay true for its lifetime. The last two describe a **call**, so a
+server may report one on one request and nothing on the next. A server retries a failed model
+load on every search. A cache you seed while it runs is read without a restart. A client that caches the first
 `degraded_reason` it sees will be wrong about the second question it asks.
 
 It is also one value for every remote failure, deliberately. A 403 and a 503 need different

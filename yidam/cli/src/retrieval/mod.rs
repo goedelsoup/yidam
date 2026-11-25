@@ -80,6 +80,27 @@ pub(crate) const REMOTE_UNAVAILABLE: &str = "remote_unavailable";
 pub(crate) const REMOTE_UNAVAILABLE_REPAIR: &str =
     "check the index named by `[index.remote]` and the credentials for it — `yidam doctor`";
 
+/// The `degraded_reason` a search reports when the embedding model would not load (#1516).
+///
+/// A fifth value, added to the freeze first. The index is present and this binary can read it;
+/// what is missing is the model that embeds the *query*. fastembed fetches it on first use from
+/// Hugging Face into a cache, and that fetch fails on an offline machine, behind a proxy that
+/// re-signs TLS, or against a cache directory that cannot be written. Before this the error
+/// ended the call — `retrieve` exited 1 — though every caller already had a keyword arm.
+///
+/// None of the other four is true. `no_index` is false, `no_vector_support` would send a reader
+/// to reinstall a binary that can read the index, `stale_contract` is a claim about a vector
+/// space nothing has embedded into, and `remote_unavailable` names a service that was never
+/// asked. Like that one it describes a call: the load is retried on the next search, so a cache
+/// seeded mid-session is used without a restart.
+#[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
+pub(crate) const MODEL_UNAVAILABLE: &str = "model_unavailable";
+
+/// What to do about it, in the clause shape [`Retrieval::repair`] uses.
+#[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
+pub(crate) const MODEL_UNAVAILABLE_REPAIR: &str =
+    "seed the model cache named by `[index] cache_dir` — `yidam model fetch --from <dir>`";
+
 use anyhow::Result;
 
 use crate::model::DomainModel;
@@ -105,6 +126,9 @@ pub(crate) enum Searched {
     /// the frozen reason — never for a client to branch on.
     #[cfg(feature = "s3-vectors")]
     Unavailable(String),
+    /// The embedding model would not load, so no query could be embedded. Carries the load
+    /// error, for the message beside [`MODEL_UNAVAILABLE`] — never for a client to branch on.
+    ModelUnavailable(String),
 }
 
 /// One row a search returned, owned.
@@ -479,7 +503,7 @@ pub(crate) fn load(
         let local = model.index.as_ref().and_then(indexed_commit);
         return Ok((Retrieval::Remote(Box::new(state)), local));
     }
-    load_local(model)
+    load_local(root, model)
 }
 
 /// Build the remote state, or `None` when this corpus declares no remote index.
@@ -530,21 +554,31 @@ fn remote_state(
         embedder: std::cell::RefCell::new(None),
         space: std::cell::RefCell::new(None),
         classes_are_path_derived: std::cell::Cell::new(false),
+        runtime: crate::embedding::Runtime::for_query(root, &config.index),
     }))
 }
 
 #[cfg(all(feature = "vector-read", not(feature = "s3-vectors")))]
 pub(crate) fn load(
-    _root: &std::path::Path,
+    root: &std::path::Path,
     model: &DomainModel,
 ) -> Result<(Retrieval, Option<String>)> {
-    load_local(model)
+    load_local(root, model)
 }
 
 #[cfg(feature = "vector-read")]
-fn load_local(model: &DomainModel) -> Result<(Retrieval, Option<String>)> {
+fn load_local(root: &std::path::Path, model: &DomainModel) -> Result<(Retrieval, Option<String>)> {
     use crate::embed_config::EmbedConfig;
     use crate::model::index_rows;
+
+    // Only the cache is read from `[index]` here. A `yidam.toml` that does not parse is the
+    // validator's to report, not a reason to stop answering: the default cache is what this
+    // path read before the key existed (#1516).
+    let runtime = crate::config::load_yidam_config(root)
+        .map(|c| crate::embedding::Runtime::for_query(root, &c.index))
+        .unwrap_or_else(|_| {
+            crate::embedding::Runtime::for_query(root, &crate::config::IndexConfig::default())
+        });
 
     match &model.index {
         Some(idx) => {
@@ -565,6 +599,7 @@ fn load_local(model: &DomainModel) -> Result<(Retrieval, Option<String>)> {
                     embedder: std::cell::RefCell::new(None),
                     space: std::cell::RefCell::new(None),
                     properties_indexed: idx.has_properties_column(),
+                    runtime,
                 })),
                 indexed_commit(idx),
             ))
@@ -763,7 +798,7 @@ mod tests {
     /// a client branches on them. Pinning them here means a rename has to be a deliberate
     /// act that also touches the freeze.
     ///
-    /// All four. `stale_contract` got an implementation in #536 — it was in the frozen set
+    /// All five. `stale_contract` got an implementation in #536 — it was in the frozen set
     /// from the start and nothing produced it — and `remote_unavailable` went the other way
     /// round: the state existed first, and it was added to the freeze before it was produced
     /// here, which is the order the contract itself prescribes for a new value.
@@ -781,6 +816,7 @@ mod tests {
         );
         assert_eq!(super::STALE_CONTRACT, "stale_contract");
         assert_eq!(super::REMOTE_UNAVAILABLE, "remote_unavailable");
+        assert_eq!(super::MODEL_UNAVAILABLE, "model_unavailable");
 
         // Distinct, because each carries a different repair and a collision would collapse
         // two of them into one.
@@ -789,6 +825,7 @@ mod tests {
             "no_vector_support",
             super::STALE_CONTRACT,
             super::REMOTE_UNAVAILABLE,
+            super::MODEL_UNAVAILABLE,
         ];
         let mut unique = all.to_vec();
         unique.sort_unstable();
@@ -1026,6 +1063,7 @@ mod tests {
             embedder: std::cell::RefCell::new(None),
             space: std::cell::RefCell::new(None),
             properties_indexed: false,
+            runtime: crate::embedding::Runtime::default(),
         }));
         assert_eq!(state.degraded_reason(), None);
         assert_eq!(state.repair(), None);

@@ -33,6 +33,8 @@ pub(crate) struct IndexState {
     /// tell from "no ordered property" — so the question is asked of the schema, once, and a
     /// `where` against an index without the column is rejected rather than answered empty.
     pub properties_indexed: bool,
+    /// Where the query embedder finds its model — the corpus's cache (#1516).
+    pub runtime: crate::embedding::Runtime,
 }
 
 /// The top `k` rows the filter admits, by cosine similarity, highest first.
@@ -53,8 +55,18 @@ pub(crate) fn search(
     if embedder.is_none() {
         let (model, _, _) = crate::embedding::resolve_model(&index.model_id)
             .map_err(|e| format!("resolving embedding model: {e}"))?;
-        let mut loaded = crate::embedding::load(model, &Default::default())
-            .map_err(|e| format!("loading embedding model {}: {e:#}", index.model_id))?;
+        // Not an `Err`: the caller has a keyword arm, and a model that would not download is
+        // no reason to answer nothing (#1516). The embedder stays unset, so the next search
+        // tries again — see `super::MODEL_UNAVAILABLE`.
+        let mut loaded = match crate::embedding::load(model, &index.runtime) {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                return Ok(Searched::ModelUnavailable(format!(
+                    "loading embedding model {}: {e:#}",
+                    index.model_id
+                )))
+            }
+        };
 
         // The witness, checked here and not by a command someone remembers to run.
         //

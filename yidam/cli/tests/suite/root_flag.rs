@@ -1,7 +1,8 @@
 //! `--root <DIR>` reads the corpus it names, on every command that offers it.
 //!
-//! Forty-eight commands accept the flag: forty-two since #918, where two did before it, and
-//! six more since RFC-0064 §7 gave a producer's CI a reason to point every reader at a site. Declaring it is a
+//! Forty-nine commands accept the flag: forty-two since #918, where two did before it, six
+//! more since RFC-0064 §7 gave a producer's CI a reason to point every reader at a site, and
+//! `model` since #1516 put the model cache under the corpus root. Declaring it is a
 //! line in `main.rs`; *honouring* it is a parameter threaded from that line through the
 //! command function to [`yidam::paths::resolve_root`], and the two are independent. A command
 //! that declares the flag and drops the value compiles, accepts `--root`, prints a plausible
@@ -136,6 +137,7 @@ const INVOCATIONS: &[(&str, &[&str], Tell)] = &[
     ("index-status", &["--format", "json"], Tell::Envelope),
     ("index-verify", &[], Tell::Names),
     ("kuten", &[], Tell::Writes("AGENTS.md")),
+    ("model", &["fetch"], Tell::Names),
     ("lint", &["--format", "json"], Tell::Envelope),
     ("log", &["--format", "json"], Tell::Envelope),
     (
