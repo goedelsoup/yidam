@@ -206,6 +206,7 @@ const sidebar = [
       { slug: 'rfcs/0066-upgrade-offers', label: '0066 · upgrade offers' },
       { slug: 'rfcs/0067-one-landing-per-plan', label: '0067 · one landing per plan' },
       { slug: 'rfcs/0068-a-spec-asset', label: '0068 · a spec asset' },
+      { slug: 'rfcs/0069-a-worktree-reads-the-main-index', label: '0069 · a worktree reads the main index' },
     ],
   },
   {
