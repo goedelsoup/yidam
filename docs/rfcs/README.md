@@ -97,7 +97,7 @@ re-deriving it.
 | [0064](0064-a-projected-corpus.md) | I47 | A projected corpus declares its producer and its id, and yidam stops assuming it was authored | Implemented |
 | [0065](0065-template-age.md) | I48 | A pin names its release, and `due` counts the releases since | Implemented |
 | [0066](0066-upgrade-offers.md) | I49 | An upgrade's offers take a written answer, and a repository's own argument survives the tools | Implemented |
-| [0067](0067-one-landing-per-plan.md) | I50 | A plan lands once, as one commit per verb | Draft |
+| [0067](0067-one-landing-per-plan.md) | I50 | A plan lands once, as one commit per verb | Implemented |
 
 ## Reading order
 

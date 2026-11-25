@@ -10,10 +10,12 @@
 //!
 //! [`manifest::Manifest::plan`] orders the steps so every dependency precedes what declares it,
 //! and a manifest that cannot be ordered stops the command rather than stopping it halfway
-//! through. Each stale step is then invoked against HEAD **as it stands when that step is
-//! reached**, which is what makes `after` mean something rather than describe something: the
-//! upstream's output is in the tree the downstream is given because the upstream committed it
-//! a moment earlier.
+//! through. Each stale step is then invoked against **the tree the steps before it wrote**,
+//! which is what makes `after` mean something rather than describe something: the upstream's
+//! output is in the tree the downstream is given because the upstream's commit object was built
+//! a moment earlier. No ref points at that object. The operational steps land together, one
+//! commit per run of consecutive steps with one verb, and the branch moves once at the end
+//! (RFC-0067). A plan in which any operational step fails lands nothing.
 //!
 //! A step is skipped when its input state matches its committed receipt, which is the equality
 //! check RFC-0026 §1 asks for. `ageing_days` is the declaration that overrides it, for a
@@ -244,12 +246,15 @@ pub fn run(step: Option<&str>, opts: Options) -> Result<()> {
 /// manifest. Either way the plan is resolved once, before anything is invoked, so a manifest
 /// that cannot be ordered stops the command rather than stopping it halfway through.
 ///
-/// # HEAD moves underneath this loop, and that is the mechanism
+/// # The tip moves underneath this loop, and that is the mechanism
 ///
-/// Each step is materialized from HEAD as it stands *when that step is reached*, not from the
-/// commit the plan was resolved against. That is what makes `after` mean something: the
-/// upstream's output is in the tree the downstream is given because the upstream committed it
-/// a moment earlier. A loop that pinned one input commit for the whole plan would hand every
+/// Each step is materialized from the batch's tip as it stands *when that step is reached*: the
+/// commit the plan was resolved against, with every landing step before it built on top as a
+/// commit object no ref points at (RFC-0067 §1). That is what makes `after` mean something:
+/// the upstream's output is in the tree the downstream is given because the upstream's object
+/// was built a moment earlier. The branch moves once, after the last operational step, and the
+/// receipt names the base the step's group is built on, which is on the branch by then (§3).
+/// A loop that pinned one input tree for the whole plan would hand every
 /// downstream step the tree from before its dependency ran, which is the failure the manifest's
 /// own `deny_unknown_fields` note describes — running a dependent step before the step it
 /// depends on and reporting success.
@@ -318,27 +323,50 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
     // by the time its dependent is reached.
     //
     // **It is only ever non-empty under `--dry-run`.** A real run invokes a stale step and
-    // commits what it wrote before moving to the next, so by the time a dependent is reached
-    // its dependency's output is at HEAD and its input state is an ordinary thing to compute.
-    // That is the whole difference between the two modes: a dry run cannot answer for a step
-    // downstream of one it did not run, and says so rather than guessing.
+    // builds what it wrote onto the batch's tip before moving to the next, so by the time a
+    // dependent is reached its dependency's output is in the tree it is materialized from and
+    // its input state is an ordinary thing to compute. That is the whole difference between the
+    // two modes: a dry run cannot answer for a step downstream of one it did not run, and says
+    // so rather than guessing.
     let mut pending: BTreeSet<&str> = BTreeSet::new();
     let mut steps: Vec<StepReport> = Vec::new();
+    let mut batch = Batch::new(root, &resolved_at);
 
     for name in plan {
         let cap = m.get(name)?;
         let receipt_path = Receipt::path(name);
-        let (full, short) = head(root)?;
         let route = cap.route();
+
+        // Epistemic steps are ordered last, so this is reached once every operational step
+        // has run: the batch lands before the first of them, which is materialized from the
+        // head it made (RFC-0067 §2).
+        if route == Route::Proposal && !dry_run {
+            batch.land(root, &branch, &mut steps)?;
+        }
+
+        // Where the step is materialized from, and the commit its receipt names. On the branch
+        // these differ: the step reads the batch's tip, which no ref points at, and records the
+        // base, which is on the branch once the plan lands (RFC-0067 §1, §3).
+        let (at, input, short) = match route {
+            Route::Branch => (
+                batch.tip.clone(),
+                batch.base.clone(),
+                batch.short_base.clone(),
+            ),
+            Route::Proposal => {
+                let (full, short) = head(root)?;
+                (full.clone(), full, short)
+            }
+        };
         let target = match route {
             Route::Branch => branch.clone(),
             Route::Proposal => crate::cmd::propose::write::branch_for(&short),
         };
         let existing = match route {
-            Route::Branch => Some(full.clone()),
+            Route::Branch => Some(at.clone()),
             Route::Proposal => tip_of(root, &target),
         };
-        let parent = existing.clone().unwrap_or_else(|| full.clone());
+        let mut parent = existing.clone().unwrap_or_else(|| at.clone());
 
         let waiting_on: Vec<&str> = cap
             .after
@@ -374,20 +402,65 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
             continue;
         }
 
-        let inputs = exec::materialize(root, &full, cap)?;
-        let resolved_digest = inputs.resolved.as_ref().map(|r| r.sha256.clone());
-        let script_digest = Receipt::script_sha256(cap, &inputs.files);
-        let tables_digest = inputs.tables_sha256.clone();
-        let input_state = Receipt::input_state(
-            cap,
-            &manifest_sha256,
-            &config_sha256,
-            &inputs.files,
-            resolved_digest.as_deref(),
-            script_digest.as_deref(),
-            tables_digest.as_deref(),
-        )?;
-        let verdict = freshness(root, cap, &parent, &receipt_path, &input_state, today);
+        // On the branch, a step that does not finish lands nothing from the whole plan
+        // (RFC-0067 §4), and the error says so rather than leaving a reader to look. Every
+        // fallible call from here to the step's objects being built carries it, so a failure
+        // reading its inputs says so as plainly as a failure running it.
+        let lost = || match route {
+            Route::Branch => format!("`{name}` did not finish, so nothing in this plan was landed"),
+            Route::Proposal => format!("`{name}` did not finish"),
+        };
+
+        let state = |at: &str, parent: &str| -> Result<Prepared> {
+            let inputs = exec::materialize(root, at, cap)?;
+            let resolved_digest = inputs.resolved.as_ref().map(|r| r.sha256.clone());
+            let script_digest = Receipt::script_sha256(cap, &inputs.files);
+            let tables_digest = inputs.tables_sha256.clone();
+            let input_state = Receipt::input_state(
+                cap,
+                &manifest_sha256,
+                &config_sha256,
+                &inputs.files,
+                resolved_digest.as_deref(),
+                script_digest.as_deref(),
+                tables_digest.as_deref(),
+            )?;
+            let verdict = freshness(root, cap, parent, &receipt_path, &input_state, today);
+            Ok(Prepared {
+                inputs,
+                resolved_digest,
+                script_digest,
+                tables_digest,
+                input_state,
+                verdict,
+            })
+        };
+        let mut prepared = state(&at, &parent).with_context(lost)?;
+        let (mut input, mut short) = (input, short);
+
+        // A stale step with another verb than the open group's closes that group before it
+        // runs. Its input commit has to be known when it is invoked, because it is exported to
+        // the step, and the group commit it names is built here. The group commit carries the
+        // fold, so the step is materialized again from it.
+        if route == Route::Branch
+            && !dry_run
+            && prepared.verdict.freshness() == Freshness::Stale
+            && batch.splits(&cap.verb)
+        {
+            batch.close(root).with_context(lost)?;
+            input.clone_from(&batch.base);
+            short.clone_from(&batch.short_base);
+            parent.clone_from(&batch.tip);
+            prepared = state(&batch.tip, &parent).with_context(lost)?;
+        }
+        let Prepared {
+            inputs,
+            resolved_digest,
+            script_digest,
+            tables_digest,
+            input_state,
+            verdict,
+        } = prepared;
 
         let mut report = StepReport {
             step: name.to_string(),
@@ -426,11 +499,11 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
                 format!("`{name}` was not run; the steps ahead of it in the plan landed")
             })?;
         }
-        exec::check_tables_read(&inputs)?;
-        let produced = exec::invoke(cap, &inputs, name, &full)?;
-        exec::check_declared(cap, &produced.outputs)?;
-        exec::check_tables_written(&inputs.tables, &produced.outputs)?;
-        outputs::check_readable(root, &parent, &produced.outputs)?;
+        exec::check_tables_read(&inputs).with_context(lost)?;
+        let produced = exec::invoke(cap, &inputs, name, &input).with_context(lost)?;
+        exec::check_declared(cap, &produced.outputs).with_context(lost)?;
+        exec::check_tables_written(&inputs.tables, &produced.outputs).with_context(lost)?;
+        outputs::check_readable(root, &parent, &produced.outputs).with_context(lost)?;
 
         let receipt = Receipt {
             format_version: receipt::FORMAT_VERSION,
@@ -440,7 +513,7 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
             run: cap.run.clone(),
             input_state,
             input: Input {
-                commit: full.clone(),
+                commit: input.clone(),
                 manifest_sha256: manifest_sha256.clone(),
                 config_sha256: config_sha256.clone(),
                 reads: cap.reads.clone(),
@@ -473,18 +546,32 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
         // commit. On the branch, and on the proposal route only with no pending proposal, where
         // the parent is HEAD (§2.5). A pending proposal keeps #1162's behaviour: a note on its
         // receipt would vouch for a tree the branch does not hold.
+        //
+        // On the branch the note waits for the landing (RFC-0067 §2): a plan that lands nothing
+        // writes no note, and the commit it records is the base, which is on the branch.
         let may_note = route == Route::Branch || existing.is_none();
         if may_note && report.unchanged_outputs {
             if let Some(blob) = notes::receipt_blob(root, &parent, &receipt_path) {
-                let committed = git(root, None, &["cat-file", "blob", &blob], None)?;
+                let committed =
+                    git(root, None, &["cat-file", "blob", &blob], None).with_context(lost)?;
                 if receipt.reproduces(&committed) {
-                    report.noted = Some(notes::append(
-                        root,
-                        &blob,
-                        &receipt.input_state,
-                        &full,
-                        (AUTHOR_NAME, AUTHOR_EMAIL),
-                    )?);
+                    match route {
+                        Route::Branch => batch.notes.push(PendingNote {
+                            report: steps.len(),
+                            blob,
+                            input_state: receipt.input_state.clone(),
+                            commit: input.clone(),
+                        }),
+                        Route::Proposal => {
+                            report.noted = Some(notes::append(
+                                root,
+                                &blob,
+                                &receipt.input_state,
+                                &input,
+                                (AUTHOR_NAME, AUTHOR_EMAIL),
+                            )?);
+                        }
+                    }
                     steps.push(report);
                     continue;
                 }
@@ -492,21 +579,51 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
         }
 
         let mut landing: Vec<(String, Vec<u8>)> = produced.outputs.clone();
-        landing.push((receipt_path.clone(), receipt.to_yaml()?.into_bytes()));
-        report.committed = commit(
-            root,
-            &Landing {
-                target: &target,
-                parent: &parent,
-                expected: existing.as_deref(),
-                short_input: &short,
-                route,
-            },
-            cap,
-            name,
-            &landing,
-        )?;
+        landing.push((
+            receipt_path.clone(),
+            receipt.to_yaml().with_context(lost)?.into_bytes(),
+        ));
+        match route {
+            Route::Branch => {
+                // Objects only, folded quietly, so a dependent later in the group reads the
+                // REGEN blocks this step made stale as they will land rather than as they were.
+                // The group commit folds again against the base, which is what lands and what
+                // says so (RFC-0067 §1).
+                if let Some(built) = build_step(
+                    root,
+                    &parent,
+                    cap,
+                    name,
+                    &landing,
+                    &short,
+                    route,
+                    Fold::Quiet,
+                )
+                .with_context(lost)?
+                {
+                    batch.add(steps.len(), cap, name, landing, built.sha);
+                }
+            }
+            Route::Proposal => {
+                report.committed = commit(
+                    root,
+                    &Landing {
+                        target: &target,
+                        parent: &parent,
+                        expected: existing.as_deref(),
+                        short_input: &short,
+                        route,
+                    },
+                    cap,
+                    name,
+                    &landing,
+                )?;
+            }
+        }
         steps.push(report);
+    }
+    if !dry_run {
+        batch.land(root, &branch, &mut steps)?;
     }
 
     let ran = steps.iter().filter(|s| s.outcome == Outcome::Ran).count();
@@ -524,6 +641,186 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
         skipped,
         committed,
     })
+}
+
+/// What a step's inputs resolved to, and whether its committed result still stands.
+struct Prepared {
+    inputs: exec::Inputs,
+    resolved_digest: Option<String>,
+    script_digest: Option<String>,
+    tables_digest: Option<String>,
+    input_state: String,
+    verdict: Verdict,
+}
+
+/// The operational half of a plan, built as objects and landed with one ref move (RFC-0067).
+///
+/// The **tip** is what the next step is materialized from: every landing step so far, built
+/// one on another, with no ref pointing at it. The **base** is the last group commit built, or
+/// HEAD before the plan, and it is what a step's receipt names. A **group** is a run of
+/// consecutive landing steps with one verb, and it lands as one commit on the base.
+struct Batch {
+    /// HEAD before the plan, which the one compare-and-swap expects the branch still to be.
+    start: String,
+    base: String,
+    short_base: String,
+    tip: String,
+    open: Option<Group>,
+    /// Each group commit built, with the steps it carries, in order.
+    built: Vec<(Built, Vec<usize>)>,
+    notes: Vec<PendingNote>,
+}
+
+struct Group {
+    verb: String,
+    members: Vec<Member>,
+}
+
+/// One step a group carries: its index in the report, and what it wrote.
+struct Member {
+    report: usize,
+    step: String,
+    shown: String,
+    landing: Vec<(String, Vec<u8>)>,
+}
+
+/// A note a step earned, written only once the plan has landed.
+struct PendingNote {
+    report: usize,
+    blob: String,
+    input_state: String,
+    commit: String,
+}
+
+impl Batch {
+    fn new(root: &Path, head: &str) -> Self {
+        Self {
+            start: head.to_string(),
+            base: head.to_string(),
+            short_base: short_of(root, head),
+            tip: head.to_string(),
+            open: None,
+            built: Vec::new(),
+            notes: Vec::new(),
+        }
+    }
+
+    /// Whether a step with `verb` would end the open group.
+    fn splits(&self, verb: &str) -> bool {
+        self.open.as_ref().is_some_and(|g| g.verb != verb)
+    }
+
+    /// A landing step, whose objects-only commit `sha` is the new tip.
+    fn add(
+        &mut self,
+        report: usize,
+        cap: &Capability,
+        step: &str,
+        landing: Vec<(String, Vec<u8>)>,
+        sha: String,
+    ) {
+        let group = self.open.get_or_insert_with(|| Group {
+            verb: cap.verb.clone(),
+            members: Vec::new(),
+        });
+        group.members.push(Member {
+            report,
+            step: step.to_string(),
+            shown: cap.run.shown(),
+            landing,
+        });
+        self.tip = sha;
+    }
+
+    /// Build the open group's commit on the base, which then becomes the base and the tip.
+    fn close(&mut self, root: &Path) -> Result<()> {
+        let Some(group) = self.open.take() else {
+            return Ok(());
+        };
+        let built = build_group(root, &self.base, &self.short_base, &group).with_context(|| {
+            format!(
+                "the `{}` group's commit could not be built, so nothing in this plan was landed",
+                group.verb
+            )
+        })?;
+        if let Some(built) = built {
+            self.base.clone_from(&built.sha);
+            self.short_base = short_of(root, &built.sha);
+            self.built
+                .push((built, group.members.iter().map(|m| m.report).collect()));
+        }
+        self.tip.clone_from(&self.base);
+        Ok(())
+    }
+
+    /// Move the branch once, then write the notes the plan earned.
+    ///
+    /// What landed is then where the batch starts, so a second call with nothing new built
+    /// moves nothing.
+    fn land(&mut self, root: &Path, branch: &str, steps: &mut [StepReport]) -> Result<()> {
+        self.close(root)?;
+        let moved = || format!("{branch} moved while the plan was running; nothing was landed");
+        // Where the branch is once the ref moves, for a note that fails after it has: the
+        // commits are on the branch by then, and an error that read as a failed plan would
+        // send somebody to re-run what already landed.
+        let mut landed: Option<String> = None;
+        if let Some(last) = self.built.last().map(|(b, _)| b.sha.clone()) {
+            git(
+                root,
+                None,
+                &[
+                    "update-ref",
+                    &format!("refs/heads/{branch}"),
+                    &last,
+                    &self.start,
+                ],
+                None,
+            )
+            .with_context(moved)?;
+            landed = Some(short_of(root, &last));
+            self.start = last;
+            for (built, members) in std::mem::take(&mut self.built) {
+                let commit = short_of(root, &built.sha);
+                for i in members {
+                    steps[i].committed = Some(Committed {
+                        branch: branch.to_string(),
+                        commit: commit.clone(),
+                        subject: built.subject.clone(),
+                    });
+                }
+            }
+        } else if !self.notes.is_empty() {
+            // Nothing to land, and the notes still vouch for the branch as it was. So it must
+            // still be there.
+            let now = tip_of(root, branch).unwrap_or_default();
+            if now != self.start {
+                bail!("{}", moved());
+            }
+        }
+        for note in std::mem::take(&mut self.notes) {
+            let step = &steps[note.report].step;
+            let noted = notes::append(
+                root,
+                &note.blob,
+                &note.input_state,
+                &note.commit,
+                (AUTHOR_NAME, AUTHOR_EMAIL),
+            )
+            .with_context(|| match &landed {
+                Some(at) => format!(
+                    "{branch} moved to {at} and the plan's commits landed, but a note for \
+                     `{step}` could not be written to {}",
+                    notes::REF
+                ),
+                None => format!(
+                    "a note for `{step}` could not be written to {}; the branch did not move",
+                    notes::REF
+                ),
+            })?;
+            steps[note.report].noted = Some(noted);
+        }
+        Ok(())
+    }
 }
 
 /// Whether a step's committed result still stands, and the sentence that says why.
@@ -1015,6 +1312,131 @@ pub(crate) fn build_commit(
     route: Route,
     fold: bool,
 ) -> Result<Option<Built>> {
+    build_step(
+        root,
+        parent,
+        cap,
+        step,
+        landing,
+        short_input,
+        route,
+        if fold { Fold::Said } else { Fold::Off },
+    )
+}
+
+/// Whether a commit refreshes the REGEN blocks it makes stale, and whether a fold that cannot be
+/// made is said on stderr.
+///
+/// `Quiet` is for a group member's objects-only commit (RFC-0067 §1): the group commit folds
+/// again against the base, and that is the one whose failure a reader is told about, once.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Fold {
+    Off,
+    Said,
+    Quiet,
+}
+
+/// [`build_commit`], with the fold spelled as a [`Fold`].
+#[allow(clippy::too_many_arguments)]
+fn build_step(
+    root: &Path,
+    parent: &str,
+    cap: &Capability,
+    step: &str,
+    landing: &[(String, Vec<u8>)],
+    short_input: &str,
+    route: Route,
+    fold: Fold,
+) -> Result<Option<Built>> {
+    let subject = subject(&cap.verb, step, landing.len(), short_input);
+    let message = message(
+        &subject,
+        &cap.run.shown(),
+        step,
+        landing,
+        short_input,
+        route,
+    );
+    build(root, parent, landing, fold, subject, message)
+}
+
+/// A group of landing steps as one commit on `base` (RFC-0067 §2).
+///
+/// Its tree is `base` with every file the group wrote, the last writer winning, and one REGEN
+/// fold over all of them against `base`. A group of one reads as the commit that step would
+/// have landed alone.
+fn build_group(root: &Path, base: &str, short_base: &str, group: &Group) -> Result<Option<Built>> {
+    let mut landing: Vec<(String, Vec<u8>)> = Vec::new();
+    for member in &group.members {
+        for (path, bytes) in &member.landing {
+            landing.retain(|(p, _)| p != path);
+            landing.push((path.clone(), bytes.clone()));
+        }
+    }
+    let (subject, message) = match group.members.as_slice() {
+        [one] => {
+            let subject = subject(&group.verb, &one.step, one.landing.len(), short_base);
+            let message = message(
+                &subject,
+                &one.shown,
+                &one.step,
+                &one.landing,
+                short_base,
+                Route::Branch,
+            );
+            (subject, message)
+        }
+        members => {
+            let subject = format!(
+                "{}: {} steps — {} file{} at {short_base}",
+                group.verb,
+                members.len(),
+                landing.len(),
+                if landing.len() == 1 { "" } else { "s" }
+            );
+            let mut body = format!("{subject}\n\n");
+            let _ = writeln!(
+                body,
+                "{} steps ran in this order. The first ran against {short_base}; each later step\nran against {short_base} and what the steps above it wrote. Each read what it\ndeclares it reads and nothing else from the repository.\n",
+                members.len()
+            );
+            for (i, member) in members.iter().enumerate() {
+                let _ = writeln!(body, "`{}` ({}):", member.shown, member.step);
+                for (path, bytes) in &member.landing {
+                    // A path a later step in the group wrote again is not in this commit's tree
+                    // with these bytes, so the digest is marked rather than read as landed.
+                    let later = members[i + 1..]
+                        .iter()
+                        .rev()
+                        .find(|m| m.landing.iter().any(|(p, _)| p == path));
+                    let _ = match later {
+                        Some(m) => writeln!(
+                            body,
+                            "  {path}  sha256:{}  (replaced by `{}`)",
+                            &sha256(bytes)[..16],
+                            m.step
+                        ),
+                        None => writeln!(body, "  {path}  sha256:{}", &sha256(bytes)[..16]),
+                    };
+                }
+                body.push('\n');
+            }
+            body.push_str(closing(Route::Branch));
+            (subject, body)
+        }
+    };
+    build(root, base, &landing, Fold::Said, subject, message)
+}
+
+/// `landing` on `parent` as one commit object, with `fold`'s REGEN paragraph after `message`.
+fn build(
+    root: &Path,
+    parent: &str,
+    landing: &[(String, Vec<u8>)],
+    fold: Fold,
+    subject: String,
+    mut message: String,
+) -> Result<Option<Built>> {
     let scratch = TempIndex::new(root, "run")?;
     let index = scratch.path().to_path_buf();
     git(root, Some(&index), &["read-tree", parent], None)?;
@@ -1053,10 +1475,10 @@ pub(crate) fn build_commit(
         return Ok(None);
     }
 
-    let folded = if fold {
-        fold_blocks(root, &index, parent, landing)?
-    } else {
+    let folded = if fold == Fold::Off {
         Vec::new()
+    } else {
+        fold_blocks(root, &index, parent, landing, fold == Fold::Said)?
     };
     let tree = if folded.is_empty() {
         tree
@@ -1064,8 +1486,6 @@ pub(crate) fn build_commit(
         git(root, Some(&index), &["write-tree"], None)?
     };
 
-    let subject = subject(&cap.verb, step, landing.len(), short_input);
-    let mut message = message(&subject, cap, step, landing, short_input, route);
     if !folded.is_empty() {
         let _ = write!(
             message,
@@ -1083,16 +1503,19 @@ pub(crate) fn build_commit(
 
 /// Refresh the REGEN blocks `landing` makes stale into `index`, and return one line per block.
 ///
-/// Empty when nothing is stale, and when no fold can be made — which is said on stderr with
-/// the command that makes it afterwards, because stdout may be a JSON report.
+/// Empty when nothing is stale, and when no fold can be made — which, with `say`, is said on
+/// stderr with the command that makes it afterwards, because stdout may be a JSON report.
 fn fold_blocks(
     root: &Path,
     index: &Path,
     parent: &str,
     landing: &[(String, Vec<u8>)],
+    say: bool,
 ) -> Result<Vec<String>> {
     let fold = match crate::cmd::fold_for(root, parent, landing) {
         Ok(Some(fold)) => fold,
+        Ok(None) if !say => return Ok(Vec::new()),
+        Err(_) if !say => return Ok(Vec::new()),
         Ok(None) => {
             eprintln!(
                 "note: a shallow clone cannot generate REGEN blocks, so this step landed without \
@@ -1198,7 +1621,7 @@ fn subject(verb: &str, step: &str, files: usize, short_parent: &str) -> String {
 
 fn message(
     subject: &str,
-    cap: &Capability,
+    shown: &str,
     step: &str,
     landing: &[(String, Vec<u8>)],
     short_parent: &str,
@@ -1207,8 +1630,7 @@ fn message(
     let mut body = format!("{subject}\n\n");
     let _ = writeln!(
         body,
-        "`{}` ran against {short_parent}, reading what `{step}` declares it reads and nothing\nelse from the repository.\n",
-        cap.run.shown()
+        "`{shown}` ran against {short_parent}, reading what `{step}` declares it reads and nothing\nelse from the repository.\n"
     );
     for (path, bytes) in landing {
         let _ = writeln!(body, "  {path}  sha256:{}", &sha256(bytes)[..16]);
@@ -1402,9 +1824,18 @@ fn summary(r: &RunReport) -> String {
             .count();
         return format!("{would} step(s) would run, {} would be skipped.", r.skipped);
     }
+    // Steps in one group share a commit (RFC-0067 §2), so commits are counted by sha.
+    let commits: BTreeSet<&str> = r
+        .steps
+        .iter()
+        .filter_map(|s| s.committed.as_ref())
+        .map(|c| c.commit.as_str())
+        .collect();
     let mut out = format!(
         "{} step(s) ran, {} skipped, {} commit(s) written.",
-        r.ran, r.skipped, r.committed
+        r.ran,
+        r.skipped,
+        commits.len()
     );
     // Said rather than left to the arithmetic. A run that invoked something and landed
     // nothing is the ordinary result of an ageing rule firing over an epistemic step whose
@@ -1805,7 +2236,14 @@ mod tests {
         };
         let landing = vec![(".yidam/computed/x.yml".to_string(), b"x".to_vec())];
         for route in [Route::Branch, Route::Proposal] {
-            let body = message("compute: x", &cap, "x", &landing, "abc1234", route);
+            let body = message(
+                "compute: x",
+                &cap.run.shown(),
+                "x",
+                &landing,
+                "abc1234",
+                route,
+            );
             for line in body.lines() {
                 assert!(
                     !line.starts_with(' ') || line.starts_with("  ."),

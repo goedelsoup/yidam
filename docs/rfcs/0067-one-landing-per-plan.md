@@ -1,6 +1,6 @@
 # RFC-0067 — A plan lands once, as one commit per verb
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I50
 - **Relates to:**
   - #1536 (a whole-manifest `yidam run` commits once per capability), parent epic #1513
@@ -92,11 +92,13 @@ The loop keeps a **tip**: a commit sha, set to HEAD before the first step. Each 
 1. materializes its inputs from the tip;
 2. reads freshness and `outputs_already_committed` at the tip;
 3. is invoked, checked, and given a receipt, as now;
-4. calls `build_commit` on the tip with `fold` off, and the result becomes the new tip.
+4. calls `build_commit` on the tip with `fold` on, and the result becomes the new tip.
 
-No ref moves in this loop. No REGEN block is folded here. The group commit folds once (§2). The tip is a commit object that no ref points at. A downstream
+No ref moves in this loop. The fold here is quiet: a fold that cannot be made is said once,
+by the group commit (§2). The tip is a commit object that no ref points at. A downstream
 step is therefore given exactly the tree its upstream wrote, which is the property the
-module header states.
+module header states. That includes the REGEN blocks its upstream made stale, refreshed. A
+dependent that reads such a file reads it as it will land, so the next run finds it fresh.
 
 A step whose tree equals the tip's (`build_commit` returns `None`) leaves the tip where it
 was, as it leaves HEAD now.
@@ -105,15 +107,18 @@ was, as it leaves HEAD now.
 
 A **landing step** is an operational step whose `build_commit` in §1 changed the tip. A step
 that was fresh, that wrote a note, or whose tree equalled the tip's is not one. It joins no
-group and does not split one.
+group. A fresh step never splits one. A stale step with another verb does, for the reason the
+base gives below.
 
 A **group** is a maximal run of consecutive landing steps in plan order that share one verb.
 A plan of eight `compute` steps is one group. A plan of `compute`, `compute`, `reconcile`,
 `compute` is three groups if all four land. If the `reconcile` was fresh, it is one group.
 
 The **base** is the last group commit built so far, or HEAD before the plan if none is.
-A group's commit is built when the next landing step has another verb, or after the last
-operational step. So the base is known when each step runs.
+A group's commit is built before a stale step with another verb is invoked, or after the last
+operational step. So the base is known when each step runs, which it must be, because
+`YIDAM_INPUT_COMMIT` is exported before the step writes anything. That step is then checked out
+again from the new base. If it writes a note instead of landing, the group it ended stays closed.
 
 Plan order is not changed to make groups larger. It is the order the steps ran in, and a
 commit's position in the log should say that.
@@ -122,7 +127,8 @@ At the end of each group, one commit is built:
 
 - its tree is the tip's tree, with the REGEN blocks the group's combined landing made stale
   refreshed in it (RFC-0054 §2.2). This is one fold over every file the group wrote, against
-  the base, so no `regen:` commit has to follow and the generators run once per group;
+  the base, so no `regen:` commit has to follow. A block that is a function of history is
+  rendered here against the base, not against the intermediate commits;
 - its parent is the base;
 - its author and committer follow RFC-0026 §5, as now.
 
