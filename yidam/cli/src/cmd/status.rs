@@ -283,12 +283,21 @@ pub struct IndexStatusReport {
     /// long nodes were split into. An index built before passages has one row per node, and
     /// reads `node_count` here.
     pub row_count: Option<u64>,
-    /// Corpus files modified since the build. This is the freshness verdict.
+    /// Corpus files modified since the build. This is the freshness verdict. For the main
+    /// worktree's index, the files that differ from the commit it was built at.
     pub stale_nodes: usize,
 }
 
 pub(crate) fn index_status_data(root: &Path) -> IndexStatusReport {
-    let resolution = crate::index_source::resolve(root);
+    index_status_from(root, &crate::index_source::resolve(root))
+}
+
+/// [`index_status_data`] over a resolution the caller already holds, so `doctor`, which also
+/// needs to know whether the main worktree's index was refused, asks git once.
+pub(crate) fn index_status_from(
+    root: &Path,
+    resolution: &crate::index_source::Resolution,
+) -> IndexStatusReport {
     let (index_dir, source) = match resolution.found() {
         Some((dir, source)) => (dir.to_path_buf(), Some(source.as_str())),
         None => (yidam_index_dir(root), None),
@@ -331,7 +340,7 @@ pub(crate) fn index_status_data(root: &Path) -> IndexStatusReport {
                 .or_else(|| meta["node_count"].as_u64())
                 .unwrap_or(0),
         ),
-        stale_nodes: count_stale_corpus_files(&yidam_corpus_dir(root), generated_at),
+        stale_nodes: stale_corpus_files(root, source, &meta, generated_at),
     }
 }
 
@@ -425,6 +434,25 @@ pub fn index_status(root: Option<&std::path::Path>, format: crate::report::Forma
         "yidam index-status",
         COMMITTED_INDEX_BLOCK,
     )
+}
+
+/// Corpus files changed since the index was built.
+///
+/// For a shared index, by commit: every file in a linked worktree was written when the
+/// worktree was checked out, after the main index was built, so by mtime a fresh worktree has
+/// changed all of them (RFC-0069). For a local index, and wherever git cannot answer, by mtime
+/// as before.
+fn stale_corpus_files(
+    root: &Path,
+    source: Option<&str>,
+    meta: &serde_json::Value,
+    generated_at: u64,
+) -> usize {
+    let by_commit = match (source, meta["indexed_commit"].as_str()) {
+        (Some("shared"), Some(commit)) => crate::index_source::corpus_changed_since(root, commit),
+        _ => None,
+    };
+    by_commit.unwrap_or_else(|| count_stale_corpus_files(&yidam_corpus_dir(root), generated_at))
 }
 
 fn count_stale_corpus_files(corpus: &Path, generated_at: u64) -> usize {

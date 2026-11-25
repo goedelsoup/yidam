@@ -5,7 +5,7 @@
 //! keyword for its whole life (#1517). The rule here is one step longer than "read
 //! `root/.yidam/index`":
 //!
-//! 1. A local index wins, whatever commit it was built at.
+//! 1. A local index wins, whatever commit it was built at. An empty `.yidam/index/` is none.
 //! 2. Otherwise a linked worktree reads its main worktree's index, if that index was built at
 //!    HEAD or at an ancestor of it.
 //! 3. Otherwise there is no index.
@@ -67,7 +67,7 @@ impl Resolution {
 /// Resolve the index `root` reads. See the module doc for the order.
 pub fn resolve(root: &Path) -> Resolution {
     let local = yidam_index_dir(root);
-    if local.exists() {
+    if holds_anything(&local) {
         return Resolution::Found {
             dir: local,
             source: IndexSource::Local,
@@ -93,12 +93,29 @@ pub fn resolve(root: &Path) -> Resolution {
     }
 }
 
+/// Is there anything in `dir`? An empty `.yidam/index/` is what an interrupted build or a
+/// bare `mkdir` leaves, and it is no index: counting it as a local one would hide the main
+/// worktree's behind a directory that answers nothing.
+fn holds_anything(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some())
+}
+
 /// The main worktree of the repository `root` is a *linked* worktree of, or `None`.
 ///
 /// `None` for a main worktree itself, a bare repository's linked worktrees (a bare repository
 /// has no main worktree to read), and anything git cannot answer about — a projected mirror
 /// carries no repository at all.
+///
+/// Only a `root` that is a linked worktree's top level is asked about, and that is read off
+/// the filesystem before any git runs: a linked worktree's `.git` is a file naming its git
+/// directory, where a main worktree's is a directory. So a main checkout, which is most
+/// checkouts, spawns nothing here. And a `root` below a worktree's top level, or a directory
+/// with no repository of its own inside one, never reads `<main>/.yidam/index`, which would be
+/// another corpus's index.
 fn main_worktree(root: &Path) -> Option<PathBuf> {
+    if !root.join(".git").is_file() {
+        return None;
+    }
     let lines = Git::new(root)
         .args(["worktree", "list", "--porcelain"])
         .lines()?;
@@ -113,10 +130,7 @@ fn main_worktree(root: &Path) -> Option<PathBuf> {
         return None;
     }
     let main = PathBuf::from(first.first()?.strip_prefix("worktree ")?);
-    let here = Git::new(root)
-        .args(["rev-parse", "--show-toplevel"])
-        .try_run()?;
-    if same_dir(&main, Path::new(&here)) {
+    if same_dir(&main, root) {
         return None;
     }
     Some(main)
@@ -127,6 +141,27 @@ fn same_dir(a: &Path, b: &Path) -> bool {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
     }
+}
+
+/// How many corpus files in `root` differ from `commit`: tracked files changed since it,
+/// committed or not, and files git has not been told about. `None` when git cannot say.
+///
+/// The freshness count for a shared index. The local count compares file mtimes against the
+/// build time, which a main checkout's history makes meaningful and a worktree's does not:
+/// `git worktree add` writes every file after the main index was built, so by mtime a worktree
+/// checked out a minute ago has changed everything.
+pub fn corpus_changed_since(root: &Path, commit: &str) -> Option<usize> {
+    let corpus = Path::new(".yidam").join("corpus");
+    let changed = Git::new(root)
+        .args(["diff", "--name-only"])
+        .rev(commit)
+        .paths([&corpus])
+        .lines()?;
+    let untracked = Git::new(root)
+        .args(["ls-files", "--others", "--exclude-standard"])
+        .paths([&corpus])
+        .lines()?;
+    Some(changed.len() + untracked.len())
 }
 
 /// `indexed_commit` out of `dir/meta.json`, when there is an index there that says one.
@@ -228,6 +263,53 @@ mod tests {
             }
             other => panic!("expected a refusal, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn an_empty_local_index_dir_does_not_hide_the_main_index() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (main, wt) = repo_with_worktree(tmp.path());
+        index_at(&main, &head(&main));
+        std::fs::create_dir_all(yidam_index_dir(&wt)).unwrap();
+        assert_eq!(
+            resolve(&wt).found().map(|(_, s)| s),
+            Some(IndexSource::Shared)
+        );
+    }
+
+    /// A root below the worktree's top level is not the main worktree's corpus, and reading
+    /// `<main>/.yidam/index` for it would answer from another corpus's index.
+    #[test]
+    fn a_root_below_the_worktree_top_level_reads_no_shared_index() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (main, wt) = repo_with_worktree(tmp.path());
+        index_at(&main, &head(&main));
+        let sub = wt.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        assert_eq!(resolve(&sub), Resolution::None);
+    }
+
+    /// A worktree checked out after the main index was built has changed nothing, though
+    /// every file in it is newer than the build.
+    #[test]
+    fn a_fresh_worktree_has_changed_no_corpus_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let main = tmp.path().join("main");
+        std::fs::create_dir_all(&main).unwrap();
+        init(&main);
+        write(&main, ".yidam/corpus/a/x.yml", "id: x");
+        commit(&main, "genesis: test");
+        let built = head(&main);
+        let wt = tmp.path().join("wt");
+        git(
+            &main,
+            &["worktree", "add", "-q", "-b", "side", wt.to_str().unwrap()],
+        );
+        assert_eq!(corpus_changed_since(&wt, &built), Some(0));
+
+        write(&wt, ".yidam/corpus/a/x.yml", "id: x\nedited: true");
+        write(&wt, ".yidam/corpus/a/y.yml", "id: y");
+        assert_eq!(corpus_changed_since(&wt, &built), Some(2));
     }
 
     #[test]

@@ -897,7 +897,8 @@ fn check_prelude(root: &Path, today: i64) -> Answer {
 /// use for semantic search is not misconfigured for lacking it.
 fn check_index(root: &Path) -> Answer {
     const BUILD: &str = "yidam index-build (needs the `index` feature)";
-    let data = crate::cmd::index_status_data(root);
+    let resolution = crate::index_source::resolve(root);
+    let data = crate::cmd::index_status_from(root, &resolution);
     if !data.index_present {
         // A linked worktree whose main worktree has an index this branch does not contain
         // (RFC-0069 §2). Saying only "no index here" would name one repair of two, and the
@@ -905,7 +906,7 @@ fn check_index(root: &Path) -> Answer {
         if let crate::index_source::Resolution::Refused {
             dir,
             indexed_commit,
-        } = crate::index_source::resolve(root)
+        } = &resolution
         {
             return Answer::warn(
                 format!(
