@@ -107,6 +107,13 @@ rest is paid only when a skill fires.
 prints the install line rather than failing as a dead server. If `yidam` lives off `PATH`, set
 `YIDAM_BIN` to it.
 
+**One corpus can be served to every project.** Set `YIDAM_ROOT` to it, in your shell or in Claude
+Code's settings `env`. The launcher then serves that corpus wherever a session opens. It
+refuses, naming the variable, if the directory holds no `.yidam/`. Without the variable it serves
+the project's git toplevel. The rest of the environment reaches the server unchanged, so
+`FASTEMBED_CACHE_DIR` and the `HF_*` variables need nothing more. The model cache follows the
+corpus root by default.
+
 **It refuses to serve a directory that is not a corpus.** A plugin is installed once, and
 Claude Code starts its servers in every project you open. So the launcher checks for `.yidam/`
 before spawning anything. `serve` itself refuses too. The launcher says it in the plugin's

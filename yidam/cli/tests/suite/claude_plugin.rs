@@ -1008,3 +1008,113 @@ fn every_skill_the_plugin_ships_is_named_where_the_plugin_is_documented() {
         }
     }
 }
+
+/// The launcher serves the directory `YIDAM_ROOT` names, and the git toplevel without it.
+///
+/// #1520: the launcher resolved the root from the git toplevel alone, while the binary has read
+/// `YIDAM_ROOT` since RFC-0064 §7. So a shared corpus named in `YIDAM_ROOT` was refused in
+/// every project that was not one itself, which is every project the variable exists for.
+///
+/// `YIDAM_BIN` names a stub that prints where it was started and what it was handed. The
+/// launcher is run for what it decides, not for the server it starts.
+#[test]
+fn the_launcher_serves_the_root_yidam_root_names() {
+    let launcher = repo_root().join("yidam/plugin/scripts/serve.sh");
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let base = tmp.path().canonicalize().expect("canonical tempdir");
+
+    let stub = base.join("stub");
+    std::fs::write(
+        &stub,
+        "#!/bin/sh\nprintf 'cwd=%s\\nroot=%s\\nargs=%s\\n' \"$(pwd -P)\" \"${YIDAM_ROOT:-}\" \"$*\"\n",
+    )
+    .expect("write the stub");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod the stub");
+    }
+
+    let corpus = base.join("shared");
+    std::fs::create_dir_all(corpus.join(".yidam")).expect("a corpus");
+    let project = base.join("project");
+    std::fs::create_dir_all(project.join("src")).expect("a project");
+    common::git::git(&project, &["init", "-q"]);
+    let not_corpus = base.join("plain");
+    std::fs::create_dir_all(&not_corpus).expect("a plain directory");
+
+    let run = |cwd: &Path, root: Option<&str>| {
+        let mut cmd = std::process::Command::new(&launcher);
+        cmd.current_dir(cwd)
+            .env("YIDAM_BIN", &stub)
+            .env_remove("YIDAM_ROOT")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .stdin(std::process::Stdio::null());
+        if let Some(root) = root {
+            cmd.env("YIDAM_ROOT", root);
+        }
+        let out = cmd.output().expect("run the launcher");
+        (
+            String::from_utf8_lossy(&out.stdout).to_string(),
+            String::from_utf8_lossy(&out.stderr).to_string(),
+            out.status.code(),
+        )
+    };
+    let served = |root: &Path, exported: &str| {
+        format!(
+            "cwd={}\nroot={exported}\nargs=serve --mcp\n",
+            root.display()
+        )
+    };
+
+    // Named, from a project that is not a corpus, and relative to where the launcher starts:
+    // the binary is handed the absolute path, because the launcher has `cd`d by then.
+    let (out, err, code) = run(&base, Some("shared"));
+    assert_eq!(
+        code,
+        Some(0),
+        "YIDAM_ROOT naming a corpus was refused: {err}"
+    );
+    assert_eq!(out, served(&corpus, &corpus.display().to_string()));
+    let (out, err, code) = run(&project.join("src"), Some(&corpus.display().to_string()));
+    assert_eq!(
+        code,
+        Some(0),
+        "YIDAM_ROOT was refused inside another project: {err}"
+    );
+    assert_eq!(out, served(&corpus, &corpus.display().to_string()));
+
+    // Named and not a corpus, or not there at all: refused, naming the variable, and the
+    // binary never started.
+    for (named, says) in [
+        (not_corpus.display().to_string(), "not a yidam corpus"),
+        (base.join("absent").display().to_string(), "not a directory"),
+    ] {
+        let (out, err, code) = run(&project, Some(&named));
+        assert_eq!(code, Some(1), "YIDAM_ROOT={named} was served: {out}");
+        assert!(
+            out.is_empty(),
+            "the binary started for YIDAM_ROOT={named}: {out}"
+        );
+        assert!(
+            err.contains("YIDAM_ROOT") && err.contains(says),
+            "the refusal for YIDAM_ROOT={named} does not say `{says}` about the variable: {err}"
+        );
+    }
+
+    // Unset or empty: the git toplevel, as before #1520, and a toplevel with no corpus is
+    // still the no-corpus refusal.
+    for root in [None, Some("")] {
+        let (_, err, code) = run(&project.join("src"), root);
+        assert_eq!(code, Some(1), "a project with no .yidam/ was served");
+        assert!(err.contains("no .yidam/ directory"), "{err}");
+    }
+    std::fs::create_dir_all(project.join(".yidam")).expect("make the project a corpus");
+    for root in [None, Some("")] {
+        let (out, err, code) = run(&project.join("src"), root);
+        assert_eq!(code, Some(0), "the toplevel corpus was refused: {err}");
+        assert_eq!(out, served(&project, ""));
+    }
+}

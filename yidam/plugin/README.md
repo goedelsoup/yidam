@@ -61,6 +61,12 @@ name a skill rather than a command that needs a checkout.
 [`scripts/serve.sh`](scripts/serve.sh) refuses with the install line rather than failing as a
 dead server; set `YIDAM_BIN` if it lives somewhere the launcher cannot guess.
 
+**A corpus of its own choosing.** The launcher serves the project's git toplevel unless
+`YIDAM_ROOT` names another corpus, which is how one shared corpus reaches sessions opened in
+other projects (#1520). Set it in the shell or in Claude Code's settings `env`. A `YIDAM_ROOT`
+with no `.yidam/` is refused by name rather than served. The rest of the environment passes
+through `exec` unchanged, `FASTEMBED_CACHE_DIR` and the `HF_*` variables included.
+
 The launcher also refuses a directory with no `.yidam/`. A plugin is installed once and
 Claude Code starts its servers in every project, so that is the ordinary case rather than the
 odd one. `serve` refuses it too, as of #549 — checking here is what lets the message be about

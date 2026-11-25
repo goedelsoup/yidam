@@ -1093,7 +1093,7 @@ Any other value, or none, is `required`.
 
 | Variable | Read by | Effect |
 |---|---|---|
-| `YIDAM_ROOT` | every command that reads a corpus | The corpus to act on when `--root` is not passed. The flag wins, and an empty value is unset |
+| `YIDAM_ROOT` | every command that reads a corpus, and the Claude Code plugin's launcher | The corpus to act on when `--root` is not passed. The flag wins, and an empty value is unset. The launcher serves it in place of the project's git toplevel |
 | `YIDAM_BIN_DIR` | `install.sh` | Install target, default `~/.local/bin` |
 | `YIDAM_VERSION` | `install.sh` | Install a specific tag rather than the latest |
 | `YIDAM_REPO` | `install.sh` | Resolve releases from a fork |

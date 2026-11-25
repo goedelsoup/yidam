@@ -31,12 +31,32 @@ die() {
     exit 1
 }
 
-# The same directory `serve` will resolve, resolved first: `git rev-parse --show-toplevel`
-# with the working directory as the fallback. Deciding on one directory and serving another
-# is the footgun this script exists to close, so it `cd`s there rather than trusting that
-# the two agree.
-root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$PWD
-[ -n "$root" ] || root=$PWD
+# The same directory `serve` will resolve, resolved first. Deciding on one directory and
+# serving another is the footgun this script exists to close, so it `cd`s there rather than
+# trusting that the two agree.
+#
+# A non-empty `YIDAM_ROOT` names it, as it does for every command that reads a corpus. That
+# is how one shared corpus is served to sessions opened in other projects (#1520): set it in
+# the shell or in Claude Code's settings `env`. It is exported again as an absolute path, so
+# the binary reads the directory checked here and not one relative to where the `cd` landed.
+# Unset or empty, the root is `git rev-parse --show-toplevel`, with the working directory as
+# the fallback.
+#
+# The rest of the environment reaches the server unchanged through `exec`, including
+# `FASTEMBED_CACHE_DIR` and the `HF_*` variables the model download reads.
+if [ -n "${YIDAM_ROOT:-}" ]; then
+    root=$(cd "$YIDAM_ROOT" 2>/dev/null && pwd -P) || die \
+        "yidam: YIDAM_ROOT is set to $YIDAM_ROOT, which is not a directory." \
+        "  Point it at a yidam corpus, or unset it to serve the project Claude Code opened."
+    [ -d "$root/.yidam" ] || die \
+        "yidam: YIDAM_ROOT is set to $root, which is not a yidam corpus (no .yidam/ directory)." \
+        "  Point it at a yidam corpus, or unset it to serve the project Claude Code opened."
+    YIDAM_ROOT=$root
+    export YIDAM_ROOT
+else
+    root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$PWD
+    [ -n "$root" ] || root=$PWD
+fi
 cd "$root"
 
 # `.yidam/`, not `.yidam/corpus/`: a repository bootstrapped an hour ago has the directory
