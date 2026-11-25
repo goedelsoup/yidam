@@ -267,11 +267,35 @@ fn a_where_narrows_what_no_term_match_counts() {
 #[cfg(feature = "vector-read")]
 #[test]
 fn a_where_against_an_index_without_the_column_is_where_unindexed() {
+    let e = Example::materialize("streamflow");
+    write_index(&e, "m");
+
+    let (stdout, _, code) = e.run(&[
+        "retrieve",
+        "reach",
+        "--where",
+        "length_km>10",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(code, 1, "{stdout}");
+    let p = payload(&stdout);
+    assert_eq!(p["rejected"]["code"], "where-unindexed", "{stdout}");
+    let message = p["rejected"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("yidam embed && yidam index-build"),
+        "the rejection must name the repair:\n{message}"
+    );
+}
+
+/// A one-row index with every column but `properties`, which is what `index-build` wrote
+/// before #1029. `model` is the `model_name` its `meta.json` records.
+#[cfg(feature = "vector-read")]
+fn write_index(e: &Example, model: &str) {
     use arrow_array::{ArrayRef, FixedSizeListArray, Float32Array, RecordBatch, StringArray};
     use arrow_schema::{DataType, Field, Schema};
     use std::sync::Arc;
 
-    let e = Example::materialize("streamflow");
     let index_dir = e.path().join(".yidam").join("index");
     std::fs::create_dir_all(&index_dir).unwrap();
 
@@ -311,24 +335,47 @@ fn a_where_against_an_index_without_the_column_is_where_unindexed() {
     std::fs::write(index_dir.join("corpus.arrow"), bytes).unwrap();
     std::fs::write(
         index_dir.join("meta.json"),
-        r#"{"model_name":"m","indexed_commit":"abc123","node_count":1}"#,
+        format!(r#"{{"model_name":"{model}","indexed_commit":"abc123","node_count":1}}"#),
     )
     .unwrap();
+}
 
-    let (stdout, _, code) = e.run(&[
-        "retrieve",
-        "reach",
-        "--where",
-        "length_km>10",
-        "--format",
-        "json",
-    ]);
-    assert_eq!(code, 1, "{stdout}");
-    let p = payload(&stdout);
-    assert_eq!(p["rejected"]["code"], "where-unindexed", "{stdout}");
-    let message = p["rejected"]["message"].as_str().unwrap();
-    assert!(
-        message.contains("yidam embed && yidam index-build"),
-        "the rejection must name the repair:\n{message}"
+/// A model that is neither cached nor downloadable degrades `retrieve` instead of failing it
+/// (#1516).
+///
+/// `HF_HOME` is an empty directory, because fastembed reads it before any other cache, and
+/// `HF_ENDPOINT` names a port nothing listens on. The download fails at once, and keyword
+/// search still answers.
+#[cfg(feature = "vector-read")]
+#[test]
+fn a_model_that_will_not_load_degrades_to_keyword_search() {
+    let e = Example::materialize("streamflow");
+    write_index(&e, "Xenova/all-MiniLM-L6-v2");
+    let empty = tempfile::tempdir().unwrap();
+    let env = [
+        ("HF_HOME".to_string(), empty.path().display().to_string()),
+        ("HF_ENDPOINT".to_string(), "http://127.0.0.1:9".to_string()),
+        ("HF_TOKEN".to_string(), String::new()),
+    ];
+    let (stdout, stderr, code) =
+        e.run_with_env(&["retrieve", "tailwater", "--format", "json"], &env);
+    assert_eq!(
+        code, 0,
+        "a missing model is not a failed call:\n{stdout}\n{stderr}"
     );
+    let p = payload(&stdout);
+    assert_eq!(p["degraded"], true, "{stdout}");
+    assert_eq!(p["degraded_reason"], "model_unavailable", "{stdout}");
+    assert!(
+        p["results"].as_array().is_some_and(|r| !r.is_empty()),
+        "keyword search needs no model and still answers:\n{stdout}"
+    );
+
+    // And `model fetch --from` names what a seed is missing rather than copying half of it.
+    let (_, stderr, code) = e.run_with_env(
+        &["model", "fetch", "--from", empty.path().to_str().unwrap()],
+        &env,
+    );
+    assert_eq!(code, 1, "{stderr}");
+    assert!(stderr.contains("tokenizer.json"), "{stderr}");
 }

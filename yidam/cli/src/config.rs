@@ -423,6 +423,14 @@ pub struct IndexConfig {
     #[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
     #[serde(default)]
     pub session_options: BTreeMap<String, String>,
+    /// Where the embedding model is cached, relative to the corpus root (#1516).
+    ///
+    /// Absent is `$FASTEMBED_CACHE_DIR` when set, and otherwise `.fastembed_cache` under the
+    /// root — not under the working directory, which is where fastembed alone would put it. Read
+    /// by `index-build`, by every search, and by `yidam model fetch`, which seeds it from a
+    /// directory for a machine that cannot download. See `embedding::cache_dir`.
+    #[cfg_attr(not(feature = "vector-read"), allow(dead_code))]
+    pub cache_dir: Option<std::path::PathBuf>,
     /// The vector index this corpus publishes to and can be queried out of (RFC-0033).
     ///
     /// **Not feature-gated, and for the reason the `[lint]` note above gives about its own

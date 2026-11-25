@@ -262,7 +262,7 @@ pub const GROUPS: &[Group] = &[
         // vector bucket equal to `.yidam/index/`, deletions included. The marker says a
         // command rewrites files in the repository it is pointed at, which this does not, so
         // it is `r`; the group title and its own help are where the writing is stated.
-        commands: &[w("embed"), w("index-build"), r("index-push")],
+        commands: &[w("embed"), w("index-build"), r("index-push"), w("model")],
     },
     Group {
         // Its own group rather than beside `tonpa`, which is the nearest neighbour and is

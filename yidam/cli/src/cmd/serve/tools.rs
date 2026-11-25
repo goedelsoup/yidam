@@ -606,6 +606,18 @@ fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
                         Some(crate::retrieval::REMOTE_UNAVAILABLE),
                     ))
                 }
+                // No query could be embedded — the model is not cached and could not be
+                // fetched (#1516). Keyword search needs no model, so it still answers.
+                crate::retrieval::Searched::ModelUnavailable(_why) => {
+                    return Ok(keyword_retrieve(
+                        state,
+                        query,
+                        k,
+                        class_filter,
+                        bound.as_ref().map(|b| (b, where_text.unwrap_or_default())),
+                        Some(crate::retrieval::MODEL_UNAVAILABLE),
+                    ))
+                }
             };
             let results: Vec<Value> = hits.iter().map(|r| vector_result(state, r)).collect();
             let absent = results.is_empty().then(|| match where_text {

@@ -15,6 +15,7 @@
 //! Here the feature buys the *build*, and naming a model is not building one.
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
@@ -55,27 +56,85 @@ pub fn load(model: EmbeddingModel, runtime: &Runtime) -> Result<TextEmbedding> {
     Ok(TextEmbedding::try_new(runtime.options(model))?)
 }
 
-/// How ONNX Runtime is set up for one embedder: `[index] threads` and `session_options`.
+/// The environment variable fastembed reads for its cache when it is handed none.
+pub const CACHE_ENV: &str = "FASTEMBED_CACHE_DIR";
+
+/// The directory, under a corpus root, the model is cached in when nothing names one.
 ///
-/// The default is fastembed's own, which is what every query embeds with. Only `index-build`
-/// reads the config (#1427): a build embeds every record at once, and a machine where that
-/// stalls needs a way to change how it runs that does not need a new binary.
+/// fastembed's own default, `.fastembed_cache`, but resolved from the corpus root rather than
+/// the working directory: a server started elsewhere — an MCP client launching `yidam serve`
+/// from its own directory — otherwise fetched the model again into wherever it happened to be,
+/// and failed offline though a copy sat beside the corpus (#1516). Both `.gitignore`s already
+/// list the name.
+pub const DEFAULT_CACHE_DIR: &str = ".fastembed_cache";
+
+/// Where the embedding model is cached for the corpus at `root`.
+///
+/// `[index] cache_dir` first, relative to `root` when it is relative; then
+/// [`CACHE_ENV`], read as fastembed reads it; then [`DEFAULT_CACHE_DIR`] under `root`. One
+/// answer for every reader — `index-build`, a search, `model fetch` — because a cache one of
+/// them seeds and another does not look in is a download the second one still needs.
+///
+/// `HF_HOME` is not read here, and still wins: fastembed prefers it to any directory it is
+/// handed. That is fastembed's precedence, documented beside the key rather than overridden.
+pub fn cache_dir(root: &Path, index: &crate::config::IndexConfig) -> PathBuf {
+    cache_dir_from(
+        root,
+        index.cache_dir.as_deref(),
+        std::env::var_os(CACHE_ENV),
+    )
+}
+
+fn cache_dir_from(
+    root: &Path,
+    configured: Option<&Path>,
+    env: Option<std::ffi::OsString>,
+) -> PathBuf {
+    match (configured, env) {
+        (Some(dir), _) => root.join(dir),
+        (None, Some(dir)) if !dir.is_empty() => PathBuf::from(dir),
+        (None, _) => root.join(DEFAULT_CACHE_DIR),
+    }
+}
+
+/// How ONNX Runtime is set up for one embedder: `[index] threads` and `session_options`, and
+/// where its model is cached.
+///
+/// The runtime keys are fastembed's own defaults on the query path, which is what every query
+/// embeds with. Only `index-build` reads them (#1427): a build embeds every record at once, and
+/// a machine where that stalls needs a way to change how it runs that does not need a new
+/// binary. The cache is read by both, from [`cache_dir`].
 #[derive(Debug, Default, Clone)]
 pub struct Runtime {
     pub threads: Option<usize>,
     pub session_options: BTreeMap<String, String>,
+    /// `None` is fastembed's own choice, which is relative to the working directory.
+    pub cache_dir: Option<PathBuf>,
 }
 
 impl Runtime {
-    pub(crate) fn from_config(index: &crate::config::IndexConfig) -> Self {
+    /// What `index-build` embeds with: every key `[index]` declares.
+    pub(crate) fn from_config(root: &Path, index: &crate::config::IndexConfig) -> Self {
         Self {
             threads: index.threads,
             session_options: index.session_options.clone(),
+            cache_dir: Some(cache_dir(root, index)),
+        }
+    }
+
+    /// What a search embeds a query with: fastembed's defaults, reading the corpus's cache.
+    pub(crate) fn for_query(root: &Path, index: &crate::config::IndexConfig) -> Self {
+        Self {
+            cache_dir: Some(cache_dir(root, index)),
+            ..Self::default()
         }
     }
 
     fn options(&self, model: EmbeddingModel) -> TextInitOptions {
         let mut options = TextInitOptions::new(model);
+        if let Some(dir) = &self.cache_dir {
+            options = options.with_cache_dir(dir.clone());
+        }
         if let Some(n) = self.threads {
             options = options.with_intra_threads(n);
         }
@@ -201,7 +260,7 @@ mod tests {
         let index: crate::config::IndexConfig =
             toml::from_str("threads = 0\nsession_options = { \"mlas.disable_kleidiai\" = \"1\" }")
                 .unwrap();
-        let runtime = Runtime::from_config(&index);
+        let runtime = Runtime::from_config(Path::new("/corpus"), &index);
         let options = runtime.options(EmbeddingModel::AllMiniLML6V2);
         assert_eq!(options.intra_threads, Some(0));
         assert_eq!(
@@ -211,6 +270,44 @@ mod tests {
         assert_eq!(
             runtime.describe(),
             "threads: ONNX Runtime's choice, mlas.disable_kleidiai=1"
+        );
+    }
+
+    /// The cache resolves from the corpus root, never the working directory (#1516): a
+    /// configured relative path is under the root, an absolute one is itself, and with
+    /// nothing configured the environment is read before the root's `.fastembed_cache`.
+    #[test]
+    fn the_cache_is_found_from_the_corpus_root() {
+        let root = Path::new("/corpus");
+        assert_eq!(
+            cache_dir_from(root, None, None),
+            PathBuf::from("/corpus/.fastembed_cache")
+        );
+        assert_eq!(
+            cache_dir_from(root, Some(Path::new("models")), Some("/env".into())),
+            PathBuf::from("/corpus/models"),
+            "the config key beats the environment"
+        );
+        assert_eq!(
+            cache_dir_from(root, Some(Path::new("/shared/models")), None),
+            PathBuf::from("/shared/models")
+        );
+        assert_eq!(
+            cache_dir_from(root, None, Some("/env".into())),
+            PathBuf::from("/env")
+        );
+        assert_eq!(
+            cache_dir_from(root, None, Some("".into())),
+            PathBuf::from("/corpus/.fastembed_cache"),
+            "an empty variable names nothing"
+        );
+
+        let index: crate::config::IndexConfig = toml::from_str("cache_dir = \"models\"").unwrap();
+        let options = Runtime::for_query(root, &index).options(EmbeddingModel::AllMiniLML6V2);
+        assert_eq!(options.cache_dir, PathBuf::from("/corpus/models"));
+        assert_eq!(
+            options.intra_threads, None,
+            "a query takes fastembed's runtime"
         );
     }
 

@@ -30,6 +30,7 @@ const PRODUCED: &[&str] = &[
     "no_vector_support",
     "stale_contract",
     "remote_unavailable",
+    "model_unavailable",
 ];
 
 fn repo_root() -> PathBuf {

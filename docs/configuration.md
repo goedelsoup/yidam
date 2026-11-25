@@ -556,6 +556,36 @@ used 12 GB of memory where batch 1 used 0.2 GB.
 `threads` and `session_options` left the vectors unchanged when measured. Queries always embed
 with the defaults.
 
+### `[index] cache_dir`
+
+Where the embedding model is cached. Every reader uses it: `index-build`, each search, and
+`yidam model fetch`.
+
+```toml
+[index]
+cache_dir = "/srv/models"   # relative paths resolve from the corpus root
+```
+
+Absent, the cache is `$FASTEMBED_CACHE_DIR` when that is set. Otherwise it is
+`.fastembed_cache` under the corpus root. It is not under the working directory, so a server
+started elsewhere reads the same copy. `$HF_HOME` is read before all three, because fastembed
+prefers it. `$HF_ENDPOINT` and `$HF_TOKEN` reach the download as well.
+
+The first search downloads the model from Hugging Face when the cache lacks it. That needs
+network access and a certificate chain that rustls trusts. A gateway that re-signs TLS with a
+private root fails it, because the download trusts only the bundled Mozilla roots.
+
+When the download cannot work, `retrieve` answers by keyword under `model_unavailable`. It does
+not fail. Copy a cache from a machine that can download, and seed it here:
+
+```sh
+yidam model fetch --from ./copied-cache
+```
+
+`--from` takes a Hugging Face cache, one model's `models--<org>--<name>` folder, or the files
+alone. The command copies them and then loads the model. A server already running reads the
+seeded cache on its next search.
+
 ### `[object] paths`
 
 Globs naming the artifact this corpus is *about*, relative to the repository root. A repository
@@ -1079,6 +1109,8 @@ Any other value, or none, is `required`.
 | `YIDAM_INDEX_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`, `_SESSION_TOKEN` | the remote index | Keys for the vector index `[index.remote]` declares |
 | `YIDAM_INDEX_ROLE_ARN`, `_WEB_IDENTITY_TOKEN_FILE`, `_ROLE_SESSION_NAME` | the remote index | A role for that index, assumed by web identity. Its own role and keys together are refused |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE` | the `default` vault and the remote index only | The fallback when their own variables are unset. Never read for any other vault |
+| `FASTEMBED_CACHE_DIR` | `index-build`, `retrieve`, `model fetch` | The model cache when `[index] cache_dir` is unset |
+| `HF_HOME`, `HF_ENDPOINT`, `HF_TOKEN` | the model download | Read by fastembed. `HF_HOME` beats every other cache setting |
 | `AWS_ENDPOINT_URL_STS` | web identity | The STS endpoint; otherwise the regional one for `AWS_REGION` |
 
 ## Editor settings

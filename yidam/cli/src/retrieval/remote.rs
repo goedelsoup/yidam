@@ -44,6 +44,8 @@ pub(crate) struct RemoteState {
     /// honest state — an index that has told this process nothing has not told it yes — and
     /// the filter is applied after it, never before.
     pub classes_are_path_derived: std::cell::Cell<bool>,
+    /// Where the query embedder finds its model — the corpus's cache (#1516).
+    pub runtime: crate::embedding::Runtime,
 }
 
 impl RemoteState {
@@ -79,8 +81,18 @@ pub(crate) fn search(
     if embedder.is_none() {
         let (model, _, _) = crate::embedding::resolve_model(&state.model_id)
             .map_err(|e| format!("resolving embedding model: {e}"))?;
-        let mut loaded = crate::embedding::load(model, &Default::default())
-            .map_err(|e| format!("loading embedding model {}: {e:#}", state.model_id))?;
+        // Not an `Err`: the caller has a keyword arm, and a model that would not download is
+        // no reason to answer nothing (#1516). The embedder stays unset, so the next search
+        // tries again — see `super::MODEL_UNAVAILABLE`.
+        let mut loaded = match crate::embedding::load(model, &state.runtime) {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                return Ok(Searched::ModelUnavailable(format!(
+                    "loading embedding model {}: {e:#}",
+                    state.model_id
+                )))
+            }
+        };
 
         let contract = witness_contract(&session, state);
         let verdict = match &contract {

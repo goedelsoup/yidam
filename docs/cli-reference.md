@@ -1279,6 +1279,7 @@ The pod still fails. That record is what `status` shows.
 | `embed` * | Extract embedding text from corpus instances to `.yidam/embeddings/`. `--no-catalog`, `--dry-run` |
 | `index-build` * | Build the vector index as Arrow IPC (`corpus.arrow`), which `retrieve` and the web shell read. `--model`. Needs `vector-read`, which is in the default set |
 | `index-push` | Mirror `.yidam/index/` into the vector bucket `[index.remote]` declares. `--dry-run`, `--create`. Needs `vector-read`, which is in the default set |
+| `model fetch` * | Put the embedding model in the corpus's model cache and check it loads. `--from <dir>` copies it from a directory instead of downloading; `--model`. Needs `vector-read` |
 
 `embed` walks `.yidam/catalog/` by default. In a real derived corpus the catalog was 51.3% of
 the indexable text, against the corpus's 41.9%. Leaving it out had been a scope decision nobody

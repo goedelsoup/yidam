@@ -108,7 +108,7 @@ pub fn index_build(root: Option<&std::path::Path>, model_arg: Option<String>) ->
     let model_name = model_arg
         .or_else(|| cfg.index.model.clone())
         .unwrap_or_else(|| DEFAULT_MODEL.to_string());
-    let runtime = Runtime::from_config(&cfg.index);
+    let runtime = Runtime::from_config(&root, &cfg.index);
     let batch_size = cfg.index.batch_size.unwrap_or(DEFAULT_BATCH_SIZE);
 
     let (embedding_model, embedding_dim, model_file) = resolve_model(&model_name)?;
