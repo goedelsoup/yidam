@@ -114,6 +114,8 @@ yidam-spec-<version>/
     report.schema.json
   conformance/
     README.md
+    VERSION
+    stage.toml
     cases/<case>/repo/…          a corpus, with its .yidam/ tree
     cases/<case>/expected.json
   mcp/
@@ -178,7 +180,8 @@ produce in `expected.json`:
 {
   "graph_check": {
     "passed": false,
-    "nodes": [".yidam/corpus/concept/traversal.yml"]
+    "nodes": [".yidam/corpus/concept/traversal.yml"],
+    "classes": []
   },
   "lint": [
     { "check": "orphan-out", "severity": "error", "node": ".yidam/corpus/concept/traversal.yml" }
@@ -191,13 +194,22 @@ rationale and a `detail` are free to change. The report envelope already says a 
 keys on `id` and the prose may change. A case that froze the prose would break a consumer's
 comparison on every reworded rationale.
 
-**`graph_check` is matched by node.** Its JSON names each node's issues in prose, such as
+**`graph_check` is matched by file.** Its JSON names each issue in prose, such as
 `"orphan node: no outgoing links"`, and has no stable identifier per issue. So the case
-records whether it passed and which nodes had issues. The `lint` list names each defect by
-check id. Each of `graph-check`'s issues has a lint check that reports the same defect:
-`missing-class`, `unknown-class`, `missing-label`, `orphan-out`, and `dangling-edge`, which
-takes both a broken link and a link entry with no `target:`. Giving `graph-check` its own ids is a
-separate change to its report, and is not needed here.
+records whether it passed and which files had issues. `nodes` lists the paths in
+`nodes_with_issues`, and `classes` lists the paths in `classes_with_issues`, which holds an
+`.ont.yml` that did not parse. Either list being non-empty fails the check. The `lint` list
+names each defect by check id. Each of `graph-check`'s issues has a lint check that reports
+the same defect: `missing-class`, `unknown-class`, `missing-label`, `orphan-out`,
+`dangling-edge`, which takes both a broken link and a link entry with no `target:`, and
+`malformed-yaml`, which takes a node or a class file that did not parse. Giving
+`graph-check` its own ids is a separate change to its report, and is not needed here.
+
+**`graph-check` does not read `outgoing: optional`.** It reports every node with no
+outgoing link, whatever its class declares (`cmd/corpus.rs`, the `links.is_empty()`
+branch). Only lint's `orphan-out` reads the declaration. A case records the two
+disagreeing, as they do. Making `graph-check` read it is a change to its output and is not
+made here.
 
 **`lint` is the complete list for the corpus at that release.** It is run with no baseline.
 A consumer that implements a subset of the checks filters the list by `check`. A check that
@@ -214,9 +226,9 @@ corpus the same way.
 
 | Case | What it holds | What it must produce |
 |---|---|---|
-| `minimal` | one class, two linked nodes | passes, no lint errors |
+| `minimal` | one class, two nodes that each link to the other | passes, no lint errors |
 | `orphan` | a node with no outgoing link | fails on that node; `orphan-out` |
-| `optional-outgoing` | the same node, its class `outgoing: optional` | passes |
+| `optional-outgoing` | the same node, its class `outgoing: optional` | `graph-check` fails on that node; no `orphan-out` |
 | `broken-link` | a link to a node that does not exist | fails on that node |
 | `missing-label` | a node with no `label` | fails on that node |
 | `unknown-class` | a node whose `class:` names no `.ont.yml` | fails on that node |
@@ -253,19 +265,36 @@ kind and then by verb. watermark-directory's vendored `commit_vocabulary.json` a
 ### 5. The release packs a directory
 
 `scripts/spec-bundle.sh <version> <commit> <out-dir>` assembles the tree in §1 from the
-committed sources, writes `manifest.json` and packs it. It reads the versions from the
-committed `VERSION` and `CONTRACT_SHA` files, not from a binary. So it runs once, on any
-runner, with no build.
+committed sources, writes `manifest.json` and packs it. Each `versions` value is read from
+one committed file, not from a binary:
+
+| Key | Read from |
+|---|---|
+| `report` | the `const` of `version` in `parity/fixtures/reports/report.schema.json` |
+| `mcp_contract` | `parity/mcp/VERSION` |
+| `contract_sha` | `parity/mcp/CONTRACT_SHA` |
+| `vocabulary` | `format_version` in `conformance/vocabulary.json` |
+| `conformance` | `conformance/VERSION`, new here, bumped when the shape of `expected.json` or `stage.toml` changes |
+
+So it runs once, on any runner, with no build.
 
 In `release.yml`, the publish job runs it after `download-artifact` and before
 `Collect checksums`. The new tarball and its `.sha256` are then in `dist/` with everything
-else: in `SHA256SUMS`, in the `gh release create` upload, and under a new
-`dist/yidam-spec-*.tar.gz` subject of the attestation step.
+else: in `SHA256SUMS`, in the `gh release create` upload, and in the attestation step,
+whose `dist/*.tar.gz` subject already matches it. No subject line is added.
+
+It is the first `.tar.gz` on a `cli/v*` release that holds no binary. Every installer
+selects its asset by target. `install.sh` and `render-formula.sh` build the name
+`yidam-<version>-<target>.tar.gz` and match it whole. mise's `github:` backend picks the
+asset whose name carries the running platform's OS and architecture, and
+`yidam-spec-<version>.tar.gz` carries neither. The `install-channels` workflow's mise job
+installs the latest release weekly and on dispatch. It is dispatched once after the first
+release with the asset, so that release proves mise still picks the binary.
 
 A gate runs the script into a temporary directory. It fails when:
 
 - a file in the tarball has no `files` entry, or an entry names no file;
-- a `versions` value differs from the committed file it was read from;
+- a `versions` value differs from the committed file the table above names for it;
 - a committed file under `yidam/sdks/conformance/` is missing from the tarball.
 
 The script and gate never call the network.
