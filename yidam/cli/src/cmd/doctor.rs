@@ -1438,16 +1438,33 @@ fn own_task_run(mise: &toml::Value, task: &str) -> Option<String> {
 /// Measured 2026-09-29, all fourteen derived workflows gate. Read offline from
 /// `.github/workflows/`: this cannot see CI that lives anywhere else, so a `warn` and never a
 /// `fail`, and the detail says what it looked at.
+///
+/// A local hook that runs a gate counts too (RFC-0070 §5). #1519's corpus gated every commit
+/// from a pre-commit hook and was warned on every run. The detail names the hook and what it
+/// does not reach, so a hook is not mistaken for CI.
 fn check_ci(root: &Path) -> Answer {
+    let mise = std::fs::read_to_string(root.join("mise.toml"))
+        .ok()
+        .and_then(|t| toml::from_str::<toml::Value>(&t).ok());
+    let own_task = |task: &str| mise.as_ref().and_then(|m| own_task_run(m, task));
+    let hooks = hook_gates(root, &own_task);
+    let hook_text = hooks.held();
+
     let dir = root.join(".github/workflows");
     let Ok(entries) = std::fs::read_dir(&dir) else {
+        if let Some(text) = hook_text {
+            return Answer::offers(text, vec![Offered::adopted("ci")]);
+        }
         // Both warn arms are the one `ci` offer: a repository with no workflows here usually
         // runs CI where this cannot read, and a decline naming where answers both.
         return Answer::offers(
             "",
             vec![Offered::open(
                 "ci",
-                "no `.github/workflows/`, so no CI this can read checks the corpus",
+                format!(
+                    "no `.github/workflows/`, so no CI this can read checks the corpus{}",
+                    hooks.skipped_note()
+                ),
                 "a workflow step running `yidam graph-check` — or, with CI elsewhere, run it there",
             )],
         );
@@ -1458,10 +1475,6 @@ fn check_ci(root: &Path) -> Answer {
         .filter(|p| p.extension().is_some_and(|x| x == "yml" || x == "yaml"))
         .collect();
     files.sort();
-    let mise = std::fs::read_to_string(root.join("mise.toml"))
-        .ok()
-        .and_then(|t| toml::from_str::<toml::Value>(&t).ok());
-    let own_task = |task: &str| mise.as_ref().and_then(|m| own_task_run(m, task));
     let mut gates: Vec<String> = vec![];
     for f in &files {
         let Ok(text) = std::fs::read_to_string(f) else {
@@ -1473,22 +1486,140 @@ fn check_ci(root: &Path) -> Answer {
             }
         }
     }
-    let held = format!("runs {}", gates.join(", "));
     if gates.is_empty() {
+        if let Some(text) = hook_text {
+            return Answer::offers(text, vec![Offered::adopted("ci")]);
+        }
         return Answer::offers(
-            held,
+            "",
             vec![Offered::open(
                 "ci",
                 format!(
                     "none of {} workflow(s) runs a corpus gate, so a green check says nothing \
-                     about the graph",
-                    files.len()
+                     about the graph{}",
+                    files.len(),
+                    hooks.skipped_note()
                 ),
                 "yidam migrate scaffold, then mise run yidam-vendor-update",
             )],
         );
     }
+    let mut held = format!("runs {}", gates.join(", "));
+    if let Some(text) = hook_text {
+        held.push_str("; ");
+        held.push_str(&text);
+    }
     Answer::offers(held, vec![Offered::adopted("ci")])
+}
+
+/// The hooks a commit or a push runs, of which only these can gate one.
+const GATE_HOOKS: &[&str] = &["pre-commit", "pre-push"];
+
+/// What the hooks git would run say about the corpus gates.
+#[derive(Debug, Default)]
+struct HookGates {
+    /// Each hook that runs a gate, as it is named to the reader, with the gates it runs.
+    gating: Vec<(String, Vec<String>)>,
+    /// What every gating hook binds: this checkout, or the checkouts that opt in.
+    binds: &'static str,
+    /// Hooks that would run a gate if git ran them, and why it does not.
+    skipped: Vec<String>,
+}
+
+impl HookGates {
+    /// The detail for a check held by these hooks, or `None` when none gates.
+    fn held(&self) -> Option<String> {
+        if self.gating.is_empty() {
+            return None;
+        }
+        let each: Vec<String> = self
+            .gating
+            .iter()
+            .map(|(hook, gates)| format!("runs {} in the hook at `{hook}`", gates.join(", ")))
+            .collect();
+        Some(format!(
+            "{}, which binds only {}",
+            each.join(" and "),
+            self.binds
+        ))
+    }
+
+    /// Appended to a warning, so a person who wrote a hook git skips is told why it did not
+    /// count.
+    fn skipped_note(&self) -> String {
+        if self.skipped.is_empty() {
+            String::new()
+        } else {
+            format!("; {}", self.skipped.join("; "))
+        }
+    }
+}
+
+/// Read the `pre-commit` and `pre-push` hooks git would run in `root` for corpus gates.
+///
+/// The directory is `git rev-parse --git-path hooks`, which follows `core.hooksPath`. Only
+/// the two hook names are read, so a `.sample` file never is. A hook that is not executable
+/// on a platform that checks the bit is not run by git and so gates nothing; it is named in
+/// [`HookGates::skipped`] when it would otherwise have counted.
+fn hook_gates(root: &Path, own_task: &dyn Fn(&str) -> Option<String>) -> HookGates {
+    let Some(raw) = crate::git::Git::new(root)
+        .args(["rev-parse", "--git-path", "hooks"])
+        .try_run()
+    else {
+        return HookGates::default();
+    };
+    let dir = root.join(raw.trim());
+    // The common directory, not this worktree's: a linked worktree runs the hooks under the
+    // main repository's `.git/hooks`.
+    let git_dir = crate::git::Git::new(root)
+        .args(["rev-parse", "--git-common-dir"])
+        .try_run()
+        .map(|d| root.join(d.trim()));
+    let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let local = git_dir.is_some_and(|g| canon(&dir).starts_with(canon(&g)));
+    let mut out = HookGates {
+        binds: if local {
+            "this checkout"
+        } else {
+            "the checkouts that set `core.hooksPath` to it"
+        },
+        ..HookGates::default()
+    };
+    for name in GATE_HOOKS {
+        let path = dir.join(name);
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let gates = gates_in(&text, own_task, TASK_DEPTH);
+        if gates.is_empty() {
+            continue;
+        }
+        let shown = canon(&path)
+            .strip_prefix(canon(root))
+            .map_or_else(|_| path.display().to_string(), |p| p.display().to_string());
+        if !runnable(&path) {
+            out.skipped.push(format!(
+                "`{shown}` runs {} but is not executable, so git does not run it",
+                gates.join(", ")
+            ));
+            continue;
+        }
+        out.gating.push((shown, gates));
+    }
+    out
+}
+
+/// Would git run this hook? On unix, only if it is executable.
+fn runnable(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        path.is_file()
+    }
 }
 
 /// Which features does this binary have?
@@ -4608,6 +4739,114 @@ jobs:
         assert_eq!(
             a.offers[0].record.as_deref(),
             Some(".yidam/decisions/0002-ci-elsewhere.yml")
+        );
+    }
+
+    /// A derived repository under git whose `core.hooksPath` hook holds `body`.
+    fn hooked(body: &str, executable: bool) -> TempDir {
+        let tmp = derived_repo();
+        crate::git::fixture::init(tmp.path());
+        git(tmp.path(), &["config", "core.hooksPath", ".githooks"]);
+        let hook = tmp.path().join(".githooks/pre-commit");
+        std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
+        std::fs::write(&hook, body).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = if executable { 0o755 } else { 0o644 };
+            std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(mode)).unwrap();
+        }
+        #[cfg(not(unix))]
+        let _ = executable;
+        tmp
+    }
+
+    const STAGED_HOOK: &str = "#!/bin/sh\nset -e\nyidam lint --staged\n";
+
+    /// #1519's corpus: no workflow, and every commit gated by a hook. A pass, naming the hook
+    /// and what it does not reach.
+    #[test]
+    fn a_hook_that_runs_a_gate_passes_ci_and_is_named() {
+        let tmp = hooked(STAGED_HOOK, true);
+        let a = check_ci(tmp.path());
+        assert_eq!(a.verdict, Verdict::Ok, "{}", a.detail);
+        assert!(
+            a.detail
+                .contains("runs yidam lint in the hook at `.githooks/pre-commit`"),
+            "{}",
+            a.detail
+        );
+        assert!(
+            a.detail
+                .contains("binds only the checkouts that set `core.hooksPath`"),
+            "{}",
+            a.detail
+        );
+    }
+
+    /// A hook under `.git/hooks` binds the one checkout it sits in.
+    #[test]
+    fn a_hook_in_the_git_dir_binds_this_checkout() {
+        let tmp = derived_repo();
+        crate::git::fixture::init(tmp.path());
+        let hook = tmp.path().join(".git/hooks/pre-push");
+        std::fs::write(&hook, "yidam graph-check\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let a = check_ci(tmp.path());
+        assert_eq!(a.verdict, Verdict::Ok, "{}", a.detail);
+        assert!(
+            a.detail.contains("binds only this checkout"),
+            "{}",
+            a.detail
+        );
+    }
+
+    /// `git init` writes `pre-commit.sample`, which git never runs.
+    #[test]
+    fn a_sample_hook_does_not_pass_ci() {
+        let tmp = derived_repo();
+        crate::git::fixture::init(tmp.path());
+        let hooks = tmp.path().join(".git/hooks");
+        std::fs::create_dir_all(&hooks).unwrap();
+        std::fs::write(hooks.join("pre-commit.sample"), STAGED_HOOK).unwrap();
+        assert_eq!(check_ci(tmp.path()).verdict, Verdict::Warn);
+    }
+
+    /// A hook git would not run gates nothing, and the warning says why it did not count.
+    #[cfg(unix)]
+    #[test]
+    fn a_hook_that_is_not_executable_does_not_pass_ci() {
+        let tmp = hooked(STAGED_HOOK, false);
+        let a = check_ci(tmp.path());
+        assert_eq!(a.verdict, Verdict::Warn, "{}", a.detail);
+        assert!(
+            a.detail.contains(
+                "`.githooks/pre-commit` runs yidam lint but is not executable, so git does not \
+                 run it"
+            ),
+            "{}",
+            a.detail
+        );
+    }
+
+    /// A workflow gate still holds the check, and a hook gate is named beside it.
+    #[test]
+    fn a_workflow_gate_passes_with_the_hook_beside_it() {
+        let tmp = hooked(STAGED_HOOK, true);
+        let workflows = tmp.path().join(".github/workflows");
+        std::fs::create_dir_all(&workflows).unwrap();
+        std::fs::write(workflows.join("ci.yml"), "- run: yidam graph-check\n").unwrap();
+        let a = check_ci(tmp.path());
+        assert_eq!(a.verdict, Verdict::Ok, "{}", a.detail);
+        assert!(
+            a.detail
+                .starts_with("runs yidam graph-check; runs yidam lint in the hook at"),
+            "{}",
+            a.detail
         );
     }
 

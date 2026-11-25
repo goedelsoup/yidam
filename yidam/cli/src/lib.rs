@@ -109,6 +109,8 @@ pub mod s3vectors;
 /// by. Public for the reason [`policy`] is: `tests/suite/task_layer.rs` holds the vendor task's
 /// shell range check to the one [`sources::version`] implements.
 pub mod sources;
+/// `--staged` on the corpus gates (RFC-0070). Public because `main.rs` dispatches to it.
+pub mod staged;
 mod table;
 pub mod vault;
 mod walk;

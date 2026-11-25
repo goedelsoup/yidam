@@ -645,6 +645,23 @@ index. The VS Code commit box calls the same check, so all three surfaces agree 
 
 **This project ships no commit-msg hook.** The stance is conformance, not hooks (RFC-0004).
 
+**A pre-commit hook can run the corpus gates.** None is shipped, and none is installed. This
+one checks what the commit holds, through `--staged`
+([RFC-0070](rfcs/0070-a-gate-reads-the-staged-tree.md)):
+
+```sh
+#!/bin/sh
+# .githooks/pre-commit — enable with: git config core.hooksPath .githooks
+set -e
+yidam graph-check --staged
+yidam lint --staged
+yidam regen --check --staged
+```
+
+Without `--staged`, a gate reads the working tree. An unstaged fix would then hide a staged
+break. `doctor`'s `ci` check counts a hook like this one as a gate. It says the hook binds only
+the checkouts that enable it, because CI is still what checks every change.
+
 ### `[derive] paths`
 
 Globs naming the arguments this repository derives from its corpus: the memos, dossiers and

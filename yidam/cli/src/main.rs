@@ -524,6 +524,10 @@ enum Command {
         /// file with uncommitted edits.
         #[arg(long, conflicts_with_all = ["check", "commit"])]
         fold: bool,
+        /// Check the tree the next commit would hold — the index — not the working tree.
+        /// Needs a commit at HEAD.
+        #[arg(long, requires = "check")]
+        staged: bool,
         #[command(flatten)]
         format: FormatArg,
     },
@@ -762,6 +766,10 @@ enum Command {
     GraphCheck {
         #[command(flatten)]
         root: RootArg,
+        /// Check the tree the next commit would hold — the index — not the working tree.
+        /// Needs a commit at HEAD.
+        #[arg(long)]
+        staged: bool,
         #[command(flatten)]
         format: FormatArg,
     },
@@ -1117,6 +1125,10 @@ enum Command {
         /// `mise run yidam-vendor-update`
         #[arg(long, conflicts_with = "bless")]
         init_baseline: bool,
+        /// Check the tree the next commit would hold — the index — not the working tree.
+        /// Needs a commit at HEAD.
+        #[arg(long, conflicts_with_all = ["commits", "bless", "init_baseline"])]
+        staged: bool,
         #[command(flatten)]
         format: FormatArg,
     },
@@ -1792,12 +1804,16 @@ fn run() -> Result<()> {
             format.value,
         ),
         Command::Hook { root, event } => yidam::hook(root.as_deref(), event),
+        Command::Regen { root, staged, .. } if staged => {
+            yidam::staged::rerun(root.as_deref(), std::env::args_os().skip(1).collect())
+        }
         Command::Regen {
             root,
             check,
             commit,
             fold,
             format,
+            staged: _,
         } => yidam::regen(
             root.as_deref(),
             match (check, commit, fold) {
@@ -1978,7 +1994,14 @@ fn run() -> Result<()> {
             depth,
             format,
         } => yidam::neighbors(root.as_deref(), &node, depth, format.value),
-        Command::GraphCheck { root, format } => yidam::graph_check(root.as_deref(), format.value),
+        Command::GraphCheck { root, staged, .. } if staged => {
+            yidam::staged::rerun(root.as_deref(), std::env::args_os().skip(1).collect())
+        }
+        Command::GraphCheck {
+            root,
+            format,
+            staged: _,
+        } => yidam::graph_check(root.as_deref(), format.value),
         Command::DecisionsLog { root } => yidam::decisions_log(root.as_deref()),
         Command::Diff {
             root,
@@ -2161,6 +2184,9 @@ fn run() -> Result<()> {
             }
             anyhow::bail!("name a transport — `yidam serve --lsp` or `yidam serve --mcp`")
         }
+        Command::Lint { root, staged, .. } if staged => {
+            yidam::staged::rerun(root.as_deref(), std::env::args_os().skip(1).collect())
+        }
         Command::Lint {
             root,
             warn,
@@ -2170,6 +2196,7 @@ fn run() -> Result<()> {
             bless,
             init_baseline,
             format,
+            staged: _,
         } => yidam::lint(
             root.as_deref(),
             yidam::LintOptions {
