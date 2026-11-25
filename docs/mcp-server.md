@@ -215,6 +215,27 @@ corpora, and a reader had to get it right anyway.
 The [plugin](#claude-code-as-a-plugin) resolves the directory for you and checks before it spawns.
 The [Claude Desktop bundle](#claude-desktop-as-a-bundle) asks at install time.
 
+### In a git worktree
+
+`.yidam/index/` is gitignored, so a `git worktree add` checkout starts without one. Served
+from there, the server looks for an index in this order:
+
+1. The worktree's own `.yidam/index/`. It always wins.
+2. The main worktree's index, if it was built at this branch's HEAD or an ancestor of it.
+3. Nothing. `retrieve` answers by keyword under `no_index`.
+
+An index built at an ancestor is read with `stale: true`. Its rows name nodes this branch
+inherited, and some may have changed since.
+
+An index built on a commit this branch does not contain is refused. Its rows could name nodes
+this branch never held. This happens when the baseline moves on and the main checkout rebuilds.
+Merge the baseline into the branch, or run `yidam index-build` in the worktree. `yidam doctor`
+names the refused commit.
+
+`index_source` says which index answered, in the handshake and on every `retrieve`. The banner
+prints it too, with the path. `export`, `bundle` and `index-push` package only a worktree's own
+index.
+
 ### Over HTTP, for a client that cannot spawn a process
 
 Every configuration above spawns `yidam` as a subprocess. A client can only do that on a machine
@@ -721,10 +742,10 @@ only where you look for it.
 tool-not-found errors:
 
 ```json
-{"contract": "0.36.0",
+{"contract": "0.37.0",
  "corpus": {"domain": "streamflow", "commit": "a1b2c3d",
             "nodes": 8, "skills": 1, "decisions": 2,
-            "indexed_commit": null, "stale": false},
+            "indexed_commit": null, "index_source": null, "stale": false},
  "retrieve": {"vector": false, "reason": "no_index"},
  "graph": true, "ontology": true, "dependencies": false,
  "phases": false, "sangha": false, "act": false, "sources": false,
@@ -740,6 +761,12 @@ not, which covers both *current* and *no index at all*; `indexed_commit` disting
 **`null` when the server cannot tell**. That is the honest answer from a projected mirror with no
 working git repository behind it. The key is null rather than absent. A client never has to tell
 "not stale" apart from "a server too old to say".
+
+`index_source` says which index loaded (contract 0.37.0). `local` is this checkout's own.
+`shared` is the main worktree's, read from a [git worktree](#in-a-git-worktree) with none of its
+own. `remote` is the one `[index.remote]` declares. It is null when no index was found. No path
+is in the contract, because a path on the server's machine is no repair a client can make.
+`retrieve` carries the same key, null whenever `degraded` is true.
 
 `phases` and `sangha` are false and will stay false for this server. Both read live `ma/*` and
 `rigpa/*` refs. This one reads a built model on disk. `ontology` follows the corpus. A repository

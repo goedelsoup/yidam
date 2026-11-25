@@ -50,6 +50,10 @@ pub(crate) fn capabilities(state: &ServerState) -> Value {
             "skills": state.skills.len(),
             "decisions": state.decisions.len(),
             "indexed_commit": state.indexed_commit,
+            // Whose index that is (contract 0.37.0, RFC-0069). A linked worktree with none of
+            // its own reads its main worktree's, and `indexed_commit` alone would read as this
+            // checkout's.
+            "index_source": state.index_source,
             "stale": state.stale_index(),
         },
         // Not a tier: `retrieve` is core either way. This says whether the index is loaded,
@@ -425,6 +429,16 @@ fn find_any_node<'a>(state: &'a ServerState, id: &str) -> Option<&'a super::Node
 }
 
 fn retrieve(state: &ServerState, args: &Value) -> Result<Value, String> {
+    let mut answer = retrieve_answer(state, args)?;
+    // Which index the vector answer came from (contract 0.37.0, RFC-0069), on every arm, and
+    // null whenever the answer was keyword search. Set here rather than in `body` because it
+    // follows from `degraded` alone, and `body` already decided that.
+    let vector = answer["degraded"] == Value::Bool(false);
+    answer["index_source"] = json!(state.index_source.filter(|_| vector));
+    Ok(answer)
+}
+
+fn retrieve_answer(state: &ServerState, args: &Value) -> Result<Value, String> {
     let query = args["query"]
         .as_str()
         .ok_or("missing required argument: query")?;

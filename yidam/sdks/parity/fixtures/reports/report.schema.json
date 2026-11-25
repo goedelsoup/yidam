@@ -1257,7 +1257,7 @@
     },
     "index_present": {
       "type": "boolean",
-      "description": "`status` and `index-status`. Whether `.yidam/index/` exists."
+      "description": "`status` and `index-status`. Whether `.yidam/index/` exists. `index-status` also counts the main worktree's index when a linked worktree reads it (RFC-0069); `status` counts only this checkout's."
     },
     "computed_files": {
       "type": "integer",
@@ -1408,6 +1408,25 @@
     "edge_claims_open": {
       "type": "integer",
       "description": "`status` only. The same three over the node's **edges** — its links' `claim_tag` (#857). BESIDE the node counts and never folded into them: a node's claims are measured over its text, an edge is in no node's text and belongs to two nodes at once, so one merged figure would answer about a denominator nobody chose. A consumer wanting the corpus-wide total adds the two. NOT required: a CLI released before this field emits a measurement without it, and its output must still validate."
+    },
+    "index_source": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "local",
+        "shared",
+        null
+      ],
+      "description": "`index-status` only. Which index answered: `local`, this checkout's `.yidam/index/`, or `shared`, the main worktree's, read by a linked worktree with none of its own when it was built at HEAD or an ancestor (RFC-0069). Null when no index was found. The values are the MCP contract's `index_source`, less `remote`, which only a server reports."
+    },
+    "index_path": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "`index-status` only. The directory read, absolute. Null exactly when `index_source` is. A fact about this machine, so no golden holds one non-null."
     },
     "meta_present": {
       "type": "boolean",

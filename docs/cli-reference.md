@@ -1299,6 +1299,14 @@ phrase deep in a long node is still findable. A short node is one passage, exact
 `embed --dry-run` reports the passage count beside the node count. A search returns a node once,
 with the passage that scored best ([RFC-0060](rfcs/0060-embed-passages.md)).
 
+**A git worktree reads the main checkout's index.** Every command that reads the index looks in
+this order. First, the checkout's own `.yidam/index/`, which always wins. Then, in a linked
+worktree, the main worktree's index, if it was built at HEAD or an ancestor of it. Otherwise
+there is none. An index built on a commit the branch does not contain is refused, and `doctor`
+names that commit. `index-status` reports which index it read as `index_source` and
+`index_path`. `index-build` still writes the checkout's own. `export`, `bundle` and `index-push`
+read only that one ([RFC-0069](rfcs/0069-a-worktree-reads-the-main-index.md)).
+
 `index-push` is a mirror. It writes every row the local index holds, and deletes the ones this
 corpus no longer has. A node removed from the corpus stops being findable. It never touches a
 record that is not this corpus's.

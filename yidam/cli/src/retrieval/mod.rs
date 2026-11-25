@@ -458,6 +458,21 @@ impl Retrieval {
         }
     }
 
+    /// Which index answers a vector search, in the MCP contract's `index_source` words
+    /// (0.37.0, RFC-0069): `remote` for a declared remote index, otherwise whose local index
+    /// `model` loaded — this checkout's or its main worktree's. `None` when there is none.
+    ///
+    /// Not `None` for an index this build cannot read. The capability block describes the
+    /// index the server found, beside `indexed_commit`, and `degraded_reason` already says it
+    /// is not being read.
+    pub(crate) fn index_source(&self, model: &DomainModel) -> Option<&'static str> {
+        #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
+        if matches!(self, Self::Remote(_)) {
+            return Some("remote");
+        }
+        model.index.as_ref().map(|i| i.source.as_str())
+    }
+
     /// What to do about it, in one clause. Present tense, no leading capital — callers
     /// splice it into a sentence of their own.
     pub(crate) fn repair(&self) -> Option<&'static str> {
@@ -499,8 +514,13 @@ pub(crate) fn load(
         // `None`, not a guess. The commit a remote index was built at is on the records
         // themselves and reading it would cost a round trip at startup, on a path that may
         // never search. The MCP contract's `stale` is a tri-state for exactly this: the
-        // honest answer to "is it behind?" here is "cannot tell".
-        let local = model.index.as_ref().and_then(indexed_commit);
+        // honest answer to "is it behind?" here is "cannot tell". Only this checkout's own
+        // index is read for it: a main worktree's says nothing about the remote one.
+        let local = model
+            .index
+            .as_ref()
+            .filter(|i| i.source == crate::index_source::IndexSource::Local)
+            .and_then(indexed_commit);
         return Ok((Retrieval::Remote(Box::new(state)), local));
     }
     load_local(root, model)
@@ -534,9 +554,12 @@ fn remote_state(
     // The model to embed queries with. A local `embed.config.json` is authoritative when one
     // is present; otherwise the default, checked against the index's own witness on the first
     // search. It is not read from the witness here because that is a round trip at startup.
+    // A main worktree's config, read through RFC-0069, is not this checkout's: it names the
+    // model that built that index, not the remote one.
     let model_id = model
         .index
         .as_ref()
+        .filter(|i| i.source == crate::index_source::IndexSource::Local)
         .and_then(|i| i.embed_config.as_ref())
         .map(|c| c.model_id.clone())
         .unwrap_or_else(|| crate::embedding::DEFAULT_MODEL.to_string());
@@ -1044,6 +1067,8 @@ mod tests {
             arrow_ipc: ipc,
             meta_raw: br#"{"indexed_commit":"abc123"}"#.to_vec(),
             meta: serde_json::json!({"indexed_commit": "abc123", "model_name": "m"}),
+            source: crate::index_source::IndexSource::Local,
+            dir: std::path::PathBuf::new(),
             embed_config: None,
         };
         let rows = crate::model::index_rows(&index).expect("a vector-read build decodes an index");

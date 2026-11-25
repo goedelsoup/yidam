@@ -19,7 +19,7 @@ A corpus node has **eleven** string forms across this repository. Two of them ca
 corpus a node came from, one can say which revision, and none can say both. The forms are not
 alternatives a caller chooses between — they are what different surfaces invented independently
 because there was no first form to reuse, and one of them,
-[`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L393), already accepts three spellings that
+[`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L397), already accepts three spellings that
 no contract mentions. An ad-hoc resolver is what an absent grammar looks like from the inside.
 
 The absence has a second face. A derived corpus folded 168 crate paths and 145 catalog and node
@@ -46,7 +46,7 @@ That is not a latent tidiness issue. [`resources.rs:56`](../../yidam/cli/src/cmd
 interpolates `node.id` into the URI, and the loop it sits in reads `state.nodes` only —
 [`dep_nodes`](../../yidam/cli/src/cmd/serve/mod.rs#L88) is a separate field by deliberate design.
 So a dependency node has **no resource URI at all**, while
-[`find_any_node`](../../yidam/cli/src/cmd/serve/tools.rs#L416) reads one happily by its qualified
+[`find_any_node`](../../yidam/cli/src/cmd/serve/tools.rs#L420) reads one happily by its qualified
 id. One server answers a question through its tool surface that its resource surface cannot
 address, and RFC-0005 declares the scheme normative without mentioning dependencies.
 
@@ -116,22 +116,22 @@ authoritative for terms this project minted.
 
 ### 3 — Only a struct can say *which corpus, at which revision*
 
-[`qualified_id`](../../yidam/cli/src/model.rs#L516) renders `pkg::class/name` and is the only
+[`qualified_id`](../../yidam/cli/src/model.rs#L550) renders `pkg::class/name` and is the only
 string form carrying a corpus. [`ExternalCitation`](../../yidam/sdks/rust/src/corpus.rs#L83)
 carries `package`, `node`, `commit` and `tag` — the only identifier in the system that can name a
 foreign node at a known revision, and it is four fields rather than a string, so it cannot appear
 in a resource URI, an RDF subject, a query result, or a rendered citation. Meanwhile
-[`resolve_link_target`](../../yidam/cli/src/model.rs#L533) resolves an on-disk edge from a
+[`resolve_link_target`](../../yidam/cli/src/model.rs#L567) resolves an on-disk edge from a
 relative path, which is a *fifth* convention, and unrelated to any of the above.
 
 ### 4 — Eleven forms, and the count is the argument
 
 | Form | Built by | Corpus? | Revision? |
 |---|---|---|---|
-| `class/name` | [`corpus_nodes`](../../yidam/cli/src/model.rs#L560-L583) | — | — |
-| `pkg::class/name` | [`qualified_id`](../../yidam/cli/src/model.rs#L516) | yes | — |
-| `.yidam/corpus/class/name.yml` | tolerated by [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L393) | — | — |
-| `../other-class/thing.yml` | [`resolve_link_target`](../../yidam/cli/src/model.rs#L533) | — | — |
+| `class/name` | [`corpus_nodes`](../../yidam/cli/src/model.rs#L594-L617) | — | — |
+| `pkg::class/name` | [`qualified_id`](../../yidam/cli/src/model.rs#L550) | yes | — |
+| `.yidam/corpus/class/name.yml` | tolerated by [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L397) | — | — |
+| `../other-class/thing.yml` | [`resolve_link_target`](../../yidam/cli/src/model.rs#L567) | — | — |
 | `yidam://corpus/class/name` | [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56) | — | — |
 | the same string as an RDF subject | [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L138) | — | — |
 | `file:///…/class/name.yml` | [`path_to_uri`](../../yidam/cli/src/cmd/lsp.rs#L107) | n/a | — |
@@ -297,8 +297,8 @@ Guessing would either invent a conflict on every bundle built before the field o
 ### 4.6 — One parser
 
 `yidam_core::uri` parses and renders the grammar and becomes the only place an identifier is
-built or split. It retires [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L393)'s three
-tolerated spellings, [`qualified_id`](../../yidam/cli/src/model.rs#L516),
+built or split. It retires [`find_node`](../../yidam/cli/src/cmd/serve/tools.rs#L397)'s three
+tolerated spellings, [`qualified_id`](../../yidam/cli/src/model.rs#L550),
 [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L138),
 [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56)'s prefix chain and
 [`nodeHref`](../../yidam/editors/web/src/lib/graph.ts#L195-L196)'s route builder. It lands on the

@@ -63,6 +63,7 @@ pub mod git;
 /// one does. The module note explains why the arm's purity needs two mechanisms rather than the
 /// one the RFC argued for, and where the feature line now falls.
 pub mod gluon_arm;
+pub mod index_source;
 /// What a corpus declares its practice is aimed at (RFC-0028). Public so the guards over
 /// the shipped profiles can parse them the way the binary does, rather than a second way.
 pub mod kuten;

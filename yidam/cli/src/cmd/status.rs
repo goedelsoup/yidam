@@ -261,8 +261,14 @@ pub fn status(root: Option<&std::path::Path>, format: crate::report::Format) -> 
 /// golden. Humanizing it is the client's job — an affordance, not a verdict.
 #[derive(Debug, serde::Serialize)]
 pub struct IndexStatusReport {
-    /// Whether `.yidam/index/` exists at all.
+    /// Whether an index was found to read: this checkout's `.yidam/index/`, or the main
+    /// worktree's under RFC-0069's ancestry rule.
     pub index_present: bool,
+    /// Which index answered: `local` or `shared`, the values the MCP contract's `index_source`
+    /// uses. Null when none did.
+    pub index_source: Option<&'static str>,
+    /// The directory read. Null when none was.
+    pub index_path: Option<String>,
     /// Whether it carries a readable `meta.json`. An index without one is present and
     /// undescribable, which is a different state from absent.
     pub meta_present: bool,
@@ -277,14 +283,29 @@ pub struct IndexStatusReport {
     /// long nodes were split into. An index built before passages has one row per node, and
     /// reads `node_count` here.
     pub row_count: Option<u64>,
-    /// Corpus files modified since the build. This is the freshness verdict.
+    /// Corpus files modified since the build. This is the freshness verdict. For the main
+    /// worktree's index, the files that differ from the commit it was built at.
     pub stale_nodes: usize,
 }
 
 pub(crate) fn index_status_data(root: &Path) -> IndexStatusReport {
-    let index_dir = yidam_index_dir(root);
+    index_status_from(root, &crate::index_source::resolve(root))
+}
+
+/// [`index_status_data`] over a resolution the caller already holds, so `doctor`, which also
+/// needs to know whether the main worktree's index was refused, asks git once.
+pub(crate) fn index_status_from(
+    root: &Path,
+    resolution: &crate::index_source::Resolution,
+) -> IndexStatusReport {
+    let (index_dir, source) = match resolution.found() {
+        Some((dir, source)) => (dir.to_path_buf(), Some(source.as_str())),
+        None => (yidam_index_dir(root), None),
+    };
     let absent = IndexStatusReport {
         index_present: index_dir.exists(),
+        index_source: source,
+        index_path: source.map(|_| index_dir.display().to_string()),
         meta_present: false,
         built_at: None,
         built: None,
@@ -305,6 +326,8 @@ pub(crate) fn index_status_data(root: &Path) -> IndexStatusReport {
     let generated_at = meta["generated_at"].as_u64().unwrap_or(0);
     IndexStatusReport {
         index_present: true,
+        index_source: source,
+        index_path: source.map(|_| index_dir.display().to_string()),
         meta_present: true,
         built_at: Some(generated_at),
         built: Some(unix_to_date_str(generated_at)),
@@ -317,7 +340,7 @@ pub(crate) fn index_status_data(root: &Path) -> IndexStatusReport {
                 .or_else(|| meta["node_count"].as_u64())
                 .unwrap_or(0),
         ),
-        stale_nodes: count_stale_corpus_files(&yidam_corpus_dir(root), generated_at),
+        stale_nodes: stale_corpus_files(root, source, &meta, generated_at),
     }
 }
 
@@ -332,6 +355,16 @@ pub(crate) fn render_index_status(r: &IndexStatusReport, now: u64) -> String {
     let generated_at = r.built_at.unwrap_or(0);
     let date_str = r.built.clone().unwrap_or_default();
     let age_str = humanize_age(now.saturating_sub(generated_at));
+    let body = render_index_body(r, &date_str, &age_str);
+    match (r.index_source, &r.index_path) {
+        (Some("shared"), Some(path)) => format!(
+            "{body}\nSource:       the main worktree's index at {path} (this worktree has none)"
+        ),
+        _ => body,
+    }
+}
+
+fn render_index_body(r: &IndexStatusReport, date_str: &str, age_str: &str) -> String {
     if r.stale_nodes > 0 {
         let stale = r.stale_nodes;
         format!(
@@ -401,6 +434,25 @@ pub fn index_status(root: Option<&std::path::Path>, format: crate::report::Forma
         "yidam index-status",
         COMMITTED_INDEX_BLOCK,
     )
+}
+
+/// Corpus files changed since the index was built.
+///
+/// For a shared index, by commit: every file in a linked worktree was written when the
+/// worktree was checked out, after the main index was built, so by mtime a fresh worktree has
+/// changed all of them (RFC-0069). For a local index, and wherever git cannot answer, by mtime
+/// as before.
+fn stale_corpus_files(
+    root: &Path,
+    source: Option<&str>,
+    meta: &serde_json::Value,
+    generated_at: u64,
+) -> usize {
+    let by_commit = match (source, meta["indexed_commit"].as_str()) {
+        (Some("shared"), Some(commit)) => crate::index_source::corpus_changed_since(root, commit),
+        _ => None,
+    };
+    by_commit.unwrap_or_else(|| count_stale_corpus_files(&yidam_corpus_dir(root), generated_at))
 }
 
 fn count_stale_corpus_files(corpus: &Path, generated_at: u64) -> usize {
