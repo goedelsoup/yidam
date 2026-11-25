@@ -70,20 +70,26 @@ names, `yidam index-build`, is one nobody takes for a checkout that lives a day.
 
 ### 1. Where an index is found
 
-`paths` gains one resolver, `index_source(root)`. Its answer is one of three things:
+A new module, `index_source`, gains one resolver, `resolve(root)`. Its answer is one of three
+things:
 
 1. **Local.** `root/.yidam/index` exists. It is used, exactly as now. A local index always wins,
    whatever commit it was built at and whatever the main worktree holds.
 2. **Shared.** There is no local index, and all of the following hold:
-   - `root` is inside a linked worktree. `git rev-parse --git-common-dir` and
-     `git rev-parse --git-dir` name different directories.
-   - The main worktree is the parent of the common dir, and the common dir is not bare.
-   - `<main>/.yidam/index/meta.json` exists and parses, and carries `indexed_commit`.
+   - `root` is inside a linked worktree. The first record of `git worktree list --porcelain`
+     names the main worktree, and it is not `root`'s own top level.
+   - That first record is not marked `bare`.
+   - `<main>/.yidam/index/` holds `corpus.arrow`, and its `meta.json` parses and carries an
+     `indexed_commit` that is not `unknown`.
    - That commit is HEAD, or `git merge-base --is-ancestor <indexed_commit> HEAD` succeeds.
 3. **None.** Anything else, including a checkout with no git repository at all.
 
 A projected mirror has no git repository, so it never reads a shared index. A main worktree
-never reads one either, because it is its own common dir's parent.
+never reads one either, because the first record names its own top level.
+
+A third answer, **refused**, is kept apart from none inside the resolver: a linked worktree
+whose main worktree has an index this branch does not contain. Every reader treats it as none.
+Only `doctor` reads the difference (§4).
 
 The resolver runs once per load, in `load_domain_model`, and the answer is recorded on
 `IndexData` as its source. `index-build` is not changed. It still writes `root/.yidam/index`,
@@ -120,8 +126,9 @@ result as a ranking with nothing missing.
 - `null`: no index answered.
 
 **In the `corpus` capability block,** beside `indexed_commit`. It describes the index the
-server loaded, and it is `null` exactly when `indexed_commit` is. `stale` keeps its definition
-and is computed against whichever index loaded. A shared index at an ancestor reads
+server loaded, and it is `null` exactly when no index was found, local or remote. A remote
+index records no `indexed_commit`, so the two keys are not null together. `stale` keeps its
+definition and is computed against whichever index loaded. A shared index at an ancestor reads
 `stale: true`, which is the truth about it.
 
 **In the `retrieve` response,** as a required key. It names the index the vector answer came
@@ -141,10 +148,12 @@ that changes.
 
 ### 4. The CLI surfaces
 
-- **`index-status`** describes the index `index_source` resolves. Its JSON report gains
-  `source`, using the same three values, and `path`, the directory it read. The prose names the
-  main worktree when the source is shared.
-- **`doctor`** reports a shared index as a pass, naming its path and commit. When a linked
+- **`index-status`** describes the index the resolver finds. Its JSON report gains
+  `index_source`, `local` or `shared`, and `index_path`, the directory it read. Both are null
+  when no index was found. They are not `source` and `path` because the report schema is one
+  flat namespace, and `vocabulary` already reports a `source`. The prose names the main worktree
+  when the source is shared.
+- **`doctor`** reports a shared index as a pass, naming its path. When a linked
   worktree has no local index and the main worktree's was refused, the warning says why, for
   example: *the main worktree's index was built at `abc1234`, which this branch does not
   contain.* It offers both repairs: merge the baseline, or run `yidam index-build` here.
@@ -189,7 +198,7 @@ asking. Rejected.
   `no_index`. `doctor`'s warning names the refused commit.
 - A test builds a local index in the worktree and asserts it wins, with `index_source: "local"`.
 - The contract's cases gain the `index_source` key on every `retrieve` arm. The capability-block
-  case asserts that `index_source` is null exactly when `indexed_commit` is.
+  case asserts that `index_source` is null when no index was found.
 - `export` in a worktree with only a shared index writes no index.
 
 ## Unresolved
