@@ -1008,3 +1008,196 @@ fn every_skill_the_plugin_ships_is_named_where_the_plugin_is_documented() {
         }
     }
 }
+
+/// The launcher serves the directory `YIDAM_ROOT` names, and the git toplevel without it.
+///
+/// #1520: the launcher resolved the root from the git toplevel alone, while the binary has read
+/// `YIDAM_ROOT` since RFC-0064 §7. So a shared corpus named in `YIDAM_ROOT` was refused in
+/// every project that was not one itself, which is every project the variable exists for.
+///
+/// `YIDAM_BIN` names a stub that prints where it was started and what it was handed. The
+/// launcher is run for what it decides, not for the server it starts.
+#[test]
+fn the_launcher_serves_the_root_yidam_root_names() {
+    let launcher = repo_root().join("yidam/plugin/scripts/serve.sh");
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let base = tmp.path().canonicalize().expect("canonical tempdir");
+
+    let stub = base.join("stub");
+    std::fs::write(
+        &stub,
+        "#!/bin/sh\nprintf 'cwd=%s\\nroot=%s\\nargs=%s\\n' \"$(pwd -P)\" \"${YIDAM_ROOT:-}\" \"$*\"\n",
+    )
+    .expect("write the stub");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod the stub");
+    }
+
+    let corpus = base.join("shared");
+    std::fs::create_dir_all(corpus.join(".yidam")).expect("a corpus");
+    let project = base.join("project");
+    std::fs::create_dir_all(project.join("src")).expect("a project");
+    common::git::git(&project, &["init", "-q"]);
+    let not_corpus = base.join("plain");
+    std::fs::create_dir_all(&not_corpus).expect("a plain directory");
+
+    let run_with = |cwd: &Path, root: Option<&str>, env: &[(&str, &str)]| {
+        let mut cmd = std::process::Command::new(&launcher);
+        cmd.current_dir(cwd)
+            .env("YIDAM_BIN", &stub)
+            .env_remove("YIDAM_ROOT")
+            .env_remove("CDPATH")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .stdin(std::process::Stdio::null());
+        if let Some(root) = root {
+            cmd.env("YIDAM_ROOT", root);
+        }
+        for (key, value) in env {
+            cmd.env(key, value);
+        }
+        let out = cmd.output().expect("run the launcher");
+        (
+            String::from_utf8_lossy(&out.stdout).to_string(),
+            String::from_utf8_lossy(&out.stderr).to_string(),
+            out.status.code(),
+        )
+    };
+    let run = |cwd: &Path, root: Option<&str>| run_with(cwd, root, &[]);
+    let served = |root: &Path, exported: &str| {
+        format!(
+            "cwd={}\nroot={exported}\nargs=serve --mcp\n",
+            root.display()
+        )
+    };
+
+    // Named, from a project that is not a corpus, and relative to where the launcher starts:
+    // the binary is handed the absolute path, because the launcher has `cd`d by then.
+    let (out, err, code) = run(&base, Some("shared"));
+    assert_eq!(
+        code,
+        Some(0),
+        "YIDAM_ROOT naming a corpus was refused: {err}"
+    );
+    assert_eq!(out, served(&corpus, &corpus.display().to_string()));
+    let (out, err, code) = run(&project.join("src"), Some(&corpus.display().to_string()));
+    assert_eq!(
+        code,
+        Some(0),
+        "YIDAM_ROOT was refused inside another project: {err}"
+    );
+    assert_eq!(out, served(&corpus, &corpus.display().to_string()));
+
+    // Named inside a corpus: the nearest `.yidam/` at or above it, the rule `resolve_root`
+    // applies, so the launcher serves what `yidam status` would read rather than refusing it.
+    std::fs::create_dir_all(corpus.join("notes/deep")).expect("a corpus subdirectory");
+    let (out, err, code) = run(
+        &project,
+        Some(&corpus.join("notes/deep").display().to_string()),
+    );
+    assert_eq!(
+        code,
+        Some(0),
+        "a subdirectory of a corpus was refused: {err}"
+    );
+    assert_eq!(out, served(&corpus, &corpus.display().to_string()));
+
+    // `CDPATH` cannot move a relative name, nor print into the substitution. With `CDPATH`
+    // naming a directory that has its own `shared`, `cd shared` would land there and say so.
+    let decoy = base.join("decoy");
+    std::fs::create_dir_all(decoy.join("shared/.yidam")).expect("a decoy corpus");
+    let (out, err, code) = run_with(
+        &base,
+        Some("shared"),
+        &[("CDPATH", &decoy.display().to_string())],
+    );
+    assert_eq!(code, Some(0), "YIDAM_ROOT was refused under CDPATH: {err}");
+    assert_eq!(out, served(&corpus, &corpus.display().to_string()));
+
+    // A name that starts with `-` is a directory, not an option to `cd`.
+    let dashed = base.join("-dashed");
+    std::fs::create_dir_all(dashed.join(".yidam")).expect("a dash-named corpus");
+    let (out, err, code) = run(&base, Some("-dashed"));
+    assert_eq!(code, Some(0), "YIDAM_ROOT=-dashed was refused: {err}");
+    assert_eq!(out, served(&dashed, &dashed.display().to_string()));
+
+    // Named and not a corpus, or not there at all: refused, naming the variable, and the
+    // binary never started.
+    for (named, says) in [
+        (not_corpus.display().to_string(), "not in a yidam corpus"),
+        (base.join("absent").display().to_string(), "not a directory"),
+    ] {
+        let (out, err, code) = run(&project, Some(&named));
+        assert_eq!(code, Some(1), "YIDAM_ROOT={named} was served: {out}");
+        assert!(
+            out.is_empty(),
+            "the binary started for YIDAM_ROOT={named}: {out}"
+        );
+        assert!(
+            err.contains("YIDAM_ROOT") && err.contains(says),
+            "the refusal for YIDAM_ROOT={named} does not say `{says}` about the variable: {err}"
+        );
+    }
+
+    // The refusal names the value as it was set, and the directory it resolved to beside it.
+    let (_, err, code) = run(&base, Some("plain"));
+    assert_eq!(code, Some(1), "YIDAM_ROOT=plain was served");
+    assert!(
+        err.contains(&format!(
+            "YIDAM_ROOT is set to plain ({})",
+            not_corpus.display()
+        )),
+        "the refusal does not name the value YIDAM_ROOT holds: {err}"
+    );
+
+    // Unset or empty: the git toplevel, as before #1520, and a toplevel with no corpus is
+    // still the no-corpus refusal.
+    for root in [None, Some("")] {
+        let (_, err, code) = run(&project.join("src"), root);
+        assert_eq!(code, Some(1), "a project with no .yidam/ was served");
+        assert!(err.contains("no .yidam/ directory"), "{err}");
+    }
+    std::fs::create_dir_all(project.join(".yidam")).expect("make the project a corpus");
+    for root in [None, Some("")] {
+        let (out, err, code) = run(&project.join("src"), root);
+        assert_eq!(code, Some(0), "the toplevel corpus was refused: {err}");
+        assert_eq!(out, served(&project, ""));
+    }
+
+    // The local-build fallback is the project's `.local/bin/`, not the served corpus's: with
+    // `YIDAM_ROOT` set the two differ, and only the project's is the build made here. `PATH`
+    // keeps `git` and `sh` and loses any installed `yidam`; `YIDAM_BIN` is removed.
+    let local_stub = |dir: &Path, says: &str| {
+        let bin = dir.join(".local/bin/yidam");
+        std::fs::create_dir_all(bin.parent().expect("a parent")).expect("a .local/bin");
+        std::fs::write(&bin, format!("#!/bin/sh\nprintf '{says}\\n'\n")).expect("a local build");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod the local build");
+        }
+    };
+    local_stub(&project, "project build");
+    local_stub(&corpus, "corpus build");
+    let out = std::process::Command::new(&launcher)
+        .current_dir(project.join("src"))
+        .env_remove("YIDAM_BIN")
+        .env_remove("CDPATH")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env("PATH", "/usr/bin:/bin")
+        .env("YIDAM_ROOT", &corpus)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("run the launcher");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "project build\n",
+        "the launcher did not run the project's local build: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
