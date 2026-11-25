@@ -1,0 +1,6 @@
+class: concept
+label: Retrieval
+description: Finding a node without walking to it.
+links:
+  - target: ../concept/traversal.yml
+    relationship: relates-to

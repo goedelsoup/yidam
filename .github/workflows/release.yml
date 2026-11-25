@@ -264,6 +264,14 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # The spec asset (RFC-0068): the schemas, conformance cases, MCP contract and
+      # vocabulary a producer writes against, packed from committed files with no
+      # build. Here, before the checksums, so it is in SHA256SUMS, in the upload
+      # and under the attestation's `dist/*.tar.gz` subject like every other
+      # tarball. It names no target, so no installer selects it as a binary.
+      - name: Pack the spec asset
+        run: scripts/spec-bundle.sh "${GITHUB_REF_NAME#cli/v}" "$GITHUB_SHA" dist
+
       # One checksum file over everything, alongside the per-asset ones. A
       # consumer verifying a single download should not have to fetch a manifest
       # covering platforms it will never run.

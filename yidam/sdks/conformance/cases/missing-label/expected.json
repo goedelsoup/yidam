@@ -1,0 +1,16 @@
+{
+  "graph_check": {
+    "classes": [],
+    "nodes": [
+      ".yidam/corpus/concept/traversal.yml"
+    ],
+    "passed": false
+  },
+  "lint": [
+    {
+      "check": "missing-label",
+      "node": ".yidam/corpus/concept/traversal.yml",
+      "severity": "warn"
+    }
+  ]
+}

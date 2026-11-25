@@ -1,0 +1,5 @@
+class: concept
+description: Reaching a node by following its links.
+links:
+  - target: ../concept/retrieval.yml
+    relationship: relates-to

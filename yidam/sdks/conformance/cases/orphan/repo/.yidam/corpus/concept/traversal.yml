@@ -1,0 +1,3 @@
+class: concept
+label: Traversal
+description: Reaching a node by following its links.

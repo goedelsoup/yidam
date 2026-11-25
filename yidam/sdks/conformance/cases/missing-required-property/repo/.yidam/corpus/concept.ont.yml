@@ -1,0 +1,13 @@
+class: concept
+label: Concept
+description: A unit of understanding in the missing-required-property conformance case.
+properties:
+  - name: scope
+    type: string
+    required: true
+    description: Which corpus the concept is stated over.
+edges:
+  - relationship: relates-to
+    target: concept
+    direction: out
+    description: A bare association between two concepts.

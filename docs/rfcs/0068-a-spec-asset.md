@@ -1,6 +1,6 @@
 # RFC-0068 — A release ships the spec a producer writes against
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I51
 - **Relates to:**
   - #1565 (publish the node and ontology schema and conformance cases as a release asset),

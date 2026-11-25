@@ -1,0 +1,14 @@
+{
+  "graph_check": {
+    "classes": [],
+    "nodes": [],
+    "passed": true
+  },
+  "lint": [
+    {
+      "check": "missing-property",
+      "node": ".yidam/corpus/concept/traversal.yml",
+      "severity": "error"
+    }
+  ]
+}
