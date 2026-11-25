@@ -88,13 +88,18 @@ untracked files are left out.
 ### 2. How a staged run reads the index
 
 1. `git write-tree` in the repository writes the index as a tree. An index with unmerged
-   paths is refused, with a message naming the merge in progress.
+   paths is refused, with a message naming the merge in progress. Under `git commit -a` or
+   `git commit <paths>`, git hands a hook a temporary index in `GIT_INDEX_FILE`, and the commit
+   is made from that one. So `write-tree` reads `GIT_INDEX_FILE` when it is set.
 2. A scratch worktree is added at HEAD, detached, under the git directory, with
    `core.hooksPath=/dev/null` for that call. This follows `regen::fold_for`.
 3. In the scratch worktree, `git read-tree -u --reset <tree>` replaces its index and its files
    with the staged tree.
 4. The gate runs with its root at the scratch worktree. When `--root` names a corpus below the
-   repository's top level, the root is the same subdirectory of the scratch tree.
+   repository's top level, the root is the same subdirectory of the scratch tree. It runs as a
+   second `yidam` process: the same command, without `--staged`, with `--root` set to the
+   scratch tree. Git's location variables (`GIT_DIR`, `GIT_INDEX_FILE` and the rest) are
+   cleared for it, so a hook's environment cannot move it back onto the repository.
 5. The worktree is removed and pruned on every exit path, failure included.
 
 The scratch worktree shares the repository's object store and refs. A history check sees the
@@ -104,7 +109,10 @@ exactly what is about to be committed.
 
 **What a staged run reports.** It reports in the shape a working-tree run does, with one
 difference: every path is named relative to the repository, not the scratch tree. The
-envelope's `root` is the repository's root, and the text output names no scratch path.
+envelope's `root` is the repository's root, and the text output names no scratch path. The
+second process prints what it prints, and the first rewrites the scratch tree's path to the
+repository's before passing it on. The three gates print paths in different places. Rewriting
+the output serves all three, and none of them needs to know a staged run exists.
 
 **No commit yet.** A repository whose HEAD is unborn has no commit to check out, and a staged
 run refuses it: *nothing is committed yet, so there is no HEAD to stage against; run the gate
@@ -144,9 +152,10 @@ directory is `git rev-parse --git-path hooks`, which follows `core.hooksPath`. O
 there, it reads `pre-commit` and `pre-push` with the same `gates_in` the workflows go through.
 
 - **A workflow runs a gate.** A pass, as now. A hook gate is named beside it.
-- **No workflow runs a gate, and a hook does.** A pass, naming the hook. For example: *runs
-  yidam lint --staged in the pre-commit hook at `.githooks/pre-commit`, which binds only the
-  checkouts that set `core.hooksPath`.*
+- **No workflow runs a gate, and a hook does.** A pass, naming the hook and what it binds. For
+  example: *runs yidam lint in the hook at `.githooks/pre-commit`, which binds only the
+  checkouts that set `core.hooksPath` to it.* A hook under the git directory binds *only this
+  checkout*.
 - **Neither does.** The warning stands as now.
 
 A `.sample` file is never read. A hook that git would not run is not a gate: one that is not
