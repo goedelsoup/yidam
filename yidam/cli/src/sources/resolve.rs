@@ -549,6 +549,7 @@ struct Split<'a> {
 /// undeclared scheme names the pack to pin. `template_source_packs.rs` holds it to the
 /// manifests in both directions.
 pub const TEMPLATE_SCHEMES: &[(&str, &str)] = &[
+    ("arcgis", "socrata"),
     ("arxiv", "scholarly"),
     ("caselaw", "courts"),
     ("courtlistener", "courts"),
@@ -558,6 +559,8 @@ pub const TEMPLATE_SCHEMES: &[(&str, &str)] = &[
     ("ia", "archive"),
     ("ia-file", "archive"),
     ("pmc", "scholarly"),
+    ("socrata", "socrata"),
+    ("socrata-rows", "socrata"),
     ("wayback", "archive"),
     ("wikipedia", "archive"),
 ];

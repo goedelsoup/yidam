@@ -8,13 +8,14 @@ It also says how to ask that publisher politely, and how to read its answers.
 One pack serves every corpus that pins it, so nobody writes a connector twice.
 [RFC-0048](rfcs/0048-source-packs.md) gives the reasoning.
 
-The template ships three packs in `yidam/sources/`. A corpus can also write its own, or pin one another corpus wrote.
+The template ships four packs in `yidam/sources/`. A corpus can also write its own, or pin one another corpus wrote.
 
 | Pack | Schemes | Reads |
 |---|---|---|
 | `scholarly` | `doi`, `europepmc`, `pmc`, `arxiv` | Crossref metadata, Europe PMC full text, the arXiv API |
 | `archive` | `wayback`, `ia`, `ia-file`, `github`, `wikipedia` | Wayback Machine snapshots, Internet Archive items, GitHub files at a commit, Wikipedia revisions |
 | `courts` | `courtlistener`, `caselaw` | CourtListener clusters, opinions and dockets, the Caselaw Access Project's static volumes |
+| `socrata` | `socrata`, `socrata-rows`, `arcgis` | Socrata datasets on any portal, ArcGIS feature layers |
 
 One `doi:` reaches the full text when Europe PMC holds it open access.
 The DOI's describe names a `europepmc:` location for the same DOI.
@@ -29,6 +30,10 @@ A `github:` file and a `wikipedia:` article are each pinned to one version when 
 A `courtlistener:` cluster names its first sub-opinion and its docket as `courtlistener:` locations.
 `courts` needs `COURTLISTENER_TOKEN` for CourtListener, and sends it nowhere else.
 A `caselaw:` case, such as `caselaw:us/347/0483-01`, needs no token.
+
+A `socrata:` dataset, such as `socrata:data.cdc.gov/bi63-dtpu`, reads the dataset's metadata.
+That names its rows as a `socrata-rows:` location, read page by page to the last row.
+An `arcgis:` layer is read the same way, every feature, until the service stops saying there are more.
 
 ## Name a source by identifier
 
