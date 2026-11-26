@@ -2706,6 +2706,7 @@
               "required": [
                 "location",
                 "followed",
+                "asked",
                 "captured",
                 "added"
               ],
@@ -2716,6 +2717,13 @@
                 "followed": {
                   "type": "string",
                   "description": "The address looked up."
+                },
+                "asked": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The date the lookup asked for the capture nearest, `YYYY-MM-DD`: the `retrieved:` of the record holding the bytes the run obtained, or of the location's latest record where the publisher declined (#1366). Null when the run obtained bytes the entry did not hold, or the location has no record, and the archive answered with the capture nearest today."
                 },
                 "captured": {
                   "type": [
