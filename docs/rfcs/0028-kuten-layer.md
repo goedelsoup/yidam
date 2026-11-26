@@ -38,6 +38,8 @@
 - **Amended 2026-11-25 (#1361):** `thresholds` is still not a kuten's to propose, for a
   different reason. Escalation is the corpus's own `[lint] escalate_after`, not a policy
   override. Erratum 9 in §1 records the correction.
+- **Amended 2026-11-26 (#1584):** a set `escalate_after` is named at the head of `lint`'s
+  report and in its JSON gate, not in `doctor`. Erratum 9 records the decision.
 - **Downstream reference case:** A0's population — eighteen derived corpora on disk, 6,900
   commits, read-only. Six of them define `inquiry`; two are object-coupled; one is a projected
   mirror of 1,656 commits (#582).
@@ -419,9 +421,18 @@ reaches neither act except through the doors §8 names for them. Settled in Open
 > The reason that holds is the one the key's own doc comment gives. The number is this
 > corpus's judgement about its own gate, and the corpus changes it by a commit a person makes.
 > A kuten speaks from a decision record and asserts nothing the corpus holds, so it has no
-> path to that file. The same correction reaches §8's door for refusal. Whether a non-default
+> path to that file. The same correction reaches §8's door for refusal. ~~Whether a non-default
 > `escalate_after` should be surfaced, as a local disclosure override is, is a separate
-> question (#1584).
+> question (#1584).~~
+>
+> **Decided 2026-11-26 (#1584): `lint` names a set `escalate_after`; `doctor` does not.**
+> RFC-0024's rule is that a local rule may loosen a gate but not silently. This key only
+> tightens one, so that rule does not require it to be shown. It is shown anyway, because a
+> person asking why a build failed is reading `lint`'s output and not `config.toml`. When the
+> key is set, the text report opens with one line naming the key, its value and its file. The
+> JSON report carries the value as `gate.escalate_after`, absent when unset, as
+> `gate.expiry_record` is. `doctor` gains no line: it is not where a failed build is read, and
+> RFC-0024's three places of disclosure stay about disclosure.
 
 > **As built (A5, 2026-09-06) — the `rubric` slot, which this RFC names in the table above and
 > specifies nowhere else.** §5–§9 are silent about it and §9's surface list names three, none
