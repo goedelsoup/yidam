@@ -17,3 +17,10 @@ replace the export with `--staged`. The configuration page gives a reference scr
 uses, `core.hooksPath` included. A repository gated only by such a hook now passes `ci`. The
 check names the hook and the checkouts it binds. A hook that is not executable is named
 and does not count.
+
+A pre-commit gate counts only when it carries `--staged`. The flag may sit in the hook or in
+the `mise run` task it calls. Without it, the check names the gate and the missing flag. A
+pre-push gate counts as written, with a note that it reads the working tree. A hook under the
+git directory binds this clone and its linked worktrees.
+
+Each staged gate checks out the staged tree once. Smudge filters other than Git LFS run for it.

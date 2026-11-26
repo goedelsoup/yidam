@@ -1360,10 +1360,29 @@ const TASK_DEPTH: usize = 3;
 /// derived workflows gate through `mise run ci` or `mise run //:graph-lint` and name no
 /// `yidam` command at all.
 fn gates_in(text: &str, own_task: &dyn Fn(&str) -> Option<String>, depth: usize) -> Vec<String> {
-    let mut found: Vec<String> = vec![];
-    let mut add = |g: String| {
-        if !found.contains(&g) {
-            found.push(g);
+    gate_hits(text, own_task, depth)
+        .into_iter()
+        .map(|h| h.label)
+        .collect()
+}
+
+/// One corpus gate some shell text runs, and whether it runs over the staged tree.
+#[derive(Debug, PartialEq)]
+struct GateHit {
+    label: String,
+    staged: bool,
+}
+
+/// [`gates_in`], keeping whether each gate carries `--staged` (RFC-0070 §5).
+///
+/// A gate counts as staged when its own command carries the flag. An inherited gate task
+/// never does: its `run` is the working-tree command. One of the repository's own tasks
+/// whose `run` reaches gates both ways is two hits, one of each.
+fn gate_hits(text: &str, own_task: &dyn Fn(&str) -> Option<String>, depth: usize) -> Vec<GateHit> {
+    let mut found: Vec<GateHit> = vec![];
+    let mut add = |label: String, staged: bool| {
+        if !found.iter().any(|h| h.label == label) {
+            found.push(GateHit { label, staged });
         }
     };
     for line in text.lines() {
@@ -1384,7 +1403,17 @@ fn gates_in(text: &str, own_task: &dyn Fn(&str) -> Option<String>, depth: usize)
                 {
                     continue;
                 }
-                add((*gate).to_string());
+                let command: String = rest
+                    .chars()
+                    .take_while(|c| !matches!(c, ';' | '&' | '|'))
+                    .collect();
+                let staged = command.split_whitespace().any(|w| w == "--staged");
+                let label = if staged {
+                    format!("{gate} --staged")
+                } else {
+                    (*gate).to_string()
+                };
+                add(label, staged);
             }
         }
         for (at, _) in code.match_indices("mise run ") {
@@ -1401,12 +1430,19 @@ fn gates_in(text: &str, own_task: &dyn Fn(&str) -> Option<String>, depth: usize)
                 None => token.as_str(),
             };
             if GATE_TASKS.contains(&task) {
-                add(format!("mise run {token}"));
+                add(format!("mise run {token}"), false);
             } else if depth > 0 {
                 if let Some(run) = own_task(task) {
-                    let inner = gates_in(&run, own_task, depth - 1);
-                    if !inner.is_empty() {
-                        add(format!("mise run {token} ({})", inner.join(", ")));
+                    let inner = gate_hits(&run, own_task, depth - 1);
+                    for staged in [true, false] {
+                        let these: Vec<&str> = inner
+                            .iter()
+                            .filter(|h| h.staged == staged)
+                            .map(|h| h.label.as_str())
+                            .collect();
+                        if !these.is_empty() {
+                            add(format!("mise run {token} ({})", these.join(", ")), staged);
+                        }
                     }
                 }
             }
@@ -1463,7 +1499,7 @@ fn check_ci(root: &Path) -> Answer {
                 "ci",
                 format!(
                     "no `.github/workflows/`, so no CI this can read checks the corpus{}",
-                    hooks.skipped_note()
+                    hooks.note()
                 ),
                 "a workflow step running `yidam graph-check` — or, with CI elsewhere, run it there",
             )],
@@ -1498,7 +1534,7 @@ fn check_ci(root: &Path) -> Answer {
                     "none of {} workflow(s) runs a corpus gate, so a green check says nothing \
                      about the graph{}",
                     files.len(),
-                    hooks.skipped_note()
+                    hooks.note()
                 ),
                 "yidam migrate scaffold, then mise run yidam-vendor-update",
             )],
@@ -1520,10 +1556,10 @@ const GATE_HOOKS: &[&str] = &["pre-commit", "pre-push"];
 struct HookGates {
     /// Each hook that runs a gate, as it is named to the reader, with the gates it runs.
     gating: Vec<(String, Vec<String>)>,
-    /// What every gating hook binds: this checkout, or the checkouts that opt in.
+    /// What every gating hook binds: this clone, or the checkouts that opt in.
     binds: &'static str,
-    /// Hooks that would run a gate if git ran them, and why it does not.
-    skipped: Vec<String>,
+    /// Gates a hook names that do not count, or count with a caveat, and why.
+    notes: Vec<String>,
 }
 
 impl HookGates {
@@ -1538,19 +1574,20 @@ impl HookGates {
             .map(|(hook, gates)| format!("runs {} in the hook at `{hook}`", gates.join(", ")))
             .collect();
         Some(format!(
-            "{}, which binds only {}",
+            "{}, which binds only {}{}",
             each.join(" and "),
-            self.binds
+            self.binds,
+            self.note()
         ))
     }
 
-    /// Appended to a warning, so a person who wrote a hook git skips is told why it did not
-    /// count.
-    fn skipped_note(&self) -> String {
-        if self.skipped.is_empty() {
+    /// Appended to the detail, so a person whose hook git skips, or whose gate does not count,
+    /// is told why.
+    fn note(&self) -> String {
+        if self.notes.is_empty() {
             String::new()
         } else {
-            format!("; {}", self.skipped.join("; "))
+            format!("; {}", self.notes.join("; "))
         }
     }
 }
@@ -1579,7 +1616,7 @@ fn hook_gates(root: &Path, own_task: &dyn Fn(&str) -> Option<String>) -> HookGat
     let local = git_dir.is_some_and(|g| canon(&dir).starts_with(canon(&g)));
     let mut out = HookGates {
         binds: if local {
-            "this checkout"
+            "this clone and its linked worktrees"
         } else {
             "the checkouts that set `core.hooksPath` to it"
         },
@@ -1590,21 +1627,52 @@ fn hook_gates(root: &Path, own_task: &dyn Fn(&str) -> Option<String>) -> HookGat
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let gates = gates_in(&text, own_task, TASK_DEPTH);
-        if gates.is_empty() {
+        let hits = gate_hits(&text, own_task, TASK_DEPTH);
+        if hits.is_empty() {
             continue;
         }
         let shown = canon(&path)
             .strip_prefix(canon(root))
             .map_or_else(|_| path.display().to_string(), |p| p.display().to_string());
+        let labels = |staged: Option<bool>| {
+            hits.iter()
+                .filter(|h| staged.is_none_or(|s| h.staged == s))
+                .map(|h| h.label.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
         if !runnable(&path) {
-            out.skipped.push(format!(
+            out.notes.push(format!(
                 "`{shown}` runs {} but is not executable, so git does not run it",
-                gates.join(", ")
+                labels(None)
             ));
             continue;
         }
-        out.gating.push((shown, gates));
+        // A pre-commit gate without `--staged` checks the working tree, not the commit: the
+        // defect RFC-0070 fixes, so it is not counted. A push has no staged tree, so a
+        // pre-push gate counts as written, with what it reads named.
+        let counted: Vec<String> = if *name == "pre-commit" {
+            let unstaged = labels(Some(false));
+            if !unstaged.is_empty() {
+                out.notes.push(format!(
+                    "`{shown}` runs {unstaged} without `--staged`, so it checks the working \
+                     tree, not the commit"
+                ));
+            }
+            hits.iter()
+                .filter(|h| h.staged)
+                .map(|h| h.label.clone())
+                .collect()
+        } else {
+            out.notes.push(format!(
+                "`{shown}` reads the working tree, which can hold edits the pushed commits do \
+                 not"
+            ));
+            hits.iter().map(|h| h.label.clone()).collect()
+        };
+        if !counted.is_empty() {
+            out.gating.push((shown, counted));
+        }
     }
     out
 }
@@ -4772,7 +4840,7 @@ jobs:
         assert_eq!(a.verdict, Verdict::Ok, "{}", a.detail);
         assert!(
             a.detail
-                .contains("runs yidam lint in the hook at `.githooks/pre-commit`"),
+                .contains("runs yidam lint --staged in the hook at `.githooks/pre-commit`"),
             "{}",
             a.detail
         );
@@ -4786,7 +4854,7 @@ jobs:
 
     /// A hook under `.git/hooks` binds the one checkout it sits in.
     #[test]
-    fn a_hook_in_the_git_dir_binds_this_checkout() {
+    fn a_pre_push_hook_in_the_git_dir_counts_as_written_and_binds_this_clone() {
         let tmp = derived_repo();
         crate::git::fixture::init(tmp.path());
         let hook = tmp.path().join(".git/hooks/pre-push");
@@ -4799,7 +4867,73 @@ jobs:
         let a = check_ci(tmp.path());
         assert_eq!(a.verdict, Verdict::Ok, "{}", a.detail);
         assert!(
-            a.detail.contains("binds only this checkout"),
+            a.detail
+                .contains("runs yidam graph-check in the hook at `.git/hooks/pre-push`"),
+            "{}",
+            a.detail
+        );
+        assert!(
+            a.detail
+                .contains("binds only this clone and its linked worktrees"),
+            "{}",
+            a.detail
+        );
+        assert!(
+            a.detail.contains(
+                "`.git/hooks/pre-push` reads the working tree, which can hold edits the pushed \
+                 commits do not"
+            ),
+            "{}",
+            a.detail
+        );
+    }
+
+    /// A pre-commit hook running a gate as written checks the working tree, the defect
+    /// RFC-0070 fixes, so it does not count, and the detail names the missing flag.
+    #[test]
+    fn a_pre_commit_gate_without_staged_does_not_pass_ci() {
+        let tmp = hooked("#!/bin/sh\nyidam lint\n", true);
+        let a = check_ci(tmp.path());
+        assert_eq!(a.verdict, Verdict::Warn, "{}", a.detail);
+        assert!(
+            a.detail.contains(
+                "`.githooks/pre-commit` runs yidam lint without `--staged`, so it checks the \
+                 working tree, not the commit"
+            ),
+            "{}",
+            a.detail
+        );
+    }
+
+    /// The same through `mise run`: the task's own command must carry the flag, and an
+    /// inherited gate task never does.
+    #[test]
+    fn a_pre_commit_gate_through_a_task_needs_staged_in_the_task() {
+        let tmp = hooked("#!/bin/sh\nmise run check\nmise run graph-lint\n", true);
+        std::fs::write(
+            tmp.path().join("mise.toml"),
+            "[tasks.check]\nrun = \"yidam lint\"\n",
+        )
+        .unwrap();
+        let a = check_ci(tmp.path());
+        assert_eq!(a.verdict, Verdict::Warn, "{}", a.detail);
+        assert!(
+            a.detail.contains(
+                "runs mise run check (yidam lint), mise run graph-lint without `--staged`"
+            ),
+            "{}",
+            a.detail
+        );
+        std::fs::write(
+            tmp.path().join("mise.toml"),
+            "[tasks.check]\nrun = \"yidam lint --staged\"\n",
+        )
+        .unwrap();
+        let a = check_ci(tmp.path());
+        assert_eq!(a.verdict, Verdict::Ok, "{}", a.detail);
+        assert!(
+            a.detail
+                .contains("runs mise run check (yidam lint --staged) in the hook at"),
             "{}",
             a.detail
         );
@@ -4825,7 +4959,7 @@ jobs:
         assert_eq!(a.verdict, Verdict::Warn, "{}", a.detail);
         assert!(
             a.detail.contains(
-                "`.githooks/pre-commit` runs yidam lint but is not executable, so git does not \
+                "`.githooks/pre-commit` runs yidam lint --staged but is not executable, so git does not \
                  run it"
             ),
             "{}",
@@ -4844,7 +4978,7 @@ jobs:
         assert_eq!(a.verdict, Verdict::Ok, "{}", a.detail);
         assert!(
             a.detail
-                .starts_with("runs yidam graph-check; runs yidam lint in the hook at"),
+                .starts_with("runs yidam graph-check; runs yidam lint --staged in the hook at"),
             "{}",
             a.detail
         );

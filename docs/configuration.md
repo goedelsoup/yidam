@@ -659,8 +659,14 @@ yidam regen --check --staged
 ```
 
 Without `--staged`, a gate reads the working tree. An unstaged fix would then hide a staged
-break. `doctor`'s `ci` check counts a hook like this one as a gate. It says the hook binds only
-the checkouts that enable it, because CI is still what checks every change.
+break. `doctor`'s `ci` check counts a pre-commit gate only when it carries `--staged`. The flag
+can sit in the hook or in the `mise run` task the hook calls. A pre-push gate counts as written. Its note
+says the working tree can hold edits the pushed commits do not. The check says the hook
+binds only the checkouts that enable it, because CI is still what checks every change.
+
+A staged run has a cost. Each gate checks out the staged tree once, into a scratch worktree
+under the git directory. Git LFS is told to skip its smudge filter there. Any other smudge
+filter the repository configures runs for every file it covers, on every staged run.
 
 ### `[derive] paths`
 

@@ -84,12 +84,17 @@ struct Run {
 }
 
 fn run(root: &Path, args: &[&str]) -> Run {
-    let out = Command::new(env!("CARGO_BIN_EXE_yidam"))
-        .current_dir(root)
-        .args(args)
-        .env_remove("YIDAM_ROOT")
-        .output()
-        .unwrap();
+    run_env(root, args, &[])
+}
+
+/// [`run`] with environment variables set, as a hook's environment sets them.
+fn run_env(root: &Path, args: &[&str], env: &[(&str, &Path)]) -> Run {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_yidam"));
+    cmd.current_dir(root).args(args).env_remove("YIDAM_ROOT");
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let out = cmd.output().unwrap();
     Run {
         code: out.status.code().unwrap_or(-1),
         stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -234,6 +239,184 @@ fn a_pre_commit_hook_gates_the_commit_it_is_run_for() {
     std::fs::write(root.join("NOTES.md"), "notes\n").unwrap();
     git(root, &["add", "NOTES.md"]);
     git(root, &["commit", "-q", "-m", "observe: notes"]);
+    assert_eq!(worktrees(root), 1);
+}
+
+/// The reports fixture with its corpus at `sub/`, below the repository's top level, its broken
+/// link fixed and committed. Only `graph-check` is asked of it.
+fn nested() -> tempfile::TempDir {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    let sub = root.join("sub");
+    copy_fixture(&sub);
+    let low_flow = sub.join(".yidam/corpus/concept/low-flow.yml");
+    let text = std::fs::read_to_string(&low_flow).unwrap();
+    std::fs::write(
+        &low_flow,
+        text.replace("assimilative-capacit.yml", "tailwater.yml"),
+    )
+    .unwrap();
+    git(root, &["init", "-q", "-b", "main"]);
+    git(root, &["config", "user.email", "fixture@yidam.test"]);
+    git(root, &["config", "user.name", "Fixture"]);
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "-m", "genesis: nested fixture"]);
+    let r = run(root, &["graph-check", "--root", "sub"]);
+    assert_eq!(r.code, 0, "{}{}", r.stdout, r.stderr);
+    tmp
+}
+
+/// `git commit -a` from a hook with `--root` below the top level. The break reaches the commit
+/// only through the temporary index git hands the hook, and a relative `GIT_INDEX_FILE` read
+/// against the corpus root would miss it.
+#[cfg(unix)]
+#[test]
+fn a_pre_commit_hook_gates_a_commit_with_a_root_below_the_top_level() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = nested();
+    let root = tmp.path();
+    let hook = root.join(".git/hooks/pre-commit");
+    std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    std::fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\nset -e\n'{}' graph-check --staged --root sub\n",
+            env!("CARGO_BIN_EXE_yidam")
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let low_flow = root.join("sub/.yidam/corpus/concept/low-flow.yml");
+    let text = std::fs::read_to_string(&low_flow).unwrap();
+    std::fs::write(&low_flow, text.replace("tailwater.yml", "nowhere.yml")).unwrap();
+    let refused = common::git::raw_at(
+        root,
+        &["commit", "-a", "-q", "-m", "observe: break"],
+        common::git::FIXTURE_DATE,
+    );
+    assert!(
+        !refused.status.success(),
+        "the hook let a broken commit through"
+    );
+    std::fs::write(root.join("NOTES.md"), "notes\n").unwrap();
+    git(root, &["add", "NOTES.md"]);
+    git(root, &["commit", "-q", "-m", "observe: notes"]);
+    assert_eq!(worktrees(root), 1);
+}
+
+/// Every file under `root`, `.git/index` included and the rest of `.git` left out, by content.
+fn snapshot(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut files: Vec<(PathBuf, Vec<u8>)> = walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|e| e.path() != root.join(".git"))
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+        .map(|e| (e.path().to_path_buf(), std::fs::read(e.path()).unwrap()))
+        .collect();
+    files.push((
+        PathBuf::from(".git/index"),
+        std::fs::read(root.join(".git/index")).unwrap(),
+    ));
+    files.sort();
+    files
+}
+
+/// A staged run started with a hook's location variables set writes nothing of the person's:
+/// not the commit's index, and not the working tree (RFC-0070 §2).
+#[test]
+fn a_staged_run_inside_a_hook_leaves_the_index_and_working_tree_alone() {
+    let tmp = clean();
+    let root = tmp.path();
+    std::fs::write(root.join(BREAK), BROKEN).unwrap();
+    git(root, &["add", BREAK]);
+    std::fs::remove_file(root.join(BREAK)).unwrap();
+    let before = snapshot(root);
+    let git_dir = root.join(".git");
+    for gate in GATES {
+        let r = run_env(
+            root,
+            &staged(gate),
+            &[
+                ("GIT_DIR", &git_dir),
+                ("GIT_INDEX_FILE", Path::new(".git/index")),
+            ],
+        );
+        assert_eq!(r.code, 1, "{gate:?}: {}{}", r.stdout, r.stderr);
+        let after = snapshot(root);
+        let changed: Vec<_> = after
+            .iter()
+            .filter(|f| !before.contains(f))
+            .chain(before.iter().filter(|f| !after.contains(f)))
+            .map(|(p, _)| p.display().to_string())
+            .collect();
+        assert!(changed.is_empty(), "{gate:?} wrote {changed:?}");
+    }
+    assert_eq!(worktrees(root), 1);
+}
+
+/// The envelope's `root` is the one a working-tree run names, from a symlinked directory and
+/// with `--root` below the top level.
+#[test]
+fn a_staged_run_names_the_root_a_working_tree_run_names() {
+    fn json_root(r: &Run) -> String {
+        let v: serde_json::Value = serde_json::from_str(&r.stdout)
+            .unwrap_or_else(|e| panic!("{e}: {}{}", r.stdout, r.stderr));
+        v["root"].as_str().unwrap().to_string()
+    }
+    let tmp = nested();
+    let root = tmp.path();
+    std::fs::write(root.join("sub").join(BREAK), BROKEN).unwrap();
+    git(root, &["add", "-A"]);
+    let args = ["graph-check", "--root", "sub", "--format", "json"];
+    let plain = run(root, &args);
+    let mut with = args.to_vec();
+    with.push("--staged");
+    let s = run(root, &with);
+    assert_eq!(s.code, 1, "{}{}", s.stdout, s.stderr);
+    assert!(!s.stdout.contains("yidam-staged"), "{}", s.stdout);
+    assert_eq!(json_root(&s), json_root(&plain));
+
+    #[cfg(unix)]
+    {
+        let links = tempfile::tempdir().unwrap();
+        let link = links.path().join("link");
+        std::os::unix::fs::symlink(root, &link).unwrap();
+        let plain = run(&link, &args);
+        let s = run(&link, &with);
+        assert_eq!(s.code, 1, "{}{}", s.stdout, s.stderr);
+        assert!(!s.stdout.contains("yidam-staged"), "{}", s.stdout);
+        assert_eq!(json_root(&s), json_root(&plain));
+    }
+    assert_eq!(worktrees(root), 1);
+}
+
+/// A repository with an LFS filter and no LFS server. The smudge filter here fails unless git
+/// is told to leave pointers alone, as `git-lfs` is by `GIT_LFS_SKIP_SMUDGE`, so the test
+/// needs no `git-lfs` and no network.
+#[test]
+fn a_staged_run_does_not_smudge_lfs_files() {
+    let tmp = clean();
+    let root = tmp.path();
+    git(root, &["config", "filter.lfs.clean", "cat"]);
+    git(
+        root,
+        &[
+            "config",
+            "filter.lfs.smudge",
+            "test \"$GIT_LFS_SKIP_SMUDGE\" = 1 && cat",
+        ],
+    );
+    git(root, &["config", "filter.lfs.required", "true"]);
+    std::fs::write(root.join(".gitattributes"), "*.bin filter=lfs\n").unwrap();
+    std::fs::write(root.join("data.bin"), "pointer\n").unwrap();
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "-m", "observe: lfs file"]);
+    let r = run(root, &["graph-check", "--staged"]);
+    assert_eq!(r.code, 0, "{}{}", r.stdout, r.stderr);
+    std::fs::write(root.join(BREAK), BROKEN).unwrap();
+    git(root, &["add", BREAK]);
+    let r = run(root, &["graph-check", "--staged"]);
+    assert_eq!(r.code, 1, "{}{}", r.stdout, r.stderr);
     assert_eq!(worktrees(root), 1);
 }
 
