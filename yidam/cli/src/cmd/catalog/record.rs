@@ -222,8 +222,11 @@ fn quote_if_needed(v: &str) -> String {
 /// and both are true: the first names bytes somebody cited, and overwriting it would delete
 /// the provenance of every claim resting on it.
 ///
-/// A record whose digest the entry already carries is skipped, so re-running a fetch that
-/// changed nothing changes nothing. That is what makes the command safe to put on a clock.
+/// A record whose digest the entry already carries from the same location is skipped, so
+/// re-running a fetch that changed nothing changes nothing. That is what makes the command safe
+/// to put on a clock. The same bytes from another location are recorded once under it: a
+/// Wayback capture equal to its source is the record that says so (#1589). A held record with
+/// no `from:` stands for any location, so hand-written history is not doubled.
 pub fn append_artifacts(text: &str, records: &[CatalogArtifact]) -> Result<String> {
     if records.is_empty() {
         return Ok(text.to_string());
@@ -231,16 +234,15 @@ pub fn append_artifacts(text: &str, records: &[CatalogArtifact]) -> Result<Strin
     let split = split(text)?;
     let lines: Vec<&str> = split.front.split('\n').collect();
 
-    let held: Vec<String> = crate::parse::parse_frontmatter(text)
+    let held = crate::parse::parse_frontmatter(text)
         .artifacts
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|a| a.sha256.clone())
-        .collect();
+        .unwrap_or_default();
     let fresh: Vec<&CatalogArtifact> = records
         .iter()
         .filter(|r| match &r.sha256 {
-            Some(h) => !held.contains(h),
+            Some(h) => !held
+                .iter()
+                .any(|a| a.sha256.as_ref() == Some(h) && (a.from.is_none() || a.from == r.from)),
             None => true,
         })
         .collect();
@@ -657,6 +659,33 @@ The system of record. **Parameter 00060** is discharge.
         let once = append_artifacts(ENTRY, &[artifact("aa")]).unwrap();
         let again = append_artifacts(&once, &[artifact("aa")]).unwrap();
         assert_eq!(once, again);
+    }
+
+    /// The same bytes from another location are that location's record: a Wayback capture
+    /// equal to its source is recorded under its own index, once (#1589). A held record with
+    /// no `from:` stands for every location.
+    #[test]
+    fn the_same_digest_from_another_location_is_recorded_once() {
+        let once = append_artifacts(ENTRY, &[artifact("aa")]).unwrap();
+        let capture = CatalogArtifact {
+            from: Some(ArtifactOrigin::Location(1)),
+            ..artifact("aa")
+        };
+        let both = append_artifacts(&once, &[capture.clone()]).unwrap();
+        let held = crate::parse::parse_frontmatter(&both).artifacts.unwrap();
+        assert_eq!(held.len(), 2);
+        assert_eq!(held[1].from, Some(ArtifactOrigin::Location(1)));
+        assert_eq!(append_artifacts(&both, &[capture.clone()]).unwrap(), both);
+
+        let unplaced = append_artifacts(
+            ENTRY,
+            &[CatalogArtifact {
+                from: None,
+                ..artifact("aa")
+            }],
+        )
+        .unwrap();
+        assert_eq!(append_artifacts(&unplaced, &[capture]).unwrap(), unplaced);
     }
 
     /// Overwriting would delete the provenance of any claim resting on the older bytes.

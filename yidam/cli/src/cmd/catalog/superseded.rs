@@ -116,14 +116,19 @@ fn digest(a: &CatalogArtifact) -> Option<&str> {
 
 /// Whether `new` is a new version of something `held` already records.
 ///
-/// A digest already held is not new — re-recording one is the no-op
-/// [`super::record::append_artifacts`] skips — and a digest from an origin, or a resource at
-/// one, that nothing held names a second source rather than a second edition.
+/// A digest already held from the same origin, or by a record with no `from:`, is not new:
+/// re-recording one is the no-op [`super::record::append_artifacts`] skips. The same digest
+/// held from another origin does not stop it being new here (#1589). A location whose bytes
+/// change to equal another location's, such as a Wayback capture's, is still a new edition
+/// of that location. A digest from an origin, or a resource at one, that nothing held names a
+/// second source rather than a second edition.
 pub(crate) fn supersedes(held: &[CatalogArtifact], new: &CatalogArtifact) -> bool {
     let Some(h) = digest(new) else {
         return false;
     };
-    !held.iter().any(|a| digest(a) == Some(h))
+    !held
+        .iter()
+        .any(|a| digest(a) == Some(h) && (a.from.is_none() || a.from == new.from))
         && held
             .iter()
             .any(|a| digest(a).is_some() && same_source(a, new))
@@ -318,9 +323,14 @@ pub(crate) fn latest_supersession(history: &[Revision]) -> Option<(&Revision, St
             }
         }
         // Appended only after the commit is read in full, so two digests arriving together
-        // from one origin are two records of one event and not a version of each other.
+        // from one origin are two records of one event and not a version of each other. Kept
+        // per origin, as [`supersedes`] reads it: one digest from two origins is two records.
         for a in &rev.artifacts {
-            if digest(a).is_some() && !seen.iter().any(|s| digest(s) == digest(a)) {
+            if digest(a).is_some()
+                && !seen
+                    .iter()
+                    .any(|s| digest(s) == digest(a) && s.from == a.from)
+            {
                 seen.push(a.clone());
             }
         }
@@ -571,6 +581,37 @@ mod tests {
     #[test]
     fn a_digest_already_held_is_not() {
         assert!(!supersedes(&[rec("aa", Some(0))], &rec("aa", Some(0))));
+    }
+
+    /// #1589: a capture equal to its source is recorded under its own location. When the
+    /// source later changes to bytes another location already holds, that is still a new
+    /// edition of the source.
+    #[test]
+    fn a_digest_held_only_from_another_origin_is_new_here() {
+        let held = [rec("aa", Some(0)), rec("bb", Some(2))];
+        assert!(supersedes(&held, &rec("bb", Some(0))));
+        assert!(!supersedes(&held, &rec("bb", Some(2))));
+        assert!(!supersedes(
+            &[rec("bb", None), rec("aa", Some(0))],
+            &rec("bb", Some(0))
+        ));
+    }
+
+    /// The edition is named once, by the commit it arrived in, however often it is re-read.
+    #[test]
+    fn a_digest_from_another_origin_is_named_by_the_commit_it_arrived_in() {
+        let history = [
+            rev("c1", vec![rec("aa", Some(0)), rec("bb", Some(2))]),
+            rev(
+                "c2",
+                vec![rec("aa", Some(0)), rec("bb", Some(2)), rec("bb", Some(0))],
+            ),
+            rev(
+                "c3",
+                vec![rec("aa", Some(0)), rec("bb", Some(2)), rec("bb", Some(0))],
+            ),
+        ];
+        assert_eq!(latest_supersession(&history).unwrap().0.commit, "c2");
     }
 
     #[test]
