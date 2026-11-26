@@ -98,6 +98,7 @@ mod signal;
 mod source_add;
 mod source_check;
 mod spec_bundle;
+mod staged_gates;
 mod task_layer;
 mod template_root;
 mod template_source_packs;

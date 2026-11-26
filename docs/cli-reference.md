@@ -56,7 +56,7 @@ Read-only, and they exit nonzero on a problem — which is what makes them usabl
 | Command | What it answers |
 |---|---|
 | `doctor` | Is this setup sound? One verdict per check, and a remedy where something is owed. `--strict` makes warnings fail. `--only <id>` reports only that check. See [Troubleshooting](troubleshooting.md) |
-| `graph-check` | The graph gate: orphans, broken links, missing labels |
+| `graph-check` | The graph gate: orphans, broken links, missing labels. `--staged` checks the index instead of the working tree |
 | `lint` | Corpus quality checks against the baseline ratchet |
 | `index-verify` | Does an embedding provider reproduce this index's contract? `--remote` reads the contract from the vector index `[index.remote]` declares |
 | `samudaya-audit` | Inspect and validate `samudaya/` seed files *(no flags)* |
@@ -72,6 +72,15 @@ Read-only, and they exit nonzero on a problem — which is what makes them usabl
 | `--warn` | Report findings but always exit 0 |
 | `--bless` | Rewrite `.yidam/lint-baseline.yml` from this run instead of gating on it |
 | `--init-baseline` | Write the baseline only if absent, then exit — safe to run unconditionally |
+| `--staged` | Check the tree the next commit would hold, not the working tree |
+
+**`--staged` checks what a commit would hold** ([RFC-0070](rfcs/0070-a-gate-reads-the-staged-tree.md)).
+`graph-check`, `lint` and `regen --check` each take it. The index is checked out over a scratch
+worktree of HEAD, and the gate runs there. Unstaged edits and untracked files are left out.
+History checks still read the repository's history. The report names the repository, not the
+scratch tree, and the scratch tree is removed before the command exits. It needs a commit at
+HEAD and an index with no unmerged paths. `lint --staged` takes no `--commits`, `--bless` or
+`--init-baseline`.
 
 `lint` answers *did this change make the corpus less clean?* — not *is the corpus clean?* The
 baseline is what makes that the question. — see
@@ -451,7 +460,7 @@ That is their purpose, and it is why every one carries a `*`.
 
 | Command | Block content |
 |---|---|
-| `regen` * | Refresh every REGEN block in one pass. `--check` reports staleness and writes nothing; `--commit` authors the `regen:` commit for exactly the files that changed; `--fold` amends them into an unpushed HEAD |
+| `regen` * | Refresh every REGEN block in one pass. `--check` reports staleness and writes nothing, and `--check --staged` reports it for the index; `--commit` authors the `regen:` commit for exactly the files that changed; `--fold` amends them into an unpushed HEAD |
 | `status` * | Repository overview: nodes, open questions, catalog, index freshness, genesis |
 | `open-questions` * | Unresolved questions, newest first |
 | `corpus-index` * | Every corpus node by class, with label and link count |

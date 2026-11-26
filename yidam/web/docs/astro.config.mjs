@@ -207,6 +207,7 @@ const sidebar = [
       { slug: 'rfcs/0067-one-landing-per-plan', label: '0067 · one landing per plan' },
       { slug: 'rfcs/0068-a-spec-asset', label: '0068 · a spec asset' },
       { slug: 'rfcs/0069-a-worktree-reads-the-main-index', label: '0069 · a worktree reads the main index' },
+      { slug: 'rfcs/0070-a-gate-reads-the-staged-tree', label: '0070 · a gate reads the staged tree' },
     ],
   },
   {

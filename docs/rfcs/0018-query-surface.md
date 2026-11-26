@@ -508,7 +508,7 @@ unproductive the report says so rather than shrugging:
 
 A rejected query **emits its report and exits 1**. That is the shape four commands already
 have — `doctor`
-([`crate::report::gate`](../../yidam/cli/src/cmd/doctor.rs#L2811)), `regen`
+([`crate::report::gate`](../../yidam/cli/src/cmd/doctor.rs#L3010)), `regen`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/regen.rs#L692)), `rename`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/rename.rs#L799)) and `index-verify`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/index_verify.rs#L260)) all print, then
@@ -549,7 +549,7 @@ fail.
 
 Exit **2** is not available and must not be borrowed. Its sites are `main.rs:1616`, inside the
 clap pre-dispatch arm for "ErrorKind::InvalidSubcommand | ErrorKind::UnknownArgument"
-([`main.rs:1638-1657`](../../yidam/cli/src/main.rs#L1638-L1657)), and the bare-`yidam` fallback
+([`main.rs:1650-1669`](../../yidam/cli/src/main.rs#L1650-L1669)), and the bare-`yidam` fallback
 at `main.rs:1632` — both reached *before* `match cli.command`, so no command body can produce
 it — and
 `tests/suite/binary_pin.rs:140` pins it as the unrecognized-subcommand code. Returning an ordinary
@@ -560,7 +560,7 @@ The one `Err` that is not ordinary is
 [`report::GateFailed`](../../yidam/cli/src/report.rs#L204), the sentinel #926 introduced so
 that the library could stop calling `std::process::exit` from inside a published crate. It
 carries no message, and `main.rs` prints nothing for it
-([`fn main`](../../yidam/cli/src/main.rs#L1627-L1634)) — so the report emitted above it is
+([`fn main`](../../yidam/cli/src/main.rs#L1639-L1646)) — so the report emitted above it is
 still the only thing on the stream, which is the whole property this section is arranged
 around. The exit code did not move; the call to `exit` did.
 
