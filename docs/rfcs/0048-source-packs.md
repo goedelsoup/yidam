@@ -325,6 +325,10 @@ public one. For HTML the archive's crawl often differs, so a mismatch is informa
 fails the run. A capture that cannot be read is still added, with `matches` unknown, as before
 this amendment.
 
+A matching capture carries a digest the entry already holds, so a digest is skipped only when the
+entry holds it from the same location. A held record with no `from:` stands for any location, so
+hand-written history is not doubled.
+
 `wayback:<url>` pinning at `source add` (#1343) stays out. It is the pack's own pin read, a
 different request, and sends no date: an entry being drafted holds no artifact to date it by.
 
