@@ -697,6 +697,7 @@ fn add(
                 bind: Vec::new(),
                 dry_run: false,
                 archive: false,
+                archive_urls: false,
                 format,
             };
             fetched.extend(catalog::fetch_in(root, &opts, &mut writer)?);

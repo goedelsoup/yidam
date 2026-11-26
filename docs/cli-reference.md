@@ -1358,7 +1358,7 @@ knowledge claim, only the time to re-fetch.
 | `vault gc` | Report cached artifacts no committed file names; `--yes` deletes them |
 | `vault materialize` | Hardlink cached artifacts into `.yidam/vault/<slug>/` under names a person can open; `--entry` narrows |
 | `vault-status` * | Writes the `<!-- REGEN: yidam vault-status -->` block in README.md. Committed files only — never the cache, never the network. `yidam vault status`, a hyphen apart, is the read-only report; `yidam regen` runs this one with the rest |
-| `catalog-fetch [entry]` * | Follow a catalog entry's declared address, cache the bytes under their digest, record them in `artifacts:`, and commit it as `refresh:`. `--location` narrows to one address; `--bind name=value` fills a `url_template` slot; `--archive` adds the nearest Wayback capture of each identifier whose pack allows it; `--dry-run` resolves and writes nothing. Exits nonzero if a publisher refused a location |
+| `catalog-fetch [entry]` * | Follow a catalog entry's declared address, cache the bytes under their digest, record them in `artifacts:`, and commit it as `refresh:`. `--location` narrows to one address; `--bind name=value` fills a `url_template` slot; `--archive` adds the Wayback capture nearest the retrieved date of each identifier whose pack allows it, and `--archive=url` of each url location too; `--dry-run` resolves and writes nothing. Exits nonzero if a publisher refused a location |
 | `catalog-extract [entry]` * | Take each reading an artifact lacks — a PDF's text, a [source pack](#source-packs)'s `extract`, or a zip member its location lists under `members:` — file it in the cache, record it under the artifact in `readings:`, and commit it as `extract:`. `--dry-run` reports and reads nothing |
 | `catalog-reconcile [entry]` | Retired: writes nothing and exits 0, and the next release removes it. An entry no longer stores what cites it; `yidam migrate used-by` deletes the stored list |
 | `source check` | Hold every [source pack](#source-packs) and every `prelude_sources` pin to the pack format, offline, and run each transform over its fixtures. Exits nonzero on an error |
@@ -1649,10 +1649,13 @@ refused with that reason. Record a manual export as a `kind: file` location inst
 holds for a publisher whose TLS chain does not verify: no pack can turn verification off.
 
 **Archive.** `wayback:<timestamp>/<url>` resolves to the capture's `id_` form, the original bytes.
-`catalog-fetch --archive` looks up the nearest successful capture of each identifier whose pack
-says `archive = "wayback"`. It appends that capture to the entry's `location:` list as a
-`wayback:` identifier. Its description carries the capture date, and it lands in the same
-`refresh:` commit. It reads the
+`catalog-fetch --archive` looks up the successful capture of each identifier whose pack says
+`archive = "wayback"`. `--archive=url` also looks up each `kind: url` location. A `url_template`
+is never looked up, nor an address already on `web.archive.org`. The lookup asks for the capture
+nearest the `retrieved:` date of the bytes the entry holds. New bytes, and a location with no
+record, ask for none. It appends that capture to the entry's `location:` list as a `wayback:`
+identifier. Its description carries the capture date and the date asked for. It lands in the
+same `refresh:` commit. A run that finds nothing to look up says so on stderr. It reads the
 Wayback availability API and never asks the archive to capture anything. It needs an enabled
 pack declaring the `wayback` scheme.
 

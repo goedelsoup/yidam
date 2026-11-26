@@ -125,6 +125,7 @@ impl Builtin {
                     bind: Vec::new(),
                     dry_run: false,
                     archive: false,
+                    archive_urls: false,
                     format,
                 },
                 writer,

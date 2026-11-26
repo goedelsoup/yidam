@@ -2700,7 +2700,7 @@
           },
           "archived": {
             "type": "array",
-            "description": "`catalog-fetch --archive` only; empty without it. One row per identifier location whose pack declares `archive = \"wayback\"`, looked up through the Wayback availability API, which is a read: the run never asks the archive to capture anything.",
+            "description": "`catalog-fetch --archive` only; empty without it. One row per identifier location whose pack declares `archive = \"wayback\"`, and with `--archive=url` per `kind: url` location, looked up through the Wayback availability API, which is a read: the run never asks the archive to capture anything.",
             "items": {
               "type": "object",
               "required": [

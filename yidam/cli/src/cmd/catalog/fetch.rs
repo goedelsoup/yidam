@@ -57,10 +57,14 @@ pub struct FetchOptions {
     /// Resolve and report; fetch nothing, write nothing, commit nothing.
     pub dry_run: bool,
     /// Look each identifier whose pack says `archive = "wayback"` up in the Wayback Machine,
-    /// and add the nearest capture to the entry as a `wayback:` location.
+    /// and add the capture nearest its bytes' `retrieved:` date to the entry as a `wayback:`
+    /// location.
     ///
     /// A read of the availability API. It never asks the archive to capture anything.
     pub archive: bool,
+    /// `--archive=url`: look each `kind: url` location up as well. Not a `url_template`, whose
+    /// address changes with its bindings, and not an address already on `web.archive.org`.
+    pub archive_urls: bool,
     pub format: crate::report::Format,
 }
 
@@ -680,12 +684,19 @@ fn nearest(asked: Option<&str>) -> String {
 ///
 /// Before, such a run succeeded and said nothing, and a corpus whose every location is a url
 /// could not tell that `--archive` had passed all of them over.
-fn nothing_to_archive(planned: usize, looked: usize) -> Option<String> {
-    (looked == 0).then(|| {
-        format!(
-            "--archive: 0 of {planned} location(s) are identifiers whose pack archives; url \
-             locations are not looked up"
-        )
+fn nothing_to_archive(planned: usize, looked: usize, urls: bool, waiting: usize) -> Option<String> {
+    (looked == 0).then(|| match (urls, waiting) {
+        (true, _) => format!(
+            "--archive=url: 0 of {planned} location(s) are identifiers whose pack archives or \
+             url locations"
+        ),
+        (false, 0) => {
+            format!("--archive: 0 of {planned} location(s) are identifiers whose pack archives")
+        }
+        (false, k) => format!(
+            "--archive: 0 of {planned} location(s) are identifiers whose pack archives; {k} \
+             are url locations, which --archive=url looks up"
+        ),
     })
 }
 
@@ -758,7 +769,9 @@ pub(crate) fn fetch_in(
     let mut out: Vec<EntryOutcome> = Vec::new();
     let mut n = 0usize;
     // Every location the run would follow, and how many of them `--archive` looks up.
-    let (mut planned, mut looked) = (0usize, 0usize);
+    // `waiting` counts the url locations a bare `--archive` passes over, so the note can name
+    // the opt-in that would look them up.
+    let (mut planned, mut looked, mut waiting) = (0usize, 0usize, 0usize);
     // Read once, and only if some entry records a new version: a corpus walk to answer a
     // question no entry in this run is asking would be the ordinary run's whole cost.
     let mut citing: Option<std::collections::HashMap<PathBuf, Vec<String>>> = None;
@@ -784,7 +797,11 @@ pub(crate) fn fetch_in(
         planned += plans.len();
         looked += plans
             .iter()
-            .filter(|(_, p)| archived_url(p).is_some())
+            .filter(|(i, p)| archived_url(p, &locations[*i], opts.archive_urls).is_some())
+            .count();
+        waiting += plans
+            .iter()
+            .filter(|(i, p)| !opts.archive_urls && archived_page(p, &locations[*i]).is_some())
             .count();
         if plans.is_empty() {
             if !skipped.is_empty() {
@@ -836,7 +853,10 @@ pub(crate) fn fetch_in(
             };
             // Looked up whatever the publisher answered: a capture is most use where the
             // source now refuses.
-            if let (Some(policy), Some(url)) = (&archive_policy, archived_url(plan)) {
+            if let (Some(policy), Some(url)) = (
+                &archive_policy,
+                archived_url(plan, &locations[*i], opts.archive_urls),
+            ) {
                 n += 1;
                 let scratch = staging(&cache, n);
                 let asked = asked_date(&held, &ArtifactOrigin::Location(*i), fresh.as_deref());
@@ -922,19 +942,37 @@ pub(crate) fn fetch_in(
         });
     }
     if opts.archive {
-        if let Some(note) = nothing_to_archive(planned, looked) {
+        if let Some(note) = nothing_to_archive(planned, looked, opts.archive_urls, waiting) {
             eprintln!("{note}");
         }
     }
     Ok(out)
 }
 
-/// The address `--archive` looks up for this plan, if it looks this one up at all.
-fn archived_url(plan: &Plan) -> Option<&str> {
+/// The address `--archive` looks up for this plan, if it looks this one up at all: an
+/// identifier whose pack archives, and with `--archive=url` a url location as well.
+fn archived_url<'a>(plan: &'a Plan, loc: &CatalogLocation, urls: bool) -> Option<&'a str> {
     match plan {
         Plan::Identifier {
             url, archive: true, ..
         } => Some(url),
+        _ if urls => archived_page(plan, loc),
+        _ => None,
+    }
+}
+
+/// The address of a `kind: url` location `--archive=url` would look up. [`Plan::Url`] also
+/// carries a filled `url_template`, so the kind is read off the location: a capture written
+/// for one binding would stand for all of them. An address already on the archive is a
+/// capture, and is not looked up again.
+fn archived_page<'a>(plan: &'a Plan, loc: &CatalogLocation) -> Option<&'a str> {
+    match plan {
+        Plan::Url { url, .. }
+            if loc.kind.as_deref() == Some("url")
+                && transport::host_of(url).as_deref() != Some("web.archive.org") =>
+        {
+            Some(url)
+        }
         _ => None,
     }
 }
@@ -1086,6 +1124,7 @@ mod tests {
             bind: vec![],
             dry_run: false,
             archive: false,
+            archive_urls: false,
             format: crate::report::Format::Text,
         }
     }
@@ -1498,12 +1537,52 @@ mod tests {
     #[test]
     fn archive_says_so_when_it_finds_nothing_to_look_up() {
         assert_eq!(
-            nothing_to_archive(103, 0).as_deref(),
+            nothing_to_archive(103, 0, false, 103).as_deref(),
             Some(
-                "--archive: 0 of 103 location(s) are identifiers whose pack archives; url \
-                 locations are not looked up"
+                "--archive: 0 of 103 location(s) are identifiers whose pack archives; 103 are \
+                 url locations, which --archive=url looks up"
             )
         );
-        assert_eq!(nothing_to_archive(103, 1), None);
+        assert_eq!(
+            nothing_to_archive(2, 0, false, 0).as_deref(),
+            Some("--archive: 0 of 2 location(s) are identifiers whose pack archives")
+        );
+        assert_eq!(
+            nothing_to_archive(2, 0, true, 0).as_deref(),
+            Some(
+                "--archive=url: 0 of 2 location(s) are identifiers whose pack archives or url \
+                 locations"
+            )
+        );
+        assert_eq!(nothing_to_archive(103, 1, false, 0), None);
+    }
+
+    fn at(kind: &str) -> CatalogLocation {
+        CatalogLocation {
+            kind: Some(kind.into()),
+            ..Default::default()
+        }
+    }
+
+    fn get(url: &str) -> Plan {
+        Plan::Url {
+            url: url.into(),
+            declared: url.into(),
+        }
+    }
+
+    /// A url location is looked up only on request; a filled template and an address already
+    /// on the archive never are (#1366).
+    #[test]
+    fn a_url_location_is_looked_up_only_with_archive_url() {
+        let page = get("https://www.co.allen.oh.us/");
+        assert_eq!(archived_url(&page, &at("url"), false), None);
+        assert_eq!(
+            archived_url(&page, &at("url"), true),
+            Some("https://www.co.allen.oh.us/")
+        );
+        assert_eq!(archived_url(&page, &at("url_template"), true), None);
+        let capture = get("https://web.archive.org/web/20240102030405id_/https://x/");
+        assert_eq!(archived_url(&capture, &at("url"), true), None);
     }
 }
