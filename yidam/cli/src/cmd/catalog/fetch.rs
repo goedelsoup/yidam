@@ -117,12 +117,21 @@ pub(crate) struct Archived {
     captured: Option<String>,
     /// The `wayback:` location added to the entry. Absent with no capture, and on a dry run.
     added: Option<String>,
-    /// The digest of the capture's `id_` bytes, read when it is added and recorded as that
-    /// location's artifact (#1589). Absent when the capture could not be read.
+    /// The digest of the capture's `id_` bytes, read until that location holds a record of
+    /// them, and recorded as its artifact (#1589) unless the entry already holds the same bytes
+    /// with no `from:`. Absent when the capture could not be read.
     sha256: Option<String>,
     /// Whether the capture's bytes equal the source's: this run's, or the latest record's where
-    /// the publisher declined. Absent when either digest is. A mismatch never fails the run.
+    /// the publisher declined. Absent when either digest is, or the source is paginated. A
+    /// mismatch never fails the run.
     matches: Option<bool>,
+    /// Whether the source is paginated, so `matches` is absent by design. Text only.
+    #[serde(skip)]
+    paged: bool,
+    /// False when `sha256` was read but no record of it lands: a held record of the same bytes
+    /// with no `from:` stands for every location. Text only.
+    #[serde(skip)]
+    recorded: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -481,33 +490,59 @@ fn archived_location(index: usize, url: &str, ts: &str, asked: Option<&str>) -> 
     }
 }
 
-/// The index a capture's location has, or will have once appended, and whether it is new.
+/// The index a capture's location has, or will have once appended.
 ///
-/// [`record::append_locations`] skips a location the entry lists by kind and value, so a
-/// re-run that finds the same capture names the index already held, and reads nothing again.
+/// The list is built exactly as [`record::append_locations`] builds it: the entry's
+/// locations, then each of `added` that neither they nor an earlier one of `added` lists by
+/// kind and value. `added` may name locations the entry already holds, and repeats.
 fn capture_index(
     locations: &[CatalogLocation],
     added: &[CatalogLocation],
     loc: &CatalogLocation,
-) -> (usize, bool) {
-    let same = |a: &CatalogLocation| a.kind == loc.kind && a.value == loc.value;
-    if let Some(j) = locations.iter().position(same) {
-        return (j, false);
-    }
-    let mut fresh = 0;
+) -> usize {
+    let same = |a: &CatalogLocation, b: &CatalogLocation| a.kind == b.kind && a.value == b.value;
+    let mut listed: Vec<&CatalogLocation> = locations.iter().collect();
     for a in added {
-        if same(a) {
-            return (locations.len() + fresh, false);
-        }
-        if !locations
-            .iter()
-            .chain(&added[..fresh])
-            .any(|h| h.kind == a.kind && h.value == a.value)
-        {
-            fresh += 1;
+        if !listed.iter().any(|h| same(h, a)) {
+            listed.push(a);
         }
     }
-    (locations.len() + fresh, true)
+    listed
+        .iter()
+        .position(|h| same(h, loc))
+        .unwrap_or(listed.len())
+}
+
+/// The digest a capture at index `j` is already known by, and whether it is recorded there.
+///
+/// This run's read comes first; then the entry's record from that location. `None` means it
+/// has to be read: a capture is never assumed to be what nothing has read.
+fn known_digest(j: usize, read: &[Obtained], held: &[CatalogArtifact]) -> Option<(String, bool)> {
+    if let Some(o) = read.iter().find(|o| o.location == j) {
+        return Some((o.sha256.clone(), recordable(held, &o.sha256)));
+    }
+    prior_for(held, &ArtifactOrigin::Location(j))
+        .and_then(|r| r.sha256.clone())
+        .map(|h| (h, true))
+}
+
+/// Whether [`record::append_artifacts`] will write a record of `sha` under a new location: a
+/// held record of the same bytes with no `from:` stands for every location, and blocks it.
+fn recordable(held: &[CatalogArtifact], sha: &str) -> bool {
+    !held
+        .iter()
+        .any(|a| a.from.is_none() && a.sha256.as_deref() == Some(sha))
+}
+
+/// Whether a plan's bytes are several pages joined, so one page's capture cannot equal them.
+fn paginates(plan: &Plan) -> bool {
+    matches!(
+        plan,
+        Plan::Identifier {
+            paginate: Some(_),
+            ..
+        }
+    )
 }
 
 /// Read a capture's `id_` bytes through the pack that declares `wayback`, as location `index`.
@@ -544,11 +579,20 @@ fn same_bytes(capture: Option<&str>, source: Option<&str>) -> Option<bool> {
 /// What the commit body and the report say about a capture's bytes against its source's.
 fn compared(a: &Archived) -> Option<String> {
     a.added.as_ref()?;
-    Some(match (a.matches, &a.sha256) {
+    let said = match (a.matches, &a.sha256) {
         (Some(true), _) => format!("its bytes match location {}'s", a.location),
         (Some(false), _) => format!("its bytes differ from location {}'s", a.location),
+        (None, Some(_)) if a.paged => format!(
+            "location {} is paginated and its capture is one page, so they are not compared",
+            a.location
+        ),
         (None, Some(_)) => format!("location {} holds no bytes to compare with", a.location),
-        (None, None) => "its bytes were not read".to_string(),
+        (None, None) => return Some("its bytes were not read".to_string()),
+    };
+    Some(if a.recorded {
+        said
+    } else {
+        format!("{said}; not recorded, as the entry holds these bytes with no `from:`")
     })
 }
 
@@ -917,6 +961,8 @@ pub(crate) fn fetch_in(
         let mut captures: Vec<CatalogLocation> = Vec::new();
         // The bytes of each capture added, recorded under the capture's own location.
         let mut read: Vec<Obtained> = Vec::new();
+        // The capture indexes this run tried to read, whether or not the read succeeded.
+        let mut tried: Vec<usize> = Vec::new();
         for (i, plan) in &plans {
             if opts.dry_run {
                 obtained.push(Obtained {
@@ -966,31 +1012,43 @@ pub(crate) fn fetch_in(
                         let added = capture
                             .as_deref()
                             .map(|ts| archived_location(*i, url, ts, asked.as_deref()));
-                        let source = fresh.clone().or_else(|| {
-                            prior_for(&held, &ArtifactOrigin::Location(*i))
-                                .and_then(|r| r.sha256.clone())
-                        });
-                        let sha = match &added {
-                            None => None,
-                            Some(loc) => match capture_index(&locations, &captures, loc) {
-                                (j, true) => {
-                                    n += 1;
-                                    read_capture(loc, j, &ctx, &cache, n, &mut net).map(|o| {
-                                        let sha = o.sha256.clone();
-                                        read.push(o);
-                                        sha
-                                    })
+                        // A paginated source's digest is of every page, and its capture is of
+                        // the first: comparing them would report a difference every run.
+                        let paged = paginates(plan);
+                        let source = (!paged)
+                            .then(|| {
+                                fresh.clone().or_else(|| {
+                                    prior_for(&held, &ArtifactOrigin::Location(*i))
+                                        .and_then(|r| r.sha256.clone())
+                                })
+                            })
+                            .flatten();
+                        let (sha, recorded) = match &added {
+                            None => (None, true),
+                            Some(loc) => {
+                                let j = capture_index(&locations, &captures, loc);
+                                match known_digest(j, &read, &held) {
+                                    Some(known) => (Some(known.0), known.1),
+                                    // Read once a run: a second location finding the same
+                                    // capture after a failed read would only fail again.
+                                    None if tried.contains(&j) => (None, true),
+                                    // New, or listed with no record yet: a capture added
+                                    // before #1589, or one whose read failed last run.
+                                    None => {
+                                        tried.push(j);
+                                        n += 1;
+                                        match read_capture(loc, j, &ctx, &cache, n, &mut net) {
+                                            Some(o) => {
+                                                let h = o.sha256.clone();
+                                                let r = recordable(&held, &h);
+                                                read.push(o);
+                                                (Some(h), r)
+                                            }
+                                            None => (None, true),
+                                        }
+                                    }
                                 }
-                                // Listed already: its digest is this run's read, or its record.
-                                (j, false) => read
-                                    .iter()
-                                    .find(|o| o.location == j)
-                                    .map(|o| o.sha256.clone())
-                                    .or_else(|| {
-                                        prior_for(&held, &ArtifactOrigin::Location(j))
-                                            .and_then(|r| r.sha256.clone())
-                                    }),
-                            },
+                            }
                         };
                         archived.push(Archived {
                             location: *i,
@@ -1000,6 +1058,8 @@ pub(crate) fn fetch_in(
                             added: added.as_ref().and_then(|l| l.value.clone()),
                             matches: same_bytes(sha.as_deref(), source.as_deref()),
                             sha256: sha,
+                            paged,
+                            recorded,
                         });
                         captures.extend(added);
                     }
@@ -1748,6 +1808,8 @@ mod tests {
             added: Some("wayback:20240102030405/https://x/".into()),
             sha256: sha256.map(str::to_string),
             matches,
+            paged: false,
+            recorded: true,
         }
     }
 
@@ -1756,26 +1818,78 @@ mod tests {
         let held = [loc("url", "https://x/"), loc("url", "https://y/")];
         let a = archived_location(0, "https://x/", "20240102030405", None);
         let b = archived_location(1, "https://y/", "20240102030405", None);
-        assert_eq!(capture_index(&held, &[], &a), (2, true));
+        assert_eq!(capture_index(&held, &[], &a), 2);
+        assert_eq!(capture_index(&held, std::slice::from_ref(&a), &b), 3);
+        // The same capture found twice in one run takes one index.
+        assert_eq!(capture_index(&held, &[a.clone(), b.clone()], &b), 3);
+    }
+
+    #[test]
+    fn a_capture_the_entry_already_lists_keeps_its_index() {
+        let a = archived_location(0, "https://x/", "20240102030405", None);
+        let held = [loc("url", "https://x/"), a.clone()];
+        assert_eq!(capture_index(&held, &[], &a), 1);
+        // An earlier capture this run, already listed, takes no new index.
+        let b = archived_location(0, "https://x/", "20250102030405", None);
+        assert_eq!(capture_index(&held, &[a, b.clone()], &b), 2);
+    }
+
+    /// `added` carries a location the entry holds, then one new capture twice: the repeat is
+    /// not a second new index, as [`record::append_locations`] writes it once.
+    #[test]
+    fn a_repeat_after_a_held_capture_takes_no_index_of_its_own() {
+        let x = archived_location(0, "https://x/", "20240102030405", None);
+        let held = [
+            loc("url", "https://x/"),
+            loc("url", "https://y/"),
+            x.clone(),
+        ];
+        let a = archived_location(1, "https://y/", "20240102030405", None);
+        let b = archived_location(1, "https://y/", "20250102030405", None);
+        let added = [x, a.clone(), a.clone()];
+        assert_eq!(capture_index(&held, &added, &a), 3);
+        assert_eq!(capture_index(&held, &added, &b), 4);
+        let appended = record::append_locations(
+            "---\nname: e\nlocation:\n  - kind: url\n    value: https://x/\n  - kind: url\n    \
+             value: https://y/\n  - kind: identifier\n    value: \"wayback:20240102030405/https://x/\"\n---\n",
+            &[added.to_vec(), vec![b.clone()]].concat(),
+        )
+        .unwrap();
+        let listed = crate::parse::parse_frontmatter(&appended).location.unwrap();
+        assert_eq!(listed.len(), 5, "{appended}");
+        assert_eq!(listed[4].value, b.value);
+    }
+
+    /// A capture listed with no record from its location is read again; one with a record is
+    /// known by it. Captures added before #1589, or whose read failed, still get a record.
+    #[test]
+    fn a_listed_capture_is_known_only_by_a_record_from_its_location() {
+        assert_eq!(known_digest(2, &[], &[]), None);
+        assert_eq!(known_digest(2, &[], &[decided("aa", 0, None, None)]), None);
         assert_eq!(
-            capture_index(&held, std::slice::from_ref(&a), &b),
-            (3, true)
+            known_digest(2, &[], &[decided("aa", 2, None, None)]),
+            Some(("aa".into(), true))
         );
-        // The same capture found twice in one run is read once.
         assert_eq!(
-            capture_index(&held, &[a.clone(), b.clone()], &b),
-            (3, false)
+            known_digest(2, &[at_location("bb", 2)], &[decided("aa", 2, None, None)]),
+            Some(("bb".into(), true)),
+            "this run's read first"
         );
     }
 
     #[test]
-    fn a_capture_the_entry_already_lists_keeps_its_index_and_is_not_read() {
-        let a = archived_location(0, "https://x/", "20240102030405", None);
-        let held = [loc("url", "https://x/"), a.clone()];
-        assert_eq!(capture_index(&held, &[], &a), (1, false));
-        // An earlier capture appended this run, already listed, takes no new index.
-        let b = archived_location(0, "https://x/", "20250102030405", None);
-        assert_eq!(capture_index(&held, &[a, b.clone()], &b), (2, false));
+    fn a_held_record_with_no_origin_blocks_the_capture_record() {
+        let unplaced = CatalogArtifact {
+            from: None,
+            ..decided("aa", 0, None, None)
+        };
+        assert!(!recordable(std::slice::from_ref(&unplaced), "aa"));
+        assert!(recordable(std::slice::from_ref(&unplaced), "bb"));
+        assert!(recordable(&[decided("aa", 0, None, None)], "aa"));
+        assert_eq!(
+            known_digest(2, &[at_location("aa", 2)], &[unplaced]),
+            Some(("aa".into(), false))
+        );
     }
 
     #[test]
@@ -1803,6 +1917,25 @@ mod tests {
         assert_eq!(
             compared(&archived(None, None)).as_deref(),
             Some("its bytes were not read")
+        );
+        let paged = Archived {
+            paged: true,
+            ..archived(None, Some("aa"))
+        };
+        assert_eq!(
+            compared(&paged).as_deref(),
+            Some("location 0 is paginated and its capture is one page, so they are not compared")
+        );
+        let blocked = Archived {
+            recorded: false,
+            ..archived(Some(true), Some("aa"))
+        };
+        assert_eq!(
+            compared(&blocked).as_deref(),
+            Some(
+                "its bytes match location 0's; not recorded, as the entry holds these bytes with \
+                 no `from:`"
+            )
         );
         let none = Archived {
             added: None,

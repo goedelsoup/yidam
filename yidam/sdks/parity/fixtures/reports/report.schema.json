@@ -2751,14 +2751,14 @@
                     "string",
                     "null"
                   ],
-                  "description": "The digest of the capture's `id_` bytes, read when it was added and recorded as the added location's artifact in the same commit (#1589). Null when there was no capture, or it could not be read."
+                  "description": "The digest of the capture's `id_` bytes, read until the added location holds a record of them, and recorded as its artifact in the same commit (#1589) unless the entry already holds the same bytes with no `from:`. Null when there was no capture, or it could not be read."
                 },
                 "matches": {
                   "type": [
                     "boolean",
                     "null"
                   ],
-                  "description": "Whether the capture's bytes equal the source's: the bytes this run obtained, or the location's latest record where the publisher declined. Null when either digest is unknown. False never fails the run: a PDF source captured as an HTML page differs by design."
+                  "description": "Whether the capture's bytes equal the source's: the bytes this run obtained, or the location's latest record where the publisher declined. Null when either digest is unknown, or the source is paginated and its capture is one page. False never fails the run: a PDF source captured as an HTML page differs by design."
                 }
               }
             }
