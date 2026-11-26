@@ -223,10 +223,16 @@ Each `auth` entry takes one of two forms:
 | `{ env = "VAR", header = "Name" }` | In that request header. |
 | `{ env = "VAR", header = "Name", prefix = "Token " }` | In that header, after the prefix. |
 | `{ env = "VAR", query = "param" }` | As that query parameter. Takes no `prefix`. |
+| Either, with `host = "api.example.org"` | Only on a request to that host. |
 
 `env` is an uppercase variable name, never the value.
 A bare name such as `auth = ["VAR"]` is refused, because it does not say where the credential goes.
 No credential reaches the report, the entry or the commit.
+
+A pack whose addresses reach more than one host must give every entry a `host`.
+Otherwise one publisher's key would be sent to all of them.
+`source check` also refuses a `host` that none of the pack's addresses reach.
+An unset scoped variable leaves the pack ready, and only a request to its host is refused.
 
 Use `blocked` for a publisher that refuses automated clients.
 Fetch it by hand, and record the export as a `kind: file` location.

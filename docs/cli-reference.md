@@ -1623,8 +1623,8 @@ its scheme. It then fetches the address as that pack's `[transport]` says:
 contact      = "required"
 min_interval = "250ms"
 auth = [
-  { env = "COURTLISTENER_TOKEN", header = "Authorization", prefix = "Token " },
-  { env = "BLS_KEY", query = "registrationkey" },
+  { env = "COURTLISTENER_TOKEN", header = "Authorization", prefix = "Token ", host = "www.courtlistener.com" },
+  { env = "BLS_KEY", query = "registrationkey", host = "api.bls.gov" },
 ]
 archive = "wayback"
 ```
@@ -1634,6 +1634,7 @@ archive = "wayback"
   request.
 - **Auth.** Each credential is read from the named variable and sent in the header or query
   parameter the pack names. A bare name is refused, since it says nothing of where to send it.
+  A credential with a `host` is read and sent only on a request to that host.
   No credential reaches the report, the entry or the commit. A credentialed request follows
   redirects only on its own host.
 - **Spacing.** `min_interval` holds between two requests to one host, across one run.

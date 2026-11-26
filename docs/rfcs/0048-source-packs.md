@@ -17,6 +17,11 @@
   locations under `--archive=url`. Decision 11.
 - **Amended 2026-11-26 (#1589):** §5's archive lookup reads the capture it adds, records it as
   that location's artifact, and says whether its bytes equal the source's. Decision 12.
+- **Amended 2026-11-26 (#1344):** §7's `socrata` drops CMS and gains `arcgis`, `census` reads
+  `www2.census.gov` bulk files before `api.census.gov`, `caselaw` reads `static.case.law`, and five
+  agencies wait for `us-federal` 0.2. Decision 13.
+- **Amended 2026-11-26 (#1596):** §5's credentials name the host each is sent to, and a pack
+  reaching more than one host must scope every one. Decision 14.
 
 ## Summary
 
@@ -184,7 +189,8 @@ resolve = { template = "https://www.ebi.ac.uk/europepmc/webservices/rest/{id}/fu
 [transport]
 contact       = "required"   # YIDAM_CONTACT goes into the User-Agent; never a browser string
 min_interval  = "100ms"
-auth          = []           # e.g. [{ env = "COURTLISTENER_TOKEN", header = "Authorization", prefix = "Token " }]
+auth          = []           # e.g. [{ env = "COURTLISTENER_TOKEN", header = "Authorization", prefix = "Token ",
+                             #         host = "www.courtlistener.com" }]
                              # env var names and where each is sent, never values (§5)
 archive       = "wayback"    # may add a pinned `id_` snapshot location (§5)
 
@@ -344,6 +350,13 @@ takes `{ env, header, prefix? }` or `{ env, query }`, and `source check` refuses
 query credential is added to the URL as it is sent and to no URL the report or the commit holds.
 A credentialed request follows redirects only on its own host.
 
+A credential also says which host it goes to. `courts` pairs a CourtListener token with
+static.case.law, which takes none, and a pack-wide credential would send the token there. So an
+entry takes `host`, and is read and sent only on a request to that host. Without one it goes on
+every request, as before. A pack whose addresses reach more than one host must scope every
+credential, and `source check` refuses a `host` none of them reach. An unset scoped variable
+does not make the pack unready; the request to its host is refused with the variable's name.
+
 **No pack declares a bad TLS chain.** One publisher (dol.gov) serves a chain that does not verify
 (`UnknownIssuer`). A pack may not declare that chain trusted or turn verification off. Either is
 a step around a refusal, and it would hold for every corpus that pins the pack. Such a publisher
@@ -440,7 +453,7 @@ Chosen by the measurement in §1.1, generic families first:
 | `archive` | `wayback` | 84 entries in 6 repositories; every other pack leans on it |
 | `us-federal` | `ecfr`, `govinfo`, `uscode`, `fec`, `bls`, `census` | 2–4 repositories each; stable public APIs |
 | `courts` | `courtlistener`, `caselaw` | 5 repositories; v4 API needs a token, which exercises `auth` |
-| `socrata` | `socrata:<host>/<dataset>` | one scheme covers CMS, CDC, HRSA and city portals |
+| `socrata` | `socrata:<host>/<dataset>`, `arcgis` | one scheme covers CDC, HRSA and city portals; `arcgis` reads feature services to their end |
 
 The state-legislature, revised-code and state-court families have the widest spread (five to six
 repositories), but every one of them is one state's. **The template ships no state pack.** These
@@ -454,6 +467,20 @@ scheme, `europepmc`, because Crossref names no PMCID. The DOI's `then` asks Euro
 record, and that answer names the PMCID when the full text is open access. `archive` has `ia`
 and `ia-file` beside `wayback`, for Internet Archive items and their OCR text. `us-federal`,
 `courts` and `socrata` are #1344.
+
+#1344 ships the other three, each at 0.1.0, and changes three rows of the table above:
+
+- **`socrata` does not cover CMS.** CMS runs DKAN and publishes a DCAT-US `data.json`, which a
+  `dcat` resolve already reads (§3). Of the measured hosts, only `data.cdc.gov` is Socrata.
+- **`socrata` gains `arcgis`.** A feature service answers in pages and says
+  `exceededTransferLimit` until the last one, so the scheme declares `paginate` (§5).
+- **`census` reads bulk files first.** 43 entries in 3 corpora name a file on
+  `www2.census.gov`, so its templates bind vintage, product and geography. `api.census.gov`
+  comes second.
+- **`caselaw` reads `static.case.law`.** The Caselaw Access Project closed its API in 2024 and
+  left each volume's cases as static JSON, which a template reaches without a token.
+
+EIA, IRS, NCES, USGS and NOAA NCEI are left for `us-federal` 0.2.
 
 ### 8. Two read-only MCP tools
 
@@ -564,6 +591,13 @@ Settled in review on 2026-10-01. These were this RFC's open questions.
     run, and a capture that cannot be read is added unverified. Comparing two recorded digests
     later was the alternative. It needs a link between a `wayback:` location and its source,
     which only the description carries. Settled in #1589 (§5).
+13. **The last three first packs ship at 0.1.0, as measured and not as first listed.** `socrata`
+    is CDC, HRSA and city portals, plus an `arcgis` scheme that pages. CMS is a `dcat` catalog.
+    `census` templates bulk files before the API, and `caselaw` reads the static volumes CAP
+    left. EIA, IRS, NCES, USGS and NOAA NCEI are `us-federal` 0.2. Settled in #1344 (§7).
+14. **A credential is sent only to its host.** An `auth` entry takes `host`, and a pack reaching
+    more than one host must give every entry one. Pack-wide credentials were the alternative;
+    they send one publisher's key to every other host the pack reaches. Settled in #1596 (§5).
 
 ## Open questions
 

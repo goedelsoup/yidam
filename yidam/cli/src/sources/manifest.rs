@@ -334,8 +334,12 @@ pub struct Transport {
 /// auth = [
 ///   { env = "COURTLISTENER_TOKEN", header = "Authorization", prefix = "Token " },
 ///   { env = "BLS_KEY", query = "registrationkey" },
+///   { env = "FEC_KEY", query = "api_key", host = "api.open.fec.gov" },
 /// ]
 /// ```
+///
+/// A credential with `host` is read and sent only on a request to that host, so a pack whose
+/// schemes reach several publishers sends each its own credential and no other (#1596).
 ///
 /// A bare name (`auth = ["COURTLISTENER_TOKEN"]`) parses, and is refused by [`Auth::spec`]: it
 /// says which variable holds the credential and not how the publisher wants it sent, and a
@@ -361,6 +365,9 @@ pub struct AuthSpec {
     /// Send it as this query parameter.
     #[serde(default)]
     pub query: Option<String>,
+    /// Send it only on a request to this host. Unsaid, it goes on every request the pack makes.
+    #[serde(default)]
+    pub host: Option<String>,
 }
 
 /// Where a credential goes, once [`Auth::spec`] has accepted it.
@@ -377,6 +384,20 @@ impl Auth {
             Self::Name(n) => n,
             Self::Declared(s) => &s.env,
         }
+    }
+
+    /// The one host this credential is sent to, if the declaration names one.
+    pub fn host(&self) -> Option<&str> {
+        match self {
+            Self::Name(_) => None,
+            Self::Declared(s) => s.host.as_deref(),
+        }
+    }
+
+    /// Whether a request to `url` carries this credential.
+    pub fn goes_to(&self, url: &str) -> bool {
+        self.host()
+            .is_none_or(|h| crate::cmd::catalog::transport::host_of(url).as_deref() == Some(h))
     }
 
     /// The variable and where its value is sent, or why the declaration does not say.
@@ -396,6 +417,14 @@ impl Auth {
             return Err(format!(
                 "`{env}` is not an environment variable name; auth names a variable, never a value"
             ));
+        }
+        if let Some(host) = &s.host {
+            if !is_host_name(host) {
+                return Err(format!(
+                    "`{env}`: `{host}` is not a lowercase host name; write the host alone, as \
+                     `www.courtlistener.com`"
+                ));
+            }
         }
         match (&s.header, &s.query) {
             (Some(name), None) => {
@@ -453,6 +482,23 @@ pub(crate) fn is_env_name(s: &str) -> bool {
         .next()
         .is_some_and(|b| b.is_ascii_uppercase() || b == b'_')
         && bytes.all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+}
+
+/// A DNS name in lowercase: dot-separated labels of letters, digits and inner hyphens. No
+/// scheme, port, path or slot, so it compares equal to what [`host_of`] reads off a URL.
+///
+/// [`host_of`]: crate::cmd::catalog::transport::host_of
+fn is_host_name(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 253
+        && s.split('.').all(|l| {
+            !l.is_empty()
+                && l.len() <= 63
+                && !l.starts_with('-')
+                && !l.ends_with('-')
+                && l.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
 }
 
 /// An HTTP token, narrowed to what a header a publisher documents is actually called.
@@ -696,6 +742,49 @@ ttl_days = 365
                 }
             ))
         );
+    }
+
+    #[test]
+    fn a_scoped_credential_goes_only_to_its_host() {
+        let a = auth(
+            r#"auth = [{ env = "CL_TOKEN", header = "Authorization", host = "www.courtlistener.com" }]"#,
+        );
+        assert!(a.spec().is_ok());
+        assert_eq!(a.host(), Some("www.courtlistener.com"));
+        assert!(a.goes_to("https://www.courtlistener.com/api/rest/v4/clusters/1/"));
+        assert!(a.goes_to("https://WWW.courtlistener.com:443/x"));
+        assert!(!a.goes_to("https://static.case.law/us/347/cases/0483-01.json"));
+        assert!(
+            !a.goes_to("https://courtlistener.com/"),
+            "a parent domain is another host"
+        );
+        assert!(!a.goes_to("https://www.courtlistener.com.evil.org/"));
+        let open = auth(r#"auth = [{ env = "K", query = "k" }]"#);
+        assert!(
+            open.goes_to("https://anywhere.org/"),
+            "unscoped goes on every request"
+        );
+    }
+
+    #[test]
+    fn a_host_that_is_not_a_bare_lowercase_name_is_refused() {
+        for host in [
+            "",
+            "https://a.org",
+            "a.org/x",
+            "a.org:443",
+            "A.org",
+            "{host}",
+            "a..org",
+            "-a.org",
+        ] {
+            let err = auth(&format!(
+                r#"auth = [{{ env = "K", query = "k", host = "{host}" }}]"#
+            ))
+            .spec()
+            .unwrap_err();
+            assert!(err.contains("not a lowercase host name"), "{host}: {err}");
+        }
     }
 
     /// A bare name still parses, so `source check` can say what to write instead of a TOML

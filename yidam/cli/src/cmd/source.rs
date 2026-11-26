@@ -334,9 +334,13 @@ fn render_list(r: &ListReport) {
         );
         for a in &n.auth {
             println!(
-                "  auth           {} {}",
+                "  auth           {} {}{}",
                 a.var,
-                if a.set { "is set" } else { "is not set" }
+                if a.set { "is set" } else { "is not set" },
+                a.host
+                    .as_deref()
+                    .map(|h| format!(" — sent only to {h}"))
+                    .unwrap_or_default()
             );
         }
         if let Some(b) = &n.blocked {

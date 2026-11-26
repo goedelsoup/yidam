@@ -90,6 +90,11 @@ pub struct Needs {
 pub struct AuthVar {
     pub var: String,
     pub set: bool,
+    /// The one host it is sent to, if the pack scopes it. Not serialized: the MCP `needs` shape
+    /// stays each variable and whether it is set. An unset scoped variable leaves the pack
+    /// ready, and a request to that host refuses with its own reason (#1596).
+    #[serde(skip)]
+    pub host: Option<String>,
 }
 
 impl Needs {
@@ -109,6 +114,7 @@ impl Needs {
                 .map(|a| AuthVar {
                     var: a.env().to_string(),
                     set: set(a.env()),
+                    host: a.host().map(str::to_string),
                 })
                 .collect(),
             blocked: m.transport.blocked.clone(),
@@ -134,7 +140,7 @@ impl Needs {
         let missing: Vec<&str> = self
             .auth
             .iter()
-            .filter(|a| !a.set)
+            .filter(|a| !a.set && a.host.is_none())
             .map(|a| a.var.as_str())
             .collect();
         if !missing.is_empty() {
@@ -542,6 +548,25 @@ mod tests {
             "{why}"
         );
         assert!(!format!("{n:?}").contains("secret-value"));
+    }
+
+    /// A credential scoped to one host is that host's need, refused by the request to it. The
+    /// pack's other hosts are reachable without it (#1596).
+    #[test]
+    fn a_host_scoped_credential_leaves_the_pack_ready() {
+        let m = manifest(
+            "auth = [{ env = \"CL_TOKEN\", header = \"Authorization\", prefix = \"Token \", \
+             host = \"www.courtlistener.com\" }]",
+        );
+        let n = Needs::of(&m, &env(&[]));
+        assert_eq!(n.unmet(), None);
+        assert_eq!(n.auth[0].host.as_deref(), Some("www.courtlistener.com"));
+        assert!(!n.auth[0].set);
+        assert_eq!(
+            serde_json::to_value(&n.auth[0]).unwrap(),
+            serde_json::json!({ "var": "CL_TOKEN", "set": false }),
+            "the MCP `needs` shape is unchanged"
+        );
     }
 
     #[test]
