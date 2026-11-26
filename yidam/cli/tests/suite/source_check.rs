@@ -64,7 +64,7 @@ resolve = { template = "https://www.ebi.ac.uk/europepmc/webservices/rest/{id}/fu
 [transport]
 contact      = "required"
 min_interval = "100ms"
-auth         = [{ env = "CROSSREF_TOKEN", header = "Crossref-Plus-API-Token", prefix = "Bearer " }]
+auth         = [{ env = "CROSSREF_TOKEN", header = "Crossref-Plus-API-Token", prefix = "Bearer ", host = "api.crossref.org" }]
 
 [fixtures]
 "doi:10.1167/tvst.8.5.14" = "crossref-tvst.json"
@@ -180,9 +180,31 @@ fn each_scheme_rule_is_held() {
         ("\"100ms\"", "\"1m\"", "1m"),
         ("env = \"CROSSREF_TOKEN\"", "env = \"sk-live-123\"", "sk-live-123"),
         (
-            "[{ env = \"CROSSREF_TOKEN\", header = \"Crossref-Plus-API-Token\", prefix = \"Bearer \" }]",
+            "[{ env = \"CROSSREF_TOKEN\", header = \"Crossref-Plus-API-Token\", prefix = \"Bearer \", host = \"api.crossref.org\" }]",
             "[\"CROSSREF_TOKEN\"]",
             "names a variable and not how it is sent",
+        ),
+        // #1596: GOOD reaches api.crossref.org and www.ebi.ac.uk, so an unscoped credential
+        // would be sent to both.
+        (
+            ", host = \"api.crossref.org\" }]",
+            " }]",
+            "names no `host`, and this pack reaches `api.crossref.org`, `www.ebi.ac.uk`",
+        ),
+        (
+            "host = \"api.crossref.org\"",
+            "host = \"api.example.org\"",
+            "is sent only to `api.example.org`, which no address in this pack reaches",
+        ),
+        (
+            "host = \"api.crossref.org\"",
+            "host = \"https://api.crossref.org/\"",
+            "is not a lowercase host name",
+        ),
+        (
+            "host = \"api.crossref.org\"",
+            "host = \"API.Crossref.org\"",
+            "is not a lowercase host name",
         ),
         ("version = \"0.1.2\"", "version = \"0.1\"", "0.1"),
         ("name    = \"scholarly\"", "name    = \"other\"", "other"),

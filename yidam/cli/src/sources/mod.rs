@@ -457,6 +457,7 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
             out.error("pack.toml", format!("[transport] auth {why}"));
         }
     }
+    check_auth_hosts(m, out);
 
     // Fixtures: every identifier claimed by a scheme and resolvable, every file claimed.
     let mut claimed: BTreeSet<String> = BTreeSet::new();
@@ -1261,4 +1262,76 @@ fn files_under(dir: &Path) -> Vec<String> {
 
 fn slash(p: &Path) -> String {
     p.to_string_lossy().replace('\\', "/")
+}
+
+/// The hosts a pack's own addresses name literally: each scheme's template, listing, catalog
+/// host and pin read, and its search template. A host bound from the identifier is not one.
+fn literal_hosts(m: &Manifest) -> BTreeSet<String> {
+    let mut urls: Vec<String> = Vec::new();
+    for s in m.scheme.values() {
+        urls.extend(s.resolve.template.iter().cloned());
+        urls.extend(s.resolve.listing.iter().cloned());
+        urls.extend(
+            s.resolve
+                .dcat
+                .iter()
+                .map(|h| format!("https://{h}/data.json")),
+        );
+        urls.extend(s.pin.iter().map(|p| p.read.clone()));
+    }
+    urls.extend(m.search.iter().map(|s| s.template.clone()));
+    urls.iter()
+        .filter_map(|u| crate::cmd::catalog::transport::host_of(u))
+        .filter(|h| !h.contains(['{', '}']))
+        .collect()
+}
+
+/// A credential goes where its pack says, and only there (#1596). A `host` must be one this
+/// pack's addresses reach, and a pack that reaches more than one host scopes every credential,
+/// or each would be sent to publishers that never asked for it.
+fn check_auth_hosts(m: &Manifest, out: &mut Findings<'_>) {
+    let auth = &m.transport.auth;
+    if auth.is_empty() {
+        return;
+    }
+    let hosts = literal_hosts(m);
+    for a in auth {
+        if let Some(h) = a.host() {
+            if !hosts.contains(h) {
+                out.error(
+                    "pack.toml",
+                    format!(
+                        "[transport] auth `{}` is sent only to `{h}`, which no address in this \
+                         pack reaches; it reaches {}",
+                        a.env(),
+                        list_hosts(&hosts)
+                    ),
+                );
+            }
+        }
+    }
+    if hosts.len() > 1 {
+        for a in auth.iter().filter(|a| a.host().is_none()) {
+            out.error(
+                "pack.toml",
+                format!(
+                    "[transport] auth `{}` names no `host`, and this pack reaches {}; a \
+                     credential without one is sent to all of them. Write the host it is for",
+                    a.env(),
+                    list_hosts(&hosts)
+                ),
+            );
+        }
+    }
+}
+
+fn list_hosts(hosts: &BTreeSet<String>) -> String {
+    if hosts.is_empty() {
+        return "no literal host".to_string();
+    }
+    hosts
+        .iter()
+        .map(|h| format!("`{h}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }

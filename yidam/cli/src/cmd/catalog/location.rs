@@ -348,7 +348,9 @@ pub(crate) fn policy_for(
         })?),
     };
     let mut credentials = Vec::new();
-    for a in &t.auth {
+    // A credential scoped to another host is neither read nor sent here, so a pack that reaches
+    // two publishers never hands one's key to the other (#1596).
+    for a in t.auth.iter().filter(|a| a.goes_to(&r.url)) {
         let (var, place) = a.spec().map_err(|why| Unfollowable::Refused {
             why: format!(
                 "`{identifier}`: {pack} [transport] auth {why}. `yidam source check` reports \
@@ -708,6 +710,31 @@ resolve = {{ template = "https://api.crossref.org/works/{{id}}" }}
                     err.message()
                 );
             }
+        }
+
+        /// A credential scoped to another host is neither read nor sent, so its variable being
+        /// unset refuses nothing here (#1596).
+        #[test]
+        fn a_credential_scoped_to_another_host_is_neither_required_nor_sent() {
+            let packs = enabled(
+                "auth = [\
+                   { env = \"CL_TOKEN\", header = \"Authorization\", prefix = \"Token \", host = \"www.courtlistener.com\" },\
+                   { env = \"CR_TOKEN\", header = \"Crossref-Plus-API-Token\", host = \"api.crossref.org\" }]",
+            );
+            let env = |k: &str| (k == "CR_TOKEN").then(|| "t0k".to_string());
+            let Plan::Identifier { policy, .. } = plan(&packs, None, &env).unwrap() else {
+                panic!("an identifier plans as one");
+            };
+            let sent: Vec<&str> = policy.credentials.iter().map(|c| c.var.as_str()).collect();
+            assert_eq!(sent, ["CR_TOKEN"]);
+
+            // Its own host's credential is still required.
+            let err = plan(&packs, None, &|_| None).unwrap_err();
+            assert!(
+                err.message().contains("CR_TOKEN is not set"),
+                "{}",
+                err.message()
+            );
         }
 
         /// `auth = ["X"]` names a variable and not where it goes. Sending it anywhere would be
