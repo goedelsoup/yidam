@@ -1,0 +1,105 @@
+# United States federal law and statistics: the CFR, GovInfo packages, the US Code, FEC
+# committees and filings, BLS series and Census files.
+#
+# `ecfr` is one CFR section as it stood on a date, by `<date>/<title>/<section>`:
+# `2024-01-01/40/60.1` is 40 CFR 60.1 on 1 January 2024. eCFR's versioner keeps every
+# version since 2017, so a dated section never changes. It refuses a request that does not
+# permit compression, which catalog-fetch does (#1603).
+#
+# `govinfo` is one GovInfo package's MODS record, by its package id: `PLAW-118publ1` is Public
+# Law 118-1. The record names the package's title and issue date, and its PDF is read in turn
+# as `govinfo-pdf`. A granule, such as one Federal Register document in a day's issue, is not
+# a package; read its PDF by URL. GovInfo's API needs a key, and these addresses do not.
+#
+# `uscode` is one title of the US Code, as the Office of the Law Revision Counsel's current
+# release point publishes it: `42`, or `05a` for an appendix. The download page names one zip
+# per title, which `source add` pins. Each release point supersedes the last; the pin is the
+# one that was read.
+#
+# `fec` is one FEC committee's record, by its id: `C00703975`. `fec-filing` is one electronic
+# filing as filed, by its number. The API needs a key from api.data.gov; set FEC_API_KEY. It
+# is sent only to api.open.fec.gov. A committee record names its treasurer and custodian,
+# who are private individuals, so no fixture is recorded and an entry's author writes its
+# name.
+#
+# `bls` is one BLS time series, by its id: `LNS14000000` is the unemployment rate. The API
+# answers without a key, at a lower daily limit and for fewer years; BLS_API_KEY raises
+# both, and is sent only to api.bls.gov. The answer does not name the series.
+#
+# `census` is one file under www2.census.gov, by its path. `census-api` is one query of the
+# Census Data API, by `<vintage>/<dataset>?<query>`: `2020/dec/pl?get=NAME&for=state:*`. The
+# API refuses a request without a key; set CENSUS_API_KEY. It is sent only to
+# api.census.gov. Prefer `census` where Census publishes the table as a file.
+#
+# No path segment of `census` starts with a dot, so `..` cannot leave the host's root.
+#
+# EIA, the IRS, NCES, USGS and NOAA NCEI are not yet here (#1344).
+[pack]
+name        = "us-federal"
+version     = "0.1.0"
+description = "CFR sections by date, GovInfo packages, US Code titles, FEC committees and filings, BLS series, and Census files and queries."
+
+[scheme.ecfr]
+pattern  = '^(?P<date>\d{4}-\d{2}-\d{2})/(?P<title>\d{1,2})/(?P<section>[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)$'
+type     = "statute"
+resolve  = { template = "https://www.ecfr.gov/api/versioner/v1/full/{date}/title-{title}.xml?section={section}", media = "text/xml" }
+describe = "transforms/ecfr.glu"
+
+[scheme.govinfo]
+pattern  = '^[A-Z]+-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$'
+type     = "document"
+resolve  = { template = "https://www.govinfo.gov/metadata/pkg/{id}/mods.xml", media = "application/xml" }
+describe = "transforms/govinfo.glu"
+then     = [{ scheme = "govinfo-pdf", from = "describe.pdf" }]
+
+[scheme.govinfo-pdf]
+pattern = '^[A-Z]+-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$'
+type    = "document"
+resolve = { template = "https://www.govinfo.gov/content/pkg/{id}/pdf/{id}.pdf", media = "application/pdf" }
+
+[scheme.uscode]
+pattern = '^(?P<title>\d{2}a?)$'
+type    = "statute"
+resolve = { listing = "https://uscode.house.gov/download.html", match = '^download/releasepoints/us/pl/\d+/\d+/xml_usc{title}@\d+-\d+\.zip$' }
+
+[scheme.fec]
+pattern = '^C\d{8}$'
+type    = "dataset"
+resolve = { template = "https://api.open.fec.gov/v1/committee/{id}/", media = "application/json" }
+
+[scheme.fec-filing]
+pattern = '^\d{1,10}$'
+type    = "document"
+resolve = { template = "https://docquery.fec.gov/dcdev/posted/{id}.fec" }
+
+[scheme.bls]
+pattern = '^[A-Z]{2}[A-Z0-9]{3,30}$'
+type    = "dataset"
+resolve = { template = "https://api.bls.gov/publicAPI/v2/timeseries/data/{id}", media = "application/json" }
+
+[scheme.census]
+pattern = '^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$'
+type    = "dataset"
+resolve = { template = "https://www2.census.gov/{id}" }
+
+[scheme.census-api]
+pattern = '^(?P<vintage>\d{4})/(?P<dataset>[a-z0-9]+(?:/[a-z0-9]+)*)\?(?P<query>[A-Za-z0-9_,:*=&+%.()-]+)$'
+type    = "dataset"
+resolve = { template = "https://api.census.gov/data/{vintage}/{dataset}?{query}", media = "application/json" }
+
+[transport]
+contact      = "optional"
+min_interval = "1s"
+auth         = [
+  { env = "FEC_API_KEY", query = "api_key", host = "api.open.fec.gov" },
+  { env = "BLS_API_KEY", query = "registrationkey", host = "api.bls.gov" },
+  { env = "CENSUS_API_KEY", query = "key", host = "api.census.gov" },
+]
+
+[defaults]
+ttl_days = 365
+
+[fixtures]
+"ecfr:2024-01-01/40/60.1"  = "ecfr-2024-01-01-40-60.1.xml"
+"govinfo:PLAW-118publ1"    = "govinfo-plaw-118publ1.xml"
+"uscode:42"                = "uscode-download.html"
