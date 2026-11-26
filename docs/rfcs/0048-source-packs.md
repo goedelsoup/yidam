@@ -12,6 +12,9 @@
   - RFC-0005 (the MCP tool contract the two read-only tools of §8 are added to)
 - **Versioning layers touched:** template (`guidelines/directories.md` gains the `identifier` location kind and the pack layout; the bootstrap skill's first-catalog-entry step offers packs) / tooling (one `source` command, an extended `catalog-fetch`, one migration, a vendored `yidam/sources/` tree) / bootstrap protocol (`prelude_sources` beside `prelude_domains`, pinned per pack) / **MCP contract (minor bump)**: two read-only tools, `search_sources` and `resolve_source` (§8). The catalog `type` set grows by four (§2.1).
 - **Downstream reference case:** ten derived repositories on one machine — 1,069 catalog entries and every connector crate beside them — measured read-only on 2026-10-01.
+- **Amended 2026-11-26 (#1366):** §5's archive lookup asks for the capture nearest the date the
+  entry's bytes were retrieved, says so when it finds nothing to look up, and looks up `kind: url`
+  locations under `--archive=url`. Decision 11.
 
 ## Summary
 
@@ -287,6 +290,33 @@ availability API, which is a read. It then adds that capture as a pinned locatio
 in the description. It never asks the archive to capture anything: that is a write to a service
 the corpus does not own, and stays a person's act.
 
+**What `--archive` looks up, and the date it asks for.** Bare `--archive` looks up each
+identifier whose pack says `archive = "wayback"`, as before. `--archive=url` also looks up each
+`kind: url` location. No pack declares a government site's plain HTML pages and PDFs, and one
+derived corpus holds 103 such locations and nothing else, so `--archive` had nothing to do there
+and said nothing. It is opt-in because it is one more request per address. The 200-only rule
+keeps a capture of a block page out either way. A `url_template` is not looked up: its address
+changes with its bindings, and a capture written for one binding would stand for all of them. An
+address on `web.archive.org` is already a capture, and is not looked up again.
+
+The lookup sends `timestamp=YYYYMMDD`, so the archive answers with the capture nearest the date
+the entry's bytes were retrieved, and not the capture nearest today. That capture is the one most
+likely to hold the same bytes, which is what lets a third party check a corpus's vaulted copy
+against a public one. A capture taken months later, after the page changed, pins a different
+document under the same entry. The date is the `retrieved:` of the record that holds the bytes
+this run obtained. Bytes the entry did not hold were retrieved today, so no date is sent, and the
+archive's answer is today's as before. Where the publisher declined, the date is the latest record
+for the location. A location with no record sends none. The added location's description names
+the date asked for beside the capture date.
+
+When `--archive` finds no location it can look up, it says so on stderr with the count, and names
+`--archive=url` when the entry holds url locations. Before, the run succeeded and said nothing.
+
+Two things stay out. Whether a capture's bytes equal the artifact's is a second download per
+location, and #1589 holds it. `wayback:<url>` pinning at `source add` (#1343) is the pack's own pin
+read, a different request, and sends no date: an entry being drafted holds no artifact to date it
+by.
+
 **What the host refuses.** It sends no browser User-Agent, rotates no client, and takes no step
 around a 403. One state's secretary of state refuses all automated clients, and from 2024 on the
 Wayback captures of that site are captures of the refusal page. The pack for such a publisher
@@ -507,6 +537,11 @@ Settled in review on 2026-10-01. These were this RFC's open questions.
     It records each as a reading of the zip with its own `sha256` and `media_type`, a `member:`
     path, and `by: unzip`. A path with `..` or an absolute prefix is refused. So are a member
     over 1 GiB, more than 10,000 entries, zip64, and encryption. Settled in #1351 (§6).
+11. **An archive lookup asks for the date of the bytes, and a url on request.** `--archive` sends
+    `timestamp=` from the `retrieved:` of the record holding the bytes the run obtained, and
+    today's answer where there is none. `--archive=url` adds `kind: url` locations; a
+    `url_template` is not looked up. A run that finds nothing to look up says so on stderr. The
+    digest comparison is #1589, and `source add`'s pin read sends no date. Settled in #1366 (§5).
 
 ## Open questions
 
