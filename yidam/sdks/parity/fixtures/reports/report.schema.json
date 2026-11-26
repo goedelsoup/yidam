@@ -201,6 +201,11 @@
             }
           }
         },
+        "escalate_after": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "`lint`: this corpus's `[lint] escalate_after`, the corpus-touching commits a dated finding may hold before it escalates to an error. Absent when `.yidam/config.toml` sets none, which is the state where nothing escalates. Each finding's own `severity` still says whether it escalated; this names the number that decided it (RFC-0028 Erratum 9, #1584)."
+        },
         "expiry_record": {
           "type": "object",
           "description": "Whether the decision record the baseline names in `expire_record` argues its `expire_after` (RFC-0066 \u00a75.2). Absent when the baseline declares neither. `disagrees` and `not_held` fail the gate; `unargued` is a warning for one minor release.",

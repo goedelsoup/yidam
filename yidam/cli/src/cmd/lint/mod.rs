@@ -1207,6 +1207,11 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
         return Ok(());
     }
 
+    // Above every block, so the number that decides which findings fail is read before
+    // the findings are (#1584).
+    if let Some(n) = escalate_after(&root) {
+        println!("{}", escalate_after_line(n));
+    }
     report(&all, &opts);
 
     let committed = baseline::Baseline::load(&root)?;
@@ -1328,6 +1333,29 @@ fn lint_json(root: &Path, all: &[Check], opts: &Options) -> Result<()> {
         return Ok(());
     }
     anyhow::bail!("{}", verdict(&d))
+}
+
+/// This corpus's `[lint] escalate_after`, read as the checks read it.
+///
+/// Leniently, as [`input::Input::config`] does: a malformed `config.toml` armed no check, so
+/// naming a number from it would name one the run did not use.
+pub(crate) fn escalate_after(root: &Path) -> Option<usize> {
+    crate::config::load_yidam_config(root)
+        .unwrap_or_default()
+        .lint
+        .escalate_after
+}
+
+/// The line that opens a text report when the corpus has set `escalate_after` (#1584).
+///
+/// RFC-0024 forbids only a *silent loosening*, and this key tightens the gate, so nothing
+/// requires it to be shown. It is shown because the person asking why a build failed is
+/// reading this output and not `config.toml`. RFC-0028's Erratum 9 records the decision.
+fn escalate_after_line(n: usize) -> String {
+    format!(
+        "lint: `[lint] escalate_after = {n}` in .yidam/config.toml — a dated finding older than \
+         {n} corpus commit(s) fails the build"
+    )
 }
 
 fn report(all: &[Check], opts: &Options) {

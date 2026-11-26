@@ -51,6 +51,13 @@ pub struct Gate {
     /// record — nothing expires, and there is nothing to argue.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expiry_record: Option<ExpiryRecord>,
+    /// This corpus's `[lint] escalate_after`, when it set one (#1584).
+    ///
+    /// Absent when unset, which is the state where nothing escalates. The per-finding answer
+    /// is still [`ViolationOut::severity`]; this says which number decided it, so a consumer
+    /// explaining a failed gate need not read `config.toml`. RFC-0028's Erratum 9.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub escalate_after: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -349,6 +356,7 @@ pub fn build(root: &Path, all: &[Check], baseline: &Baseline, d: &Diff) -> LintR
                 })
                 .collect(),
             expiry_record: expiry_record(&d.argument),
+            escalate_after: super::escalate_after(root),
         },
         checks,
     }
