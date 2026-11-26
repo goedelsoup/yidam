@@ -2054,22 +2054,7 @@ fn run() -> Result<()> {
                 dry_run,
             },
         ),
-        Command::IndexBuild { root, model } => {
-            #[cfg(feature = "vector-read")]
-            {
-                yidam::index_build(root.as_deref(), model)
-            }
-            #[cfg(not(feature = "vector-read"))]
-            {
-                let _ = (root, model);
-                anyhow::bail!(
-                    "`index-build` needs the `vector-read` feature — reinstall with \
-                     `cargo install yidam --locked --features vector-read` (pulls fastembed \
-                     and an ONNX runtime; no protoc).\n  \
-                     Or fetch an index built elsewhere — see `yidam vault pull --index`."
-                )
-            }
-        }
+        Command::IndexBuild { root, model } => yidam::index_build(root.as_deref(), model),
         Command::IndexPush {
             root,
             dry_run,
