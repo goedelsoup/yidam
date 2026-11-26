@@ -4852,12 +4852,14 @@ jobs:
         );
     }
 
-    /// A hook under `.git/hooks` binds the one checkout it sits in.
+    /// A hook under `.git/hooks` binds this clone and its linked worktrees.
     #[test]
     fn a_pre_push_hook_in_the_git_dir_counts_as_written_and_binds_this_clone() {
         let tmp = derived_repo();
         crate::git::fixture::init(tmp.path());
         let hook = tmp.path().join(".git/hooks/pre-push");
+        // `git init` writes `.git/hooks` only from a template, and a template can be empty.
+        std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
         std::fs::write(&hook, "yidam graph-check\n").unwrap();
         #[cfg(unix)]
         {

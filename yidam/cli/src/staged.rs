@@ -87,9 +87,15 @@ pub fn rerun(root: Option<&Path>, args: Vec<OsString>) -> Result<()> {
     // as a working-tree run's would, a relative `--root` included. Everything else under the
     // scratch tree is named under the top level.
     let pairs = spellings(&[(&child_root, &resolved), (&scratch.path, &top)]);
-    let rename = |bytes: &[u8]| renamed(&String::from_utf8_lossy(bytes), &pairs);
-    print!("{}", rename(&out.stdout));
-    eprint!("{}", rename(&out.stderr));
+    // Rewritten as bytes, so output that is not UTF-8 passes through as the child wrote it.
+    // The two streams are captured apart, so all of stdout prints before any of stderr; each
+    // keeps its own order, and a gate's report is on stdout and its failures on stderr.
+    {
+        use std::io::Write;
+        let _ = std::io::stdout().write_all(&renamed(&out.stdout, &pairs));
+        let _ = std::io::stdout().flush();
+        let _ = std::io::stderr().write_all(&renamed(&out.stderr, &pairs));
+    }
     drop(scratch);
     if out.status.success() {
         Ok(())
@@ -156,11 +162,26 @@ fn spellings(paths: &[(&Path, &Path)]) -> Vec<(String, String)> {
     out
 }
 
-/// `text` with every spelling of a scratch path replaced by the repository's.
-fn renamed(text: &str, pairs: &[(String, String)]) -> String {
-    let mut out = text.to_string();
+/// `bytes` with every spelling of a scratch path replaced by the repository's.
+///
+/// On bytes, not text: a gate may print a file's name or content that is not UTF-8, and a
+/// lossy decode would print U+FFFD where a working-tree run prints what is there.
+fn renamed(bytes: &[u8], pairs: &[(String, String)]) -> Vec<u8> {
+    let mut out = bytes.to_vec();
     for (from, to) in pairs {
-        out = out.replace(from.as_str(), to);
+        let (from, to) = (from.as_bytes(), to.as_bytes());
+        let mut next = Vec::with_capacity(out.len());
+        let mut i = 0;
+        while i < out.len() {
+            if out[i..].starts_with(from) {
+                next.extend_from_slice(to);
+                i += from.len();
+            } else {
+                next.push(out[i]);
+                i += 1;
+            }
+        }
+        out = next;
     }
     out
 }
@@ -262,7 +283,9 @@ impl Scratch {
     fn add(top: &Path) -> Result<Self> {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let path = git_dir(top)?.join(format!("yidam-staged-{}-{n}", std::process::id()));
+        let git_dir = git_dir(top)?;
+        sweep(top, &git_dir);
+        let path = git_dir.join(format!("yidam-staged-{}-{n}", std::process::id()));
         let scratch = Self {
             top: top.to_path_buf(),
             path,
@@ -288,6 +311,69 @@ impl Scratch {
             .run();
         let _ = std::fs::remove_dir_all(&self.path);
         let _ = Git::new(&self.top).args(["worktree", "prune"]).run();
+    }
+}
+
+/// Remove what a staged run killed before its cleanup left: each `yidam-staged-<pid>-…` under
+/// the git directory whose process is gone, worktree or index copy, and then the worktree
+/// records that pointed at them. A live run's entries are left alone.
+fn sweep(top: &Path, git_dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(git_dir) else {
+        return;
+    };
+    let mine = std::process::id();
+    let mut removed = false;
+    for e in entries.filter_map(Result::ok) {
+        let name = e.file_name();
+        let Some(pid) = name
+            .to_str()
+            .and_then(|n| n.strip_prefix("yidam-staged-"))
+            .and_then(|rest| rest.split('-').next())
+            .and_then(|p| p.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if pid == mine || alive(pid, &e.path()) {
+            continue;
+        }
+        let path = e.path();
+        if path.is_dir() {
+            let _ = Git::new(top)
+                .args(["worktree", "remove", "--force"])
+                .arg(&path)
+                .run();
+            let _ = std::fs::remove_dir_all(&path);
+        } else {
+            let _ = std::fs::remove_file(&path);
+        }
+        removed = true;
+    }
+    if removed {
+        let _ = Git::new(top).args(["worktree", "prune"]).run();
+    }
+}
+
+/// Is the run that made `path` still going? On unix, whether `pid` is a live process. Where
+/// that cannot be asked, whether the entry is less than a day old.
+fn alive(pid: u32, path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        let _ = path;
+        Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_or(true, |s| s.success())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        std::fs::metadata(path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_none_or(|age| age < std::time::Duration::from_secs(24 * 60 * 60))
     }
 }
 
@@ -323,21 +409,22 @@ mod tests {
         );
     }
 
+    fn r(text: &str, pairs: &[(String, String)]) -> String {
+        String::from_utf8(renamed(text.as_bytes(), pairs)).unwrap()
+    }
+
     #[test]
     fn the_scratch_tree_is_named_as_the_repository() {
         let s = Path::new("/r/.git/yidam-staged-1-0");
         let pairs = spellings(&[(&s.join("sub"), Path::new("sub")), (s, Path::new("/r"))]);
         assert_eq!(
-            renamed(
+            r(
                 "/r/.git/yidam-staged-1-0/.yidam/corpus/a.yml: broken",
                 &pairs
             ),
             "/r/.yidam/corpus/a.yml: broken"
         );
-        assert_eq!(
-            renamed("root: /r/.git/yidam-staged-1-0/sub", &pairs),
-            "root: sub"
-        );
+        assert_eq!(r("root: /r/.git/yidam-staged-1-0/sub", &pairs), "root: sub");
     }
 
     /// A Windows path, as printed and as JSON escapes it, with and without the verbatim prefix.
@@ -353,7 +440,38 @@ mod tests {
                 r"\\\\?\\C:\\r\\a.yml",
             ),
         ] {
-            assert_eq!(renamed(text, &pairs), want, "{text}");
+            assert_eq!(r(text, &pairs), want, "{text}");
         }
+    }
+
+    /// Output that is not UTF-8 is renamed and otherwise passes through as written.
+    #[test]
+    fn bytes_that_are_not_utf8_pass_through() {
+        let pairs = spellings(&[(Path::new("/r/.git/yidam-staged-1-0"), Path::new("/r"))]);
+        let mut text = b"/r/.git/yidam-staged-1-0/caf".to_vec();
+        text.push(0xe9);
+        let mut want = b"/r/caf".to_vec();
+        want.push(0xe9);
+        assert_eq!(renamed(&text, &pairs), want);
+    }
+
+    /// A run killed before its cleanup leaves its worktree and index copy; the next run's
+    /// sweep removes them and leaves a live run's.
+    #[cfg(unix)]
+    #[test]
+    fn a_dead_runs_scratch_is_swept() {
+        let tmp = tempfile::tempdir().unwrap();
+        crate::git::fixture::init(tmp.path());
+        let git_dir = tmp.path().join(".git");
+        let dead_tree = git_dir.join(format!("yidam-staged-{}-0", u32::MAX));
+        let dead_index = git_dir.join(format!("yidam-staged-{}-index", u32::MAX));
+        let live = git_dir.join(format!("yidam-staged-{}-index", std::process::id()));
+        std::fs::create_dir_all(dead_tree.join("x")).unwrap();
+        std::fs::write(&dead_index, "").unwrap();
+        std::fs::write(&live, "").unwrap();
+        sweep(tmp.path(), &git_dir);
+        assert!(!dead_tree.exists());
+        assert!(!dead_index.exists());
+        assert!(live.exists());
     }
 }
