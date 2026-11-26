@@ -35,6 +35,9 @@
 - **Amended 2026-10-02 (#1305):** a kuten proposes no severities. The `policy` slot had no
   channel to arrive through, so a populated one was parsed and dropped; the binary now refuses
   it. Erratum 8 in §7 records why the channel was struck rather than built.
+- **Amended 2026-11-25 (#1361):** `thresholds` is still not a kuten's to propose, for a
+  different reason. Escalation is the corpus's own `[lint] escalate_after`, not a policy
+  override. Erratum 9 in §1 records the correction.
 - **Downstream reference case:** A0's population — eighteen derived corpora on disk, 6,900
   commits, read-only. Six of them define `inquiry`; two are object-coupled; one is a projected
   mirror of 1,656 commits (#582).
@@ -390,7 +393,7 @@ The slot inventory, with A0's verdicts as #572 records them:
 | **skills** — what the practice routes through | real | A2 |
 | **rubric** — the criteria a contribution is scored by | real | **A5, co-designed with #286** (scope decision 3): a rubric built alone would be `escalate_after`'s argument violated at rubric scale — *"a value compiled into the binary would be one corpus's answer imposed on every other"* ([`config.rs:454-455`](../../yidam/cli/src/config.rs#L454-L455)) |
 | **clocks** — proposed `[due]` and `[catalog]` values | premature, but not unmeasured (A0 correction, above): the `[due]` keys had a denominator of 2 when A0 ran and 1 corpus held two of them; `catalog.ttl_days` is declared 165 times inside the cluster, pooled median 365 against the proposed 180. Ships as a **proposal with values**, not a permission with blanks — now with the distribution beside it and a rule that retires it | A2, §9 |
-| **thresholds** — proposed `[lint]`/`[propose]` values: `escalate_after`, `withdraw_uncited_after` ([`configuration.md`](../configuration.md)) | premature on `clocks`' evidence, and — unlike `clocks` — not a kuten's to propose either: escalating a finding to a build failure is a gate change that enters through RFC-0024's layer (§7, row 5), and drafting a withdrawal is authorship §8 declines. Ships **named and unpopulated** | A2 |
+| **thresholds** — proposed `[lint]`/`[propose]` values: `escalate_after`, `withdraw_uncited_after` ([`configuration.md`](../configuration.md)) | premature on `clocks`' evidence, and — unlike `clocks` — not a kuten's to propose either: ~~escalating a finding to a build failure is a gate change that enters through RFC-0024's layer (§7, row 5)~~ when a finding fails the build is the corpus's own `[lint] escalate_after`, changed by a commit to `config.toml` (Erratum 9), and drafting a withdrawal is authorship §8 declines. Ships **named and unpopulated** | A2 |
 | **policy** — proposed severities and overrides | premature: no corpus carries an override in `.yidam/policy/` — re-verified 2026-09-06 under #633, and it stands on its own terms, though on the same corrected denominator as `clocks` (the Rego layer shipped four days before A0) — ~~ships as a **proposal with values**, through RFC-0024's layer, visible as an override~~ **struck 2026-10-02 (#1305): ships empty, and a populated slot is refused** — Erratum 8 | A2, §7 row 5 |
 | **question-pressure** — what kind of question this corpus should open | not measurable (nothing existing creates it); settled in #572's negotiation | A3, §5 |
 
@@ -403,6 +406,21 @@ the earlier fold to ten lost. `clocks` proposes values because `due` is advisory
 it says a corpus is *owed*, and exits zero. `thresholds` cannot, because `escalate_after` decides
 when a finding fails the build and `withdraw_uncited_after` licenses a drafted deletion; a kuten
 reaches neither act except through the doors §8 names for them. Settled in Open questions 1.
+
+> **Erratum 9 — corrected 2026-11-25 (#1361); the conclusion stands, its reason did not.** The
+> `thresholds` row said escalation *"enters through RFC-0024's layer (§7, row 5)"*. It does
+> not. `escalate_after` is a `[lint]` key in the corpus's `config.toml`
+> ([`config.rs`](../../yidam/cli/src/config.rs), [`configuration.md`](../configuration.md)).
+> RFC-0024's layer decides disclosure and nothing else (Erratum 8), and neither `policy check`,
+> `lint` nor `doctor` shows a set `escalate_after` as an override. After #1305, row 5 says a
+> kuten proposes no severity, so the pointer no longer said what the sentence needed.
+>
+> The reason that holds is the one the key's own doc comment gives. The number is this
+> corpus's judgement about its own gate, and the corpus changes it by a commit a person makes.
+> A kuten speaks from a decision record and asserts nothing the corpus holds, so it has no
+> path to that file. The same correction reaches §8's door for refusal. Whether a non-default
+> `escalate_after` should be surfaced, as a local disclosure override is, is a separate
+> question (#1584).
 
 > **As built (A5, 2026-09-06) — the `rubric` slot, which this RFC names in the table above and
 > specifies nowhere else.** §5–§9 are silent about it and §9's surface list names three, none
@@ -992,7 +1010,8 @@ is not unhealthy, it is owed*. ~~Anything that refuses — a gate, a severity �
 policy layer and is visible three ways (§7, row 5).~~ Nothing it declares refuses: it proposes
 no severity (Erratum 8). The advisory character is constitutional,
 not provisional: a future slot that would author or refuse must arrive through the doors already
-licensed for those acts (`propose` for authorship; a policy override for refusal), not through
+licensed for those acts (`propose` for authorship; ~~a policy override~~ the corpus's own
+config, changed by a person's commit, for refusal — Erratum 9), not through
 the kuten growing teeth.
 
 **The binding rule, destined for vendored prelude text.** Following the `2fcbd19` division —
