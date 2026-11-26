@@ -15,6 +15,9 @@
 - **Amended 2026-11-26 (#1366):** §5's archive lookup asks for the capture nearest the date the
   entry's bytes were retrieved, says so when it finds nothing to look up, and looks up `kind: url`
   locations under `--archive=url`. Decision 11.
+- **Amended 2026-11-26 (#1344):** §7's `socrata` drops CMS and gains `arcgis`, `census` reads
+  `www2.census.gov` bulk files before `api.census.gov`, `caselaw` reads `static.case.law`, and five
+  agencies wait for `us-federal` 0.2. Decision 12.
 
 ## Summary
 
@@ -425,7 +428,7 @@ Chosen by the measurement in §1.1, generic families first:
 | `archive` | `wayback` | 84 entries in 6 repositories; every other pack leans on it |
 | `us-federal` | `ecfr`, `govinfo`, `uscode`, `fec`, `bls`, `census` | 2–4 repositories each; stable public APIs |
 | `courts` | `courtlistener`, `caselaw` | 5 repositories; v4 API needs a token, which exercises `auth` |
-| `socrata` | `socrata:<host>/<dataset>` | one scheme covers CMS, CDC, HRSA and city portals |
+| `socrata` | `socrata:<host>/<dataset>`, `arcgis` | one scheme covers CDC, HRSA and city portals; `arcgis` reads feature services to their end |
 
 The state-legislature, revised-code and state-court families have the widest spread (five to six
 repositories), but every one of them is one state's. **The template ships no state pack.** These
@@ -439,6 +442,20 @@ scheme, `europepmc`, because Crossref names no PMCID. The DOI's `then` asks Euro
 record, and that answer names the PMCID when the full text is open access. `archive` has `ia`
 and `ia-file` beside `wayback`, for Internet Archive items and their OCR text. `us-federal`,
 `courts` and `socrata` are #1344.
+
+#1344 ships the other three, each at 0.1.0, and changes three rows of the table above:
+
+- **`socrata` does not cover CMS.** CMS runs DKAN and publishes a DCAT-US `data.json`, which a
+  `dcat` resolve already reads (§3). Of the measured hosts, only `data.cdc.gov` is Socrata.
+- **`socrata` gains `arcgis`.** A feature service answers in pages and says
+  `exceededTransferLimit` until the last one, so the scheme declares `paginate` (§5).
+- **`census` reads bulk files first.** 43 entries in 3 corpora name a file on
+  `www2.census.gov`, so its templates bind vintage, product and geography. `api.census.gov`
+  comes second.
+- **`caselaw` reads `static.case.law`.** The Caselaw Access Project closed its API in 2024 and
+  left each volume's cases as static JSON, which a template reaches without a token.
+
+EIA, IRS, NCES, USGS and NOAA NCEI are left for `us-federal` 0.2.
 
 ### 8. Two read-only MCP tools
 
@@ -542,6 +559,10 @@ Settled in review on 2026-10-01. These were this RFC's open questions.
     today's answer where there is none. `--archive=url` adds `kind: url` locations; a
     `url_template` is not looked up. A run that finds nothing to look up says so on stderr. The
     digest comparison is #1589, and `source add`'s pin read sends no date. Settled in #1366 (§5).
+12. **The last three first packs ship at 0.1.0, as measured and not as first listed.** `socrata`
+    is CDC, HRSA and city portals, plus an `arcgis` scheme that pages. CMS is a `dcat` catalog.
+    `census` templates bulk files before the API, and `caselaw` reads the static volumes CAP
+    left. EIA, IRS, NCES, USGS and NOAA NCEI are `us-federal` 0.2. Settled in #1344 (§7).
 
 ## Open questions
 
