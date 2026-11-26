@@ -1,6 +1,6 @@
 # RFC-0070 — A corpus gate can read what is staged
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I53
 - **Relates to:**
   - #1519 (no `--staged` mode for graph-check and lint, so pre-commit gates export the index by

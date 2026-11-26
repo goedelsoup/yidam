@@ -99,8 +99,8 @@ re-deriving it.
 | [0066](0066-upgrade-offers.md) | I49 | An upgrade's offers take a written answer, and a repository's own argument survives the tools | Implemented |
 | [0067](0067-one-landing-per-plan.md) | I50 | A plan lands once, as one commit per verb | Implemented |
 | [0068](0068-a-spec-asset.md) | I51 | A release ships the spec a producer writes against | Implemented |
-| [0069](0069-a-worktree-reads-the-main-index.md) | I52 | A worktree reads the main checkout's index, and says it did | Draft |
-| [0070](0070-a-gate-reads-the-staged-tree.md) | I53 | A corpus gate can read what is staged | Draft |
+| [0069](0069-a-worktree-reads-the-main-index.md) | I52 | A worktree reads the main checkout's index, and says it did | Implemented |
+| [0070](0070-a-gate-reads-the-staged-tree.md) | I53 | A corpus gate can read what is staged | Implemented |
 
 ## Reading order
 
