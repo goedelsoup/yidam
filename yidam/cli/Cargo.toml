@@ -359,6 +359,13 @@ reqwest = { version = "0.12", default-features = false, features = [
   # cost of storing an artifact proportional to its size. Measured in #412: it resolves
   # **zero** new packages — tokio-util is already here through tokio.
   "stream",
+  # `gzip` sends `Accept-Encoding: gzip` and decodes the answer. eCFR's versioner refuses a
+  # request without it (406), so a source pack could not read the CFR at all (#1603). Only the
+  # catalog transport asks for it: every other client here calls `.no_gzip()`, so a vault GET or
+  # a bundle download is the stored bytes exactly, whatever `Content-Encoding` a server adds.
+  # Measured in #1603: three new packages, async-compression and its two codec crates; flate2
+  # is already here.
+  "gzip",
 ], optional = true }
 
 # ── `github-app` — the App's JWT (#1233). ─────────────────────────────────────

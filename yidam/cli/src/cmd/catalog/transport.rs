@@ -436,7 +436,10 @@ impl Session {
 #[cfg(feature = "catalog-fetch")]
 fn client(credentialed: bool) -> Result<reqwest::Client> {
     use anyhow::Context;
-    let mut b = reqwest::Client::builder();
+    // `Accept-Encoding: gzip`, and the answer decoded before it is digested: eCFR refuses a
+    // request that does not permit compression (#1603). The digest is of the bytes the
+    // publisher served, not of their transfer encoding.
+    let mut b = reqwest::Client::builder().gzip(true);
     if credentialed {
         b = b.redirect(reqwest::redirect::Policy::custom(|attempt| {
             let from = attempt
