@@ -8,12 +8,13 @@ It also says how to ask that publisher politely, and how to read its answers.
 One pack serves every corpus that pins it, so nobody writes a connector twice.
 [RFC-0048](rfcs/0048-source-packs.md) gives the reasoning.
 
-The template ships two packs in `yidam/sources/`. A corpus can also write its own, or pin one another corpus wrote.
+The template ships three packs in `yidam/sources/`. A corpus can also write its own, or pin one another corpus wrote.
 
 | Pack | Schemes | Reads |
 |---|---|---|
 | `scholarly` | `doi`, `europepmc`, `pmc`, `arxiv` | Crossref metadata, Europe PMC full text, the arXiv API |
 | `archive` | `wayback`, `ia`, `ia-file`, `github`, `wikipedia` | Wayback Machine snapshots, Internet Archive items, GitHub files at a commit, Wikipedia revisions |
+| `courts` | `courtlistener`, `caselaw` | CourtListener clusters, opinions and dockets, the Caselaw Access Project's static volumes |
 
 One `doi:` reaches the full text when Europe PMC holds it open access.
 The DOI's describe names a `europepmc:` location for the same DOI.
@@ -24,6 +25,10 @@ A DOI Europe PMC does not index still gets the `europepmc:` location, which lead
 An `ia:` item names its OCR text as an `ia-file:` location, when it has one.
 `archive` is also what `catalog-fetch --archive` needs: it declares `wayback`.
 A `github:` file and a `wikipedia:` article are each pinned to one version when added.
+
+A `courtlistener:` cluster names its first sub-opinion and its docket as `courtlistener:` locations.
+`courts` needs `COURTLISTENER_TOKEN` for CourtListener, and sends it nowhere else.
+A `caselaw:` case, such as `caselaw:us/347/0483-01`, needs no token.
 
 ## Name a source by identifier
 

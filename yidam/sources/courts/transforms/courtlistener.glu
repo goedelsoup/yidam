@@ -1,0 +1,33 @@
+\p ->
+    let same : String -> String -> Bool = \a b -> a == b
+    let pick name acc f =
+        match acc with
+        | Some found -> Some found
+        | None -> if same f.path name then Some f.value else None
+    let text : String -> Option String = \name ->
+        match array.foldable.foldl (pick name) None p.fields with
+        | Some (Text s) -> Some s
+        | _ -> None
+    let base = "https://www.courtlistener.com/api/rest/v4/"
+    let local : String -> Option String = \url ->
+        if string.starts_with url base && string.ends_with url "/" then
+            Some (string.slice url (string.len base) (string.len url - 1))
+        else None
+    let follow : String -> String -> Option { key : String, value : String } = \key path ->
+        match text path with
+        | Some url ->
+            match local url with
+            | Some id -> Some { key, value = id }
+            | None -> None
+        | None -> None
+    let ids =
+        match follow "opinion" "sub_opinions/0" with
+        | Some o ->
+            match follow "docket" "docket" with
+            | Some d -> [o, d]
+            | None -> [o]
+        | None ->
+            match follow "docket" "docket" with
+            | Some d -> [d]
+            | None -> []
+    { name = text "case_name", kind = None, date = text "date_filed", description = None, identifiers = ids }

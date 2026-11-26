@@ -1,0 +1,51 @@
+# Court opinions and dockets, read through CourtListener and the Caselaw Access Project.
+#
+# `courtlistener` is one record of CourtListener's v4 API: a cluster (one decision, with its
+# citations), an opinion (one written opinion in a cluster, with its text), or a docket (the
+# case as filed). The API refuses an anonymous request, so set COURTLISTENER_TOKEN to a token
+# from courtlistener.com/profile/api/. It is sent only to www.courtlistener.com. A cluster names
+# its first sub-opinion and its docket, which are read in turn. The first sub-opinion is not
+# always the majority; read the cluster's other `sub_opinions` by hand. An opinion names no case
+# and a docket may name no filing date; each leaves that field to the entry's author.
+# `clusters/105221` is Brown v. Board of Education, recorded with its opinion and docket.
+#
+# `caselaw` is one case from the static volumes the Caselaw Access Project left at
+# static.case.law when it closed its API in 2024: `<reporter>/<volume>/<case>`, as the volume's
+# `cases/` directory names it. `us/347/0483-01` is Brown v. Board of Education, 347 U.S. 483.
+# Its text is CAP's OCR of the printed reporter, which takes no token.
+#
+# `min_interval` is CourtListener's: five requests a minute.
+[pack]
+name        = "courts"
+version     = "0.1.0"
+description = "Court opinions, clusters and dockets from CourtListener, and cases from the Caselaw Access Project's static volumes."
+
+[scheme.courtlistener]
+pattern  = '^(?P<endpoint>clusters|opinions|dockets)/(?P<num>\d+)$'
+type     = "document"
+resolve  = { template = "https://www.courtlistener.com/api/rest/v4/{endpoint}/{num}/", media = "application/json" }
+describe = "transforms/courtlistener.glu"
+then     = [
+  { scheme = "courtlistener", from = "describe.opinion" },
+  { scheme = "courtlistener", from = "describe.docket" },
+]
+
+[scheme.caselaw]
+pattern  = '^(?P<reporter>[a-z0-9-]+)/(?P<volume>\d+)/(?P<case>\d{4}-\d{2})$'
+type     = "document"
+resolve  = { template = "https://static.case.law/{reporter}/{volume}/cases/{case}.json", media = "application/json" }
+describe = "transforms/caselaw.glu"
+
+[transport]
+contact      = "optional"
+min_interval = "12s"
+auth         = [{ env = "COURTLISTENER_TOKEN", header = "Authorization", prefix = "Token ", host = "www.courtlistener.com" }]
+
+[defaults]
+ttl_days = 365
+
+[fixtures]
+"caselaw:us/347/0483-01"           = "caselaw-us-347-0483-01.json"
+"courtlistener:clusters/105221"    = "courtlistener-clusters-105221.json"
+"courtlistener:opinions/105221"    = "courtlistener-opinions-105221.json"
+"courtlistener:dockets/84657"      = "courtlistener-dockets-84657.json"

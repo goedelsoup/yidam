@@ -51,9 +51,9 @@ fn range(manifest: &str) -> String {
 }
 
 #[test]
-fn the_template_ships_scholarly_and_archive() {
+fn the_template_ships_scholarly_archive_and_courts() {
     let names: Vec<String> = shipped().into_iter().map(|(n, _)| n).collect();
-    for want in ["archive", "scholarly"] {
+    for want in ["archive", "courts", "scholarly"] {
         assert!(names.iter().any(|n| n == want), "{names:?}");
     }
 }
