@@ -411,8 +411,9 @@ reaches neither act except through the doors §8 names for them. Settled in Open
 > `thresholds` row said escalation *"enters through RFC-0024's layer (§7, row 5)"*. It does
 > not. `escalate_after` is a `[lint]` key in the corpus's `config.toml`
 > ([`config.rs`](../../yidam/cli/src/config.rs), [`configuration.md`](../configuration.md)).
-> RFC-0024's layer decides disclosure and nothing else (Erratum 8), and neither `policy check`,
-> `lint` nor `doctor` shows a set `escalate_after` as an override. After #1305, row 5 says a
+> RFC-0024's layer decides disclosure and nothing else (Erratum 8). Neither `policy check` nor
+> `doctor` shows a set `escalate_after` as an override, and `lint --explain` prints it only as
+> the clock on a check it can reach, with no disclosure attached. After #1305, row 5 says a
 > kuten proposes no severity, so the pointer no longer said what the sentence needed.
 >
 > The reason that holds is the one the key's own doc comment gives. The number is this
