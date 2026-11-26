@@ -282,12 +282,14 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
         /// Look each identifier up in the Wayback Machine, where its source pack says
-        /// `archive = "wayback"`, and add the nearest capture as a `wayback:` location.
+        /// `archive = "wayback"`, and add the capture nearest its bytes' `retrieved:` date as a
+        /// `wayback:` location. `--archive=url` looks each `kind: url` location up as well.
         ///
         /// A read of the availability API: it never asks the archive to capture anything.
         /// Needs an enabled pack declaring the `wayback` scheme.
-        #[arg(long)]
-        archive: bool,
+        #[arg(long, value_name = "url", num_args = 0..=1, require_equals = true,
+              value_parser = ["url"])]
+        archive: Option<Option<String>>,
         #[command(flatten)]
         format: FormatArg,
     },
@@ -1744,7 +1746,8 @@ fn run() -> Result<()> {
                 location,
                 bind,
                 dry_run,
-                archive,
+                archive: archive.is_some(),
+                archive_urls: archive.flatten().is_some(),
                 format: format.value,
             })
         }

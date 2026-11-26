@@ -57,10 +57,14 @@ pub struct FetchOptions {
     /// Resolve and report; fetch nothing, write nothing, commit nothing.
     pub dry_run: bool,
     /// Look each identifier whose pack says `archive = "wayback"` up in the Wayback Machine,
-    /// and add the nearest capture to the entry as a `wayback:` location.
+    /// and add the capture nearest its bytes' `retrieved:` date to the entry as a `wayback:`
+    /// location.
     ///
     /// A read of the availability API. It never asks the archive to capture anything.
     pub archive: bool,
+    /// `--archive=url`: look each `kind: url` location up as well. Not a `url_template`, whose
+    /// address changes with its bindings, and not an address already on `web.archive.org`.
+    pub archive_urls: bool,
     pub format: crate::report::Format,
 }
 
@@ -105,6 +109,10 @@ pub(crate) struct Archived {
     location: usize,
     /// The address looked up.
     followed: String,
+    /// The date the lookup asked for the capture nearest, `YYYY-MM-DD`: when the entry's bytes
+    /// were retrieved (#1366). Absent when the run obtained bytes the entry did not hold, or the
+    /// location has no record, and the archive answered with the capture nearest today.
+    asked: Option<String>,
     /// The capture's date, `YYYY-MM-DD`. Absent when the archive holds no successful capture.
     captured: Option<String>,
     /// The `wayback:` location added to the entry. Absent with no capture, and on a dry run.
@@ -405,8 +413,47 @@ fn capture_date(ts: &str) -> String {
     }
 }
 
-/// The location `--archive` adds for a capture of location `index`.
-fn archived_location(index: usize, url: &str, ts: &str) -> CatalogLocation {
+/// The date a lookup of `origin` asks for the capture nearest, `YYYY-MM-DD` (#1366).
+///
+/// The date of the bytes the entry holds for the location after this run. `fresh` is the
+/// digest this run obtained there, and `None` where the publisher declined.
+///
+/// - Bytes the entry already held keep their record, since [`record::append_artifacts`] drops
+///   a digest it holds, so the date is that record's `retrieved:`. The record from this
+///   location is preferred where the same digest is held from more than one. A held record
+///   with no usable `retrieved:` asks for none: when those bytes were taken is not known, and
+///   no other record of the location dates them.
+/// - Bytes it did not hold were retrieved today, and today is what the archive answers without
+///   a date, so none is asked.
+/// - Where the publisher declined, the latest record for the location is what the entry holds.
+fn asked_date(
+    held: &[CatalogArtifact],
+    origin: &ArtifactOrigin,
+    fresh: Option<&str>,
+) -> Option<String> {
+    let record = match fresh {
+        Some(sha) => {
+            let same = |a: &&CatalogArtifact| a.sha256.as_deref() == Some(sha);
+            held.iter()
+                .filter(same)
+                .filter(|a| a.from.as_ref() == Some(origin))
+                .next_back()
+                .or_else(|| held.iter().filter(same).next_back())?
+        }
+        None => prior_for(held, origin)?,
+    };
+    let date = record.retrieved.as_deref()?.trim().get(..10)?;
+    let digits: String = date.chars().filter(|c| *c != '-').collect();
+    (digits.len() == 8 && digits.bytes().all(|b| b.is_ascii_digit())).then(|| date.to_string())
+}
+
+/// `2024-01-05` as the availability API's `20240105`.
+fn compact(date: &str) -> String {
+    date.replace('-', "")
+}
+
+/// The location `--archive` adds for a capture of location `index`, nearest `asked`.
+fn archived_location(index: usize, url: &str, ts: &str, asked: Option<&str>) -> CatalogLocation {
     CatalogLocation {
         members: None,
         commit: None,
@@ -414,10 +461,17 @@ fn archived_location(index: usize, url: &str, ts: &str) -> CatalogLocation {
         symbol: None,
         kind: Some("identifier".into()),
         value: Some(format!("{WAYBACK}:{ts}/{url}")),
-        description: Some(format!(
-            "Location {index} as the Wayback Machine captured it on {}.",
-            capture_date(ts)
-        )),
+        description: Some(match asked {
+            Some(a) => format!(
+                "Location {index} as the Wayback Machine captured it on {}, the capture \
+                 nearest {a}, when its bytes were retrieved.",
+                capture_date(ts)
+            ),
+            None => format!(
+                "Location {index} as the Wayback Machine captured it on {}.",
+                capture_date(ts)
+            ),
+        }),
     }
 }
 
@@ -574,8 +628,9 @@ fn message(
         if let (Some(v), Some(d)) = (&a.added, &a.captured) {
             let _ = writeln!(
                 body,
-                "location {} as the Wayback Machine captured it on {d} — {v}",
-                a.location
+                "location {} as the Wayback Machine captured it on {d}{} — {v}",
+                a.location,
+                nearest(a.asked.as_deref())
             );
         }
     }
@@ -625,6 +680,31 @@ fn message(
         );
     }
     (subject, body)
+}
+
+/// `, nearest 2024-01-05` where a lookup asked for a date, and nothing where it did not.
+fn nearest(asked: Option<&str>) -> String {
+    asked.map(|a| format!(", nearest {a}")).unwrap_or_default()
+}
+
+/// What `--archive` says on stderr when no location in the run is one it looks up (#1366).
+///
+/// Before, such a run succeeded and said nothing, and a corpus whose every location is a url
+/// could not tell that `--archive` had passed all of them over.
+fn nothing_to_archive(planned: usize, looked: usize, urls: bool, waiting: usize) -> Option<String> {
+    (looked == 0).then(|| match (urls, waiting) {
+        (true, _) => format!(
+            "--archive=url: 0 of {planned} location(s) are identifiers whose pack archives or \
+             url locations"
+        ),
+        (false, 0) => {
+            format!("--archive: 0 of {planned} location(s) are identifiers whose pack archives")
+        }
+        (false, k) => format!(
+            "--archive: 0 of {planned} location(s) are identifiers whose pack archives; {k} \
+             url location(s) are looked up only with --archive=url"
+        ),
+    })
 }
 
 pub fn fetch(opts: &FetchOptions) -> Result<()> {
@@ -695,6 +775,10 @@ pub(crate) fn fetch_in(
 
     let mut out: Vec<EntryOutcome> = Vec::new();
     let mut n = 0usize;
+    // Every location the run would follow, and how many of them `--archive` looks up.
+    // `waiting` counts the url locations a bare `--archive` passes over, so the note can name
+    // the opt-in that would look them up.
+    let (mut planned, mut looked, mut waiting) = (0usize, 0usize, 0usize);
     // Read once, and only if some entry records a new version: a corpus walk to answer a
     // question no entry in this run is asking would be the ordinary run's whole cost.
     let mut citing: Option<std::collections::HashMap<PathBuf, Vec<String>>> = None;
@@ -717,6 +801,15 @@ pub(crate) fn fetch_in(
         }
 
         let (plans, skipped) = plan_locations(&locations, &ctx, opts);
+        planned += plans.len();
+        looked += plans
+            .iter()
+            .filter(|(i, p)| archived_url(p, &locations[*i], opts.archive_urls).is_some())
+            .count();
+        waiting += plans
+            .iter()
+            .filter(|(i, p)| !opts.archive_urls && archived_page(p, &locations[*i]).is_some())
+            .count();
         if plans.is_empty() {
             if !skipped.is_empty() {
                 out.push(EntryOutcome::of(name, skipped));
@@ -730,6 +823,9 @@ pub(crate) fn fetch_in(
             writer.require_clean(&root, &[rel.clone()])?;
         }
 
+        // The entry as it was before this run, so a carry, and the date a lookup asks for,
+        // consult the operator's records and never one this same run appended.
+        let held = parse_frontmatter(&text).artifacts.unwrap_or_default();
         let mut obtained = Vec::new();
         let mut refused = Vec::new();
         let mut archived = Vec::new();
@@ -751,30 +847,42 @@ pub(crate) fn fetch_in(
                 continue;
             }
             n += 1;
-            match obtain(plan, *i, &cache, n, &mut net)? {
-                Ok(o) => obtained.push(o),
-                Err(d) => refused.push(d),
-            }
+            let fresh = match obtain(plan, *i, &cache, n, &mut net)? {
+                Ok(o) => {
+                    let sha = o.sha256.clone();
+                    obtained.push(o);
+                    Some(sha)
+                }
+                Err(d) => {
+                    refused.push(d);
+                    None
+                }
+            };
             // Looked up whatever the publisher answered: a capture is most use where the
             // source now refuses.
-            if let (
-                Some(policy),
-                Plan::Identifier {
-                    url, archive: true, ..
-                },
-            ) = (&archive_policy, plan)
-            {
+            if let (Some(policy), Some(url)) = (
+                &archive_policy,
+                archived_url(plan, &locations[*i], opts.archive_urls),
+            ) {
                 n += 1;
                 let scratch = staging(&cache, n);
-                match net
-                    .session
-                    .closest_capture(transport::AVAILABILITY, url, policy, &scratch)?
-                {
+                let asked = asked_date(&held, &ArtifactOrigin::Location(*i), fresh.as_deref());
+                let at = asked.as_deref().map(compact);
+                match net.session.closest_capture(
+                    transport::AVAILABILITY,
+                    url,
+                    at.as_deref(),
+                    policy,
+                    &scratch,
+                )? {
                     Ok(capture) => {
-                        let added = capture.as_deref().map(|ts| archived_location(*i, url, ts));
+                        let added = capture
+                            .as_deref()
+                            .map(|ts| archived_location(*i, url, ts, asked.as_deref()));
                         archived.push(Archived {
                             location: *i,
-                            followed: url.clone(),
+                            followed: url.to_string(),
+                            asked,
                             captured: capture.as_deref().map(capture_date),
                             added: added.as_ref().and_then(|l| l.value.clone()),
                         });
@@ -783,7 +891,11 @@ pub(crate) fn fetch_in(
                     Err(r) => refused.push(Declined {
                         location: *i,
                         declared: plan.declared().to_string(),
-                        followed: transport::availability_url(transport::AVAILABILITY, url),
+                        followed: transport::availability_url(
+                            transport::AVAILABILITY,
+                            url,
+                            at.as_deref(),
+                        ),
                         status: r.status,
                         why: format!(
                             "the Wayback availability API answered HTTP {} {}",
@@ -797,9 +909,6 @@ pub(crate) fn fetch_in(
         let mut written = None;
         let mut owed: Vec<String> = Vec::new();
         if !opts.dry_run {
-            // Read from `text` — the entry as it was before this run — so a carry consults
-            // the operator's records and never one this same run appended.
-            let held = parse_frontmatter(&text).artifacts.unwrap_or_default();
             let records: Vec<CatalogArtifact> = obtained
                 .iter()
                 .map(|o| artifact_for(o, prior_for(&held, &ArtifactOrigin::Location(o.location))))
@@ -839,7 +948,47 @@ pub(crate) fn fetch_in(
             superseded: owed,
         });
     }
+    if opts.archive {
+        if let Some(note) = nothing_to_archive(planned, looked, opts.archive_urls, waiting) {
+            eprintln!("{note}");
+        }
+    }
     Ok(out)
+}
+
+/// The address `--archive` looks up for this plan, if it looks this one up at all: an
+/// identifier whose pack archives, and with `--archive=url` a url location as well.
+fn archived_url<'a>(plan: &'a Plan, loc: &CatalogLocation, urls: bool) -> Option<&'a str> {
+    match plan {
+        Plan::Identifier {
+            url, archive: true, ..
+        } => Some(url),
+        _ if urls => archived_page(plan, loc),
+        _ => None,
+    }
+}
+
+/// The address of a `kind: url` location `--archive=url` would look up. [`Plan::Url`] also
+/// carries a filled `url_template`, so the kind is read off the location, trimmed as
+/// [`location::resolve`] reads it: a capture written for one binding would stand for all of
+/// them. An address already on the archive is a capture, and is not looked up again.
+fn archived_page<'a>(plan: &'a Plan, loc: &CatalogLocation) -> Option<&'a str> {
+    match plan {
+        Plan::Url { url, .. }
+            if loc.kind.as_deref().map(str::trim) == Some("url") && !on_the_archive(url) =>
+        {
+            Some(url)
+        }
+        _ => None,
+    }
+}
+
+/// Whether `url` is served by the Wayback Machine, under either host it answers on.
+fn on_the_archive(url: &str) -> bool {
+    matches!(
+        transport::host_of(url).as_deref(),
+        Some("web.archive.org" | "wayback.archive.org")
+    )
 }
 
 /// The paragraph a `refresh:` commit carries when it records a new version of a cited source.
@@ -929,9 +1078,12 @@ pub(crate) fn render(entries: &[EntryOutcome], dry_run: bool) -> String {
         }
         for a in &e.archived {
             let _ = match (&a.captured, &a.added) {
-                (Some(d), Some(v)) => {
-                    writeln!(s, "  location {} captured {d} — added {v}", a.location)
-                }
+                (Some(d), Some(v)) => writeln!(
+                    s,
+                    "  location {} captured {d}{} — added {v}",
+                    a.location,
+                    nearest(a.asked.as_deref())
+                ),
                 _ => writeln!(
                     s,
                     "  location {} — the Wayback Machine holds no successful capture of {}",
@@ -986,6 +1138,7 @@ mod tests {
             bind: vec![],
             dry_run: false,
             archive: false,
+            archive_urls: false,
             format: crate::report::Format::Text,
         }
     }
@@ -1326,5 +1479,146 @@ mod tests {
                 "{subject}"
             );
         }
+    }
+
+    /// A record with digest `sha` for location `at`, retrieved on `on`.
+    fn on(sha: &str, at: usize, on: &str) -> CatalogArtifact {
+        CatalogArtifact {
+            retrieved: Some(on.into()),
+            ..decided(sha, at, None, None)
+        }
+    }
+
+    /// The bytes the entry holds date the lookup (#1366): an unchanged re-fetch keeps the
+    /// record it matched, even an older one than the location's latest.
+    #[test]
+    fn a_lookup_asks_for_the_date_of_the_bytes_the_entry_holds() {
+        let held = vec![on("aa", 0, "2024-01-05"), on("bb", 0, "2025-03-01")];
+        let at = ArtifactOrigin::Location(0);
+        assert_eq!(
+            asked_date(&held, &at, Some("aa")).as_deref(),
+            Some("2024-01-05"),
+            "these bytes were first held on the 5th"
+        );
+        assert_eq!(
+            asked_date(&held, &at, Some("cc")),
+            None,
+            "new bytes were retrieved today, which the archive answers without a date"
+        );
+        assert_eq!(
+            asked_date(&held, &at, None).as_deref(),
+            Some("2025-03-01"),
+            "a declined fetch leaves the latest record standing"
+        );
+        assert_eq!(asked_date(&held, &ArtifactOrigin::Location(1), None), None);
+        assert_eq!(compact("2024-01-05"), "20240105");
+    }
+
+    /// A date that is not one asks for nothing, rather than sending a malformed timestamp.
+    #[test]
+    fn a_retrieved_that_is_not_a_date_asks_for_none() {
+        let at = ArtifactOrigin::Location(0);
+        for bad in ["soon", "2024-1-5", ""] {
+            assert_eq!(asked_date(&[on("aa", 0, bad)], &at, None), None, "{bad}");
+        }
+        assert_eq!(
+            asked_date(&[on("aa", 0, "2024-01-05T10:00:00Z")], &at, None).as_deref(),
+            Some("2024-01-05")
+        );
+    }
+
+    #[test]
+    fn the_added_location_names_the_date_asked_for_beside_the_capture() {
+        let l = archived_location(2, "https://x/", "20240102030405", Some("2024-01-05"));
+        assert_eq!(
+            l.value.as_deref(),
+            Some("wayback:20240102030405/https://x/")
+        );
+        assert_eq!(
+            l.description.as_deref(),
+            Some(
+                "Location 2 as the Wayback Machine captured it on 2024-01-02, the capture \
+                 nearest 2024-01-05, when its bytes were retrieved."
+            )
+        );
+        let l = archived_location(2, "https://x/", "20240102030405", None);
+        assert_eq!(
+            l.description.as_deref(),
+            Some("Location 2 as the Wayback Machine captured it on 2024-01-02.")
+        );
+    }
+
+    #[test]
+    fn archive_says_so_when_it_finds_nothing_to_look_up() {
+        assert_eq!(
+            nothing_to_archive(103, 0, false, 103).as_deref(),
+            Some(
+                "--archive: 0 of 103 location(s) are identifiers whose pack archives; 103 url \
+                 location(s) are looked up only with --archive=url"
+            )
+        );
+        assert_eq!(
+            nothing_to_archive(2, 0, false, 0).as_deref(),
+            Some("--archive: 0 of 2 location(s) are identifiers whose pack archives")
+        );
+        assert_eq!(
+            nothing_to_archive(2, 0, true, 0).as_deref(),
+            Some(
+                "--archive=url: 0 of 2 location(s) are identifiers whose pack archives or url \
+                 locations"
+            )
+        );
+        assert_eq!(nothing_to_archive(103, 1, false, 0), None);
+    }
+
+    fn at(kind: &str) -> CatalogLocation {
+        CatalogLocation {
+            kind: Some(kind.into()),
+            ..Default::default()
+        }
+    }
+
+    fn get(url: &str) -> Plan {
+        Plan::Url {
+            url: url.into(),
+            declared: url.into(),
+        }
+    }
+
+    /// A url location is looked up only on request; a filled template and an address already
+    /// on the archive never are (#1366).
+    #[test]
+    fn a_url_location_is_looked_up_only_with_archive_url() {
+        let page = get("https://www.co.allen.oh.us/");
+        assert_eq!(archived_url(&page, &at("url"), false), None);
+        assert_eq!(
+            archived_url(&page, &at("url"), true),
+            Some("https://www.co.allen.oh.us/")
+        );
+        assert_eq!(archived_url(&page, &at("url_template"), true), None);
+        let capture = get("https://web.archive.org/web/20240102030405id_/https://x/");
+        assert_eq!(archived_url(&capture, &at("url"), true), None);
+        let capture = get("https://wayback.archive.org/web/20240102030405/https://x/");
+        assert_eq!(archived_url(&capture, &at("url"), true), None);
+        assert_eq!(
+            archived_url(&page, &at(" url "), true),
+            Some("https://www.co.allen.oh.us/"),
+            "the kind is trimmed, as resolve trims it"
+        );
+    }
+
+    /// The same digest held from two locations: the date is this location's record of it.
+    #[test]
+    fn a_held_digest_is_dated_by_this_locations_record() {
+        let held = vec![on("aa", 0, "2024-01-05"), on("aa", 1, "2025-03-01")];
+        assert_eq!(
+            asked_date(&held, &ArtifactOrigin::Location(0), Some("aa")).as_deref(),
+            Some("2024-01-05")
+        );
+        assert_eq!(
+            asked_date(&held, &ArtifactOrigin::Location(2), Some("aa")).as_deref(),
+            Some("2025-03-01"),
+            "no record from this location: the entry's record of the digest"
+        );
     }
 }

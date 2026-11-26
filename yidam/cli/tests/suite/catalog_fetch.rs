@@ -836,6 +836,85 @@ fn archive_without_a_wayback_pack_is_refused_before_anything_is_asked() {
     assert!(run.stderr.contains("`wayback` scheme"), "{}", run.stderr);
 }
 
+/// [`stage_pack`] plus a second authored pack declaring the `wayback` scheme, so `--archive`
+/// is not refused.
+fn stage_wayback() -> Staged {
+    let s = stage_pack(9, "");
+    let pack = s.root().join(".yidam/sources/archive");
+    std::fs::create_dir_all(&pack).unwrap();
+    std::fs::write(
+        pack.join("pack.toml"),
+        "[pack]\nname = \"archive\"\nversion = \"0.1.0\"\n\n\
+         [scheme.wayback]\npattern = '^(?P<pin>\\d{14})/(?P<url>https?://\\S+)$'\n\
+         type = \"document\"\n\
+         resolve = { template = \"https://web.archive.org/web/{pin}id_/{url}\" }\n",
+    )
+    .unwrap();
+    git(s.root(), &["add", "-A"]);
+    git(
+        s.root(),
+        &["commit", "-q", "-m", "scaffold: a wayback pack"],
+    );
+    s
+}
+
+/// `--archive` with a `wayback` pack enabled and nothing whose pack archives: the run goes on,
+/// and stderr says the lookup had nothing to ask about, naming the opt-in for url locations
+/// (#1366). `--dry-run` makes no request, so no listener is started.
+#[test]
+fn archive_says_on_stderr_when_it_finds_nothing_to_look_up() {
+    let s = stage_wayback();
+    let run = s.run(&["catalog-fetch", "loopback-paper", "--archive", "--dry-run"]);
+    assert!(run.ok, "{}", run.stderr);
+    assert!(
+        run.stderr
+            .contains("--archive: 0 of 1 location(s) are identifiers whose pack archives\n"),
+        "{}",
+        run.stderr
+    );
+}
+
+const PAGE: &str = "\
+---
+name: county-page
+description: A county office's page, which no source pack declares.
+type: document
+location:
+  - kind: url
+    value: http://127.0.0.1:9/office.html
+    description: The page.
+---
+
+# A plain page
+";
+
+/// A bare `--archive` passes over a url location and names the opt-in; `--archive=url` looks
+/// it up, so there is no note. `require_equals` keeps a bare `--archive` before the entry from
+/// taking the entry as its value (#1366).
+#[test]
+fn archive_url_opts_url_locations_in() {
+    let s = stage_wayback();
+    std::fs::write(s.root().join(".yidam/catalog/county-page.md"), PAGE).unwrap();
+    git(s.root(), &["add", "-A"]);
+    git(s.root(), &["commit", "-q", "-m", "scaffold: a url entry"]);
+
+    let bare = s.run(&["catalog-fetch", "--archive", "county-page", "--dry-run"]);
+    assert!(bare.ok, "{}", bare.stderr);
+    assert!(
+        bare.stderr
+            .contains("1 url location(s) are looked up only with --archive=url"),
+        "{}",
+        bare.stderr
+    );
+
+    let url = s.run(&["catalog-fetch", "--archive=url", "county-page", "--dry-run"]);
+    assert!(url.ok, "{}", url.stderr);
+    assert!(!url.stderr.contains("--archive"), "{}", url.stderr);
+
+    let other = s.run(&["catalog-fetch", "--archive=all", "county-page", "--dry-run"]);
+    assert!(!other.ok);
+}
+
 // ── a listing, read once and pinned (#1342) ───────────────────────────────────
 
 /// Stage an authored pack whose `lb:` scheme reads its file names off a listing at `port`,

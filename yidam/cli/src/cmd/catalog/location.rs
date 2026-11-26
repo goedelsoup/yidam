@@ -67,7 +67,8 @@ pub enum Plan {
         /// `<pack>@<version>`.
         pack: String,
         policy: Policy,
-        /// Whether `--archive` looks this address up in the Wayback Machine.
+        /// Whether `--archive` looks this address up in the Wayback Machine. A `kind: url` location
+        /// is looked up only with `--archive=url`, which reads the location's kind, not this.
         archive: bool,
         /// How the address is read past its first page, when its scheme says (#1341).
         paginate: Option<Paginate>,

@@ -204,9 +204,16 @@ impl Spacing {
     }
 }
 
-/// The availability API's request for the capture nearest now.
-pub fn availability_url(api: &str, url: &str) -> String {
-    format!("{api}?url={}", encode_component(url))
+/// The availability API's request for the capture nearest `at`, a `YYYYMMDD` date, or nearest
+/// now without one.
+///
+/// `at` is the date the entry's bytes were retrieved (#1366). The capture nearest it is the one
+/// most likely to hold those same bytes; the one nearest now may be of a page that changed since.
+pub fn availability_url(api: &str, url: &str, at: Option<&str>) -> String {
+    match at {
+        Some(at) => format!("{api}?url={}&timestamp={at}", encode_component(url)),
+        None => format!("{api}?url={}", encode_component(url)),
+    }
 }
 
 /// The timestamp of the nearest capture the availability API reports, if it captured a 200.
@@ -393,7 +400,8 @@ impl Session {
         })
     }
 
-    /// The Wayback capture nearest now of `url`, through the availability API at `api`.
+    /// The Wayback capture of `url` nearest `at` (`YYYYMMDD`), or nearest now without one,
+    /// through the availability API at `api`.
     ///
     /// A read. It never asks the archive to capture anything: that is a write to a service the
     /// corpus does not own, and stays a person's act.
@@ -401,11 +409,12 @@ impl Session {
         &mut self,
         api: &str,
         url: &str,
+        at: Option<&str>,
         policy: &Policy,
         scratch: &Path,
     ) -> Result<std::result::Result<Option<String>, Refused>> {
         use anyhow::Context;
-        let asked = availability_url(api, url);
+        let asked = availability_url(api, url, at);
         let answer = self.get(&asked, policy, scratch)?;
         let found = match answer {
             Ok(_) => {
@@ -618,8 +627,19 @@ mod tests {
         assert_eq!(closest_capture(r#"{"archived_snapshots":{}}"#), None);
         assert_eq!(closest_capture("not json"), None);
         assert_eq!(
-            availability_url(AVAILABILITY, "https://x/a?b=1"),
+            availability_url(AVAILABILITY, "https://x/a?b=1", None),
             "https://archive.org/wayback/available?url=https%3A%2F%2Fx%2Fa%3Fb%3D1"
+        );
+    }
+
+    /// The date the bytes were retrieved goes as `timestamp`, after the encoded `url`, so a
+    /// `&` inside the address cannot be read as the start of it (#1366).
+    #[test]
+    fn the_lookup_asks_for_the_capture_nearest_the_retrieved_date() {
+        assert_eq!(
+            availability_url(AVAILABILITY, "https://x/a?timestamp=1", Some("20240105")),
+            "https://archive.org/wayback/available?url=https%3A%2F%2Fx%2Fa%3Ftimestamp%3D1\
+             &timestamp=20240105"
         );
     }
 
@@ -743,6 +763,7 @@ mod tests {
                 .closest_capture(
                     &format!("http://127.0.0.1:{port}/wayback/available"),
                     "https://x/a",
+                    Some("20240105"),
                     &Policy::default(),
                     &dir.path().join("probe"),
                 )
@@ -750,7 +771,9 @@ mod tests {
             assert_eq!(got, Ok(Some("20240102030405".into())));
             let seen = server.join().unwrap().remove(0);
             assert!(
-                seen.starts_with("GET /wayback/available?url=https%3A%2F%2Fx%2Fa "),
+                seen.starts_with(
+                    "GET /wayback/available?url=https%3A%2F%2Fx%2Fa&timestamp=20240105 "
+                ),
                 "{seen}"
             );
             assert!(!dir.path().join("probe").exists());
