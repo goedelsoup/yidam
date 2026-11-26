@@ -355,7 +355,14 @@ fn sweep(top: &Path, git_dir: &Path) {
 
 /// Is the run that made `path` still going? On unix, whether `pid` is a live process. Where
 /// that cannot be asked, whether the entry is less than a day old.
+///
+/// A pid outside `1..=i32::MAX` names no process, and is asked nothing: `kill` reads 0 as its
+/// own process group, and Linux's reads 4294967295 as -1, every process, so either would
+/// answer that it is alive.
 fn alive(pid: u32, path: &Path) -> bool {
+    if pid == 0 || i32::try_from(pid).is_err() {
+        return false;
+    }
     #[cfg(unix)]
     {
         let _ = path;
