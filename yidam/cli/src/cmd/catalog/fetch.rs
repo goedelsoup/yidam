@@ -419,7 +419,10 @@ fn capture_date(ts: &str) -> String {
 /// digest this run obtained there, and `None` where the publisher declined.
 ///
 /// - Bytes the entry already held keep their record, since [`record::append_artifacts`] drops
-///   a digest it holds, so the date is that record's `retrieved:`.
+///   a digest it holds, so the date is that record's `retrieved:`. The record from this
+///   location is preferred where the same digest is held from more than one. A held record
+///   with no usable `retrieved:` asks for none: when those bytes were taken is not known, and
+///   no other record of the location dates them.
 /// - Bytes it did not hold were retrieved today, and today is what the archive answers without
 ///   a date, so none is asked.
 /// - Where the publisher declined, the latest record for the location is what the entry holds.
@@ -429,10 +432,14 @@ fn asked_date(
     fresh: Option<&str>,
 ) -> Option<String> {
     let record = match fresh {
-        Some(sha) => held
-            .iter()
-            .filter(|a| a.sha256.as_deref() == Some(sha))
-            .next_back()?,
+        Some(sha) => {
+            let same = |a: &&CatalogArtifact| a.sha256.as_deref() == Some(sha);
+            held.iter()
+                .filter(same)
+                .filter(|a| a.from.as_ref() == Some(origin))
+                .next_back()
+                .or_else(|| held.iter().filter(same).next_back())?
+        }
         None => prior_for(held, origin)?,
     };
     let date = record.retrieved.as_deref()?.trim().get(..10)?;
@@ -695,7 +702,7 @@ fn nothing_to_archive(planned: usize, looked: usize, urls: bool, waiting: usize)
         }
         (false, k) => format!(
             "--archive: 0 of {planned} location(s) are identifiers whose pack archives; {k} \
-             are url locations, which --archive=url looks up"
+             url location(s) are looked up only with --archive=url"
         ),
     })
 }
@@ -962,19 +969,26 @@ fn archived_url<'a>(plan: &'a Plan, loc: &CatalogLocation, urls: bool) -> Option
 }
 
 /// The address of a `kind: url` location `--archive=url` would look up. [`Plan::Url`] also
-/// carries a filled `url_template`, so the kind is read off the location: a capture written
-/// for one binding would stand for all of them. An address already on the archive is a
-/// capture, and is not looked up again.
+/// carries a filled `url_template`, so the kind is read off the location, trimmed as
+/// [`location::resolve`] reads it: a capture written for one binding would stand for all of
+/// them. An address already on the archive is a capture, and is not looked up again.
 fn archived_page<'a>(plan: &'a Plan, loc: &CatalogLocation) -> Option<&'a str> {
     match plan {
         Plan::Url { url, .. }
-            if loc.kind.as_deref() == Some("url")
-                && transport::host_of(url).as_deref() != Some("web.archive.org") =>
+            if loc.kind.as_deref().map(str::trim) == Some("url") && !on_the_archive(url) =>
         {
             Some(url)
         }
         _ => None,
     }
+}
+
+/// Whether `url` is served by the Wayback Machine, under either host it answers on.
+fn on_the_archive(url: &str) -> bool {
+    matches!(
+        transport::host_of(url).as_deref(),
+        Some("web.archive.org" | "wayback.archive.org")
+    )
 }
 
 /// The paragraph a `refresh:` commit carries when it records a new version of a cited source.
@@ -1539,8 +1553,8 @@ mod tests {
         assert_eq!(
             nothing_to_archive(103, 0, false, 103).as_deref(),
             Some(
-                "--archive: 0 of 103 location(s) are identifiers whose pack archives; 103 are \
-                 url locations, which --archive=url looks up"
+                "--archive: 0 of 103 location(s) are identifiers whose pack archives; 103 url \
+                 location(s) are looked up only with --archive=url"
             )
         );
         assert_eq!(
@@ -1584,5 +1598,27 @@ mod tests {
         assert_eq!(archived_url(&page, &at("url_template"), true), None);
         let capture = get("https://web.archive.org/web/20240102030405id_/https://x/");
         assert_eq!(archived_url(&capture, &at("url"), true), None);
+        let capture = get("https://wayback.archive.org/web/20240102030405/https://x/");
+        assert_eq!(archived_url(&capture, &at("url"), true), None);
+        assert_eq!(
+            archived_url(&page, &at(" url "), true),
+            Some("https://www.co.allen.oh.us/"),
+            "the kind is trimmed, as resolve trims it"
+        );
+    }
+
+    /// The same digest held from two locations: the date is this location's record of it.
+    #[test]
+    fn a_held_digest_is_dated_by_this_locations_record() {
+        let held = vec![on("aa", 0, "2024-01-05"), on("aa", 1, "2025-03-01")];
+        assert_eq!(
+            asked_date(&held, &ArtifactOrigin::Location(0), Some("aa")).as_deref(),
+            Some("2024-01-05")
+        );
+        assert_eq!(
+            asked_date(&held, &ArtifactOrigin::Location(2), Some("aa")).as_deref(),
+            Some("2025-03-01"),
+            "no record from this location: the entry's record of the digest"
+        );
     }
 }

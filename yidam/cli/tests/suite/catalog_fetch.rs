@@ -836,9 +836,6 @@ fn archive_without_a_wayback_pack_is_refused_before_anything_is_asked() {
     assert!(run.stderr.contains("`wayback` scheme"), "{}", run.stderr);
 }
 
-/// `--archive` with a `wayback` pack enabled and nothing whose pack archives: the run goes on,
-/// and stderr says the lookup had nothing to ask about, naming the opt-in for url locations
-/// (#1366). `--dry-run` makes no request, so no listener is started.
 /// [`stage_pack`] plus a second authored pack declaring the `wayback` scheme, so `--archive`
 /// is not refused.
 fn stage_wayback() -> Staged {
@@ -861,6 +858,9 @@ fn stage_wayback() -> Staged {
     s
 }
 
+/// `--archive` with a `wayback` pack enabled and nothing whose pack archives: the run goes on,
+/// and stderr says the lookup had nothing to ask about, naming the opt-in for url locations
+/// (#1366). `--dry-run` makes no request, so no listener is started.
 #[test]
 fn archive_says_on_stderr_when_it_finds_nothing_to_look_up() {
     let s = stage_wayback();
@@ -902,7 +902,7 @@ fn archive_url_opts_url_locations_in() {
     assert!(bare.ok, "{}", bare.stderr);
     assert!(
         bare.stderr
-            .contains("1 are url locations, which --archive=url looks up"),
+            .contains("1 url location(s) are looked up only with --archive=url"),
         "{}",
         bare.stderr
     );
