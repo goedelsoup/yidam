@@ -165,9 +165,9 @@ single score over a range of commits names somebody's session. It exits zero how
 **`thresholds`** — `[lint] escalate_after` and `[propose] withdraw_uncited_after` — which no
 kuten populates, whatever it measures. `escalate_after` decides when a finding fails the build,
 and `withdraw_uncited_after` licenses `propose` to draft a deletion. A kuten reaches neither act:
-the first is a gate change and arrives as a visible policy override, the second is authorship and
-arrives through `propose`'s own licence. The slot is named so that emptiness is a state a reader
-can see, rather than a family the layer forgot.
+the first is this corpus's own `[lint]` setting, changed by a commit to `config.toml`, and the
+second is authorship and arrives through `propose`'s own licence. The slot is named so that
+emptiness is a state a reader can see, rather than a family the layer forgot.
 
 **`policy`** — severity overrides — which holds an empty list and is refused if populated. The
 policy layer decides disclosure, not a check's severity, so nothing would apply a kuten's
