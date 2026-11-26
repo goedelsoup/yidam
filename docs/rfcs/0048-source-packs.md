@@ -15,9 +15,11 @@
 - **Amended 2026-11-26 (#1366):** §5's archive lookup asks for the capture nearest the date the
   entry's bytes were retrieved, says so when it finds nothing to look up, and looks up `kind: url`
   locations under `--archive=url`. Decision 11.
+- **Amended 2026-11-26 (#1589):** §5's archive lookup reads the capture it adds, records it as
+  that location's artifact, and says whether its bytes equal the source's. Decision 12.
 - **Amended 2026-11-26 (#1344):** §7's `socrata` drops CMS and gains `arcgis`, `census` reads
   `www2.census.gov` bulk files before `api.census.gov`, `caselaw` reads `static.case.law`, and five
-  agencies wait for `us-federal` 0.2. Decision 12.
+  agencies wait for `us-federal` 0.2. Decision 13.
 
 ## Summary
 
@@ -315,10 +317,23 @@ the date asked for beside the capture date.
 When `--archive` finds no location it can look up, it says so on stderr with the count, and names
 `--archive=url` when the entry holds url locations. Before, the run succeeded and said nothing.
 
-Two things stay out. Whether a capture's bytes equal the artifact's is a second download per
-location, and #1589 holds it. `wayback:<url>` pinning at `source add` (#1343) is the pack's own pin
-read, a different request, and sends no date: an entry being drafted holds no artifact to date it
-by.
+**Whether the capture holds the same bytes.** The run reads the capture it adds, in the `id_`
+form, through the pack that declares `wayback`. It records those bytes as the new location's
+artifact, in the same `refresh:` commit. A later `catalog-fetch` would have read them anyway, so
+this is the same download moved earlier, not a second one. The capture's digest is compared with
+the source's: the bytes this run obtained, or, where the publisher declined, the latest record for
+the location. The report's archived row says `matches`, and the commit body says whether the
+bytes match or differ. For a PDF a match lets a third party check the vaulted copy against a
+public one. For HTML the archive's crawl often differs, so a mismatch is information. It never
+fails the run. A capture that cannot be read is still added, with `matches` unknown, as before
+this amendment.
+
+A matching capture carries a digest the entry already holds, so a digest is skipped only when the
+entry holds it from the same location. A held record with no `from:` stands for any location, so
+hand-written history is not doubled.
+
+`wayback:<url>` pinning at `source add` (#1343) stays out. It is the pack's own pin read, a
+different request, and sends no date: an entry being drafted holds no artifact to date it by.
 
 **What the host refuses.** It sends no browser User-Agent, rotates no client, and takes no step
 around a 403. One state's secretary of state refuses all automated clients, and from 2024 on the
@@ -558,8 +573,15 @@ Settled in review on 2026-10-01. These were this RFC's open questions.
     `timestamp=` from the `retrieved:` of the record holding the bytes the run obtained, and
     today's answer where there is none. `--archive=url` adds `kind: url` locations; a
     `url_template` is not looked up. A run that finds nothing to look up says so on stderr. The
-    digest comparison is #1589, and `source add`'s pin read sends no date. Settled in #1366 (§5).
-12. **The last three first packs ship at 0.1.0, as measured and not as first listed.** `socrata`
+    digest comparison is decision 12, and `source add`'s pin read sends no date. Settled in #1366
+    (§5).
+12. **A capture is read when it is added, and compared with the source's bytes.** `--archive`
+    records the capture's `id_` bytes as the added location's artifact in the same commit. The
+    report and the commit body say whether they equal the source's. A mismatch never fails the
+    run, and a capture that cannot be read is added unverified. Comparing two recorded digests
+    later was the alternative. It needs a link between a `wayback:` location and its source,
+    which only the description carries. Settled in #1589 (§5).
+13. **The last three first packs ship at 0.1.0, as measured and not as first listed.** `socrata`
     is CDC, HRSA and city portals, plus an `arcgis` scheme that pages. CMS is a `dcat` catalog.
     `census` templates bulk files before the API, and `caselaw` reads the static volumes CAP
     left. EIA, IRS, NCES, USGS and NOAA NCEI are `us-federal` 0.2. Settled in #1344 (§7).
