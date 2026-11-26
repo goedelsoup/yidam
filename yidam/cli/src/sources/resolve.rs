@@ -550,6 +550,8 @@ struct Split<'a> {
 /// manifests in both directions.
 pub const TEMPLATE_SCHEMES: &[(&str, &str)] = &[
     ("arxiv", "scholarly"),
+    ("caselaw", "courts"),
+    ("courtlistener", "courts"),
     ("doi", "scholarly"),
     ("europepmc", "scholarly"),
     ("github", "archive"),
