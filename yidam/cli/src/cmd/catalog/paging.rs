@@ -42,6 +42,8 @@ pub(crate) struct Pager<'a> {
     first: Vec<u8>,
     /// The first page's document, with every page's records at `items`.
     doc: Option<Value>,
+    /// A hash of the last page's records, to tell a service that ignored the offset.
+    last: Option<u64>,
 }
 
 impl<'a> Pager<'a> {
@@ -53,6 +55,7 @@ impl<'a> Pager<'a> {
             pages: 0,
             first: Vec::new(),
             doc: None,
+            last: None,
         }
     }
 
@@ -85,10 +88,16 @@ impl<'a> Pager<'a> {
         let records = match at_mut(&mut page, &at) {
             Some(Value::Array(a)) => std::mem::take(a),
             _ => {
-                return Err(format!(
-                    "page {n} holds no array at `{}`",
-                    self.p.items.trim_end_matches('*').trim_end_matches('/')
-                ))
+                let at = self.p.items.trim_end_matches('*').trim_end_matches('/');
+                // ArcGIS answers a query it refuses with HTTP 200 and `{"error": {...}}`.
+                return Err(
+                    match page.pointer("/error/message").and_then(Value::as_str) {
+                        Some(said) => {
+                            format!("page {n} holds no array at `{at}`; the service said: {said}")
+                        }
+                        None => format!("page {n} holds no array at `{at}`"),
+                    },
+                );
             }
         };
         let count = records.len();
@@ -109,6 +118,25 @@ impl<'a> Pager<'a> {
                  would ask the same offset again"
             ));
         }
+        // A service that does not page ignores the offset and answers every request with its
+        // first page, still saying there is more.
+        let hash = (count > 0).then(|| {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            for r in &records {
+                r.to_string().hash(&mut h);
+            }
+            h.finish()
+        });
+        if hash.is_some() && hash == self.last {
+            return Err(format!(
+                "page {n} holds the same records as page {}, so the service ignored `{}` and \
+                 does not page; it would be asked the same page until {MAX_PAGES}",
+                n - 1,
+                self.p.offset
+            ));
+        }
+        self.last = hash;
 
         match &mut self.doc {
             None => {
@@ -389,6 +417,67 @@ mod tests {
             .take(b"{\"rows\":[]}".to_vec())
             .unwrap_err();
         assert!(err.contains("no array at `features`"), "{err}");
+    }
+
+    /// A service that does not page answers every offset with its first page and keeps saying
+    /// there is more; the repeat is refused rather than asked up to `MAX_PAGES` times.
+    #[test]
+    fn a_page_repeating_the_last_is_refused() {
+        let p = arcgis();
+        let mut pager = Pager::new(&p, "https://x/q");
+        assert_eq!(pager.take(page(&[1, 2], true)), Ok(Step::More));
+        let err = pager.take(page(&[1, 2], true)).unwrap_err();
+        assert!(err.contains("same records as page 1"), "{err}");
+        assert!(err.contains("`resultOffset`"), "{err}");
+    }
+
+    /// ArcGIS refuses a query with HTTP 200 and an error body; the refusal carries its message.
+    #[test]
+    fn a_service_error_body_is_reported_by_its_message() {
+        let p = arcgis();
+        let err = Pager::new(&p, "https://x/q")
+            .take(br#"{"error":{"code":400,"message":"Invalid or missing input parameters.","details":[]}}"#.to_vec())
+            .unwrap_err();
+        assert!(
+            err.contains(
+                "no array at `features`; the service said: Invalid or missing input parameters."
+            ),
+            "{err}"
+        );
+    }
+
+    /// The shipped `socrata` pack's two paged schemes, as a fetch asks them: the resolved
+    /// address with the pack's own paging parameters.
+    #[test]
+    fn the_shipped_socrata_pack_pages_its_rows_and_layers() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../sources/socrata/pack.toml");
+        let m: crate::sources::manifest::Manifest =
+            toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let rows = m.scheme["socrata-rows"].paginate.clone().unwrap();
+        let mut pager = Pager::new(
+            &rows,
+            "https://data.cdc.gov/resource/bi63-dtpu.json?$order=:id",
+        );
+        assert_eq!(
+            pager.url(),
+            "https://data.cdc.gov/resource/bi63-dtpu.json?$order=:id&$offset=0&$limit=50000"
+        );
+        let full: Vec<u32> = (0..50_000).collect();
+        assert_eq!(
+            pager.take(serde_json::to_vec(&full).unwrap()),
+            Ok(Step::More)
+        );
+        assert!(pager.url().contains("&$offset=50000&"), "{}", pager.url());
+        assert_eq!(pager.take(b"[50000]".to_vec()), Ok(Step::Done));
+
+        let layer = m.scheme["arcgis"].paginate.clone().unwrap();
+        let base = "https://h.example.org/arcgis/rest/services/C/MapServer/0/query?where=1%3D1&outFields=*&orderByFields=OBJECTID&f=json";
+        let mut pager = Pager::new(&layer, base);
+        assert_eq!(pager.url(), format!("{base}&resultOffset=0"));
+        assert_eq!(pager.take(page(&[1, 2], true)), Ok(Step::More));
+        assert_eq!(pager.url(), format!("{base}&resultOffset=2"));
+        assert_eq!(pager.take(page(&[3], false)), Ok(Step::Done));
     }
 
     #[test]

@@ -549,6 +549,7 @@ struct Split<'a> {
 /// undeclared scheme names the pack to pin. `template_source_packs.rs` holds it to the
 /// manifests in both directions.
 pub const TEMPLATE_SCHEMES: &[(&str, &str)] = &[
+    ("arcgis", "socrata"),
     ("arxiv", "scholarly"),
     ("caselaw", "courts"),
     ("courtlistener", "courts"),
@@ -558,6 +559,8 @@ pub const TEMPLATE_SCHEMES: &[(&str, &str)] = &[
     ("ia", "archive"),
     ("ia-file", "archive"),
     ("pmc", "scholarly"),
+    ("socrata", "socrata"),
+    ("socrata-rows", "socrata"),
     ("wayback", "archive"),
     ("wikipedia", "archive"),
 ];
@@ -643,6 +646,46 @@ pattern = '^(?P<ts>\d{14})/(?P<url>https?://\S+)$'
 type = "document"
 resolve = { template = "https://web.archive.org/web/{ts}id_/{url}" }
 "#;
+
+    /// The shipped `socrata` pack: a dataset, its rows and a layer resolve to the publisher's
+    /// addresses, and a host that is not a dotted DNS name, or a layer path that climbs, does
+    /// not.
+    #[test]
+    fn the_shipped_socrata_pack_resolves_portals_and_refuses_local_hosts() {
+        let src = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../sources/socrata/pack.toml"),
+        )
+        .unwrap();
+        let e = Enabled::from_packs(&[pack("socrata", Origin::Vendored, &src)]);
+        let url = |id: &str| e.resolve(id).map(|r| r.url);
+        assert_eq!(
+            url("socrata:data.cdc.gov/bi63-dtpu").unwrap(),
+            "https://data.cdc.gov/api/views/metadata/v1/bi63-dtpu"
+        );
+        assert_eq!(
+            url("socrata-rows:data.cdc.gov/bi63-dtpu").unwrap(),
+            "https://data.cdc.gov/resource/bi63-dtpu.json?$order=:id"
+        );
+        assert_eq!(
+            url("arcgis:sampleserver6.arcgisonline.com/arcgis/rest/services/Census/MapServer/0")
+                .unwrap(),
+            "https://sampleserver6.arcgisonline.com/arcgis/rest/services/Census/MapServer/0/query?where=1%3D1&outFields=*&orderByFields=OBJECTID&f=json"
+        );
+        for refused in [
+            "socrata:localhost/abcd-1234",
+            "socrata:169.254.169.254/abcd-1234",
+            "socrata-rows:127.0.0.1/abcd-1234",
+            "arcgis:10.0.0.1/arcgis/rest/services/X/MapServer/0",
+            "arcgis:h.example.org/../../admin/MapServer/0",
+            "arcgis:h.example.org/arcgis/./X/FeatureServer/1",
+        ] {
+            assert!(
+                matches!(url(refused), Err(Refusal::Malformed { .. })),
+                "{refused}: {:?}",
+                url(refused).map_err(|r| format!("{r:?}"))
+            );
+        }
+    }
 
     #[test]
     fn a_doi_resolves_through_its_template() {

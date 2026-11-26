@@ -1,0 +1,59 @@
+# Open-data portals: Socrata datasets, and ArcGIS feature layers read to their last record.
+#
+# `socrata` is one dataset on any Socrata portal, by `<host>/<dataset>`: `data.cdc.gov/bi63-dtpu`.
+# It reads the dataset's metadata, which names the portal and the dataset again, and that names
+# its rows as a `socrata-rows` location, at the address its own `dataUri` gives: the dataset's
+# home portal, which for a federated dataset is not the host it was named by. Only a tabular
+# dataset has rows; a file, map or link asset answers its `socrata-rows` read with a 403, so
+# read such an asset's file by its own URL. The rows are the dataset. Socrata answers a page of
+# rows and says nothing about the rest, so `socrata-rows` asks page after page, in row order,
+# until one comes back short. A portal's dataset changes when its owner republishes it, and
+# keeps no earlier version; what was read is what the digest records.
+#
+# `arcgis` is one layer of an ArcGIS REST feature or map service, by `<host>/<path to the
+# layer>`: `sampleserver6.arcgisonline.com/arcgis/rest/services/Census/MapServer/0`. It reads
+# every feature, with every field and its geometry. A service answers at most its
+# `maxRecordCount` and says `exceededTransferLimit`, so the layer is read page by page until
+# it stops saying so. The pages are ordered by `OBJECTID`, because an unordered query may
+# answer two offsets with overlapping features; a layer whose object-id field has another name
+# answers with an error, which the fetch reports. A layer that does not support paging
+# answers every offset with its first page, and the fetch refuses the repeat. A layer's
+# metadata does not name its own address, so the entry's name is left to its author.
+#
+# A host is a dotted DNS name. The patterns admit no IP address and no bare name such as
+# `localhost`, so a catalog entry cannot name the machine running the fetch.
+#
+# CMS publishes on DKAN rather than Socrata; read it through a `dcat` resolve (RFC-0048 §3).
+[pack]
+name        = "socrata"
+version     = "0.1.0"
+description = "Socrata datasets on any portal, and ArcGIS feature layers, each read to its last record."
+
+[scheme.socrata]
+pattern  = '^(?P<host>(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})/(?P<dataset>[a-z0-9]{4}-[a-z0-9]{4})$'
+type     = "dataset"
+resolve  = { template = "https://{host}/api/views/metadata/v1/{dataset}", media = "application/json" }
+describe = "transforms/socrata.glu"
+then     = [{ scheme = "socrata-rows", from = "describe.rows" }]
+
+[scheme.socrata-rows]
+pattern  = '^(?P<host>(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})/(?P<dataset>[a-z0-9]{4}-[a-z0-9]{4})$'
+type     = "dataset"
+resolve  = { template = "https://{host}/resource/{dataset}.json?$order=:id", media = "application/json" }
+paginate = { offset = "$offset", limit = "$limit", size = 50000, items = "*" }
+
+[scheme.arcgis]
+pattern  = '^(?P<host>(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})/(?P<layer>(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*/)+(?:FeatureServer|MapServer)/\d+)$'
+type     = "dataset"
+resolve  = { template = "https://{host}/{layer}/query?where=1%3D1&outFields=*&orderByFields=OBJECTID&f=json", media = "application/json" }
+paginate = { offset = "resultOffset", items = "features/*", until = "!exceededTransferLimit" }
+
+[transport]
+contact      = "optional"
+min_interval = "1s"
+
+[defaults]
+ttl_days = 90
+
+[fixtures]
+"socrata:data.cdc.gov/bi63-dtpu" = "socrata-data-cdc-gov-bi63-dtpu.json"
