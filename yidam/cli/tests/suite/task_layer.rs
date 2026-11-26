@@ -1446,8 +1446,18 @@ fn a_re_vendor_names_the_cited_issues_its_pin_fixes() {
     std::fs::write(dir.path().join(".yidam/.vendor/prelude/x.md"), "yidam#44\n").unwrap();
     std::fs::create_dir_all(dir.path().join(".yidam/corpus/c")).unwrap();
     std::fs::write(dir.path().join(".yidam/corpus/c/n.yml"), "note: yidam#44\n").unwrap();
+    // The task layer is upstream's text, copied in by the same re-vendor; its own comment
+    // cites an issue as an example, and that is not this repository's workaround (#1605).
+    std::fs::write(
+        dir.path().join("mise.yidam.toml"),
+        "# records it by citing the issue, `yidam#44`\n",
+    )
+    .unwrap();
     // An untracked file is not a record.
-    git(dir.path(), &["add", "mise.toml", ".yidam"]);
+    git(
+        dir.path(),
+        &["add", "mise.toml", "mise.yidam.toml", ".yidam"],
+    );
     std::fs::write(dir.path().join("scratch.md"), "yidam#44\n").unwrap();
 
     let say = run_fragment(&fragment, dir.path(), tmp.path());
@@ -1460,7 +1470,7 @@ fn a_re_vendor_names_the_cited_issues_its_pin_fixes() {
     );
     assert!(
         !say.contains("yidam#44"),
-        "a citation in the vendored tree, the corpus or an untracked file is read: {say}"
+        "a citation in the vendored tree, the task layer, the corpus or an untracked file is read: {say}"
     );
     assert_eq!(
         say.matches("yidam#587").count(),
