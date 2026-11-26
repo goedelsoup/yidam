@@ -2713,7 +2713,9 @@
                 "followed",
                 "asked",
                 "captured",
-                "added"
+                "added",
+                "sha256",
+                "matches"
               ],
               "properties": {
                 "location": {
@@ -2743,6 +2745,20 @@
                     "null"
                   ],
                   "description": "The `wayback:<timestamp>/<url>` location appended to the entry, or null when there was no capture."
+                },
+                "sha256": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The digest of the capture's `id_` bytes, read when it was added and recorded as the added location's artifact in the same commit (#1589). Null when there was no capture, or it could not be read."
+                },
+                "matches": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
+                  "description": "Whether the capture's bytes equal the source's: the bytes this run obtained, or the location's latest record where the publisher declined. Null when either digest is unknown. False never fails the run: a PDF source captured as an HTML page differs by design."
                 }
               }
             }

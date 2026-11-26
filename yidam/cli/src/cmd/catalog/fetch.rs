@@ -117,6 +117,12 @@ pub(crate) struct Archived {
     captured: Option<String>,
     /// The `wayback:` location added to the entry. Absent with no capture, and on a dry run.
     added: Option<String>,
+    /// The digest of the capture's `id_` bytes, read when it is added and recorded as that
+    /// location's artifact (#1589). Absent when the capture could not be read.
+    sha256: Option<String>,
+    /// Whether the capture's bytes equal the source's: this run's, or the latest record's where
+    /// the publisher declined. Absent when either digest is. A mismatch never fails the run.
+    matches: Option<bool>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -475,6 +481,77 @@ fn archived_location(index: usize, url: &str, ts: &str, asked: Option<&str>) -> 
     }
 }
 
+/// The index a capture's location has, or will have once appended, and whether it is new.
+///
+/// [`record::append_locations`] skips a location the entry lists by kind and value, so a
+/// re-run that finds the same capture names the index already held, and reads nothing again.
+fn capture_index(
+    locations: &[CatalogLocation],
+    added: &[CatalogLocation],
+    loc: &CatalogLocation,
+) -> (usize, bool) {
+    let same = |a: &CatalogLocation| a.kind == loc.kind && a.value == loc.value;
+    if let Some(j) = locations.iter().position(same) {
+        return (j, false);
+    }
+    let mut fresh = 0;
+    for a in added {
+        if same(a) {
+            return (locations.len() + fresh, false);
+        }
+        if !locations
+            .iter()
+            .chain(&added[..fresh])
+            .any(|h| h.kind == a.kind && h.value == a.value)
+        {
+            fresh += 1;
+        }
+    }
+    (locations.len() + fresh, true)
+}
+
+/// Read a capture's `id_` bytes through the pack that declares `wayback`, as location `index`.
+///
+/// A capture that cannot be read is still added, unverified: the lookup found it, and a
+/// failure here says nothing about the source. So the reason goes to stderr, not the run's
+/// refusals, and never fails the run (#1589).
+fn read_capture(
+    loc: &CatalogLocation,
+    index: usize,
+    ctx: &location::Context,
+    cache: &Cache,
+    n: usize,
+    net: &mut Network,
+) -> Option<Obtained> {
+    let value = loc.value.as_deref().unwrap_or_default();
+    let why = match location::resolve(loc, ctx) {
+        Err(u) => u.message(),
+        Ok(plan) => match obtain(&plan, index, cache, n, net) {
+            Ok(Ok(o)) => return Some(o),
+            Ok(Err(d)) => d.why,
+            Err(e) => format!("{e:#}"),
+        },
+    };
+    eprintln!("--archive: {value} was added unread — {why}");
+    None
+}
+
+/// Whether two digests name the same bytes; unknown when either is absent.
+fn same_bytes(capture: Option<&str>, source: Option<&str>) -> Option<bool> {
+    Some(capture? == source?)
+}
+
+/// What the commit body and the report say about a capture's bytes against its source's.
+fn compared(a: &Archived) -> Option<String> {
+    a.added.as_ref()?;
+    Some(match (a.matches, &a.sha256) {
+        (Some(true), _) => format!("its bytes match location {}'s", a.location),
+        (Some(false), _) => format!("its bytes differ from location {}'s", a.location),
+        (None, Some(_)) => format!("location {} holds no bytes to compare with", a.location),
+        (None, None) => "its bytes were not read".to_string(),
+    })
+}
+
 /// The record an entry already holds for this same location, if any — the one whose
 /// decisions a new capture continues.
 ///
@@ -632,6 +709,14 @@ fn message(
                 a.location,
                 nearest(a.asked.as_deref())
             );
+            if let Some(c) = compared(a) {
+                let digest = a
+                    .sha256
+                    .as_deref()
+                    .map(|h| format!(" (sha256:{h})"))
+                    .unwrap_or_default();
+                let _ = writeln!(body, "  {c}{digest}");
+            }
         }
     }
     for o in obtained {
@@ -830,6 +915,8 @@ pub(crate) fn fetch_in(
         let mut refused = Vec::new();
         let mut archived = Vec::new();
         let mut captures: Vec<CatalogLocation> = Vec::new();
+        // The bytes of each capture added, recorded under the capture's own location.
+        let mut read: Vec<Obtained> = Vec::new();
         for (i, plan) in &plans {
             if opts.dry_run {
                 obtained.push(Obtained {
@@ -879,12 +966,40 @@ pub(crate) fn fetch_in(
                         let added = capture
                             .as_deref()
                             .map(|ts| archived_location(*i, url, ts, asked.as_deref()));
+                        let source = fresh.clone().or_else(|| {
+                            prior_for(&held, &ArtifactOrigin::Location(*i))
+                                .and_then(|r| r.sha256.clone())
+                        });
+                        let sha = match &added {
+                            None => None,
+                            Some(loc) => match capture_index(&locations, &captures, loc) {
+                                (j, true) => {
+                                    n += 1;
+                                    read_capture(loc, j, &ctx, &cache, n, &mut net).map(|o| {
+                                        let sha = o.sha256.clone();
+                                        read.push(o);
+                                        sha
+                                    })
+                                }
+                                // Listed already: its digest is this run's read, or its record.
+                                (j, false) => read
+                                    .iter()
+                                    .find(|o| o.location == j)
+                                    .map(|o| o.sha256.clone())
+                                    .or_else(|| {
+                                        prior_for(&held, &ArtifactOrigin::Location(j))
+                                            .and_then(|r| r.sha256.clone())
+                                    }),
+                            },
+                        };
                         archived.push(Archived {
                             location: *i,
                             followed: url.to_string(),
                             asked,
                             captured: capture.as_deref().map(capture_date),
                             added: added.as_ref().and_then(|l| l.value.clone()),
+                            matches: same_bytes(sha.as_deref(), source.as_deref()),
+                            sha256: sha,
                         });
                         captures.extend(added);
                     }
@@ -911,6 +1026,7 @@ pub(crate) fn fetch_in(
         if !opts.dry_run {
             let records: Vec<CatalogArtifact> = obtained
                 .iter()
+                .chain(&read)
                 .map(|o| artifact_for(o, prior_for(&held, &ArtifactOrigin::Location(o.location))))
                 .collect();
             let updated = record::append_artifacts(&text, &records)
@@ -1080,9 +1196,10 @@ pub(crate) fn render(entries: &[EntryOutcome], dry_run: bool) -> String {
             let _ = match (&a.captured, &a.added) {
                 (Some(d), Some(v)) => writeln!(
                     s,
-                    "  location {} captured {d}{} — added {v}",
+                    "  location {} captured {d}{} — added {v}{}",
                     a.location,
-                    nearest(a.asked.as_deref())
+                    nearest(a.asked.as_deref()),
+                    compared(a).map(|c| format!("; {c}")).unwrap_or_default()
                 ),
                 _ => writeln!(
                     s,
@@ -1620,5 +1737,101 @@ mod tests {
             Some("2025-03-01"),
             "no record from this location: the entry's record of the digest"
         );
+    }
+
+    fn archived(matches: Option<bool>, sha256: Option<&str>) -> Archived {
+        Archived {
+            location: 0,
+            followed: "https://x/".into(),
+            asked: None,
+            captured: Some("2024-01-02".into()),
+            added: Some("wayback:20240102030405/https://x/".into()),
+            sha256: sha256.map(str::to_string),
+            matches,
+        }
+    }
+
+    #[test]
+    fn a_new_capture_takes_the_next_free_index() {
+        let held = [loc("url", "https://x/"), loc("url", "https://y/")];
+        let a = archived_location(0, "https://x/", "20240102030405", None);
+        let b = archived_location(1, "https://y/", "20240102030405", None);
+        assert_eq!(capture_index(&held, &[], &a), (2, true));
+        assert_eq!(
+            capture_index(&held, std::slice::from_ref(&a), &b),
+            (3, true)
+        );
+        // The same capture found twice in one run is read once.
+        assert_eq!(
+            capture_index(&held, &[a.clone(), b.clone()], &b),
+            (3, false)
+        );
+    }
+
+    #[test]
+    fn a_capture_the_entry_already_lists_keeps_its_index_and_is_not_read() {
+        let a = archived_location(0, "https://x/", "20240102030405", None);
+        let held = [loc("url", "https://x/"), a.clone()];
+        assert_eq!(capture_index(&held, &[], &a), (1, false));
+        // An earlier capture appended this run, already listed, takes no new index.
+        let b = archived_location(0, "https://x/", "20250102030405", None);
+        assert_eq!(capture_index(&held, &[a, b.clone()], &b), (2, false));
+    }
+
+    #[test]
+    fn bytes_compare_only_when_both_digests_are_known() {
+        assert_eq!(same_bytes(Some("aa"), Some("aa")), Some(true));
+        assert_eq!(same_bytes(Some("aa"), Some("bb")), Some(false));
+        assert_eq!(same_bytes(None, Some("aa")), None);
+        assert_eq!(same_bytes(Some("aa"), None), None);
+    }
+
+    #[test]
+    fn the_comparison_reads_as_match_differ_or_unknown() {
+        assert_eq!(
+            compared(&archived(Some(true), Some("aa"))).as_deref(),
+            Some("its bytes match location 0's")
+        );
+        assert_eq!(
+            compared(&archived(Some(false), Some("aa"))).as_deref(),
+            Some("its bytes differ from location 0's")
+        );
+        assert_eq!(
+            compared(&archived(None, Some("aa"))).as_deref(),
+            Some("location 0 holds no bytes to compare with")
+        );
+        assert_eq!(
+            compared(&archived(None, None)).as_deref(),
+            Some("its bytes were not read")
+        );
+        let none = Archived {
+            added: None,
+            captured: None,
+            ..archived(None, None)
+        };
+        assert_eq!(compared(&none), None, "no capture: nothing to compare");
+    }
+
+    #[test]
+    fn the_commit_body_says_whether_the_capture_matches() {
+        let (_, body) = message(
+            "e",
+            &[at_location("aa", 0)],
+            &[],
+            &[],
+            &[archived(Some(true), Some("aa"))],
+        );
+        assert!(
+            body.contains("  its bytes match location 0's (sha256:aa)"),
+            "{body}"
+        );
+        let (_, body) = message(
+            "e",
+            &[at_location("aa", 0)],
+            &[],
+            &[],
+            &[archived(None, None)],
+        );
+        assert!(body.contains("  its bytes were not read\n"), "{body}");
     }
 }

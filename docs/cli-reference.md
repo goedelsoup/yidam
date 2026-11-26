@@ -1654,8 +1654,10 @@ holds for a publisher whose TLS chain does not verify: no pack can turn verifica
 is never looked up, nor an address already on `web.archive.org`. The lookup asks for the capture
 nearest the `retrieved:` date of the bytes the entry holds. New bytes, and a location with no
 record, ask for none. It appends that capture to the entry's `location:` list as a `wayback:`
-identifier. Its description carries the capture date and the date asked for. It lands in the
-same `refresh:` commit. A run that finds nothing to look up says so on stderr. It reads the
+identifier. Its description carries the capture date and the date asked for. The run reads the
+capture's bytes and records them as that location's artifact. The report's `matches` and a
+commit-body line say whether they equal the source's. A mismatch never fails the run. All of it
+lands in the same `refresh:` commit. A run that finds nothing to look up says so on stderr. It reads the
 Wayback availability API and never asks the archive to capture anything. It needs an enabled
 pack declaring the `wayback` scheme.
 
