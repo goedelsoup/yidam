@@ -356,7 +356,7 @@ pub fn build(root: &Path, all: &[Check], baseline: &Baseline, d: &Diff) -> LintR
                 })
                 .collect(),
             expiry_record: expiry_record(&d.argument),
-            escalate_after: super::escalate_after(root),
+            escalate_after: super::escalate_after(all),
         },
         checks,
     }

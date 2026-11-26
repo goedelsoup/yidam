@@ -173,7 +173,8 @@ awaiting an editorial pass" is not by itself an argument against it.
 
 #### A set value is named where the build fails
 
-When this key is set, `yidam lint` opens its report with one line naming it:
+When this key is set, `yidam lint` opens its report with one line naming it.
+It does so only when the run includes a check that dates its findings:
 
 ```
 lint: `[lint] escalate_after = 100` in .yidam/config.toml — a dated finding older than 100 corpus commit(s) fails the build

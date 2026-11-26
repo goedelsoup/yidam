@@ -299,3 +299,31 @@ fn an_unset_escalate_after_is_named_nowhere() {
     let stdout = String::from_utf8_lossy(&yidam(tmp.path(), &["lint"]).stdout).to_string();
     assert!(!stdout.contains("escalate_after"), "{stdout}");
 }
+
+/// A malformed config is refused before any check runs, so no report names a number from it.
+///
+/// The lenient read that hands the checks no threshold is for in-process callers such as
+/// `serve --lsp`, and the unit test `the_opening_line_names_only_a_threshold_that_can_act`
+/// holds it. From the command line the parse error is the answer (#1584).
+#[test]
+fn a_malformed_config_names_no_escalate_after() {
+    let tmp = stage();
+    write(
+        tmp.path(),
+        ".yidam/config.toml",
+        "[lint\nescalate_after = 7\n",
+    );
+
+    for args in [&["lint"][..], &["lint", "--format", "json"]] {
+        let out = yidam(tmp.path(), args);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            !out.status.success(),
+            "`yidam {}` accepted it",
+            args.join(" ")
+        );
+        assert!(stderr.contains("config.toml"), "{stderr}");
+        assert!(!stdout.contains("escalate_after"), "{stdout}");
+    }
+}

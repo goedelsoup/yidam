@@ -1151,8 +1151,9 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
     let all = run_checks(&root, &opts);
 
     // JSON short-circuits the prose path entirely rather than interleaving with it: the
-    // text output is a contract of its own (byte-identical to what it has always been),
-    // and a report that half-prints is worse than either.
+    // text output is a contract of its own, and a report that half-prints is worse than
+    // either. It is byte-identical to what it has always been except for one opening line,
+    // printed only when the corpus sets `[lint] escalate_after` (#1584).
     //
     // The EXIT CODE is deliberately shared. A gate that gates differently depending on how
     // you asked for the answer is not a gate, so the verdict below is computed the same way
@@ -1209,8 +1210,8 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
 
     // Above every block, so the number that decides which findings fail is read before
     // the findings are (#1584).
-    if let Some(n) = escalate_after(&root) {
-        println!("{}", escalate_after_line(n));
+    if let Some(line) = escalate_after_line(&all) {
+        println!("{line}");
     }
     report(&all, &opts);
 
@@ -1335,15 +1336,15 @@ fn lint_json(root: &Path, all: &[Check], opts: &Options) -> Result<()> {
     anyhow::bail!("{}", verdict(&d))
 }
 
-/// This corpus's `[lint] escalate_after`, read as the checks read it.
+/// The `[lint] escalate_after` this run's checks were handed.
 ///
-/// Leniently, as [`input::Input::config`] does: a malformed `config.toml` armed no check, so
-/// naming a number from it would name one the run did not use.
-pub(crate) fn escalate_after(root: &Path) -> Option<usize> {
-    crate::config::load_yidam_config(root)
-        .unwrap_or_default()
-        .lint
-        .escalate_after
+/// Taken from the checks rather than read from `config.toml` again, so the number a report
+/// names is the one that decided its severities. A second read could see a file saved after
+/// the checks ran (`serve --lsp` builds its report after running them), or parse differently
+/// from [`input::Input::config`]. [`run_checks`] hands one value to every check, and a
+/// malformed config hands none.
+pub(crate) fn escalate_after(all: &[Check]) -> Option<usize> {
+    all.iter().find_map(|c| c.escalate_after)
 }
 
 /// The line that opens a text report when the corpus has set `escalate_after` (#1584).
@@ -1351,11 +1352,17 @@ pub(crate) fn escalate_after(root: &Path) -> Option<usize> {
 /// RFC-0024 forbids only a *silent loosening*, and this key tightens the gate, so nothing
 /// requires it to be shown. It is shown because the person asking why a build failed is
 /// reading this output and not `config.toml`. RFC-0028's Erratum 9 records the decision.
-fn escalate_after_line(n: usize) -> String {
-    format!(
-        "lint: `[lint] escalate_after = {n}` in .yidam/config.toml — a dated finding older than \
-         {n} corpus commit(s) fails the build"
-    )
+///
+/// Only when a check this run asked dates its findings. The line says a dated finding fails
+/// the build, and a run with no such check has no dated finding to fail it.
+fn escalate_after_line(all: &[Check]) -> Option<String> {
+    let n = escalate_after(all)?;
+    all.iter().any(|c| c.escalation_eligible).then(|| {
+        format!(
+            "lint: `[lint] escalate_after = {n}` in .yidam/config.toml — a dated finding older \
+             than {n} corpus commit(s) fails the build"
+        )
+    })
 }
 
 fn report(all: &[Check], opts: &Options) {
@@ -2913,6 +2920,48 @@ decision := {"allow": true, "deny": []}
     ///
     /// A pin rather than a filter: a second dated check is *supposed* to fail this line, and
     /// updating it is how the docs that quote the population get updated with it.
+    /// The opening line names the number the checks were handed, and only where a check that
+    /// dates its findings ran. A malformed config hands no number, so it names none (#1584).
+    #[test]
+    fn the_opening_line_names_only_a_threshold_that_can_act() {
+        let tmp = repo_with_an_aged_orphan(6);
+        assert_eq!(
+            escalate_after_line(&run_checks(tmp.path(), &Options::default())),
+            None,
+            "unset, the report opens with no line"
+        );
+
+        fs::write(
+            tmp.path().join(".yidam/config.toml"),
+            "[lint]\nescalate_after = 5\n",
+        )
+        .unwrap();
+        let mut all = run_checks(tmp.path(), &Options::default());
+        assert_eq!(escalate_after(&all), Some(5));
+        let line = escalate_after_line(&all).expect("a set threshold over a dated check");
+        assert!(line.contains("escalate_after = 5"), "{line}");
+
+        all.retain(|c| !c.escalation_eligible);
+        assert_eq!(
+            escalate_after_line(&all),
+            None,
+            "no check this run asked dates its findings, so the line would promise nothing"
+        );
+
+        fs::write(
+            tmp.path().join(".yidam/config.toml"),
+            "[lint\nescalate_after =\n",
+        )
+        .unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+        assert_eq!(
+            escalate_after(&all),
+            None,
+            "a malformed config armed nothing"
+        );
+        assert_eq!(escalate_after_line(&all), None);
+    }
+
     #[test]
     fn orphan_in_is_the_whole_escalation_eligible_population() {
         let tmp = repo_with_an_aged_orphan(6);
