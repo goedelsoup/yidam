@@ -33,7 +33,11 @@ A `caselaw:` case, such as `caselaw:us/347/0483-01`, needs no token.
 
 A `socrata:` dataset, such as `socrata:data.cdc.gov/bi63-dtpu`, reads the dataset's metadata.
 That names its rows as a `socrata-rows:` location, read page by page to the last row.
-An `arcgis:` layer is read the same way, every feature, until the service stops saying there are more.
+The rows are read from the portal the metadata's `dataUri` names, which is the dataset's home portal.
+Only a tabular dataset has rows; a file or map asset's rows read fails with a 403.
+An `arcgis:` layer is read the same way, until the service stops saying there are more.
+Its features are read in `OBJECTID` order.
+A layer that does not page answers every offset with its first page, and the fetch stops at the repeat.
 
 ## Name a source by identifier
 

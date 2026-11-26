@@ -12,11 +12,18 @@
         match text "dataUpdatedAt" with
         | Some s -> if string.len s < 10 then Some s else Some (string.slice s 0 10)
         | None -> None
+    let rows : String -> String -> Array { key : String, value : String } = \host id ->
+        match text "dataUri" with
+        | Some uri ->
+            if same uri ("https://" ++ host ++ "/resource/" ++ id) then
+                [{ key = "rows", value = host ++ "/" ++ id }]
+            else []
+        | None -> []
     let ids =
         match text "domain" with
         | Some host ->
             match text "id" with
-            | Some id -> [{ key = "rows", value = host ++ "/" ++ id }]
+            | Some id -> rows host id
             | None -> []
         | None -> []
     { name = text "name", kind = None, date, description = text "description", identifiers = ids }

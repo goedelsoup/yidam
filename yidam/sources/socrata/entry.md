@@ -26,7 +26,8 @@ derived column, a rate or an estimate, is the publisher's arithmetic, not a coun
 
 ## Defects
 
-<!-- Suppressed or missing cells, a changed column, a layer whose features are unordered. -->
+<!-- Suppressed or missing cells, a changed column. Rows read from a portal other than the one
+the dataset was named on, when it is federated. -->
 
 ## Access constraints
 
