@@ -549,7 +549,7 @@ fail.
 
 Exit **2** is not available and must not be borrowed. Its sites are `main.rs:1616`, inside the
 clap pre-dispatch arm for "ErrorKind::InvalidSubcommand | ErrorKind::UnknownArgument"
-([`main.rs:1650-1669`](../../yidam/cli/src/main.rs#L1650-L1669)), and the bare-`yidam` fallback
+([`main.rs:1652-1671`](../../yidam/cli/src/main.rs#L1652-L1671)), and the bare-`yidam` fallback
 at `main.rs:1632` — both reached *before* `match cli.command`, so no command body can produce
 it — and
 `tests/suite/binary_pin.rs:140` pins it as the unrecognized-subcommand code. Returning an ordinary
@@ -560,7 +560,7 @@ The one `Err` that is not ordinary is
 [`report::GateFailed`](../../yidam/cli/src/report.rs#L204), the sentinel #926 introduced so
 that the library could stop calling `std::process::exit` from inside a published crate. It
 carries no message, and `main.rs` prints nothing for it
-([`fn main`](../../yidam/cli/src/main.rs#L1639-L1646)) — so the report emitted above it is
+([`fn main`](../../yidam/cli/src/main.rs#L1641-L1648)) — so the report emitted above it is
 still the only thing on the stream, which is the whole property this section is arranged
 around. The exit code did not move; the call to `exit` did.
 
