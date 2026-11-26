@@ -1,0 +1,165 @@
+<mods xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.loc.gov/mods/v3" version="3.3" xsi:schemaLocation="http://www.loc.gov/mods/v3 http://www.loc.gov/standards/mods/v3/mods-3-3.xsd" ID="P0b002ee1bd1d363b">
+    <name type="corporate">
+         <namePart>United States Government Publishing Office</namePart>
+         <role>
+              <roleTerm authority="marcrelator" type="text">publisher</roleTerm>
+              <roleTerm authority="marcrelator" type="code">pbl</roleTerm>
+        </role>
+         <role>
+              <roleTerm authority="marcrelator" type="text">distributor</roleTerm>
+              <roleTerm authority="marcrelator" type="code">dst</roleTerm>
+        </role>
+    </name>
+    <name type="corporate">
+         <namePart>United States</namePart>
+         <namePart>National Archives and Records Administration</namePart>
+         <namePart>Office of the Federal Register</namePart>
+         <role>
+              <roleTerm authority="marcrelator" type="text">author</roleTerm>
+              <roleTerm authority="marcrelator" type="code">aut</roleTerm>
+        </role>
+         <description>Government Organization</description>
+    </name>
+    <typeOfResource>text</typeOfResource>
+    <genre authority="marcgt">government publication</genre>
+    <language>
+         <languageTerm type="code" authority="iso639-2b">eng</languageTerm>
+    </language>
+    <extension>
+         <collectionCode>PLAW</collectionCode>
+         <category>Bills and Statutes</category>
+         <searchTitle>Joint resolution disapproving the action of the District of Columbia Council in approving the Revised Criminal Code Act of 2022.;Public Law 118-1;</searchTitle>
+         <waisDatabaseName>118_cong_public_laws</waisDatabaseName>
+         <branch>legislative</branch>
+         <dateIngested>2023-04-06</dateIngested>
+         <associatedBills>H.J. Res. 26, 118th Congress
+					</associatedBills>
+         <associatedBills>H.J. Res. 26, 118th Congress
+					</associatedBills>
+    </extension>
+    <titleInfo>
+         <title>Joint resolution disapproving the action of the District of Columbia Council in approving the Revised Criminal Code Act of 2022.</title>
+    </titleInfo>
+    <titleInfo type="alternative">
+         <title>Public Law 118-1</title>
+    </titleInfo>
+    <originInfo>
+         <publisher>U.S. Government Publishing Office</publisher>
+         <dateIssued encoding="w3cdtf">2023-03-20</dateIssued>
+         <issuance>monographic</issuance>
+    </originInfo>
+    <physicalDescription>
+         <note type="source content type">deposited</note>
+         <digitalOrigin>born digital</digitalOrigin>
+         <extent>1 digital object pages</extent>
+    </physicalDescription>
+    <classification authority="sudocs">AE 2.110:</classification>
+    <classification authority="sudocs">AE 2.110/3:</classification>
+    <classification authority="sudocs">AE 2.110:118-1</classification>
+    <identifier type="uri">https://www.govinfo.gov/app/details/PLAW-118publ1</identifier>
+    <identifier type="local">P0b002ee1bd1d363b</identifier>
+    <identifier type="ILS system id">001214594</identifier>
+    <identifier type="former package identifier">f:publ001_118</identifier>
+    <recordInfo>
+         <recordContentSource authority="marcorg">DGPO</recordContentSource>
+         <recordCreationDate encoding="w3cdtf">2023-04-06</recordCreationDate>
+         <recordChangeDate encoding="w3cdtf">2026-10-27</recordChangeDate>
+         <recordIdentifier source="DGPO">PLAW-118publ1</recordIdentifier>
+         <recordOrigin>machine generated</recordOrigin>
+         <languageOfCataloging>
+              <languageTerm type="code" authority="iso639-2b">eng</languageTerm>
+        </languageOfCataloging>
+    </recordInfo>
+    <accessCondition type="GPO scope determination">fdlp</accessCondition>
+    <extension>
+         <docClass>PUBLIC</docClass>
+         <accessId>PLAW-118publ1</accessId>
+         <congress>118</congress>
+         <number>1</number>
+         <bill congress="118" context="side note" number="26" priority="primary" type="HJRES"></bill>
+         <bill congress="118" context="legislative history" number="26" priority="primary" type="HJRES"></bill>
+         <isAppropriation>false</isAppropriation>
+         <legislativeHistory>LEGISLATIVE HISTORY--H.J. Res. 26:&amp;lt;br/&amp;gt;&amp;lt;br/&amp;gt;&amp;lt;br/&amp;gt;CONGRESSIONAL RECORD, Vol. 169 (2023):&amp;lt;br/&amp;gt;            Feb. 9, considered and passed House.&amp;lt;br/&amp;gt;            Mar. 8, considered and passed Senate.&amp;lt;br/&amp;gt;&amp;lt;br/&amp;gt;                                  </legislativeHistory>
+         <statuteAtLarge volume="137">
+                                
+              <pages pages="3"></pages>
+                            
+        </statuteAtLarge>
+    </extension>
+    <originInfo>
+         <publisher>U.S. Government Publishing Office</publisher>
+         <dateIssued encoding="w3cdtf">2023-03-20</dateIssued>
+         <issuance>monographic</issuance>
+    </originInfo>
+    <physicalDescription>
+         <note type="source content type">deposited</note>
+         <digitalOrigin>born digital</digitalOrigin>
+         <extent>1 p.</extent>
+    </physicalDescription>
+    <classification authority="sudocs">AE 2.110:</classification>
+    <classification authority="sudocs">AE 2.110/3:</classification>
+    <classification authority="sudocs">AE 2.110:118-1</classification>
+    <identifier type="local">P0b002ee1bd1d363b</identifier>
+    <identifier type="uri">https://www.govinfo.gov/app/details/PLAW-118publ1</identifier>
+    <identifier type="former package identifier">f:publ001_118</identifier>
+    <identifier type="preferred citation">Public Law 118-1</identifier>
+    <location>
+         <url displayLabel="Content Detail" access="object in context">https://www.govinfo.gov/app/details/PLAW-118publ1</url>
+         <url displayLabel="HTML rendition" access="raw object">https://www.govinfo.gov/content/pkg/PLAW-118publ1/html/PLAW-118publ1.htm</url>
+         <url displayLabel="PDF rendition" access="raw object">https://www.govinfo.gov/content/pkg/PLAW-118publ1/pdf/PLAW-118publ1.pdf</url>
+         <url displayLabel="USLM rendition" access="raw object">https://www.govinfo.gov/content/pkg/PLAW-118publ1/uslm/PLAW-118publ1.xml</url>
+    </location>
+    <accessCondition type="GPO scope determination">fdlp</accessCondition>
+    <recordInfo>
+         <recordContentSource authority="marcorg">DGPO</recordContentSource>
+         <recordCreationDate encoding="w3cdtf">2023-04-06</recordCreationDate>
+         <recordChangeDate encoding="w3cdtf">2026-10-27</recordChangeDate>
+         <recordIdentifier source="DGPO">PLAW-118publ1</recordIdentifier>
+         <recordOrigin>machine generated</recordOrigin>
+         <languageOfCataloging>
+              <languageTerm type="code" authority="iso639-2b">eng</languageTerm>
+        </languageOfCataloging>
+    </recordInfo>
+    <extension>
+         <docClass>PUBLIC</docClass>
+         <accessId>PLAW-118publ1</accessId>
+         <congress>118</congress>
+         <number>1</number>
+         <bill congress="118" context="side note" number="26" priority="primary" type="HJRES"></bill>
+         <bill congress="118" context="legislative history" number="26" priority="primary" type="HJRES"></bill>
+         <isAppropriation>false</isAppropriation>
+         <legislativeHistory>LEGISLATIVE HISTORY--H.J. Res. 26:&amp;lt;br/&amp;gt;&amp;lt;br/&amp;gt;&amp;lt;br/&amp;gt;CONGRESSIONAL RECORD, Vol. 169 (2023):&amp;lt;br/&amp;gt;            Feb. 9, considered and passed House.&amp;lt;br/&amp;gt;            Mar. 8, considered and passed Senate.&amp;lt;br/&amp;gt;&amp;lt;br/&amp;gt;                                  </legislativeHistory>
+         <statuteAtLarge volume="137">
+                                
+              <pages pages="3"></pages>
+                            
+        </statuteAtLarge>
+    </extension>
+    <relatedItem type="isReferencedBy">
+         <titleInfo>
+              <title>United States House Joint Resolution 26 (118th Congress)</title>
+        </titleInfo>
+         <identifier type="Congressional Bill citation">H.J. Res. 26</identifier>
+         <extension>
+              <congress>118</congress>
+              <context>side note</context>
+        </extension>
+    </relatedItem>
+    <relatedItem type="isReferencedBy">
+         <titleInfo>
+              <title>United States House Joint Resolution 26 (118th Congress)</title>
+        </titleInfo>
+         <identifier type="Congressional Bill citation">H.J. Res. 26</identifier>
+         <extension>
+              <congress>118</congress>
+              <context>legislative history</context>
+        </extension>
+    </relatedItem>
+    <relatedItem type="isReferencedBy">
+         <titleInfo>
+              <title>United States Statutes at Large</title>
+              <partNumber>Volume 137 Page 3</partNumber>
+        </titleInfo>
+         <identifier type="Statute citation">137 Stat. 3</identifier>
+    </relatedItem>
+</mods>

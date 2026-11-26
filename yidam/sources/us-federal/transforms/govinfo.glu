@@ -1,0 +1,15 @@
+\p ->
+    let same : String -> String -> Bool = \a b -> a == b
+    let pick name acc f =
+        match acc with
+        | Some found -> Some found
+        | None -> if same f.path name then Some f.value else None
+    let text : String -> Option String = \name ->
+        match array.foldable.foldl (pick name) None p.fields with
+        | Some (Text s) -> Some (string.trim s)
+        | _ -> None
+    let ids =
+        match text "mods/extension/accessId/#text" with
+        | Some a -> [{ key = "pdf", value = a }]
+        | None -> []
+    { name = text "mods/titleInfo/title/#text", kind = None, date = text "mods/originInfo/dateIssued/#text", description = None, identifiers = ids }

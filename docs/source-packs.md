@@ -8,7 +8,7 @@ It also says how to ask that publisher politely, and how to read its answers.
 One pack serves every corpus that pins it, so nobody writes a connector twice.
 [RFC-0048](rfcs/0048-source-packs.md) gives the reasoning.
 
-The template ships four packs in `yidam/sources/`. A corpus can also write its own, or pin one another corpus wrote.
+The template ships five packs in `yidam/sources/`. A corpus can also write its own, or pin one another corpus wrote.
 
 | Pack | Schemes | Reads |
 |---|---|---|
@@ -16,6 +16,7 @@ The template ships four packs in `yidam/sources/`. A corpus can also write its o
 | `archive` | `wayback`, `ia`, `ia-file`, `github`, `wikipedia` | Wayback Machine snapshots, Internet Archive items, GitHub files at a commit, Wikipedia revisions |
 | `courts` | `courtlistener`, `caselaw` | CourtListener clusters, opinions and dockets, the Caselaw Access Project's static volumes |
 | `socrata` | `socrata`, `socrata-rows`, `arcgis` | Socrata datasets on any portal, ArcGIS feature layers |
+| `us-federal` | `ecfr`, `govinfo`, `govinfo-pdf`, `uscode`, `fec`, `fec-filing`, `bls`, `census`, `census-api` | CFR sections by date, GovInfo packages, US Code titles, FEC committees and filings, BLS series, Census files and queries |
 
 One `doi:` reaches the full text when Europe PMC holds it open access.
 The DOI's describe names a `europepmc:` location for the same DOI.
@@ -38,6 +39,12 @@ Only a tabular dataset has rows; a file or map asset's rows read fails with a 40
 An `arcgis:` layer is read the same way, until the service stops saying there are more.
 Its features are read in `OBJECTID` order.
 A layer that does not page answers every offset with its first page, and the fetch stops at the repeat.
+
+An `ecfr:` section is read as it stood on a date, such as `ecfr:2024-01-01/40/60.1`.
+A `govinfo:` package, such as `govinfo:PLAW-118publ1`, names its PDF as a `govinfo-pdf:` location.
+A `uscode:` title, such as `uscode:42`, is pinned to the current release point's zip when added.
+`us-federal` needs `FEC_API_KEY` for the FEC and `CENSUS_API_KEY` for `census-api:`, and sends each only to its own API.
+`BLS_API_KEY` is optional. A `census:` file under www2.census.gov needs no key.
 
 ## Name a source by identifier
 
