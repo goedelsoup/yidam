@@ -685,6 +685,11 @@ fn a_used_by_migration_deletes_the_list_and_records_what_it_claimed() {
 /// The listener closes once it has answered them all, so a client that retried would get a
 /// refused connection and fail, which the test sees.
 fn serve(answers: Vec<String>) -> (u16, std::thread::JoinHandle<Vec<String>>) {
+    serve_bytes(answers.into_iter().map(String::into_bytes).collect())
+}
+
+/// [`serve`], for answers whose body is not text: a compressed one.
+fn serve_bytes(answers: Vec<Vec<u8>>) -> (u16, std::thread::JoinHandle<Vec<String>>) {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -701,7 +706,7 @@ fn serve(answers: Vec<String>) -> (u16, std::thread::JoinHandle<Vec<String>>) {
                 }
                 got.extend_from_slice(&buf[..n]);
             }
-            sock.write_all(answer.as_bytes()).unwrap();
+            sock.write_all(&answer).unwrap();
             seen.push(String::from_utf8_lossy(&got).to_string());
         }
         seen
@@ -792,6 +797,46 @@ fn an_identifier_is_fetched_through_its_pack_as_its_transport_says() {
     assert!(!s.head_body().contains("s3cret"));
     let entry = std::fs::read_to_string(s.root().join(".yidam/catalog/loopback-paper.md")).unwrap();
     assert!(entry.contains("from: 0"), "{entry}");
+}
+
+/// The request permits gzip, and a compressed answer is held as the bytes the publisher
+/// served, decoded: the digest and the cached file are of the CSV, not of its transfer encoding.
+/// eCFR refuses a request that does not permit compression (#1603).
+#[test]
+fn a_compressed_answer_is_held_as_its_decoded_bytes() {
+    use sha2::Digest as _;
+    use std::io::Write as _;
+    let body = b"id,n\n1,2\n";
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    gz.write_all(body).unwrap();
+    let gz = gz.finish().unwrap();
+    let mut answer = format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: text/csv\r\ncontent-encoding: gzip\r\n\
+         content-length: {}\r\nconnection: close\r\n\r\n",
+        gz.len()
+    )
+    .into_bytes();
+    answer.extend_from_slice(&gz);
+    let (port, server) = serve_bytes(vec![answer]);
+    let s = stage_pack(port, "");
+    let out = s
+        .run(&["catalog-fetch", "loopback-paper", "--format", "json"])
+        .ok();
+
+    let seen = server.join().unwrap().remove(0).to_ascii_lowercase();
+    let accepts = seen
+        .lines()
+        .find(|l| l.starts_with("accept-encoding:"))
+        .unwrap_or_else(|| panic!("no accept-encoding:\n{seen}"));
+    assert!(accepts.contains("gzip"), "{seen}");
+
+    let report: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let sha = report["fetched"][0]["obtained"][0]["sha256"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{out}"));
+    assert_eq!(sha, hex::encode(sha2::Sha256::digest(body)), "{out}");
+    let held = std::fs::read(s.cache().join("sha256").join(&sha[..2]).join(sha)).unwrap();
+    assert_eq!(held, body);
 }
 
 /// A 403 is recorded on the entry and not retried: the listener answers once and closes, so a

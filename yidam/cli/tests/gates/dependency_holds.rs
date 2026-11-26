@@ -552,3 +552,39 @@ fn workflow_files() -> Vec<PathBuf> {
     out.sort();
     out
 }
+
+// ── reqwest decodes nothing ───────────────────────────────────────────────────
+
+/// reqwest's decoding features stay off, so no client here rewrites the bytes a server sends.
+///
+/// Each of `gzip`, `deflate`, `brotli` and `zstd` makes every `reqwest::Client` this crate
+/// builds send `Accept-Encoding` and decode the answer, unless that call site opts out. A vault
+/// GET or a bundle download decoded like that holds bytes that are not the ones stored, under
+/// a digest of the wrong thing. The catalog transport asks for gzip by hand and decodes it
+/// with `flate2` (#1603), and that is the only decoding there is. Read from both sides: the
+/// manifest names none of the four, and the lockfile resolves `async-compression`, which all
+/// four pull, nowhere — so a dependency turning one on through feature unification is red too.
+#[test]
+fn reqwest_decodes_no_response_body() {
+    let manifest: toml::Value =
+        toml::from_str(&read("yidam/cli/Cargo.toml")).expect("yidam/cli/Cargo.toml is not TOML");
+    let features: Vec<&str> = manifest["dependencies"]["reqwest"]["features"]
+        .as_array()
+        .expect("the reqwest dependency names its features")
+        .iter()
+        .filter_map(toml::Value::as_str)
+        .collect();
+    for decoding in ["gzip", "deflate", "brotli", "zstd"] {
+        assert!(
+            !features.contains(&decoding),
+            "yidam/cli/Cargo.toml turns on reqwest's `{decoding}`, which decodes the body of every \
+             client here. A vault or bundle download must be the stored bytes exactly: decode in \
+             the one transport that needs it, as cmd/catalog/transport.rs does for gzip (#1603)."
+        );
+    }
+    assert!(
+        !locked_packages().contains_key("async-compression"),
+        "yidam/cli/Cargo.lock resolves async-compression, so some dependency turns on a reqwest \
+         decoding feature and every client here decodes the bytes a server sends (#1603)."
+    );
+}

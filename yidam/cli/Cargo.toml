@@ -359,6 +359,10 @@ reqwest = { version = "0.12", default-features = false, features = [
   # cost of storing an artifact proportional to its size. Measured in #412: it resolves
   # **zero** new packages — tokio-util is already here through tokio.
   "stream",
+  # No `gzip`, `deflate`, `brotli` or `zstd`, on purpose. Each turns decoding on for every
+  # client built here, and a vault GET or a bundle download must be the stored bytes exactly.
+  # The catalog transport asks for gzip itself and decodes with `flate2` (#1603);
+  # `tests/gates/dependency_holds.rs` keeps these four off.
 ], optional = true }
 
 # ── `github-app` — the App's JWT (#1233). ─────────────────────────────────────
