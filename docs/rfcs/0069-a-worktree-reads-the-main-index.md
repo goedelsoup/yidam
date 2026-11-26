@@ -1,6 +1,6 @@
 # RFC-0069 — A worktree reads the main checkout's index, and says it did
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Track:** I52
 - **Relates to:**
   - #1517 (the vector index is per checkout, so retrieval silently degrades in git worktrees)
