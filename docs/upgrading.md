@@ -30,6 +30,633 @@ is to run the filing task and commit.
 
 <!-- file-upgrade-notes: new release sections go below this line -->
 
+## cli/v0.27.0
+
+### A plan lands once, as one commit per verb
+
+**`yidam run` moves the branch once, after every operational step has run (#1536).**
+
+Consecutive steps with one verb land as one commit, such as `compute: 8 steps — 23 files at <parent>`.
+A tool that finds a step's commit by `: <step> ` in the subject now finds only a group of one.
+The commit body names every step it carries.
+
+A plan in which any operational step fails lands nothing.
+Re-run it after the fix, and a calculator lands what it computed before.
+A step that declares `ageing_days` runs again, and may give a different answer.
+A branch that moves during a plan discards every step the plan had finished.
+
+See [RFC-0067](rfcs/0067-one-landing-per-plan.md).
+
+### Dated reads can become commit pins
+
+**A new migration, `yidam migrate pins`, writes `commit:` on a `file` location from the read its entry's prose dates (#1527).**
+
+It takes the last "read at <commit>" or "read again at <commit>" in the body.
+The commit is written in full, with `repo:` when only one `path` dependency has it.
+The prose is not changed. A read it cannot place is listed with its reason.
+
+It is opt-in. Run `yidam migrate --dry-run pins` first.
+
+### A coverage universe can report the nodes whose keys it dropped
+
+**`[[due.coverage]]` takes `orphans` and `except` (#1526).**
+
+With `orphans = true`, the coverage clock also lists each instance whose key no member names.
+It respects `scope` and `matches`, and a stale or empty list reads no orphans.
+`except` leaves out instances kept on purpose, by a property or by `label`.
+Each instance it leaves out is counted in the detail.
+A declaration without `orphans` reports exactly what it did.
+
+### A coverage universe can be a registry kept as code
+
+**`[[due.coverage]]` reads TOML, and a pinned source needs no fetch (#1525).**
+
+`select` walks a TOML file with the path syntax it uses for JSON.
+A file is TOML when its name ends in `.toml`.
+A source with a pinned `file` location is read from that file at the pin's `commit`.
+Nothing is fetched or cached for it.
+When the file changes after the read, a zero gap reads as stale coverage.
+Existing universes read as before.
+
+### A symbol pin can be measured at the symbol
+
+**A new non-default feature, `symbol-pins`, measures a pinned read that names a `symbol` by that item (#1524).**
+
+Built with it, the read is due only when the named item's text changes.
+An edit elsewhere in the file no longer makes it due.
+Rust, Python and TypeScript files are parsed; every other file is read at file grain.
+The released binary does not carry the feature, so the same reads come due as before.
+The catalog clock's line for a symbol pin now names the symbol and the grain it read at.
+A script that matches that line exactly needs updating.
+
+### Prose that names a sibling's commit is reported
+
+**A new check, `prose-commit-unpinned` (warning), reads prose under `.yidam/` for "at <hex>" (#1523).**
+
+It reports a commit that this repository does not have.
+The finding names the `path` dependency in `.yidam/tonpa.toml` that has the commit.
+A commit in this repository is left alone, and `docs/` is not read.
+
+The fix is to move the read into a `file` location with `commit` and `repo`.
+A warning does not fail `lint`, so existing prose costs nothing until you next touch it.
+
+### A pinned read comes due when its code changes
+
+**`due`'s catalog clock measures a pinned `file` location by change, not by age (#1522).**
+
+A pinned read is due when its file at the reference revision is a different object.
+The reference is `HEAD` for this repository and the tonpa `rev` for a dependency.
+`ttl_days` no longer applies to an entry whose every location is pinned.
+Such an entry stops expiring in `due`, `lint` and `status`.
+
+The `superseded` clock now treats a move of `commit:` as a new edition only if the file changed.
+Re-dating a read of unchanged code asks nothing of the nodes that cite it.
+
+### A `file` location can pin the commit it was read at
+
+**A `file` location takes optional `commit`, `repo` and `symbol` keys (#1521).** An entry without them reads as before.
+
+`commit` is the commit the file was read at, written in full. `value` is then a path from the repository's top level.
+`repo` names a dependency in `.yidam/tonpa.toml`. Leave it out for this repository.
+`symbol` names what was read. Its last segment must occur as a word in the file at `commit`.
+
+Five checks resolve each pin, with one `git cat-file` per repository:
+
+- `catalog-pin-unresolved` (error): the commit, the `repo` or the path is not there.
+- `catalog-pin-ambiguous` (error): an abbreviated commit matches more than one commit.
+- `catalog-pin-abbreviated` (info): the finding gives the full commit to write.
+- `catalog-pin-symbol-missing` (warning): the symbol does not occur in the file.
+- `catalog-pin-unchecked` (info): a shallow clone, or a dependency with no local checkout.
+
+A binary older than this one ignores the new keys.
+
+### The plugin's launcher honours `YIDAM_ROOT`
+
+**Set `YIDAM_ROOT` to serve one corpus in every project (#1520).** The Claude Code plugin's
+launcher served the git toplevel only, and refused any project without a `.yidam/`. It now
+serves the directory `YIDAM_ROOT` names, as every other command that reads a corpus does. Set
+it in the shell or in Claude Code's settings `env`. Unset or empty, nothing changes.
+
+The corpus is the nearest `.yidam/` at or above the named directory, as for every other
+command. A `YIDAM_ROOT` that is not a directory, or is in no corpus, is refused by name. Before,
+the launcher ignored the variable, so a session could be refused while the variable named a
+corpus.
+
+A local build in `.local/bin/yidam` is still looked for in the project the session opened. It
+is not looked for in the shared corpus. `YIDAM_BIN` and `PATH` still come first.
+
+No variable needs threading through by hand. The launcher `exec`s the server with its whole
+environment, `FASTEMBED_CACHE_DIR` and the `HF_*` variables included. Since #1516 the model
+cache is under the corpus root by default, so a shared corpus finds its own cache.
+
+The plugin is version 0.3.1.
+
+### A corpus gate can check what is staged
+
+**`graph-check`, `lint` and `regen --check` take `--staged` (#1519).** Each one checks the tree
+the next commit would hold, which is the index, not the working tree. Unstaged edits and
+untracked files are left out. The run happens in a scratch worktree of HEAD under the git
+directory. Every check that reads history still reads it. The report names the repository,
+never the scratch tree. No file you author moves.
+
+A staged run needs a commit at HEAD and an index with no unmerged paths. `lint --staged` does
+not combine with `--commits`, `--bless` or `--init-baseline`.
+
+If a pre-commit script exports the index with `git checkout-index` before running the gates,
+replace the export with `--staged`. The configuration page gives a reference script.
+
+**`yidam doctor` counts a local hook as a gate.** Its `ci` check used to read only
+`.github/workflows/`. It now also reads `pre-commit` and `pre-push` in the hooks directory git
+uses, `core.hooksPath` included. A repository gated only by such a hook now passes `ci`. The
+check names the hook and the checkouts it binds. A hook that is not executable is named
+and does not count.
+
+A pre-commit gate counts only when it carries `--staged`. The flag may sit in the hook or in
+the `mise run` task it calls. Without it, the check names the gate and the missing flag. A
+pre-push gate counts as written, with a note that it reads the working tree. A hook under the
+git directory binds this clone and its linked worktrees.
+
+Each staged gate checks out the staged tree once. Smudge filters other than Git LFS run for it.
+
+### `vocabulary --check` exits 1 on a violation
+
+**`yidam vocabulary --check <subject>` now exits 1 when the subject breaks a rule (#1518).**
+It printed the verdict and exited 0 before, so a script reading the exit code refused nothing.
+Listing mode, `yidam vocabulary` with no subject, still exits 0.
+
+**A subject git wraps is judged by what the wrapper holds.**
+`Revert "…"` and `Reapply "…"` are checked by the reverted subject.
+`fixup!` and `squash!` are checked by the target's subject after the marker.
+`amend!` is checked by the replacement subject on the first line of its body.
+So `Revert "wip"` is refused, and `Revert "establish: a node"` passes.
+`lint --commits` judges a revert the same way, and still reports an autosquash marker in history as unsquashed.
+
+**Two subjects are not judged at all.**
+A generated merge subject is exempt while a merge is in progress, read from `MERGE_HEAD`.
+A commit whose staged paths are all `[object] paths` is exempt, as `lint --commits` exempts it.
+
+**The MCP tool `check_subject` reads the repository the same way.**
+Its contract is unchanged, and its `violations` now agree with `--check` on every subject above.
+`recognized` still says only whether `verb` is in the vocabulary.
+So a wrapped or exempt subject can read `recognized: false` with no violations; `violations` is the verdict.
+
+See [the CLI reference](cli-reference.md).
+
+### A git worktree reads the main checkout's index
+
+**`retrieve` in a worktree answers by vector search (#1517).** `.yidam/index/` is gitignored,
+so a `git worktree add` checkout had no index and answered every `retrieve` by keyword. A
+worktree with no index of its own now reads the main worktree's. It does so only when that
+index was built at the branch's HEAD or an ancestor of it. No file you author moves.
+
+An index built on a commit the branch does not contain is refused, and `retrieve` degrades
+under `no_index` as before. This happens when the main checkout rebuilds after the baseline
+moves. `yidam doctor` names the refused commit. Merge the baseline, or run `yidam index-build`
+in the worktree. A worktree's own index always wins.
+
+**The MCP contract is 0.37.0.** The `corpus` capability block and every `retrieve` response
+carry `index_source`: `local`, `shared`, `remote`, or null. On `retrieve` it is null whenever
+`degraded` is true. `index-status --format json` gains `index_source` and `index_path`.
+
+`export`, `bundle` and `index-push` still package only a worktree's own index.
+
+### `retrieve` answers by keyword when the model cannot load
+
+**A missing model no longer fails the call (#1516).** Before, `retrieve` returned an error when
+the embedding model was neither cached nor downloadable. It now answers by keyword search.
+`degraded_reason` is the new value `model_unavailable`. The MCP contract is 0.36.0.
+
+A client that switches on `degraded_reason` should handle the new value. It describes a call,
+as `remote_unavailable` does. The server retries the load on every search.
+
+**The model cache moved to the corpus root.** It was `.fastembed_cache` under the working
+directory. It is now `.fastembed_cache` under the corpus root, unless `[index] cache_dir` or
+`$FASTEMBED_CACHE_DIR` names another place. A server started from another directory read the
+wrong cache and downloaded the model again. If your model sits elsewhere, set the key:
+
+```toml
+[index]
+cache_dir = "/srv/models"
+```
+
+**Seed the cache offline with `yidam model fetch --from <dir>`.** Copy a cache from a machine
+that can download, then pass it. The command copies the files and checks the model loads.
+
+The download still uses rustls with the bundled Mozilla roots. A gateway that re-signs TLS with
+a private root still fails it. Seed the cache instead.
+
+### `doctor` dates its offers, and a decline names its record
+
+**`doctor` separates an offer from a defect (#1512, RFC-0066).** An offer is something a
+release added since you adopted yidam. An undecided offer warns and names that release.
+A declined one does not warn, so `--strict` passes it.
+
+**`[doctor.declined]` declines an offer by its id, naming a decision record.** The ids are
+offer ids, not check ids. A declined offer reads `declined`, and the report counts it.
+
+```toml
+[doctor.declined]
+routes = "agents-by-hand"
+```
+
+A key naming no offer is listed under `unknown_declines`, and `--strict` fails on it.
+
+**`[schema] owner = "repository"` says this repository writes `.yidam/schemas/`.** `yidam schema`
+then writes nothing, and `--force` refuses. The `cli/v0.17.0` note (#1057) was wrong for such a repository.
+It said to run `--force`, which replaces your schemas with the generic ones. A guard task
+around `mise run schema` is no longer needed.
+
+**`expire_after` in `.yidam/lint-baseline.yml` now wants a record.** Write one in
+`.yidam/decisions/` stating the same `expire_after` in its frontmatter. Name it as
+`expire_record`, and nothing else is owed. Without one, `lint` prints a warning. A record
+stating another number fails the ratchet.
+
+**`--bless` keeps the baseline's argument block, and each entry's `note:`.** You no longer restore
+them by hand after a bless.
+
+### A pin names its release, and `due` counts the releases since
+
+**`.yidam.toml` gains a sixth field, `release` (#1511, RFC-0065).** It names the `cli/vX.Y.Z`
+release the pin installs. `cli` still names the binary that wrote the file, which is often not
+that one. Your next `mise run yidam-vendor-update` writes the field, and nothing else is owed.
+
+**`template` reads differently after that re-vendor.** It names the nearest template tag and the
+commits past it, as `v0.13.0+6`. It read `untagged` whenever the pin was not on a tag.
+
+**`yidam due` has an eighth clock, `template`, and it reads the network.** It makes one bounded
+`git ls-remote` against the pin's `origin` and counts newer releases. An origin it cannot reach
+reads `undeclared` until you set an interval and `unmeasurable` after, so no exit code changes.
+Declining the clock skips the read. Declare an interval to make it come due:
+
+```toml
+[due]
+template_after = 1
+```
+
+A repository with no `.yidam.toml` reports no `template` row. A consumer that counted seven
+clocks now sees eight wherever there is a pin.
+
+### A generated corpus can declare itself a projection
+
+**A corpus written by a program can now say so in `.yidam/config.toml` (#1510).**
+
+Add a `[corpus]` table with `mode = "projection"` and `generated_by`, naming the producer.
+The producer also writes `.yidam/corpus/corpus.toml` with an `id` on every run.
+That id names the corpus in RDF subjects and vector keys, in place of the genesis hash.
+Keep the id stable across runs, since a new id re-keys everything published.
+
+In a projection, commands that write the corpus refuse and name the producer.
+`doctor` skips its vendoring checks, and `status` reports `mode` and no genesis date.
+
+Two changes apply to every corpus.
+A class may declare `outgoing: optional` to exempt its instances from `orphan-out`.
+Every command that reads a corpus takes `--root`, and `YIDAM_ROOT` names one when `--root` does not.
+
+Nothing is owed by an authored corpus. See [RFC-0064](rfcs/0064-a-projected-corpus.md).
+
+### tonpa pins a dependency's export, and `derive check` reads it at that pin
+
+**A pinned path dependency may declare `export = "<file>"` (#1508, RFC-0063).**
+
+`tonpa add <path>@<rev> --export <file>` reads the file at the pin.
+It unpacks it to `.yidam/tonpa/<name>/export/` and hashes it in the lock.
+It is refused when the corpus moved after the commit that last wrote the file.
+With an export, `tonpa update` moves to the commit on HEAD's history that last wrote it.
+`tonpa verify` fails an export the lock does not hash, and `tonpa install` hashes it.
+
+**`query --dependency <name>` answers from a pinned path dependency at its locked commit.**
+
+It reads exactly as `--root <path> --at <rev>` does, both taken from tonpa.
+
+**`[[derive.records]]` holds a JSON file's span records as citations.**
+
+Each record's node must resolve, and its span must be in the node's file.
+Its governing quote must sit in one paragraph that carries a standing tag.
+A pointer, or a mapping, matching nothing is `derive-record-unmatched`, an error.
+See [Configuration](configuration.md#derive-records) for the mapping's keys.
+
+**`[derive]` now refuses unknown keys.**
+
+A misspelt key under `[derive]` fails every command that reads the config.
+Fix the key, or remove it.
+
+**`derive check --format json` gains `records`, the number of records matched.**
+
+Hold it above zero in CI, so an older CLI that reads no records fails.
+It is `0` with no mappings, and no other output changes.
+
+### kuten check reads the corpus register
+
+**`kuten check` and `practice` leave out a commit touching only `[object] paths` (#1507, RFC-0062).**
+
+They read the same population `lint --commits` already reads.
+`cohort` still counts every authored commit.
+A corpus with no object declared reads exactly as before.
+A path under `.yidam/` is corpus whatever the globs say.
+
+**The verdict names what it left out.**
+
+A line reads `register: 1432 object-only commit(s) left out ([object] paths)`.
+The same line goes on to the unscoped phase and off-vocabulary shares.
+The `--json` measurement gains four `object_only_` counts, each 0 with no object.
+
+**A `PRACTICE.md` REGEN block may go stale.**
+
+Its figures now count the scoped population, so run `yidam regen` once.
+See [RFC-0062](rfcs/0062-kuten-reads-the-corpus-register.md) for the measurement behind the change.
+
+### An open claim may say the record cannot answer it
+
+**Write `[open — unanswerable: <reason>]` on an open claim the record cannot answer (#1506, RFC-0061).**
+
+The reason is one of three: `not in the public record`, `out of scope` or `superseded`.
+The claim stays open, listed and counted.
+See [RFC-0061](rfcs/0061-unanswerable-open-claims.md) for why the list is closed.
+
+**The questions clock in `due` stops counting a node once every open claim on it is marked.**
+
+A marked question is named beside the count, as in `2 open, 1 unanswerable`.
+With none marked, every `due` line reads exactly as before.
+`status` names the count beside its open questions, and `--json` gains `unanswerable`.
+
+**`open_questions` gains `unanswerable` and `reasons` (MCP contract 0.35.0).**
+
+An entry whose every open claim is marked carries `unanswerable`, its first reason.
+An entry with at least one marked carries `reasons`, every marked claim's reason.
+Both are absent on a plain entry.
+
+**`claim-tag-malformed` names two misuses of the form.**
+
+A reason outside the three reads as a plain `[open]` and stays owed.
+The word on a claim that is not open is no claim at all.
+No corpus wrote the form before this, so no existing output changes.
+
+### A long node is indexed as passages
+
+**`index-build` now splits a long node's text into passages of at most 1,200 characters (#1505).**
+
+Each passage is embedded on its own, so a phrase deep in a long node is findable again.
+A node that fits in one passage is one row, exactly as before.
+A search returns a node once, with the passage that scored best.
+See [RFC-0060](rfcs/0060-embed-passages.md) for how the text is split.
+
+**Rebuild the index with `yidam index-build`.**
+
+The witness in `embed.config.json` now reads `format_version: "2"` and records its `passages`.
+An index built before this keeps working, with every row read as passage 0.
+`yidam doctor` reports such an index as stale and names `index-build`.
+This release refuses an index whose `format_version` it does not know.
+
+**Move the producer and every consumer of a shared remote index together.**
+
+A rebuilt remote index keys a passage as `path#n`.
+An older pin cannot resolve those keys, and several passages of one node can fill its results.
+A consumer on this release refuses the older witness, so the mismatch is never silent here.
+
+**`retrieve` gains `passage` (MCP contract 0.34.0).**
+
+A vector result's `text` is the passage that scored, and `passage` numbers it from 0.
+`k` counts nodes, not passages.
+Keyword search and an index built before this answer 0.
+
+**`index-status` gains `row_count`.**
+
+`node_count` still counts distinct nodes, and `row_count` counts the passages they were split into.
+An index built before this reports its `node_count` as its `row_count`, one row per node.
+
+**`export-sqlite` writes one row per passage, with a `passage` column.**
+
+A `vec0` query returns rows, so group by `path` to get one answer per node.
+[Domain computers](domain-computer.md) shows the query.
+
+**One new check, `node-too-many-passages`, warns on a node past 32 passages.**
+
+That is about 38,000 characters of composed text, in any class.
+The finding names the passage and character counts and suggests where the node splits.
+This release is a minor bump.
+
+### A table is a catalog entry that declares its columns
+
+**A `dataset` entry may now declare its table with `columns:` and `key:` (#1504, RFC-0059).**
+
+The entry's one `file` location must name a tracked `.tsv` or `.csv`.
+Each column takes a `name` and a `type`: `string`, `number`, `date` or `ref`.
+A column may also take `required`, `unit` and `values`, as a list property's `fields:` do.
+
+```yaml
+type: dataset
+location:
+  - kind: file
+    value: data/sos-receipts.tsv
+columns:
+  - { name: report_id, type: string }
+  - { name: line, type: number }
+  - { name: amount, type: number, unit: USD }
+key: [report_id, line]
+```
+
+**Three new checks read a declared table.**
+
+`table-declaration-invalid` is an Error on a declaration that cannot be held to.
+`table-shape` is an Error on a file that departs from its declaration.
+`table-ref-unresolved` is a warning on a `ref` cell that names no node.
+An entry outside `type: dataset` that carries `columns:` or `key:` is not read for either.
+A `dataset` entry already using `columns:` for something else is reported by the first check.
+
+**`yidam run` checks a declared table before it reads one and after it writes one.**
+
+A failing read stops the step before it starts.
+A failing write fails the run, and nothing is committed.
+An undeclared table is read as before.
+
+**The kit gains `table(path)` in Python and Rust.**
+
+It reads a declared table into rows typed by its columns.
+`yidam run` names the declarations in `$YIDAM_TABLES`, and the receipt records their digest.
+An older pin sets no `$YIDAM_TABLES`, so `table()` refuses there; update the pin first.
+
+**A markdown link may cite one row, as `sos-receipts.md#row=OH-2025-88412,3`.**
+
+The fragment holds the key's values in `key:` order, joined by `,`.
+`broken-prose-link` reports a key no row holds, or the wrong number of values.
+An older pin reads the fragment as a heading anchor, and the link still cites the entry.
+This release is a minor bump.
+
+### A signal quoted in prose is a block that regen refreshes
+
+**A new REGEN generator, `yidam signal`, writes one computed signal into prose (#1503, RFC-0058).**
+
+In a node file, `yidam signal <name>` reads the node's own row.
+Anywhere else, `yidam signal <node-ref> <name>` names the node first.
+Three modifiers shape a number: `places=N`, `percent` and `grouped`.
+
+```yaml
+description: |
+  Travels as <!-- REGEN: yidam signal travels_as -->open<!-- /REGEN --> below the impoundment.
+```
+
+**REGEN is now read in node files, inline blocks only.**
+
+`regen --check`, `unclaimed` and `malformed-regen-block` all read `.yidam/corpus/` node files.
+No node file held a REGEN block when this shipped, so no output changes until one is written.
+`yidam run` refreshes every signal block in its `compute:` commit.
+`yidam count` refreshes an inline count block in a node file too.
+A write that would leave a node file unreadable as YAML is refused, and the file is kept.
+
+**Readers strip the markers from node prose.**
+
+`embed`, `export` and `lint`'s prose checks read a block's body and never its tags.
+An older pin indexes the tags as prose without saying so.
+That is why this release is a major bump.
+Update the pin before writing the first block.
+
+A corpus adopts the block by wrapping a quoted value in one whose body is that value.
+The first `regen --check` passes, because nothing moved.
+
+### A paragraph can be ruled not a refusal, and a corpus can ask to be asked
+
+**A node may now declare `not_refusals:` beside `refuses:` (#1502, RFC-0057).**
+
+Each entry's `span` quotes a paragraph a person ruled declines nothing.
+`derive check` no longer proposes that paragraph as `derive-refusal-candidate`.
+Neither list is read as the node's prose.
+
+**`refusal-span-drift` now reports four more errors.**
+
+It fails a drifted `not_refusals:` span, as it fails a drifted `refuses:` span.
+It fails a span on either list that crosses a blank line.
+It fails a span found in more than one paragraph.
+It fails a paragraph that holds a span from each list.
+No corpus declared a refusal when this shipped, so no existing corpus should see these.
+
+**A new Info check, `refusal-undeclared`, runs only where a corpus asks.**
+
+To turn it on, add this block to `.yidam/corpus/universal.yml`.
+
+```yaml
+refusals:
+  propose: true
+```
+
+It names each paragraph that reads like a refusal and that neither list rules on.
+It never gates, because about four in ten of the paragraphs it names are not refusals.
+
+A corpus that keeps a refusal ledger can move it into its nodes.
+Each `refusal` row becomes a `refuses:` entry, and each `not-a-refusal` row a `not_refusals:` entry.
+An older pin reads `not_refusals:` strings as prose, so update the pin in the same commit.
+
+### A run reads what a step wrote, and a kit writes it
+
+**`yidam run` now refuses a step whose output would not read (#1501).**
+
+Every `.yml`, `.yaml` and `.json` output must parse. The refusal quotes the failing line.
+A file directly under `.yidam/computed/` must pass the rules `yidam doctor` applies to signal tables.
+A computed `.yaml` is refused, because only `.yml` is read there.
+Nothing is committed when a step is refused.
+
+A step that already lands a parseable table is unaffected.
+A report artifact, such as a TSV or a nested file, keeps every form it has.
+
+**The prelude now ships a calculator kit under `.vendor/prelude/kit/`.**
+
+It reads `$YIDAM_GRAPH` and writes a signal table, in Python or in Rust.
+Add `.yidam/.vendor/prelude/kit/**` to a step's `reads` to import it.
+See [the CLI reference](cli-reference.md).
+
+### The watch ledger moves to its own branch
+
+**`watch.yml` now commits its rows to a `yidam/watch` branch, not the default branch (#1500, RFC-0055).**
+
+A quiet month was thirty heartbeat commits in a history every reader counts.
+The ledger keeps its path and format, on an orphan branch that holds nothing else.
+The `watch` job in `ci.yml` fetches it from there and reads it with the same gate.
+The round's guard is stricter: the checkout may hold no change at all.
+
+**What changes for you: nothing, unless your watch is armed.**
+Copy both workflows from `sadhana/github/workflows/` and move the ledger in the same change:
+
+```bash
+git show HEAD:.github/watch/heartbeats.tsv > "$TMPDIR/heartbeats.tsv"
+git switch --orphan yidam/watch
+mkdir -p .github/watch && cp "$TMPDIR/heartbeats.tsv" .github/watch/heartbeats.tsv
+git add .github/watch/heartbeats.tsv
+git commit -m "establish: the watch ledger, moved off main"
+git push origin yidam/watch
+git switch -
+git rm .github/watch/heartbeats.tsv
+```
+
+Then commit the deletion with the two workflows.
+A ledger left on the default branch fails the gate, and the failure prints these commands.
+Old watch commits stay in history; only new rounds go to the branch.
+
+A watch of your own, with a gate that compiles its ledger in, can read it from `origin/yidam/watch` instead.
+
+### REGEN refreshes ride in the commit that caused them
+
+**`settle --merge`, `yidam run` and a new `yidam regen --fold` stop writing separate `regen:` commits (#1499).**
+
+`settle --merge` writes the refreshed blocks into the merge, and `merged.regen` is always null.
+Each `compute:` commit from `yidam run` carries the blocks it made stale.
+`yidam regen --fold` amends the blocks into an unpushed HEAD, with a `Regen:` trailer.
+The practice block now reads the history before the commit carrying it, so one reading shifts by one commit.
+
+Run `yidam regen --check` after upgrading. Fold any stale block, or commit it with `--commit`.
+See [RFC-0054](rfcs/0054-fold-derived-commits.md).
+
+### A catalog entry no longer lists what cites it
+
+**Run `yidam migrate --dry-run used-by`, then `yidam migrate used-by` (#1498, RFC-0053).**
+
+It deletes every `used-by:` block from the catalog. `catalog-audit` still reports the citers as `cited_by`.
+Read the names it says the list held and nothing cites. Each one is a stale name or a missing citation.
+The migration writes nothing to git. Commit the change under the `migrate:` subject it prints.
+
+`catalog-used-by-drift` is gone. `catalog-used-by-declared` warns on an entry that still declares a list.
+
+`catalog-reconcile` is retired and leaves the built-in cluster steps. It writes nothing and exits 0.
+Its report keeps `reconciled`, always empty. The next release removes the command.
+
+`propose withdraw` no longer edits a catalog entry. In `catalog-audit`, `drift` is always null.
+
+### A re-run that reproduces its receipt writes a note, not a commit
+
+**`yidam run` no longer commits a receipt-only change when a re-run writes the outputs it already committed (#1497, RFC-0052).**
+
+It appends a line to a note on the committed receipt, in `refs/notes/yidam-runs`, and the branch does not move.
+A step whose input moved and whose answer did not is then fresh on the next run.
+The JSON run report gains `noted` on each step. It is null when no note was written.
+
+Notes are not shared by default. To share them, fetch the ref, merge with `cat_sort_uniq`, and push it.
+`yidam doctor` warns when a clone holds notes no remote fetches. A new check, `run-output-stamps-input-commit`, warns about an output that contains its own input commit.
+
+### A coverage universe can be narrowed, and its class scoped
+
+**`[[due.coverage]]` takes two optional keys (#1495).** A table without them reads as before.
+
+**`matches` filters a mixed list.** Point the clock at the published list itself, not at a copy
+your fetcher filtered. Identifiers the pattern rejects are outside the universe. The detail
+counts them:
+
+```toml
+matches = '^(HB|SB|HJR|SJR)\b'
+```
+
+**`scope` handles identifiers that repeat across periods.** Only an instance carrying the edge
+covers a member. Declare one table per period:
+
+```toml
+scope = { relationship = "introduced-in", target = "general-assembly/136th-general-assembly.yml" }
+```
+
+If you added a property unique across periods only to suit the clock, `scope` replaces it.
+
+### The kuten profile gives the right reason for an empty `thresholds`
+
+**`KUTEN.md` no longer says escalation arrives as a policy override (#1361).** `escalate_after` is
+this corpus's own `[lint]` setting in `config.toml`. A kuten still proposes no threshold. Only
+the stated reason changed, so a re-vendor shows a three-line diff and changes no behaviour.
+
 ## cli/v0.26.0
 
 ### `due` reports a seventh clock, for what a corpus lacks

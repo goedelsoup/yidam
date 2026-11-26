@@ -133,6 +133,20 @@ pub mod model;
 #[cfg(feature = "vector-read")]
 #[doc(hidden)]
 pub use cmd::index_build;
+/// `index-build` in a build without `vector-read`. The root comes first, as `model fetch`
+/// resolves it: a `--root` naming no corpus is the refusal either build gives.
+#[cfg(not(feature = "vector-read"))]
+#[doc(hidden)]
+pub fn index_build(root: Option<&std::path::Path>, _model: Option<String>) -> anyhow::Result<()> {
+    let root = paths::resolve_root(root)?;
+    anyhow::bail!(
+        "`index-build` needs the `vector-read` feature to build an index for {} — reinstall \
+         with `cargo install yidam --locked --features vector-read` (pulls fastembed and an \
+         ONNX runtime; no protoc).\n  \
+         Or fetch an index built elsewhere — see `yidam vault pull --index`.",
+        root.display()
+    )
+}
 #[cfg(all(feature = "vector-read", feature = "s3-vectors"))]
 #[doc(hidden)]
 pub use cmd::index_push;

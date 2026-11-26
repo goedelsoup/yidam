@@ -7,6 +7,27 @@ The extension and the `yidam` CLI version independently (VERSIONING.md, Layer 4)
 they negotiate on is neither version but the report contract, `format_version` — so an
 entry that changes which contract this build understands says so explicitly.
 
+## 0.4.0
+
+Report contract: still **1**. Every field this build reads that 0.3.0 did not is optional,
+and a `yidam` that omits it renders as 0.3.0 did. Two rows need `yidam` 0.27.0 or later.
+
+- **A declined offer leaves the Setup row.** `yidam doctor` can now report a check as
+  `declined`: an offer the repository decided against in a decision record it holds. The
+  Setup row no longer counts it as something to act on, which would re-ask a question the
+  repository already answered. Needs `yidam` 0.27.0 or later.
+
+- **The index tooltip counts nodes and passages.** A long node is now indexed as several
+  passages. The Semantic index tooltip reads `N nodes`, and adds `in N passages` when the two
+  counts differ. It used to call the node count rows. Needs `yidam` 0.27.0 or later.
+
+- **The `used-by` drift tooltip goes quiet.** A catalog entry no longer stores what cites
+  it, so a current CLI sends no drift and the Sources tooltip says nothing about it. An older
+  CLI's drift still shows.
+
+- **The phase report types name `interrupted`, `source` and `type`.** These are fields a
+  CLI since 0.14.0 sends. They are typed, not yet rendered.
+
 ## 0.3.0
 
 Report contract: still **1**. Every field this build reads that 0.2.0 did not is optional,
