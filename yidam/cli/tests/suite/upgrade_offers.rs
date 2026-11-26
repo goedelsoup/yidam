@@ -1,7 +1,8 @@
 //! RFC-0066 end to end: a declined `doctor` offer, and a lint baseline whose `expire_after` is
-//! argued — or not — by the decision record it names. Both emit fields the basic fixture's
-//! goldens cannot reach without moving every runner graded against them, so this file stages
-//! each arm and holds every emitted path to the committed report schema.
+//! argued — or not — by the decision record it names. Also a set `[lint] escalate_after`,
+//! which `lint` names (#1584). Each emits fields the basic fixture's goldens cannot reach
+//! without moving every runner graded against them, so this file stages each arm and holds
+//! every emitted path to the committed report schema.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -258,4 +259,71 @@ fn an_expire_record_that_is_not_held_fails_and_names_it() {
         stderr.contains("expire_record names baseline-expiry"),
         "{stderr}"
     );
+}
+
+/// A set `escalate_after` opens the text report and sits in the JSON gate, so a failed build
+/// names the number that failed it without anyone reading `config.toml` (#1584).
+#[test]
+fn a_set_escalate_after_is_named_by_the_report_and_the_gate() {
+    let tmp = stage();
+    write(
+        tmp.path(),
+        ".yidam/config.toml",
+        "[lint]\nescalate_after = 7\n",
+    );
+
+    let doc = json(tmp.path(), &["lint"]);
+    assert_eq!(doc["gate"]["escalate_after"], 7, "{:#}", doc["gate"]);
+    declared(&doc, "lint", "gate", &["gate.escalate_after"]);
+
+    let out = yidam(tmp.path(), &["lint"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let first = stdout.lines().next().unwrap_or_default();
+    assert!(
+        first.starts_with("lint: `[lint] escalate_after = 7` in .yidam/config.toml"),
+        "the report does not open with the threshold: {stdout}"
+    );
+}
+
+/// Unset, neither surface says anything: absent is the state where nothing escalates, and a
+/// line saying so on every run would be noise.
+#[test]
+fn an_unset_escalate_after_is_named_nowhere() {
+    let tmp = stage();
+    let doc = json(tmp.path(), &["lint"]);
+    assert!(
+        doc["gate"].get("escalate_after").is_none(),
+        "{:#}",
+        doc["gate"]
+    );
+    let stdout = String::from_utf8_lossy(&yidam(tmp.path(), &["lint"]).stdout).to_string();
+    assert!(!stdout.contains("escalate_after"), "{stdout}");
+}
+
+/// A malformed config is refused before any check runs, so no report names a number from it.
+///
+/// The lenient read that hands the checks no threshold is for in-process callers such as
+/// `serve --lsp`, and the unit test `the_opening_line_names_only_a_threshold_that_can_act`
+/// holds it. From the command line the parse error is the answer (#1584).
+#[test]
+fn a_malformed_config_names_no_escalate_after() {
+    let tmp = stage();
+    write(
+        tmp.path(),
+        ".yidam/config.toml",
+        "[lint\nescalate_after = 7\n",
+    );
+
+    for args in [&["lint"][..], &["lint", "--format", "json"]] {
+        let out = yidam(tmp.path(), args);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            !out.status.success(),
+            "`yidam {}` accepted it",
+            args.join(" ")
+        );
+        assert!(stderr.contains("config.toml"), "{stderr}");
+        assert!(!stdout.contains("escalate_after"), "{stdout}");
+    }
 }

@@ -2433,6 +2433,12 @@ const UNREACHED: &[(&str, &str)] = &[
          decline and holds every emitted path to this schema (RFC-0066)",
     ),
     (
+        "gate.escalate_after",
+        "`lint` emits it only when `.yidam/config.toml` sets `[lint] escalate_after`, and this \
+         fixture has no config. Setting one would move every golden that reads the gate. \
+         `upgrade_offers.rs` sets it and holds every emitted path to this schema (#1584)",
+    ),
+    (
         "gate.expiry_record.record",
         "`lint` names the record only when the baseline declares `expire_record`, and this \
          fixture's baseline declares `expire_after` alone — the state every baseline is in \

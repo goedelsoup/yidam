@@ -171,6 +171,20 @@ threshold can reach this check at all.
 finding shape. Arming this changes nothing about that shape. So "most of our findings are
 awaiting an editorial pass" is not by itself an argument against it.
 
+#### A set value is named where the build fails
+
+When this key is set, `yidam lint` opens its report with one line naming it.
+It does so only when the run includes a check that dates its findings:
+
+```
+lint: `[lint] escalate_after = 100` in .yidam/config.toml — a dated finding older than 100 corpus commit(s) fails the build
+```
+
+`--format json` carries the same number as `gate.escalate_after`. Unset, both say nothing.
+Nothing requires this. RFC-0024 forbids only loosening a gate silently, and this key tightens
+one. It is shown because a person asking why a build failed reads `lint`, not this file.
+`doctor` does not report it. RFC-0028's Erratum 9 records the decision.
+
 ### `[propose] withdraw_uncited_after`
 
 Corpus-touching commits an uncited node may hold before [`yidam propose`](cli-reference.md#propose-is-deliberately-small)
