@@ -1058,12 +1058,12 @@ splice_region .claude/CLAUDE.md "$tmp/yidam/sadhana/root/CLAUDE.md" CLAUDE '^## 
 # cloned the origin, and the question it can answer is the better one anyway: not "is the
 # issue closed" but "is the fix at the commit this repository now pins".
 #
-# Every tracked file is read except the vendored tree, which is upstream's own text, and
-# the corpus, which may cite an issue as a subject rather than as a workaround. A commit
-# counts as the fix when it names the issue the way this project writes one — `(#587)` in
-# the message, or closes/fixes/resolves #587.
+# Every tracked file is read except upstream's own text — the vendored tree, and this file,
+# which cites #587 above (#1605) — and the corpus, which may cite an issue as a subject
+# rather than as a workaround. A commit counts as the fix when it names the issue the way
+# this project writes one — `(#587)` in the message, or closes/fixes/resolves #587.
 # WORKAROUNDS BEGIN
-cited=$(git grep -h -o -I -E -e 'yidam#[0-9]+' -e 'yidam/issues/[0-9]+' -- . ':!.yidam/.vendor' ':!.yidam/corpus' 2>/dev/null | sed 's/.*[#/]//' | sort -n -u || true)
+cited=$(git grep -h -o -I -E -e 'yidam#[0-9]+' -e 'yidam/issues/[0-9]+' -- . ':!.yidam/.vendor' ':!mise.yidam.toml' ':!.yidam/corpus' 2>/dev/null | sed 's/.*[#/]//' | sort -n -u || true)
 shipped=""
 for n in $cited; do
   fix=$(git -C "$tmp/yidam" log -1 --format='%h %s' -E -i --grep="[(]#$n[)]" --grep="(close[sd]?|fix(e[sd])?|resolve[sd]?) #$n([^0-9]|$)" HEAD 2>/dev/null || true)
