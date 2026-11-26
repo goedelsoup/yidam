@@ -179,8 +179,6 @@ impl S3Store {
     fn client(&self) -> Result<reqwest::Client> {
         reqwest::Client::builder()
             .user_agent(concat!("yidam-vault/", env!("CARGO_PKG_VERSION")))
-            // The bytes as stored, never decoded: only the catalog transport asks for gzip (#1603).
-            .no_gzip()
             .build()
             .context("building the HTTP client")
     }

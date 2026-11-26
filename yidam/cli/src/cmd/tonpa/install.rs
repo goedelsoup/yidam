@@ -8,8 +8,6 @@ use super::config::LockedPackage;
 pub async fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
     let client = reqwest::Client::builder()
         .user_agent("yidam-tonpa/0.1")
-        // The bytes as stored, never decoded: only the catalog transport asks for gzip (#1603).
-        .no_gzip()
         .build()
         .context("building HTTP client")?;
     let resp = client

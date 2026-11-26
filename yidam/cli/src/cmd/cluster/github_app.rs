@@ -347,8 +347,6 @@ fn mint(app: &App, repo: &Repo) -> Result<Token> {
     crate::runtime::block_on(async {
         let client = reqwest::Client::builder()
             .user_agent(concat!("yidam-cluster/", env!("CARGO_PKG_VERSION")))
-            // The bytes as stored, never decoded: only the catalog transport asks for gzip (#1603).
-            .no_gzip()
             .build()
             .context("building HTTP client")?;
         let send = |req: reqwest::RequestBuilder| {

@@ -107,8 +107,6 @@ pub fn exchange(w: &WebIdentity) -> Result<Lease> {
     retry::Policy::default().run(|| -> Attempt<Lease> {
         let client = reqwest::Client::builder()
             .user_agent(concat!("yidam-vault/", env!("CARGO_PKG_VERSION")))
-            // The bytes as stored, never decoded: only the catalog transport asks for gzip (#1603).
-            .no_gzip()
             .build()
             .context("building the HTTP client")?;
         let body = body.clone();

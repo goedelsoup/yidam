@@ -52,8 +52,6 @@ impl Client {
     pub fn new(index: RemoteIndex, creds: Provider) -> Result<Self> {
         let http = reqwest::Client::builder()
             .user_agent(concat!("yidam-s3vectors/", env!("CARGO_PKG_VERSION")))
-            // The bytes as stored, never decoded: only the catalog transport asks for gzip (#1603).
-            .no_gzip()
             .build()
             .context("building the HTTP client")?;
         Ok(Self {

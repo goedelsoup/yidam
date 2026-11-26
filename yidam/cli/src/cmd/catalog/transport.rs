@@ -40,6 +40,11 @@
 //! - **spacing**: `min_interval` per host, across one run.
 //! - **atomic write**: the body streams into `<dest>.partial`, and is renamed into place only
 //!   once it has all arrived.
+//! - **compression**: the request sends `Accept-Encoding: gzip`, since eCFR answers 406 to one
+//!   without it (#1603). A `Content-Encoding: gzip` body is decoded here, not by reqwest, so the
+//!   held bytes and their digest are the content once decoded. A body that is itself a gzip
+//!   file — `application/gzip`, or a `.gz`/`.tgz` path — is held as served, and decoding stops
+//!   once the body outgrows [`MAX_INFLATION`] times the bytes sent.
 //! - **non-200**: returned as a [`Refused`], which the caller records on the entry. It is not
 //!   retried. A 403 from a publisher is its answer, and the host takes no step around it.
 
@@ -233,6 +238,131 @@ pub fn closest_capture(body: &str) -> Option<String> {
     (ts.len() == 14 && ts.bytes().all(|b| b.is_ascii_digit())).then(|| ts.to_string())
 }
 
+/// How many times its sent size a decoded body may grow to before decoding stops.
+///
+/// Text compresses ten- to fifty-fold; a run of zeros compresses about a thousand-fold. A
+/// publisher's body past this is a decompression bomb, and stopping it bounds what one fetch
+/// can write to the cache. [`INFLATION_FLOOR`] keeps a small body from tripping it.
+pub const MAX_INFLATION: u64 = 200;
+
+/// The decoded size every body may reach whatever its ratio: 64 MiB.
+pub const INFLATION_FLOOR: u64 = 64 << 20;
+
+/// Whether a body served with `content_encoding` is decoded before it is held.
+///
+/// Only a lone `gzip` (or `x-gzip`) coding, the one the request names: any other coding is held
+/// as served, as it was before #1603. A body that is itself a gzip file is held as served too,
+/// since a server that labels a `.gz` download `Content-Encoding: gzip` describes the file, not
+/// a coding applied to it, and decoding it would hold bytes that match neither its name nor the
+/// digest its publisher posts.
+#[cfg_attr(not(feature = "catalog-fetch"), allow(dead_code))]
+pub fn decodes(content_encoding: Option<&str>, media_type: Option<&str>, url: &str) -> bool {
+    let gzip = |v: &str| {
+        let v = v.trim();
+        v.eq_ignore_ascii_case("gzip") || v.eq_ignore_ascii_case("x-gzip")
+    };
+    if !content_encoding.is_some_and(gzip) {
+        return false;
+    }
+    let artifact = media_type.is_some_and(|m| {
+        m.eq_ignore_ascii_case("application/gzip") || m.eq_ignore_ascii_case("application/x-gzip")
+    });
+    let path = url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(url)
+        .to_ascii_lowercase();
+    !(artifact || path.ends_with(".gz") || path.ends_with(".tgz"))
+}
+
+/// A writer that stops once it has written `limit` bytes, so a decoder writing through it
+/// cannot fill the disk.
+#[cfg_attr(not(feature = "catalog-fetch"), allow(dead_code))]
+struct Capped<W> {
+    inner: W,
+    written: u64,
+    limit: u64,
+}
+
+impl<W: std::io::Write> std::io::Write for Capped<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.written + buf.len() as u64 > self.limit {
+            return Err(std::io::Error::other(format!(
+                "the body decodes past {} bytes, the most {MAX_INFLATION} times what was sent \
+                 allows; decoding stopped and nothing is held",
+                self.limit
+            )));
+        }
+        let n = self.inner.write(buf)?;
+        self.written += n as u64;
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// Where a body's chunks go: to the file as served, or through a gzip decoder.
+#[cfg_attr(not(feature = "catalog-fetch"), allow(dead_code))]
+enum Sink {
+    Served(std::fs::File),
+    Decoded {
+        decoder: Box<flate2::write::MultiGzDecoder<Capped<std::fs::File>>>,
+        sent: u64,
+        floor: u64,
+    },
+}
+
+#[cfg_attr(not(feature = "catalog-fetch"), allow(dead_code))]
+impl Sink {
+    fn new(f: std::fs::File, decode: bool) -> Self {
+        Self::with_floor(f, decode, INFLATION_FLOOR)
+    }
+
+    /// [`Self::new`] with another floor, so a test can trip the cap without 64 MiB of zeros.
+    fn with_floor(f: std::fs::File, decode: bool, floor: u64) -> Self {
+        if !decode {
+            return Self::Served(f);
+        }
+        let capped = Capped {
+            inner: f,
+            written: 0,
+            limit: floor,
+        };
+        Self::Decoded {
+            decoder: Box::new(flate2::write::MultiGzDecoder::new(capped)),
+            sent: 0,
+            floor,
+        }
+    }
+
+    fn write(&mut self, chunk: &[u8]) -> std::io::Result<()> {
+        use std::io::Write;
+        match self {
+            Self::Served(f) => f.write_all(chunk),
+            Self::Decoded {
+                decoder,
+                sent,
+                floor,
+            } => {
+                *sent += chunk.len() as u64;
+                let limit = sent.saturating_mul(MAX_INFLATION).max(*floor);
+                decoder.get_mut().limit = limit;
+                decoder.write_all(chunk)
+            }
+        }
+    }
+
+    /// Flush what the decoder still holds, through the cap, and then the file.
+    fn finish(self) -> std::io::Result<()> {
+        use std::io::Write;
+        match self {
+            Self::Served(mut f) => f.flush(),
+            Self::Decoded { decoder, .. } => (*decoder).finish()?.inner.flush(),
+        }
+    }
+}
+
 /// `<dest>.partial`: where a body streams before it is renamed into place.
 #[cfg_attr(not(feature = "catalog-fetch"), allow(dead_code))]
 fn partial(dest: &Path) -> PathBuf {
@@ -278,17 +408,19 @@ impl Session {
         dest: &Path,
     ) -> Result<std::result::Result<Fetched, Refused>> {
         use anyhow::Context;
-        use std::io::Write;
 
         self.space(url, policy);
         let sent = with_query_credentials(url, &policy.credentials);
         let credentialed = !policy.credentials.is_empty();
         let client = client(credentialed)?;
         crate::runtime::block_on(async {
-            let mut req = client.get(&sent).header(
-                reqwest::header::USER_AGENT,
-                user_agent(policy.contact.as_deref()),
-            );
+            let mut req = client
+                .get(&sent)
+                .header(
+                    reqwest::header::USER_AGENT,
+                    user_agent(policy.contact.as_deref()),
+                )
+                .header(reqwest::header::ACCEPT_ENCODING, "gzip");
             for c in &policy.credentials {
                 if let Place::Header { name, prefix } = &c.place {
                     req = req.header(name.as_str(), format!("{prefix}{}", c.value));
@@ -319,6 +451,13 @@ impl Session {
                 .and_then(|v| v.to_str().ok())
                 .map(|v| v.split(';').next().unwrap_or(v).trim().to_string())
                 .filter(|v| !v.is_empty());
+            let decode = decodes(
+                resp.headers()
+                    .get(reqwest::header::CONTENT_ENCODING)
+                    .and_then(|v| v.to_str().ok()),
+                media_type.as_deref(),
+                url,
+            );
 
             // Streamed into `<dest>.partial`, then renamed. The reasoning is
             // `vault::Cache::put_file`'s: `rename` is atomic only within a filesystem, and a
@@ -329,17 +468,28 @@ impl Session {
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
             let tmp = partial(dest);
             let written: Result<()> = async {
-                let mut f = std::fs::File::create(&tmp)
+                let f = std::fs::File::create(&tmp)
                     .with_context(|| format!("creating {}", tmp.display()))?;
+                let mut sink = Sink::new(f, decode);
                 while let Some(chunk) = resp
                     .chunk()
                     .await
                     .map_err(|e| anyhow::anyhow!(e.without_url()))
                     .with_context(|| format!("reading the response body from {url}"))?
                 {
-                    f.write_all(&chunk)
-                        .with_context(|| format!("writing {}", tmp.display()))?;
+                    sink.write(&chunk).with_context(|| {
+                        if decode {
+                            format!(
+                                "decoding the gzip response body from {url} into {}",
+                                tmp.display()
+                            )
+                        } else {
+                            format!("writing {}", tmp.display())
+                        }
+                    })?;
                 }
+                sink.finish()
+                    .with_context(|| format!("decoding the response body from {url}"))?;
                 Ok(())
             }
             .await;
@@ -436,10 +586,7 @@ impl Session {
 #[cfg(feature = "catalog-fetch")]
 fn client(credentialed: bool) -> Result<reqwest::Client> {
     use anyhow::Context;
-    // `Accept-Encoding: gzip`, and the answer decoded before it is digested: eCFR refuses a
-    // request that does not permit compression (#1603). The digest is of the bytes the
-    // publisher served, not of their transfer encoding.
-    let mut b = reqwest::Client::builder().gzip(true);
+    let mut b = reqwest::Client::builder();
     if credentialed {
         b = b.redirect(reqwest::redirect::Policy::custom(|attempt| {
             let from = attempt
@@ -646,6 +793,91 @@ mod tests {
         );
     }
 
+    fn gzip(body: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(body).unwrap();
+        gz.finish().unwrap()
+    }
+
+    #[test]
+    fn only_a_lone_gzip_coding_on_a_body_that_is_not_a_gzip_file_is_decoded() {
+        let csv = Some("text/csv");
+        assert!(decodes(Some("gzip"), csv, "https://x/a.csv"));
+        assert!(decodes(Some(" X-GZIP "), None, "https://x/a"));
+        assert!(!decodes(None, csv, "https://x/a.csv"), "no coding");
+        assert!(
+            !decodes(Some("br"), csv, "https://x/a.csv"),
+            "not the coding asked for"
+        );
+        assert!(
+            !decodes(Some("gzip, gzip"), csv, "https://x/a.csv"),
+            "stacked"
+        );
+        assert!(
+            !decodes(Some("gzip"), Some("application/gzip"), "https://x/a"),
+            "a gzip file by its media type"
+        );
+        assert!(
+            !decodes(Some("gzip"), Some("application/x-gzip"), "https://x/a"),
+            "a gzip file by its older media type"
+        );
+        assert!(
+            !decodes(Some("gzip"), None, "https://x/dump.CSV.GZ?v=2#top"),
+            "a gzip file by its path, the query and fragment aside"
+        );
+        assert!(!decodes(Some("gzip"), None, "https://x/pack.tgz"));
+        assert!(
+            decodes(Some("gzip"), None, "https://x/a?name=b.gz"),
+            "a query naming .gz is not the path"
+        );
+    }
+
+    #[test]
+    fn a_sink_holds_a_served_body_as_sent_and_a_decoded_one_as_its_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let gz = gzip(b"id,n\n1,2\n");
+
+        let served = dir.path().join("served");
+        let mut sink = Sink::new(std::fs::File::create(&served).unwrap(), false);
+        sink.write(&gz).unwrap();
+        sink.finish().unwrap();
+        assert_eq!(std::fs::read(&served).unwrap(), gz);
+
+        let decoded = dir.path().join("decoded");
+        let mut sink = Sink::new(std::fs::File::create(&decoded).unwrap(), true);
+        for chunk in gz.chunks(3) {
+            sink.write(chunk).unwrap();
+        }
+        sink.finish().unwrap();
+        assert_eq!(std::fs::read(&decoded).unwrap(), b"id,n\n1,2\n");
+    }
+
+    /// A body whose decoded size outgrows [`MAX_INFLATION`] times what was sent stops: a
+    /// mebibyte of zeros gzips to about a kilobyte, a thousand-fold.
+    #[test]
+    fn a_body_that_inflates_past_the_cap_stops_decoding() {
+        let dir = tempfile::tempdir().unwrap();
+        let bomb = gzip(&vec![0u8; 1 << 20]);
+        assert!(
+            (bomb.len() as u64) * MAX_INFLATION < 1 << 20,
+            "the fixture inflates past the cap: {} bytes",
+            bomb.len()
+        );
+        let dest = dir.path().join("bomb");
+        let mut sink = Sink::with_floor(std::fs::File::create(&dest).unwrap(), true, 1024);
+        let stopped = bomb
+            .chunks(256)
+            .try_for_each(|c| sink.write(c))
+            .and_then(|()| sink.finish())
+            .unwrap_err();
+        assert!(
+            stopped.to_string().contains("decoding stopped"),
+            "{stopped}"
+        );
+        assert!(std::fs::metadata(&dest).unwrap().len() <= bomb.len() as u64 * MAX_INFLATION);
+    }
+
     /// The request as a publisher sees it, against a listener on loopback.
     #[cfg(feature = "catalog-fetch")]
     mod http {
@@ -653,7 +885,9 @@ mod tests {
         use std::io::{Read, Write};
 
         /// Answer each of `answers` in turn, and return what each request said.
-        fn serve(answers: Vec<String>) -> (u16, std::thread::JoinHandle<Vec<String>>) {
+        fn serve<A: Into<Vec<u8>> + Send + 'static>(
+            answers: Vec<A>,
+        ) -> (u16, std::thread::JoinHandle<Vec<String>>) {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let port = listener.local_addr().unwrap().port();
             let handle = std::thread::spawn(move || {
@@ -669,7 +903,7 @@ mod tests {
                         }
                         got.extend_from_slice(&buf[..n]);
                     }
-                    sock.write_all(answer.as_bytes()).unwrap();
+                    sock.write_all(&answer.into()).unwrap();
                     seen.push(String::from_utf8_lossy(&got).to_string());
                 }
                 seen
@@ -734,7 +968,8 @@ mod tests {
         #[test]
         fn a_refusal_is_returned_once_and_writes_nothing() {
             let (port, server) = serve(vec![
-                "HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".into(),
+                "HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                    .to_string(),
             ]);
             let dir = tempfile::tempdir().unwrap();
             let dest = dir.path().join("staged");
@@ -754,6 +989,80 @@ mod tests {
             );
             assert!(!dest.exists() && !partial(&dest).exists());
             assert_eq!(server.join().unwrap().len(), 1);
+        }
+
+        /// A `200` whose body is `gz`, served under `content-type` with `content-encoding: gzip`.
+        fn gzipped(content_type: &str, gz: &[u8]) -> Vec<u8> {
+            let mut answer = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: {content_type}\r\ncontent-encoding: gzip\r\n\
+                 content-length: {}\r\nconnection: close\r\n\r\n",
+                gz.len()
+            )
+            .into_bytes();
+            answer.extend_from_slice(gz);
+            answer
+        }
+
+        /// The request permits gzip, and a gzip-coded CSV lands as the CSV (#1603).
+        #[test]
+        fn a_request_permits_gzip_and_a_coded_body_lands_decoded() {
+            let gz = super::gzip(b"a,b\n1,2\n");
+            let (port, server) = serve(vec![gzipped("text/csv", &gz)]);
+            let dir = tempfile::tempdir().unwrap();
+            let dest = dir.path().join("staged");
+            let got = Session::new()
+                .get(
+                    &format!("http://127.0.0.1:{port}/data.csv"),
+                    &Policy::default(),
+                    &dest,
+                )
+                .unwrap();
+            assert!(got.is_ok(), "{got:?}");
+            assert_eq!(std::fs::read(&dest).unwrap(), b"a,b\n1,2\n");
+            let seen = server.join().unwrap().remove(0).to_ascii_lowercase();
+            assert!(seen.contains("\r\naccept-encoding: gzip\r\n"), "{seen}");
+        }
+
+        /// A `.gz` download labelled `content-encoding: gzip` is the file, and lands as served.
+        #[test]
+        fn a_gzip_file_lands_as_served() {
+            let gz = super::gzip(b"a,b\n1,2\n");
+            let (port, server) = serve(vec![gzipped("application/gzip", &gz)]);
+            let dir = tempfile::tempdir().unwrap();
+            let dest = dir.path().join("staged");
+            let got = Session::new()
+                .get(
+                    &format!("http://127.0.0.1:{port}/dump.csv.gz"),
+                    &Policy::default(),
+                    &dest,
+                )
+                .unwrap();
+            assert_eq!(
+                got,
+                Ok(Fetched {
+                    media_type: Some("application/gzip".into())
+                })
+            );
+            assert_eq!(std::fs::read(&dest).unwrap(), gz);
+            server.join().unwrap();
+        }
+
+        /// A coded body that is not gzip at all is an error, and leaves nothing behind.
+        #[test]
+        fn a_body_that_is_not_the_gzip_it_claims_writes_nothing() {
+            let (port, server) = serve(vec![gzipped("text/csv", b"plainly not gzip")]);
+            let dir = tempfile::tempdir().unwrap();
+            let dest = dir.path().join("staged");
+            let err = Session::new()
+                .get(
+                    &format!("http://127.0.0.1:{port}/data.csv"),
+                    &Policy::default(),
+                    &dest,
+                )
+                .unwrap_err();
+            assert!(format!("{err:#}").contains("127.0.0.1"), "{err:#}");
+            assert!(!dest.exists() && !partial(&dest).exists());
+            server.join().unwrap();
         }
 
         #[test]
