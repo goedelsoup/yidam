@@ -48,6 +48,12 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # Every job carries a `timeout-minutes` (#1641), so a hang costs minutes rather than GitHub's
+  # six-hour default. Each is about twice the job's slowest successful run across ~250 runs
+  # measured in November 2026, never under 10. A cache-cold run is the case left room for:
+  # `cross` took 22.6m against a 2.5m median, and the two full-feature jobs, which have no
+  # cold run in that sample and build at `-j 2`, get 60. A hung test is caught sooner, by the
+  # `slow-timeout` in `.config/nextest.toml`.
   ci:
     # The harness and the (light, default `reports`) CLI are independent Cargo
     # workspaces. Run them on separate runners in parallel so wall-clock is
@@ -71,6 +77,7 @@ jobs:
             task: ci-cli-cov
     name: ci (${{ matrix.workspace }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       # Full history: the summary's diff-coverage step needs the merge base, and a shallow
       # clone has no commit to diff against.
@@ -163,6 +170,7 @@ jobs:
     # `mise install` already provisions for the step above.
     name: ci (domains)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
@@ -189,6 +197,7 @@ jobs:
     # fails the parity run and these tests together, which is the point.
     name: ci (vscode)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
@@ -242,6 +251,7 @@ jobs:
     # `@import` of `yidam/design/` still resolves, which no unit test here can see.
     name: ci (editor-web)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
@@ -285,6 +295,7 @@ jobs:
     # every pull request.
     name: ci (parity)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
@@ -333,6 +344,7 @@ jobs:
     # spelling the three verifications out again here. `formal_specs.rs` asserts that.
     name: ci (verify · formal specs)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
@@ -364,6 +376,7 @@ jobs:
     # change should not need the extension's npm install to report.
     name: ci (design system)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
@@ -388,6 +401,7 @@ jobs:
     # than weekly, made by the tool itself on the day it was installed.
     name: ci (supply chain)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
@@ -406,6 +420,7 @@ jobs:
     # network fetch and two builds of a small crate.
     name: ci (semver · yidam-core)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
@@ -435,6 +450,7 @@ jobs:
     # rather than skips, anywhere it runs without the binary.
     name: ci (receipt · previous CLI)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
@@ -474,6 +490,7 @@ jobs:
     # The release's runner, because the runner is the glibc floor: a cross job on an older
     # image fails links the release would pass, and on a newer one passes links it would fail.
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       # The pinned toolchain, not `@stable`. An artifact built by whatever stable shipped
@@ -531,6 +548,7 @@ jobs:
     # it, which is the thing a later anchored run will be compared against.
     name: ci (bench · scaling)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
@@ -571,6 +589,7 @@ jobs:
     name: ci (cli · full features)
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     env:
       # Job-wide, and it was step-wide once. #539 measured this job dying for memory during
       # `coverage-full` and capped the jobs THERE — the step that happened to be failing. On
@@ -677,6 +696,7 @@ jobs:
     name: ci (cli · full-feature coverage)
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     env:
       # The memory cap `cli-full` documents, and it was measured HERE first (#539): four
       # rustc processes holding instrumented LLVM modules for lancedb/lance/datafusion did not
@@ -790,6 +810,7 @@ jobs:
     name: ci (cli · feature check)
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     env:
       # Not a memory cap here — nothing in this job links. It is here because rust-cache
       # hashes every `CARGO*`, `CC*`, `CFLAGS*`, `CXX*`, `CMAKE*` and `RUST*` variable in the
@@ -849,6 +870,7 @@ jobs:
       contents: read
       actions: read
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
@@ -963,6 +985,7 @@ jobs:
       && github.ref == 'refs/heads/main'
     needs: quality
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     # One writer at a time. Two pushes to main landing together would otherwise race on the

@@ -1,6 +1,12 @@
 [profile.ci]
 failure-output = "immediate-final"
 fail-fast = false
+# A hung test is killed and named instead of running until the job's own timeout cancels it
+# with no test named (#1641). A test is flagged SLOW at each 120s period and terminated after
+# the third, at six minutes. The slowest test in CI measured 13.4s in November 2026
+# (`source_check`, under coverage on `ci (cli · full-feature coverage)`), so this is over 25
+# times that.
+slow-timeout = { period = "120s", terminate-after = 3 }
 
 [profile.ci.junit]
 path = "junit.xml"
