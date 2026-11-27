@@ -43,11 +43,15 @@ trap 'rm -rf "$tmp"' EXIT
 node scripts/mark-generate.mjs --out "$tmp" >/dev/null
 
 node scripts/mark-generate.mjs --manifest > "$tmp/manifest.json"
-mapfile -t manifest < <(node -e '
+# Not the bash 4 array builtin: macOS ships /bin/bash 3.2. The `|| [ -n ... ]` keeps a final
+# line with no newline, as the builtin does.
+manifest=()
+while IFS= read -r line || [ -n "$line" ]; do manifest+=("$line"); done < <(node -e '
   JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).forEach((a) => console.log(a.path));
 ' "$tmp/manifest.json")
 
-for rel in "${manifest[@]}"; do
+# `${arr[@]+"${arr[@]}"}`: bash 3.2 under `set -u` calls an empty array's expansion unbound.
+for rel in ${manifest[@]+"${manifest[@]}"}; do
   if [ ! -f "$rel" ]; then
     fail "$rel is generated but not committed. Run: mise run mark-generate"
   fi
@@ -64,7 +68,7 @@ done
 #
 # Discovered, not listed. A hardcoded set stops covering new files without ever going red,
 # which is exactly how the editor's second mark went unnoticed.
-declared=$(printf '%s\n' "${manifest[@]}" | sort)
+declared=$(printf '%s\n' ${manifest[@]+"${manifest[@]}"} | sort)
 found=$(git ls-files \
   'yidam/design/assets/*' \
   'yidam/web/docs/public/*.svg' \
@@ -97,7 +101,8 @@ for kind in mark lockup wordmark; do
     lockup)   sizes=20,24,32,64 ;;
     wordmark) sizes=16,20,24,64 ;;
   esac
-  mapfile -t of_kind < <(node -e '
+  of_kind=()
+  while IFS= read -r line || [ -n "$line" ]; do of_kind+=("$line"); done < <(node -e '
     JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))
       .filter((a) => a.kind === process.argv[2]).forEach((a) => console.log(a.path));
   ' "$tmp/manifest.json" "$kind")
