@@ -160,15 +160,7 @@ fn an_undeclared_stamp_commits_every_rerun_and_is_warned_on() {
 fn a_declared_stamp_that_moved_otherwise_still_commits() {
     let e = with_stamp(true);
     run(&e);
-    let script = e.path().join(".yidam/capabilities/stamp.sh");
-    let text = std::fs::read_to_string(&script)
-        .unwrap()
-        .replace("corpus_commit", "pack_commit");
-    std::fs::write(&script, text).unwrap();
-    git(
-        &e.path(),
-        &["commit", "-qam", "fix: rename the stamp's key"],
-    );
+    edit_script(&e, |t| t.replace("corpus_commit", "pack_commit"));
     let landed = git(&e.path(), &["rev-parse", "HEAD"]);
 
     let second = run(&e);

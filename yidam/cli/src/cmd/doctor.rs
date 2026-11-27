@@ -1135,32 +1135,36 @@ fn check_stamps(root: &Path) -> Answer {
             ))
         }
     };
+    // Both findings in one warning: returning on the first would hide the second until it was
+    // fixed.
+    let mut found_wrong = Vec::new();
+    let mut fixes = Vec::new();
     if !found.undeclared.is_empty() {
-        return Answer::warn(
-            format!(
-                "{} — each contains its receipt's `input.commit`, so every run of it is new \
-                 bytes and none can reproduce its receipt",
-                enumerate(&found.undeclared, "output")
-            ),
-            Some(
-                "stop writing YIDAM_INPUT_COMMIT into the output, since the receipt already \
-                 records it; or, if a consumer requires it, name the output under \
-                 `stamps_input_commit`",
-            ),
+        found_wrong.push(format!(
+            "{} — each contains its receipt's `input.commit`, so every run of it is new bytes \
+             and none can reproduce its receipt",
+            enumerate(&found.undeclared, "output")
+        ));
+        fixes.push(
+            "stop writing YIDAM_INPUT_COMMIT into the output, since the receipt already records \
+             it; or, if a consumer requires it, name the output under `stamps_input_commit`",
         );
     }
     if !found.stale.is_empty() {
-        return Answer::warn(
-            format!(
-                "{} declared under `stamps_input_commit` but not containing its receipt's \
-                 `input.commit`, so the declaration masks nothing",
-                enumerate(&found.stale, "output")
-            ),
-            Some(
-                "remove the path from `stamps_input_commit` if its consumer no longer requires \
-                 the commit",
-            ),
+        found_wrong.push(format!(
+            "{} declared under `stamps_input_commit` but not containing its receipt's full \
+             `input.commit`, so the declaration masks nothing",
+            enumerate(&found.stale, "output")
+        ));
+        fixes.push(
+            "remove the path from `stamps_input_commit` if its consumer no longer requires the \
+             commit; only the full id is masked, so a step that writes an abbreviation should \
+             write the whole of YIDAM_INPUT_COMMIT",
         );
+    }
+    if !found_wrong.is_empty() {
+        let fix = fixes.join("; ");
+        return Answer::warn(found_wrong.join("; "), Some(&fix));
     }
     match found.declared.is_empty() {
         true => Answer::ok("no committed output contains the commit its receipt was computed from"),

@@ -47,12 +47,12 @@ A step that declares a broad read is a different case. allen-county-ohio-democra
 `seat-coverage` reads `crates/local-seat-targets/src/lib.rs`, so an edit to that file moves its
 input state. The step runs again and writes the same `.yidam/computed/seat-coverage.yml`. Its
 receipt does change, in three fields: `input_state`, `input.commit`, and the digest of the one
-read. [`commit`](../../yidam/cli/src/cmd/run/mod.rs#L1677) decides from the tree
+read. [`commit`](../../yidam/cli/src/cmd/run/mod.rs#L1675) decides from the tree
 alone, and the tree differs by the receipt. So `b634a8f compute: seat-coverage — 2 files at
 c96a1dd` lands, changing one file under `.yidam/runs/`.
 
 The run already knows. It sets [`unchanged_outputs`](../../yidam/cli/src/cmd/run/mod.rs#L542) from
-[`outputs_already_committed`](../../yidam/cli/src/cmd/run/mod.rs#L1365), which
+[`outputs_already_committed`](../../yidam/cli/src/cmd/run/mod.rs#L1363), which
 compares object ids. That function's own doc says the commit is written anyway, *"so the check is
 recorded whether or not the answer moved."* The commit is the record of having looked. It is
 the only record there is.

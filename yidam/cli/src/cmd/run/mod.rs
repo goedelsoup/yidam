@@ -1284,8 +1284,9 @@ struct Landing<'a> {
 ///
 /// Both of §2.2's tests, over the masked bytes: they must be what the parent holds, and the
 /// receipt built from their digests must say what the committed one says. Only the full id is
-/// replaced, 40 or 64 hex characters, for the reason [`stamped`] reads only the full id. A step that declares nothing,
-/// or a committed receipt that records no full commit, answers `false`, which commits.
+/// replaced, 40 or 64 hex characters, for the reason [`stamped`] reads only the full id. A step
+/// that declares nothing, or a committed receipt that records no full commit, answers `false`,
+/// which commits.
 fn reproduces_masked(
     root: &Path,
     parent: &str,
@@ -1329,22 +1330,19 @@ fn reproduces_masked(
     ours.reproduces(committed)
 }
 
-/// `hay` with every occurrence of `from` replaced by `to`. `from` is never empty here.
+/// `hay` with every occurrence of `from` replaced by `to`. An empty `from` replaces nothing.
 fn replace_all(hay: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(hay.len());
-    let mut i = 0;
-    while i < hay.len() {
-        match !from.is_empty() && hay[i..].starts_with(from) {
-            true => {
-                out.extend_from_slice(to);
-                i += from.len();
-            }
-            false => {
-                out.push(hay[i]);
-                i += 1;
-            }
-        }
+    if from.is_empty() {
+        return hay.to_vec();
     }
+    let mut out = Vec::with_capacity(hay.len());
+    let mut rest = hay;
+    while let Some(at) = rest.windows(from.len()).position(|w| w == from) {
+        out.extend_from_slice(&rest[..at]);
+        out.extend_from_slice(to);
+        rest = &rest[at + from.len()..];
+    }
+    out.extend_from_slice(rest);
     out
 }
 
@@ -1985,6 +1983,16 @@ fn indent(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// §2.7's mask: every occurrence, adjacent ones included, and nothing for an empty needle.
+    #[test]
+    fn replace_all_replaces_every_occurrence() {
+        assert_eq!(replace_all(b"aXbXXc", b"X", b"yy"), b"ayybyyyyc");
+        assert_eq!(replace_all(b"abab", b"ab", b"c"), b"cc");
+        assert_eq!(replace_all(b"no match", b"zz", b"q"), b"no match");
+        assert_eq!(replace_all(b"short", b"longer than it", b"q"), b"short");
+        assert_eq!(replace_all(b"keep", b"", b"q"), b"keep");
+    }
 
     /// The subject a run writes is in the closed vocabulary and classifies as the family its
     /// verb belongs to, asserted through the parity function that decides it rather than by

@@ -744,6 +744,20 @@ fn validate(name: &str, cap: &Capability, registers: &Registers) -> Result<()> {
                  glob — name each output that carries the commit by its path"
             );
         }
+        // Compared verbatim with each output path, so a `./`, `..` or doubled slash would
+        // parse, match no output, and mask nothing.
+        if path.starts_with('/')
+            || path.starts_with("~/")
+            || path
+                .split('/')
+                .any(|s| s.is_empty() || s == "." || s == "..")
+        {
+            bail!(
+                "capability `{name}` declares `stamps_input_commit = [\"{path}\"]`, which is \
+                 not a plain repository-relative path — write it as the output's path from \
+                 the corpus root, with no `.`, `..`, empty segment or leading `/`"
+            );
+        }
         if !cap.writes.iter().any(|g| glob_covers(g, path)) {
             bail!(
                 "capability `{name}` declares `stamps_input_commit = [\"{path}\"]`, which no \
@@ -1340,6 +1354,23 @@ verb   = "compute"
             .unwrap_err()
             .to_string();
         assert!(err.contains("no `writes` glob covers"), "{err}");
+
+        for bad in [
+            "./.yidam/computed/pack.json",
+            ".yidam/computed/../corpus/pack.json",
+            ".yidam/computed//pack.json",
+            ".yidam/computed/pack.json/",
+            "/.yidam/computed/pack.json",
+        ] {
+            let text = format!("{CALC}stamps_input_commit = [\"{bad}\"]\n");
+            let err = Manifest::parse(&text, &corpus_only())
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("not a plain repository-relative path"),
+                "{bad}: {err}"
+            );
+        }
     }
 
     #[test]
