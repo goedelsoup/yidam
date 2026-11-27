@@ -182,6 +182,9 @@ fn tier(name: &str) -> Option<String> {
 /// here, once, from the schema `tools/list` serves, so no tool can read a type its contract
 /// does not declare.
 ///
+/// **A string is held to its `enum`** (#1690): `standing: "verifed"` filtered on a value nothing
+/// carries and answered with an empty list, which reads as a corpus with no such claims.
+///
 /// **`null` is absent.** `yidam retrieve` sends `"class": null` for a filter nobody asked for,
 /// and `retrieve`'s own `where` already read null that way.
 ///
@@ -210,7 +213,20 @@ fn check_arguments(name: &str, args: &Value) -> Result<(), String> {
     let properties = &tool["inputSchema"]["properties"];
     for (key, value) in args {
         let schema = &properties[key.as_str()];
-        if value.is_null() || has_type(value, schema) {
+        if value.is_null() {
+            continue;
+        }
+        if has_type(value, schema) {
+            if let (Some(allowed), Some(text)) = (schema["enum"].as_array(), value.as_str()) {
+                if !allowed.iter().any(|a| a.as_str() == Some(text)) {
+                    let names: Vec<&str> = allowed.iter().filter_map(Value::as_str).collect();
+                    return Err(format!(
+                        "invalid argument: {key} must be one of {}, got {}",
+                        names.join(", "),
+                        described(value)
+                    ));
+                }
+            }
             continue;
         }
         let expected = match schema["type"].as_str() {
@@ -2360,6 +2376,23 @@ mod tests {
             result["content"][0]["text"],
             "invalid arguments: must be an object, got an array"
         );
+    }
+
+    /// A standing outside the enum filtered on a string nothing matches and answered with an
+    /// empty list (#1690), which reads the same as a corpus with no such claims.
+    #[test]
+    fn a_standing_outside_the_enum_is_refused_by_name() {
+        let mut state = test_state();
+        let result = call(&mut state, "claims", &json!({"standing": "verifed"}));
+        assert_eq!(result["isError"], true, "{result}");
+        assert_eq!(
+            result["content"][0]["text"],
+            "invalid argument: standing must be one of verified, inference, open, got \"verifed\""
+        );
+        for standing in ["verified", "inference", "open"] {
+            call_ok(&mut state, "claims", json!({"standing": standing}));
+        }
+        call_ok(&mut state, "claims", json!({"standing": null}));
     }
 
     /// Absent and null both still take the default, which is what `yidam retrieve` sends.
