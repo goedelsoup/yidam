@@ -89,6 +89,7 @@ mod rfc_status;
 mod root_flag;
 mod run_outputs;
 mod run_route_claims;
+mod run_stamps;
 mod s3vectors_live;
 mod samudaya_examples;
 mod schema_ownership;

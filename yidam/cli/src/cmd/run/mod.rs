@@ -549,12 +549,27 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
         //
         // On the branch the note waits for the landing (RFC-0067 §2): a plan that lands nothing
         // writes no note, and the commit it records is the base, which is on the branch.
+        //
+        // An output the step declares under `stamps_input_commit` is compared with this run's
+        // commit masked (§2.7), so a consumer that requires the stamp does not make every run
+        // a commit. Where the masked run does not reproduce, the bytes land as produced.
         let may_note = route == Route::Branch || existing.is_none();
-        if may_note && report.unchanged_outputs {
+        let worth_reading = report.unchanged_outputs || !cap.stamps_input_commit.is_empty();
+        if may_note && worth_reading {
             if let Some(blob) = notes::receipt_blob(root, &parent, &receipt_path) {
                 let committed =
                     git(root, None, &["cat-file", "blob", &blob], None).with_context(lost)?;
-                if receipt.reproduces(&committed) {
+                let reproduced = (report.unchanged_outputs && receipt.reproduces(&committed))
+                    || reproduces_masked(
+                        root,
+                        &parent,
+                        cap,
+                        &receipt,
+                        &produced.outputs,
+                        &committed,
+                    );
+                if reproduced {
+                    report.unchanged_outputs = true;
                     match route {
                         Route::Branch => batch.notes.push(PendingNote {
                             report: steps.len(),
@@ -1088,14 +1103,18 @@ pub(crate) fn standing(root: &Path) -> Result<Vec<Standing>> {
 /// answer moved and defeats the note a run writes when it reproduced its receipt. The receipt
 /// already records the commit, and that is where a reader should find it.
 ///
-/// Returned as `step: path`. Empty for a repository that declares no capabilities.
-pub(crate) fn stamped(root: &Path) -> Result<Vec<String>> {
+/// Returned as `step: path`, split by whether the step names the path under
+/// `stamps_input_commit` (RFC-0052 §2.7): a declared stamp is one a consumer requires, and
+/// [`run`] masks it before judging reproduction. Empty for a repository that declares no
+/// capabilities.
+pub(crate) fn stamped(root: &Path) -> Result<Stamped> {
+    let mut out = Stamped::default();
     if !root.join(manifest::MANIFEST).exists() {
-        return Ok(Vec::new());
+        return Ok(out);
     }
     let m = Manifest::load(root)?;
-    let mut out = Vec::new();
     for name in m.plan(None)? {
+        let declared = &m.get(name)?.stamps_input_commit;
         let receipt_path = Receipt::path(name);
         let Some(landed) = git(root, None, &["show", &format!("HEAD:{receipt_path}")], None)
             .ok()
@@ -1115,11 +1134,23 @@ pub(crate) fn stamped(root: &Path) -> Result<Vec<String>> {
         for f in &landed.outputs {
             let held = git(root, None, &["show", &format!("HEAD:{}", f.path)], None);
             if held.is_ok_and(|text| text.contains(&commit)) {
-                out.push(format!("{name}: {}", f.path));
+                let found = format!("{name}: {}", f.path);
+                match declared.contains(&f.path) {
+                    true => out.declared.push(found),
+                    false => out.undeclared.push(found),
+                }
             }
         }
     }
     Ok(out)
+}
+
+/// What [`stamped`] found: outputs whose step declares the stamp, and outputs whose step does
+/// not.
+#[derive(Debug, Default)]
+pub(crate) struct Stamped {
+    pub declared: Vec<String>,
+    pub undeclared: Vec<String>,
 }
 
 /// What a reader needs to know about one declared step. See [`standing`].
@@ -1231,6 +1262,75 @@ struct Landing<'a> {
     /// The commit the step read, for the subject line.
     short_input: &'a str,
     route: Route,
+}
+
+/// Whether this run reproduces `committed` once each output the step declares under
+/// `stamps_input_commit` has this run's commit replaced by the one `committed` records
+/// (RFC-0052 §2.7).
+///
+/// Both of §2.2's tests, over the masked bytes: they must be what the parent holds, and the
+/// receipt built from their digests must say what the committed one says. Only the full sha is
+/// replaced, for the reason [`stamped`] reads only the full sha. A step that declares nothing,
+/// or a committed receipt that records no full commit, answers `false`, which commits.
+fn reproduces_masked(
+    root: &Path,
+    parent: &str,
+    cap: &Capability,
+    receipt: &Receipt,
+    outputs: &[(String, Vec<u8>)],
+    committed: &str,
+) -> bool {
+    let now = receipt.input.commit.as_bytes();
+    let Some(was) = Receipt::landed(committed)
+        .and_then(|l| l.input)
+        .and_then(|i| i.commit)
+        .filter(|c| c.len() >= 40)
+    else {
+        return false;
+    };
+    if cap.stamps_input_commit.is_empty() || now.len() < 40 {
+        return false;
+    }
+    let masked: Vec<(String, Vec<u8>)> = outputs
+        .iter()
+        .map(
+            |(path, bytes)| match cap.stamps_input_commit.contains(path) {
+                true => (path.clone(), replace_all(bytes, now, was.as_bytes())),
+                false => (path.clone(), bytes.clone()),
+            },
+        )
+        .collect();
+    if !outputs_already_committed(root, parent, &masked) {
+        return false;
+    }
+    let mut ours = receipt.clone();
+    ours.outputs = masked
+        .iter()
+        .map(|(path, bytes)| File {
+            path: path.clone(),
+            sha256: sha256(bytes),
+        })
+        .collect();
+    ours.reproduces(committed)
+}
+
+/// `hay` with every occurrence of `from` replaced by `to`. `from` is never empty here.
+fn replace_all(hay: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(hay.len());
+    let mut i = 0;
+    while i < hay.len() {
+        match !from.is_empty() && hay[i..].starts_with(from) {
+            true => {
+                out.extend_from_slice(to);
+                i += from.len();
+            }
+            false => {
+                out.push(hay[i]);
+                i += 1;
+            }
+        }
+    }
+    out
 }
 
 /// Whether every byte this step produced is already what the parent commit holds.
@@ -2233,6 +2333,7 @@ mod tests {
             after: vec![],
             ageing_days: None,
             cluster: None,
+            stamps_input_commit: vec![],
         };
         let landing = vec![(".yidam/computed/x.yml".to_string(), b"x".to_vec())];
         for route in [Route::Branch, Route::Proposal] {

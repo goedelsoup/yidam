@@ -110,6 +110,7 @@ impl Builtin {
             after: Vec::new(),
             ageing_days: None,
             cluster: None,
+            stamps_input_commit: vec![],
         }
     }
 
