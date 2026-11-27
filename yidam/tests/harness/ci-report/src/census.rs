@@ -7,8 +7,8 @@
 //! JUnit at all: the document for that binary is `tests="0"` with no children. They are read
 //! from `nextest list --message-format json`, where every test carries an `ignored` flag.
 //!
-//! **A runtime gate** — four sites that check an environment variable or probe for a tool,
-//! print a reason, and return. nextest sees these as passes, and they are passes: the test
+//! **A runtime gate** — any test that checks an environment variable or probes for a tool,
+//! prints a reason, and returns. nextest sees these as passes, and they are passes: the test
 //! process ran and did not fail. What it did not do is assert anything. They announce
 //! themselves with [`MARKER`], and the census reads it out of the captured output that
 //! `store-success-output` puts in the JUnit.

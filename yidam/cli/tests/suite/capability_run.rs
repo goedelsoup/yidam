@@ -130,8 +130,8 @@ fn every_argv_capability() -> Vec<(String, String)> {
 /// than about the route.
 ///
 /// Discovered like everything else here. A corpus whose capabilities were all upstream of one
-/// another would yield exactly one terminal step, and the guard below says so rather than
-/// letting the loop run zero times.
+/// another would yield exactly one terminal step. An empty list is a panic here, so a loop over
+/// the result cannot run zero times and pass having asserted nothing.
 fn every_terminal_capability() -> Vec<(String, String)> {
     let mut all = Vec::new();
     for name in examples() {
@@ -150,6 +150,10 @@ fn every_terminal_capability() -> Vec<(String, String)> {
             }
         }
     }
+    assert!(
+        !all.is_empty(),
+        "no example declares a terminal capability, so the tests that walk them assert nothing"
+    );
     all
 }
 

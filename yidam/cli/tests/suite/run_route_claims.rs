@@ -308,10 +308,13 @@ fn the_predicate_catches_the_claim_and_spares_the_history() {
 #[test]
 fn no_document_claims_an_epistemic_verb_is_refused() {
     let (observed, transcript) = observe();
-    if observed == Observed::Refused {
-        // The behaviour is what the prose describes. Nothing to refuse.
-        return;
-    }
+    assert_ne!(
+        observed,
+        Observed::Refused,
+        "the probe run failed, so no document was read. A run that fails for any reason reads \
+         as a refusal here, and passing on it would hide the regression this file exists for:\n\
+         {transcript}"
+    );
 
     let mut stale = Vec::new();
     for (path, text) in authored_prose() {
@@ -338,10 +341,13 @@ fn no_document_claims_an_epistemic_verb_is_refused() {
 /// look, and `--help` is what they read before writing a manifest.
 #[test]
 fn run_help_names_the_proposal_destination() {
-    let (observed, _) = observe();
-    if observed == Observed::Refused {
-        return;
-    }
+    let (observed, transcript) = observe();
+    assert_ne!(
+        observed,
+        Observed::Refused,
+        "the probe run failed, so no `--help` text was read. Passing on it would hide the \
+         regression this file exists for:\n{transcript}"
+    );
     let help = run_help();
     assert!(
         help.contains("propose/"),
