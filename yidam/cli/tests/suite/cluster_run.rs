@@ -657,20 +657,24 @@ fn a_builtin_steps_sha_without_the_write_credential_does_not_land() {
 
 /// Land `step` against a remote this process cannot write, and hold the refusal to being the
 /// remote's; then land it with the permission back, which shows nothing else refused it.
-fn refused_without_the_write_credential(c: &Cluster, step: &Value) {
+///
+/// `false` when it skipped, so a caller asserting on the landing after it stops too.
+fn refused_without_the_write_credential(c: &Cluster, step: &Value) -> bool {
     let before = c.main_tip();
     set_mode_recursively(&c.remote(), 0o555, 0o444);
     let probe = std::fs::write(c.remote().join("objects").join("probe"), b"");
     if probe.is_ok() {
         // Root, or a filesystem that ignores mode bits: this process can write anything, and
         // the remote cannot stand in for a missing credential. The assertion below would be
-        // measuring nothing, so it does not run.
+        // measuring nothing, so it does not run. CI's runner is not root, so there this is
+        // a failure rather than a skip (#1621).
         let _ = std::fs::remove_file(c.remote().join("objects").join("probe"));
         set_mode_recursively(&c.remote(), 0o755, 0o644);
-        eprintln!(
-            "skipped: this process writes a read-only directory, so the remote cannot refuse it"
+        ci_report::skipped_unless_ci(
+            "this process writes a read-only directory (root, or a filesystem that ignores \
+             mode bits), so the remote cannot refuse it; run as a user without write access",
         );
-        return;
+        return false;
     }
 
     let (stdout, stderr, code) = c.land_raw(step);
@@ -700,6 +704,7 @@ fn refused_without_the_write_credential(c: &Cluster, step: &Value) {
     let landed = c.land(step);
     assert_eq!(s(&landed["landed"]), s(&step["sha"]));
     assert_eq!(c.main_tip(), s(&step["sha"]));
+    true
 }
 
 // ── the boundary, under a GitHub App ──────────────────────────────────────────
@@ -884,7 +889,9 @@ fn a_valid_sha_without_the_write_credential_does_not_land_under_a_github_app() {
     let pin = c.pin();
     let step = c.step("travel-tier", s(&pin["bundle"]));
     assert_eq!(step["outcome"], "ran", "{step}");
-    refused_without_the_write_credential(&c, &step);
+    if !refused_without_the_write_credential(&c, &step) {
+        return;
+    }
     assert!(
         !c.app.as_ref().unwrap().seen().is_empty(),
         "the lander landed without asking the App for a token"

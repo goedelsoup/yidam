@@ -561,7 +561,12 @@ fn every_staged_upgrade_note_files_whole() {
         })
         .unwrap_or_default();
     if staged.is_empty() {
-        // Right after a release. The fixture tests below still exercise the script.
+        // Right after a release, on CI as anywhere, so a plain skip rather than a CI failure.
+        // The fixture tests below still exercise the script.
+        ci_report::skipped(&format!(
+            "no upgrade note is staged under {STAGED_NOTES}, which is the state right after a \
+             release; stage one to exercise this"
+        ));
         return;
     }
     let notes: Vec<(&str, &str)> = staged

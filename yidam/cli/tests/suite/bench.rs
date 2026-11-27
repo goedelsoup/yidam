@@ -162,12 +162,16 @@ fn bench_refuses_when_the_flat_arm_would_be_keyword_search() {
         .output()
         .unwrap();
 
-    // Only meaningful for a build whose retrieval is keyword — a `cli-full` run against a
-    // corpus with an index is in a different state and answers instead of refusing.
-    if out.status.success() {
-        return;
-    }
+    // Refused in every build: the copy above is tracked files only, so it has no index and
+    // declares no remote one, and both `vector-read` and the build without it read that as
+    // keyword search. A build that answered here would be the regression this test is named
+    // for, so a success is a failure rather than a skip (#1621).
     let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !out.status.success(),
+        "bench measured a corpus with no index instead of refusing:\n{}{stderr}",
+        String::from_utf8_lossy(&out.stdout)
+    );
     assert!(
         stderr.contains("keyword search"),
         "bench must name the reason it will not measure: {stderr}"

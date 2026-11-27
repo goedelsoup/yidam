@@ -381,6 +381,43 @@ fn runs_a_test_task(body: &str, test_tasks: &[String]) -> bool {
     false
 }
 
+/// Whether `line` opens a print whose text starts with a skip word.
+///
+/// The text may be on `next`: rustfmt moves a long literal onto its own line, and
+/// `cluster_run.rs` announced its skip that way, unseen, until #1621.
+fn prints_a_skip(line: &str, next: &str) -> bool {
+    let literal = if let Some(open) = line.find("print!(\"").or_else(|| line.find("println!(\"")) {
+        line[open..].split_once('"').map(|x| x.1).unwrap_or("")
+    } else if line.trim_end().ends_with("print!(") || line.trim_end().ends_with("println!(") {
+        next.trim_start().strip_prefix('"').unwrap_or("")
+    } else {
+        return false;
+    };
+    literal.to_ascii_lowercase().starts_with("skip")
+}
+
+#[test]
+fn a_skip_print_is_found_on_its_own_line_or_the_next() {
+    // Assembled with `concat!` so that the gate, which reads this file, does not find them.
+    let open = concat!("eprintln", "!(");
+    assert!(prints_a_skip(
+        &format!("    {open}\"skipping: no MinIO\");"),
+        ""
+    ));
+    assert!(prints_a_skip(
+        &format!("        {open}"),
+        "            \"skipped: this process writes a read-only directory\""
+    ));
+    assert!(!prints_a_skip(
+        &format!("        {open}"),
+        "            \"ran: {n} tests\""
+    ));
+    assert!(!prints_a_skip(
+        &format!("    {open}\"{{n}} skipped\");"),
+        ""
+    ));
+}
+
 /// Every runtime skip announces itself the one way the census reads.
 ///
 /// This is the census's coverage, and it is the assertion that keeps the count honest. A
@@ -417,13 +454,9 @@ fn a_skip_is_announced_through_the_helper_and_not_in_its_own_words() {
             if code.contains("ci_report::skipped") {
                 using_helper += 1;
             }
-            for (i, line) in code.lines().enumerate() {
-                let Some(open) = line.find("println!(\"").or_else(|| line.find("print!(\"")) else {
-                    continue;
-                };
-                let literal = line[open..].split_once('"').map(|x| x.1).unwrap_or("");
-                let lowered = literal.to_ascii_lowercase();
-                if lowered.starts_with("skip") {
+            let lines: Vec<&str> = code.lines().collect();
+            for (i, line) in lines.iter().enumerate() {
+                if prints_a_skip(line, lines.get(i + 1).copied().unwrap_or("")) {
                     offenders.push(format!(
                         "  {}:{}",
                         path.strip_prefix(repo_root()).unwrap_or(path).display(),
