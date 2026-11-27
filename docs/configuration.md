@@ -361,6 +361,9 @@ started reading the far side's new text. It is the first day an answer could hav
 An ask whose `pin:` still matches the dependency is owed nothing, however old it is. It is
 waiting on the far side, and there is nothing new to read. Marking it `answered`, or moving its
 `pin:` to the new commit after reading, discharges it.
+A `tonpa.toml` or `tonpa.lock` that does not parse still lets the clock answer. Its line names
+the file and how the count is off. A clean count over it reads `unmeasurable`, not `ok`.
+`yidam doctor` fails over the same file and names the line.
 
 `template_after` counts releases, not days, because a date cannot tell a quiet upstream from a
 stale pin. `template_after = 1` makes any newer release due. `0` means the same, since a pin at

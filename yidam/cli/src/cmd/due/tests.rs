@@ -1100,6 +1100,83 @@ fn an_ask_to_a_live_dependency_is_said_to_have_no_pin() {
     );
 }
 
+/// Declared at `ASKED_AT`, locked at `REPINNED`, and one open ask at the lock's pin: owed
+/// nothing while both files read, at any interval.
+fn asked_at_the_lock(root: &Path) {
+    pin_upstream(root, REPINNED);
+    std::fs::write(
+        root.join(".yidam/tonpa.toml"),
+        format!("[dependencies.up]\npath = \"../up\"\nrev = \"{ASKED_AT}\"\n"),
+    )
+    .unwrap();
+    ask(root, "q", &format!("pin: {REPINNED}\nstatus: open"));
+    config(root, "[due]\nasks_after = 7\n");
+}
+
+/// The control for the two below, and the line they change: both files read, nothing said.
+#[test]
+fn an_ask_read_against_both_files_says_nothing_about_them() {
+    let tmp = repo();
+    asked_at_the_lock(tmp.path());
+    let c = find(&clocks(tmp.path()), "asks").clone();
+    assert_eq!(c.state, State::Ok, "{c:?}");
+    assert_eq!(c.detail, "1 open ask(s), 0 read against a pin since moved");
+}
+
+/// Best-effort since #1657, and said (#1665). Every pin falls back to the declared `rev`,
+/// so the ask reads as moved when nothing moved, and the line names the file it could not
+/// read. Still no failure: `doctor` is the report that fails over it.
+#[test]
+fn an_unreadable_lock_is_named_beside_the_count() {
+    let tmp = repo();
+    let root = tmp.path();
+    asked_at_the_lock(root);
+    std::fs::write(root.join(".yidam/tonpa/tonpa.lock"), "[[package\n").unwrap();
+    let c = find(&clocks(root), "asks").clone();
+    assert!(
+        c.detail.contains("1 read against a pin since moved")
+            && c.detail.contains("could not read .yidam/tonpa/tonpa.lock"),
+        "{}",
+        c.detail
+    );
+    assert!(!c.detail.contains("tonpa.toml"), "{}", c.detail);
+    assert!(!c.detail.contains('\n'), "one line: {}", c.detail);
+}
+
+/// With the config unreadable no dependency is declared, so the ask is compared with
+/// nothing and would read as clean. It is unmeasured, and the line says which file.
+#[test]
+fn an_unreadable_tonpa_toml_is_named_and_the_clock_is_not_clean() {
+    let tmp = repo();
+    let root = tmp.path();
+    asked_at_the_lock(root);
+    std::fs::write(root.join(".yidam/tonpa.toml"), "[dependencies.up\n").unwrap();
+    let c = find(&clocks(root), "asks").clone();
+    assert_eq!(c.state, State::Unmeasurable, "{c:?}");
+    assert!(
+        c.detail.contains("could not read .yidam/tonpa.toml"),
+        "{}",
+        c.detail
+    );
+    assert!(!c.detail.contains("tonpa.lock"), "{}", c.detail);
+}
+
+/// An absent lock is nothing locked yet, a normal state and not a read that failed.
+#[test]
+fn an_absent_lock_is_not_reported_as_unreadable() {
+    let tmp = repo();
+    let root = tmp.path();
+    asked_at_the_lock(root);
+    std::fs::remove_file(root.join(".yidam/tonpa/tonpa.lock")).unwrap();
+    let c = find(&clocks(root), "asks").clone();
+    assert!(!c.detail.contains("could not read"), "{}", c.detail);
+    assert!(
+        c.detail.contains("1 read against a pin since moved"),
+        "{}",
+        c.detail
+    );
+}
+
 // ── the coverage clock ────────────────────────────────────────────────────────
 
 /// Bytes filed in a scratch cache under their digest, the way `catalog-fetch` leaves them.
