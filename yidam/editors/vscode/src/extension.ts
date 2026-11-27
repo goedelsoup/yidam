@@ -73,6 +73,7 @@ import {
   type Filter,
   type TreeNode,
 } from './tree/model.ts'
+import { terminalCommand } from './terminal.ts'
 import { NodeTree } from './tree/provider.ts'
 import {
   completions,
@@ -1144,8 +1145,21 @@ function severityOf(level: Finding['level']): vscode.DiagnosticSeverity {
  * corpus's debt, and it should be as visible as any other commit-shaped act.
  */
 async function blessBaseline(): Promise<void> {
-  const term = vscode.window.createTerminal('yidam lint --bless')
-  term.sendText('yidam lint --bless')
+  const folder = workspaceFolder()
+  const bin = state?.resolution.command
+  if (!folder || !bin) {
+    void vscode.window.showErrorMessage('Not blessing: no yidam binary has resolved.')
+    return
+  }
+  const text = terminalCommand(bin, ['lint', '--bless'], vscode.env.shell)
+  if (text === null) {
+    void vscode.window.showErrorMessage(
+      `Not blessing: ${JSON.stringify(bin)} has characters that are unsafe to type into a terminal. Run ${bin} lint --bless yourself.`,
+    )
+    return
+  }
+  const term = vscode.window.createTerminal({ name: 'yidam lint --bless', cwd: folder })
+  term.sendText(text)
   term.show()
 }
 
