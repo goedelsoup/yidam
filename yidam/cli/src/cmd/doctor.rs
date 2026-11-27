@@ -2931,17 +2931,33 @@ fn check_catalog(root: &Path, today: i64) -> Answer {
     )
 }
 
+/// The width of the id column: the longest id in [`ROSTER`], so every line holds its id and
+/// the detail column starts in one place. Read from the roster and not a literal because a
+/// literal was 12 while `run-output-stamps-input-commit` is 30, and the next long id would
+/// have been out of column the same way (#1626). From the roster and not from the report so
+/// that `--only` does not move the column.
+fn id_width() -> usize {
+    ROSTER.iter().map(|q| q.id.len()).max().unwrap_or_default()
+}
+
 pub(crate) fn render(report: &DoctorReport, root: &Path) -> String {
     let mut out = format!("yidam doctor — {}\n\n", root.display());
+    let width = id_width();
     for c in &report.checks {
-        let _ = writeln!(out, "  {:<5} {:<12} {}", c.verdict.tag(), c.id, c.detail);
+        let _ = writeln!(
+            out,
+            "  {:<5} {:<width$} {}",
+            c.verdict.tag(),
+            c.id,
+            c.detail
+        );
         // Printed wherever there is one, which is only ever a `warn` or a `fail`: a remedy
         // under a green line is how a report becomes something people skim past, and that
         // rule is [`Answer::ok`]'s now. It used to be enforced a second time here, and the
         // two halves disagreed for as long as both existed — the suppression was the
         // renderer's alone, so the JSON carried what this hid (#656).
         if let Some(remedy) = &c.remedy {
-            let _ = writeln!(out, "  {:<5} {:<12} → {remedy}", "", "",);
+            let _ = writeln!(out, "  {:<5} {:<width$} → {remedy}", "", "");
         }
     }
     out.push('\n');
@@ -3417,6 +3433,83 @@ jobs:
             .expect("a ```console fence whose command is `$ yidam doctor`")
     }
 
+    impl Verdict {
+        /// Every variant, for the test that reads a verdict back by its tag.
+        /// [`all_verdicts_lists_every_variant`] makes a variant missing here a compile error.
+        const ALL: [Self; 5] = [
+            Self::Ok,
+            Self::Warn,
+            Self::Fail,
+            Self::Skipped,
+            Self::Declined,
+        ];
+    }
+
+    /// **`Verdict::ALL` holds every variant.**
+    ///
+    /// The `match` has no wildcard, so a sixth variant fails to compile here until it is
+    /// given a position, and the position check then fails until it is in `ALL`.
+    #[test]
+    fn all_verdicts_lists_every_variant() {
+        let position = |v: Verdict| match v {
+            Verdict::Ok => 0,
+            Verdict::Warn => 1,
+            Verdict::Fail => 2,
+            Verdict::Skipped => 3,
+            Verdict::Declined => 4,
+        };
+        let positions: Vec<usize> = Verdict::ALL.iter().map(|v| position(*v)).collect();
+        assert_eq!(positions, (0..positions.len()).collect::<Vec<_>>());
+        assert_eq!(
+            positions.len(),
+            5,
+            "a variant is missing from `Verdict::ALL`"
+        );
+    }
+
+    /// A line of every verdict, `decl` included, is read back as a verdict line.
+    #[test]
+    fn every_verdict_tag_reads_back_as_a_verdict_line() {
+        for v in Verdict::ALL {
+            let line = format!("  {:<5} {:<30} some detail", v.tag(), "kuten");
+            assert_eq!(
+                verdict_line_id(&line),
+                Some("kuten"),
+                "`{}` is not read as a verdict line",
+                v.tag()
+            );
+        }
+        assert_eq!(verdict_line_id("                     → remedy"), None);
+        assert_eq!(verdict_line_id("2 failing check(s)."), None);
+    }
+
+    /// Every id fits its column and the detail starts in one place on every line.
+    #[test]
+    fn rendered_detail_column_is_aligned() {
+        let width = id_width();
+        assert!(ROSTER.iter().all(|q| q.id.len() <= width));
+        let checks = ROSTER
+            .iter()
+            .map(|q| Check {
+                id: q.id,
+                question: q.text,
+                verdict: Verdict::Ok,
+                detail: "detail".into(),
+                remedy: None,
+                offers: Vec::new(),
+            })
+            .collect();
+        let report = DoctorReport::new(checks, false);
+        let text = render(&report, Path::new("/x"));
+        let starts: Vec<usize> = text
+            .lines()
+            .filter(|l| verdict_line_id(l).is_some())
+            .map(|l| l.find("detail").unwrap_or_default())
+            .collect();
+        assert_eq!(starts.len(), ROSTER.len());
+        assert!(starts.iter().all(|s| *s == starts[0]), "{starts:?}");
+    }
+
     /// The check id on a verdict line, or `None` for anything else in the transcript.
     ///
     /// A verdict line is `  <verdict>  <id>  <detail>`; a remedy continues with `→` and the
@@ -3424,7 +3517,9 @@ jobs:
     fn verdict_line_id(line: &str) -> Option<&str> {
         let mut words = line.split_whitespace();
         let verdict = words.next()?;
-        matches!(verdict, "ok" | "fail" | "warn" | "skip")
+        Verdict::ALL
+            .iter()
+            .any(|v| v.tag() == verdict)
             .then(|| words.next())
             .flatten()
     }
