@@ -1138,6 +1138,9 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
     // re-scan every region the file declares and report the flood as a corpus that got
     // worse, rather than as a file with a typo in it.
     crate::authorship::Authorship::load(&root)?;
+    // `.yidam/tonpa.toml` likewise (#1616). The pin, ask and prose-commit checks degrade to
+    // no dependencies, so a typo in it would read as a corpus that depends on nothing.
+    crate::deps::load_config(&crate::paths::tonpa_config_path(&root))?;
     let all = run_checks(&root, &opts);
 
     // JSON short-circuits the prose path entirely rather than interleaving with it: the

@@ -15,7 +15,11 @@ pub const MALFORMED: &str = "ask-malformed";
 /// Both checks over one read of the directory, in registry order.
 pub fn checks(root: &Path) -> [Check; 2] {
     let asks = crate::asks::read(root);
-    let declared = crate::deps::load_config(&crate::paths::tonpa_config_path(root)).dependencies;
+    // Degrades inside `run_checks`, which the editor reads mid-edit; `lint` refuses an
+    // unparseable file before any check runs (#1616).
+    let declared = crate::deps::load_config(&crate::paths::tonpa_config_path(root))
+        .unwrap_or_default()
+        .dependencies;
     let unresolved = asks
         .iter()
         .filter_map(|a| match a.package.as_deref() {

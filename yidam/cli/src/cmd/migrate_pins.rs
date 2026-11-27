@@ -447,7 +447,15 @@ fn locate(
     }
 
     // Then every `path` dependency, each asked only for the commits missing here.
-    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
+    // A file that does not parse would ask no dependency, and every commit only a dependency
+    // has would be reported as not in this repository — an edit planned on a misreading.
+    let config = match crate::deps::load_config(&crate::paths::tonpa_config_path(root)) {
+        Ok(config) => config,
+        Err(e) => {
+            report.blocked.push(format!("{e:#}"));
+            return None;
+        }
+    };
     let asked: Vec<&Dated> = missing.iter().map(|&n| all[n]).collect();
     let qs = queries(&asked);
     // Per missing entry: the dependencies whose commit it is, with each location's answer.

@@ -650,8 +650,10 @@ pub(crate) fn plan(
     spec: &Spec,
     query: &lang::Query,
     mode: Mode,
-) -> (Vec<PeerReport>, Vec<Ask>) {
-    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
+) -> Result<(Vec<PeerReport>, Vec<Ask>)> {
+    // Refused rather than read as no path dependencies: every peer the file declared would
+    // be planned as not installed, and the roll call would be a misreading (#1616).
+    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root))?;
     let deps = citations::installed(root);
     let lock = crate::deps::load_lock(&crate::paths::tonpa_lock_path(root)).unwrap_or_default();
     let locked = |n: &str| lock.packages.iter().find(|p| p.name == n);
@@ -725,7 +727,7 @@ pub(crate) fn plan(
             }),
         }
     }
-    (peers, asks)
+    Ok((peers, asks))
 }
 
 /// Ask one peer from a root where it is unpacked under `.yidam/tonpa/<peer>/`.
@@ -874,8 +876,8 @@ pub(crate) fn settle(
 }
 
 /// The plan, asked in this process against what is unpacked here.
-fn survey(root: &Path, name: &str, spec: &Spec, query: &lang::Query) -> Settled {
-    let (peers, asks) = plan(root, name, spec, query, Mode::Local);
+fn survey(root: &Path, name: &str, spec: &Spec, query: &lang::Query) -> Result<Settled> {
+    let (peers, asks) = plan(root, name, spec, query, Mode::Local)?;
     let deps = citations::installed(root);
     let foreign: BTreeMap<String, Foreign> = Graph::foreign(root)
         .into_iter()
@@ -890,7 +892,7 @@ fn survey(root: &Path, name: &str, spec: &Spec, query: &lang::Query) -> Settled 
             )
         })
         .collect();
-    settle(peers, &asks, records)
+    Ok(settle(peers, &asks, records))
 }
 
 // ── landing ───────────────────────────────────────────────────────────────────
@@ -1233,7 +1235,7 @@ pub(crate) fn gather_at(
 ) -> Result<(GatherReport, Option<String>)> {
     let local = Graph::load(root);
     let (spec, query) = load(root, name, &local)?;
-    let (peers, asks) = plan(root, name, &spec, &query, Mode::Cluster);
+    let (peers, asks) = plan(root, name, &spec, &query, Mode::Cluster)?;
     let settled = settle(peers, &asks, records);
     let short = write::short_of(root, input);
     let mut tip = None;
@@ -1264,7 +1266,7 @@ pub(crate) fn gather_at(
 pub(crate) fn plan_at(root: &Path, name: &str) -> Result<(Vec<PeerReport>, Vec<Ask>)> {
     let local = Graph::load(root);
     let (spec, query) = load(root, name, &local)?;
-    Ok(plan(root, name, &spec, &query, Mode::Cluster))
+    plan(root, name, &spec, &query, Mode::Cluster)
 }
 
 fn report(
@@ -1301,7 +1303,7 @@ pub(crate) fn run(root: &Path, opts: &Options) -> Result<GatherReport> {
     write::require_committed_corpus(root)?;
     let local = Graph::load(root);
     let (spec, query) = load(root, &opts.name, &local)?;
-    let settled = survey(root, &opts.name, &spec, &query);
+    let settled = survey(root, &opts.name, &spec, &query)?;
 
     let landed = match opts.dry_run || settled.cites.is_empty() {
         true => None,

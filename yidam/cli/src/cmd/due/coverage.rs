@@ -392,7 +392,8 @@ type Read = (Vec<u8>, String, Format);
 fn read_pin(root: &Path, entry: &str, loc: &CatalogLocation) -> Result<Read, String> {
     use crate::cmd::lint::pins;
     let (commit, file) = pins::shape(loc).map_err(|why| format!("`{entry}`'s pin: {why}"))?;
-    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
+    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root))
+        .map_err(|e| format!("`{entry}`'s pin cannot be read: {e:#}"))?;
     let dir = match pins::place(root, loc.repo.as_deref(), &config) {
         pins::Place::Dir(d) => d,
         pins::Place::Unchecked(why) | pins::Place::Unresolved(why) => {

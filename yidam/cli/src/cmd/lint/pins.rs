@@ -170,7 +170,10 @@ pub(crate) fn checks(root: &Path, sources: &[Source]) -> [Check; 5] {
     let mut found: [Vec<Violation>; 5] = Default::default();
     let [unresolved, ambiguous, abbreviated, symbol_missing, unchecked] = &mut found;
 
-    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
+    // Degrades inside `run_checks`, which the editor reads mid-edit; `lint` refuses an
+    // unparseable file before any check runs (#1616).
+    let config =
+        crate::deps::load_config(&crate::paths::tonpa_config_path(root)).unwrap_or_default();
     let mut by_repo: BTreeMap<Option<String>, Vec<Pending>> = BTreeMap::new();
     for s in sources {
         for (i, loc) in s.locations.iter().enumerate() {
@@ -428,7 +431,10 @@ struct Pin<'a> {
 /// per repository and one more per changed pin to count the commits. A pin naming a `symbol`
 /// is then measured at the grain [`super::symbols::compare`] decides.
 pub(crate) fn staleness(root: &Path, sources: &[Source]) -> Staleness {
-    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
+    // `due` reads this and reports rather than fails; an unparseable file is `doctor`'s
+    // failure and `lint`'s refusal (#1616).
+    let config =
+        crate::deps::load_config(&crate::paths::tonpa_config_path(root)).unwrap_or_default();
     let mut out = Staleness::default();
     let mut by_repo: BTreeMap<Option<String>, Vec<Pin<'_>>> = BTreeMap::new();
     for s in sources {
