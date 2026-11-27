@@ -177,20 +177,38 @@ pub struct Pinned {
     pub since: Option<i64>,
 }
 
-/// Every declared dependency's current pin, keyed by name. A dependency read live from a
-/// sibling's working tree has no pin and maps to `None`.
+/// Every declared dependency's current pin, and the files that read could not use.
+#[derive(Debug, Default, PartialEq)]
+pub struct Pins {
+    /// Keyed by dependency name. A dependency read live from a sibling's working tree has no
+    /// pin and maps to `None`.
+    pub by_name: BTreeMap<String, Option<Pinned>>,
+    /// `tonpa.toml` and `tonpa.lock`, repo-relative, where the file is there and could not be
+    /// read or parsed. An absent file is not here: no lock is nothing locked yet.
+    pub unread: Vec<String>,
+}
+
+/// Every declared dependency's current pin, keyed by name.
 ///
 /// The lock's `commit` is preferred to the declaration's `rev`, because the lock is what was
 /// actually installed. The declaration is read where nothing is locked yet.
-pub fn pins(root: &Path) -> BTreeMap<String, Option<Pinned>> {
+pub fn pins(root: &Path) -> Pins {
     // Best-effort, both files: `due`'s clock reports and never fails. An unparseable
     // `tonpa.toml` is `doctor`'s failure and `lint`'s refusal (#1616); an unparseable lock is
-    // `doctor`'s failure, and every pin here then falls back to the declaration (#1657).
-    let config =
-        crate::deps::load_config(&crate::paths::tonpa_config_path(root)).unwrap_or_default();
+    // `doctor`'s failure, and every pin here then falls back to the declaration (#1657). The
+    // file that could not be read is returned, so the clock says so beside its count (#1665).
+    let mut unread = Vec::new();
+    let config_path = crate::paths::tonpa_config_path(root);
+    let config = crate::deps::load_config(&config_path).unwrap_or_else(|_| {
+        unread.push(rel(root, &config_path));
+        Default::default()
+    });
     let lock_path = crate::paths::tonpa_lock_path(root);
-    let lock = crate::deps::load_lock(&lock_path).unwrap_or_default();
-    config
+    let lock = crate::deps::load_lock(&lock_path).unwrap_or_else(|_| {
+        unread.push(rel(root, &lock_path));
+        Default::default()
+    });
+    let by_name = config
         .dependencies
         .iter()
         .map(|(name, dep)| {
@@ -212,7 +230,8 @@ pub fn pins(root: &Path) -> BTreeMap<String, Option<Pinned>> {
             };
             (name.clone(), pinned)
         })
-        .collect()
+        .collect();
+    Pins { by_name, unread }
 }
 
 /// The day the lock last gained `commit`, by git's pickaxe.
@@ -318,6 +337,8 @@ mod tests {
             "[[package]]\nname = \"locked\"\nurl = \"../l\"\nsha256 = \"x\"\ncommit = \"cccc\"\nrev = \"cccc\"\n",
         );
         let p = pins(tmp.path());
+        assert!(p.unread.is_empty(), "{:?}", p.unread);
+        let p = p.by_name;
         assert_eq!(p["locked"].as_ref().unwrap().commit, "cccc");
         assert_eq!(p["declared"].as_ref().unwrap().commit, "bbbb");
         assert_eq!(p["declared"].as_ref().unwrap().since, None);
@@ -325,9 +346,10 @@ mod tests {
     }
 
     /// Deliberately best-effort (#1657): a lock that does not parse reads as no lock here,
-    /// because `due` reports and never fails, and `doctor` is what fails over it.
+    /// because `due` reports and never fails, and `doctor` is what fails over it. The file is
+    /// named in `unread` (#1665), and an absent lock is not.
     #[test]
-    fn an_unparseable_lock_reads_as_no_lock() {
+    fn an_unparseable_lock_reads_as_no_lock_and_is_named() {
         let tmp = tempfile::tempdir().unwrap();
         write(
             tmp.path(),
@@ -335,9 +357,25 @@ mod tests {
             "[dependencies.declared]\npath = \"../d\"\nrev = \"bbbb\"\n",
         );
         let unlocked = pins(tmp.path());
+        assert!(unlocked.unread.is_empty(), "absent is not unread");
         write(tmp.path(), ".yidam/tonpa/tonpa.lock", "[[package\n");
         assert!(crate::deps::load_lock(&crate::paths::tonpa_lock_path(tmp.path())).is_err());
-        assert_eq!(pins(tmp.path()), unlocked);
-        assert_eq!(unlocked["declared"].as_ref().unwrap().commit, "bbbb");
+        let broken = pins(tmp.path());
+        assert_eq!(broken.by_name, unlocked.by_name);
+        assert_eq!(broken.unread, vec![".yidam/tonpa/tonpa.lock"]);
+        assert_eq!(
+            unlocked.by_name["declared"].as_ref().unwrap().commit,
+            "bbbb"
+        );
+    }
+
+    /// The same for the config, where it reads as declaring nothing.
+    #[test]
+    fn an_unparseable_tonpa_toml_declares_nothing_and_is_named() {
+        let tmp = tempfile::tempdir().unwrap();
+        write(tmp.path(), ".yidam/tonpa.toml", "[dependencies.declared\n");
+        let p = pins(tmp.path());
+        assert!(p.by_name.is_empty(), "{:?}", p.by_name);
+        assert_eq!(p.unread, vec![".yidam/tonpa.toml"]);
     }
 }

@@ -1014,7 +1014,7 @@ fn clock_asks(root: &Path, after: Option<u32>, today: i64) -> Clock {
         else {
             continue;
         };
-        match pins.get(package) {
+        match pins.by_name.get(package) {
             None => {}
             Some(None) => unpinned += 1,
             Some(Some(pinned)) if !crate::asks::same_commit(asked, &pinned.commit) => {
@@ -1035,6 +1035,22 @@ fn clock_asks(root: &Path, after: Option<u32>, today: i64) -> Clock {
     // sibling's working tree has nothing to have moved past.
     if unpinned > 0 {
         let _ = write!(measured, "; {unpinned} to a dependency with no pin");
+    }
+    // Said rather than folded into the count, as a pinned read that cannot be compared is. The
+    // read stays best-effort (#1657), and a count over a file it could not read is wrong in a
+    // known direction, so the line names the file and the direction (#1665). With no open ask
+    // there is no count for it to be wrong about.
+    let unread: &[String] = if open.is_empty() { &[] } else { &pins.unread };
+    for file in unread {
+        let so = if file.ends_with("tonpa.lock") {
+            "so each pin is the declared `rev`"
+        } else {
+            "so no dependency is declared"
+        };
+        let _ = write!(measured, "; could not read {file}, {so}");
+    }
+    if !unread.is_empty() {
+        measured.push_str("; `yidam doctor` says why");
     }
 
     let Some(after) = after else {
@@ -1058,7 +1074,8 @@ fn clock_asks(root: &Path, after: Option<u32>, today: i64) -> Clock {
     overdue.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.rel.cmp(&b.0.rel)));
 
     let Some(&(_, _, longest)) = overdue.first() else {
-        let state = match undated {
+        // A clean count over a file it could not read is not a clean clock.
+        let state = match undated + unread.len() {
             0 => State::Ok,
             _ => State::Unmeasurable,
         };
