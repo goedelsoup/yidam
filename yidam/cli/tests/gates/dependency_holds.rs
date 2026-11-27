@@ -588,3 +588,95 @@ fn reqwest_decodes_no_response_body() {
          decoding feature and every client here decodes the bytes a server sends (#1603)."
     );
 }
+
+/// The package a line of TypeScript imports from a registry, for each import on it.
+///
+/// `from 'yaml'`, `import 'yaml'` and `import('yaml')` name `yaml`; `@scope/name/sub` names
+/// `@scope/name`. A relative path and a `node:` builtin name nothing that needs declaring.
+fn imported_packages(line: &str) -> Vec<String> {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("//") || trimmed.starts_with('*') || trimmed.starts_with("/*") {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for keyword in ["from", "import"] {
+        for (at, _) in line.match_indices(keyword) {
+            let rest = line[at + keyword.len()..]
+                .trim_start()
+                .trim_start_matches('(')
+                .trim_start();
+            let Some(quote) = rest.chars().next().filter(|c| matches!(c, '\'' | '"')) else {
+                continue;
+            };
+            let Some(spec) = rest[1..].split(quote).next() else {
+                continue;
+            };
+            if spec.is_empty() || spec.starts_with(['.', '/']) || spec.starts_with("node:") {
+                continue;
+            }
+            let segments = if spec.starts_with('@') { 2 } else { 1 };
+            out.push(spec.split('/').take(segments).collect::<Vec<_>>().join("/"));
+        }
+    }
+    out
+}
+
+/// Every package a TypeScript library's source imports is one it declares under
+/// `dependencies`.
+///
+/// `@yidam/core` imported `yaml` from `src/corpus.ts` and `src/ontology.ts` and declared it
+/// under `devDependencies` (#1681). The package's own suite cannot see that: `npm ci` installs
+/// both tables, so the import resolves in every run here. It fails in the one place nothing
+/// runs — a consumer's install, which gets `dependencies` and nothing else, and then dies on
+/// `ERR_MODULE_NOT_FOUND` at the first `import '@yidam/core'`.
+///
+/// The SDK and the fourteen domain packages, because each `exports` its `src/` directly: what
+/// a source file imports is what a consumer loads. Tests import `vitest` and `smol-toml` from
+/// `tests/`, which is why those two stay where they are.
+#[test]
+fn every_package_a_library_source_file_imports_is_a_runtime_dependency() {
+    let root = repo_root();
+    let manifests: Vec<String> = ["yidam/sdks/*package.json", "yidam/domains/*package.json"]
+        .iter()
+        .flat_map(|spec| common::tracked_under(&root, spec))
+        .collect();
+
+    let mut imports = 0;
+    let mut undeclared = Vec::new();
+    for manifest in &manifests {
+        let dir = manifest.rsplit_once('/').map_or("", |(dir, _)| dir);
+        let pkg: serde_json::Value = serde_json::from_str(&read(manifest))
+            .unwrap_or_else(|e| panic!("{manifest} is not JSON: {e}"));
+        for file in common::tracked_under(&root, &format!("{dir}/src/*.ts")) {
+            for (n, line) in read(&file).lines().enumerate() {
+                for package in imported_packages(line) {
+                    imports += 1;
+                    if pkg["dependencies"].get(&package).is_none() {
+                        undeclared.push(format!("  {file}:{} imports `{package}`", n + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(
+        manifests.len() >= 15,
+        "git ls-files found {} package.json files under yidam/sdks and yidam/domains. There \
+         are fifteen — the SDK and fourteen domains — so the listing went wrong.",
+        manifests.len()
+    );
+    assert!(
+        imports > 0,
+        "no source file under yidam/sdks or yidam/domains imported a registry package, and \
+         `@yidam/core` imports `yaml` twice. The scan stopped reading imports, and a check \
+         over none of them passes."
+    );
+    assert!(
+        undeclared.is_empty(),
+        "these source files import a package their own package.json does not list under \
+         `dependencies`:\n{}\nA consumer's install omits `devDependencies`, so the import \
+         resolves in this repository's test run and nowhere else. Move the package to \
+         `dependencies` and refresh the lockfile.",
+        undeclared.join("\n")
+    );
+}
