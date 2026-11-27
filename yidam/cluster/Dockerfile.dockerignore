@@ -8,3 +8,6 @@
 # The build context is the whole checkout, and the build stage copies all of it. An overlay's
 # secret values must not reach an image layer.
 yidam/cluster/overlays/*/objects/secrets
+# The base image is the toolchain (its `FROM` is a gated copy of this file's version). Copied
+# in, the file would have rustup fetch rustfmt and clippy into a build that uses neither.
+rust-toolchain.toml

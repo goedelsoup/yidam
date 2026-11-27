@@ -163,8 +163,8 @@ fn string_literals(src: &str) -> Vec<String> {
 
 /// `src` with every `#[cfg(test)]` item removed, by brace matching.
 ///
-/// The same shape `panic_paths` uses, for the same reason: unit tests live inside the files
-/// they test, and their fixtures name documents freely.
+/// The same shape the retired `panic_paths` gate used, for the same reason: unit tests live
+/// inside the files they test, and their fixtures name documents freely.
 fn without_test_items(src: &str) -> String {
     let b: Vec<char> = src.chars().collect();
     let n = b.len();
@@ -266,7 +266,7 @@ fn no_user_facing_string_points_at_a_document_clone_withholds() {
         if path.extension().is_none_or(|e| e != "rs") {
             continue;
         }
-        // Sibling test modules, excluded by name the way `panic_paths` excludes them:
+        // Sibling test modules, excluded by name:
         // `#[cfg(test)] mod tests;` leaves nothing inline to brace-match.
         if path.file_name().is_some_and(|f| f == "tests.rs") {
             continue;

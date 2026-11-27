@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "U+001F is not White_Space, so the one character is not empty and is read as a relative path (#1699)"
+
+[input]
+text = "\u001F"
+
+[expected]
+parses = true
+kind = "node"
+path = "\u001F"

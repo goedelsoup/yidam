@@ -23,6 +23,7 @@ rendering a name can say which one it means.
 See the Rust reference's ``prose.rs`` for the full argument.
 """
 
+from ._text import WHITE_SPACE
 from .corpus import CorpusInstance
 
 #: The prose key every node carries whatever anything declares.
@@ -50,13 +51,13 @@ def of(
 
     for key in keys:
         value = inst.description if key == ALWAYS else inst.extra.get(key)
-        if isinstance(value, str) and value.strip():
+        if isinstance(value, str) and value.strip(WHITE_SPACE):
             out.append((key, value))
 
     props = inst.properties or {}
     for name in properties:
         value = props.get(name)
-        if isinstance(value, str) and value.strip():
+        if isinstance(value, str) and value.strip(WHITE_SPACE):
             out.append((f"properties.{name}", value))
 
     return out
@@ -68,4 +69,4 @@ def text(inst: CorpusInstance, keys: list[str], properties: list[str]) -> str:
     Each value is trimmed at the end only: leading indentation inside a block scalar is the
     author's and part of what the node says, while a trailing newline is YAML's and not.
     """
-    return "\n".join(v.rstrip() for _, v in of(inst, keys, properties))
+    return "\n".join(v.rstrip(WHITE_SPACE) for _, v in of(inst, keys, properties))

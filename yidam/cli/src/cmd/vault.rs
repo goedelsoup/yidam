@@ -400,6 +400,10 @@ fn push(
         for (name, artifacts) in &by_vault {
             // Only what the licence and the private paths allow is worth opening a store for. A
             // run in which every artifact is refused must not ask for credentials it will not use.
+            #[expect(
+                clippy::expect_used,
+                reason = "`name` is a key of `by_vault`, which `group` fills only from `Dest::Vault` names that `vaults.route` returned, so it is declared"
+            )]
             let cfg = vaults.get(name).expect("routed to a declared vault");
             let heading = heading(name, cfg);
             let allowed: Vec<&vault::Named> = artifacts
@@ -521,6 +525,10 @@ fn pull(at: Option<&Path>, only: Option<&str>) -> Result<()> {
         if outstanding.is_empty() {
             continue;
         }
+        #[expect(
+            clippy::expect_used,
+            reason = "`name` is a key of `by_vault`, which `group` fills only from `Dest::Vault` names that `vaults.route` returned, so it is declared"
+        )]
         let cfg = vaults.get(name).expect("routed to a declared vault");
         let store = vault::open(name, cfg)?;
         for a in outstanding {
@@ -589,6 +597,10 @@ fn status(at: Option<&Path>, remote: bool, only: Option<&str>) -> Result<()> {
     };
 
     for (name, artifacts) in &by_vault {
+        #[expect(
+            clippy::expect_used,
+            reason = "`name` is a key of `by_vault`, which `group` fills only from `Dest::Vault` names that `vaults.route` returned, so it is declared"
+        )]
         let cfg = vaults.get(name).expect("routed to a declared vault");
         println!("{}", heading(name, cfg));
         let store = match remote {
@@ -778,6 +790,10 @@ fn get(at: Option<&Path>, sha256: &str, out: Option<&Path>) -> Result<()> {
         let mut tried = Vec::new();
         let mut found = None;
         for name in &candidates {
+            #[expect(
+                clippy::expect_used,
+                reason = "`candidates` is the one name `vaults.route` returned or `vaults.names()`, so each is declared"
+            )]
             let cfg = vaults.get(name).expect("candidates come from the map");
             let store = match vault::open(name, cfg) {
                 Ok(s) => s,

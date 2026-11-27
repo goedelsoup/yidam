@@ -48,6 +48,12 @@ use super::tracked;
 /// repository has no `package.json` and no TypeScript at all; the file would configure a
 /// linter for nothing.
 ///
+/// `rust-toolchain.toml` is yidam's toolchain, stated once (#1632). A derived repository builds
+/// no Rust until it grows a `crates/` workspace, and the file is not inert there: rustup reads
+/// it from every directory beneath it, so it would download yidam's compiler into any checkout
+/// that ran `cargo`, and win over the `@stable` the derived workflows install. A repository
+/// that grows crates chooses its own toolchain then, as `sadhana/root/mise.toml` says.
+///
 /// What is deliberately absent: `BOOTSTRAP.md` and `VERSIONING.md`. Both are yidam's, both
 /// are read during bootstrap — the first is the entry prompt that starts it — and the vendor
 /// step in step 8 deletes them once they have been used. Shipping a file the protocol
@@ -66,6 +72,7 @@ pub const NOT_INHERITED: &[&str] = &[
     "release.sh",
     "render-formula.sh",
     "render-manifest.sh",
+    "rust-toolchain.toml",
     "scripts",
 ];
 

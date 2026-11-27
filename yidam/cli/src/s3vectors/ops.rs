@@ -70,9 +70,9 @@ impl<'a> Session<'a> {
     /// is two identical rejections and twice the latency before the same message.
     pub fn call(&self, req: &request::Request) -> Result<Value, Failure> {
         // Written so the last attempt's failure is returned from where it happened. The
-        // alternative — accumulating into an `Option` and unwrapping after the loop — needs a
-        // panic path to express "a loop that ran at least once recorded something", and
-        // `panic_paths.rs` ratchets those.
+        // alternative — accumulating into an `Option` and unwrapping after the loop — needs an
+        // `expect` to say "a loop that ran at least once recorded something", and production
+        // code here denies `clippy::expect_used`.
         let mut spent = 0;
         loop {
             match self.api.call(req) {

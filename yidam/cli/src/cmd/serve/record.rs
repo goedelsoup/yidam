@@ -96,9 +96,9 @@ pub(crate) const PATH: &str = ".yidam/record/calls.jsonl";
 ///
 /// Spelled out rather than taken from `Path::new(PATH).parent()`, which is an `Option` this
 /// module would have to `expect` its way out of. The invariant is real — a relative path with a
-/// separator in it has a parent — but asserting it at runtime spends a panic path on something
-/// two constants in the same file can be checked against each other for, and `panic_paths.rs`
-/// is right that each one is a decision. [`the_two_constants_name_one_file`] is that check.
+/// separator in it has a parent — but asserting it at runtime spends an `#[expect]` on something
+/// two constants in the same file can be checked against each other for, and every such
+/// `expect` is a decision. [`the_two_constants_name_one_file`] is that check.
 const DIR: &str = ".yidam/record";
 
 /// An open, append-only record of what this server was asked.
@@ -336,7 +336,7 @@ mod tests {
 
     /// The invariant `open` would otherwise have asserted with an `expect`.
     ///
-    /// `DIR` exists so the one place that needs a directory does not spend a panic path on it.
+    /// `DIR` exists so the one place that needs a directory does not spend an `#[expect]` on it.
     /// That trade is only sound while the two constants agree, and nothing in the type system
     /// makes them: they are two independent string literals. This is what holds them together.
     #[test]

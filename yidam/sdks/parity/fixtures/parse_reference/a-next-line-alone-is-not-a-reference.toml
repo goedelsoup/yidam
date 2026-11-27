@@ -1,0 +1,8 @@
+function = "parse_reference"
+description = "U+0085 is White_Space, so the one character trims to nothing and is not a reference (#1699)"
+
+[input]
+text = "\u0085"
+
+[expected]
+parses = false

@@ -265,12 +265,20 @@ pub fn begin_check() -> CheckMode {
 pub struct CheckMode(&'static Mutex<Option<Vec<Stale>>>);
 
 impl CheckMode {
+    #[expect(
+        clippy::expect_used,
+        reason = "the lock is held only to set, take or read an `Option`, so it is poisoned only if a holder already panicked; this returns a guard, not a `Result`"
+    )]
     fn enter(cell: &'static Mutex<Option<Vec<Stale>>>) -> Self {
         *cell.lock().expect("regen check lock") = Some(Vec::new());
         Self(cell)
     }
 
     /// Leave check mode, with what the generators found.
+    #[expect(
+        clippy::expect_used,
+        reason = "the lock is held only to set, take or read an `Option`, so it is poisoned only if a holder already panicked; the callers take `Vec<Stale>` and have no error to report"
+    )]
     pub fn end(self) -> Vec<Stale> {
         self.0
             .lock()
@@ -292,6 +300,10 @@ impl Drop for CheckMode {
 ///
 /// In check mode it must not: the generators print their block to stdout, and thirty lines
 /// of corpus index in front of a JSON report is not a JSON report.
+#[expect(
+    clippy::expect_used,
+    reason = "the lock is held only to set, take or read an `Option`, so it is poisoned only if a holder already panicked; every generator calls this and none returns a `Result` for it"
+)]
 pub fn checking() -> bool {
     CHECK.lock().expect("regen check lock").is_some()
 }
@@ -413,6 +425,10 @@ pub fn emit(content: &str) {
 }
 
 fn record(path: &Path, command: &str) {
+    #[expect(
+        clippy::expect_used,
+        reason = "the lock is held only to set, take or read an `Option`, so it is poisoned only if a holder already panicked; `record` runs inside generators that return `()`"
+    )]
     let mut guard = CHECK.lock().expect("regen check lock");
     let Some(found) = guard.as_mut() else { return };
     let file = repo_relative(path);

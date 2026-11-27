@@ -19,6 +19,7 @@
  */
 import type { CorpusInstance, CorpusLink } from './corpus.ts'
 import { proseOf } from './prose.ts'
+import { trim, trimEnd } from './text.ts'
 
 /**
  * What one class declared about which of its fields belong in an embedding.
@@ -57,7 +58,7 @@ export function embedOf(
     const key = `properties.${name}`
     if (already.has(key)) continue
     const value = inst.properties?.[name]
-    if (typeof value === 'string' && value.trim() !== '') out.push([key, value])
+    if (typeof value === 'string' && trim(value) !== '') out.push([key, value])
   }
 
   return out
@@ -132,7 +133,7 @@ export function composeEmbedText(
   if (inst.label !== null && inst.label !== '') parts.push(inst.label)
 
   const said = embedOf(inst, fields)
-    .map(([, v]) => v.trimEnd())
+    .map(([, v]) => trimEnd(v))
     .join('\n')
   if (said !== '') parts.push(said)
 

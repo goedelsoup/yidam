@@ -200,6 +200,10 @@ impl Store for FileStore {
         if dest.is_file() {
             return Ok(());
         }
+        #[expect(
+            clippy::expect_used,
+            reason = "`dest` is `path_of(hash)`, a join under the store root, so it always has a parent"
+        )]
         let dir = dest.parent().expect("store paths always have a parent");
         std::fs::create_dir_all(dir)
             .with_context(|| format!("creating {} in the vault", dir.display()))?;

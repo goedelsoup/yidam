@@ -1,0 +1,15 @@
+function = "compose_embed_text"
+description = "U+FEFF is not White_Space, so a value of only that character is prose and the node keeps it (#1699)"
+
+[input]
+content = """
+class: measure
+label: L
+description: "\\uFEFF"
+"""
+prose_keys = ["description"]
+prose_properties = []
+retrievable_properties = []
+
+[expected]
+text = "L \uFEFF"

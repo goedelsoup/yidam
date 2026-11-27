@@ -179,6 +179,15 @@ a commit between kinds. Both SDKs now share the line rule and the `White_Space` 
 marker modules rather than calling the built-ins. The fixtures with `(#1666)` in their
 description are what fail when either is put back.
 
+**`compose_embed_text` and `parse_reference` trim by Unicode `White_Space` (#1699).** A value is
+empty, and a reference is refused, when it trims to nothing; the end of each value and both ends
+of a reference are cut by `str::trim`'s set. A U+0085 is trimmed, so a value of only that is
+empty; a U+FEFF or U+001C–U+001F stays, so a value of only one is text and a reference holding
+one at either end keeps it. Python's `strip` and JavaScript's `trim` each moved the answer for
+one of these. Both SDKs now pass the shared `White_Space` set to every trim in the embed, prose
+and reference modules. The fixtures with `(#1699)` in their description are what fail when a
+built-in is put back.
+
 ## Fixture format
 
 Each fixture is a TOML file under `fixtures/<function>/`:

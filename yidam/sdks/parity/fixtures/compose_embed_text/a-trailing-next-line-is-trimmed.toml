@@ -1,0 +1,15 @@
+function = "compose_embed_text"
+description = "U+0085 is White_Space, so the end of a value is trimmed back past it (#1699)"
+
+[input]
+content = """
+class: measure
+label: L
+description: "x\\x85"
+"""
+prose_keys = ["description"]
+prose_properties = []
+retrievable_properties = []
+
+[expected]
+text = "L x"

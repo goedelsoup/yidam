@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "U+FEFF is not White_Space, so it is not trimmed off the front and the reference is relative (#1699)"
+
+[input]
+text = "\uFEFFyidam://c/node/x"
+
+[expected]
+parses = true
+kind = "node"
+path = "\uFEFFyidam://c/node/x"

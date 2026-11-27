@@ -1,3 +1,12 @@
+// No `unwrap` or `expect` in production code without a stated reason (#1631). Each remaining
+// site carries `#[expect(clippy::…, reason = "…")]` saying why it cannot be a `?`; a new one
+// fails clippy, which is the gate, and a stale one fails it too. Under `cfg(test)` the two
+// lints are not denied, so the expectations are unfulfilled there by construction: allowed
+// below rather than repeated as `cfg_attr` on every site. `[lints.clippy]` is not used
+// because it also reaches every test target, where unwrapping is the idiom.
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(test, allow(unfulfilled_lint_expectations))]
+
 use anyhow::Result;
 use clap::error::ErrorKind;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
@@ -2017,6 +2026,10 @@ fn run() -> Result<()> {
             format,
         } => yidam::check_diff(root.as_deref(), range, format.value),
         Command::Bundle { root } => yidam::bundle(root.as_deref()),
+        #[expect(
+            clippy::unwrap_used,
+            reason = "`format` is a required argument of `export` unless `--list` is given, and the `list` branch above returns before this arm reads it"
+        )]
         Command::Export {
             root,
             format,
