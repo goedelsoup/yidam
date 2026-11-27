@@ -8,6 +8,9 @@
   - #1497 (the evidence this answers), #1536 (one commit per whole-manifest run, kept separate), parent epic #1513
 - **Versioning layers touched:** template (`guidelines/directories.md` says what `YIDAM_INPUT_COMMIT` is for, and what it is not for) / tooling (`run`'s freshness, `doctor`'s standing, one doctor check). No receipt format change: the receipt a run commits is byte-for-byte what it commits today. No MCP change. No SDK parity change.
 - **Downstream reference cases:** allen-county-ohio-democratic-party (pinned v0.16.0), whose receipt-only commits #1497 counts, and city-engine, measured read-only on 2026-11-20 at its v0.15.0 pin.
+- **Amended 2026-11-27 (#1598, #1600):** §2.7 lets a step declare an output whose consumer
+  requires the input commit. `doctor` reports that output as declared rather than warning, and
+  `run` judges its reproduction with the commit masked. One manifest key, `stamps_input_commit`.
 
 ## Summary
 
@@ -250,6 +253,58 @@ and the receipt already records it.
 to read history or to name what it measured. `guidelines/directories.md` gains one sentence on what
 the variable is for, and on not echoing it into an output.
 
+### 2.7 An output whose consumer requires the commit
+
+§1.4 assumed that nothing needs the stamp inside the output. Six corpora show otherwise:
+traffic-design, travel-demand, land-use-activity, civic-infrastructure, urban-land-markets and
+urban-environment-health. Each writes `.yidam/computed/engine-pack.json` for city-engine, and
+city-engine's pack schema requires `corpus_commit`, "the corpus commit every span was read at".
+The engine pins each corpus at that commit, and a test holds the pin equal to the field. The pack
+is copied out of the corpus, and the receipt does not travel with it. So the commit has to be
+inside the artifact.
+
+Measured read-only on 2026-11-27, 75 of the 181 commits that touched `engine-pack.json` across
+the six change nothing but `corpus_commit`. That share ranges from 19% in
+urban-environment-health to 57% in travel-demand. In each repository §2.6 warns on every run,
+and nothing the corpus can write clears the warning.
+
+A step may therefore name the outputs that carry the commit by contract:
+
+```toml
+[capability.engine-pack]
+writes = [".yidam/computed/engine-pack.json", ".yidam/computed/engine-pack-omissions.yml"]
+stamps_input_commit = [".yidam/computed/engine-pack.json"]
+```
+
+Each entry is a repository-relative path, not a glob, and `writes` must cover it. A manifest
+naming a path that no `writes` glob covers fails to load, with the path named.
+
+**What `doctor` does.** §2.6 still reads every output. A declared output that contains the commit
+is reported as declared, in the `ok` detail, and is not warned on. An undeclared one is warned
+on as before. So the declaration clears the warning for exactly the outputs it names. The
+companion omissions file above still warns if it carries the commit, which is the case
+land-use-activity and traffic-design already fixed by hand.
+
+**What `run` does.** §2.2's first test compares the produced bytes with the parent's. For a
+declared output, the comparison is made after every occurrence of this run's full input commit is
+replaced with the full `input.commit` of the parent's receipt. When the replaced bytes equal the
+committed ones, and the receipt built from them reproduces the committed receipt, the run
+reproduced its receipt. It writes a note and no commit, as §2.2 says, and the committed output
+keeps the commit it already carries.
+
+That commit is still true for the consumer. The output says its spans were read at the commit it
+names. The note says a later commit's inputs gave the same answer. The consumer's pin moves only
+when an answer moves, which is the reproducibility #1600 asks for.
+
+When the replaced bytes differ, the output is committed as produced, carrying this run's commit.
+Only the full 40-character commit is masked. A step that also writes an abbreviation reproduces
+nothing, and commits as it does today.
+
+**What it does not do.** It does not change `YIDAM_INPUT_COMMIT`, which is still this run's
+commit. It does not change the receipt format: the receipt of a committed run records the
+output's digest as produced. It does not change freshness, which still reads input states and
+never reads outputs.
+
 ## What this does not touch
 
 - **The receipt format.** No field is added, and `FORMAT_VERSION` stays 2. A run that changes an
@@ -273,6 +328,10 @@ the variable is for, and on not echoing it into an output.
   Nothing it reads is broken, and the newer binary reads that commit as an ordinary receipt.
 - **The run report** gains a way to name the note. That is a report field, with the report
   contract's handshake and its own golden, and an upgrade note when it is implemented.
+- **`stamps_input_commit`** is a new manifest key, and the manifest denies unknown keys. A binary
+  older than the amendment fails to load a manifest that declares it, so a corpus declares it only
+  after re-vendoring. A manifest without it loads as before, and every output is judged as §2.6
+  says.
 - **History already written** is left alone. The receipt-only and stamp-only commits a corpus has
   are its record, and nothing rewrites them.
 
@@ -295,6 +354,21 @@ the variable is for, and on not echoing it into an output.
   invoking it.
 - **Rewrite the commit away.** Amend or squash receipt-only commits on the branch. That rewrites
   shared history, and the record would still be a commit.
+- **Have the consumer read the receipt** (#1598's second option). city-engine would take the
+  commit from `.yidam/runs/engine-pack.yml` and not from the pack. That keeps §2.6 unamended. But
+  the pack is copied out of the corpus without its receipt, the consumer is not the corpus's to
+  change, and six corpora would each be waiting on one repository they do not own.
+- **Make the check declinable under `[doctor.declined]`**, which takes only offer ids today.
+  Declining clears the warning for every output of the corpus, including the ones that should not
+  carry the commit. It also leaves `run` committing a
+  stamp-only change on every re-run.
+- **Export a source commit** (#1600's second option): the newest commit that touched the step's
+  declared reads, as a second variable a step may write. An output carrying it reproduces while
+  the reads are unchanged, with no masking. But a `compute:` usually runs right after the commit
+  that changed its reads, so the source commit is usually the input commit, and §2.6 could not
+  tell the two apart without a declaration anyway. Computing it also means a history walk over
+  every declared glob, the manifest, the config and the script, which the input state already
+  summarizes without one. The declaration gives the consumer the same stable pin.
 - **Stop exporting `YIDAM_INPUT_COMMIT`.** This would fix §1.4 by force, and break a step that
   needs the commit for a reason other than stamping. The doctor check names the stamp and leaves
   the choice with the corpus.
