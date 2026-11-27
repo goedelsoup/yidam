@@ -9,10 +9,13 @@
 # `mise tasks`   lists every available task.
 # `mise run ci`  is what CI runs.
 
-[tools]
+[settings]
 # Rust — domain computer (crates/), bootstrap harness (yidam/tests/harness/), yidam CLI (yidam/cli/).
-# Must match rust-toolchain.toml in yidam/tests/harness/.
-rust = { version = "1.88.0", components = "rustfmt,clippy" }
+# Its version and components are rust-toolchain.toml's, read from there rather than restated in
+# [tools] below. A `rust` entry in [tools] would win over the file and be a second statement.
+idiomatic_version_file_enable_tools = ["rust"]
+
+[tools]
 # Python — packages/ ML pipelines, embedding model SDKs, geospatial connectors.
 python = "3.12"
 # uv — fast Python package/venv manager; used in packages/.
@@ -413,8 +416,8 @@ run = "yidam/cluster/e2e/run.sh"
 [tasks.semver-check]
 description = "API compatibility of yidam-core against the last version published to crates.io."
 tools = { "github:obi1kenobi/cargo-semver-checks" = "v0.50.0" }
-# `+stable`, and it is the one place in this repository that deliberately leaves the pin.
-# cargo-semver-checks needs rustc >= 1.93 to read rustdoc JSON and the pin is 1.88.0. It
+# `+stable`, and it is the one place here that deliberately leaves rust-toolchain.toml's pin.
+# cargo-semver-checks needs rustc >= 1.93 to read rustdoc JSON, newer than that pin. It
 # builds nothing this repository ships — it reads an API and compares it — so the reason the
 # release path was pinned in #463 does not apply to it. `toolchain_pins.rs` requires every
 # such departure to say why, which is what this comment is.

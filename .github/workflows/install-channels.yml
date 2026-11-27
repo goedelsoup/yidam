@@ -193,7 +193,7 @@ jobs:
     steps:
       # `@stable`, deliberately, and it is the opposite of the pin release.yml carries.
       # This job exists to be a *user*, and a user has whatever stable is on the day they
-      # install. Pinning it to 1.88.0 would make this channel pass against a toolchain
+      # install. Pinning it to rust-toolchain.toml's would make this channel pass against a toolchain
       # nobody installing yidam actually has — a green check for a build nobody runs, which
       # is the failure `ci.yml` names about its own cross-compile.
       #
@@ -225,7 +225,7 @@ jobs:
     steps:
       # `@stable`, deliberately, and it is the opposite of the pin release.yml carries.
       # This job exists to be a *user*, and a user has whatever stable is on the day they
-      # install. Pinning it to 1.88.0 would make this channel pass against a toolchain
+      # install. Pinning it to rust-toolchain.toml's would make this channel pass against a toolchain
       # nobody installing yidam actually has — a green check for a build nobody runs, which
       # is the failure `ci.yml` names about its own cross-compile.
       #
@@ -254,7 +254,7 @@ jobs:
     steps:
       # `@stable`, deliberately, and it is the opposite of the pin release.yml carries.
       # This job exists to be a *user*, and a user has whatever stable is on the day they
-      # install. Pinning it to 1.88.0 would make this channel pass against a toolchain
+      # install. Pinning it to rust-toolchain.toml's would make this channel pass against a toolchain
       # nobody installing yidam actually has — a green check for a build nobody runs, which
       # is the failure `ci.yml` names about its own cross-compile.
       #

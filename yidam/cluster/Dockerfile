@@ -14,9 +14,11 @@
 # `yidam/sdks/rust` and `yidam/tests/harness/ci-report`. `Dockerfile.dockerignore`
 # beside this file keeps every `target/` and `node_modules/` out of the context.
 
-# The exact toolchain `mise.toml` pins, not `1.88`: that tag floats to the newest patch, and a
-# published image would then be built by a compiler no gate here ran. `toolchain_pins.rs`
-# reads both files and fails when they disagree.
+# The exact toolchain rust-toolchain.toml names, not the minor-only tag: that floats to the
+# newest patch, and a published image would then be built by a compiler no gate here ran. A
+# `FROM` cannot read a file, so this is a copy, and `toolchain_pins.rs` fails when it differs.
+# The file itself is kept out of the context (Dockerfile.dockerignore): the base image is the
+# toolchain, and the file would have rustup fetch its components into the build stage.
 #
 # Trixie, not bookworm: the default build links ONNX Runtime's prebuilt, which needs glibc
 # 2.38 and GCC 14's libstdc++ (#442). Bookworm has 2.36 and GCC 12, and the link fails.

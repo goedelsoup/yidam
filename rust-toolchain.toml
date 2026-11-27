@@ -1,0 +1,12 @@
+# The Rust toolchain this repository builds with, stated once (#1632).
+#
+# rustup and cargo read this file from any directory beneath it. mise reads it too, through
+# `idiomatic_version_file_enable_tools` in mise.toml, and the workflows read `channel` from it
+# rather than writing a version of their own. Two places cannot read it: a Dockerfile's `FROM`
+# and the source-build task in mise.yidam.toml, which runs in a derived repository that has no
+# copy of this file. Each keeps a copy, and `toolchain_pins.rs` fails when one disagrees.
+#
+# Not inherited by derived repositories: see `NOT_INHERITED` in yidam/cli/src/cmd/clone.rs.
+[toolchain]
+channel = "1.88.0"
+components = ["rustfmt", "clippy"]

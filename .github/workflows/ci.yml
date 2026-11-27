@@ -97,10 +97,10 @@ jobs:
       # When the mise cache hits, `mise install` is a no-op and the rust
       # toolchain gets auto-installed by rustup at the first cargo call —
       # with the runner's default minimal profile, which lacks rustfmt and
-      # clippy. Provision the pinned toolchain (see [tools] in mise.toml)
-      # with its components explicitly; this is idempotent on cache misses.
+      # clippy. Provision the toolchain rust-toolchain.toml names, read from
+      # it, with its components explicitly; this is idempotent on cache misses.
       - name: Ensure rustfmt and clippy for the pinned toolchain
-        run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
+        run: mise exec -- rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --component rustfmt --component clippy
       # Cache only this job's workspace target dir + the shared cargo registry,
       # keyed (via `key`) so caches never collide across jobs.
       # The summary step builds `ci-report` out of the harness workspace, so the `cli`
@@ -177,7 +177,7 @@ jobs:
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - name: Ensure rustfmt for the pinned toolchain
-        run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt
+        run: mise exec -- rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --component rustfmt
       - run: mise run ci-domains
       # Runs the fixtures, in all three languages, for every domain. Deliberately after
       # `ci-domains`: that task is seconds and this one compiles 14 crates and provisions
@@ -426,8 +426,8 @@ jobs:
         with:
           fetch-depth: 0
       # `@stable`, not the pin, and this is the documented exception rather than an
-      # oversight: cargo-semver-checks needs rustc >= 1.93 to read rustdoc JSON while this
-      # repository builds on 1.88.0. It produces no artifact — it reads an API and compares
+      # oversight: cargo-semver-checks needs rustc >= 1.93 to read rustdoc JSON, newer than
+      # rust-toolchain.toml's. It produces no artifact — it reads an API and compares
       # it — so the reason release.yml was pinned does not reach it. `toolchain_pins.rs`
       # requires every `@stable` to carry a reason, and this is that reason.
       - uses: dtolnay/rust-toolchain@stable
@@ -493,14 +493,13 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
-      # The pinned toolchain, not `@stable`. An artifact built by whatever stable shipped
-      # that week is not the build any gate here tested, and this one is published. The
-      # three `@stable` steps left in install-channels.yml are the deliberate opposite:
-      # they simulate a user, who has whatever stable is, and pinning them would test a
-      # channel nobody uses. `toolchain_pins.rs` asserts both halves.
-      - uses: dtolnay/rust-toolchain@1.88.0
-        with:
-          targets: aarch64-unknown-linux-gnu
+      # The toolchain rust-toolchain.toml names, read from it, not `@stable`. An artifact
+      # built by whatever stable shipped that week is not the build any gate here tested,
+      # and this one is published. The three `@stable` steps left in install-channels.yml
+      # are the deliberate opposite: they simulate a user, who has whatever stable is, and
+      # pinning them would test a channel nobody uses. `toolchain_pins.rs` asserts both halves.
+      - name: Install the toolchain rust-toolchain.toml names
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --target aarch64-unknown-linux-gnu
       # The cross C compiler, not only the linker. Both halves are used: the
       # linker for the final artifact, the compiler for ring's vendored C. The
       # C++ half brings the target's libstdc++, which ONNX Runtime links against.
@@ -638,7 +637,7 @@ jobs:
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - name: Ensure rustfmt and clippy for the pinned toolchain
-        run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
+        run: mise exec -- rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --component rustfmt --component clippy
       # `shared-key`, not `key`, and the difference is what makes `cli-features` possible.
       # `key` is *added to* an automatic job-id component, so two jobs can never share a
       # cache through it; `shared-key` replaces that component with a name both can spell.
@@ -716,7 +715,7 @@ jobs:
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - name: Ensure rustfmt and clippy for the pinned toolchain
-        run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
+        run: mise exec -- rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --component rustfmt --component clippy
       # Its own key, saved on main. The instrumented tree shares nothing with `cli-full`'s —
       # llvm-cov's RUSTFLAGS change every fingerprint — so borrowing that key would restore
       # gigabytes this job cannot use. The first main run after #1016 builds it cold.
@@ -824,7 +823,7 @@ jobs:
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - name: Ensure clippy for the pinned toolchain
-        run: mise exec -- rustup toolchain install 1.88.0 --profile minimal --component clippy
+        run: mise exec -- rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --component clippy
       # Read-only, by the same `shared-key` `cli-full` saves under. A pull request's cache
       # writes go to the PR's own scope, where nothing else can read them and where they
       # count against the repository's 10GB before being evicted — so this job would pay to
