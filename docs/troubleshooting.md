@@ -10,37 +10,37 @@ checkout you only mean to inspect — which the rest of the reports are not.
 $ yidam doctor
 yidam doctor — /home/you/my-domain
 
-  ok    repository   /home/you/my-domain
-  ok    mode         authored — no `[corpus]` in .yidam/config.toml
-  fail  provenance   .yidam.toml records no resolvable commit
-                     → mise run yidam-vendor-update
-  ok    binary       this repository pins no binary — nothing can be shadowed
-  skip  commit       .yidam.toml records no resolvable commit to compare against — see provenance
-  ok    path         this repository pins no binary — PATH order does not matter
-  warn  prelude      no .yidam/.vendor/prelude/ — this repository carries no vendored prelude
-                     → mise run yidam-vendor-update
-  warn  index        no /home/you/my-domain/.yidam/index
-                     → yidam index-build (needs the `index` feature)
-  ok    computed     this corpus computes nothing about itself, and declares no calculator
+  ok    repository                     /home/you/my-domain
+  ok    mode                           authored — no `[corpus]` in .yidam/config.toml
+  fail  provenance                     .yidam.toml records no resolvable commit
+                                       → mise run yidam-vendor-update
+  ok    binary                         this repository pins no binary — nothing can be shadowed
+  skip  commit                         .yidam.toml records no resolvable commit to compare against — see provenance
+  ok    path                           this repository pins no binary — PATH order does not matter
+  warn  prelude                        no .yidam/.vendor/prelude/ — this repository carries no vendored prelude
+                                       → mise run yidam-vendor-update
+  warn  index                          no /home/you/my-domain/.yidam/index
+                                       → yidam index-build (needs the `index` feature)
+  ok    computed                       this corpus computes nothing about itself, and declares no calculator
   ok    run-output-stamps-input-commit no committed output contains the commit its receipt was computed from
-  ok    regen        every REGEN block holds what its generator produces
-  warn  routes       `AGENTS.md` has no `yidam routes` block, so no re-vendor reaches its reading list
-                     → mise run yidam-vendor-update, then yidam migrate routes
-  warn  scaffold     no YIDAM region in `.github/workflows/ci.yml` or `.claude/CLAUDE.md`, so no re-vendor reaches the part that is yidam's
-                     → yidam migrate scaffold, then mise run yidam-vendor-update
-  ok    ci           runs yidam graph-check, yidam lint, yidam regen --check
-  ok    catalog      no TTL declared — 1 source(s) never expire. Set `[catalog] ttl_days` or declare `ttl_days:` on an entry.
-  fail  corpora      not installed: hydrology
-                     → mise run tonpa-install
-  ok    corpus       no corpus files yet
-  ok    contract     no classes yet
-  ok    vault        none declared
-  ok    remote-index no remote index declared
-  ok    policy       3 decision(s), all inherited
-  ok    governance   single-elector — no .yidam/sangha/electors.md
-  ok    kuten        none — the loop runs on the template's defaults
-  skip  kuten-read   no kuten is declared, so nothing carries one
-  ok    build        <version> (<commit>) with features: reports, export-graph, tonpa, serve-http, vault-s3, s3-vectors, catalog-fetch, pdf-text
+  ok    regen                          every REGEN block holds what its generator produces
+  warn  routes                         `AGENTS.md` has no `yidam routes` block, so no re-vendor reaches its reading list
+                                       → mise run yidam-vendor-update, then yidam migrate routes
+  warn  scaffold                       no YIDAM region in `.github/workflows/ci.yml` or `.claude/CLAUDE.md`, so no re-vendor reaches the part that is yidam's
+                                       → yidam migrate scaffold, then mise run yidam-vendor-update
+  ok    ci                             runs yidam graph-check, yidam lint, yidam regen --check
+  ok    catalog                        no TTL declared — 1 source(s) never expire. Set `[catalog] ttl_days` or declare `ttl_days:` on an entry.
+  fail  corpora                        not installed: hydrology
+                                       → mise run tonpa-install
+  ok    corpus                         no corpus files yet
+  ok    contract                       no classes yet
+  ok    vault                          none declared
+  ok    remote-index                   no remote index declared
+  ok    policy                         3 decision(s), all inherited
+  ok    governance                     single-elector — no .yidam/sangha/electors.md
+  ok    kuten                          none — the loop runs on the template's defaults
+  skip  kuten-read                     no kuten is declared, so nothing carries one
+  ok    build                          <version> (<commit>) with features: reports, export-graph, tonpa, serve-http, vault-s3, s3-vectors, catalog-fetch, pdf-text
 
 2 failing check(s), 4 warning(s).
 ```
