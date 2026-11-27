@@ -35,6 +35,7 @@ import {
   healthTree,
   matches,
   parentIndex,
+  isTerminalSafeRef,
   localRef,
   openQuestionsTree,
   parseFilter,
@@ -573,6 +574,37 @@ test('a remote-only phase switches to the local name git would create', () => {
   assert.equal(localRef('ma/auditor'), 'ma/auditor')
   // Not a phase ref at all: left alone rather than mangled.
   assert.equal(localRef('feature/thing'), 'feature/thing')
+})
+
+/**
+ * The ref goes into a terminal as text. An allowlist that refuses beats a quoting rule,
+ * because the integrated terminal's shell is whichever the user has.
+ */
+test('a ref is typed into a terminal only if it is plain', () => {
+  for (const ok of [
+    'main',
+    'ma/auditor',
+    'rigpa/2026-11/x',
+    'feature/a.b_c-d',
+    'user@host/branch',
+  ]) {
+    assert.equal(isTerminalSafeRef(ok), true, ok)
+  }
+  for (const bad of [
+    'ma/x;touch${IFS}pwned',
+    'a;b',
+    'a$(id)',
+    'a`id`',
+    'a|b',
+    'a&b',
+    'a b',
+    'a\nb',
+    '-c',
+    '--detach',
+    '',
+  ]) {
+    assert.equal(isTerminalSafeRef(bad), false, JSON.stringify(bad))
+  }
 })
 
 // ── health ──────────────────────────────────────────────────────────────────

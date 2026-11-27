@@ -63,6 +63,7 @@ import {
   countNodes,
   filterMessage,
   healthTree,
+  isTerminalSafeRef,
   localRef,
   openQuestionsTree,
   parseFilter,
@@ -1187,6 +1188,12 @@ async function checkoutPhase(ref: unknown): Promise<void> {
   }
   if (typeof ref !== 'string' || ref.length === 0) return
   const target = localRef(ref)
+  if (!isTerminalSafeRef(target)) {
+    void vscode.window.showErrorMessage(
+      `Not switching: ${JSON.stringify(target)} has characters that are unsafe to type into a terminal. Run git switch yourself.`,
+    )
+    return
+  }
   const go = 'Switch'
   const choice = await vscode.window.showWarningMessage(
     `Switch to ${target}?`,

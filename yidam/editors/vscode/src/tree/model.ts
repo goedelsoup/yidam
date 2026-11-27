@@ -902,3 +902,16 @@ export function localRef(ref: string): string {
   const m = /^[^/]+\/((?:ma|rigpa)\/.+)$/.exec(ref)
   return m ? m[1] : ref
 }
+
+/**
+ * Whether a ref can be typed into any integrated terminal unchanged.
+ *
+ * A branch name is read from the repository, and git allows `;`, `$`, backticks, `&`, `|`
+ * and `(` in one. The terminal's shell varies (zsh, bash, fish, PowerShell, cmd) and no
+ * single quoting rule is right for all of them, so a ref outside a conservative allowlist is
+ * refused rather than quoted. A leading `-` is refused too: `git switch` would read it as an
+ * option, and `--` before a branch name is not accepted by every git.
+ */
+export function isTerminalSafeRef(ref: string): boolean {
+  return /^[A-Za-z0-9._/@+][A-Za-z0-9._/@+-]*$/.test(ref)
+}
