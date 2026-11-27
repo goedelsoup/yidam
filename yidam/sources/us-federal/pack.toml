@@ -33,12 +33,17 @@
 #
 # `eia` is one file under www.eia.gov, by its path: `electricity/data/eia861/zip/f8612024.zip`
 # is Form EIA-861 for 2024. `nces` is one file under nces.ed.gov, such as a CCD, IPEDS or PSS
-# data zip. `ncei` is one file under www.ncei.noaa.gov/pub/data: `ghcn/daily/all/USC00334551.dly`
-# is one GHCN-Daily station. None of the three needs a key.
+# data zip. `ncei` is one file under www.ncei.noaa.gov, by its path from the host's root, so
+# that both the legacy `pub/data` tree and the `data` access tree are reached:
+# `pub/data/ghcn/daily/all/USC00334551.dly` and
+# `data/global-historical-climatology-network-daily/access/USC00334551.csv` are one GHCN-Daily
+# station. None of the three needs a key.
 #
 # `irs` is one file under www.irs.gov/pub: an exempt-organization extract such as
-# `irs-soi/eo_mo.csv`, a prior-year form, or a revenue ruling. `irs-990` is one year's e-file
-# index or zip under apps.irs.gov/pub/epostcard/990/xml: `2025/index_2025.csv`, or
+# `irs-soi/eo_mo.csv`, a prior-year form, or a revenue ruling. It is typed `dataset`, as the
+# extracts the corpora cite are; for a form or a ruling, the entry's author sets
+# `type: document`. `irs-990` is not a path: it is one year's e-file index or zip under
+# apps.irs.gov/pub/epostcard/990/xml, by `<year>/<file>`: `2025/index_2025.csv`, or
 # `2025/2025_TEOS_XML_11A.zip`. A single return inside a zip is not yet a scheme (#1608).
 #
 # No path segment of `census`, `eia`, `irs`, `nces` or `ncei` starts with a dot, so `..`
@@ -105,7 +110,7 @@ resolve = { template = "https://www.eia.gov/{id}" }
 
 [scheme.irs]
 pattern = '^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$'
-type    = "document"
+type    = "dataset"
 resolve = { template = "https://www.irs.gov/pub/{id}" }
 
 [scheme.irs-990]
@@ -121,7 +126,7 @@ resolve = { template = "https://nces.ed.gov/{id}" }
 [scheme.ncei]
 pattern = '^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$'
 type    = "dataset"
-resolve = { template = "https://www.ncei.noaa.gov/pub/data/{id}" }
+resolve = { template = "https://www.ncei.noaa.gov/{id}" }
 
 [transport]
 contact      = "optional"

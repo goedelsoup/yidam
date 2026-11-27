@@ -701,6 +701,75 @@ resolve = { template = "https://web.archive.org/web/{ts}id_/{url}" }
         }
     }
 
+    /// The shipped `us-federal` pack's file schemes: each example its manifest names resolves to
+    /// the agency's own address, and a path that climbs, or an `irs-990` that is not a year and
+    /// one index or zip, does not (#1608).
+    #[test]
+    fn the_shipped_us_federal_pack_resolves_agency_files_and_refuses_climbing_paths() {
+        let src = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../sources/us-federal/pack.toml"),
+        )
+        .unwrap();
+        let e = Enabled::from_packs(&[pack("us-federal", Origin::Vendored, &src)]);
+        let url = |id: &str| e.resolve(id).map(|r| r.url);
+        for (id, want) in [
+            (
+                "eia:electricity/data/eia861/zip/f8612024.zip",
+                "https://www.eia.gov/electricity/data/eia861/zip/f8612024.zip",
+            ),
+            (
+                "irs:irs-soi/eo_mo.csv",
+                "https://www.irs.gov/pub/irs-soi/eo_mo.csv",
+            ),
+            (
+                "irs-990:2025/index_2025.csv",
+                "https://apps.irs.gov/pub/epostcard/990/xml/2025/index_2025.csv",
+            ),
+            (
+                "irs-990:2025/2025_TEOS_XML_11A.zip",
+                "https://apps.irs.gov/pub/epostcard/990/xml/2025/2025_TEOS_XML_11A.zip",
+            ),
+            (
+                "nces:ccd/data/zip/ccd_sch_029_2223_w_1a_083023.zip",
+                "https://nces.ed.gov/ccd/data/zip/ccd_sch_029_2223_w_1a_083023.zip",
+            ),
+            (
+                "ncei:pub/data/ghcn/daily/all/USC00334551.dly",
+                "https://www.ncei.noaa.gov/pub/data/ghcn/daily/all/USC00334551.dly",
+            ),
+            (
+                "ncei:data/global-historical-climatology-network-daily/access/USC00334551.csv",
+                "https://www.ncei.noaa.gov/data/global-historical-climatology-network-daily/access/USC00334551.csv",
+            ),
+        ] {
+            assert_eq!(url(id).unwrap(), want, "{id}");
+        }
+        for refused in [
+            "eia:../admin",
+            "irs:irs-soi/../../etc",
+            "nces:./ccd",
+            "ncei:pub/data/../../x",
+            "irs-990:2025/sub/index.csv",
+            "irs-990:2025/index_2025.xml",
+            "irs-990:../index.csv",
+        ] {
+            assert!(
+                matches!(url(refused), Err(Refusal::Malformed { .. })),
+                "{refused}: {:?}",
+                url(refused).map_err(|r| format!("{r:?}"))
+            );
+        }
+        let table: toml::Value = toml::from_str(&src).unwrap();
+        for scheme in ["eia", "irs", "irs-990", "nces", "ncei"] {
+            assert_eq!(
+                table["scheme"][scheme]["type"].as_str(),
+                Some("dataset"),
+                "{scheme}"
+            );
+        }
+    }
+
     #[test]
     fn a_doi_resolves_through_its_template() {
         let e = Enabled::from_packs(&[pack("scholarly", Origin::Authored, SCHOLARLY)]);

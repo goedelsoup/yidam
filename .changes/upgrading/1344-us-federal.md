@@ -5,7 +5,8 @@
 `govinfo:` reads a GovInfo package's record, and names its PDF as a `govinfo-pdf:` location.
 `uscode:` reads one US Code title, pinned to the release point that was read.
 `fec:`, `fec-filing:`, `bls:`, `census:` and `census-api:` read FEC, BLS and Census records.
-`eia:`, `irs:`, `irs-990:`, `nces:` and `ncei:` read an EIA, IRS, NCES or NCEI file by its path (#1608).
+`eia:`, `irs:`, `nces:` and `ncei:` read an EIA, IRS, NCES or NCEI file by its path (#1608).
+`irs-990:` reads one year's IRS 990 e-file index or zip, by `<year>/<file>`.
 See [Source packs](source-packs.md).
 
 **The FEC and the Census Data API need a key.**

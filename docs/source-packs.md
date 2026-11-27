@@ -45,7 +45,8 @@ A `govinfo:` package, such as `govinfo:PLAW-118publ1`, names its PDF as a `govin
 A `uscode:` title, such as `uscode:42`, is pinned to the current release point's zip when added.
 `us-federal` needs `FEC_API_KEY` for the FEC and `CENSUS_API_KEY` for `census-api:`, and sends each only to its own API.
 `BLS_API_KEY` is optional. A `census:` file under www2.census.gov needs no key.
-`eia:`, `irs:`, `irs-990:`, `nces:` and `ncei:` each name a file by its path, and need no key.
+`eia:`, `irs:`, `nces:` and `ncei:` each name a file by its path, and need no key.
+An `irs-990:` names a year and one index or zip, such as `irs-990:2025/index_2025.csv`.
 
 ## Name a source by identifier
 

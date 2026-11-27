@@ -493,7 +493,7 @@ no entry names `api.eia.gov`:
 | `irs` | a file under `www.irs.gov/pub`, such as an exempt-organization extract | 13 / 5 |
 | `irs-990` | an e-file zip or year index under `apps.irs.gov/pub/epostcard/990/xml` | 9 / 4 |
 | `nces` | a CCD, IPEDS or PSS data file under `nces.ed.gov` | 3 / 2 |
-| `ncei` | a file under `www.ncei.noaa.gov/pub/data`, such as a GHCN-Daily station | 4 / 1 |
+| `ncei` | a file under `www.ncei.noaa.gov`, in `pub/data` or `data`, such as a GHCN-Daily station | 4 / 1 |
 
 Each is a template over a path, as `census` is. **USGS waits.** One repository cites it, across
 five services that share no shape. A filing inside a 990 zip waits too, as census granules do.
