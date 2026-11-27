@@ -47,12 +47,12 @@ A step that declares a broad read is a different case. allen-county-ohio-democra
 `seat-coverage` reads `crates/local-seat-targets/src/lib.rs`, so an edit to that file moves its
 input state. The step runs again and writes the same `.yidam/computed/seat-coverage.yml`. Its
 receipt does change, in three fields: `input_state`, `input.commit`, and the digest of the one
-read. [`commit`](../../yidam/cli/src/cmd/run/mod.rs#L1662) decides from the tree
+read. [`commit`](../../yidam/cli/src/cmd/run/mod.rs#L1677) decides from the tree
 alone, and the tree differs by the receipt. So `b634a8f compute: seat-coverage — 2 files at
 c96a1dd` lands, changing one file under `.yidam/runs/`.
 
 The run already knows. It sets [`unchanged_outputs`](../../yidam/cli/src/cmd/run/mod.rs#L542) from
-[`outputs_already_committed`](../../yidam/cli/src/cmd/run/mod.rs#L1350), which
+[`outputs_already_committed`](../../yidam/cli/src/cmd/run/mod.rs#L1365), which
 compares object ids. That function's own doc says the commit is written anyway, *"so the check is
 recorded whether or not the answer moved."* The commit is the record of having looked. It is
 the only record there is.
@@ -73,7 +73,7 @@ lives, if not in the branch's history.
 ### 1.3 Ageing
 
 A step with `ageing_days` re-runs once its receipt is old enough, even with no input change
-([`aged`](../../yidam/cli/src/cmd/run/mod.rs#L1218)). The age is the committer date
+([`aged`](../../yidam/cli/src/cmd/run/mod.rs#L1232)). The age is the committer date
 of the commit that last touched the receipt ([`receipt_age`](../../yidam/cli/src/cmd/run/mod.rs#L940)). The receipt carries no date of its own,
 and the module doc's "No clock" section says why
 ([`receipt.rs:18-24`](../../yidam/cli/src/cmd/run/receipt.rs#L18-L24)): *"a second date written
