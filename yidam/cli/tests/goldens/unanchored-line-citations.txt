@@ -67,8 +67,8 @@ docs/rfcs/0028-kuten-layer.md → ../../yidam/sdks/rust/src/git.rs#L75-L76
 docs/rfcs/0028-kuten-layer.md → ../../yidam/sdks/rust/src/git.rs#L81
 docs/rfcs/0028-kuten-layer.md → ../../yidam/sdks/spec/graph.dfy#L5
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/export_web.rs#L12-L21
-docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/lsp.rs#L250
-docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/lsp.rs#L418
+docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/lsp.rs#L253
+docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/lsp.rs#L446
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/propose/write.rs#L110
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/serve/http.rs#L9
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/serve/tools.rs#L294

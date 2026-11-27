@@ -37,7 +37,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::cmd::lint::{self, baseline, history};
+use crate::cmd::lint::{self, baseline};
 use crate::paths::{require_yidam_repo, yidam_catalog_dir, yidam_corpus_dir};
 use draft::{Change, Proposal};
 
@@ -104,13 +104,7 @@ fn rel(root: &Path, p: &Path) -> String {
 /// repository agreed to deal with and has not — but a proposal carries the finding either
 /// way, and the finding is the same.
 fn gating(root: &Path, checks: &[lint::model::Check]) -> Result<BTreeSet<(String, String)>> {
-    let committed = baseline::Baseline::load(root)?;
-    let d = baseline::diff(
-        checks,
-        &committed,
-        &history::corpus_commits(root),
-        &lint::unasked(checks),
-    );
+    let d = baseline::gate(root, checks)?.diff;
     let mut out: BTreeSet<(String, String)> = d.introduced.into_iter().collect();
     out.extend(d.expired.into_iter().map(|e| (e.check, e.node)));
     Ok(out)

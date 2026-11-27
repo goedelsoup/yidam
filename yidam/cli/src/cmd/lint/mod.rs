@@ -77,31 +77,21 @@ pub fn collect_line_citations(root: &Path) -> Vec<LineCitation> {
     line_citations::collect(root, &links, &|p| overlay.read(p))
 }
 
+/// The wire report, built exactly as `--format json` builds it.
+///
+/// Exposed for `serve --lsp`, which needs the same debt accounting the gate uses: a finding
+/// the baseline already records is inherited and must not be rendered as a regression.
+pub(crate) fn build_report(root: &Path, checks: &[Check]) -> Result<json::LintReport> {
+    let g = baseline::gate(root, checks)?;
+    Ok(json::build(root, checks, &g.baseline, &g.diff))
+}
+
 /// The severity `unrecognized-verb` reports at.
 ///
 /// Exposed so that a surface rendering the same rule somewhere else — `yidam vocabulary
 /// --check`, and through it the SCM input box — reads its severity from the check rather
 /// than restating it. A squiggle stricter than the gate is an editor asserting a verdict
 /// nobody agreed to.
-/// The committed baseline, or an empty one.
-///
-/// Exposed for `serve --lsp`, which needs the same debt accounting the gate uses: a finding
-/// the baseline already records is inherited and must not be rendered as a regression.
-pub(crate) fn load_baseline(root: &Path) -> baseline::Baseline {
-    baseline::Baseline::load(root).unwrap_or_default()
-}
-
-/// The wire report, built exactly as `--format json` builds it.
-pub(crate) fn build_report(
-    root: &Path,
-    checks: &[Check],
-    base: &baseline::Baseline,
-) -> json::LintReport {
-    let commits = history::corpus_commits(root);
-    let d = baseline::diff(checks, base, &commits, &unasked(checks));
-    json::build(root, checks, base, &d)
-}
-
 pub(crate) fn commit_verb_severity() -> Severity {
     commits::unrecognized_verb(&[], &crate::kuten::Registers::corpus_only()).severity
 }
@@ -1215,10 +1205,7 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
     }
     report(&all, &opts);
 
-    let committed = baseline::Baseline::load(&root)?;
-    let corpus_commits = history::corpus_commits(&root);
-    let mut d = baseline::diff(&all, &committed, &corpus_commits, &unasked(&all));
-    d.argument = baseline::argument(&root, &committed);
+    let d = baseline::gate(&root, &all)?.diff;
 
     if opts.warn_only {
         let n: usize = all.iter().map(|c| c.violations.len()).sum();
@@ -1323,10 +1310,10 @@ fn lint_json(root: &Path, all: &[Check], opts: &Options) -> Result<()> {
         );
     }
 
-    let committed = baseline::Baseline::load(root)?;
-    let corpus_commits = history::corpus_commits(root);
-    let mut d = baseline::diff(all, &committed, &corpus_commits, &unasked(all));
-    d.argument = baseline::argument(root, &committed);
+    let baseline::Gated {
+        baseline: committed,
+        diff: d,
+    } = baseline::gate(root, all)?;
     crate::report::emit(root, json::build(root, all, &committed, &d))?;
 
     // Same verdict as the text path, and the same silence about it on success.
@@ -2639,6 +2626,23 @@ decision := {"allow": true, "deny": []}
         let d = baseline::diff(&after, &loaded, &[], &unasked(&after));
         assert!(!d.resolved.is_empty(), "the fix must show as stale");
         assert!(!d.is_clean());
+    }
+
+    /// The report the language server sends reads the baseline's argument, as `lint` does.
+    /// It built its diff without it and reported `passed` on a baseline `lint` fails (#1613).
+    #[test]
+    fn the_editor_report_fails_an_expiry_no_record_argues() {
+        let tmp = clean_repo();
+        fs::write(
+            baseline::path(tmp.path()),
+            "expire_after: 5\nexpire_record: no-such-decision\nentries: []\n",
+        )
+        .unwrap();
+        let all = run_checks(tmp.path(), &Options::default());
+        assert!(!build_report(tmp.path(), &all).unwrap().gate.passed);
+
+        fs::write(baseline::path(tmp.path()), "entries: [unclosed\n").unwrap();
+        assert!(build_report(tmp.path(), &all).is_err());
     }
 
     // ── residence time, end to end ────────────────────────────────────────────

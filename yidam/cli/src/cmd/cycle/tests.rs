@@ -343,6 +343,58 @@ fn a_blessed_finding_does_not_block() {
     );
 }
 
+/// **A baseline whose `expire_record` names no decision record blocks**, because `yidam
+/// lint` fails on it. `cycle` read the baseline without its argument and said nothing was
+/// blocked (#1613).
+#[test]
+fn an_unargued_expiry_blocks_as_lint_fails_it() {
+    let tmp = repo();
+    let root = tmp.path();
+    std::fs::write(
+        crate::cmd::lint::baseline::path(root),
+        "expire_after: 5\nexpire_record: no-such-decision\nentries: []\n",
+    )
+    .unwrap();
+
+    let all = crate::cmd::lint::run_checks(root, &crate::cmd::lint::Options::default());
+    let gate = crate::cmd::lint::baseline::gate(root, &all).unwrap();
+    assert!(!gate.diff.is_clean(), "lint must fail this baseline");
+
+    let r = read(root);
+    let b = r
+        .blocked
+        .iter()
+        .find(|b| b.gate == "lint" && b.check == "expire_record")
+        .unwrap_or_else(|| panic!("an unargued expiry blocks: {:?}", r.blocked));
+    assert!(b.detail.contains("no-such-decision"), "{}", b.detail);
+    assert!(r.next.iter().any(|a| a.act == "yidam lint"));
+    assert!(!read_cycle(root, true, today()).unwrap().passed);
+}
+
+/// **A baseline that does not parse blocks, and is not read as an empty one.** `yidam lint`
+/// refuses it. An empty baseline would have reported nothing about the file itself.
+#[test]
+fn an_unreadable_baseline_blocks_and_is_not_read_as_empty() {
+    let tmp = repo();
+    let root = tmp.path();
+    std::fs::write(
+        crate::cmd::lint::baseline::path(root),
+        "entries: [unclosed\n",
+    )
+    .unwrap();
+
+    let r = read(root);
+    let b = r
+        .blocked
+        .iter()
+        .find(|b| b.gate == "lint" && b.check == "baseline")
+        .unwrap_or_else(|| panic!("an unreadable baseline blocks: {:?}", r.blocked));
+    // The block's node names the file. The detail is the parser's own words, and carries no
+    // path from the machine that ran it.
+    assert_eq!(b.node.as_deref(), Some(".yidam/lint-baseline.yml"));
+    assert!(!b.detail.contains(&*root.to_string_lossy()), "{}", b.detail);
+}
+
 /// One act per gate, however many findings it holds. Forty rows under "what is next" is the
 /// shape of list a reader skims, and there is one thing to do about them.
 #[test]

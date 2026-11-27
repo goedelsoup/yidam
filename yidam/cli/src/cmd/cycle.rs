@@ -420,8 +420,9 @@ fn in_flight(root: &Path) -> Vec<InFlight> {
 /// error-severity findings is not blocked by them: it agreed to them, `yidam lint` is green,
 /// and listing them here would tell a reader that a repository doing exactly what it agreed
 /// to has two hundred things to fix. What blocks is what `lint` itself gates on — a finding
-/// introduced against the baseline, a baseline entry that has outlived its expiry, and a
-/// stale entry the run no longer reproduces.
+/// introduced against the baseline, a baseline entry that has outlived its expiry, a stale
+/// entry the run no longer reproduces, an `expire_after` its record does not argue, and a
+/// baseline that does not parse.
 ///
 /// `graph-check` has no ratchet and needs none: it gates on `passed`, and every issue it
 /// lists is one.
@@ -431,10 +432,40 @@ fn blocked(root: &Path) -> (Vec<Blocked>, Vec<Finding>) {
 
     let opts = crate::cmd::lint::Options::default();
     let checks = crate::cmd::lint::run_checks(root, &opts);
-    let baseline = crate::cmd::lint::baseline::Baseline::load(root).unwrap_or_default();
-    let corpus_commits = crate::cmd::lint::history::corpus_commits(root);
-    let unasked = crate::cmd::lint::unasked(&checks);
-    let diff = crate::cmd::lint::baseline::diff(&checks, &baseline, &corpus_commits, &unasked);
+    // `lint`'s own gate, so the two cannot disagree about one baseline (#1613). A baseline
+    // that does not parse fails `yidam lint`, so it blocks here too. Reading it as an empty
+    // baseline would report every finding it forgives as introduced.
+    let baseline_file = crate::cmd::lint::baseline::path(Path::new(""))
+        .to_string_lossy()
+        .replace('\\', "/");
+    let diff = match crate::cmd::lint::baseline::gate(root, &checks) {
+        Ok(g) => g.diff,
+        Err(e) => {
+            out.push(Blocked {
+                gate: "lint",
+                check: "baseline".to_string(),
+                node: Some(baseline_file.clone()),
+                detail: format!("the baseline cannot be read — {}", e.root_cause()),
+                remedy: "yidam lint  (fix the baseline so it parses)".to_string(),
+            });
+            Default::default()
+        }
+    };
+    if diff.argument.fails() {
+        out.push(Blocked {
+            gate: "lint",
+            check: "expire_record".to_string(),
+            node: Some(baseline_file.clone()),
+            detail: diff
+                .argument
+                .line()
+                .map(|l| l.trim_start_matches("lint: ").to_string())
+                .unwrap_or_default(),
+            remedy: "yidam lint  (make expire_record name a decision record that states the \
+                     baseline's expire_after)"
+                .to_string(),
+        });
+    }
 
     // What a round records: every violation the gate would count, accepted or not, by the
     // baseline's own identity. Not only the blocking ones, because a round that fixes a finding
