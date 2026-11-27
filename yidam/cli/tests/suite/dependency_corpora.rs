@@ -322,6 +322,36 @@ fn status_reports_a_path_dependency_as_linked_rather_than_missing() {
     );
 }
 
+/// `lint` refuses a `tonpa.toml` that does not parse, naming the file and the line (#1616).
+/// Its checks read the declarations leniently, so the typo used to lint as a corpus that
+/// depends on nothing. The control is the same repository before the typo, in both formats.
+#[test]
+fn lint_refuses_a_tonpa_toml_that_does_not_parse() {
+    let (_tmp, consumer) = producer_and_consumer("");
+    for args in [&["lint"][..], &["lint", "--format", "json"][..]] {
+        let r = run(&consumer, args);
+        assert!(
+            !r.stderr.contains("tonpa.toml"),
+            "control, {args:?}: stdout: {}\nstderr: {}",
+            r.stdout,
+            r.stderr
+        );
+    }
+
+    let path = consumer.join(".yidam/tonpa.toml");
+    let declared = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(&path, format!("{declared}\n[broken\n")).unwrap();
+    for args in [&["lint"][..], &["lint", "--format", "json"][..]] {
+        let r = run(&consumer, args);
+        assert_ne!(r.code, 0, "{args:?}: stdout: {}", r.stdout);
+        assert!(
+            r.stderr.contains("parsing") && r.stderr.contains("tonpa.toml: line 4, column "),
+            "{args:?}: stderr: {}",
+            r.stderr
+        );
+    }
+}
+
 #[test]
 fn status_reports_a_path_dependency_that_does_not_resolve() {
     let (_tmp, consumer) = producer_and_consumer("");

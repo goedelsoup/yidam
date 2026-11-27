@@ -465,7 +465,10 @@ pub(crate) fn read(root: &Path) -> Reading {
         return out;
     }
     let citing = citing_nodes(root);
-    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
+    // `due` reads this and reports rather than fails; an unparseable file is `doctor`'s
+    // failure and `lint`'s refusal (#1616).
+    let config =
+        crate::deps::load_config(&crate::paths::tonpa_config_path(root)).unwrap_or_default();
 
     for (path, _) in entries {
         let rel = path

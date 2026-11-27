@@ -109,7 +109,10 @@ fn foreign(root: &Path, sightings: &[(&str, String)]) -> Option<BTreeMap<String,
     if missing.is_empty() {
         return Some(owners);
     }
-    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
+    // Degrades inside `run_checks`, which the editor reads mid-edit; `lint` refuses an
+    // unparseable file before any check runs (#1616).
+    let config =
+        crate::deps::load_config(&crate::paths::tonpa_config_path(root)).unwrap_or_default();
     for (name, dep) in &config.dependencies {
         let Some(path) = &dep.path else { continue };
         let Some(there) = resolve_commits(&root.join(path), &missing) else {

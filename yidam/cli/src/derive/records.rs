@@ -148,7 +148,7 @@ fn check_mapping(
 /// The export file `export = "<name>"` reads, relative to `root`, and the corpus it cites —
 /// both only when the dependency is installed at its declared `rev`.
 fn installed_export(root: &Path, name: &str) -> Result<(String, PathBuf)> {
-    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
+    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root))?;
     let Some(dep) = config.dependencies.get(name) else {
         bail!("no dependency named '{name}' in .yidam/tonpa.toml");
     };

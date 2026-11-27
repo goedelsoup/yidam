@@ -183,7 +183,10 @@ pub struct Pinned {
 /// The lock's `commit` is preferred to the declaration's `rev`, because the lock is what was
 /// actually installed. The declaration is read where nothing is locked yet.
 pub fn pins(root: &Path) -> BTreeMap<String, Option<Pinned>> {
-    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
+    // Best-effort, as the lock is: `due`'s clock reports and never fails, and an
+    // unparseable file is `doctor`'s failure and `lint`'s refusal (#1616).
+    let config =
+        crate::deps::load_config(&crate::paths::tonpa_config_path(root)).unwrap_or_default();
     let lock_path = crate::paths::tonpa_lock_path(root);
     let lock = crate::deps::load_lock(&lock_path).unwrap_or_default();
     config

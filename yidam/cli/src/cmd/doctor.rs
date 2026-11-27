@@ -2588,7 +2588,13 @@ fn check_corpora(root: &Path) -> Answer {
     // them answering to that name.
     const SHADOW_REMEDY: &str = "rm -r .yidam/tonpa/<name>, or rename one of the two";
 
-    let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root));
+    // A file that does not parse declares nothing anyone can read, and every reader of the
+    // dependencies degrades to none. Answering "none declared" over it was this check
+    // agreeing with them (#1616).
+    let config = match crate::deps::load_config(&crate::paths::tonpa_config_path(root)) {
+        Ok(config) => config,
+        Err(e) => return Answer::fail(format!("{e:#}"), None),
+    };
     if config.dependencies.is_empty() {
         // Not a warning, and not "0 missing". A repository that depends on nothing is not
         // half-provisioned, and a line reporting a count here would read as a verdict on a
@@ -3493,6 +3499,29 @@ jobs:
         assert_eq!(c.verdict, Verdict::Ok);
         assert_eq!(c.detail, "none declared");
         assert!(c.remedy.is_none(), "nothing to do, so nothing to suggest");
+    }
+
+    /// A `tonpa.toml` that does not parse declares nothing anyone can read, and is not a
+    /// repository that depends on nothing (#1616). The control is the same file before the
+    /// typo, so the failure is the typo and not the fixture.
+    #[test]
+    fn a_tonpa_toml_that_does_not_parse_fails_rather_than_declaring_none() {
+        let declared = "[dependencies.hydrology]\npath = \"../hydrology\"\n";
+        let tmp = repo_with_corpora(declared, "", &[]);
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
+        assert_ne!(c.detail, "none declared");
+
+        let config = crate::paths::tonpa_config_path(tmp.path());
+        std::fs::write(&config, format!("{declared}\n[broken\n")).unwrap();
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Fail, "detail was: {}", c.detail);
+        assert!(
+            c.detail.contains("tonpa.toml") && c.detail.contains("line 4"),
+            "names the file and the line: {}",
+            c.detail
+        );
+        assert!(!c.detail.contains('\n'), "one line: {}", c.detail);
     }
 
     /// The state #397's hook can leave behind: mise logged a WARN, `mise install` exited 0,

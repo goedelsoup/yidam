@@ -93,11 +93,37 @@ fn default_true() -> bool {
 /// A repository with no dependencies and a repository that has never declared any are the
 /// same answer here, deliberately: every caller wants "what does this depend on", and
 /// neither is an error.
-pub fn load_config(path: &Path) -> TonpaConfig {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|s| toml::from_str(&s).ok())
-        .unwrap_or_default()
+///
+/// **A file that is there and does not parse is an error** (#1616), naming the file and the
+/// line and column. It used to take the absent file's branch, so `doctor` said "none
+/// declared" and `lint` found nothing over a typo that had dropped every declaration. A
+/// caller that degrades on purpose says so with `unwrap_or_default` at its own call site,
+/// and `doctor` and `lint` are the two that do not.
+///
+/// This is also the loader the `tonpa` subcommands read through: one reading of "what this
+/// repository depends on", for the reason [`TonpaConfig`] lives here.
+pub fn load_config(path: &Path) -> anyhow::Result<TonpaConfig> {
+    use anyhow::Context;
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(TonpaConfig::default()),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    toml::from_str(&text)
+        .map_err(|e| anyhow::anyhow!("parsing {}: {}", path.display(), toml_error(&text, &e)))
+}
+
+/// A TOML error on one line: `line L, column C: <message>`. The library's own rendering is a
+/// multi-line source excerpt, which reads well on a terminal and breaks a `doctor` row.
+fn toml_error(text: &str, e: &toml::de::Error) -> String {
+    let message = e.message().trim();
+    let Some(span) = e.span() else {
+        return message.to_string();
+    };
+    let before = text.get(..span.start).unwrap_or(text);
+    let line = before.matches('\n').count() + 1;
+    let column = before.rsplit('\n').next().unwrap_or(before).chars().count() + 1;
+    format!("line {line}, column {column}: {message}")
 }
 
 // ── tonpa.lock ────────────────────────────────────────────────────────────────
@@ -276,7 +302,8 @@ pub fn read_manifest_reporting(dir: &Path) -> Option<(BundleManifest, Option<Str
 /// `tonpa.toml` names is not read by anything, and reporting it would be a finding about a
 /// leftover rather than about this corpus.
 pub fn unreadable_manifests(root: &Path) -> Vec<(String, String)> {
-    let config = load_config(&crate::paths::tonpa_config_path(root));
+    // `doctor`'s corpora check fails on an unparseable file before it asks this.
+    let config = load_config(&crate::paths::tonpa_config_path(root)).unwrap_or_default();
     let tonpa_dir = crate::paths::tonpa_dir(root);
     let mut out: Vec<(String, String)> = config
         .dependencies
@@ -403,7 +430,7 @@ pub fn verify_installed(
 /// from a name to that pair does not exist, each refused with what to do instead.
 pub fn pinned_dependency(root: &Path, name: &str) -> anyhow::Result<(PathBuf, String)> {
     use anyhow::bail;
-    let config = load_config(&crate::paths::tonpa_config_path(root));
+    let config = load_config(&crate::paths::tonpa_config_path(root))?;
     let Some(dep) = config.dependencies.get(name) else {
         bail!("no dependency named '{name}' in .yidam/tonpa.toml");
     };
@@ -476,8 +503,10 @@ pub struct ResolvedDependency {
 pub fn resolved(root: &Path) -> Vec<ResolvedDependency> {
     let mut out: Vec<ResolvedDependency> = Vec::new();
 
-    // Path dependencies, declared in tonpa.toml and read where they sit.
-    let config = load_config(&crate::paths::tonpa_config_path(root));
+    // Path dependencies, declared in tonpa.toml and read where they sit. Best-effort, like
+    // the unresolvable path below: this answers "what can be read", and an unparseable
+    // file is `doctor`'s failure and `lint`'s refusal (#1616).
+    let config = load_config(&crate::paths::tonpa_config_path(root)).unwrap_or_default();
     for (name, dep) in &config.dependencies {
         // A pinned path is read from its materialised copy under `.yidam/tonpa/`, which the
         // loop below finds. Reading the sibling's working tree here would be reading exactly
@@ -559,7 +588,8 @@ pub struct ShadowedDependency {
 /// corpus directory is not there does not shadow anything, because `resolved` skips it and
 /// the unpacked copy is what gets read.
 pub fn shadowed(root: &Path) -> Vec<ShadowedDependency> {
-    let config = load_config(&crate::paths::tonpa_config_path(root));
+    // `doctor`'s corpora check fails on an unparseable file before it asks this.
+    let config = load_config(&crate::paths::tonpa_config_path(root)).unwrap_or_default();
     let tonpa_dir = crate::paths::tonpa_dir(root);
     let mut out: Vec<ShadowedDependency> = Vec::new();
 
@@ -937,5 +967,42 @@ mod tests {
     fn a_repository_declaring_nothing_reports_nothing() {
         let tmp = tempfile::TempDir::new().unwrap();
         assert!(shadowed(tmp.path()).is_empty());
+    }
+
+    // ── tonpa.toml (#1616) ────────────────────────────────────────────────────
+
+    /// No file is no dependencies, and is not an error.
+    #[test]
+    fn an_absent_tonpa_toml_declares_nothing() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let config = load_config(&tmp.path().join("tonpa.toml")).unwrap();
+        assert!(config.dependencies.is_empty());
+    }
+
+    /// A file that is there and does not parse is an error naming the file and the position,
+    /// on one line. It used to read as a file declaring nothing.
+    #[test]
+    fn a_tonpa_toml_that_does_not_parse_is_an_error_naming_the_file() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("tonpa.toml");
+        let declared = "[dependencies.dep]\npath = \"../dep\"\n";
+        std::fs::write(&path, declared).unwrap();
+        assert_eq!(load_config(&path).unwrap().dependencies.len(), 1);
+
+        std::fs::write(&path, format!("{declared}\n[broken\n")).unwrap();
+        let e = format!("{:#}", load_config(&path).unwrap_err());
+        assert!(e.contains(&path.display().to_string()), "{e}");
+        assert!(e.contains("line 4, column "), "{e}");
+        assert!(!e.contains('\n'), "{e}");
+    }
+
+    /// A path that cannot be read for a reason other than absence is not absence either.
+    #[test]
+    fn a_tonpa_toml_that_cannot_be_read_is_an_error() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("tonpa.toml");
+        std::fs::create_dir(&path).unwrap();
+        let e = format!("{:#}", load_config(&path).unwrap_err());
+        assert!(e.contains("reading"), "{e}");
     }
 }

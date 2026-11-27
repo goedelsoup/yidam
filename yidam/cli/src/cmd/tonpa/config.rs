@@ -6,8 +6,10 @@ use std::path::Path;
 // The config shapes live in `crate::deps`, not here. They were defined in this module when
 // only the fetching commands read them; the read layer needs them too, and two definitions of
 // "what this repository depends on" is exactly the drift this repository keeps finding in
-// other people's code.
-pub use crate::deps::{Dependency, TonpaConfig};
+// other people's code. The loader moved with them (#1616): this module's strict one and the
+// read layer's lenient one were two answers to whether a file that does not parse declares
+// anything.
+pub use crate::deps::{load_config, Dependency, TonpaConfig};
 
 // ── tonpa.lock ────────────────────────────────────────────────────────────────
 
@@ -68,15 +70,6 @@ pub fn name_from_url(url: &str) -> String {
 }
 
 // ── I/O ───────────────────────────────────────────────────────────────────────
-
-pub fn load_config(path: &Path) -> Result<TonpaConfig> {
-    if !path.exists() {
-        return Ok(TonpaConfig::default());
-    }
-    let text =
-        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
-}
 
 pub fn save_config(config: &TonpaConfig, path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
