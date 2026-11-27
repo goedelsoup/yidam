@@ -1054,6 +1054,11 @@ fn live_set(root: &Path) -> Result<std::collections::BTreeSet<ContentHash>> {
 /// which the cache *is* the only copy. This command cannot distinguish one of those belonging
 /// to another repository from an orphan, so it does not try: it reports, states the hazard, and
 /// deletes only when told to.
+///
+/// **It also sweeps the temporaries an interrupted write left (#1658)** — a `.part` or a
+/// `.packing` file whose process has exited. Each is named for the process writing it, so a
+/// file whose process is still running is a write in progress, and is reported but never
+/// removed. The question is asked again just before each removal.
 fn gc(at: Option<&Path>, yes: bool) -> Result<()> {
     let root = resolve_root(at)?;
     require_yidam_repo(&root)?;
@@ -1070,6 +1075,10 @@ fn gc(at: Option<&Path>, yes: bool) -> Result<()> {
             .unwrap_or(0);
         unreferenced.push((hash, bytes));
     }
+    let (stale, writing): (Vec<vault::Leftover>, Vec<vault::Leftover>) = cache
+        .leftovers()?
+        .into_iter()
+        .partition(|l| !still_writing(l));
 
     println!("{}", cache.root().display());
     println!(
@@ -1079,30 +1088,59 @@ fn gc(at: Option<&Path>, yes: bool) -> Result<()> {
     );
     if unreferenced.is_empty() {
         println!("  nothing unreferenced.");
-        return Ok(());
+    } else {
+        let total: u64 = unreferenced.iter().map(|(_, b)| b).sum();
+        println!(
+            "  {} unreferenced, {}",
+            unreferenced.len(),
+            human_size(total)
+        );
+        println!();
+        for (hash, bytes) in &unreferenced {
+            println!("  {hash}  {}", human_size(*bytes));
+        }
+        if !stale.is_empty() || !writing.is_empty() {
+            println!();
+        }
     }
-    let total: u64 = unreferenced.iter().map(|(_, b)| b).sum();
-    println!(
-        "  {} unreferenced, {}",
-        unreferenced.len(),
-        human_size(total)
-    );
-    println!();
-    for (hash, bytes) in &unreferenced {
-        println!("  {hash}  {}", human_size(*bytes));
+    if !stale.is_empty() {
+        let total: u64 = stale.iter().map(|l| l.bytes).sum();
+        println!(
+            "  {} left by an interrupted write, {}",
+            stale.len(),
+            human_size(total)
+        );
+        println!();
+        for l in &stale {
+            println!("  {}  {}", leftover_name(&cache, l), human_size(l.bytes));
+        }
+        if !writing.is_empty() {
+            println!();
+        }
+    }
+    if !writing.is_empty() {
+        println!(
+            "  {} still being written by a running process, left alone",
+            writing.len()
+        );
+    }
+    if unreferenced.is_empty() && stale.is_empty() {
+        return Ok(());
     }
     println!();
 
     if !yes {
         println!("Nothing was deleted. `yidam vault gc --yes` deletes the above.");
-        println!();
-        println!(
-            "  Read the list first. This cache is shared by every yidam repository on this\n  \
-             machine, and an artifact another one names looks exactly like an orphan from\n  \
-             here. Most of the time that costs a re-fetch — but an artifact recorded\n  \
-             `vault: none` is in a cache and nowhere else by decision, and deleting one is\n  \
-             the only copy."
-        );
+        if !unreferenced.is_empty() {
+            println!();
+            println!(
+                "  Read the list first. This cache is shared by every yidam repository on this\n  \
+                 machine, and an artifact another one names looks exactly like an orphan from\n  \
+                 here. Most of the time that costs a re-fetch — but an artifact recorded\n  \
+                 `vault: none` is in a cache and nowhere else by decision, and deleting one is\n  \
+                 the only copy."
+            );
+        }
         return Ok(());
     }
 
@@ -1117,15 +1155,59 @@ fn gc(at: Option<&Path>, yes: bool) -> Result<()> {
             }
         }
     }
-    println!(
-        "Removed {} artifact(s), {}.",
-        unreferenced.len() - failed,
-        human_size(freed)
-    );
+    if !unreferenced.is_empty() {
+        println!(
+            "Removed {} artifact(s), {}.",
+            unreferenced.len() - failed,
+            human_size(freed)
+        );
+    }
+    let (mut swept, mut swept_bytes, mut spared) = (0usize, 0u64, 0usize);
+    for l in &stale {
+        // Asked again: a process that started since the listing may hold the same name.
+        if still_writing(l) {
+            spared += 1;
+            continue;
+        }
+        match std::fs::remove_file(&l.path) {
+            Ok(()) => {
+                swept += 1;
+                swept_bytes += l.bytes;
+            }
+            Err(e) => {
+                eprintln!("could not remove {}: {e}", leftover_name(&cache, l));
+                failed += 1;
+            }
+        }
+    }
+    if !stale.is_empty() {
+        println!(
+            "Removed {swept} interrupted write(s), {}.",
+            human_size(swept_bytes)
+        );
+    }
+    if spared > 0 {
+        println!("Left {spared} alone: a running process now has its pid.");
+    }
     if failed > 0 {
         bail!("{failed} could not be removed.");
     }
     Ok(())
+}
+
+/// Whether the process a temporary is named for is still running — this one included, though
+/// `gc` writes none.
+fn still_writing(l: &vault::Leftover) -> bool {
+    l.pid == std::process::id() || crate::staged::alive(l.pid, &l.path)
+}
+
+/// A temporary's path under the cache root, which the report has already printed.
+fn leftover_name(cache: &Cache, l: &vault::Leftover) -> String {
+    l.path
+        .strip_prefix(cache.root())
+        .unwrap_or(&l.path)
+        .display()
+        .to_string()
 }
 
 /// The extension a media type implies, for a filename a person can open.

@@ -47,7 +47,7 @@ mod store;
 #[cfg(any(feature = "vault-s3", feature = "s3-vectors"))]
 mod web_identity;
 
-pub use cache::{Cache, Verdict};
+pub use cache::{Cache, Leftover, Verdict};
 pub use cas::ContentHash;
 pub use config::{
     resolve, Route, VaultConfig, Vaults, ARTIFACT_KINDS, BUNDLE_KIND, CATALOG_KIND, DEFAULT_VAULT,

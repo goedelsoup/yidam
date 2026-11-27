@@ -1875,6 +1875,9 @@ Unlike a catalog artifact, a repository's own output is pushed **by default**. T
 computable, because every pointer into a vault is a committed file. It deletes nothing until
 `--yes`.
 
+It also reports the `.part` and `.packing` files an interrupted write left in the cache.
+Each is named for the process that wrote it. One whose process is still running is left alone.
+
 **Read the list before you pass it.** The cache is machine-wide and shared by every yidam
 repository on this machine. An artifact another one names looks exactly like an orphan from here.
 Usually deleting one costs a re-fetch. The exception is an artifact recorded `vault: none`, which
