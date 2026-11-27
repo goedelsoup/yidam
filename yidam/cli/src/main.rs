@@ -1673,7 +1673,7 @@ fn run() -> Result<()> {
         {
             let _ = e.print();
             // clap's own last line is "For more information, try '--help'", and since #921
-            // `--help` is thirteen of fifty-eight. A reader sent there after mistyping
+            // `--help` is the short list, not all of it. A reader sent there after mistyping
             // `vault-status` would not find it, and would read the short listing as the
             // whole tool. This is the one place the short listing can mislead, so it is the
             // one place that says where the rest are.

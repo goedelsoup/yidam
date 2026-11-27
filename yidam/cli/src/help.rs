@@ -29,7 +29,7 @@
 //!
 //! # Two renderings, one list
 //!
-//! Grouping the fifty-eight did not make them fifty-eight fewer. `--help` ran to ninety
+//! Grouping the full list did not make it any shorter. `--help` ran to ninety
 //! lines, and the eleven `<!-- REGEN -->` generators — commands a first reader will never
 //! type — printed above `graph`, `retrieve` and `query`, which are the product (#921). A
 //! reader opening `--help` to find out what this tool does read a maintenance surface
@@ -419,8 +419,8 @@ pub fn render(available: &[(String, String)]) -> String {
 
 /// Render the short listing: the commands a session usually needs, flat and in order.
 ///
-/// Flat on purpose. The grouping in [`render`] earns its headings over fifty-eight rows and
-/// would cost more than it buys over thirteen — four of the groups would print a single row
+/// Flat on purpose. The grouping in [`render`] earns its headings over the full list and
+/// would cost more than it buys over the short one — four of the groups would print a single row
 /// under a heading longer than the row. What the order carries instead is the sequence: ask
 /// whether something is wrong, then what is owed, then read the corpus, then write to it,
 /// then serve or derive. That is [`GROUPS`]' own order, so there is nothing here to keep in
@@ -635,8 +635,8 @@ mod tests {
             .collect()
     }
 
-    /// The point of the short listing. Nothing about printing thirteen rows resists a
-    /// fourteenth, and a short list that grows is the long one arriving by instalments —
+    /// The point of the short listing. Nothing about printing a short list resists
+    /// one more row, and a short list that grows is the long one arriving by instalments —
     /// which is how `--help` reached ninety lines the first time (#921).
     ///
     /// A ceiling and not an exact count, so a command can leave the list without a test
@@ -775,7 +775,7 @@ mod tests {
     ///
     /// Both directions, because each fails invisibly on its own: a marked command the
     /// renderer drops leaves a reader without it, and an unmarked one it keeps is how a
-    /// thirteen-row listing becomes a fifty-eight-row one nobody decided on.
+    /// short listing becomes the full one nobody decided on.
     #[test]
     fn the_short_rendering_carries_the_marked_commands_and_only_them() {
         let available = compiled();
