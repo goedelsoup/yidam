@@ -220,17 +220,13 @@ pub(crate) fn stale_blocks(
     carrier: crate::regen::Carrier,
 ) -> Result<Vec<crate::regen::Stale>> {
     crate::regen::with_carrier(carrier, || {
-        crate::regen::begin_check();
+        // Dropped on the `?` below as well, which leaves check mode before propagating: the
+        // next caller must not inherit a write path that silently records instead of writes.
+        let check = crate::regen::begin_check();
         for (name, run) in GENERATORS {
-            let outcome = run(root).with_context(|| format!("running {name}"));
-            if outcome.is_err() {
-                // Leave check mode before propagating, or the next caller inherits a
-                // half-finished check and a write path that silently records instead of writes.
-                crate::regen::end_check();
-            }
-            outcome?;
+            run(root).with_context(|| format!("running {name}"))?;
         }
-        Ok(crate::regen::end_check())
+        Ok(check.end())
     })
 }
 
@@ -250,14 +246,12 @@ pub(crate) fn stale_blocks(
 /// `HEAD` as a parent.
 pub(crate) fn refresh_quietly(root: &std::path::Path) -> Result<()> {
     require_whole_history(root)?;
-    crate::regen::begin_quiet();
-    let outcome = crate::regen::with_carrier(crate::regen::Carrier::Next, || {
+    let _quiet = crate::regen::begin_quiet();
+    crate::regen::with_carrier(crate::regen::Carrier::Next, || {
         GENERATORS
             .iter()
             .try_for_each(|(name, run)| run(Some(root)).with_context(|| format!("running {name}")))
-    });
-    crate::regen::end_quiet();
-    outcome
+    })
 }
 
 /// Which REGEN blocks name a command no generator writes. **Writes nothing.**

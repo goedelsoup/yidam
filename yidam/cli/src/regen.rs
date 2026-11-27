@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 /// A REGEN block whose committed content is not what its generator produces.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -253,17 +253,39 @@ pub fn update_inline_regen(text: &str, command: &str, new_content: &str) -> Stri
 /// `None` is the normal mode: write. `Some(_)` is check mode: record and write nothing.
 static CHECK: Mutex<Option<Vec<Stale>>> = Mutex::new(None);
 
-/// Enter check mode. Returns what the generators found when [`end_check`] is called.
-pub fn begin_check() {
-    *CHECK.lock().expect("regen check lock") = Some(Vec::new());
+/// Enter check mode until the returned guard is ended or dropped.
+pub fn begin_check() -> CheckMode {
+    CheckMode::enter(&CHECK)
 }
 
-pub fn end_check() -> Vec<Stale> {
-    CHECK
-        .lock()
-        .expect("regen check lock")
-        .take()
-        .unwrap_or_default()
+/// Check mode, held. [`CheckMode::end`] says what the generators found; dropping it without
+/// that — an `Err` propagated, or a panic unwinding — leaves check mode all the same, so the
+/// next caller does not inherit a write path that records instead of writes (#1644).
+#[must_use = "check mode ends when this is dropped"]
+pub struct CheckMode(&'static Mutex<Option<Vec<Stale>>>);
+
+impl CheckMode {
+    fn enter(cell: &'static Mutex<Option<Vec<Stale>>>) -> Self {
+        *cell.lock().expect("regen check lock") = Some(Vec::new());
+        Self(cell)
+    }
+
+    /// Leave check mode, with what the generators found.
+    pub fn end(self) -> Vec<Stale> {
+        self.0
+            .lock()
+            .expect("regen check lock")
+            .take()
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for CheckMode {
+    fn drop(&mut self) {
+        // Not `expect`: this runs while unwinding, where a second panic aborts the process,
+        // and a lock poisoned by the first panic still holds a value to clear.
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    }
 }
 
 /// Whether a generator should print its content.
@@ -283,13 +305,29 @@ pub fn checking() -> bool {
 /// caller can ask them to be quiet.
 static QUIET: AtomicBool = AtomicBool::new(false);
 
-/// Run the generators silently until [`end_quiet`].
-pub fn begin_quiet() {
-    QUIET.store(true, Ordering::SeqCst);
+/// Run the generators silently until the returned guard is dropped.
+pub fn begin_quiet() -> QuietMode {
+    QuietMode::enter(&QUIET)
 }
 
-pub fn end_quiet() {
-    QUIET.store(false, Ordering::SeqCst);
+/// Quiet mode, held. Dropping it restores the mode it replaced, on every exit (#1644).
+#[must_use = "quiet mode ends when this is dropped"]
+pub struct QuietMode {
+    cell: &'static AtomicBool,
+    previous: bool,
+}
+
+impl QuietMode {
+    fn enter(cell: &'static AtomicBool) -> Self {
+        let previous = cell.swap(true, Ordering::SeqCst);
+        Self { cell, previous }
+    }
+}
+
+impl Drop for QuietMode {
+    fn drop(&mut self) {
+        self.cell.store(self.previous, Ordering::SeqCst);
+    }
 }
 
 fn quiet() -> bool {
@@ -330,12 +368,29 @@ fn carrier_code(c: Carrier) -> u8 {
 }
 
 /// Run `f` with the generators told which commit carries their blocks, then restore the
-/// previous carrier — on an error as well, so the next caller does not inherit it.
+/// previous carrier — on an error or a panic as well, so the next caller does not inherit it.
 pub fn with_carrier<T>(c: Carrier, f: impl FnOnce() -> T) -> T {
-    let previous = CARRIER.swap(carrier_code(c), Ordering::SeqCst);
-    let out = f();
-    CARRIER.store(previous, Ordering::SeqCst);
-    out
+    with_carrier_in(&CARRIER, c, f)
+}
+
+fn with_carrier_in<T>(cell: &'static AtomicU8, c: Carrier, f: impl FnOnce() -> T) -> T {
+    let _restore = RestoreCarrier {
+        cell,
+        previous: cell.swap(carrier_code(c), Ordering::SeqCst),
+    };
+    f()
+}
+
+/// Puts the carrier back when [`with_carrier`] leaves, by any exit (#1644).
+struct RestoreCarrier {
+    cell: &'static AtomicU8,
+    previous: u8,
+}
+
+impl Drop for RestoreCarrier {
+    fn drop(&mut self) {
+        self.cell.store(self.previous, Ordering::SeqCst);
+    }
 }
 
 /// The carrier the generators are writing for.
@@ -440,6 +495,69 @@ pub fn update_file_regen(path: &Path, command: &str, new_content: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The guards are tried on statics of the tests' own, not on `CHECK`, `QUIET` and `CARRIER`.
+    // Those are read by every generator, and generators run in other tests of this binary on
+    // other threads: setting the real ones here, however briefly, could turn a write in one of
+    // them into a record (#1644).
+
+    #[test]
+    fn a_panic_inside_with_carrier_restores_the_carrier() {
+        static CELL: AtomicU8 = AtomicU8::new(0);
+        let out = std::panic::catch_unwind(|| {
+            with_carrier_in(&CELL, Carrier::Head, || {
+                assert_eq!(CELL.load(Ordering::SeqCst), carrier_code(Carrier::Head));
+                panic!("a generator panics");
+            })
+        });
+        assert!(out.is_err());
+        assert_eq!(CELL.load(Ordering::SeqCst), carrier_code(Carrier::Next));
+        assert_eq!(with_carrier_in(&CELL, Carrier::Checked, || 7), 7);
+        assert_eq!(CELL.load(Ordering::SeqCst), carrier_code(Carrier::Next));
+    }
+
+    #[test]
+    fn a_panic_in_check_mode_leaves_check_mode() {
+        static CELL: Mutex<Option<Vec<Stale>>> = Mutex::new(None);
+        let out = std::panic::catch_unwind(|| {
+            let _check = CheckMode::enter(&CELL);
+            assert!(CELL.lock().expect("lock").is_some());
+            panic!("a generator panics");
+        });
+        assert!(out.is_err());
+        assert!(CELL.lock().expect("lock").is_none());
+        let check = CheckMode::enter(&CELL);
+        assert_eq!(check.end(), Vec::new());
+        assert!(CELL.lock().expect("lock").is_none());
+    }
+
+    #[test]
+    fn a_poisoned_check_lock_is_still_cleared() {
+        static CELL: Mutex<Option<Vec<Stale>>> = Mutex::new(None);
+        let out = std::panic::catch_unwind(|| {
+            let _check = CheckMode::enter(&CELL);
+            let _held = CELL.lock();
+            panic!("a panic with the lock held");
+        });
+        assert!(out.is_err());
+        assert!(CELL.is_poisoned());
+        let left = CELL
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(left.is_none());
+    }
+
+    #[test]
+    fn a_panic_while_quiet_restores_the_previous_mode() {
+        static CELL: AtomicBool = AtomicBool::new(false);
+        let out = std::panic::catch_unwind(|| {
+            let _quiet = QuietMode::enter(&CELL);
+            assert!(CELL.load(Ordering::SeqCst));
+            panic!("a generator panics");
+        });
+        assert!(out.is_err());
+        assert!(!CELL.load(Ordering::SeqCst));
+    }
 
     #[test]
     fn update_regen_basic() {
