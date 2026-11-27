@@ -82,7 +82,7 @@ re-deriving it.
 | [0049](0049-warehouse-contract.md) | I36 | The ontology is the schema a pipeline loads, and the semantic layer reads (warehouse contract and the `textql` export) | Draft |
 | [0050](0050-list-property-type.md) | G14 | A list property type — scalar items, and records that carry their own standing | Draft |
 | [0051](0051-code-artifact-pin.md) | I37 | A read of code names the commit it was read at, and the repository that commit is in (the code-artifact pin) | Implemented |
-| [0052](0052-receipt-revalidation.md) | I38 | A re-run that reproduces its outputs is recorded, not committed (receipt re-validation) | Implemented |
+| [0052](0052-receipt-revalidation.md) | I38 | A re-run that reproduces its outputs is recorded, not committed (receipt re-validation) | Accepted |
 | [0053](0053-derived-used-by.md) | I38 | `used-by` is derived from the citations, not stored beside them | Implemented |
 | [0054](0054-fold-derived-commits.md) | I38 | A derived update rides in the commit that caused it | Implemented |
 | [0055](0055-watch-ledger-off-main.md) | I38 | The watch ledger lives on its own branch | Implemented |
