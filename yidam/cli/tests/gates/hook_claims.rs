@@ -36,8 +36,13 @@ fn tracked(root: &Path) -> Vec<String> {
         .collect()
 }
 
-/// The git hooks this repository ships: a tracked path under a hooks directory, or one named
-/// for a hook git would run.
+/// The git hooks this repository ships: a tracked path under a directory that only holds git
+/// hooks, or a file named for a hook git would run.
+///
+/// Not any path under a `hooks/` directory (#1621). That word names React hooks, a Claude
+/// plugin's `hooks/hooks.json`, a build tool's callbacks; matching it meant one such directory
+/// would read as a shipped git hook and switch the gate below off. A git hook under a plain
+/// `hooks/` is still found, by its name: git runs `pre-commit`, not `lint.sh`.
 ///
 /// Vendored trees are excluded — a dependency's own hooks are not this repository's claim.
 fn shipped_hooks(files: &[String]) -> Vec<&String> {
@@ -46,15 +51,15 @@ fn shipped_hooks(files: &[String]) -> Vec<&String> {
         .filter(|f| !f.contains("node_modules/") && !f.contains("/.vendor/"))
         .filter(|f| {
             let lower = f.to_ascii_lowercase();
+            let path = Path::new(&lower);
+            let (stem, ext) = (
+                path.file_stem().and_then(|n| n.to_str()).unwrap_or(""),
+                path.extension().and_then(|n| n.to_str()),
+            );
             lower.contains(".githooks/")
                 || lower.contains("git-hooks/")
-                || lower.contains("/hooks/")
-                || HOOKS.iter().any(|h| {
-                    Path::new(&lower)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .is_some_and(|n| n.starts_with(h))
-                })
+                || lower.contains(".husky/")
+                || (HOOKS.contains(&stem) && ext != Some("md"))
         })
         .collect()
 }
@@ -135,11 +140,20 @@ fn no_document_says_a_hook_runs_that_this_repository_does_not_ship() {
     let root = repo_root();
     let files = tracked(&root);
     let hooks = shipped_hooks(&files);
-    if !hooks.is_empty() {
-        // The premise changed: something ships a hook now, and the documents may describe it.
-        // Failing here would be this test outliving its reason.
-        return;
-    }
+    // The premise changed: something ships a hook now, and the documents may describe it.
+    // That is a reason to rewrite this gate against the hooks that ship, not for it to pass
+    // without reading a document (#1621).
+    assert!(
+        hooks.is_empty(),
+        "this gate holds documents to a repository that ships no git hook, and these are \
+         git hooks:\n  {}\nCheck the documents against what they run and narrow this gate to \
+         the hooks that are not shipped, or remove it.",
+        hooks
+            .iter()
+            .map(|h| h.as_str())
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    );
     let mut claims = Vec::new();
     for rel in files.iter().filter(|f| f.ends_with(".md")) {
         let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
@@ -158,6 +172,31 @@ fn no_document_says_a_hook_runs_that_this_repository_does_not_ship() {
         claims.is_empty(),
         "this repository ships no git hook, and these documents say one runs:\n{}",
         claims.join("\n")
+    );
+}
+
+/// A directory named `hooks/` is not a git hook; a file named for one is, wherever it sits.
+#[test]
+fn only_a_git_hook_reads_as_a_shipped_hook() {
+    let files: Vec<String> = [
+        "plugins/claude/hooks/hooks.json",
+        "web/src/hooks/useCorpus.ts",
+        "docs/pre-commit.md",
+        "scripts/hooks/pre-commit",
+        ".githooks/check",
+        ".husky/_/husky.sh",
+        "tools/commit-msg.sh",
+    ]
+    .map(str::to_string)
+    .to_vec();
+    assert_eq!(
+        shipped_hooks(&files),
+        [
+            "scripts/hooks/pre-commit",
+            ".githooks/check",
+            ".husky/_/husky.sh",
+            "tools/commit-msg.sh",
+        ]
     );
 }
 

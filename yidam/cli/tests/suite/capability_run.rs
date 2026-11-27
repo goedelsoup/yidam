@@ -1414,7 +1414,7 @@ fn doctor_warns_about_an_output_that_stamps_its_input_commit() {
 #[test]
 fn doctor_warns_about_a_notes_ref_no_remote_fetches() {
     let Some((example, step)) = every_terminal_capability().into_iter().next() else {
-        return;
+        panic!("no example declares a terminal capability, so this asserts nothing");
     };
     let e = Example::materialize_runnable(&example);
     settle(&e);
