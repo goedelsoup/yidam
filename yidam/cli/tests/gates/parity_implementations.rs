@@ -548,3 +548,95 @@ fn the_runner_scan_reads_calls_and_not_prose() {
         "a lifetime was read as an unterminated string and swallowed the rest of the file"
     );
 }
+
+/// The function names in the parity table of `yidam/sdks/README.md`: the first backticked cell
+/// of each table row under the `## The parity surface` heading, up to the next `## ` heading.
+fn readme_table_functions(text: &str) -> Vec<String> {
+    let mut in_section = false;
+    let mut names = Vec::new();
+    for line in text.lines() {
+        if let Some(heading) = line.strip_prefix("## ") {
+            in_section = heading.trim() == "The parity surface";
+            continue;
+        }
+        if !in_section {
+            continue;
+        }
+        let Some(rest) = line.strip_prefix("| `") else {
+            continue;
+        };
+        if let Some((name, _)) = rest.split_once('`') {
+            names.push(name.to_string());
+        }
+    }
+    names
+}
+
+/// The README's function table, the `functions=` line and `parity/fixtures/` name one set.
+///
+/// The README once listed eight functions in the vocabulary of a design nobody built, with
+/// signatures no SDK had, while `parity-check` ran thirteen (#1627). Nothing compared the
+/// page to the directory it describes, so it could only drift. Both sides are read, not
+/// restated: the line from `mise.toml`, the directories from disk, and the exceptions from the
+/// same task, because a fixture directory that is not a function is not a row.
+#[test]
+fn the_sdk_readme_lists_the_parity_functions_the_harness_runs() {
+    let root = repo_root();
+    let readme = std::fs::read_to_string(root.join(SDK_DIR).join("README.md"))
+        .expect("yidam/sdks/README.md is readable");
+    let mut table = readme_table_functions(&readme);
+    table.sort();
+
+    let mut expected = parity_functions();
+    expected.sort();
+
+    let on_disk: Vec<String> = std::fs::read_dir(root.join(SDK_DIR).join("parity/fixtures"))
+        .expect("parity/fixtures is readable")
+        .map(|e| e.expect("a readable entry"))
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+
+    let mise = std::fs::read_to_string(root.join("mise.toml")).expect("mise.toml is readable");
+    let exceptions: Vec<String> = mise
+        .lines()
+        .find(|l| l.trim_start().starts_with("exceptions="))
+        .expect("parity-check declares no `exceptions=` line")
+        .split_once('=')
+        .expect("an `exceptions=` line with no `=`")
+        .1
+        .trim()
+        .trim_matches('"')
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
+    let mut graded: Vec<String> = on_disk
+        .into_iter()
+        .filter(|d| !exceptions.contains(d))
+        .collect();
+    graded.sort();
+
+    assert_eq!(
+        graded, expected,
+        "parity/fixtures/ and parity-check's `functions=` line disagree"
+    );
+    assert_eq!(
+        table, expected,
+        "the function table under `## The parity surface` in {SDK_DIR}/README.md does not \
+         list the functions `parity-check` runs. Add or remove the row; the table is \
+         one function per row, written as a backticked name in the first cell."
+    );
+}
+
+#[test]
+fn the_readme_table_scan_reads_rows_and_not_prose() {
+    let text = "intro `not_a_row`\n\n## Modules\n\n| `corpus` | x |\n\n\
+                ## The parity surface\n\n| Function | Signature |\n|---|---|\n\
+                | `parse_instance` | `(text) -> X` |\n\
+                | `find_reachable` | y |\n\nprose with `inline` code\n\n\
+                ## Formal specification\n\n| `after` | z |\n";
+    assert_eq!(
+        readme_table_functions(text),
+        vec!["parse_instance".to_string(), "find_reachable".to_string()]
+    );
+}
