@@ -23,6 +23,7 @@
  * See the Rust reference's `prose.rs` for the full argument.
  */
 import type { CorpusInstance } from './corpus.ts'
+import { trim, trimEnd } from './text.ts'
 
 /**
  * The prose key every node carries whatever anything declares.
@@ -51,12 +52,12 @@ export function proseOf(
 
   for (const key of keys) {
     const value = key === ALWAYS ? inst.description : inst.extra[key]
-    if (typeof value === 'string' && value.trim() !== '') out.push([key, value])
+    if (typeof value === 'string' && trim(value) !== '') out.push([key, value])
   }
 
   for (const name of properties) {
     const value = inst.properties?.[name]
-    if (typeof value === 'string' && value.trim() !== '') {
+    if (typeof value === 'string' && trim(value) !== '') {
       out.push([`properties.${name}`, value])
     }
   }
@@ -76,6 +77,6 @@ export function proseText(
   properties: string[],
 ): string {
   return proseOf(inst, keys, properties)
-    .map(([, v]) => v.trimEnd())
+    .map(([, v]) => trimEnd(v))
     .join('\n')
 }

@@ -20,6 +20,8 @@ separately, rather than refusing what it was handed.
 from dataclasses import dataclass
 from enum import Enum
 
+from ._text import WHITE_SPACE
+
 
 class Kind(Enum):
     """What a reference names. The ``<kind>`` slot of the grammar.
@@ -238,7 +240,7 @@ def parse_reference(text: str) -> Reference | None:
     **``@`` is split from the right and ``#`` from the left.** A conforming segment contains
     neither, so the rule is only visible on input that already failed :func:`reference_conforms`.
     """
-    s = text.strip()
+    s = text.strip(WHITE_SPACE)
     if not s:
         return None
 

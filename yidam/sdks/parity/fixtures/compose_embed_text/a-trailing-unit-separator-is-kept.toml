@@ -1,0 +1,15 @@
+function = "compose_embed_text"
+description = "U+001F is not White_Space, so the end of a value is not trimmed back past it (#1699)"
+
+[input]
+content = """
+class: measure
+label: L
+description: "x\\x1F"
+"""
+prose_keys = ["description"]
+prose_properties = []
+retrievable_properties = []
+
+[expected]
+text = "L x\u001F"

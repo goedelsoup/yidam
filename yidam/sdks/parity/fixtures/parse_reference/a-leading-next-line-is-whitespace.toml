@@ -1,0 +1,11 @@
+function = "parse_reference"
+description = "U+0085 is White_Space, so it is trimmed off the front and the reference names its corpus (#1699)"
+
+[input]
+text = "\u0085yidam://c/node/x"
+
+[expected]
+parses = true
+corpus = "c"
+kind = "node"
+path = "node/x"
