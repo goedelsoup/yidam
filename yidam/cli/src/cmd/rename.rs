@@ -50,8 +50,9 @@
 //! # Catalog entries
 //!
 //! A catalog entry is renamed the same way (#1159). The edges into it are every corpus
-//! `source:` that resolves to it, and every quotation's `of:` (RFC-0046), in either spelling `edge-source-unresolved` admits: the
-//! entry's stem, or a path written the way a `target:` is. Each is rewritten in the spelling
+//! `source:` that resolves to it, every quotation's `of:` (RFC-0046), in either spelling `edge-source-unresolved` admits: the
+//! entry's stem, or a path written the way a `target:` is, and every `target:` that is itself a
+//! path to the entry (#1692). Each is rewritten in the spelling
 //! its author chose — a stem stays a stem, a path is re-relativized — because the two mean
 //! the same thing and a rename is not the moment to change how a corpus writes it. Nothing
 //! else about the entry changes, and there is no class to move it between: the catalog is one
@@ -549,14 +550,15 @@ pub(crate) fn unplaced(e: &Edit) -> String {
     )
 }
 
-/// The keys whose value names a catalog entry: an edge's `source:`, and a quotation's `of:`
-/// (RFC-0046), which lint resolves through the same function.
-const CATALOG_KEYS: [&str; 2] = ["source", "of"];
+/// The keys whose value names a catalog entry: an edge's `source:`, a quotation's `of:`
+/// (RFC-0046), which lint resolves through the same function, and an edge's `target:`, which
+/// resolves as a path from the node like any other (#1692).
+const CATALOG_KEYS: [&str; 3] = ["source", "of", "target"];
 
 /// The catalog half of [`plan`]. `from` is `catalog/old.md`, as [`catalog_id`] spells it.
 ///
 /// Two kinds of edge come into a catalog entry, and both are rewritten. A `source:` on a
-/// corpus edge, or a quotation's `of:`, resolves the way `edge-source-unresolved` resolves it — the bare stem, or a
+/// corpus edge, a quotation's `of:`, or an edge's own `target:` (a path, never a stem), resolves the way `edge-source-unresolved` resolves it — the bare stem, or a
 /// path from the node's own directory — and is rewritten in the form it was written in. A
 /// markdown link, anywhere under `.yidam/` that lint reads, resolves the way
 /// `broken-prose-link` and `catalog-uncited` resolve it, through the same parser, and is
@@ -620,14 +622,19 @@ fn plan_catalog(root: &Path, corpus: &Path, from: String, new: &str) -> RenameRe
         let rel = slash(path.strip_prefix(root).unwrap_or(&path));
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         for (i, line) in text.lines().enumerate() {
-            let Some((_, _, value)) = CATALOG_KEYS.iter().find_map(|k| value_on(line, k)) else {
+            let Some((key, value)) = CATALOG_KEYS
+                .iter()
+                .find_map(|k| value_on(line, k).map(|v| (*k, v.2)))
+            else {
                 continue;
             };
             // The two readings `edge-source-unresolved` admits, from the function it reads
             // them with, so this cannot rewrite a value that check would not have resolved.
+            // A `target:` has only the second: it is a path from the node, as `dangling-edge`
+            // resolves it, and never a bare stem.
             let dir = Path::new(&rel).parent().unwrap_or(Path::new(""));
             let [by_stem, by_path] = source_targets(dir, Path::new(".yidam/catalog"), &value);
-            let rewritten = if slash(&by_stem) == old_rel {
+            let rewritten = if key != "target" && slash(&by_stem) == old_rel {
                 new_stem.clone()
             } else if slash(&by_path) == old_rel {
                 relative_from(&rel, &new_rel)
@@ -1517,6 +1524,40 @@ mod tests {
         assert!(read(&corpus.join("concept/a.yml")).contains("source: ../../catalog/new.md\n"));
         assert!(read(&corpus.join("gauge/g.yml")).contains("source: new # by stem\n"));
         assert!(!read(&corpus.join("concept/a.yml")).contains("target: ../concept/new"));
+    }
+
+    /// An edge whose `target:` is the catalog entry is a citation of it like a `source:`, and is
+    /// re-relativized from the node that holds it, at whatever depth that is (#1692). A
+    /// `target:` that names something else is not touched.
+    #[test]
+    fn a_target_edge_into_a_catalog_entry_is_rewritten_from_where_it_is_written() {
+        let (_t, root, corpus) = corpus();
+        catalog(&root, "old.md", "---\nobtained: true\n---\n# Old\n");
+        write(
+            &corpus.join("concept/a.yml"),
+            "class: concept\nlinks:\n  - target: ../../catalog/old.md\n    relationship: r\n  - target: b.yml\n    relationship: r\n",
+        );
+        std::fs::create_dir_all(corpus.join("gauge/deep")).unwrap();
+        write(
+            &corpus.join("gauge/deep/g.yml"),
+            "class: gauge\nlinks:\n  - target: ../../../catalog/old.md\n    relationship: r\n  - target: ../../../catalog/older.md\n    relationship: r\n",
+        );
+        write(&corpus.join("concept/b.yml"), "class: concept\n");
+        catalog(&root, "older.md", "---\nobtained: true\n---\n");
+
+        let mut r = plan(&root, &corpus, "catalog/old", "new");
+        assert!(r.blocked.is_empty(), "{:?}", r.blocked);
+        assert_eq!(r.edits.len(), 2, "{:?}", r.edits);
+        assert!(r.unhandled.is_empty(), "{:?}", r.unhandled);
+        assert!(r.commit_subject.contains("(2 citation(s)"), "{r:?}");
+        apply(&root, &mut r).unwrap();
+
+        let a = read(&corpus.join("concept/a.yml"));
+        assert!(a.contains("target: ../../catalog/new.md\n"), "{a}");
+        assert!(a.contains("target: b.yml\n"), "{a}");
+        let g = read(&corpus.join("gauge/deep/g.yml"));
+        assert!(g.contains("target: ../../../catalog/new.md\n"), "{g}");
+        assert!(g.contains("target: ../../../catalog/older.md\n"), "{g}");
     }
 
     /// A `source:` that resolved to nothing is not the rename's to fix — but the reader is
