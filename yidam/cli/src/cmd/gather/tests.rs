@@ -468,6 +468,32 @@ fn a_bundle_that_is_not_the_locked_one_is_refused() {
     assert_eq!(outcomes(&r)["beta"], Outcome::Refused);
 }
 
+/// A lock that does not parse is refused, not planned as no lock (#1657): on a cluster the
+/// roll call is the lock's packages, and locally every peer would read as unlocked.
+#[test]
+fn a_tonpa_lock_that_does_not_parse_is_refused_in_both_modes() {
+    let (_d, root) = world();
+    assert!(run(&root, &opts(true, false)).is_ok(), "control");
+    assert!(plan_at(&root, "peaks").is_ok(), "control");
+
+    fixture::write(
+        &root,
+        ".yidam/tonpa/tonpa.lock",
+        "[[package\nname = \"beta\"\n",
+    );
+    fixture::commit(&root, "tonpa: lock");
+    for err in [
+        run(&root, &opts(true, false)).map(|_| ()).unwrap_err(),
+        plan_at(&root, "peaks").map(|_| ()).unwrap_err(),
+    ] {
+        let err = format!("{err:#}");
+        assert!(
+            err.contains("tonpa.lock") && err.contains("line 1, column "),
+            "{err}"
+        );
+    }
+}
+
 #[test]
 fn a_dry_run_asks_everyone_and_writes_no_ref() {
     let (_d, root) = world();

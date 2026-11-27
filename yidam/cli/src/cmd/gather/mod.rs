@@ -655,7 +655,9 @@ pub(crate) fn plan(
     // be planned as not installed, and the roll call would be a misreading (#1616).
     let config = crate::deps::load_config(&crate::paths::tonpa_config_path(root))?;
     let deps = citations::installed(root);
-    let lock = crate::deps::load_lock(&crate::paths::tonpa_lock_path(root)).unwrap_or_default();
+    // Refused for the same reason (#1657): on a cluster the roll call is the lock's packages,
+    // so an unreadable lock would plan nobody, and locally every peer would read as unlocked.
+    let lock = crate::deps::load_lock(&crate::paths::tonpa_lock_path(root))?;
     let locked = |n: &str| lock.packages.iter().find(|p| p.name == n);
 
     let mut names: BTreeSet<String> = spec.peers.keys().cloned().collect();

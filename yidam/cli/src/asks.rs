@@ -183,8 +183,9 @@ pub struct Pinned {
 /// The lock's `commit` is preferred to the declaration's `rev`, because the lock is what was
 /// actually installed. The declaration is read where nothing is locked yet.
 pub fn pins(root: &Path) -> BTreeMap<String, Option<Pinned>> {
-    // Best-effort, as the lock is: `due`'s clock reports and never fails, and an
-    // unparseable file is `doctor`'s failure and `lint`'s refusal (#1616).
+    // Best-effort, both files: `due`'s clock reports and never fails. An unparseable
+    // `tonpa.toml` is `doctor`'s failure and `lint`'s refusal (#1616); an unparseable lock is
+    // `doctor`'s failure, and every pin here then falls back to the declaration (#1657).
     let config =
         crate::deps::load_config(&crate::paths::tonpa_config_path(root)).unwrap_or_default();
     let lock_path = crate::paths::tonpa_lock_path(root);
@@ -321,5 +322,22 @@ mod tests {
         assert_eq!(p["declared"].as_ref().unwrap().commit, "bbbb");
         assert_eq!(p["declared"].as_ref().unwrap().since, None);
         assert_eq!(p["live"], None);
+    }
+
+    /// Deliberately best-effort (#1657): a lock that does not parse reads as no lock here,
+    /// because `due` reports and never fails, and `doctor` is what fails over it.
+    #[test]
+    fn an_unparseable_lock_reads_as_no_lock() {
+        let tmp = tempfile::tempdir().unwrap();
+        write(
+            tmp.path(),
+            ".yidam/tonpa.toml",
+            "[dependencies.declared]\npath = \"../d\"\nrev = \"bbbb\"\n",
+        );
+        let unlocked = pins(tmp.path());
+        write(tmp.path(), ".yidam/tonpa/tonpa.lock", "[[package\n");
+        assert!(crate::deps::load_lock(&crate::paths::tonpa_lock_path(tmp.path())).is_err());
+        assert_eq!(pins(tmp.path()), unlocked);
+        assert_eq!(unlocked["declared"].as_ref().unwrap().commit, "bbbb");
     }
 }
